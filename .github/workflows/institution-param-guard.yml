@@ -1,0 +1,94 @@
+name: Institution-id parameter guard
+
+# Every NEW or CHANGED SECURITY DEFINER function that takes an institution id
+# from its caller (any *_institution_id / *_institution_ids, p_institution,
+# p_institutions_id, p_inst, p_inst_id, p_college_id) and is callable by a
+# signed-in user must CHECK that the caller may see that institution —
+# role_has_institution_access(<param>) or one of the accepted equivalents
+# listed in the script header — or carry, directly above CREATE FUNCTION,
+#     -- institution-param-guard: allow <reason>
+#
+# WARNINGS never fail the job; they print in the log and as ::warning
+# annotations: a parameter that passes only because some rows are scoped, an
+# unnamed parameter, an ALTER FUNCTION … SECURITY DEFINER whose body is not in
+# the PR, and a GRANT/REVOKE matched by name only.
+#
+# NOT a required check. To make it one, an admin adds the job name
+# "SECURITY DEFINER lookups check institution access" to main's branch
+# protection — but only after the `paths:` filter below is removed: a required
+# check that a paths filter skips never reports, and every PR without a
+# migration would wait on it forever (see migration-version-collision.yml,
+# "WHY THERE IS NO `paths:` FILTER").
+#
+# WHY (measured live 2026-09-23): ai_rpc_students_summary and two siblings took
+# p_institution_id, COALESCEd it with the caller's own college, and filtered only
+# on `is_super_admin OR institution_id = <that id>`. A one-college head of
+# department read another college's 1,511 learners and 10 referrer phone
+# numbers. The flaw passed two AI reviewers and a human in July; the anon-lock
+# gate passed it too, correctly, because it was locked from anon. Hotfix live;
+# full fix PR #3983. Director approval 2026-09-23: "If someone later adds a new
+# lookup with the same mistake -> Automatic check".
+#
+# Kept as a SEPARATE workflow from secdef-anon-revoke.yml, on the repo's own
+# precedent (table-anon-revoke.yml is split the same way): it reports as its own
+# status check, and it cannot change the pass/fail meaning of the existing one —
+# whose workflow and job names are the identity branch protection matches on.
+#
+# PR-scoped: inspects only migration files added or modified relative to the PR
+# base, so the historical backlog does not fail every PR. Static SQL-text scan —
+# see scripts/ci/check-institution-param-guard.mjs for what it can and cannot see.
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches: [main]
+    paths:
+      - 'supabase/migrations/**'
+      # The gate, its tests and its fixtures, so editing the gate runs the gate's own tests.
+      - 'scripts/ci/check-institution-param-guard.mjs'
+      - '__tests__/ci/check-institution-param-guard.test.ts'
+      - '__tests__/ci/fixtures/*institution-param*.sql'
+      - '.github/workflows/institution-param-guard.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    name: SECURITY DEFINER lookups check institution access
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+
+    steps:
+      - name: Checkout PR head (full history for base diff)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Fetch base branch
+        run: git fetch --no-tags origin "${{ github.base_ref }}"
+
+      - name: Run guard
+        run: node scripts/ci/check-institution-param-guard.mjs --base "origin/${{ github.base_ref }}"
+
+  self-test:
+    name: The institution-param gate's own tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci --prefer-offline --no-audit --fund=false
+
+      # Carries the live pre-fix ai_rpc_students_summary body (must FAIL) and PR
+      # #3983's migration (must PASS, and must FAIL again once its checks are
+      # removed) — a gate that is green on the leak is worse than no gate.
+      - name: Test the gate
+        run: npx vitest run __tests__/ci/check-institution-param-guard.test.ts

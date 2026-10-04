@@ -3,7 +3,7 @@
 /**
  * /hr/admin/payroll/periods/new — period create flow (T4.3 PR 3).
  *
- * Spec: specs/t4-3-pr3-payroll-ui-design-lock-2026-05-19.md (Q4 + E14)
+ * No written spec; the create-flow rules live in this code.
  *
  * Two-step flow:
  *   1. User picks Institution + Year + Month + Engine type (faculty / non_teaching).

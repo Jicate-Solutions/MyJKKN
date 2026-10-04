@@ -17,6 +17,7 @@
 // CHECK) and the only part worth testing without a browser.
 
 import { istLocalInputToIso } from '@/lib/utils/date-format';
+import type { EventSourceLink } from './event-sources';
 import type {
   CreateEventDto,
   EventCategory,
@@ -130,6 +131,12 @@ export function emptyCategoryDraft(): EventCategoryDraft {
 export interface EventCreateForm {
   // Basics
   name: string;
+  /**
+   * Co-host institutions, alongside the primary host (`institution_id`). The
+   * primary host still owns fees and room approvals; co-hosts are recorded in
+   * `events.config.co_hosts` with their names so no lookup is needed to label them.
+   */
+  co_hosts: { id: string; name: string }[];
   tagline: string;
   theme: string;
   description: string;
@@ -169,6 +176,7 @@ export interface EventCreateForm {
 export function emptyEventCreateForm(): EventCreateForm {
   return {
     name: '',
+    co_hosts: [],
     tagline: '',
     theme: '',
     description: '',
@@ -245,6 +253,8 @@ export interface BuildEventDtoInput {
   endIso?: string;
   offCampus: boolean;
   venueResourceId: string;
+  /** Record this event was created from (event-sources.ts) → config.source. */
+  source?: EventSourceLink | null;
 }
 
 /**
@@ -268,6 +278,7 @@ export function buildCreateEventDto(input: BuildEventDtoInput): CreateEventDto {
     endIso,
     offCampus,
     venueResourceId,
+    source,
   } = input;
 
   const venueFields: Partial<CreateEventDto> = offCampus
@@ -318,6 +329,11 @@ export function buildCreateEventDto(input: BuildEventDtoInput): CreateEventDto {
       // can surface this event. No schema change — `events.config` already exists.
       home,
       format,
+      // Co-host institutions. The primary host is filtered out in case the
+      // organizer switched the primary to one they had already ticked.
+      ...(form.co_hosts.some((h) => h.id !== institutionId)
+        ? { co_hosts: form.co_hosts.filter((h) => h.id !== institutionId) }
+        : {}),
       // Which Event Logistics tabs this event uses. An EMPTY selection is
       // omitted, not written as [], because EventLogistics reads "no key" as
       // "show everything" — writing [] would mean "show nothing".
@@ -347,6 +363,7 @@ export function buildCreateEventDto(input: BuildEventDtoInput): CreateEventDto {
             rules: preset.config.rules,
           }
         : {}),
+      ...(source ? { source } : {}),
     },
   };
 }
@@ -477,4 +494,38 @@ export function validateEventForm(form: EventCreateForm): Partial<Record<FormTab
   if (badAges) errors.categories = 'Max age must be at or above min age.';
 
   return errors;
+}
+
+// ---------------------------------------------------------------------------
+// Host institution
+// ---------------------------------------------------------------------------
+
+/**
+ * Which institution this event is filed under.
+ *
+ * The wizard used to fall back to `institutions[0]` whenever the user's own
+ * institution was not in the offered list — a silent default that filed the
+ * event under a college the organizer had never chosen, and that the events
+ * INSERT policy then refused. It hit everyone whose home entity is not an
+ * `entity_type = 'institution'` row: Main Office staff, school staff. The
+ * office was missing from the list because the list asked for institutions
+ * only, so the default was always wrong for them and never visible.
+ *
+ * A host that was not chosen is now NO host: the caller renders "pick one"
+ * rather than writing a guess. The ambient value is still kept while the list
+ * is loading so nothing gated on the host flickers on first paint.
+ */
+export function resolveHostInstitutionId(args: {
+  hostOverride: string | null;
+  institutions: Array<{ id: string }>;
+  ambientInstitutionId: string;
+}): string {
+  const { hostOverride, institutions, ambientInstitutionId } = args;
+  if (hostOverride) return hostOverride;
+  // Before the accessible list resolves, keep the ambient value so nothing that
+  // gates on the host flickers.
+  if (!institutions.length) return ambientInstitutionId;
+  return institutions.some((i) => i.id === ambientInstitutionId)
+    ? ambientInstitutionId
+    : '';
 }

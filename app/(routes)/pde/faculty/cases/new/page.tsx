@@ -12,9 +12,10 @@ import { useVACCourses } from '@/hooks/vac/use-vac';
 import { CaseFormBuilder } from '../_components/CaseFormBuilder';
 import { JsonImportTab } from '../_components/JsonImportTab';
 import { ImportFromPmsTab } from '../_components/ImportFromPmsTab';
+import { DraftFromNotesTab } from '../_components/DraftFromNotesTab';
 import type { CreateClinicalCaseInput, ImportedPmsImage } from '@/types/pde';
 
-const NEW_CASE_TABS = ['builder', 'json', 'pms'] as const;
+const NEW_CASE_TABS = ['builder', 'json', 'pms', 'notes'] as const;
 
 function NewClinicalCasePageInner() {
   const router = useRouter();
@@ -65,13 +66,15 @@ function NewClinicalCasePageInner() {
             Author a new clinical case
           </h1>
           <p className="text-sm text-muted-foreground">
-            Build a case visually or paste a JSON case to import. Cases start in <strong>draft</strong> until you publish them.
+            Build a case visually, draft one from your own notes, or paste a JSON case to import. Cases start in{' '}
+            <strong>draft</strong> until you publish them.
           </p>
         </div>
 
         <Tabs value={tab} onValueChange={(v) => setTab(v as typeof tab)}>
           <TabsList className="flex w-full max-w-full justify-start overflow-x-auto sm:inline-flex sm:w-auto [&>button]:shrink-0">
             <TabsTrigger value="builder">Form Builder</TabsTrigger>
+            <TabsTrigger value="notes">Draft from Notes</TabsTrigger>
             <TabsTrigger value="json">Paste JSON</TabsTrigger>
             <TabsTrigger value="pms">Import from PMS</TabsTrigger>
           </TabsList>
@@ -93,6 +96,18 @@ function NewClinicalCasePageInner() {
               saveLabel="Save as draft"
               onSave={handleSave}
             />
+          </TabsContent>
+
+          <TabsContent
+            value="notes"
+            forceMount
+            className="mt-4 data-[state=inactive]:hidden"
+          >
+            <Card>
+              <CardContent className="p-4">
+                <DraftFromNotesTab onApply={handleImport} />
+              </CardContent>
+            </Card>
           </TabsContent>
 
           <TabsContent

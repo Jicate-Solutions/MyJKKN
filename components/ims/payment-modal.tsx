@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useMemo } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import {
   Banknote,
   CreditCard,
@@ -9,6 +10,7 @@ import {
   Layers,
   Loader2,
   AlertCircle,
+  MonitorSmartphone,
 } from 'lucide-react';
 import {
   Dialog,
@@ -26,6 +28,7 @@ import { toast } from 'sonner';
 import { CustomerSearch } from './customer-search';
 import { UpiQrPayment } from './upi-qr-payment';
 import { GatewayQrPayment } from './gateway-qr-payment';
+import { PosDevicePayment } from './pos-device-payment';
 import { formatCurrencyINR } from '@/lib/utils/ims-receipt';
 import type { ImsPaymentMethod, ImsCustomerType, ImsSale } from '@/types/ims';
 import type { ImsCartItem } from '@/lib/stores/ims-cart-store';
@@ -57,7 +60,7 @@ interface PaymentModalProps {
   }) => Promise<ImsSale>;
 }
 
-type PaymentTab = 'cash' | 'card' | 'gpay' | 'upi_qr' | 'upi_verified' | 'mixed';
+type PaymentTab = 'cash' | 'card' | 'gpay' | 'upi_qr' | 'upi_verified' | 'pos_dqr' | 'mixed';
 
 export function PaymentModal({
   open,
@@ -98,6 +101,26 @@ export function PaymentModal({
   // UPI QR state
   const [showQr, setShowQr] = useState(false);
 
+  // Payment terminal. Asked once per open; no terminal (or any failure to find
+  // out) means no tab, and the modal is exactly what it was before terminals.
+  const { data: terminal } = useQuery({
+    queryKey: ['ims-pos-terminal', storeId],
+    queryFn: async () => {
+      const res = await fetch(
+        `/api/ims/payment/pos-device/terminal?storeId=${encodeURIComponent(storeId)}`,
+      );
+      if (!res.ok) return null;
+      const body = await res.json();
+      return (body?.terminal ?? null) as { label: string; environment: 'demo' | 'live' } | null;
+    },
+    enabled: open && !!storeId,
+    staleTime: 60 * 1000,
+  });
+  // While the terminal holds a payment that may still take money, the other tabs
+  // are locked: the QR stays on the terminal whatever this screen shows, so a
+  // switch to Cash here could collect twice for one basket.
+  const [terminalLive, setTerminalLive] = useState(false);
+
   // Mixed state
   const [mixCash, setMixCash] = useState('');
   const [mixCard, setMixCard] = useState('');
@@ -131,6 +154,9 @@ export function PaymentModal({
     { value: 'card', label: 'Card', icon: <CreditCard className="h-4 w-4" /> },
     { value: 'gpay', label: 'GPay', icon: <Smartphone className="h-4 w-4" /> },
     { value: 'upi_verified', label: 'UPI QR', icon: <QrCode className="h-4 w-4" /> },
+    ...(terminal
+      ? [{ value: 'pos_dqr' as const, label: 'Terminal', icon: <MonitorSmartphone className="h-4 w-4" /> }]
+      : []),
     { value: 'mixed', label: 'Mixed', icon: <Layers className="h-4 w-4" /> },
   ];
 
@@ -383,7 +409,12 @@ export function PaymentModal({
             style={{ gridTemplateColumns: `repeat(${tabs.length}, minmax(0, 1fr))` }}
           >
             {tabs.map((tab) => (
-              <TabsTrigger key={tab.value} value={tab.value} className="gap-1 text-xs">
+              <TabsTrigger
+                key={tab.value}
+                value={tab.value}
+                className="gap-1 text-xs"
+                disabled={terminalLive && tab.value !== 'pos_dqr'}
+              >
                 {tab.icon}
                 <span className="hidden sm:inline">{tab.label}</span>
               </TabsTrigger>
@@ -557,6 +588,31 @@ export function PaymentModal({
               onCancel={() => onOpenChange(false)}
             />
           </TabsContent>
+
+          {/* ── Payment terminal (Razorpay POS DQR) ──
+              Only rendered when the store has one. Same contract as the UPI QR
+              tab: the server prices the cart, confirms the payment with Ezetap and
+              books the sale; this tab never calls onCreateSale. */}
+          {terminal && (
+            <TabsContent value="pos_dqr" className="space-y-4">
+              <PosDevicePayment
+                storeId={storeId}
+                items={items}
+                customerType={customerType}
+                customerName={customerName}
+                customerPhone={customerPhone}
+                amount={total}
+                terminalLabel={terminal.label}
+                environment={terminal.environment}
+                onSaleBooked={(saleId) => {
+                  resetForm();
+                  onSaleComplete({ id: saleId } as ImsSale);
+                }}
+                onCancel={() => onOpenChange(false)}
+                onLiveChange={setTerminalLive}
+              />
+            </TabsContent>
+          )}
 
           {/* ── Mixed ── */}
           <TabsContent value="mixed" className="space-y-4">

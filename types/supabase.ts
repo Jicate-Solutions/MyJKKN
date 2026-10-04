@@ -26757,6 +26757,202 @@ export type Database = {
           },
         ]
       }
+      billing_bill_cancel_approval_flows: {
+        Row: {
+          approver_role_key: string | null
+          approver_user_id: string | null
+          created_at: string
+          created_by: string | null
+          flow_name: string
+          id: string
+          institution_id: string | null
+          is_active: boolean
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          approver_role_key?: string | null
+          approver_user_id?: string | null
+          created_at?: string
+          created_by?: string | null
+          flow_name: string
+          id?: string
+          institution_id?: string | null
+          is_active?: boolean
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          approver_role_key?: string | null
+          approver_user_id?: string | null
+          created_at?: string
+          created_by?: string | null
+          flow_name?: string
+          id?: string
+          institution_id?: string | null
+          is_active?: boolean
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "billing_bill_cancel_approval_flows_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "billing_bill_cancel_approval_flows_approver_user_id_fkey"
+            columns: ["approver_user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      billing_bill_cancel_request_actions: {
+        Row: {
+          action_type: string
+          actor_email: string | null
+          actor_id: string | null
+          actor_is_super_admin: boolean | null
+          actor_name: string | null
+          actor_role_name: string | null
+          created_at: string
+          id: string
+          notes: string | null
+          request_id: string
+        }
+        Insert: {
+          action_type: string
+          actor_email?: string | null
+          actor_id?: string | null
+          actor_is_super_admin?: boolean | null
+          actor_name?: string | null
+          actor_role_name?: string | null
+          created_at?: string
+          id?: string
+          notes?: string | null
+          request_id: string
+        }
+        Update: {
+          action_type?: string
+          actor_email?: string | null
+          actor_id?: string | null
+          actor_is_super_admin?: boolean | null
+          actor_name?: string | null
+          actor_role_name?: string | null
+          created_at?: string
+          id?: string
+          notes?: string | null
+          request_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "billing_bill_cancel_request_actions_request_id_fkey"
+            columns: ["request_id"]
+            isOneToOne: false
+            referencedRelation: "billing_bill_cancel_requests"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      billing_bill_cancel_requests: {
+        Row: {
+          amount: number
+          attachments: Json
+          bill_id: string | null
+          bill_snapshot: Json
+          created_at: string
+          decided_at: string | null
+          decided_by: string | null
+          decided_by_designation: string | null
+          decided_by_email: string | null
+          decided_by_is_super_admin: boolean | null
+          decided_by_name: string | null
+          decided_by_role: string | null
+          decision_notes: string | null
+          id: string
+          institution_id: string
+          reason: string
+          reason_code: string
+          request_number: string
+          requested_at: string
+          requested_by: string | null
+          requested_by_email: string | null
+          requested_by_name: string | null
+          requested_by_role: string | null
+          status: string
+          student_id: string | null
+          updated_at: string
+        }
+        Insert: {
+          amount: number
+          attachments?: Json
+          bill_id?: string | null
+          bill_snapshot?: Json
+          created_at?: string
+          decided_at?: string | null
+          decided_by?: string | null
+          decided_by_designation?: string | null
+          decided_by_email?: string | null
+          decided_by_is_super_admin?: boolean | null
+          decided_by_name?: string | null
+          decided_by_role?: string | null
+          decision_notes?: string | null
+          id?: string
+          institution_id: string
+          reason: string
+          reason_code: string
+          request_number: string
+          requested_at?: string
+          requested_by?: string | null
+          requested_by_email?: string | null
+          requested_by_name?: string | null
+          requested_by_role?: string | null
+          status?: string
+          student_id?: string | null
+          updated_at?: string
+        }
+        Update: {
+          amount?: number
+          attachments?: Json
+          bill_id?: string | null
+          bill_snapshot?: Json
+          created_at?: string
+          decided_at?: string | null
+          decided_by?: string | null
+          decided_by_designation?: string | null
+          decided_by_email?: string | null
+          decided_by_is_super_admin?: boolean | null
+          decided_by_name?: string | null
+          decided_by_role?: string | null
+          decision_notes?: string | null
+          id?: string
+          institution_id?: string
+          reason?: string
+          reason_code?: string
+          request_number?: string
+          requested_at?: string
+          requested_by?: string | null
+          requested_by_email?: string | null
+          requested_by_name?: string | null
+          requested_by_role?: string | null
+          status?: string
+          student_id?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "billing_bill_cancel_requests_bill_id_fkey"
+            columns: ["bill_id"]
+            isOneToOne: false
+            referencedRelation: "billing_student_bills"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       billing_bill_cancellations: {
         Row: {
           amount_cancelled: number
@@ -26774,6 +26970,7 @@ export type Database = {
           institution_id: string
           reason: string
           reason_code: string
+          request_id: string | null
           student_id: string
         }
         Insert: {
@@ -26792,6 +26989,7 @@ export type Database = {
           institution_id: string
           reason: string
           reason_code: string
+          request_id?: string | null
           student_id: string
         }
         Update: {
@@ -26810,6 +27008,7 @@ export type Database = {
           institution_id?: string
           reason?: string
           reason_code?: string
+          request_id?: string | null
           student_id?: string
         }
         Relationships: [
@@ -72920,6 +73119,7 @@ export type Database = {
           id: string
           is_cleared: boolean
           is_required: boolean
+          checklist_item_id: string | null
           item_key: string
           item_label: string
           notes: string | null
@@ -72935,6 +73135,7 @@ export type Database = {
           id?: string
           is_cleared?: boolean
           is_required?: boolean
+          checklist_item_id?: string | null
           item_key: string
           item_label: string
           notes?: string | null
@@ -72950,6 +73151,7 @@ export type Database = {
           id?: string
           is_cleared?: boolean
           is_required?: boolean
+          checklist_item_id?: string | null
           item_key?: string
           item_label?: string
           notes?: string | null
@@ -76573,7 +76775,6 @@ export type Database = {
           default_max_duration_days: number | null
           description: string | null
           id: string
-          institution_id: string
           is_active: boolean
           is_system: boolean
           leave_type_code: string
@@ -76592,7 +76793,6 @@ export type Database = {
           default_max_duration_days?: number | null
           description?: string | null
           id?: string
-          institution_id: string
           is_active?: boolean
           is_system?: boolean
           leave_type_code: string
@@ -76611,7 +76811,6 @@ export type Database = {
           default_max_duration_days?: number | null
           description?: string | null
           id?: string
-          institution_id?: string
           is_active?: boolean
           is_system?: boolean
           leave_type_code?: string
@@ -76622,64 +76821,7 @@ export type Database = {
           sort_order?: number
           updated_at?: string
         }
-        Relationships: [
-          {
-            foreignKeyName: "hostel_leave_types_institution_id_fkey"
-            columns: ["institution_id"]
-            isOneToOne: false
-            referencedRelation: "case_graduation_readiness"
-            referencedColumns: ["institution_id"]
-          },
-          {
-            foreignKeyName: "hostel_leave_types_institution_id_fkey"
-            columns: ["institution_id"]
-            isOneToOne: false
-            referencedRelation: "institutions"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "hostel_leave_types_institution_id_fkey"
-            columns: ["institution_id"]
-            isOneToOne: false
-            referencedRelation: "mv_cluster_leaderboard_colleges"
-            referencedColumns: ["institution_id"]
-          },
-          {
-            foreignKeyName: "hostel_leave_types_institution_id_fkey"
-            columns: ["institution_id"]
-            isOneToOne: false
-            referencedRelation: "semester_hierarchy_health"
-            referencedColumns: ["institution_id"]
-          },
-          {
-            foreignKeyName: "hostel_leave_types_institution_id_fkey"
-            columns: ["institution_id"]
-            isOneToOne: false
-            referencedRelation: "v_cac_collaboration_isolation"
-            referencedColumns: ["institution_id"]
-          },
-          {
-            foreignKeyName: "hostel_leave_types_institution_id_fkey"
-            columns: ["institution_id"]
-            isOneToOne: false
-            referencedRelation: "v_cac_solution_funnel"
-            referencedColumns: ["institution_id"]
-          },
-          {
-            foreignKeyName: "hostel_leave_types_institution_id_fkey"
-            columns: ["institution_id"]
-            isOneToOne: false
-            referencedRelation: "v_hostel_institution_residents"
-            referencedColumns: ["institution_id"]
-          },
-          {
-            foreignKeyName: "hostel_leave_types_institution_id_fkey"
-            columns: ["institution_id"]
-            isOneToOne: false
-            referencedRelation: "v_institutions_needing_admission_counselors"
-            referencedColumns: ["institution_id"]
-          },
-        ]
+        Relationships: []
       }
       hostel_maintenance_requests: {
         Row: {
@@ -81310,6 +81452,176 @@ export type Database = {
           },
         ]
       }
+      hostel_damage_types: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          default_amount: number
+          id: string
+          is_active: boolean
+          name: string
+          sort_order: number
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          default_amount?: number
+          id?: string
+          is_active?: boolean
+          name: string
+          sort_order?: number
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          default_amount?: number
+          id?: string
+          is_active?: boolean
+          name?: string
+          sort_order?: number
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: []
+      }
+      hostel_vacate_approvals: {
+        Row: {
+          acted_at: string
+          action: string
+          actor_id: string | null
+          id: string
+          remarks: string | null
+          step: string
+          vacate_request_id: string
+        }
+        Insert: {
+          acted_at?: string
+          action: string
+          actor_id?: string | null
+          id?: string
+          remarks?: string | null
+          step: string
+          vacate_request_id: string
+        }
+        Update: {
+          acted_at?: string
+          action?: string
+          actor_id?: string | null
+          id?: string
+          remarks?: string | null
+          step?: string
+          vacate_request_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "hostel_vacate_approvals_vacate_request_id_fkey"
+            columns: ["vacate_request_id"]
+            isOneToOne: false
+            referencedRelation: "hostel_vacate_requests"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      hostel_vacate_damages: {
+        Row: {
+          amount: number
+          created_at: string
+          damage_name: string
+          damage_type_id: string | null
+          id: string
+          note: string | null
+          recorded_by: string | null
+          vacate_request_id: string
+        }
+        Insert: {
+          amount: number
+          created_at?: string
+          damage_name: string
+          damage_type_id?: string | null
+          id?: string
+          note?: string | null
+          recorded_by?: string | null
+          vacate_request_id: string
+        }
+        Update: {
+          amount?: number
+          created_at?: string
+          damage_name?: string
+          damage_type_id?: string | null
+          id?: string
+          note?: string | null
+          recorded_by?: string | null
+          vacate_request_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "hostel_vacate_damages_damage_type_id_fkey"
+            columns: ["damage_type_id"]
+            isOneToOne: false
+            referencedRelation: "hostel_damage_types"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hostel_vacate_damages_vacate_request_id_fkey"
+            columns: ["vacate_request_id"]
+            isOneToOne: false
+            referencedRelation: "hostel_vacate_requests"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      hostel_vacate_checklist_items: {
+        Row: {
+          applies_to_reasons:
+            | Database["public"]["Enums"]["vacate_reason_enum"][]
+            | null
+          created_at: string
+          created_by: string | null
+          description: string | null
+          id: string
+          is_active: boolean
+          is_required: boolean
+          item_label: string
+          sort_order: number
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          applies_to_reasons?:
+            | Database["public"]["Enums"]["vacate_reason_enum"][]
+            | null
+          created_at?: string
+          created_by?: string | null
+          description?: string | null
+          id?: string
+          is_active?: boolean
+          is_required?: boolean
+          item_label: string
+          sort_order?: number
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          applies_to_reasons?:
+            | Database["public"]["Enums"]["vacate_reason_enum"][]
+            | null
+          created_at?: string
+          created_by?: string | null
+          description?: string | null
+          id?: string
+          is_active?: boolean
+          is_required?: boolean
+          item_label?: string
+          sort_order?: number
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: []
+      }
       hostel_vacate_documents: {
         Row: {
           document_type: Database["public"]["Enums"]["vacate_document_type_enum"]
@@ -81362,6 +81674,15 @@ export type Database = {
           actual_vacate_date: string | null
           allocation_id: string
           approval_chain_run_id: string | null
+          approval_remarks: string | null
+          damage_total: number
+          fine_bill_id: string | null
+          room_inspected: boolean
+          approved_at: string | null
+          approved_by: string | null
+          bills_snapshot: Json | null
+          outstanding_at_approval: number | null
+          room_snapshot: Json | null
           cancelled_reason: string | null
           completed_at: string | null
           created_at: string
@@ -81392,6 +81713,15 @@ export type Database = {
           actual_vacate_date?: string | null
           allocation_id: string
           approval_chain_run_id?: string | null
+          approval_remarks?: string | null
+          damage_total?: number
+          fine_bill_id?: string | null
+          room_inspected?: boolean
+          approved_at?: string | null
+          approved_by?: string | null
+          bills_snapshot?: Json | null
+          outstanding_at_approval?: number | null
+          room_snapshot?: Json | null
           cancelled_reason?: string | null
           completed_at?: string | null
           created_at?: string
@@ -81422,6 +81752,15 @@ export type Database = {
           actual_vacate_date?: string | null
           allocation_id?: string
           approval_chain_run_id?: string | null
+          approval_remarks?: string | null
+          damage_total?: number
+          fine_bill_id?: string | null
+          room_inspected?: boolean
+          approved_at?: string | null
+          approved_by?: string | null
+          bills_snapshot?: Json | null
+          outstanding_at_approval?: number | null
+          room_snapshot?: Json | null
           cancelled_reason?: string | null
           completed_at?: string | null
           created_at?: string
@@ -91974,6 +92313,8 @@ export type Database = {
           on_duty_days: number
           other_paid_leave_days: number
           paid_by_name: string | null
+          work_institution_id: string | null
+          work_institution_name: string | null
           paid_by_organization_id: string | null
           paid_days: number
           paid_leave_days: number
@@ -92014,6 +92355,8 @@ export type Database = {
           on_duty_days?: number
           other_paid_leave_days?: number
           paid_by_name?: string | null
+          work_institution_id?: string | null
+          work_institution_name?: string | null
           paid_by_organization_id?: string | null
           paid_days?: number
           paid_leave_days?: number
@@ -92054,6 +92397,8 @@ export type Database = {
           on_duty_days?: number
           other_paid_leave_days?: number
           paid_by_name?: string | null
+          work_institution_id?: string | null
+          work_institution_name?: string | null
           paid_by_organization_id?: string | null
           paid_days?: number
           paid_leave_days?: number
@@ -178103,6 +178448,9 @@ export type Database = {
           display_order: number
           district: string | null
           email: string
+          emergency_contact_name: string | null
+          emergency_contact_phone: string | null
+          emergency_contact_relationship: string | null
           employment_type: string
           experience_entries: Json
           experience_years: number
@@ -178174,6 +178522,9 @@ export type Database = {
           display_order?: number
           district?: string | null
           email: string
+          emergency_contact_name?: string | null
+          emergency_contact_phone?: string | null
+          emergency_contact_relationship?: string | null
           employment_type?: string
           experience_entries?: Json
           experience_years?: number
@@ -178245,6 +178596,9 @@ export type Database = {
           display_order?: number
           district?: string | null
           email?: string
+          emergency_contact_name?: string | null
+          emergency_contact_phone?: string | null
+          emergency_contact_relationship?: string | null
           employment_type?: string
           experience_entries?: Json
           experience_years?: number
@@ -205829,21 +206183,42 @@ export type Database = {
         Args: { p_booking_id: string }
         Returns: boolean
       }
-      fn_cancel_student_bill: {
+      fn_act_on_bill_cancellation: {
+        Args: { p_action: string; p_notes?: string; p_request_id: string }
+        Returns: { message: string; request_number: string; status: string }[]
+      }
+      fn_bill_cancel_eligibility: {
+        Args: { p_bill_ids: string[] }
+        Returns: {
+          bill_id: string
+          blocked_reason: string
+          eligible: boolean
+          pending_request_id: string
+          pending_request_number: string
+          receipt_numbers: string
+          receipted_amount: number
+        }[]
+      }
+      fn_can_decide_bill_cancellation: {
+        Args: { p_request_id: string }
+        Returns: boolean
+      }
+      fn_is_bill_cancel_approver: {
+        Args: { p_institution_id?: string }
+        Returns: boolean
+      }
+      fn_request_bill_cancellation: {
         Args: {
           p_attachments: Json
           p_bill_id: string
           p_reason: string
           p_reason_code: string
         }
-        Returns: {
-          amount_cancelled: number
-          bill_description: string
-          cancellation_id: string
-          cancelled_bill_id: string
-          institution_id: string
-          student_id: string
-        }[]
+        Returns: { request_id: string; request_number: string }[]
+      }
+      fn_withdraw_bill_cancellation: {
+        Args: { p_notes?: string; p_request_id: string }
+        Returns: undefined
       }
       fn_canonical_staff_name: { Args: { p_name: string }; Returns: string }
       fn_capgap_draft_tool: { Args: { p_id: string }; Returns: Json }
@@ -206626,6 +207001,56 @@ export type Database = {
           p_allocation_id: string
           p_vacate_reason: Database["public"]["Enums"]["vacate_reason_enum"]
         }
+        Returns: Json
+      }
+      fn_cl_vacate_bill_status: {
+        Args: { p_request_id: string }
+        Returns: Json
+      }
+      fn_cl_vacate_cancel: {
+        Args: { p_reason: string; p_request_id: string }
+        Returns: Database["public"]["Tables"]["hostel_vacate_requests"]["Row"]
+      }
+      fn_cl_vacate_create: {
+        Args: {
+          p_allocation_id: string
+          p_medical_notes?: string
+          p_reason_text: string
+          p_reason_type: Database["public"]["Enums"]["vacate_reason_enum"]
+          p_requested_date: string
+        }
+        Returns: Database["public"]["Tables"]["hostel_vacate_requests"]["Row"]
+      }
+      fn_cl_vacate_reject: {
+        Args: { p_reason: string; p_request_id: string }
+        Returns: Database["public"]["Tables"]["hostel_vacate_requests"]["Row"]
+      }
+      fn_cl_vacate_scope_ok: {
+        Args: { p_allocation_id: string; p_institution_id: string }
+        Returns: boolean
+      }
+      fn_cl_vacate_set_item: {
+        Args: { p_cleared: boolean; p_item_id: string; p_notes?: string }
+        Returns: Database["public"]["Tables"]["hostel_clearance_items"]["Row"]
+      }
+      fn_cl_vacate_submit: {
+        Args: { p_request_id: string }
+        Returns: Database["public"]["Tables"]["hostel_vacate_requests"]["Row"]
+      }
+      fn_cl_vacate_advance: {
+        Args: { p_remarks?: string; p_request_id: string }
+        Returns: Json
+      }
+      fn_cl_vacate_complete_after_fine: {
+        Args: { p_request_id: string }
+        Returns: Json
+      }
+      fn_cl_vacate_recheck_bills: {
+        Args: { p_request_id: string }
+        Returns: Json
+      }
+      fn_cl_vacate_set_damages: {
+        Args: { p_lines: Json; p_no_damage: boolean; p_request_id: string }
         Returns: Json
       }
       fn_clarification_ask: {
@@ -208877,6 +209302,7 @@ export type Database = {
           hr_organization_id: string
           institution_id: string
           organization_name: string
+          is_payroll_entity: boolean
         }[]
       }
       fn_hr_refresh_naac_evidence: { Args: never; Returns: Json }
@@ -211870,6 +212296,10 @@ export type Database = {
       }
       fn_my_sf100_goal: { Args: { p_enrollment_id: string }; Returns: Json }
       fn_my_staff_ids: { Args: never; Returns: string[] }
+      fn_my_staff_upload_context: {
+        Args: { p_staff_id: string }
+        Returns: { staff_code: string; institution_name: string }[]
+      }
       fn_my_upgrade_mess_categories: {
         Args: never
         Returns: {
@@ -212021,16 +212451,27 @@ export type Database = {
         Returns: {
           achieved_pct: number
           amount_to_threshold: number
+          app_billed: number
+          app_bills: number
+          app_paid: number
           basis_balance: number
           basis_billed: number
           basis_paid: number
+          blocked_reason: string
+          gate_bills: number
+          gate_in_program: boolean
+          gate_settled: number
           has_basis_due: boolean
           instalments_settled: number
           instalments_total: number
           learner_id: string
+          lifecycle_status: string
           meets_threshold: boolean
           next_due_amount: number
           next_due_date: string
+          pct_billed_to_date: number
+          rule_lines: Json
+          rule_to_admit: number
           target_code: string
           target_label: string
           threshold_basis: string
@@ -212038,6 +212479,9 @@ export type Database = {
           total_balance: number
           total_billed: number
           total_paid: number
+          uni_billed: number
+          uni_bills: number
+          uni_paid: number
         }[]
       }
       fn_onemark_apply_vault: {
@@ -216320,6 +216764,132 @@ export type Database = {
           p_date_to?: string
           p_institution_ids?: string[]
         }
+        Returns: Json
+      }
+      get_billing_audit_fee_structure_match: {
+        Args: {
+          p_accommodation_type_ids?: string[]
+          p_admission_year?: number
+          p_category_ids?: string[]
+          p_degree_id?: string
+          p_department_id?: string
+          p_gender?: string
+          p_include_no_structure_institutions?: boolean
+          p_include_ok?: boolean
+          p_institution_ids?: string[]
+          p_issue?: string
+          p_lifecycle_statuses?: string[]
+          p_page?: number
+          p_page_size?: number
+          p_program_id?: string
+          p_schedule_mode?: string
+          p_search?: string
+          p_sort_by?: string
+          p_sort_dir?: string
+          p_structure_search?: string
+        }
+        Returns: {
+          out_admission_year: number
+          out_bill_count: number
+          out_bill_instalments: number
+          out_billed_amount: number
+          out_category_id: string
+          out_category_kind: string
+          out_category_name: string
+          out_expected_amount: number
+          out_expected_instalments: number
+          out_flag_amount_mismatch: boolean
+          out_flag_not_linked: boolean
+          out_flag_other_structure: boolean
+          out_flag_split_missing: boolean
+          out_full_name: string
+          out_institution_id: string
+          out_institution_name: string
+          out_issue: string
+          out_learner_id: string
+          out_lifecycle_status: string
+          out_no_structure_reason: string
+          out_paid_amount: number
+          out_program_name: string
+          out_roll_number: string
+          out_schedule_mode: string
+          out_structure_name: string
+          out_total_count: number
+        }[]
+      }
+      get_billing_audit_fee_structure_match_summary: {
+        Args: {
+          p_accommodation_type_ids?: string[]
+          p_admission_year?: number
+          p_category_ids?: string[]
+          p_degree_id?: string
+          p_department_id?: string
+          p_gender?: string
+          p_institution_ids?: string[]
+          p_lifecycle_statuses?: string[]
+          p_program_id?: string
+          p_schedule_mode?: string
+          p_structure_search?: string
+        }
+        Returns: Json
+      }
+      get_billing_audit_fee_structure_learners: {
+        Args: {
+          p_accommodation_type_ids?: string[]
+          p_admission_year?: number
+          p_category_ids?: string[]
+          p_degree_id?: string
+          p_department_id?: string
+          p_gender?: string
+          p_include_no_structure_institutions?: boolean
+          p_include_ok?: boolean
+          p_institution_ids?: string[]
+          p_issue?: string
+          p_lifecycle_statuses?: string[]
+          p_page?: number
+          p_page_size?: number
+          p_program_id?: string
+          p_schedule_mode?: string
+          p_search?: string
+          p_sort_by?: string
+          p_sort_dir?: string
+          p_structure_search?: string
+        }
+        Returns: {
+          out_admission_year: number
+          out_amount_mismatch: number
+          out_billed_total: number
+          out_expected_total: number
+          out_full_name: string
+          out_institution_id: string
+          out_institution_name: string
+          out_items: number
+          out_learner_id: string
+          out_lifecycle_status: string
+          out_missing_amount: number
+          out_missing_bill: number
+          out_no_structure: boolean
+          out_no_structure_reason: string
+          out_not_linked: number
+          out_ok: number
+          out_other_module: number
+          out_other_structure: number
+          out_paid_total: number
+          out_problems: number
+          out_program_name: string
+          out_roll_number: string
+          out_split_missing: number
+          out_structure_name: string
+          out_total_count: number
+          out_worst_issue: string
+        }[]
+      }
+      get_billing_audit_fee_structure_learner_detail: {
+        Args: { p_learner_id: string }
+        Returns: Json
+      }
+      fn_billing_generate_missing_structure_bills: {
+        Args: { p_dry_run?: boolean; p_learner_ids: string[] }
         Returns: Json
       }
       get_billing_audit_duplicate_years: {
@@ -220727,6 +221297,10 @@ export type Database = {
         | "pending_warden"
         | "pending_chief"
         | "pending_dues"
+        | "pending_principal"
+        | "pending_mess"
+        | "pending_cao"
+        | "pending_fine"
         | "approved"
         | "completed"
         | "rejected"
@@ -222288,6 +222862,10 @@ export const Constants = {
         "pending_warden",
         "pending_chief",
         "pending_dues",
+        "pending_principal",
+        "pending_mess",
+        "pending_cao",
+        "pending_fine",
         "approved",
         "completed",
         "rejected",

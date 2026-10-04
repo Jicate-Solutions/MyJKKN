@@ -35,13 +35,15 @@ const PACKAGE_ID = '7b4d2a10-0000-4000-8000-0000000000ab';
  * folder's route.ts exported. Written out by hand from the deleted files so it
  * is an independent record, not a re-read of the table under test.
  */
-const ORIGINAL_ROUTES: ReadonlyArray<{
+interface OriginalRoute {
   url: string;
   slug: string[];
   key: string;
   methods: HttpMethod[];
   packageId?: string;
-}> = [
+}
+
+const ORIGINAL_ROUTES: ReadonlyArray<OriginalRoute> = [
   { url: '', slug: [], key: 'candidate', methods: ['GET', 'DELETE'] },
   { url: '/alumni-signal', slug: ['alumni-signal'], key: 'alumni-signal', methods: ['GET'] },
   { url: '/approve', slug: ['approve'], key: 'approve', methods: ['POST'] },
@@ -62,16 +64,31 @@ const ORIGINAL_ROUTES: ReadonlyArray<{
 
 const base = `/api/hr/recruitment/candidates/${CANDIDATE_ID}`;
 
+/**
+ * Routes added to the family AFTER the fold. Declared separately so the
+ * faithfulness check above keeps its meaning: ORIGINAL_ROUTES must still be
+ * exactly the sixteen that existed as their own files, and anything beyond
+ * them has to be written down here deliberately rather than appear unnoticed.
+ * These get the same verb and capture checks as the folded sixteen.
+ */
+const ADDED_ROUTES: OriginalRoute[] = [
+  // 2026-09-24 — @mentions on the candidate discussion thread.
+  { url: '/comments/mentions', slug: ['comments', 'mentions'], key: 'comment-mentions', methods: ['POST'] },
+];
+
+const ALL_ROUTES = [...ORIGINAL_ROUTES, ...ADDED_ROUTES];
+
 describe('candidate catch-all dispatch', () => {
-  it('folds exactly the sixteen original routes and no more', () => {
+  it('folds exactly the sixteen original routes, plus only declared additions', () => {
     expect(ORIGINAL_ROUTES).toHaveLength(16);
-    expect(CANDIDATE_ROUTES).toHaveLength(16);
-    expect(CANDIDATE_ROUTES.map((entry) => entry.key).sort()).toEqual(
-      ORIGINAL_ROUTES.map((route) => route.key).sort(),
-    );
+    // Every original is still reachable...
+    const keys = CANDIDATE_ROUTES.map((entry) => entry.key);
+    for (const route of ORIGINAL_ROUTES) expect(keys).toContain(route.key);
+    // ...and the table holds nothing that is not an original or a declared addition.
+    expect(keys.sort()).toEqual(ALL_ROUTES.map((route) => route.key).sort());
   });
 
-  describe.each(ORIGINAL_ROUTES)('$url', (route) => {
+  describe.each(ALL_ROUTES)('$url', (route) => {
     it(`${base}${route.url} resolves to the ${route.key} handler`, () => {
       const match = matchCandidateRoute(route.slug);
       expect(match).not.toBeNull();

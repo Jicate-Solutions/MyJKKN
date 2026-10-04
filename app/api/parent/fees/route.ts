@@ -8,7 +8,9 @@ import {
 import { admissionNumber, fullName, type MatchedLearner } from '@/lib/utils/parent-identifier';
 import {
   getLearnerHiddenCategoryIds,
+  getLearnerHiddenYearIds,
   isBillLearnerVisible,
+  isBillYearLearnerVisible,
 } from '@/lib/utils/billing/learner-visibility';
 import type { FeeBill, FeeReceipt, FeesResponse } from '@/types/parent-portal';
 
@@ -43,7 +45,7 @@ export async function GET(req: NextRequest) {
       db
         .from('billing_student_bills')
         .select(
-          'id, bill_description, total_amount, final_amount, balance_amount, due_date, status, item_category_id, payment_date'
+          'id, bill_description, total_amount, final_amount, balance_amount, due_date, status, item_category_id, payment_date, academic_year_id'
         )
         .eq('student_id', learnerId)
         .order('due_date', { ascending: true }),
@@ -58,6 +60,12 @@ export async function GET(req: NextRequest) {
     // ROLE client, so the student RLS policies do not apply here — this filter
     // is the only thing keeping a hidden fee off the parent portal.
     const hiddenCategoryIds = await getLearnerHiddenCategoryIds(db);
+    // Same reason: the advance-year window (past + current + ONE next year) is
+    // enforced by RLS for students, so it has to be re-applied here.
+    const hiddenYearIds = await getLearnerHiddenYearIds(
+      db,
+      (billRows ?? []).map((b) => b.academic_year_id)
+    );
 
     // Resolve category names.
     const categoryIds = [
@@ -75,6 +83,7 @@ export async function GET(req: NextRequest) {
     // Outstanding only: positive remaining balance, learner-visible categories only.
     const bills: FeeBill[] = (billRows ?? [])
       .filter((b) => isBillLearnerVisible(b.item_category_id, hiddenCategoryIds))
+      .filter((b) => isBillYearLearnerVisible(b.academic_year_id, hiddenYearIds))
       .map((b) => {
         const balance = b.balance_amount ?? b.final_amount ?? b.total_amount;
         return {

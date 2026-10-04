@@ -83,6 +83,7 @@ export function GatewayPaymentCard({
   // two merchant accounts apart without turning the panel into a credential dump.
   const keyTail = payment.razorpay_key_id ? payment.razorpay_key_id.slice(-6) : null;
   const isTestKey = payment.razorpay_key_id?.startsWith('rzp_test_');
+  const isTerminal = payment.method === 'pos_dqr';
 
   return (
     <Card>
@@ -120,7 +121,19 @@ export function GatewayPaymentCard({
 
           <Field label="Bank ref (RRN)" value={payment.bank_rrn} mono copyable />
           <Field label="UPI transaction id" value={payment.upi_transaction_id} mono />
-          <Field label="Razorpay payment" value={payment.razorpay_payment_id} mono copyable />
+          {/* A terminal payment has no Razorpay payment id; its reconciliation key
+              is Ezetap's transaction id, which the Razorpay POS portal searches on. */}
+          {isTerminal ? (
+            <>
+              <Field
+                label="Collected on"
+                value={payment.device_label ? `Terminal ${payment.device_label}` : 'Terminal'}
+              />
+              <Field label="Ezetap transaction" value={payment.ezetap_txn_id} mono copyable />
+            </>
+          ) : (
+            <Field label="Razorpay payment" value={payment.razorpay_payment_id} mono copyable />
+          )}
           <Field label="Our reference" value={payment.transaction_ref} mono />
 
           {payment.gateway_fee_paise != null && payment.gateway_fee_paise > 0 && (

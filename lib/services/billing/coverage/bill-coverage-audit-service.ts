@@ -1,8 +1,17 @@
 import { BaseService } from '@/lib/services/base-service';
+import { getErrorMessage } from '@/lib/utils';
 import type {
   BillCoverageFilters,
   DuplicateYearAuditRow,
   DuplicateYearAuditSummary,
+  FeeStructureAuditFilters,
+  FeeStructureAuditIssue,
+  FeeStructureAuditLearnerRow,
+  FeeStructureAuditRow,
+  FeeStructureLearnerDetail,
+  FeeStructureAuditSummary,
+  GenerateMissingBillsResult,
+  NoStructureReason,
   MissingYearAuditRow,
   MissingYearAuditSummary
 } from '@/types/billing-coverage';
@@ -86,6 +95,35 @@ interface RawDuplicateYearRow {
   out_due_year_span: number;
   out_programme_end_year: string | null;
   out_is_past_programme_end: boolean | null;
+  out_total_count: number | string;
+}
+
+interface RawFeeStructureRow {
+  out_learner_id: string;
+  out_full_name: string;
+  out_roll_number: string | null;
+  out_lifecycle_status: string;
+  out_institution_id: string;
+  out_institution_name: string | null;
+  out_program_name: string | null;
+  out_admission_year: number | null;
+  out_structure_name: string | null;
+  out_category_id: string | null;
+  out_category_name: string | null;
+  out_category_kind: string | null;
+  out_schedule_mode: string | null;
+  out_expected_amount: number | string | null;
+  out_expected_instalments: number | null;
+  out_bill_count: number;
+  out_billed_amount: number | string;
+  out_paid_amount: number | string;
+  out_bill_instalments: number;
+  out_issue: string;
+  out_no_structure_reason: string | null;
+  out_flag_other_structure: boolean;
+  out_flag_amount_mismatch: boolean;
+  out_flag_not_linked: boolean;
+  out_flag_split_missing: boolean;
   out_total_count: number | string;
 }
 
@@ -243,5 +281,197 @@ export class BillCoverageAuditService extends BaseService {
     }));
 
     return { rows, total: rows.length > 0 ? rows[0].total_count : 0 };
+  }
+
+  // ── Fee Structure Match (migration 20260925170000) ─────────────────────────
+  // The structure is resolved in Postgres with admission_match_fee_structure_for_learner
+  // — the same resolver bill generation uses — so this layer only maps rows.
+  // These RPCs take a narrower parameter set than the tuition audits: no
+  // transport / semester / section (a fee structure does not vary by them).
+  private static feeStructureParams(filters: BillCoverageFilters & FeeStructureAuditFilters) {
+    const b = this.baseParams(filters);
+    return {
+      p_category_ids:
+        filters.category_ids && filters.category_ids.length > 0 ? filters.category_ids : null,
+      p_schedule_mode: filters.schedule_mode ?? null,
+      p_structure_search: filters.structure_search?.trim() || null,
+      p_institution_ids: b.p_institution_ids,
+      p_lifecycle_statuses: b.p_lifecycle_statuses,
+      p_admission_year: b.p_admission_year,
+      p_degree_id: b.p_degree_id,
+      p_department_id: b.p_department_id,
+      p_program_id: b.p_program_id,
+      p_gender: b.p_gender,
+      p_accommodation_type_ids: b.p_accommodation_type_ids
+    };
+  }
+
+  static getFeeStructureMatchSummary(
+    filters: BillCoverageFilters & FeeStructureAuditFilters = {}
+  ) {
+    return this.executeDashboardRPC<FeeStructureAuditSummary>(
+      'get_billing_audit_fee_structure_match_summary',
+      this.feeStructureParams(filters)
+    );
+  }
+
+  static async getFeeStructureMatch(
+    filters: BillCoverageFilters & FeeStructureAuditFilters = {}
+  ): Promise<{ rows: FeeStructureAuditRow[]; total: number }> {
+    const raw = await this.executeDashboardRPC<RawFeeStructureRow[]>(
+      'get_billing_audit_fee_structure_match',
+      {
+        ...this.feeStructureParams(filters),
+        p_issue: filters.issue ?? null,
+        p_include_ok: filters.include_ok ?? false,
+        p_include_no_structure_institutions:
+          filters.include_no_structure_institutions ?? false,
+        p_search: filters.search ?? null,
+        p_page: filters.page ?? 1,
+        p_page_size: filters.page_size ?? 50,
+        p_sort_by: filters.sort_by ?? 'full_name',
+        p_sort_dir: filters.sort_dir ?? 'asc'
+      }
+    );
+
+    const rows: FeeStructureAuditRow[] = (raw ?? []).map((r) => ({
+      row_id: `${r.out_learner_id}:${r.out_category_name ?? 'none'}`,
+      learner_id: r.out_learner_id,
+      full_name: r.out_full_name,
+      roll_number: r.out_roll_number,
+      lifecycle_status: r.out_lifecycle_status,
+      institution_id: r.out_institution_id,
+      institution_name: r.out_institution_name,
+      program_name: r.out_program_name,
+      admission_year: r.out_admission_year ?? null,
+      structure_name: r.out_structure_name,
+      category_id: r.out_category_id,
+      category_name: r.out_category_name,
+      category_kind: r.out_category_kind,
+      schedule_mode: r.out_schedule_mode,
+      // Keep null for the no-structure rows: 0 would read as "a ₹0 fee".
+      expected_amount: r.out_expected_amount == null ? null : Number(r.out_expected_amount),
+      expected_instalments: r.out_expected_instalments ?? null,
+      bill_count: Number(r.out_bill_count ?? 0),
+      billed_amount: Number(r.out_billed_amount ?? 0),
+      paid_amount: Number(r.out_paid_amount ?? 0),
+      bill_instalments: Number(r.out_bill_instalments ?? 0),
+      issue: r.out_issue as FeeStructureAuditIssue,
+      no_structure_reason: (r.out_no_structure_reason as NoStructureReason) ?? null,
+      flag_other_structure: r.out_flag_other_structure === true,
+      flag_amount_mismatch: r.out_flag_amount_mismatch === true,
+      flag_not_linked: r.out_flag_not_linked === true,
+      flag_split_missing: r.out_flag_split_missing === true,
+      total_count: Number(r.out_total_count ?? 0)
+    }));
+
+    return { rows, total: rows.length > 0 ? rows[0].total_count : 0 };
+  }
+
+  /** One row per learner (migration 20260925190000). */
+  static async getFeeStructureLearners(
+    filters: BillCoverageFilters & FeeStructureAuditFilters = {}
+  ): Promise<{ rows: FeeStructureAuditLearnerRow[]; total: number }> {
+    const raw = await this.executeDashboardRPC<Record<string, any>[]>(
+      'get_billing_audit_fee_structure_learners',
+      {
+        ...this.feeStructureParams(filters),
+        p_issue: filters.issue ?? null,
+        p_include_ok: filters.include_ok ?? false,
+        p_include_no_structure_institutions:
+          filters.include_no_structure_institutions ?? false,
+        p_search: filters.search ?? null,
+        p_page: filters.page ?? 1,
+        p_page_size: filters.page_size ?? 50,
+        p_sort_by: filters.sort_by ?? 'full_name',
+        p_sort_dir: filters.sort_dir ?? 'asc'
+      }
+    );
+    const n = (v: unknown) => Number(v ?? 0);
+    const rows: FeeStructureAuditLearnerRow[] = (raw ?? []).map((r) => ({
+      learner_id: r.out_learner_id,
+      full_name: r.out_full_name,
+      roll_number: r.out_roll_number ?? null,
+      lifecycle_status: r.out_lifecycle_status,
+      institution_id: r.out_institution_id,
+      institution_name: r.out_institution_name ?? null,
+      program_name: r.out_program_name ?? null,
+      admission_year: r.out_admission_year ?? null,
+      structure_name: r.out_structure_name ?? null,
+      items: n(r.out_items),
+      ok: n(r.out_ok),
+      missing_bill: n(r.out_missing_bill),
+      amount_mismatch: n(r.out_amount_mismatch),
+      other_structure: n(r.out_other_structure),
+      not_linked: n(r.out_not_linked),
+      split_missing: n(r.out_split_missing),
+      other_module: n(r.out_other_module),
+      no_structure: r.out_no_structure === true,
+      no_structure_reason: (r.out_no_structure_reason as NoStructureReason) ?? null,
+      problems: n(r.out_problems),
+      worst_issue: r.out_worst_issue as FeeStructureAuditIssue,
+      expected_total: n(r.out_expected_total),
+      billed_total: n(r.out_billed_total),
+      paid_total: n(r.out_paid_total),
+      missing_amount: n(r.out_missing_amount),
+      total_count: n(r.out_total_count)
+    }));
+    return { rows, total: rows.length > 0 ? rows[0].total_count : 0 };
+  }
+
+  /** Everything for one learner — the comparison dialog. Null = not visible. */
+  static async getFeeStructureLearnerDetail(
+    learnerId: string
+  ): Promise<FeeStructureLearnerDetail | null> {
+    const { data, error } = await this.supabase.rpc(
+      'get_billing_audit_fee_structure_learner_detail',
+      { p_learner_id: learnerId }
+    );
+    if (error) throw new Error(getErrorMessage(error));
+    if (!data) return null;
+    const num = (v: unknown) => (v == null ? null : Number(v));
+    const d = data as FeeStructureLearnerDetail;
+    return {
+      learner_id: d.learner_id,
+      items: (d.items ?? []).map((it) => ({
+        ...it,
+        expected_amount: num(it.expected_amount),
+        billed_amount: Number(it.billed_amount ?? 0),
+        paid_amount: Number(it.paid_amount ?? 0),
+        bills: (it.bills ?? []).map((b) => ({ ...b, amount: Number(b.amount ?? 0), paid: Number(b.paid ?? 0) }))
+      })),
+      extra_bills: (d.extra_bills ?? []).map((b) => ({ ...b, amount: Number(b.amount ?? 0), paid: Number(b.paid ?? 0) }))
+    };
+  }
+
+  /**
+   * Raise the bills a learner's fee structure expects but that do not exist
+   * (fn_billing_generate_missing_structure_bills, migration 20260925180000).
+   * dryRun = true returns the preview and writes nothing. Hostel / mess /
+   * transport are never generated here. Gate: billing.schedule.bulk_create.
+   */
+  static async generateMissingBills(
+    learnerIds: string[],
+    dryRun: boolean
+  ): Promise<GenerateMissingBillsResult> {
+    const { data, error } = await this.supabase.rpc(
+      'fn_billing_generate_missing_structure_bills',
+      { p_learner_ids: learnerIds, p_dry_run: dryRun }
+    );
+    // Supabase errors are plain objects — surface code/message, never swallow.
+    if (error) throw new Error(getErrorMessage(error));
+    const r = (data ?? {}) as GenerateMissingBillsResult;
+    return {
+      dry_run: r.dry_run === true,
+      bills: Number(r.bills ?? 0),
+      amount: Number(r.amount ?? 0),
+      learners_with_bills: Number(r.learners_with_bills ?? 0),
+      learners_skipped: Number(r.learners_skipped ?? 0),
+      learners: (r.learners ?? []).map((l) => ({
+        ...l,
+        bills: (l.bills ?? []).map((b) => ({ ...b, amount: Number(b.amount ?? 0) })),
+        skipped: l.skipped ?? []
+      }))
+    };
   }
 }

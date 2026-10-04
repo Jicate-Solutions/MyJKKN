@@ -75,9 +75,8 @@ export const REGISTER_HIDDEN_COLUMNS: Record<string, boolean> = {
   basic_pay: false,
   allowance: false,
   unpaid_leave_deduction: false,
-  epf_deduction: false,
-  esi_deduction: false,
-  tds_deduction: false,
+  // EPF, ESI and TDS open visible (2026-09-23): they are what HR pays out on
+  // a staff member's behalf, and a blank reads as "—" for everyone exempt.
   adjustment_amount: false,
   remarks: false,
 };
@@ -192,18 +191,18 @@ export function getRegisterColumns(
         ),
     },
     {
-      accessorKey: 'paid_by_name',
+      // The register is grouped by who PAYS (2026-09-23), so the payer is the
+      // same on every row; where each person works is what varies — Pharmacy
+      // pays people working at Main Office and Jicate.
+      accessorKey: 'work_institution_name',
       size: 200,
-      header: ({ column }) => <DataTableColumnHeader column={column} title="Paid by" />,
+      header: ({ column }) => <DataTableColumnHeader column={column} title="Works at" />,
       cell: ({ row }) =>
-        row.original.paid_by_name ? (
-          <span className="truncate text-sm">{row.original.paid_by_name}</span>
+        row.original.work_institution_name ? (
+          <span className="truncate text-sm">{row.original.work_institution_name}</span>
         ) : (
-          // A real answer, not an error: 105 active staff have no payer recorded
-          // and are still paid. The register groups by WORK location.
-          <span className="truncate text-xs text-amber-600 dark:text-amber-500">
-            not recorded
-          </span>
+          // Lines generated before 2026-09-23 did not record it.
+          <span className="truncate text-sm text-muted-foreground">—</span>
         ),
     },
     {

@@ -47,11 +47,18 @@ export default function LeaveOndutyApplyPage() {
 
   // Permission check - redirect if unauthorized
   // CRITICAL: Wait for both auth AND permissions to finish loading before checking
+  // Primitives, not `profile`/`can`: the effect below fetches and sets state,
+  // so any dep whose identity changes per render turns it into a fetch loop
+  // (observed in prod: the same learners_profiles read ~7x/second, forever).
+  const canApply = can('learners.leave_onduty.apply');
+  const hasProfile = !!profile;
+  const learnerId = profile?.learner_id ?? null;
+
   useEffect(() => {
-    if (!authLoading && !permissionsLoading && !can('learners.leave_onduty.apply')) {
+    if (!authLoading && !permissionsLoading && !canApply) {
       router.replace('/');
     }
-  }, [authLoading, permissionsLoading, can, router]);
+  }, [authLoading, permissionsLoading, canApply, router]);
 
   useEffect(() => {
     // Wait for both auth + permissions to resolve before deciding anything.
@@ -62,17 +69,17 @@ export default function LeaveOndutyApplyPage() {
 
     async function loadLearnerData() {
       try {
-        if (!profile) {
+        if (!hasProfile) {
           setIsLoading(false);
           return;
         }
-        if (!can('learners.leave_onduty.apply')) {
+        if (!canApply) {
           // The redirect effect above will route away; stop showing the skeleton.
           setIsLoading(false);
           return;
         }
 
-        if (!profile?.learner_id) {
+        if (!learnerId) {
           setError('No learner profile is linked to your account. Please ask your administrator to link it.');
           setIsLoading(false);
           return;
@@ -85,7 +92,7 @@ export default function LeaveOndutyApplyPage() {
         const { data: learner, error: learnerError } = await supabase
           .from('learners_profiles')
           .select('id, institution_id, section_id, semester_id')
-          .eq('id', profile.learner_id)
+          .eq('id', learnerId)
           .single();
 
         if (learnerError || !learner) {
@@ -121,14 +128,16 @@ export default function LeaveOndutyApplyPage() {
     }
 
     loadLearnerData();
-  }, [profile, authLoading, permissionsLoading, can]);
+  }, [hasProfile, learnerId, authLoading, permissionsLoading, canApply]);
 
   const handleSuccess = () => {
     router.push('/learners/leave-onduty/my-applications');
   };
 
-  // Show loading while checking auth or if user is not a student (redirecting)
-  if (authLoading || isLoading || (profile && profile.role !== 'student')) {
+  // Skeleton only while loading. The old `profile.role !== 'student'` clause
+  // "(redirecting)" never redirected, so non-student accounts hung here; the
+  // loader above already explains a missing learner link via `error`.
+  if (authLoading || isLoading) {
     return (
       <ContentLayout title="Apply for Leave/OnDuty">
         <div className="space-y-6 max-w-4xl">

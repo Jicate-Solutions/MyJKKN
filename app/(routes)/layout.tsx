@@ -7,6 +7,7 @@ import { Toaster as SonnerToaster } from 'sonner';
 import AdminPanelLayout from '@/components/layout/admin-panel-layout';
 import { QueryClientProvider } from '@/providers/query-provider';
 import { BugReporterWidget } from '@/components/bug-reporter/bug-reporter-widget';
+import { BugReportFocus } from '@/components/bug-reporter/bug-report-focus';
 import { WorkPulseFab } from '@/components/work-pulse-fab';
 import { AcknowledgmentGate } from '@/components/notifications/acknowledgment-gate';
 import { AutoTabNav } from '@/components/navigation/auto-tab-nav';
@@ -15,6 +16,7 @@ import { SentryUserSync } from '@/hooks/use-sentry-user-sync';
 import { UsageBeacon } from '@/components/analytics/usage-beacon';
 import { Navbar } from '@/components/Navbar/Navbar';
 import { FeePaymentNoticeBanner } from '@/components/billing/fee-payment-notice-banner';
+import { SignOutNoticeBanner } from '@/components/auth/sign-out-notice-banner';
 import { HandoverLauncher } from '@/components/director-desk/handover-launcher';
 
 interface DashboardLayoutProps {
@@ -67,6 +69,12 @@ const Dashboardlayout = ({ children }: DashboardLayoutProps) => {
           learners with no notice.
          */}
         <FeePaymentNoticeBanner key='fee-payment-notice' />
+        {/*
+          SignOutNoticeBanner: "An admin signed you out of all devices on
+          <date>." — shown once after the next sign-in, then marked seen.
+          Renders null when there is no notice.
+         */}
+        <SignOutNoticeBanner key='sign-out-notice' endpoint='/api/auth/sign-out-notice' />
         <div key='auto-breadcrumbs' className='px-4 md:px-8 pt-3'>
           <AutoBreadcrumbs />
         </div>
@@ -90,6 +98,13 @@ const Dashboardlayout = ({ children }: DashboardLayoutProps) => {
           }}
         />
         <BugReporterWidget key='bug-reporter' />
+        {/*
+          BugReportFocus: reads ?bugFocus / ?bugScroll off the URL and scrolls
+          the reported element into view with a brief outline, so verifying a
+          bug report lands on the spot rather than the top of the page. Renders
+          null and does nothing when neither param is present.
+         */}
+        <BugReportFocus key='bug-report-focus' />
         <WorkPulseFab key='work-pulse' />
         {/*
           HandoverLauncher: the Director's "hand this page over" control.

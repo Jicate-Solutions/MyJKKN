@@ -77,10 +77,22 @@ export async function POST(
       }
     }
 
-    // Candidate must be finally approved (not yet joined).
+    // Candidate must be finally approved, and must not already hold a staff
+    // record.
+    //
+    // 'joined' IS accepted here. It used to be excluded as a proxy for "already
+    // onboarded", but there are two doors to that status and only one of them
+    // creates a staff record:
+    //   - this route                     → staff row + staff_record_id + joined
+    //   - "Mark as Joined" on the profile → joined, and nothing else
+    // A candidate through the second door was stranded: status 'joined' with no
+    // staff record, refused by this gate, and with no transition out of 'joined'
+    // in CANDIDATE_FORWARD_TRANSITIONS to recover with. The real double-onboard
+    // guard is the staff_record_id check immediately below, which is exact —
+    // so admitting 'joined' here rescues them without weakening anything.
     const candidate = await RecruitmentService.getCandidate(supabase, id);
     if (!candidate) return NextResponse.json({ error: 'Candidate not found' }, { status: 404 });
-    if (!['approved', 'package_fixed', 'offer_issued'].includes(candidate.status)) {
+    if (!['approved', 'package_fixed', 'offer_issued', 'joined'].includes(candidate.status)) {
       return NextResponse.json(
         { error: `Candidate must be finally approved before onboarding (current status: '${candidate.status}').` },
         { status: 400 }

@@ -150,6 +150,19 @@ const validateRow = async (
     errors.push('Invalid phone format');
   }
 
+  // Emergency contact is optional, but name and phone go together.
+  const ecName = String(row.emergency_contact_name ?? '').trim();
+  const ecPhone = String(row.emergency_contact_phone ?? '').trim();
+  const ecRelation = String(row.emergency_contact_relationship ?? '').trim();
+  if (ecName || ecPhone || ecRelation) {
+    if (!ecName) errors.push('Emergency contact name is required when a contact is given');
+    if (!ecPhone) {
+      errors.push('Emergency contact phone is required when a contact is given');
+    } else if (!validatePhone(ecPhone)) {
+      errors.push('Invalid emergency contact phone format');
+    }
+  }
+
   // Validate and convert date of joining
   let converted_date_of_joining = '';
   if (!row.date_of_joining) {
@@ -733,6 +746,11 @@ export default function BulkUploadStaff() {
             state: row.state,
             district: row.district,
             pincode: row.pincode,
+            // Optional; blank must reach the DB as NULL (staff_emergency_contact_not_blank).
+            emergency_contact_name: String(row.emergency_contact_name ?? '').trim() || null,
+            emergency_contact_relationship:
+              String(row.emergency_contact_relationship ?? '').trim() || null,
+            emergency_contact_phone: String(row.emergency_contact_phone ?? '').trim() || null,
             date_of_joining:
               row.converted_date_of_joining || row.date_of_joining,
             designation: row.designation,

@@ -249,7 +249,11 @@ export function BulkEditActiveDialog({
 
     } catch (error) {
       console.error('[bulk-edit-active] Download error:', error);
-      toast.error('Failed to download template');
+      // Show the server's reason (no permission, no learners match the
+      // filters, …). A fixed "Failed to download template" hid both of those
+      // behind the same words (BUG-005951, BUG-004013), so neither user could
+      // tell whether to ask for access or change the filters.
+      toast.error(error instanceof Error ? error.message : 'Failed to download template');
     } finally {
       setDownloading(false);
     }
@@ -563,7 +567,7 @@ export function BulkEditActiveDialog({
                     </p>
                     {isIdCard && (
                       <p className="text-xs text-muted-foreground mt-2">
-                        ID Card sheet: only its 18 columns are read and validated. Date of Birth is
+                        ID Card sheet: only its 19 columns are read and validated. Date of Birth is
                         DD-MM-YYYY (YYYY-MM-DD also accepted).
                       </p>
                     )}

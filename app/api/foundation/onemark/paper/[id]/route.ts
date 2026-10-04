@@ -23,12 +23,16 @@ import {
   BLUEPRINT_SLOTS,
   LEVEL_KEYS,
   JABT_LEVEL_LABELS,
+  apportion,
   boardOf,
   boardShapeConflicts,
   findSwap,
   isPaperLive,
   generatePaper,
   levelOf,
+  manualChapterTotal,
+  manualDistributionError,
+  selectionModeError,
   type EngineContext,
   type ExamRef,
   type PaperAction,
@@ -408,6 +412,11 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
       case 'save': {
         const merged = mergeParams(config.params, body.params, policies.max_series);
         if ('error' in merged) return bad(merged.error);
+        // An English paper is monolingual (PRD English §1): its preview is
+        // English whatever the request says.
+        if (exam.config_key === 'tn_hsc_english') merged.params.preview_language = 'en';
+        const modeError = selectionModeError(merged.params, exam.config_key);
+        if (modeError) return bad(modeError);
         let title: string | undefined;
         if (body.title !== undefined) {
           if (typeof body.title !== 'string' || body.title.trim().length === 0 || body.title.length > 200) {
@@ -420,7 +429,11 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
           if (![1, 2, 3, 4, 5].includes(body.step as number)) return bad('step must be 1..5');
           step = body.step;
         }
-        const paramsChanged = JSON.stringify(merged.params) !== JSON.stringify(config.params);
+        // The preview language changes only what the preview shows, never the
+        // paper — switching it must not un-finalise anything.
+        const paramsChanged =
+          JSON.stringify({ ...merged.params, preview_language: null }) !==
+          JSON.stringify({ ...config.params, preview_language: null });
         // Changing the filters after finalising re-opens the paper: the
         // fp_assessment_items rows are rewritten on the next finalize.
         const state: PaperConfig['state'] = paramsChanged ? unfinalised(config) : config.state;
@@ -432,6 +445,9 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
       }
 
       case 'generate': {
+        const paramsError =
+          selectionModeError(config.params, exam.config_key) ?? manualDistributionError(config.params, exam.config_key);
+        if (paramsError) return bad(paramsError);
         await regenerate();
         await persist(supabase, loaded, { config });
         return respond(supabase, loaded, g.userId, g.canSeeAnswers);
@@ -442,7 +458,48 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
         // exactly what the filters can supply; nothing is padded.
         const available = config.last_generation?.available ?? 0;
         if (available < 1) return bad('Nothing is available under these filters — widen them instead.');
-        config = { ...config, params: { ...config.params, question_count: Math.min(available, MAX_QUESTIONS) } };
+        const paramsError =
+          selectionModeError(config.params, exam.config_key) ?? manualDistributionError(config.params, exam.config_key);
+        if (paramsError) return bad(paramsError);
+        const manualApplies =
+          config.params.distribution_mode === 'manual' &&
+          !(exam.config_key === 'tn_hsc_english' && config.params.enforce_board_blueprint);
+        if (manualApplies) {
+          // Manual counts must keep adding up to the question count (the
+          // Regenerate button checks it again), so each short chapter's figure
+          // drops to what that chapter can supply, and the count follows.
+          // A report saved before chapter_shortfalls existed carries only the
+          // total, so the per-chapter figures are worked out afresh on the
+          // paper as it stands (same locks, same board) — never guessed.
+          let shortfalls = config.last_generation?.chapter_shortfalls;
+          if (!shortfalls) {
+            const { pool, ctx } = await withEngine();
+            shortfalls =
+              generatePaper({ pool, ctx, lockedIds: config.locked_ids, previousIds: boardOf(config) }).report
+                .chapter_shortfalls ?? [];
+          }
+          const chapter_counts = { ...config.params.chapter_counts };
+          for (const sf of shortfalls) {
+            if (sf.chapter_id !== null) {
+              if (sf.chapter_id in chapter_counts) chapter_counts[sf.chapter_id] = sf.available;
+              continue;
+            }
+            // The no-chapter group (English grammar-general): the typed figures
+            // folded into it share what it can supply, in their own proportion.
+            const ids = (sf.chapter_ids ?? []).filter((cid) => cid in chapter_counts);
+            if (ids.length === 0) continue;
+            const shares = apportion(Object.fromEntries(ids.map((cid) => [cid, chapter_counts[cid]])), sf.available);
+            for (const cid of ids) chapter_counts[cid] = shares[cid];
+          }
+          const total = manualChapterTotal({ ...config.params, chapter_counts });
+          if (total < 1) return bad('Nothing is available under these filters — widen them instead.');
+          config = {
+            ...config,
+            params: { ...config.params, chapter_counts, question_count: Math.min(total, MAX_QUESTIONS) },
+          };
+        } else {
+          config = { ...config, params: { ...config.params, question_count: Math.min(available, MAX_QUESTIONS) } };
+        }
         await regenerate();
         await persist(supabase, loaded, { config });
         return respond(supabase, loaded, g.userId, g.canSeeAnswers);
@@ -529,6 +586,12 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
         } else {
           const cleaned = cleanOverride((body as any).fields);
           if ('error' in cleaned) return bad(cleaned.error);
+          // An English paper has no Tamil text — never store Tamil overrides on it.
+          if (exam.config_key === 'tn_hsc_english') {
+            delete cleaned.stem_ta;
+            delete cleaned.options_ta;
+            delete cleaned.explanation_ta;
+          }
           if (Object.keys(cleaned).length === 0) delete overrides[itemId];
           else overrides[itemId] = cleaned;
         }

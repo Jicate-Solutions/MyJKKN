@@ -36,7 +36,7 @@ import {
 } from '@/components/ui/collapsible';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useAuth } from '@/hooks/use-auth';
-import { OrganizationService } from '@/lib/services/organization/organization-service';
+import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
 import { DegreeService } from '@/lib/services/organization/degree-service';
 import { DepartmentService } from '@/lib/services/organization/department-service';
 import { ProgramService } from '@/lib/services/organization/program-service';
@@ -45,6 +45,7 @@ import { SectionService } from '@/lib/services/organization/section-service';
 import { AcademicYearService } from '@/lib/services/academic/academic-year-service';
 import { LookupService } from '@/lib/services/admission/lookup-service';
 import { useGroupAdmissionYears } from '@/hooks/admission/use-group-admission-years';
+import { BLOCKED_REASONS, BLOCKED_REASON_LABELS } from '@/types/learner-onboarding';
 import type { OnboardingSearchParams } from './data-table-schema';
 
 interface OnboardingFiltersProps {
@@ -63,14 +64,21 @@ const FILTER_KEYS = [
   'gender',
   'accommodation_type_id',
   'missing_field',
-  'lifecycle_status'
+  'lifecycle_status',
+  'blocked_reason'
 ] as const;
 
 export function OnboardingFilters({ searchParams }: OnboardingFiltersProps) {
   const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
   const [isSearching, setIsSearching] = useState(false);
-  const { isSuperAdmin } = usePermissions();
+  const { isSuperAdmin, hasAllInstitutionsScope } = usePermissions();
   const { profile } = useAuth();
+  // Institution options = what this user can actually see (scope 'all' roles,
+  // user_institution_access grants, CAS siblings) — not "super admin or own
+  // institution". Branching on isSuperAdmin locked scope-'all' roles such as
+  // Admission Officer to their home institution, although RLS allows every one.
+  const { institutions } = useInstitutionsWithAccess();
+  const canPickInstitution = hasAllInstitutionsScope || institutions.length > 1;
   const router = useRouter();
   const currentSearchParams = useSearchParams();
 
@@ -88,6 +96,7 @@ export function OnboardingFilters({ searchParams }: OnboardingFiltersProps) {
     accommodation_type_id?: string;
     missing_field?: string;
     lifecycle_status?: string;
+    blocked_reason?: string;
   }>({
     institution_id: searchParams.institution_id || undefined,
     degree_id: searchParams.degree_id || undefined,
@@ -102,10 +111,10 @@ export function OnboardingFilters({ searchParams }: OnboardingFiltersProps) {
     gender: searchParams.gender || undefined,
     accommodation_type_id: searchParams.accommodation_type_id || undefined,
     missing_field: searchParams.missing_field || undefined,
-    lifecycle_status: searchParams.lifecycle_status || undefined
+    lifecycle_status: searchParams.lifecycle_status || undefined,
+    blocked_reason: searchParams.blocked_reason || undefined
   });
 
-  const [institutions, setInstitutions] = useState<any[]>([]);
   const [degrees, setDegrees] = useState<any[]>([]);
   const [departments, setDepartments] = useState<any[]>([]);
   const [programs, setPrograms] = useState<any[]>([]);
@@ -160,7 +169,8 @@ export function OnboardingFilters({ searchParams }: OnboardingFiltersProps) {
       gender: undefined,
       accommodation_type_id: undefined,
       missing_field: undefined,
-      lifecycle_status: undefined
+      lifecycle_status: undefined,
+      blocked_reason: undefined
     });
     const params = new URLSearchParams(currentSearchParams.toString());
     FILTER_KEYS.forEach((key) => params.delete(key));
@@ -184,18 +194,10 @@ export function OnboardingFilters({ searchParams }: OnboardingFiltersProps) {
       gender: searchParams.gender || undefined,
       accommodation_type_id: searchParams.accommodation_type_id || undefined,
       missing_field: searchParams.missing_field || undefined,
-      lifecycle_status: searchParams.lifecycle_status || undefined
+      lifecycle_status: searchParams.lifecycle_status || undefined,
+      blocked_reason: searchParams.blocked_reason || undefined
     });
   }, [searchParams]);
-
-  useEffect(() => {
-    OrganizationService.getInstitutions({ page: 1, limit: 1000, isActive: true })
-      .then((res) => setInstitutions(res.data || []))
-      .catch((err) => {
-        console.error('[onboarding-filters] institutions:', err);
-        setInstitutions([]);
-      });
-  }, []);
 
   useEffect(() => {
     if (!localFilters.institution_id) {
@@ -333,12 +335,12 @@ export function OnboardingFilters({ searchParams }: OnboardingFiltersProps) {
   const { data: admissionYears, isLoading: loadingAdmissionYears } =
     useGroupAdmissionYears(localFilters.institution_id ? [localFilters.institution_id] : null);
 
-  // Auto-select institution / department for scoped roles
+  // Auto-select the institution only for users who can see just one.
   useEffect(() => {
-    if (profile?.institution_id && !isSuperAdmin && !localFilters.institution_id) {
+    if (profile?.institution_id && !canPickInstitution && !localFilters.institution_id) {
       setLocalFilters((prev) => ({ ...prev, institution_id: profile.institution_id || undefined }));
     }
-  }, [profile?.institution_id, localFilters.institution_id, isSuperAdmin]);
+  }, [profile?.institution_id, localFilters.institution_id, canPickInstitution]);
 
   useEffect(() => {
     if (
@@ -421,12 +423,12 @@ export function OnboardingFilters({ searchParams }: OnboardingFiltersProps) {
             <Select
               value={localFilters.institution_id || ''}
               onValueChange={handleInstitutionChange}
-              disabled={!isSuperAdmin}
+              disabled={!canPickInstitution}
             >
               <SelectTrigger>
                 <SelectValue
                   placeholder={
-                    !isSuperAdmin && profile?.institution_id
+                    !canPickInstitution && profile?.institution_id
                       ? 'Your institution is auto-selected'
                       : 'Select Institution'
                   }
@@ -677,9 +679,34 @@ export function OnboardingFilters({ searchParams }: OnboardingFiltersProps) {
                 <SelectValue placeholder="Filter by Status" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">Reserved &amp; Admitted</SelectItem>
+                <SelectItem value="all">All pre-active (Account, Reserved, Admitted)</SelectItem>
+                <SelectItem value="account">Account only</SelectItem>
                 <SelectItem value="reserved">Reserved only</SelectItem>
                 <SelectItem value="admitted">Admitted only</SelectItem>
+              </SelectContent>
+            </Select>
+
+            {/* Why a learner is not moving Account → Reserved → Admitted.
+                Applies to the Awaiting Payment tab only; other tabs ignore it. */}
+            <Select
+              value={localFilters.blocked_reason || ''}
+              onValueChange={(v) =>
+                setLocalFilters((prev) => ({
+                  ...prev,
+                  blocked_reason: v === 'all' ? undefined : v
+                }))
+              }
+            >
+              <SelectTrigger>
+                <SelectValue placeholder="Blocked At (Awaiting Payment)" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Any reason</SelectItem>
+                {BLOCKED_REASONS.map((reason) => (
+                  <SelectItem key={reason} value={reason}>
+                    {BLOCKED_REASON_LABELS[reason]}
+                  </SelectItem>
+                ))}
               </SelectContent>
             </Select>
           </div>

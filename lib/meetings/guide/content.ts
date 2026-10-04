@@ -203,6 +203,29 @@ export const GUIDES: GuideBook = {
           ],
         },
         {
+          id: 'my-follow-ups',
+          title: 'Close your follow-ups',
+          steps: [
+            {
+              action: 'Open **My Follow-ups** to see every follow-up from your recorded meetings in one list.',
+              detail:
+                'It shows the follow-ups assigned to you by name in MyJKKN and, for meetings you host, everyone else’s too — grouped by meeting, newest meeting first, under **Yours**, **Others** and **Unassigned**. A person written only as a name in the notes is not linked to an account, so that follow-up does not show on their list.',
+              platforms: {
+                web: 'Left sidebar → **Meetings** → **My Follow-ups**.',
+                mobile: 'Tap **More (⋯)** → **Meetings → My Follow-ups**.',
+              },
+              link: { label: 'Take me there', href: '/meetings/action-items' },
+              tip: 'Not invited to the meeting itself? Its group reads **A meeting you were named in**, without the meeting’s name or date.',
+            },
+            {
+              action: 'Tick the box next to a follow-up when it is done.',
+              detail:
+                'The meeting’s host or the person the follow-up is assigned to can mark it done, or open it again. **Mark all done** asks first; for the host it closes every open follow-up in that meeting, for anyone else only their own.',
+              tip: 'Turn on **Show done** to see the ones already finished.',
+            },
+          ],
+        },
+        {
           id: 'schedule-it-yourself',
           title: 'Schedule a meeting yourself',
           steps: [

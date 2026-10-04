@@ -37,7 +37,7 @@ import {
   BreadcrumbSeparator
 } from '@/components/ui/breadcrumb';
 import toast from 'react-hot-toast';
-import { format } from 'date-fns';
+import { format, parseISO } from 'date-fns';
 import { useAuth } from '@/hooks/use-auth';
 import { usePermissions } from '@/hooks/use-permissions';
 import {
@@ -63,6 +63,7 @@ import type {
 } from '@/lib/utils/academic/attendance-section-scope';
 import { narrowRosterToPracticalBatch } from '@/lib/utils/academic/practical-batch-roster';
 import type { PracticalBatchRosterResult } from '@/lib/utils/academic/practical-batch-roster';
+import { periodMarkedForLearners } from '@/lib/utils/practical-period-sections';
 import { AttendanceSummaryModal } from './components/attendance-summary-modal';
 import { FacultySyncIndicator } from '../_components/faculty-sync-indicator';
 import { SubdividedAttendanceGrid } from './_components/subdivided-attendance-grid';
@@ -75,6 +76,7 @@ import { LeaveOndutyAttendanceCheckService } from '@/lib/services/academic/leave
 import { StudentLeaveIndicatorCompact } from './_components/student-leave-indicator';
 import { ProvisionalLearnerIndicatorCompact } from './_components/provisional-learner-indicator';
 import { isProvisionalAttendanceStatus } from '@/lib/constants/provisional-access';
+import { savedStatusesForPeriod } from '@/lib/utils/academic/saved-period-statuses';
 import type { ApprovedLeaveInfo } from '@/lib/services/academic/leave-onduty-attendance-check-service';
 // Updated: 2026-09-07 - Per-learner attendance history, opened from the roster.
 import { History, Minus } from 'lucide-react';
@@ -755,14 +757,34 @@ export default function AttendanceMarkPage() {
 
     const checkExisting = async () => {
       if (!timetableId) return;
+      // Added: 2026-09-23 (BUG-006204) - Every batch of a practical slot saves
+      // under one attendance_data[periodId] key, so "already marked" depends on
+      // WHICH batch. Wait for the batch pick, then count the period as marked
+      // only if that batch's learners are stored — Batch B's save used to lock
+      // Batch A's faculty into a read-only page.
+      const practicalBatches = (practicalConfig as any)?.batches;
+      const isBatchPractical = Array.isArray(practicalBatches) && practicalBatches.length > 0;
+      if (isBatchPractical && !practicalSelection) {
+        setExistingAttendance(null);
+        return;
+      }
+      const batchLearners = practicalSelection?.student_ids?.length ? practicalSelection.student_ids : null;
       try {
         setLoadingExistingAttendance(true);
-        const existingRecord = await AttendanceService.getConsolidatedAttendance(
+        let existingRecord = await AttendanceService.getConsolidatedAttendance(
           timetableId,
           contextData.section_id,
           date,
           periodId || undefined
         );
+        if (
+          existingRecord &&
+          periodId &&
+          batchLearners &&
+          !periodMarkedForLearners(existingRecord.attendance_data?.[periodId], batchLearners)
+        ) {
+          existingRecord = null;
+        }
         if (existingRecord) {
           setExistingAttendance(existingRecord);
           if (isSuperAdmin || profile?.role === 'hod') {
@@ -770,19 +792,9 @@ export default function AttendanceMarkPage() {
           } else {
             toast.error('Attendance was already marked for this class. This record is read-only.');
           }
-          if (existingRecord.attendance_data) {
-            const existingData: Record<string, 'Present' | 'Absent'> = {};
-            Object.values(existingRecord.attendance_data).forEach((periodData: any) => {
-              if (periodData.students && Array.isArray(periodData.students)) {
-                periodData.students.forEach((student: any) => {
-                  if (student.student_id && student.status) {
-                    existingData[student.student_id] = student.status;
-                  }
-                });
-              }
-            });
-            setAttendanceData(existingData);
-          }
+          // Updated: 2026-09-23 (BUG-005969) - this period's statuses only; the
+          // effect below re-applies them once the roster has loaded.
+          setAttendanceData(savedStatusesForPeriod(existingRecord, periodId));
         } else {
           setExistingAttendance(null);
         }
@@ -1401,6 +1413,18 @@ export default function AttendanceMarkPage() {
 
     loadApprovedLeave();
   }, [sectionId, date, periodId, students, existingAttendance]);
+
+  // Added: 2026-09-23 (BUG-005969 / BUG-004995 / BUG-004356 / BUG-006120) - The
+  // roster loader initialises every learner to 'Present'. When it finished after
+  // the saved record had loaded, a marked period reopened as all Present (21/21
+  // instead of the saved 15/21). Re-apply the saved statuses whenever either
+  // side (re)loads, so the order no longer matters.
+  useEffect(() => {
+    if (!existingAttendance || students.length === 0) return;
+    const saved = savedStatusesForPeriod(existingAttendance, periodId);
+    if (Object.keys(saved).length === 0) return;
+    setAttendanceData((prev) => ({ ...prev, ...saved }));
+  }, [existingAttendance, students, periodId]);
 
   // NOTE: Existing attendance check and staff loading have been merged into the
   // parallelized useEffect above (2026-03-10 optimization)
@@ -2245,7 +2269,8 @@ export default function AttendanceMarkPage() {
             <div className='flex flex-wrap items-center gap-2'>
               <Badge className='bg-white/20 text-white border-white/30 hover:bg-white/30'>
                 <Calendar className='h-3 w-3 mr-1' />
-                {date ? format(new Date(date), 'dd MMM yyyy') : 'No date'}
+                {/* parseISO, not new Date: "2026-09-17" read as UTC midnight showed 16 Sep on a US-timezone laptop (BUG-006152). */}
+                {date ? format(parseISO(date), 'dd MMM yyyy') : 'No date'}
               </Badge>
               <Badge className='bg-white/20 text-white border-white/30 hover:bg-white/30'>
                 <Clock className='h-3 w-3 mr-1' />
@@ -2554,7 +2579,7 @@ export default function AttendanceMarkPage() {
                     Date:
                   </span>
                   <span className='text-gray-900 dark:text-gray-200 font-semibold'>
-                    {date ? format(new Date(date), 'dd-MMM-yyyy') : 'N/A'}
+                    {date ? format(parseISO(date), 'dd-MMM-yyyy') : 'N/A'}
                   </span>
                 </div>
                 <div className='flex flex-col items-start gap-2'>

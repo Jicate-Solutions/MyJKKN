@@ -1204,6 +1204,14 @@ export class NativeSchedulingService {
       newStartIso?: string | null;
       exclude?: { start: string; end: string } | null;
       now?: Date;
+      /**
+       * The HOST is choosing this time for their own meeting (Director, 22 Sep:
+       * the host may use any time 07:00-22:00). Same replacement fragment the
+       * slot list and rescheduleBooking use (host-any-time.ts), so what the host
+       * is offered and what is accepted cannot drift. Bookings and buffers still
+       * block. Never set on a visitor's behalf.
+       */
+      hostAnyTime?: boolean;
     } = {},
   ): Promise<{
     ok: boolean;
@@ -1252,6 +1260,8 @@ export class NativeSchedulingService {
       fromDate: candidateDate,
       toDate: candidateDate,
       now,
+      // Hours, day-closures and notice replaced; bookings and buffers untouched.
+      ...(opts.hostAnyTime === true ? hostAnyTimeSlotInput() : {}),
     });
     const startIso = startDate.toISOString();
     if (!offered.some((s) => s.start === startIso)) {

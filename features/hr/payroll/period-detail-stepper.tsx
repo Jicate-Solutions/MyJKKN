@@ -3,7 +3,7 @@
 /**
  * PeriodDetailStepper — horizontal stage strip rendered at top of detail page.
  *
- * Per spec specs/t4-3-pr3-payroll-ui-design-lock-2026-05-19.md Q2 + E5:
+ * No written spec; the rules live in this code:
  *   - 6 stages: Prepared / CAO Reviewed / Accounts Verified /
  *     Chairperson Approved / Distributed / Locked.
  *   - Reached stages show a check icon + actor + relative timestamp.

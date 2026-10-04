@@ -9,6 +9,11 @@ END $$;
 CREATE SCHEMA IF NOT EXISTS auth;
 CREATE OR REPLACE FUNCTION auth.uid() RETURNS uuid LANGUAGE sql STABLE AS $$
   SELECT NULLIF(current_setting('request.jwt.claim.sub', true), '')::uuid $$;
+-- auth.users, only the column the reminder sign-in rule reads (2026-10-02).
+CREATE TABLE IF NOT EXISTS auth.users (id uuid PRIMARY KEY, last_sign_in_at timestamptz);
+-- auth.sessions, only what the rule reads (W12 review of #4177): refreshed_at has no time zone.
+CREATE TABLE IF NOT EXISTS auth.sessions (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), user_id uuid NOT NULL,
+  updated_at timestamptz, refreshed_at timestamp without time zone);
 
 CREATE TABLE public.institutions (
   id uuid PRIMARY KEY DEFAULT uuid_generate_v4(), name varchar(255) NOT NULL, is_active boolean DEFAULT true);
@@ -16,6 +21,13 @@ CREATE TABLE public.profiles (
   id uuid PRIMARY KEY DEFAULT uuid_generate_v4(), email text, full_name text,
   role text NOT NULL DEFAULT 'student', profile_completed boolean NOT NULL DEFAULT false,
   is_active boolean NOT NULL DEFAULT true, is_super_admin boolean, institution_id uuid, department_id uuid);
+CREATE OR REPLACE FUNCTION public._stub_profile_signed_in() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+  INSERT INTO auth.users (id, last_sign_in_at) VALUES (NEW.id, now()) ON CONFLICT (id) DO NOTHING;
+  RETURN NEW;
+END $$;
+CREATE TRIGGER _stub_profile_signed_in AFTER INSERT ON public.profiles
+  FOR EACH ROW EXECUTE FUNCTION public._stub_profile_signed_in();
 CREATE TABLE public.custom_roles (
   id uuid PRIMARY KEY DEFAULT uuid_generate_v4(), role_key varchar(50) NOT NULL UNIQUE, role_name varchar(50) NOT NULL,
   permissions jsonb NOT NULL DEFAULT '{}'::jsonb, is_active boolean DEFAULT true, updated_at timestamptz DEFAULT now());
@@ -60,6 +72,26 @@ CREATE TABLE public.usage_events (
   feature text, resource_type text, weight integer NOT NULL DEFAULT 1, institution_id uuid, department_id uuid, role text,
   request_method text, source text NOT NULL DEFAULT 'middleware', metadata jsonb DEFAULT '{}', created_at timestamptz NOT NULL DEFAULT now());
 
+-- Resolves a user-level override before the global row, as production's
+-- fn_get_policy does (review 7: a global-only stub hid a cap that differed per caller).
 CREATE OR REPLACE FUNCTION public.fn_get_policy(p_key text, p_scope_id uuid DEFAULT NULL) RETURNS jsonb
 LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
-  SELECT value FROM platform_policies WHERE policy_key = p_key AND scope_type='global' AND is_active LIMIT 1 $$;
+  SELECT value FROM platform_policies
+  WHERE policy_key = p_key AND is_active
+    AND ((scope_type = 'user' AND scope_id = auth.uid()) OR (scope_type = 'global' AND scope_id IS NULL))
+  ORDER BY CASE scope_type WHEN 'user' THEN 1 ELSE 6 END
+  LIMIT 1 $$;
+-- Added 2026-09-24 for migration E (daily ask + remind): the role reader the
+-- service-role path checks, the int policy reader the per-run cap reads, and the
+-- dispatcher's schedule table the clock row lands in. Shapes as on production.
+CREATE OR REPLACE FUNCTION auth.role() RETURNS text LANGUAGE sql STABLE AS $$
+  SELECT COALESCE(NULLIF(current_setting('request.jwt.claim.role', true), ''),
+                  (NULLIF(current_setting('request.jwt.claims', true), '')::jsonb ->> 'role'))::text $$;
+CREATE OR REPLACE FUNCTION public.fn_get_policy_int(p_key text, p_default integer, p_scope_id uuid DEFAULT NULL) RETURNS integer
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
+  SELECT COALESCE((fn_get_policy(p_key, p_scope_id))::int, p_default) $$;
+CREATE TABLE public.ai_routine_schedules (
+  routine_id text PRIMARY KEY, enabled boolean NOT NULL DEFAULT true, days_of_week smallint[],
+  minute_of_day smallint, managed boolean NOT NULL DEFAULT false, last_fired_slot text,
+  last_fired_at timestamptz, last_status text, updated_by uuid, max_only boolean NOT NULL DEFAULT false,
+  launch_id text, created_at timestamptz DEFAULT now(), updated_at timestamptz DEFAULT now());

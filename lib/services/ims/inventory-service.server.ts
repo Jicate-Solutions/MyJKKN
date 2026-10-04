@@ -434,9 +434,11 @@ export class ImsInventoryServiceServer {
     }
 
     // ── Opening stock (non-fatal) ───────────────────────────────────────────
-    const insertedCodeMap = new Map<string, string>(
+    // Keyed by item, not code: rows with a blank Code get their code from a DB
+    // trigger, so item.code is null here. PostgREST returns rows in insert order.
+    const insertedIdByItem = new Map<object, string>(
       (inserted || []).map((ins: any, idx: number) => [
-        itemsToInsert[idx].code.toUpperCase(),
+        itemsToInsert[idx],
         ins.id as string,
       ])
     );
@@ -451,7 +453,7 @@ export class ImsInventoryServiceServer {
         const links = itemsToInsert
           .map((item) => ({
             store_id: storeId,
-            item_id: insertedCodeMap.get(item.code.toUpperCase()),
+            item_id: insertedIdByItem.get(item),
             is_sellable_to_students: item.is_sellable_to_students ?? false,
           }))
           .filter((l) => !!l.item_id);
@@ -476,7 +478,7 @@ export class ImsInventoryServiceServer {
 
       try {
         const summaries = stockItems.map((item) => ({
-          item_id: insertedCodeMap.get(item.code.toUpperCase()),
+          item_id: insertedIdByItem.get(item),
           opening_quantity: item.opening_stock,
           current_quantity: item.opening_stock,
           reserved_quantity: 0,
@@ -503,7 +505,7 @@ export class ImsInventoryServiceServer {
           reference_type: 'adjustment',
           amount: item.opening_stock * item.cost_price,
           description: `Opening stock import — ${item.name} (${item.code})`,
-          item_id: insertedCodeMap.get(item.code.toUpperCase()),
+          item_id: insertedIdByItem.get(item),
           quantity: item.opening_stock,
           batch_number: item.batch_number || null,
           expiry_date: item.expiry_date || null,
@@ -530,7 +532,7 @@ export class ImsInventoryServiceServer {
           // stock that genuinely arrived earlier. en-CA renders as YYYY-MM-DD.
           const todayIso = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
           const batches = batchItems.map((item) => ({
-            item_id: insertedCodeMap.get(item.code.toUpperCase()),
+            item_id: insertedIdByItem.get(item),
             batch_number: item.batch_number,
             expiry_date: item.expiry_date || null,
             quantity: item.opening_stock,

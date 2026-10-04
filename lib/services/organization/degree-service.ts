@@ -126,8 +126,6 @@ export class DegreeService {
         .eq('id', id);
 
       if (error) throw error;
-
-      toast.success('Degree deleted successfully');
     } catch (error) {
       console.error('Error deleting degree:', error);
       throw error;

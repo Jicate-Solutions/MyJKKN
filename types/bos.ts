@@ -1074,7 +1074,10 @@ export interface BosSyllabusHistory {
 // ── List Response ─────────────────────────────────────────────────────
 
 export interface BosSyllabusListResponse extends BosListResponse<BosCourseSyllabus> {
-  // Inherits data, metadata from BosListResponse
+  metadata: BosListResponse<BosCourseSyllabus>['metadata'] & {
+    /** Syllabi that match every other filter but are hidden by the chosen Stream / Board. */
+    hidden_by_filters?: number;
+  };
 }
 
 // ── External Expert ──────────────────────────────────────────────────────────
