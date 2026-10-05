@@ -10,6 +10,12 @@ import { redirect } from 'next/navigation';
  * code there is no room or item to report against, so this sends them to the
  * InstaSolver home, where they can report a problem by hand.
  */
+/**
+ * The folder is named "r" to keep sticker links short. Without this label the
+ * route manifest titles it "R", which is what the breadcrumb and tab showed.
+ */
+export const navMeta = { label: 'Scan to report' };
+
 export default function InstaSolverScanHubPage() {
   redirect('/instasolver');
 }
