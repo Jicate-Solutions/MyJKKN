@@ -5392,7 +5392,7 @@ export const ROUTE_MANIFEST: RouteNode[] = [
       },
       {
         "path": "/instasolver/r",
-        "label": "R",
+        "label": "Scan to report",
         "iconName": "FileText",
         "children": []
       },

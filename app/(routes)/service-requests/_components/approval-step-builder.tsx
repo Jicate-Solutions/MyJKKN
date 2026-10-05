@@ -1,7 +1,9 @@
 'use client';
 
 import { useMemo, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Badge } from '@/components/ui/badge';
@@ -36,6 +38,7 @@ import {
   Search,
   X,
   Users,
+  IndianRupee,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useToast } from '@/hooks/use-toast';
@@ -46,7 +49,18 @@ import {
   type UserWithRole,
   type CustomRole,
 } from '@/hooks/organization/use-custom-roles';
-import type { CreateApprovalStepDto, ApprovalWorkflowType } from '@/types/service-request';
+import {
+  isFeeStep,
+  SERVICE_REQUEST_FEE_CATEGORY_NAME,
+  type CreateApprovalStepDto,
+  type ApprovalWorkflowType,
+} from '@/types/service-request';
+
+interface FeeCategoryOption {
+  id: string;
+  category_name: string;
+  amount: number | null;
+}
 
 interface ApprovalStepBuilderProps {
   steps: CreateApprovalStepDto[];
@@ -86,6 +100,19 @@ export function ApprovalStepBuilder({
     undefined,
     undefined
   );
+
+  // The fee head a fee step bills (zero or one row). One fetch for all rows.
+  const { data: feeCategories = [], status: feeCategoryStatus } = useQuery<FeeCategoryOption[]>({
+    // Key changed when the route was narrowed to the one fee head, so a list
+    // cached by an earlier build can never be reused here.
+    queryKey: ['service-requests', 'fee-step-category'],
+    queryFn: async () => {
+      const res = await fetch('/api/service-requests/fee-categories');
+      if (!res.ok) throw new Error('Could not load fee categories');
+      return res.json();
+    },
+    staleTime: 5 * 60 * 1000,
+  });
 
   const rolesByKey = useMemo(() => {
     const m = new Map<string, CustomRole>();
@@ -261,6 +288,9 @@ export function ApprovalStepBuilder({
           onRestartFromChange={(val) =>
             updateStep(index, { on_return_restart_from_step: val })
           }
+          feeCategories={feeCategories}
+          feeCategoryStatus={feeCategoryStatus}
+          onFeeChange={(fee) => updateStep(index, fee)}
           onRemove={() => removeStep(index)}
         />
       ))}
@@ -303,6 +333,9 @@ interface StepRowProps {
   onClearAll: () => void;
   onRequiredChange: (required: boolean) => void;
   onRestartFromChange: (val: number | null) => void;
+  feeCategories: FeeCategoryOption[];
+  feeCategoryStatus: 'pending' | 'error' | 'success';
+  onFeeChange: (fee: Pick<CreateApprovalStepDto, 'fee_category_id' | 'fee_amount'>) => void;
   onRemove: () => void;
 }
 
@@ -321,6 +354,9 @@ function StepRow({
   onClearAll,
   onRequiredChange,
   onRestartFromChange,
+  feeCategories,
+  feeCategoryStatus,
+  onFeeChange,
   onRemove,
 }: StepRowProps) {
   const [open, setOpen] = useState(false);
@@ -341,6 +377,25 @@ function StepRow({
   const unknownIds = selectedIds.filter((id) => !usersById.has(id));
 
   const hasSelection = selectedIds.length > 0;
+
+  const collectsFee = isFeeStep(step);
+  // The one fee head a fee step may bill; the API returns nothing else.
+  // Matched by name, never by position: picking "the first row" once ticked
+  // nothing at all, because a stale list put a category with no amount first.
+  const feeCategory = feeCategories.find(
+    (c) => c.category_name === SERVICE_REQUEST_FEE_CATEGORY_NAME && Number(c.amount) > 0
+  );
+  const handleFeeToggle = (on: boolean) => {
+    if (!on) {
+      onFeeChange({ fee_category_id: null, fee_amount: null });
+      return;
+    }
+    if (!feeCategory) return;
+    onFeeChange({
+      fee_category_id: feeCategory.id,
+      fee_amount: Number(feeCategory.amount),
+    });
+  };
 
   // Count candidates per role so the filter can show "RoleName (N)" and skip
   // roles that have no eligible users.
@@ -634,6 +689,67 @@ function StepRow({
                   <Trash2 className="h-4 w-4" />
                 </Button>
               </div>
+            </div>
+
+            {/* Fee step: bills the requester and completes itself on payment. */}
+            <div className={cn('rounded-md border border-dashed p-3 space-y-3', collectsFee && 'border-primary bg-primary/5')}>
+              <div className="flex items-center gap-2">
+                <Checkbox
+                  id={`step-fee-${index}`}
+                  checked={collectsFee}
+                  // Unticking must always work, even if the fee head failed to load.
+                  disabled={!collectsFee && !feeCategory}
+                  onCheckedChange={(c) => handleFeeToggle(!!c)}
+                />
+                <Label htmlFor={`step-fee-${index}`} className="text-xs cursor-pointer flex items-center gap-1">
+                  <IndianRupee className="h-3 w-3" />
+                  Fee payment step
+                </Label>
+              </div>
+              {/* Say why the box cannot be ticked instead of failing silently. */}
+              {!collectsFee && !feeCategory && (
+                <p className="text-[11px] text-amber-700 dark:text-amber-400">
+                  {feeCategoryStatus === 'pending'
+                    ? 'Loading the fee category…'
+                    : `The "${SERVICE_REQUEST_FEE_CATEGORY_NAME}" category is not available. It must exist under Billing → Categories, be active, and have an amount.`}
+                </p>
+              )}
+              {collectsFee && (
+                <>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div className="space-y-1.5">
+                      <Label className="text-xs">Fee category</Label>
+                      {/* Fixed: a fee step bills the one fee head and its set
+                          amount. Neither is a choice here (the server enforces
+                          both — see ServiceTypeService.withFixedFee). */}
+                      <Input
+                        readOnly
+                        disabled
+                        className="h-8 text-xs"
+                        value={feeCategory?.category_name ?? SERVICE_REQUEST_FEE_CATEGORY_NAME}
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label htmlFor={`step-fee-amount-${index}`} className="text-xs">
+                        Amount (Rs.)
+                      </Label>
+                      <Input
+                        id={`step-fee-amount-${index}`}
+                        readOnly
+                        disabled
+                        className="h-8 text-xs"
+                        value={feeCategory?.amount ?? step.fee_amount ?? ''}
+                      />
+                    </div>
+                  </div>
+                  <p className="text-[11px] text-muted-foreground">
+                    A bill is raised for the requester when the request reaches this step. Nobody
+                    approves it: the step completes by itself once the bill is paid — online from
+                    My Bills, or in cash at the accounts section — and the request moves to the next
+                    step. The people picked above see it in their inbox to collect the payment.
+                  </p>
+                </>
+              )}
             </div>
 
             {/* On Return: Restart From Step (sequential + step > 1 only) */}
