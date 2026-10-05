@@ -18,6 +18,7 @@
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { getErrorMessage } from '@/lib/utils';
 import type {
+  AttendanceBreakdown,
   AttendanceDashboard,
   AttendanceLearnerRow,
   AttendanceLearnerDetail,
@@ -63,6 +64,29 @@ export class AttendanceAnalyticsService {
       throw new Error(`Attendance dashboard failed: ${getErrorMessage(error)}`);
     }
     return data as unknown as AttendanceDashboard;
+  }
+
+  /**
+   * The institution / department / block cube for the attendance dashboard
+   * (fn_cl_attendance_breakdown). Aggregation happens in the browser over this
+   * small result so a cross-filter click never refetches.
+   */
+  static async getBreakdown(
+    from: string,
+    to: string,
+    blockId?: string | null,
+  ): Promise<AttendanceBreakdown> {
+    const supabase = createClientSupabaseClient();
+    const { data, error } = await supabase.rpc(
+      'fn_cl_attendance_breakdown' as never,
+      { p_from: from, p_to: to, p_block_id: blockId ?? null } as never,
+    );
+    // Thrown, never coerced to an empty cube: a 57014 timeout must not reach the
+    // screen looking like "nobody was marked in this range".
+    if (error) {
+      throw new Error(`Attendance breakdown failed: ${getErrorMessage(error)}`);
+    }
+    return data as unknown as AttendanceBreakdown;
   }
 
   /** Paginated per-learner rollup, worst attendance first. */

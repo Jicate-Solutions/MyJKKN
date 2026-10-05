@@ -1850,6 +1850,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "label": "Admin",
         "iconName": "FileText",
         "children": []
+      },
+      {
+        "path": "/ai-query/connect",
+        "label": "Connect an outside AI",
+        "iconName": "KeyRound",
+        "children": []
       }
     ]
   },
@@ -5386,7 +5392,7 @@ export const ROUTE_MANIFEST: RouteNode[] = [
       },
       {
         "path": "/instasolver/r",
-        "label": "R",
+        "label": "Scan to report",
         "iconName": "FileText",
         "children": []
       },

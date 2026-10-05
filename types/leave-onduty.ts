@@ -40,6 +40,20 @@ export type ApprovalAction = 'approve' | 'reject' | 'forward';
  */
 export type SponsorApprovalStatus = 'pending' | 'approved' | 'rejected';
 
+/** The slice of a hostel gate pass a leave screen shows. */
+export interface LeaveGatePassSummary {
+  id: string;
+  pass_number: string | null;
+  qr_code: string | null;
+  status: string;
+  valid_from: string | null;
+  valid_until: string | null;
+  expected_return: string;
+  out_time: string | null;
+  actual_return: string | null;
+  approved_at: string | null;
+}
+
 export interface LeaveOndutyApplication {
   id: string;
   learner_id: string;
@@ -60,6 +74,13 @@ export interface LeaveOndutyApplication {
   attachment_url: string | null;
   status: ApplicationStatus;
   current_step: number;
+
+  /** HH:mm (IST) the hostel learner leaves / is due back. Only for gate-pass types. */
+  exit_time?: string | null;
+  return_time?: string | null;
+
+  /** Hostel gate pass raised for this application (hostel_gate_passes.leave_onduty_application_id). */
+  gate_pass?: LeaveGatePassSummary | null;
 
   /** v2: individual applicant vs team OD. Leave is always 'individual'. */
   applicable_type: ApplicableType;
@@ -113,6 +134,7 @@ export interface LeaveOndutyApplication {
     color_code: string;
     residency: string;
     affects_attendance: boolean;
+    issues_gate_pass?: boolean;
   } | null;
 
   /** v2: team OD members (excluding the primary applicant). Populated when applicable_type = 'team'. */
@@ -300,6 +322,9 @@ export interface ApplicationFormData {
   selected_periods: string[];
   reason: string;
   attachment_file: File | null;
+  /** HH:mm — required for hostel learners on a gate-pass type. */
+  exit_time?: string | null;
+  return_time?: string | null;
   /** Phase 2: sponsor (the person the learner is working with) when sub-category requires sponsor approval */
   sponsor_id?: string | null;
   /** v2: individual (default) or team OD. Leave must always be 'individual'. */

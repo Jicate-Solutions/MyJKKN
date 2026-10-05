@@ -28,6 +28,15 @@ export class ProcurementPurchaseRequestService {
     metadata: { total: number; page: number; limit: number; totalPages: number };
   }> {
     try {
+      // A purchase's stage after approval lives on its quotation (RFQ), so stages
+      // past item approval filter through an inner join on that quotation.
+      const QUOTE_STAGE: Record<string, string[]> = {
+        getting_quotes: ['draft', 'sent', 'quotations_received', 'compared'],
+        with_super_admin: ['pending_award_approval'],
+        ordered: ['awarded', 'closed'],
+        received: ['awarded', 'closed'],
+      };
+      const quoteStatuses = filters.stage ? QUOTE_STAGE[filters.stage] : undefined;
       let query = this.supabase
         .from('procurement_purchase_requests')
         .select(
@@ -36,12 +45,21 @@ export class ProcurementPurchaseRequestService {
            approved_by_profile:profiles!approved_by(full_name),
            items:procurement_purchase_request_items(count),
            item_preview:procurement_purchase_request_items(item_name, required_quantity),
-           quotes:procurement_rfqs(status, orders:procurement_purchase_orders(status))`,
+           quotes:procurement_rfqs${quoteStatuses ? '!inner' : ''}(status, orders:procurement_purchase_orders(status))`,
           { count: 'exact' }
         );
+      if (quoteStatuses) query = query.in('quotes.status', quoteStatuses);
+      else if (filters.stage) query = query.eq('status', filters.stage);
 
-      if (filters.search) query = query.ilike('request_number', `%${toStoredRequestNumber(filters.search)}%`);
+      if (filters.search) {
+        // Strip PostgREST or() delimiters so a typed comma/paren can't break the filter.
+        const term = filters.search.replace(/[,()]/g, ' ').trim();
+        query = query.or(
+          `request_number.ilike.%${toStoredRequestNumber(term)}%,title.ilike.%${term}%`
+        );
+      }
       if (filters.status) query = query.eq('status', filters.status);
+      if (filters.requested_by) query = query.eq('requested_by', filters.requested_by);
       if (filters.request_type) query = query.eq('request_type', filters.request_type);
       if (filters.store_id) query = query.eq('store_id', filters.store_id);
       else if (filters.institution_id) query = query.eq('institution_id', filters.institution_id);
@@ -153,6 +171,7 @@ export class ProcurementPurchaseRequestService {
           // and fail after everything had already been saved.
           status: 'draft',
           requested_by: userId,
+          title: data.title?.trim() || null,
           notes: data.notes ?? null,
         })
         .select()
@@ -251,7 +270,9 @@ export class ProcurementPurchaseRequestService {
   static async approveWithModifications(
     id: string,
     userId: string,
-    itemUpdates: { itemId: string; required_quantity: number }[]
+    itemUpdates: { itemId: string; required_quantity: number }[],
+    /** Why the approver changed the quantities — kept in the request's notes. */
+    reason?: string
   ): Promise<ProcurementPurchaseRequest> {
     try {
       if (itemUpdates.length > 0) {
@@ -292,7 +313,7 @@ export class ProcurementPurchaseRequestService {
             .select('notes')
             .eq('id', id)
             .single();
-          const note = `Qty modified at approval: ${changes.join('; ')}`;
+          const note = `Qty changed at approval: ${changes.join('; ')}${reason?.trim() ? ` — ${reason.trim()}` : ''}`;
           await this.supabase
             .from('procurement_purchase_requests')
             .update({ notes: pr?.notes ? `${pr.notes}\n${note}` : note })

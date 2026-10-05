@@ -80,6 +80,7 @@ export function CompOffClaimDetailSheet({
   lapsed = false,
   biometric = null,
   busy,
+  siblings = [],
   onOpenChange,
   onApprove,
   onReject,
@@ -113,6 +114,8 @@ export function CompOffClaimDetailSheet({
   biometric?: CompOffClaimBiometric | null;
   /** True while a decision is in flight anywhere on the tab. */
   busy: boolean;
+  /** Every day of the same multi-day submission (this one included); [] for a single day. */
+  siblings?: Array<{ id: string; worked_date: string; status_label?: string }>;
   onOpenChange: (open: boolean) => void;
   onApprove: (claim: PendingCompOffClaim) => void;
   onReject: (claim: PendingCompOffClaim) => void;
@@ -158,6 +161,25 @@ export function CompOffClaimDetailSheet({
                 <Field label="Credit days">{formatDays(claim.credit_days)}</Field>
                 <Field label="Claimed on">{fmtStamp(claim.created_at)}</Field>
               </dl>
+
+              {siblings.length > 1 && (
+                <div>
+                  <p className="text-xs font-medium text-muted-foreground">
+                    Claimed together ({siblings.length} days — each decided on its own)
+                  </p>
+                  <ul className="mt-1 space-y-0.5 text-sm">
+                    {siblings.map((s) => (
+                      <li key={s.id} className={s.id === claim.id ? 'font-medium' : undefined}>
+                        {fmtDate(s.worked_date)}
+                        {s.status_label && (
+                          <span className="text-muted-foreground"> · {s.status_label}</span>
+                        )}
+                        {s.id === claim.id && <span className="text-muted-foreground"> (this day)</span>}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
 
               {/* WHERE THE DAY WAS WORKED, and the evidence for it. Its own block
                   rather than a truncated Field: a place like "Chennai – NAAC

@@ -166,7 +166,7 @@ export async function POST(req: NextRequest) {
         err instanceof Anthropic.RateLimitError
           ? 'The AI reader is busy — please try again in a minute, or enter the prices manually.'
           : err instanceof Anthropic.BadRequestError && /credit balance/i.test(err.message)
-            ? 'AI PDF reading is not available right now — please enter the prices manually.'
+            ? 'AI reading is paused: the AI account is out of credit (an admin must top it up). Type the prices for now.'
           : err instanceof Anthropic.BadRequestError
             ? 'The AI could not open this PDF — please enter the prices manually.'
             : err instanceof Error && !(err instanceof Anthropic.APIError)

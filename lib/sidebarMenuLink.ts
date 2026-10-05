@@ -322,6 +322,7 @@ export const MENU_PERMISSIONS: MenuPermissions = {
 
   // AI Assistant
   '/ai-query': 'ai_query.view', // AI Query System access
+  '/ai-query/connect': 'ai_query.view', // Personal keys for outside AIs that accept a custom MCP server with a bearer key (Claude Code, Claude Desktop, Gemini CLI, Zoho Zia)
 
   // ======================================================================
   // InstaSolver — the ONE front door for "something is wrong here".
@@ -2455,6 +2456,15 @@ export function GetPages(pathname: string): MenuGroup[] {
           submenus: []
         },
         {
+          // Personal keys for outside AIs that accept a custom MCP server with
+          // a bearer key, through the MCP door. Same gate as the AI Assistant.
+          href: '/ai-query/connect',
+          label: 'Connect an outside AI',
+          active: pathname.startsWith('/ai-query/connect'),
+          icon: Key,
+          submenus: []
+        },
+        {
           href: '/guide',
           label: 'Guide',
           active: pathname === '/guide' || pathname.startsWith('/guide/'),
@@ -4407,10 +4417,9 @@ export function GetPages(pathname: string): MenuGroup[] {
           icon: ShoppingCart,
           submenus: [
             { href: '/procurement', label: 'Overview', active: pathname === '/procurement' },
-            // Same three working tabs as app/(routes)/procurement/nav-config.ts.
-            { href: '/procurement/requests', label: 'Requests', active: pathname.startsWith('/procurement/requests') },
-            { href: '/procurement/rfqs', label: 'Quotations', active: pathname.startsWith('/procurement/rfqs') },
-            { href: '/procurement/purchase-orders', label: 'Deliveries', active: pathname.startsWith('/procurement/purchase-orders') || pathname.startsWith('/procurement/grn') },
+            // Same tabs as app/(routes)/procurement/nav-config.ts: one purchase = one page,
+            // so quotes, orders and deliveries all open from Purchases.
+            { href: '/procurement/requests', label: 'Purchases', active: ['/procurement/requests', '/procurement/rfqs', '/procurement/purchase-orders', '/procurement/grn'].some((p) => pathname.startsWith(p)) },
           ]
         }
       ]
