@@ -24,10 +24,11 @@ import {
   FileSpreadsheet,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import type {
-  ServiceRequest,
-  ServiceRequestApprovalStep,
-  ProcessApprovalDto,
+import {
+  isFeeStep,
+  type ServiceRequest,
+  type ServiceRequestApprovalStep,
+  type ProcessApprovalDto,
 } from '@/types/service-request';
 import {
   useEligibleApprovers,
@@ -422,8 +423,8 @@ export function RequestDetailView({
                         </p>
                         <p className="text-xs text-muted-foreground mt-0.5">
                           {roleKeyToLabel(step.approver_role)} · Step {step.step_order}
-                          {isCurrent && ' — Awaiting approval'}
-                          {isDone && ' — Approved'}
+                          {isCurrent && (isFeeStep(step) ? ' — Awaiting fee payment' : ' — Awaiting approval')}
+                          {isDone && (isFeeStep(step) ? ' — Fee paid' : ' — Approved')}
                           {isRej && ' — Rejected'}
                         </p>
 

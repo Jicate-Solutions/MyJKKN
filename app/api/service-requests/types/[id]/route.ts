@@ -3,7 +3,7 @@ export const dynamic = 'force-dynamic';
 import { NextResponse, connection } from 'next/server';
 import { z } from 'zod';
 import { getAuthSession } from '@/lib/supabase/server';
-import { ServiceTypeService } from '@/lib/services/service-requests/service-type-service';
+import { ServiceTypeService, FEE_STEP_ERROR } from '@/lib/services/service-requests/service-type-service';
 
 // PATCH body validator — only guards fields we permit clients to change.
 // Everything else flows through as-is so we don't accidentally narrow the DTO.
@@ -95,6 +95,9 @@ export async function PATCH(
       }
       if (error.message.includes('not found')) {
         return NextResponse.json({ error: 'Service type not found' }, { status: 404 });
+      }
+      if (error.message.startsWith(FEE_STEP_ERROR)) {
+        return NextResponse.json({ error: error.message }, { status: 400 });
       }
     }
 
