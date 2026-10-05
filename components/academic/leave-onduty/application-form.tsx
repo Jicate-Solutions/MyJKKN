@@ -297,8 +297,13 @@ export function ApplicationForm({
 
   // Reset leave type when category changes (only after initialization)
   const [prevCategory, setPrevCategory] = useState<LeaveOndutyCategory | null>(null);
+  // Track the category only once the saved draft has been restored. Recording
+  // the mount-time default ('leave') first made a restored OnDuty draft look
+  // like a category switch, which wiped its on-duty type — the form then could
+  // not be submitted until the learner noticed and re-picked it.
   useEffect(() => {
-    if (isInitialized && prevCategory !== null && prevCategory !== category) {
+    if (!isInitialized) return;
+    if (prevCategory !== null && prevCategory !== category) {
       setLeaveTypeId('');
     }
     setPrevCategory(category);
@@ -504,23 +509,6 @@ export function ApplicationForm({
   // yet" (still loading) and must not block — only an explicit false does.
   const blockedDates = daysInRange.filter((d) => dateAvailability[d] === false);
 
-  const isFormValid = () => {
-    if (requiresSponsorApproval && !sponsorId) return false;
-    if (needsGatePassTimes && (!exitTime || !returnTime)) return false;
-    if (blockedDates.length > 0) return false;
-    if (selectedType?.max_duration_days && dayCount > selectedType.max_duration_days) return false;
-    return (
-      category &&
-      leaveTypeId &&
-      startDate &&
-      endDate &&
-      periodType &&
-      reason.length >= 1 &&
-      (periodType !== 'periodwise' || selectedPeriods.length > 0) &&
-      (!getFileRequirements().required || attachmentFile !== null)
-    );
-  };
-
   return (
     <form onSubmit={handleSubmit} className="space-y-6 sm:space-y-8">
       {/* Category Selection */}
@@ -591,7 +579,11 @@ export function ApplicationForm({
           {category === 'leave' ? 'Leave type' : 'On-duty type'}
           <span className="text-red-500 ml-1">*</span>
         </Label>
-        {residencyLoading || eligibleTypesLoading ? (
+        {/* !isInitialized: mount the Select only after the saved draft is
+            restored. Radix's hidden native <select> re-dispatches 'change' when
+            its value changes before its options exist, which reports '' and
+            wiped a restored type whenever the type list was already cached. */}
+        {!isInitialized || residencyLoading || eligibleTypesLoading ? (
           <Skeleton className="h-10 sm:h-11 w-full" />
         ) : !residency ? null : (eligibleTypes || []).length === 0 ? (
           <Alert>
@@ -856,9 +848,14 @@ export function ApplicationForm({
             Cancel
           </Button>
         )}
+        {/* Only a pending submit disables the button. Gating it on
+            a form-validity check made every toast in handleSubmit unreachable, so a
+            learner who had not picked an end date, a type, a reason or a
+            sponsor saw a grey button and no reason (BUG-006248, BUG-006249;
+            the BUG-003236 toasts never fired). handleSubmit names each gap. */}
         <Button
           type="submit"
-          disabled={!isFormValid() || createApplication.isPending}
+          disabled={createApplication.isPending}
           className="w-full sm:flex-1"
         >
           {createApplication.isPending && (
