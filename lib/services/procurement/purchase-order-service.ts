@@ -6,12 +6,61 @@
 // only so POs raised under the old flow can finish.
 
 import { createClientSupabaseClient } from '@/lib/supabase/client';
+import { toStoredRequestNumber } from '@/lib/procurement/display-number';
 import type {
   ProcurementPurchaseOrder,
   ProcurementPurchaseOrderItem,
   PoWithItems,
   PurchaseOrderFilters,
+  PurchaseRequestRef,
 } from '@/types/procurement';
+
+/**
+ * Embeds the request a PO came from (PO -> RFQ -> request). Users track a purchase
+ * by its request number ("Purchase no."), so the PO and GRN screens show it first.
+ * Also used inside the GRN service's purchase_order embed.
+ */
+export const PO_PURCHASE_REQUEST_EMBED =
+  'rfq:procurement_rfqs(source_request:procurement_purchase_requests!source_request_id(id,request_number,title))';
+
+/** Moves the embedded rfq.source_request onto `purchase_request` and drops the rfq wrapper. */
+export function withPurchaseRequest<T extends Record<string, any>>(
+  row: T
+): Omit<T, 'rfq'> & { purchase_request: PurchaseRequestRef | null } {
+  const { rfq, ...rest } = row;
+  return { ...rest, purchase_request: rfq?.source_request ?? null };
+}
+
+/**
+ * PostgREST can't OR a top-level column with a column two embeds away, so a search
+ * by purchase number first resolves the matching requests to their RFQ ids
+ * (same approach as the RFQ list). Capped so a short search like "PR" can't build
+ * an oversized URL; very broad searches may then miss older orders.
+ */
+export async function rfqIdsForRequestSearch(search: string): Promise<string[]> {
+  const supabase = createClientSupabaseClient() as any;
+  const { data: prs, error: prErr } = await supabase
+    .from('procurement_purchase_requests')
+    .select('id')
+    .ilike('request_number', `%${toStoredRequestNumber(search)}%`)
+    .limit(200);
+  if (prErr) throw prErr;
+  const prIds = (prs || []).map((r: { id: string }) => r.id);
+  if (!prIds.length) return [];
+
+  const { data: rfqs, error: rfqErr } = await supabase
+    .from('procurement_rfqs')
+    .select('id')
+    .in('source_request_id', prIds)
+    .limit(200);
+  if (rfqErr) throw rfqErr;
+  return (rfqs || []).map((r: { id: string }) => r.id);
+}
+
+/** Characters that would break a PostgREST or() filter string. */
+export function sanitizeOrSearch(search: string): string {
+  return search.replace(/[,()]/g, ' ').trim();
+}
 
 export class ProcurementPurchaseOrderService {
   private static get supabase() {
@@ -31,11 +80,21 @@ export class ProcurementPurchaseOrderService {
            supplier:ims_suppliers(id,name,code,email,gstin),
            created_by_profile:profiles!created_by(full_name),
            approved_by_profile:profiles!approved_by(full_name),
-           items:procurement_purchase_order_items(count)`,
+           items:procurement_purchase_order_items(count),
+           ${PO_PURCHASE_REQUEST_EMBED}`,
           { count: 'exact' }
         );
 
-      if (filters.search) query = query.ilike('po_number', `%${filters.search}%`);
+      if (filters.search) {
+        // Match the PO number or the purchase (request) number.
+        const term = sanitizeOrSearch(filters.search);
+        const rfqIds = await rfqIdsForRequestSearch(term);
+        query = query.or(
+          rfqIds.length
+            ? `po_number.ilike.%${term}%,rfq_id.in.(${rfqIds.join(',')})`
+            : `po_number.ilike.%${term}%`
+        );
+      }
       if (filters.status) query = query.eq('status', filters.status);
       if (filters.supplier_id) query = query.eq('supplier_id', filters.supplier_id);
       if (filters.rfq_id) query = query.eq('rfq_id', filters.rfq_id);
@@ -51,7 +110,7 @@ export class ProcurementPurchaseOrderService {
       if (error) throw error;
 
       const rows = (data || []).map((r: any) => ({
-        ...r,
+        ...withPurchaseRequest(r),
         item_count: Array.isArray(r.items) ? r.items[0]?.count ?? 0 : 0,
       }));
 
@@ -79,7 +138,8 @@ export class ProcurementPurchaseOrderService {
            supplier:ims_suppliers(id,name,code,email,gstin,address,phone),
            created_by_profile:profiles!created_by(full_name),
            approved_by_profile:profiles!approved_by(full_name),
-           po_format:procurement_po_formats(*)`
+           po_format:procurement_po_formats(*),
+           ${PO_PURCHASE_REQUEST_EMBED}`
         )
         .eq('id', id)
         .single();
@@ -102,7 +162,7 @@ export class ProcurementPurchaseOrderService {
         (items || []).map((it: any) => it.source_quote?.quotation).find(Boolean) ?? null;
       const plainItems = (items || []).map(({ source_quote: _sq, ...it }: any) => it);
 
-      return { ...header, items: plainItems, source_quotation } as PoWithItems;
+      return { ...withPurchaseRequest(header), items: plainItems, source_quotation } as PoWithItems;
     } catch (error) {
       console.error('[ProcurementPurchaseOrderService] getPurchaseOrder:', error);
       throw error;
