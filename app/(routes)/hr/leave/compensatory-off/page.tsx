@@ -194,7 +194,7 @@ export default function CompensatoryOffPage() {
           <div className="flex justify-end">
             <Button variant="outline" onClick={() => setClaimOpen(true)}>
               <CalendarPlus className="mr-1.5 h-4 w-4" />
-              Claim a worked day
+              Claim worked days
             </Button>
           </div>
 
@@ -301,7 +301,7 @@ export default function CompensatoryOffPage() {
               <div className="flex gap-2">
                 <Button variant="outline" onClick={() => setClaimOpen(true)}>
                   <CalendarPlus className="mr-1.5 h-4 w-4" />
-                  Claim worked day
+                  Claim worked days
                 </Button>
                 <Button
                   onClick={() => setApplyOpen(true)}
