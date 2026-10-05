@@ -355,14 +355,22 @@ export default function PurchasePage() {
 
   const quotesBlock = rfqId ? (
     <section id="quotes" className="scroll-mt-4">
-      <QuotesSection rfqId={rfqId} onApproved={() => void refreshJourney()} />
+      <QuotesSection
+        rfqId={rfqId}
+        onApproved={() => void refreshJourney()}
+        itemApproval={
+          journey?.request?.approved_by_name
+            ? `${journey.request.approved_by_name}${journey.request.approved_at ? ` on ${formatDateDMY(journey.request.approved_at)}` : ''}`
+            : null
+        }
+      />
     </section>
   ) : null;
 
   return (
     <ContentLayout title={pr.title || purchaseNo}>
       {/* A reading column — wide enough for 3 vendors' quotes, no wider. */}
-      <div className="mx-auto w-full max-w-2xl space-y-5">
+      <div className={`mx-auto w-full space-y-5 ${(journey?.rfq?.quotation_count ?? 0) >= 3 ? 'max-w-5xl' : 'max-w-2xl'}`}>
         <Button variant="link" className="h-8 px-0" onClick={() => router.push('/procurement/requests')}>
           <ChevronLeft className="mr-1 h-4 w-4" />
           Purchases
@@ -384,21 +392,16 @@ export default function PurchasePage() {
 
         {isOrdered && rfqId ? (
           <>
-            {/* Once ordered, the orders lead; earlier steps fold away, one click off. */}
+            {/* Once ordered: the order receipts; the quotes stay one quiet link away. */}
             <section id="orders" className="scroll-mt-4">
               <OrdersSection rfqId={rfqId} receipts={journey?.receipts ?? []} />
             </section>
-            <details className="rounded-2xl border bg-card">
-              <summary className="cursor-pointer px-5 py-3 text-sm font-semibold">Items asked for and the quotes</summary>
-              <div className="space-y-4 border-t p-4">
-                {itemsBlock}
-                {quotesBlock}
-              </div>
-            </details>
+            {quotesBlock}
           </>
         ) : (
           <>
-            {itemsBlock}
+            {/* Once quotes start, the comparison lists the items — no second list. */}
+            {!rfqId && itemsBlock}
             {quotesBlock}
             {rfqId && hasOrders && (
               <section id="orders" className="scroll-mt-4">

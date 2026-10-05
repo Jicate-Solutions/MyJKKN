@@ -780,7 +780,7 @@ export function BulkQuotationUpload({
                                 step="any"
                                 inputMode="decimal"
                                 aria-label={`Price per unit for ${it.item_name}`}
-                                placeholder="—"
+                                placeholder="Not quoted"
                                 className={cn(
                                   'h-9 bg-background text-right tabular-nums',
                                   amber && 'border-amber-400'
@@ -797,9 +797,6 @@ export function BulkQuotationUpload({
                           </div>
                         );
                       })}
-                      <p className="border-t px-5 py-2.5 text-xs text-muted-foreground">
-                        Leave a price empty if this vendor didn&apos;t quote that item.
-                      </p>
                     </div>
                   </>
                 )}
