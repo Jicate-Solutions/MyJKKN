@@ -5,7 +5,7 @@
 // Drift guard: __tests__/director-desk/route-gate-map.test.ts
 //
 // Every route whose real gate is NOT simply its MENU_PERMISSIONS key.
-// 119 routes cannot be handed over at all; 396 declare
+// 120 routes cannot be handed over at all; 401 declare
 // their own permission keys through PermissionGuard / PolicyPageShell.
 // ============================================================================
 
@@ -67,7 +67,7 @@ export const ROUTE_GATE_MAP: Record<string, RouteGateEntry> = {
   "/admin/id-cards/morning": { keys: ['id_cards.jobs.view'] },
   "/admin/id-cards/photo-check": { keys: ['id_cards.jobs.view'] },
   "/admin/id-cards/policy": { blocked: 'superAdmin' },
-  "/admin/id-cards/print-queue": { blocked: 'adminRole' },
+  "/admin/id-cards/print-queue": { keys: ['id_cards.jobs.view'] },
   "/admin/id-cards/template": { keys: ['id_cards.templates.edit'] },
   "/admin/landing-pages": { blocked: 'superAdmin' },
   "/admin/learner-notes": { blocked: 'superAdmin' },
@@ -90,6 +90,7 @@ export const ROUTE_GATE_MAP: Record<string, RouteGateEntry> = {
   "/admission/consultants/admin/tier-policy": { blocked: 'superAdmin' },
   "/admission/consultants/analytics": { keys: ['admission.consultants.analytics.view'] },
   "/admission/consultants/attribution-orphans": { keys: ['admission.consultants.commissions.view'] },
+  "/admission/consultants/commission-approvals": { keys: ['admission.consultants.commissions.configure'] },
   "/admission/consultants/commissions": { keys: ['admission.consultants.view'] },
   "/admission/consultants/import": { keys: ['admission.consultants.commissions.view'] },
   "/admission/consultants/new": { keys: ['admission.consultants.create'] },
@@ -299,7 +300,6 @@ export const ROUTE_GATE_MAP: Record<string, RouteGateEntry> = {
   "/campus-living/settings/curfew": { keys: ['campus_living.settings.view'] },
   "/campus-living/settings/fees-economics": { keys: ['campus_living.settings.view'] },
   "/campus-living/settings/hostel-years": { keys: ['campus_living.settings.view'] },
-  "/campus-living/settings/leave-types": { keys: ['campus_living.leave_types.view'] },
   "/campus-living/settings/mess-services": { keys: ['campus_living.settings.view'] },
   "/campus-living/settings/packages": { keys: ['campus_living.settings.view'] },
   "/campus-living/settings/policies-workflows": { keys: ['campus_living.settings.view'] },
@@ -318,6 +318,7 @@ export const ROUTE_GATE_MAP: Record<string, RouteGateEntry> = {
   "/cdc/drives/[id]/edit": { keys: ['cdc.drives.edit'] },
   "/cdc/drives/[id]/notifications": { keys: ['cdc.drives.view'] },
   "/cdc/drives/[id]/participants": { keys: ['cdc.drives.view'] },
+  "/cdc/drives/[id]/registrations": { keys: ['cdc.drives.view'] },
   "/cdc/drives/[id]/responses": { keys: ['cdc.drives.view'] },
   "/cdc/drives/[id]/selected": { keys: ['cdc.drives.view'] },
   "/cdc/drives/[id]/willingness": { keys: ['cdc.drives.willingness.view'] },
@@ -362,6 +363,9 @@ export const ROUTE_GATE_MAP: Record<string, RouteGateEntry> = {
   "/health/admin/programs/[id]": { keys: ['health.programs.manage'] },
   "/health/admin/programs/[id]/impact": { keys: ['health.programs.manage'] },
   "/health/admin/programs/[id]/responses": { keys: ['health.programs.manage'] },
+  "/health/admin/programs/[id]/surveys": { keys: ['health.programs.manage'] },
+  "/health/admin/programs/[id]/surveys/[surveyId]": { keys: ['health.programs.manage'] },
+  "/health/admin/programs/[id]/surveys/[surveyId]/report": { keys: ['health.programs.manage'] },
   "/hr/admin": { keys: ['hr.dashboard.view'], routeGuarded: true },
   "/hr/admin/academic-years": { keys: ['hr.academic_years.manage'], routeGuarded: true },
   "/hr/admin/automation-rules": { blocked: 'superAdmin' },
@@ -387,6 +391,7 @@ export const ROUTE_GATE_MAP: Record<string, RouteGateEntry> = {
   "/hr/admin/payroll": { blocked: 'superAdmin' },
   "/hr/admin/payroll/periods": { blocked: 'superAdmin' },
   "/hr/admin/payroll/periods/[id]": { blocked: 'superAdmin' },
+  "/hr/admin/payroll/periods/[id]/lop-preview": { blocked: 'superAdmin' },
   "/hr/admin/payroll/periods/new": { blocked: 'superAdmin' },
   "/hr/admin/payroll/preview": { blocked: 'superAdmin' },
   "/hr/admin/performance-reviews": { blocked: 'superAdmin' },
@@ -434,6 +439,7 @@ export const ROUTE_GATE_MAP: Record<string, RouteGateEntry> = {
   "/hr/admin/policies/reimbursement-workflow": { keys: ['hr.policies.view'], routeGuarded: true },
   "/hr/admin/policies/resignation-workflow": { keys: ['hr.policies.view'], routeGuarded: true },
   "/hr/admin/policies/roles-responsibilities": { keys: ['hr.policies.view'], routeGuarded: true },
+  "/hr/admin/policies/salary-suggestion": { blocked: 'superAdmin' },
   "/hr/admin/policies/staff-development": { keys: ['hr.policies.view'], routeGuarded: true },
   "/hr/admin/policies/teaching-artifacts": { keys: ['hr.policies.view'], routeGuarded: true },
   "/hr/admin/policies/welfare": { keys: ['hr.policies.view'], routeGuarded: true },

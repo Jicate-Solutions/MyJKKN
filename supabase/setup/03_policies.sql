@@ -11640,3 +11640,65 @@ CREATE POLICY sign_out_notices_update_own ON public.sign_out_notices
   FOR UPDATE TO authenticated
   USING (user_id = (SELECT auth.uid()))
   WITH CHECK (user_id = (SELECT auth.uid()));
+
+-- Learner profile embeds batch/regulation: permission + institution access (20261001130000)
+CREATE POLICY "batches_select_permission" ON batches
+    FOR SELECT TO authenticated USING (
+        (SELECT is_super_admin()) OR (SELECT is_admin())
+        OR ((SELECT user_has_permission('academic.batches.view')) AND role_has_institution_access(institution_id))
+    );
+
+CREATE POLICY "regulations_select_permission" ON regulations
+    FOR SELECT TO authenticated USING (
+        (SELECT is_super_admin()) OR (SELECT is_admin())
+        OR ((SELECT user_has_permission('academic.regulations.view')) AND role_has_institution_access(institution_id))
+    );
+
+
+-- 20261005120000: clinical duty geotag attendance
+CREATE POLICY hr_cds_select ON public.hr_clinical_duty_sites FOR SELECT TO authenticated
+  USING (
+    (SELECT public.user_has_permission('hr.attendance.clinical.manage'))
+    OR EXISTS (
+         SELECT 1
+         FROM unnest((SELECT public.fn_my_staff_ids())) AS sid,
+              LATERAL public.fn_hr_clinical_allowed_sites(sid, CURRENT_DATE) a
+         WHERE a.id = hr_clinical_duty_sites.id)
+  );
+CREATE POLICY hr_cds_write ON public.hr_clinical_duty_sites FOR ALL TO authenticated
+  USING ((SELECT public.user_has_permission('hr.attendance.clinical.manage')))
+  WITH CHECK ((SELECT public.user_has_permission('hr.attendance.clinical.manage')));
+
+-- Eligibility: managers see/write all; staff see their own and may file ONE
+-- pending staff-scope request for themselves. Decisions go through the RPCs.
+CREATE POLICY hr_cde_select ON public.hr_clinical_duty_eligibilities FOR SELECT TO authenticated
+  USING (
+    (SELECT public.user_has_permission('hr.attendance.clinical.manage'))
+    OR employee_id IN (SELECT unnest(public.fn_my_staff_ids()))
+    OR requested_by = (SELECT auth.uid())
+  );
+CREATE POLICY hr_cde_insert ON public.hr_clinical_duty_eligibilities FOR INSERT TO authenticated
+  WITH CHECK (
+    (SELECT public.user_has_permission('hr.attendance.clinical.manage'))
+    OR (
+      scope_type = 'staff'
+      AND status = 'pending'
+      AND granted_directly = false
+      AND requested_by = (SELECT auth.uid())
+      AND employee_id IN (SELECT unnest(public.fn_my_staff_ids()))
+      AND decided_by IS NULL AND decided_at IS NULL
+    )
+  );
+CREATE POLICY hr_cde_update ON public.hr_clinical_duty_eligibilities FOR UPDATE TO authenticated
+  USING ((SELECT public.user_has_permission('hr.attendance.clinical.manage')))
+  WITH CHECK ((SELECT public.user_has_permission('hr.attendance.clinical.manage')));
+
+-- Punches: read-only audit. Own rows, or managers / attendance viewers.
+CREATE POLICY hr_cp_select ON public.hr_clinical_punches FOR SELECT TO authenticated
+  USING (
+    employee_id IN (SELECT unnest(public.fn_my_staff_ids()))
+    OR (SELECT public.user_has_permission('hr.attendance.clinical.manage'))
+    OR (SELECT public.user_has_permission('hr.attendance.view_all'))
+  );
+
+-- 8. Permission key + grants (the key means nothing until a role holds it) -----------

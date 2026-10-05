@@ -7,6 +7,8 @@ import { useAuth } from '@/hooks/use-auth';
 import { usePermissions } from '@/hooks/use-permissions';
 import { usePurchaseOrders } from '@/hooks/procurement/use-purchase-orders';
 import { useDebounceValue } from '@/hooks/use-debounce-value';
+import { useUserInstitutionAccess } from '@/hooks/use-user-institution-access';
+import { displayRequestNumber } from '@/lib/procurement/display-number';
 import { InstitutionFilter } from '@/components/procurement/institution-filter';
 import { StatusBadge } from '@/components/procurement/status-badge';
 import { ResponsiveList } from '@/components/procurement/responsive-list';
@@ -59,6 +61,11 @@ export default function PurchaseOrdersPage() {
   const { data: response, isLoading, isError } = usePurchaseOrders(filters);
   const pos = response?.data ?? [];
 
+  // Request numbers restart per college, so "All colleges" also names the college.
+  const { institutions } = useUserInstitutionAccess();
+  const collegeName = (id: string) =>
+    institutions.find((i) => i.institution_id === id)?.institution_name ?? '-';
+
   return (
     <ContentLayout title="Deliveries">
       <div className="space-y-4 sm:space-y-6">
@@ -87,7 +94,7 @@ export default function PurchaseOrdersPage() {
               <div className="relative flex-1">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                 <Input
-                  placeholder="Search by PO number..."
+                  placeholder="Search by purchase no. or PO number..."
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
                   className="pl-9"
@@ -139,7 +146,28 @@ export default function PurchaseOrdersPage() {
                 onRowClick={(po) => router.push(`/procurement/purchase-orders/${po.id}`)}
                 rowLabel={(po) => `View order ${po.po_number}`}
                 columns={[
-                  { key: 'po', header: 'PO #', mobile: 'title', className: 'font-medium', cell: (po) => po.po_number },
+                  {
+                    key: 'purchase',
+                    header: 'Purchase no.',
+                    mobile: 'title',
+                    cell: (po) => (
+                      <div className="min-w-0">
+                        <div className="font-medium">
+                          {po.purchase_request
+                            ? displayRequestNumber(po.purchase_request.request_number)
+                            : po.po_number}
+                        </div>
+                        {po.purchase_request && (
+                          <div className="text-xs font-normal text-muted-foreground">
+                            Order {po.po_number}
+                          </div>
+                        )}
+                      </div>
+                    ),
+                  },
+                  ...(allColleges
+                    ? [{ key: 'college', header: 'College', cell: (po: (typeof pos)[number]) => collegeName(po.institution_id) }]
+                    : []),
                   { key: 'date', header: 'Date', cell: (po) => formatDateDMY(po.created_at) },
                   { key: 'vendor', header: 'Vendor', cell: (po) => po.supplier?.name || '-' },
                   { key: 'items', header: 'Items', cell: (po) => po.item_count ?? '-' },

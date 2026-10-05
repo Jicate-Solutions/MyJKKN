@@ -11124,3 +11124,110 @@ CREATE INDEX IF NOT EXISTS idx_sign_out_notices_parent_unseen
 
 COMMENT ON TABLE public.sign_out_notices IS
   'An admin signed this person out of all devices; shown once after their next sign-in (Director ruling 2026-10-02). Written by the service role only.';
+
+-- ============================================================================
+-- Hostel vacate: Accounts (Chief Accountant) approval status
+-- ============================================================================
+-- Must be its own migration: a freshly added enum value cannot be used in the
+-- same transaction that adds it. The follow-up migration
+-- 20261001120100_hostel_vacate_accountant_step.sql uses it.
+--
+-- Flow: draft -> pending_dues (bills not cleared) -> pending_accountant ->
+--       pending_principal -> pending_warden -> pending_cao -> [pending_fine]
+--       -> completed. pending_mess stays in the enum for legacy rows only.
+-- ============================================================================
+ALTER TYPE public.vacate_request_status_enum ADD VALUE IF NOT EXISTS 'pending_accountant';
+
+
+-- 20261005120000: clinical duty geotag attendance
+CREATE TABLE public.hr_clinical_duty_sites (
+  id             uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  institution_id uuid NOT NULL REFERENCES public.institutions(id) ON DELETE CASCADE,
+  name           text NOT NULL CHECK (length(btrim(name)) BETWEEN 2 AND 120),
+  lat            numeric(9,6) NOT NULL CHECK (lat BETWEEN -90 AND 90),
+  lng            numeric(9,6) NOT NULL CHECK (lng BETWEEN -180 AND 180),
+  radius_m       integer NOT NULL CHECK (radius_m BETWEEN 30 AND 2000),
+  is_active      boolean NOT NULL DEFAULT true,
+  created_by     uuid REFERENCES auth.users(id),
+  created_at     timestamptz NOT NULL DEFAULT now(),
+  updated_at     timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX hr_clinical_duty_sites_inst_idx ON public.hr_clinical_duty_sites (institution_id) WHERE is_active;
+ALTER TABLE public.hr_clinical_duty_sites ENABLE ROW LEVEL SECURITY;
+
+-- 2. Eligibility ----------------------------------------------------------------
+CREATE TABLE public.hr_clinical_duty_eligibilities (
+  id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  scope_type      text NOT NULL CHECK (scope_type IN ('staff', 'department', 'institution')),
+  employee_id     uuid REFERENCES public.staff(id) ON DELETE CASCADE,
+  department_id   uuid REFERENCES public.departments(id) ON DELETE CASCADE,
+  institution_id  uuid NOT NULL REFERENCES public.institutions(id) ON DELETE CASCADE,
+  status          text NOT NULL DEFAULT 'pending'
+                  CHECK (status IN ('pending', 'approved', 'rejected', 'revoked')),
+  reason          text,
+  valid_from      date NOT NULL DEFAULT CURRENT_DATE,
+  valid_until     date,
+  site_ids        uuid[],            -- NULL = every active site of the institution
+  requested_by    uuid REFERENCES auth.users(id),
+  granted_directly boolean NOT NULL DEFAULT false,
+  decided_by      uuid REFERENCES auth.users(id),
+  decided_at      timestamptz,
+  decision_note   text,
+  revoked_by      uuid REFERENCES auth.users(id),
+  revoked_at      timestamptz,
+  revoke_reason   text,
+  created_at      timestamptz NOT NULL DEFAULT now(),
+  updated_at      timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT hr_cde_scope_chk CHECK (
+    (scope_type = 'staff'       AND employee_id IS NOT NULL AND department_id IS NULL) OR
+    (scope_type = 'department'  AND department_id IS NOT NULL AND employee_id IS NULL) OR
+    (scope_type = 'institution' AND employee_id IS NULL AND department_id IS NULL)),
+  CONSTRAINT hr_cde_dates_chk CHECK (valid_until IS NULL OR valid_until >= valid_from)
+);
+CREATE INDEX hr_cde_employee_idx    ON public.hr_clinical_duty_eligibilities (employee_id)   WHERE employee_id IS NOT NULL;
+CREATE INDEX hr_cde_department_idx  ON public.hr_clinical_duty_eligibilities (department_id) WHERE department_id IS NOT NULL;
+CREATE INDEX hr_cde_institution_idx ON public.hr_clinical_duty_eligibilities (institution_id);
+CREATE INDEX hr_cde_status_idx      ON public.hr_clinical_duty_eligibilities (status, valid_until);
+-- One live request/grant per person: a second pending/approved row for the same
+-- staff would make "approve" ambiguous.
+CREATE UNIQUE INDEX hr_cde_one_live_staff_uniq
+  ON public.hr_clinical_duty_eligibilities (employee_id)
+  WHERE scope_type = 'staff' AND status IN ('pending', 'approved');
+ALTER TABLE public.hr_clinical_duty_eligibilities ENABLE ROW LEVEL SECURITY;
+
+-- 3. Punch audit (immutable; written only by fn_hr_clinical_punch) ---------------
+CREATE TABLE public.hr_clinical_punches (
+  id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  employee_id uuid NOT NULL REFERENCES public.staff(id) ON DELETE CASCADE,
+  work_date   date NOT NULL,
+  punch_type  text NOT NULL CHECK (punch_type IN ('in', 'out')),
+  punched_at  timestamptz NOT NULL DEFAULT now(),
+  site_id     uuid NOT NULL REFERENCES public.hr_clinical_duty_sites(id),
+  lat         numeric(9,6) NOT NULL,
+  lng         numeric(9,6) NOT NULL,
+  accuracy_m  integer NOT NULL,
+  distance_m  integer NOT NULL,
+  CONSTRAINT hr_clinical_punches_one_per_type UNIQUE (employee_id, work_date, punch_type)
+);
+CREATE INDEX hr_clinical_punches_site_idx ON public.hr_clinical_punches (site_id);
+ALTER TABLE public.hr_clinical_punches ENABLE ROW LEVEL SECURITY;
+
+CREATE TRIGGER trg_hr_clinical_duty_sites_updated
+  BEFORE UPDATE ON public.hr_clinical_duty_sites
+  FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
+CREATE TRIGGER trg_hr_cde_updated
+  BEFORE UPDATE ON public.hr_clinical_duty_eligibilities
+  FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
+
+-- 4. Helpers ---------------------------------------------------------------------
+-- Is this person approved for clinical duty on this date? Matches an approved,
+-- in-date row at staff, department or institution level.
+
+-- Mirrored from supabase/migrations/20271005120000_comp_off_claim_batch.sql
+ALTER TABLE public.hr_comp_off_credits
+  ADD COLUMN IF NOT EXISTS claim_batch_id uuid NULL;
+COMMENT ON COLUMN public.hr_comp_off_credits.claim_batch_id IS
+  'Shared by the credit rows of one multi-day claim submission; NULL for a single-day claim or a non-claim credit.';
+CREATE INDEX IF NOT EXISTS idx_hr_comp_off_credits_claim_batch
+  ON public.hr_comp_off_credits (claim_batch_id)
+  WHERE claim_batch_id IS NOT NULL;

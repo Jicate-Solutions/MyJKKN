@@ -26,7 +26,15 @@ import {
 import { istToday, type CiaRound } from '@/types/internal-marks';
 import type { LearnerForMarkEntry } from '@/types/internal-marks';
 import type { LearnerEntry, QuestionMarkSyncRecord } from '@/types/mark-entry';
+import {
+  downloadQuestionWiseTemplate,
+  parseQuestionWiseUpload,
+  type MarksImportIssue,
+  type MarksImportResult,
+  type TemplateLearner,
+} from '@/lib/utils/mark-entry/marks-excel';
 import { QuestionMarkMatrix } from './question-mark-matrix';
+import { MarksExcelActions, MarksImportIssues } from './marks-excel-actions';
 import { QuestionMarkCards } from './question-mark-cards';
 import { CoAttainmentBar } from './co-attainment-bar';
 
@@ -90,6 +98,8 @@ export function QuestionWiseTab({
   /** Paper id whose draft the user has already restored or discarded. */
   const [draftHandledFor, setDraftHandledFor] = useState<string | null>(null);
   const [errors, setErrors] = useState<string[]>([]);
+  /** Why the last Excel upload was refused. Empty = nothing to show. */
+  const [importIssues, setImportIssues] = useState<MarksImportIssue[]>([]);
   /** Component the last successful save filed marks under — see the re-point note. */
   const [savedComponent, setSavedComponent] = useState<string | undefined>(undefined);
 
@@ -378,7 +388,7 @@ export function QuestionWiseTab({
   }
 
   // Round is question-wise but no ELIGIBLE paper exists. Never a dead end — the
-  // Direct tab stays available, matching the COE screen's behaviour exactly.
+  // host page passes its component grid as `renderFallback`, shown under the notice.
   //
   // Two distinct situations, two different next actions: nothing authored (write
   // the paper) versus authored-but-still-draft (chase the setter to submit it).
@@ -446,6 +456,32 @@ export function QuestionWiseTab({
   // grant, `access.can_enter` is the role tier (leadership is view-only). Both
   // must hold, and the save route re-checks the second one regardless.
   const readOnly = !canEnter || data?.access?.can_enter === false;
+
+  // The template carries whatever is on screen, so a download → edit → upload
+  // round-trip never loses marks that were already keyed in.
+  const templateLearners: TemplateLearner[] = entryRows.map((r) => ({
+    id: r.student_id,
+    register_number: r.register_number,
+    name: r.student_name,
+    marks: r.marks,
+    is_absent: r.is_absent,
+  }));
+
+  /** A clean upload only fills the grid — Save still runs the normal write path. */
+  const applyImport = (result: MarksImportResult) => {
+    isDirty.current = true;
+    setErrors([]);
+    setEntries((prev) => {
+      const next = { ...prev };
+      for (const row of result.rows) next[row.learnerId] = row.marks;
+      return next;
+    });
+    setAbsent((prev) => {
+      const next = { ...prev };
+      for (const row of result.rows) next[row.learnerId] = row.isAbsent;
+      return next;
+    });
+  };
   const restrictions = paper.parts
     .filter((p) => p.num_to_answer != null)
     .map((p) => `Part ${p.part_label}: answer any ${p.num_to_answer} of ${p.group_count}`);
@@ -585,6 +621,26 @@ export function QuestionWiseTab({
               )}
               PDF
             </Button>
+
+            <MarksExcelActions
+              canUpload={!readOnly}
+              disabled={entryRows.length === 0 || !targetComponent}
+              onDownload={() =>
+                downloadQuestionWiseTemplate({
+                  paper,
+                  roundName: round.round_name,
+                  componentCode: activeComponent,
+                  componentName: targetComponent?.name ?? activeComponent,
+                  componentMax,
+                  learners: templateLearners,
+                })
+              }
+              onParse={(file) =>
+                parseQuestionWiseUpload(file, { paper, componentMax, learners: templateLearners })
+              }
+              onImported={applyImport}
+              onIssues={setImportIssues}
+            />
           </div>
 
           {(restrictions.length > 0 || orPairs > 0) && (
@@ -607,6 +663,8 @@ export function QuestionWiseTab({
           )}
         </CardContent>
       </Card>
+
+      <MarksImportIssues issues={importIssues} onDismiss={() => setImportIssues([])} />
 
       {errors.length > 0 && (
         <Alert variant='destructive'>

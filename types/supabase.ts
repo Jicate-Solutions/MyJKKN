@@ -84446,6 +84446,7 @@ export type Database = {
         Row: {
           approved_at: string | null
           approved_by: string | null
+          claim_batch_id: string | null
           consumed_at: string | null
           consumed_by_application_id: string | null
           created_at: string
@@ -84472,6 +84473,7 @@ export type Database = {
         Insert: {
           approved_at?: string | null
           approved_by?: string | null
+          claim_batch_id?: string | null
           consumed_at?: string | null
           consumed_by_application_id?: string | null
           created_at?: string
@@ -84498,6 +84500,7 @@ export type Database = {
         Update: {
           approved_at?: string | null
           approved_by?: string | null
+          claim_batch_id?: string | null
           consumed_at?: string | null
           consumed_by_application_id?: string | null
           created_at?: string
@@ -221297,6 +221300,7 @@ export type Database = {
         | "pending_warden"
         | "pending_chief"
         | "pending_dues"
+        | "pending_accountant"
         | "pending_principal"
         | "pending_mess"
         | "pending_cao"
@@ -222862,6 +222866,7 @@ export const Constants = {
         "pending_warden",
         "pending_chief",
         "pending_dues",
+        "pending_accountant",
         "pending_principal",
         "pending_mess",
         "pending_cao",

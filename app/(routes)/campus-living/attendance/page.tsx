@@ -1,87 +1,89 @@
 'use client';
 
-import { useState } from 'react';
+import { Suspense, useMemo } from 'react';
 import Link from 'next/link';
-import { toast } from 'sonner';
+import { AlertTriangle, BarChart3, Calendar, ClipboardCheck, Loader2, UserX } from 'lucide-react';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
+import { usePermissions } from '@/hooks/use-permissions';
 import { useAuth } from '@/hooks/use-auth';
-import { useAttendanceDashboard } from '@/hooks/campus-living/use-hostel-attendance';
-import { BlockSelector } from '@/components/campus-living/block-selector';
+import { useAttendanceBreakdown } from '@/hooks/campus-living/use-attendance-analytics';
 import {
-  ClipboardCheck,
-  Users,
-  UserX,
-  CalendarOff,
-  Clock,
-  AlertTriangle,
-  Loader2,
-  ArrowRight,
-  Calendar,
-  Download,
-  Building2,
-  BarChart3,
-  ChevronLeft,
-  ChevronRight,
-  Info
-} from 'lucide-react';
+  groupBy,
+  groupRowsToCsv,
+  toggleFilter,
+  totals,
+  type Dimension,
+} from '@/lib/campus-living/attendance-cube';
+import { BreakdownPanel } from './_components/breakdown-panel';
+import { DrilldownPanel } from './_components/drilldown-panel';
+import { ExportMenu, type CsvExport } from './_components/export-menu';
+import { HeatmapPanel } from './_components/heatmap-panel';
+import { MixCoveragePanel } from './_components/mix-coverage-panel';
+import { OverallCards } from './_components/overall-cards';
+import { RankingPanel } from './_components/ranking-panel';
+import { ScopeBar } from './_components/scope-bar';
+import { TrendPanel } from './_components/trend-panel';
+import { useAttendanceScope } from './_components/use-attendance-scope';
+
+type D = Exclude<Dimension, 'date'>;
 
 /**
- * Shift a YYYY-MM-DD string by n days, in UTC.
+ * Hostel attendance dashboard — overall counts, then the same counts by
+ * institution, department and block, with interactive analytics.
  *
- * Local-time date math would roll an IST (+5:30) midnight back a day, and the
- * stored `date` column is the same UTC basis Mark Attendance stamps.
+ * One RPC (fn_cl_attendance_breakdown) returns a small cube; everything below is a
+ * pure function over it (lib/campus-living/attendance-cube.ts), so clicking a bar
+ * re-aggregates every panel instantly. Period + filter live in the URL.
  */
-function addDays(iso: string, n: number): string {
-  const [y, m, d] = iso.split('-').map(Number);
-  const dt = new Date(Date.UTC(y, m - 1, d));
-  dt.setUTCDate(dt.getUTCDate() + n);
-  return dt.toISOString().split('T')[0];
+function SectionTitle({ children }: { children: React.ReactNode }) {
+  return (
+    <h2 className="border-b pb-1.5 pt-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+      {children}
+    </h2>
+  );
 }
 
-export default function AttendanceDashboardPage() {
+function AttendanceDashboard() {
   const { profile } = useAuth();
+  const { canAccess, isSuperAdmin } = usePermissions();
   const institutionId = profile?.institution_id ?? '';
-  const [blockFilter, setBlockFilter] = useState<string>('all');
+  const scope = useAttendanceScope();
+  const { range, filter } = scope;
 
-  // Mark Attendance stamps rows with new Date().toISOString() — use the SAME
-  // UTC date basis here so "today" matches what was just marked.
-  const today = new Date().toISOString().split('T')[0];
-  // The page opens on today, but any past day can be reviewed. The service
-  // already honours an arbitrary date: it filters marks on it and ends the
-  // 7-day trend window there, so the whole page moves together.
-  const [date, setDate] = useState<string>(today);
-  const isToday = date === today;
+  const { data, error } = useAttendanceBreakdown(institutionId, range.from, range.to);
+  const loading = !data && !error;
 
-  const { data: rawStats, isLoading } = useAttendanceDashboard(
-    institutionId,
-    date,
-    blockFilter !== 'all' ? blockFilter : undefined
+  const canMark = isSuperAdmin || canAccess('campus_living.attendance', 'mark');
+  const canExport = isSuperAdmin || canAccess('campus_living.attendance', 'export');
+
+  const total = useMemo(() => (data ? totals(data, filter) : null), [data, filter]);
+  const rows = useMemo(
+    () => ({
+      institution: data ? groupBy(data, 'institution', filter) : [],
+      department: data ? groupBy(data, 'department', filter) : [],
+      block: data ? groupBy(data, 'block', filter) : [],
+      date: data ? groupBy(data, 'date', filter) : [],
+    }),
+    [data, filter],
   );
-  // Defensive: while loading rawStats is undefined; fall back to safe defaults
-  // so the aggregate cards render zeros instead of crashing.
-  const s = (rawStats ?? {}) as any;
-  const stats = {
-    date: s.date ?? new Date().toISOString(),
-    total_hostellers: s.total_hostellers ?? 0,
-    present: s.present ?? 0,
-    absent: s.absent ?? 0,
-    on_leave: s.on_leave ?? 0,
-    late_entry: s.late_entry ?? 0,
-    attendance_rate: s.attendance_rate ?? 0,
-    curfew_violations: s.curfew_violations ?? 0,
-    blocks: Array.isArray(s.blocks) ? s.blocks : [],
-    weekly_trend: Array.isArray(s.weekly_trend) ? s.weekly_trend : [],
+
+  const select = (dim: D, key: string) => {
+    if (data) scope.setFilter(toggleFilter(filter, dim, key, data));
   };
 
+  const exports: CsvExport[] = total
+    ? (['institution', 'department', 'block', 'date'] as const).map((dim) => ({
+        label: { institution: 'By institution', department: 'By department', block: 'By block', date: 'By day' }[dim],
+        slug: `by-${dim}`,
+        build: () => groupRowsToCsv(rows[dim], dim, total),
+      }))
+    : [];
+
   return (
-    <ContentLayout title="Hostel Attendance">
+    <ContentLayout title="Hostel Attendance" fullWidth>
       <PageBreadcrumb
         items={[
           { label: 'Home', href: '/' },
@@ -90,22 +92,16 @@ export default function AttendanceDashboardPage() {
         ]}
       />
 
-      <div className="space-y-6 mt-4">
-        {/* Header */}
-        <div className="flex flex-col gap-4 sm:flex-row sm:justify-between sm:items-start">
+      <div className="mt-4 space-y-5 sm:space-y-6">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
           <div>
-            <h1 className="text-2xl font-bold py-1">Hostel Attendance</h1>
-            <p className="text-sm text-muted-foreground">
-              {isToday ? 'Today' : 'Viewing'}:{' '}
-              {new Date(`${date}T00:00:00`).toLocaleDateString('en-IN', {
-                weekday: 'long',
-                year: 'numeric',
-                month: 'long',
-                day: 'numeric',
-              })}
+            <h1 className="text-2xl font-bold tracking-tight">Hostel Attendance</h1>
+            <p className="mt-0.5 text-sm text-muted-foreground">
+              Counts by institution, department and block — click any bar, row or box to filter everything.
             </p>
           </div>
-          <div className="flex flex-wrap gap-2">
+          <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap lg:justify-end">
+            {canExport && <ExportMenu exports={exports} from={range.from} to={range.to} disabled={!total} />}
             <Button variant="outline" asChild>
               <Link href="/campus-living/attendance/history">
                 <Calendar className="mr-2 h-4 w-4" />
@@ -121,277 +117,133 @@ export default function AttendanceDashboardPage() {
             <Button variant="outline" asChild>
               <Link href="/campus-living/analytics/attendance">
                 <BarChart3 className="mr-2 h-4 w-4" />
-                View Analytics
+                Learner analytics
               </Link>
             </Button>
-            <Button asChild>
-              <Link href="/campus-living/attendance/mark">
-                <ClipboardCheck className="mr-2 h-4 w-4" />
-                Mark Attendance
-              </Link>
-            </Button>
+            {canMark && (
+              <Button asChild>
+                <Link href="/campus-living/attendance/mark">
+                  <ClipboardCheck className="mr-2 h-4 w-4" />
+                  Mark Attendance
+                </Link>
+              </Button>
+            )}
           </div>
         </div>
 
-        {/* Scope: which day, which block */}
-        <Card>
-          <CardContent className="p-4">
-            <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end">
-              <div className="space-y-1">
-                <Label htmlFor="attendance-date" className="text-xs text-muted-foreground">
-                  Date
-                </Label>
-                <div className="flex items-center gap-1">
-                  <Button
-                    variant="outline"
-                    size="icon"
-                    aria-label="Previous day"
-                    onClick={() => setDate((d) => addDays(d, -1))}
-                  >
-                    <ChevronLeft className="h-4 w-4" />
-                  </Button>
-                  <Input
-                    id="attendance-date"
-                    type="date"
-                    value={date}
-                    // No future days: attendance cannot have been marked for one,
-                    // and an empty page there reads as a fault rather than a date.
-                    max={today}
-                    onChange={(e) => e.target.value && setDate(e.target.value)}
-                    className="w-[160px]"
-                  />
-                  <Button
-                    variant="outline"
-                    size="icon"
-                    aria-label="Next day"
-                    disabled={isToday}
-                    onClick={() => setDate((d) => addDays(d, 1))}
-                  >
-                    <ChevronRight className="h-4 w-4" />
-                  </Button>
-                </div>
-              </div>
+        <ScopeBar
+          today={scope.today}
+          period={scope.period}
+          day={scope.day}
+          customFrom={scope.customFrom}
+          customTo={scope.customTo}
+          range={range}
+          filter={filter}
+          data={data}
+          onPeriod={scope.setPeriod}
+          onDay={scope.setDay}
+          onCustom={scope.setCustom}
+          onFilter={scope.setFilter}
+          onClear={scope.clearFilter}
+        />
 
-              <div className="space-y-1">
-                <Label className="text-xs text-muted-foreground">Block</Label>
-                <BlockSelector
-                  institutionId={institutionId}
-                  value={blockFilter}
-                  onValueChange={setBlockFilter}
-                />
-              </div>
-
-              {!isToday && (
-                <Button variant="ghost" size="sm" onClick={() => setDate(today)}>
-                  Back to today
-                </Button>
-              )}
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Historical dates carry a mixed basis: the marks are from the chosen
-            day, but the resident population comes from allocations as they
-            stand NOW. Anyone who moved in or out since will skew the totals, so
-            say it rather than let the numbers quietly disagree with history. */}
-        {!isToday && (
-          <Alert>
-            <Info className="h-4 w-4" />
+        {error ? (
+          <Alert variant="destructive">
+            <AlertTriangle className="h-4 w-4" />
+            <AlertTitle>Could not load attendance</AlertTitle>
             <AlertDescription>
-              Marks shown are from{' '}
-              {new Date(`${date}T00:00:00`).toLocaleDateString('en-IN', {
-                day: 'numeric',
-                month: 'short',
-                year: 'numeric',
-              })}
-              , but resident totals and block rates are based on{' '}
-              <strong>today&apos;s</strong> allocations — anyone allocated or
-              vacated since then shifts those denominators.
+              {error instanceof Error ? error.message : 'Unknown error'}. This is a failure to load, not an empty
+              period.
             </AlertDescription>
           </Alert>
-        )}
-
-        {isLoading ? (
-          <div className="flex items-center justify-center min-h-[300px]">
-            <Loader2 className="h-8 w-8 animate-spin text-primary" />
-          </div>
         ) : (
-          <>
-          {/* Nothing was marked on this day at all — distinct from "everyone was
-              absent", which the zero-filled cards below would otherwise imply. */}
-          {stats.present + stats.absent + stats.on_leave + stats.late_entry === 0 && (
-            <Alert>
-              <AlertTriangle className="h-4 w-4" />
-              <AlertTitle>No attendance marked on this date</AlertTitle>
-              <AlertDescription>
-                The counts below are zero because no roll call was recorded
-                {blockFilter !== 'all' ? ' for this block' : ''} on this day — not
-                because residents were absent.
-              </AlertDescription>
-            </Alert>
-          )}
+          <div className={scope.isPending ? 'space-y-5 opacity-70 transition-opacity sm:space-y-6' : 'space-y-5 sm:space-y-6'}>
+            {/* Nothing marked at all is different from "everyone was absent". */}
+            {total && total.marks === 0 && (
+              <Alert>
+                <AlertTriangle className="h-4 w-4" />
+                <AlertTitle>No attendance marked for this selection</AlertTitle>
+                <AlertDescription>
+                  The counts below are zero because no roll call was recorded here in this period — not because
+                  residents were absent.
+                </AlertDescription>
+              </Alert>
+            )}
 
-          {/* Primary Stats. Six cards, not seven: the "Curfew Violations" card
-              that used to sit here read 0 on every date because
-              hostel_attendance.is_curfew_violation is true on zero rows in
-              production. It reported missing data as good behaviour. */}
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
-            <Card>
-              <CardContent className="p-4 text-center">
-                <Users className="h-5 w-5 text-muted-foreground mx-auto mb-1" />
-                <p className="text-2xl font-bold">{(stats.total_hostellers ?? 0).toLocaleString()}</p>
-                <p className="text-xs text-muted-foreground">Total</p>
-              </CardContent>
-            </Card>
-            <Card className="border-green-200 bg-green-50/50">
-              <CardContent className="p-4 text-center">
-                <p className="text-2xl font-bold text-green-700">{(stats.present ?? 0).toLocaleString()}</p>
-                <p className="text-xs text-green-600">Present</p>
-              </CardContent>
-            </Card>
-            <Card className="border-red-200 bg-red-50/50">
-              <CardContent className="p-4 text-center">
-                <p className="text-2xl font-bold text-red-700">{stats.absent}</p>
-                <p className="text-xs text-red-600">Absent</p>
-              </CardContent>
-            </Card>
-            <Card className="border-amber-200 bg-amber-50/50">
-              <CardContent className="p-4 text-center">
-                <p className="text-2xl font-bold text-amber-700">{stats.on_leave}</p>
-                <p className="text-xs text-amber-600">On Leave</p>
-              </CardContent>
-            </Card>
-            <Card className="border-orange-200 bg-orange-50/50">
-              <CardContent className="p-4 text-center">
-                <p className="text-2xl font-bold text-orange-700">{stats.late_entry}</p>
-                <p className="text-xs text-orange-600">Late Entry</p>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardContent className="p-4 text-center">
-                <p className="text-2xl font-bold">{stats.attendance_rate}%</p>
-                <p className="text-xs text-muted-foreground">Rate</p>
-              </CardContent>
-            </Card>
-          </div>
+            <OverallCards total={total} isLoading={loading} />
 
-          {/* Block-wise Attendance */}
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between gap-2">
-              <div className="min-w-0">
-                <CardTitle className="text-base">Block-wise Attendance</CardTitle>
-                <CardDescription>
-                  {isToday ? "Today's" : "Selected day's"} attendance by hostel block
-                </CardDescription>
-              </div>
-              <Button
-                variant="outline"
-                size="sm"
-                className="shrink-0"
-                onClick={() =>
-                  toast.info('Attendance export ships next.', {
-                    description: 'Block-wise CSV export will be available once the export endpoint is live.',
-                  })
-                }
-              >
-                <Download className="mr-2 h-4 w-4" />
-                Export
-              </Button>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-4">
-                {(stats.blocks ?? []).length === 0 && (
-                  <p className="text-sm text-muted-foreground text-center py-6">
-                    No block attendance recorded yet.
-                  </p>
-                )}
-                {(stats.blocks ?? []).map((block: any) => {
-                  const rate = block.total > 0 ? Math.round((block.present / block.total) * 100) : 0;
-                  return (
-                    <div key={block.id} className="flex flex-col gap-3 p-4 border rounded-lg sm:flex-row sm:items-center sm:gap-4">
-                      <div className="flex-1 min-w-0">
-                        <div className="flex flex-wrap items-center gap-2 mb-2">
-                          <Building2 className="h-4 w-4 text-muted-foreground" />
-                          <span className="font-medium">{block.name}</span>
-                          <Badge variant="outline" className="text-xs">{block.code}</Badge>
-                          {!block.marked && (
-                            <Badge variant="destructive" className="text-xs">Not Marked</Badge>
-                          )}
-                        </div>
-                        <div className="h-2 w-full bg-muted rounded-full overflow-hidden">
-                          <div
-                            className={`h-full rounded-full ${rate >= 90 ? 'bg-green-500' : rate >= 75 ? 'bg-amber-500' : 'bg-red-500'}`}
-                            style={{ width: `${rate}%` }}
-                          />
-                        </div>
-                      </div>
-                      <div className="flex flex-wrap gap-4 text-center text-sm sm:shrink-0">
-                        <div>
-                          <p className="font-semibold text-green-600">{block.present}</p>
-                          <p className="text-xs text-muted-foreground">Present</p>
-                        </div>
-                        <div>
-                          <p className="font-semibold text-red-600">{block.absent}</p>
-                          <p className="text-xs text-muted-foreground">Absent</p>
-                        </div>
-                        <div>
-                          <p className="font-semibold text-amber-600">{block.on_leave}</p>
-                          <p className="text-xs text-muted-foreground">Leave</p>
-                        </div>
-                        <div>
-                          <p className="font-semibold">{rate}%</p>
-                          <p className="text-xs text-muted-foreground">Rate</p>
-                        </div>
-                      </div>
+            <SectionTitle>Who is where — counts by institution, department and block</SectionTitle>
+            <div className="space-y-5 sm:space-y-6">
+              <BreakdownPanel
+                title="Institution-wise attendance"
+                description="Counts and rate for each institution"
+                dim="institution"
+                rows={rows.institution}
+                total={total}
+                activeKey={filter.institutionId ?? null}
+                isLoading={loading}
+                onSelect={(k) => select('institution', k)}
+              />
+              <BreakdownPanel
+                title="Department-wise attendance"
+                description="Counts and rate for each department"
+                dim="department"
+                rows={rows.department}
+                total={total}
+                activeKey={filter.departmentId ?? null}
+                isLoading={loading}
+                onSelect={(k) => select('department', k)}
+              />
+            </div>
+
+            <BreakdownPanel
+              title="Block-wise attendance"
+              description="Counts and rate for each hostel block"
+              dim="block"
+              rows={rows.block}
+              total={total}
+              activeKey={filter.blockId ?? null}
+              isLoading={loading}
+              onSelect={(k) => select('block', k)}
+              rowAction={
+                canMark && scope.period === 'day'
+                  ? (r) => (
                       <Button variant="ghost" size="sm" asChild>
-                        <Link href={`/campus-living/attendance/mark?block=${block.id}&date=${date}`}>
-                          {block.marked ? 'Update' : 'Mark'}
+                        <Link href={`/campus-living/attendance/mark?block=${r.key}&date=${scope.day}`}>
+                          {r.marks > 0 ? 'Update' : 'Mark'}
                         </Link>
                       </Button>
-                    </div>
-                  );
-                })}
-              </div>
-            </CardContent>
-          </Card>
+                    )
+                  : undefined
+              }
+            />
 
-          {/* Weekly Trend */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">Weekly Attendance Trend</CardTitle>
-              <CardDescription>
-                The 7 days ending on the selected date
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              {(stats.weekly_trend ?? []).length === 0 && (
-                <p className="text-sm text-muted-foreground text-center py-6">
-                  No weekly trend data available.
-                </p>
-              )}
-              <div className="grid grid-cols-7 gap-2">
-                {(stats.weekly_trend ?? []).map((day: any) => {
-                  const denom = (day.present ?? 0) + (day.absent ?? 0);
-                  const rate = denom > 0 ? Math.round(((day.present ?? 0) / denom) * 100) : 0;
-                  return (
-                    <div key={day.day} className="text-center">
-                      <p className="text-xs text-muted-foreground mb-2">{day.day}</p>
-                      <div className="h-24 bg-muted rounded-lg relative overflow-hidden">
-                        <div
-                          className={`absolute bottom-0 left-0 right-0 rounded-lg ${rate >= 90 ? 'bg-green-400' : rate >= 80 ? 'bg-amber-400' : 'bg-red-400'}`}
-                          style={{ height: `${rate}%` }}
-                        />
-                      </div>
-                      <p className="text-xs font-medium mt-1">{rate}%</p>
-                    </div>
-                  );
-                })}
-              </div>
-            </CardContent>
-          </Card>
-          </>
+            <SectionTitle>Trends and patterns</SectionTitle>
+            <TrendPanel data={data} filter={filter} isLoading={loading} />
+            <HeatmapPanel data={data} filter={filter} isLoading={loading} onSelect={select} />
+            <SectionTitle>Drill down and ranking</SectionTitle>
+            <DrilldownPanel data={data} filter={filter} isLoading={loading} onPick={scope.setFilter} />
+            <RankingPanel data={data} filter={filter} isLoading={loading} onSelect={select} />
+            <SectionTitle>Composition and coverage</SectionTitle>
+            <MixCoveragePanel data={data} filter={filter} isLoading={loading} onSelect={select} />
+          </div>
         )}
       </div>
     </ContentLayout>
+  );
+}
+
+export default function AttendanceDashboardPage() {
+  // useSearchParams needs a Suspense boundary.
+  return (
+    <Suspense
+      fallback={
+        <div className="flex min-h-[300px] items-center justify-center">
+          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+        </div>
+      }
+    >
+      <AttendanceDashboard />
+    </Suspense>
   );
 }
