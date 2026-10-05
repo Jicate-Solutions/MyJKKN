@@ -15,6 +15,7 @@ import type {
   CompOffWorkLocation,
   PendingCompOffClaim,
 } from '@/types/hr-comp-off';
+import { MAX_CLAIM_DAYS } from '@/types/hr-comp-off';
 import type { LeaveDocument } from '@/types/hr';
 
 /**
@@ -25,7 +26,7 @@ import type { LeaveDocument } from '@/types/hr';
  */
 const CLAIM_SELECT =
   `id, employee_id, worked_date, expires_on, credit_days, source, notes, documents, created_at,
-   work_location, work_place,
+   work_location, work_place, claim_batch_id,
    member:employee_id ( first_name, last_name, staff_id, institution_id,
      institution:institutions ( name ) )`;
 
@@ -53,6 +54,7 @@ function toClaim(row: Record<string, unknown>): PendingCompOffClaim {
     notes: (row.notes as string | null) ?? null,
     work_location: (row.work_location as CompOffWorkLocation | null) ?? null,
     work_place: (row.work_place as string | null) ?? null,
+    claim_batch_id: (row.claim_batch_id as string | null) ?? null,
     documents: (row.documents as LeaveDocument[] | null) ?? [],
     created_at: row.created_at as string,
   };
@@ -75,7 +77,13 @@ export class CompOffService {
   }
 
   /**
-   * Claim a worked day.
+   * Claim one or more worked days — each becomes its OWN credit row, with its
+   * own expiry (worked_date + 1 calendar month) and its own decision.
+   *
+   * Every day goes in ONE insert statement, so a trigger refusing any single
+   * day (closed month, clash, expired on arrival) refuses the whole submission
+   * rather than leaving half of it saved. A multi-day submission shares one
+   * claim_batch_id so the approvals queue can show its days together.
    *
    * Always inserted as source='claim', status='pending' — the RLS INSERT policy
    * requires both, so a claimant cannot write themselves an already-approved
@@ -86,12 +94,12 @@ export class CompOffService {
    * constraint — surfaced as a clear message rather than a raw 23505, since
    * the 1-day-per-day-worked rule makes a second claim always a duplicate.
    */
-  static async claimWorkedDay(
+  static async claimWorkedDays(
     supabase: SupabaseClient,
     input: {
       hr_organization_id: string;
       employee_id: string;
-      worked_date: string;
+      worked_dates: string[];
       notes?: string | null;
       documents: LeaveDocument[];
       work_location: CompOffWorkLocation | null;
@@ -120,17 +128,28 @@ export class CompOffService {
     if (input.work_location === 'outside_campus' && !place) {
       throw new Error('Enter the place you worked at when it was outside the campus.');
     }
-    const { error } = await supabase.from('hr_comp_off_credits').insert({
-      hr_organization_id: input.hr_organization_id,
-      employee_id: input.employee_id,
-      worked_date: input.worked_date,
-      source: 'claim',
-      status: 'pending',
-      notes: input.notes ?? null,
-      documents: input.documents,
-      work_location: input.work_location,
-      work_place: place,
-    });
+    const dates = [...new Set(input.worked_dates)].sort();
+    if (dates.length === 0) throw new Error('Pick at least one day you worked.');
+    if (dates.length > MAX_CLAIM_DAYS) {
+      throw new Error(`Claim at most ${MAX_CLAIM_DAYS} days at a time.`);
+    }
+    const claimBatchId = dates.length > 1 ? crypto.randomUUID() : null;
+    // Every row carries the same keys — PostgREST builds one column list for
+    // a batch insert, so a key missing on one row would be sent as NULL.
+    const { error } = await supabase.from('hr_comp_off_credits').insert(
+      dates.map((worked_date) => ({
+        hr_organization_id: input.hr_organization_id,
+        employee_id: input.employee_id,
+        worked_date,
+        source: 'claim',
+        status: 'pending',
+        notes: input.notes ?? null,
+        documents: input.documents,
+        work_location: input.work_location,
+        work_place: place,
+        claim_batch_id: claimBatchId,
+      }))
+    );
     if (error) {
       // 23505 now has TWO sources on this table and they say different things:
       //   * trg_hcoc_day_occupancy, whose message NAMES the request already
@@ -141,7 +160,8 @@ export class CompOffService {
       // most informative refusal in the module was being thrown away.
       if (error.code === '23505') {
         throw new Error(
-          /only one request is allowed per day/i.test(error.message ?? '')
+          // trg_hcoc_one_claim_per_day names the day and the earlier claim too.
+          /only one request is allowed per day|can be claimed only once/i.test(error.message ?? '')
             ? error.message
             : 'A compensatory off credit already exists for that worked date.'
         );

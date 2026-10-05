@@ -12,13 +12,15 @@
  */
 
 import { createServerSupabaseClient } from '@/lib/supabase/server';
-import type {
-  ServiceRequestApproval,
-  ProcessApprovalDto,
-  ServiceRequestFilters,
-  ServiceRequestListResponse,
+import {
+  isFeeStep,
+  type ServiceRequestApproval,
+  type ProcessApprovalDto,
+  type ServiceRequestFilters,
+  type ServiceRequestListResponse,
 } from '@/types/service-request';
 import { ServiceRequestTimelineService } from './service-request-timeline-service';
+import { ServiceRequestFeeService } from './service-request-fee-service';
 import { notifyTmsWebhook } from './transport-webhook';
 import { normalizePagination } from './pagination';
 import { buildApproverScopeFilter } from './approver-scope-filter';
@@ -79,6 +81,15 @@ export class ServiceRequestApprovalService {
 
     if (!currentStep) {
       throw new Error('Current approval step not found');
+    }
+
+    // A fee step is never decided by hand — it completes when its bill is paid
+    // (ServiceRequestFeeService). Approving it here would skip the payment,
+    // and rejecting it would strand an unpaid bill on the learner's account.
+    if (isFeeStep(currentStep)) {
+      throw new Error(
+        'This step completes automatically once the fee is paid. It cannot be approved, rejected or returned.'
+      );
     }
 
     // Verify approver is authorized. Two paths:
@@ -259,6 +270,14 @@ export class ServiceRequestApprovalService {
         'in_review',
         `Step ${currentStep.step_order} (${currentStep.step_name}) approved. Proceeding to step ${nextStepOrder}.`
       );
+
+      // Next step collects a fee: raise the bill now so the requester can pay
+      // straight away. If that bill is already paid (a returned request coming
+      // round again), the same call moves the request on.
+      const nextStep = approvalSteps.find((s: any) => s.step_order === nextStepOrder);
+      if (isFeeStep(nextStep)) {
+        await ServiceRequestFeeService.syncQuietly(request.id, approverId);
+      }
     }
   }
 
@@ -342,6 +361,11 @@ export class ServiceRequestApprovalService {
     filters?: ServiceRequestFilters
   ): Promise<ServiceRequestListResponse> {
     const supabase = await getSupabase();
+
+    // Requests whose fee was paid at the counter are still parked on the fee
+    // step until someone looks. Move them on first, so the next person in the
+    // chain finds them here.
+    await ServiceRequestFeeService.sweepPaid();
 
     const { page, limit } = normalizePagination(filters?.page, filters?.limit);
     const from = (page - 1) * limit;
