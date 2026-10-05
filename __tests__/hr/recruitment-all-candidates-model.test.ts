@@ -48,7 +48,7 @@ function app(id: string, over: Partial<HRJobApplication> = {}): HRJobApplication
 function cand(id: string, over: Partial<PipelineCandidateRecord> = {}): PipelineCandidateRecord {
   return {
     id, institution_id: 'inst-b', name: `Cand ${id}`, email: `${id}@y.com`, phone: null,
-    cvviz_url: null, role_category: 'non_teaching', role_title: 'Office Staff',
+    cvviz_url: null, role_category: 'non_teaching', role_title: 'Office Assistant',
     status: 'pending_approval', is_emergency: false, source: 'hr_submission',
     submitted_at: '2026-08-01T10:00:00Z', job_id: null, ...over,
   } as PipelineCandidateRecord;
@@ -76,7 +76,7 @@ describe('buildPipelineRows — one row per person-in-pipeline across jobs', () 
     expect(a1.stage).toBe('joined');
     const c2 = rows.find((r) => r.candidateId === 'c2')!;
     expect(c2.source).toBe('direct');
-    expect(c2.jobTitle).toBe('Office Staff');
+    expect(c2.jobTitle).toBe('Office Assistant');
     expect(c2.institutionName).toBe('College B');
     expect(c2.roleCategory).toBe('non_teaching');
   });
