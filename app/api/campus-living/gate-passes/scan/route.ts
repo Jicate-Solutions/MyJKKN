@@ -144,9 +144,10 @@ export async function POST(request: NextRequest) {
   // "GATE PASS NOT APPROVED" instead of being let out on their own paperwork.
   const { data: passRows, error: passErr } = await db
     .from('hostel_gate_passes')
-    .select('id, status, destination, expected_return, out_time, pass_number, institution_id, block_id')
+    .select('id, status, destination, expected_return, out_time, pass_number, institution_id, block_id, valid_from, valid_until')
     .eq('learner_id', learner.profileId)
-    .in('status', ['issued', 'active', 'overdue'])
+    // 'expired' is read only so the guard is told WHY, never to let anyone out.
+    .in('status', ['issued', 'active', 'overdue', 'expired'])
     .order('expected_return', { ascending: true });
 
   if (passErr) {

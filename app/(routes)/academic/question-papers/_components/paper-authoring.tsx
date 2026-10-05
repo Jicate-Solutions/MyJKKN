@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -20,7 +20,9 @@ import {
 import { IaPaperService } from '@/lib/services/question-papers/ia-paper-service';
 import { CourseOutcomesManager } from '@/components/question-papers/course-outcomes-manager';
 import { validateSubMarks } from '@/lib/utils/question-papers/sub-questions';
-import { validatePaperComplete } from '@/lib/utils/question-papers/validate-paper';
+import {
+  validatePaperDetailed, partAnchor, type PaperProblem,
+} from '@/lib/utils/question-papers/validate-paper';
 import {
   PAPER_STATUS_META, CO_FALLBACK, TAMIL_FONT_FAMILIES, PaperSaveError,
 } from '@/types/ia-question-paper';
@@ -30,7 +32,7 @@ import type {
 import { QuestionCard } from './question-card';
 import {
   seedQuestions, mergeForValidation, toPayload, countAuthored,
-  type EditableQuestion,
+  type EditableQuestion, type QuestionPatch,
 } from './authoring-model';
 
 interface Props {
@@ -50,12 +52,12 @@ const FONT_DEFAULT = '__default__';
  * Renders the template's scaffolded slots (PART A/B/C…) and lets the setter fill
  * text, MCQ options, figures, sub-divisions, CO and K-level.
  *
- * Saving is EXPLICIT, not autosaved — matching COE, whose authors work the same
- * screen. The header chip is the whole feedback loop: amber while dirty, green
- * with a count after a save. Two validation tiers sit behind the buttons:
- * sub-division marks block Save (a paper whose parts don't add up is not worth
- * storing), while completeness blocks only Submit/Approve, so an author can stop
- * half-way and come back.
+ * Saving is EXPLICIT, not autosaved (an autosave once lost work here). The header
+ * chip is the whole feedback loop: amber while dirty, green with a count after a
+ * save. A DRAFT saves without any check — empty questions, no CO, sub-division
+ * marks that do not add up yet — so an author can stop half-way and come back.
+ * Submit / Approve run the full completeness rules, and every problem is pinned
+ * to its field: the checklist's "Fix" scrolls there and flashes it.
  */
 export function PaperAuthoring({ paperId, onBack, canEnter, canApprove, canExport }: Props) {
   const { data: paper, isLoading } = usePaperDetail(paperId);
@@ -73,7 +75,10 @@ export function PaperAuthoring({ paperId, onBack, canEnter, canApprove, canExpor
    * blocked. Listing every unfinished question the moment a blank paper opens
    * would be noise, not help.
    */
-  const [completionErrors, setCompletionErrors] = useState<string[]>([]);
+  const [showProblems, setShowProblems] = useState(false);
+  /** The anchor "Fix" last jumped to — ringed for a moment so the eye finds it. */
+  const [flash, setFlash] = useState<string | null>(null);
+  const flashTimer = useRef<number | null>(null);
 
   // The optimistic-save guard: the updated_at this screen last loaded. Read straight
   // off the query result — every save runs from an event handler, so the current
@@ -104,7 +109,7 @@ export function PaperAuthoring({ paperId, onBack, canEnter, canApprove, canExpor
     setDefaultFont(paper.default_font ?? null);
     setDirty(false);
     setSavedCount(null);
-    setCompletionErrors([]);
+    setShowProblems(false);
   }
   const isSeeded = !!paper?.id && seededPaperId === paper.id;
 
@@ -150,6 +155,42 @@ export function PaperAuthoring({ paperId, onBack, canEnter, canApprove, canExpor
     [slots, edits]
   );
   const subMarkErrors = useMemo(() => validateSubMarks(validationInput), [validationInput]);
+  // Sub-division marks must add up only once the paper has LEFT draft; a draft
+  // saves half-allocated and Submit catches it through the completeness rules.
+  const saveBlocked = paper?.status !== 'draft' && subMarkErrors.length > 0;
+
+  // Everything standing between this paper and Submit, pinned to its field. Always
+  // computed (it drives the per-question tick); SHOWN only after a Submit was
+  // blocked, and then it stays live, so a field clears as it is fixed.
+  const problems = useMemo(
+    () => validatePaperDetailed(validationInput, paper?.template_parts ?? []),
+    [validationInput, paper?.template_parts]
+  );
+  const incompleteIds = useMemo(
+    () => new Set(problems.map((p) => p.questionId).filter(Boolean) as string[]),
+    [problems]
+  );
+  const problemsByAnchor = useMemo(() => {
+    const map = new Map<string, PaperProblem[]>();
+    if (!showProblems) return map;
+    for (const p of problems) map.set(p.anchor, [...(map.get(p.anchor) ?? []), p]);
+    return map;
+  }, [problems, showProblems]);
+
+  const jumpTo = useCallback((anchor: string) => {
+    const el = document.getElementById(anchor);
+    if (!el) return;
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    setFlash(anchor);
+    if (flashTimer.current) window.clearTimeout(flashTimer.current);
+    flashTimer.current = window.setTimeout(() => setFlash(null), 2000);
+  }, []);
+  useEffect(
+    () => () => {
+      if (flashTimer.current) window.clearTimeout(flashTimer.current);
+    },
+    []
+  );
 
   // The CO master, or CO1–CO6 when a course has none — never block a selection on
   // missing master data.
@@ -160,8 +201,13 @@ export function PaperAuthoring({ paperId, onBack, canEnter, canApprove, canExpor
       : CO_FALLBACK.map((c) => ({ value: c, label: c }));
   }, [courseOutcomes, paper?.course_outcomes]);
 
-  const patch = useCallback((id: string, patchValue: Partial<EditableQuestion>) => {
-    setEdits((prev) => ({ ...prev, [id]: { ...prev[id], ...patchValue } }));
+  const patch = useCallback((id: string, patchValue: QuestionPatch) => {
+    setEdits((prev) => {
+      const current = prev[id];
+      if (!current) return prev;
+      const next = typeof patchValue === 'function' ? patchValue(current) : patchValue;
+      return { ...prev, [id]: { ...current, ...next } };
+    });
     setDirty(true);
   }, []);
 
@@ -197,17 +243,16 @@ export function PaperAuthoring({ paperId, onBack, canEnter, canApprove, canExpor
   );
 
   const save = useCallback(() => {
-    if (subMarkErrors.length > 0) return;
+    if (saveBlocked) return;
     saveMutation.mutate(buildDto(), {
       onSuccess: (updated) => {
         setDirty(false);
         // Prefer the server's count; fall back to a local tally if it is absent.
         const n = (updated as { saved_count?: number }).saved_count;
         setSavedCount(typeof n === 'number' ? n : countAuthored(edits));
-        setCompletionErrors([]);
       },
     });
-  }, [subMarkErrors.length, saveMutation, buildDto, edits]);
+  }, [saveBlocked, saveMutation, buildDto, edits]);
 
   /**
    * Status transitions run the SAME pure completion validator the server does, so
@@ -217,15 +262,15 @@ export function PaperAuthoring({ paperId, onBack, canEnter, canApprove, canExpor
    */
   const transition = useCallback(
     (status: PaperStatus) => {
-      if (subMarkErrors.length > 0) return;
       if (status === 'submitted' || status === 'approved') {
-        const errors = validatePaperComplete(validationInput, paper?.template_parts ?? []);
-        if (errors.length > 0) {
-          setCompletionErrors(errors);
+        if (problems.length > 0) {
+          setShowProblems(true);
+          // Land the author on the first thing to fix rather than on a list.
+          jumpTo(problems[0].anchor);
           return;
         }
       }
-      setCompletionErrors([]);
+      setShowProblems(false);
 
       // A status change closes the sheet; the list refetches and shows the new badge.
       const finish = () => {
@@ -252,10 +297,7 @@ export function PaperAuthoring({ paperId, onBack, canEnter, canApprove, canExpor
 
       saveMutation.mutate(buildDto({ status }), { onSuccess: finish });
     },
-    [
-      subMarkErrors.length, validationInput, paper?.template_parts,
-      saveMutation, buildDto, onBack, dirty, isEditable,
-    ]
+    [problems, jumpTo, saveMutation, buildDto, onBack, dirty, isEditable]
   );
 
   /**
@@ -441,10 +483,20 @@ export function PaperAuthoring({ paperId, onBack, canEnter, canApprove, canExpor
       />
 
       {isEditable && (
-        <p className='px-1 text-xs text-muted-foreground'>
-          Click <strong>Save</strong> to persist questions — the header shows ✓ Saved N answer(s).
-          Once a paper has entered questions, <strong>Rebuild will not erase it</strong>.
-        </p>
+        <div className='space-y-1 px-1 text-xs text-muted-foreground'>
+          <p>
+            Click <strong>Save</strong> to keep your work — a draft saves as it is, finished or
+            not; <strong>Submit</strong> checks that every question is complete. Once a paper has
+            entered questions, <strong>Rebuild will not erase it</strong>.
+          </p>
+          <p>
+            Pasting from Word keeps paragraphs, bold / italic / underline, sub and superscript,
+            lists and tables. It loses Word&apos;s equation objects and pictures: for an equation
+            use <strong>Σ Equation</strong> or paste its LaTeX (for example{' '}
+            <code>{'$\\frac{1}{2}$'}</code>), and for a picture paste a screenshot with{' '}
+            <kbd>Ctrl</kbd>+<kbd>V</kbd> anywhere in the question.
+          </p>
+        </div>
       )}
 
       {/* ── Parts ──────────────────────────────────────────────────────── */}
@@ -457,15 +509,15 @@ export function PaperAuthoring({ paperId, onBack, canEnter, canApprove, canExpor
             ? Number(part.num_to_answer)
             : part?.num_questions ?? 0;
         return (
-          <Card key={group.label}>
-            <CardContent className='space-y-4 py-4'>
+          <Card key={group.label} id={partAnchor(group.label)}>
+            <CardContent className='space-y-3 py-4'>
               <div className='border-b pb-2'>
                 <div className='flex flex-wrap items-center justify-between gap-2'>
                   <h3 className='font-semibold'>
                     {part?.part_title ?? `PART ${group.label}`}
                     {part && (
                       <span className='ml-2 text-xs font-normal text-muted-foreground'>
-                        — ({answerCount} x {part.marks_per_question} ={' '}
+                        – ({answerCount} x {part.marks_per_question} ={' '}
                         {answerCount * part.marks_per_question})
                         {answerCount < part.num_questions
                           ? ` · answer ${answerCount} of ${part.num_questions}`
@@ -511,6 +563,9 @@ export function PaperAuthoring({ paperId, onBack, canEnter, canApprove, canExpor
                     editable={isEditable}
                     coOptions={coOptions}
                     defaultFontFamily={defaultFont}
+                    complete={!incompleteIds.has(q.id)}
+                    problems={problemsByAnchor}
+                    flash={flash}
                     onPatch={patch}
                   />
                 ) : null
@@ -521,7 +576,10 @@ export function PaperAuthoring({ paperId, onBack, canEnter, canApprove, canExpor
       })}
 
       {/* ── Error panels ───────────────────────────────────────────────── */}
-      {subMarkErrors.length > 0 && (
+      {/* Past draft the server refuses a save whose sub-division marks do not add
+          up, so say why Save is unavailable. On a draft the card footer's red
+          "sub-divisions 15 / 16" is the only hint — nothing nags before Submit. */}
+      {isEditable && saveBlocked && (
         <div className='rounded-md border border-destructive/50 bg-destructive/5 p-3'>
           <p className='flex items-center gap-1.5 text-sm font-medium text-destructive'>
             <AlertTriangle className='h-4 w-4' />
@@ -535,21 +593,28 @@ export function PaperAuthoring({ paperId, onBack, canEnter, canApprove, canExpor
         </div>
       )}
 
-      {completionErrors.length > 0 && (
+      {showProblems && problems.length > 0 && (
         <div className='rounded-md border border-destructive/50 bg-destructive/5 p-3'>
           <p className='flex items-center gap-1.5 text-sm font-medium text-destructive'>
             <AlertTriangle className='h-4 w-4' />
-            {completionErrors.length} item(s) to complete before submitting
+            {problems.length} {problems.length === 1 ? 'item' : 'items'} to complete before
+            submitting
           </p>
-          <ul className='mt-1 list-inside list-disc text-xs text-destructive'>
-            {completionErrors.slice(0, 8).map((e) => (
-              <li key={e}>{e}</li>
-            ))}
-            {completionErrors.length > 8 && (
-              <li className='list-none pl-4 opacity-80'>
-                …and {completionErrors.length - 8} more
+          <ul className='mt-2 max-h-56 space-y-1 overflow-y-auto pr-1 text-xs'>
+            {problems.map((p, i) => (
+              <li key={`${p.anchor}-${p.field}-${i}`} className='flex items-center gap-2'>
+                <Button
+                  type='button'
+                  size='sm'
+                  variant='outline'
+                  className='h-6 shrink-0 px-2 text-[11px]'
+                  onClick={() => jumpTo(p.anchor)}
+                >
+                  Fix
+                </Button>
+                <span className='text-destructive'>{p.message}</span>
               </li>
-            )}
+            ))}
           </ul>
         </div>
       )}
@@ -593,11 +658,13 @@ export function PaperAuthoring({ paperId, onBack, canEnter, canApprove, canExpor
               variant='outline'
               size='sm'
               onClick={save}
-              disabled={busy || subMarkErrors.length > 0}
+              disabled={busy || saveBlocked}
               title={
-                subMarkErrors.length > 0
+                saveBlocked
                   ? 'Fix the sub-division marks first'
-                  : 'Save entered questions'
+                  : paper.status === 'draft'
+                    ? 'Save this draft as it is — nothing is checked until Submit'
+                    : 'Save entered questions'
               }
             >
               <Save className='mr-1 h-4 w-4' /> Save

@@ -53,6 +53,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { ApprovalTimeline } from '@/components/academic/leave-onduty/approval-timeline';
+import { LeaveGatePassCard } from '@/components/academic/leave-onduty/leave-gate-pass-card';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -159,6 +160,9 @@ function ApplicationDetailsContent({
         <h4 className="font-medium mb-3 sm:mb-4 text-sm sm:text-base">Approval Timeline</h4>
         <ApprovalTimeline applicationId={application.id} />
       </div>
+
+      {/* Hostel gate pass (renders nothing when the type issues none) */}
+      <LeaveGatePassCard applicationId={application.id} />
 
       {/* Actions */}
       {application.status === 'pending' && (

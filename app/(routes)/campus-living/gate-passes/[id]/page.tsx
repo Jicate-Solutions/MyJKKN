@@ -571,7 +571,18 @@ export default function GatePassDetailPage({ params }: { params: Promise<{ id: s
               </CardContent>
             </Card>
 
-            {canDecide && isPending && (
+            {isPending && pass.leave_onduty_application_id && (
+              <Card>
+                <CardContent className="p-4 text-sm text-muted-foreground">
+                  This pass was raised by a leave / on-duty application. It is issued
+                  automatically when the Chief Warden gives the final approval in{' '}
+                  <span className="font-medium text-foreground">Leave / OD approvals</span>, and is
+                  rejected or cancelled with the application.
+                </CardContent>
+              </Card>
+            )}
+
+            {canDecide && isPending && !pass.leave_onduty_application_id && (
               <Card>
                 <CardHeader>
                   <CardTitle className="text-base">Your decision</CardTitle>
