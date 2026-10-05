@@ -51,6 +51,7 @@ import {
 import { useUpdateGeneralEvent } from '@/hooks/events/use-general-events';
 import { isoToIstLocalInput, istLocalInputToIso } from '@/lib/utils/date-format';
 import { useEventAcademicTypes } from '@/hooks/events/use-event-academic-types';
+import { deriveRunWindow, runWindowFollowsClock, runWindowLastDay } from './event-run-window';
 
 /** ISO timestamp / date string → yyyy-MM-dd for <input type="date">. */
 const toDateInput = (v: string | null | undefined) => (v ? v.slice(0, 10) : '');
@@ -147,9 +148,16 @@ function EditGeneralEventForm({ event, onClose }: { event: Event; onClose: () =>
   const regClose = toIso(form.registration_close_date);
   const badRegWindow = !!regOpen && !!regClose && new Date(regClose) < new Date(regOpen);
 
-  const startIso = toIso(form.start_date);
-  const endIso = toIso(form.end_date);
-  const badRunWindow = !!startIso && !!endIso && new Date(endIso) < new Date(startIso);
+  // Derived from the clock fields when they are set — see event-run-window.ts.
+  const { start_date: startIso, end_date: endIso } = deriveRunWindow(form);
+  const followsClock = runWindowFollowsClock(form);
+  const badRunWindow =
+    !!startIso &&
+    !!endIso &&
+    // With hours set, end must be strictly after start (as on the create page).
+    (followsClock
+      ? new Date(endIso) <= new Date(startIso)
+      : new Date(endIso) < new Date(startIso));
 
   const peopleError = validatePeople({
     incharges: form.incharges,
@@ -337,6 +345,28 @@ function EditGeneralEventForm({ event, onClose }: { event: Event; onClose: () =>
             </div>
           </div>
 
+          {followsClock ? (
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <div className="space-y-1.5">
+                <Label htmlFor="ge-last-day">Last day (multi-day events)</Label>
+                <Input
+                  id="ge-last-day"
+                  type="date"
+                  min={form.event_date || undefined}
+                  value={runWindowLastDay(form.event_date, form.end_date)}
+                  // Only the day is kept; the time always follows End time.
+                  onChange={(e) =>
+                    set('end_date', e.target.value ? `${e.target.value}T00:00` : '')
+                  }
+                />
+              </div>
+              <p className="self-end text-xs text-muted-foreground">
+                Runs from {toLocalInput(startIso).replace('T', ' ')} until{' '}
+                {toLocalInput(endIso).replace('T', ' ')} (India time), worked out from the date
+                and times above.
+              </p>
+            </div>
+          ) : (
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div className="space-y-1.5">
               <Label htmlFor="ge-start">Runs from</Label>
@@ -357,9 +387,12 @@ function EditGeneralEventForm({ event, onClose }: { event: Event; onClose: () =>
               />
             </div>
           </div>
+          )}
           {badRunWindow && (
             <p className="text-xs text-destructive">
-              &ldquo;Runs until&rdquo; must be on or after &ldquo;Runs from&rdquo;.
+              {followsClock
+                ? 'The end time must be after the start time.'
+                : <>&ldquo;Runs until&rdquo; must be on or after &ldquo;Runs from&rdquo;.</>}
             </p>
           )}
         </div>
