@@ -2838,3 +2838,32 @@ CREATE TRIGGER trg_hr_leave_types_default_entitlement_sync
   FOR EACH ROW
   WHEN (OLD.default_entitled_days IS DISTINCT FROM NEW.default_entitled_days)
   EXECUTE FUNCTION public.trg_hr_leave_type_default_entitlement_sync();
+
+
+-- ============================================================================
+-- Updated: 2026-10-02 - Parent password views + sign-out notices (migration 20271002150000)
+-- updated_at triggers for pp_parent_password_views and sign_out_notices.
+-- ============================================================================
+DROP TRIGGER IF EXISTS trg_pp_parent_password_views_updated_at ON public.pp_parent_password_views;
+CREATE TRIGGER trg_pp_parent_password_views_updated_at
+  BEFORE UPDATE ON public.pp_parent_password_views
+  FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
+
+DROP TRIGGER IF EXISTS trg_sign_out_notices_updated_at ON public.sign_out_notices;
+CREATE TRIGGER trg_sign_out_notices_updated_at
+  BEFORE UPDATE ON public.sign_out_notices
+  FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
+-- 20261005100000: reject unfunded leave requests when a balance moves
+DROP TRIGGER IF EXISTS trg_hlme_reject_unfunded ON public.hr_leave_month_entries;
+CREATE TRIGGER trg_hlme_reject_unfunded
+  AFTER INSERT OR UPDATE OF days ON public.hr_leave_month_entries
+  FOR EACH ROW EXECUTE FUNCTION public.hr_trig_reject_unfunded_after_balance_change();
+
+DROP TRIGGER IF EXISTS trg_hlb_reject_unfunded ON public.hr_leave_balances;
+CREATE TRIGGER trg_hlb_reject_unfunded
+  AFTER UPDATE OF used, carried_forward, entitled ON public.hr_leave_balances
+  FOR EACH ROW
+  WHEN (NEW.used > OLD.used
+     OR NEW.carried_forward < OLD.carried_forward
+     OR NEW.entitled < OLD.entitled)
+  EXECUTE FUNCTION public.hr_trig_reject_unfunded_after_balance_change();

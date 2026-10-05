@@ -115,6 +115,7 @@ import hrNav from '@/app/(routes)/hr/nav-config';
 import calendarNav from '@/app/(routes)/calendar/nav-config';
 import procurementNav from '@/app/(routes)/procurement/nav-config';
 import billingNav from '@/app/(routes)/billing/nav-config';
+import instasolverNav from '@/app/(routes)/instasolver/nav-config';
 
 const NAV_CONFIG_REGISTRY: ModuleNavConfig[] = [
   campusLivingNav,
@@ -131,6 +132,7 @@ const NAV_CONFIG_REGISTRY: ModuleNavConfig[] = [
   calendarNav,
   procurementNav,
   billingNav,
+  instasolverNav,
 ];
 
 const BY_MODULE = new Map(

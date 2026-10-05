@@ -42,13 +42,15 @@ import type {
 } from '@/types/cdc';
 import { isWindowOpen } from '@/lib/services/courses/application-window';
 import { CdcDriveService, driveCircularOf } from './drive-service';
-import { hasSemesterTargeting, isLearnerTargeted, learnerTargetingMiss } from './drive-targeting';
+import { driveTargetGender, hasSemesterTargeting, isLearnerTargeted, learnerTargetingMiss } from './drive-targeting';
 import { fetchLearnerResultView, type ResultViewSource } from '@/lib/services/coe/learner-result-view';
 import { summarizeAcademicStanding, type AcademicStanding } from './academic-standing';
 
 export interface ResolvedLearner {
   id: string; // learners_profiles.id
   program_id: string | null;
+  /** learners_profiles.gender — checked when a drive is restricted to one gender. */
+  gender: string | null;
   institution_id: string | null;
   semester_id: string | null;
   semester_order: number | null;
@@ -131,7 +133,7 @@ export class CdcWillingnessService {
     const { data: learner, error: learnerErr } = await supabase
       .from('learners_profiles')
       .select(
-        'id, program_id, institution_id, semester_id, register_number, first_name, last_name, student_email, college_email, student_mobile'
+        'id, program_id, institution_id, semester_id, gender, register_number, first_name, last_name, student_email, college_email, student_mobile'
       )
       .eq('id', profile.learner_id)
       .maybeSingle();
@@ -158,6 +160,7 @@ export class CdcWillingnessService {
     return {
       id: learner.id as string,
       program_id: (learner.program_id as string | null) ?? null,
+      gender: (learner.gender as string | null) ?? null,
       institution_id: (learner.institution_id as string | null) ?? null,
       semester_id: (learner.semester_id as string | null) ?? null,
       semester_order,
@@ -501,7 +504,7 @@ function cleanMobile(raw: string | null | undefined): string | null {
 export function computeEligibility(
   drive: Pick<CdcDrive, 'institutions' | 'institution_semesters'>,
   eligibility: CdcDriveEligibility | null,
-  learner: { program_id: string | null; institution_id: string | null; semester_order: number | null }
+  learner: { program_id: string | null; institution_id: string | null; semester_order: number | null; gender?: string | null }
 ): { is_eligible: boolean; reason: string | null } {
   const targeted = Array.isArray(drive.institution_semesters) && drive.institution_semesters.length > 0;
   if (targeted) {
@@ -513,7 +516,11 @@ export function computeEligibility(
     return {
       is_eligible: false,
       reason:
-        miss === 'program'
+        miss === 'gender'
+          ? driveTargetGender(drive) === 'all'
+            ? 'This drive is not open to your gender for your program.'
+            : 'This drive is open only to ' + driveTargetGender(drive) + ' candidates.'
+          : miss === 'program'
           ? 'This drive is open only to selected programs of your institution, and your program is not one of them.'
           : miss === 'semester' || hasSemesterTargeting(drive)
             ? 'This drive is open only to selected semesters of your institution, and your current semester is not one of them.'

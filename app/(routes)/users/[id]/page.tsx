@@ -19,6 +19,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { ArrowLeft, Edit } from 'lucide-react';
 import { UserDetails } from './_components/user-details';
+import { RevokeSessionsButton } from './_components/revoke-sessions-button';
 
 // Normalize dynamic route param to a single string
 const getUserId = (value: string | string[] | undefined) =>
@@ -151,6 +152,11 @@ export default function UserDetailsPage() {
             </Button>
           </div>
         </div>
+
+        <RevokeSessionsButton
+          userId={user.id}
+          userName={user.full_name || user.email || 'This person'}
+        />
 
         <UserDetails user={user} />
       </div>

@@ -6,7 +6,7 @@
 // enforced on both sides. Any divergence shows up as a rejected save or a
 // mis-printed paper (docs/ia-question-paper-entry-spec.md §14).
 //
-// To resync: copy the COE file over the body below and keep this header.
+// To resync: copy the COE file over the body below and keep this header. Last synced 2026-10-05 (COE b34e527).
 // Source: D:\JKKN\Development\Appliaction\COE\JKKN_COE\lib\ia\sub-questions.ts
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -21,6 +21,7 @@
 //   • one level only — a sub-division cannot itself be split
 //   • sub marks must sum EXACTLY to the parent question's marks
 //   • each sub-division carries its own CO + K-level; the parent's are hidden
+//   • each sub-division carries its own answer key; the parent's is not used
 //   • the parent keeps an optional stem ("For the circuit shown below:")
 //   • objective questions (those with options) cannot be split
 //
@@ -29,7 +30,13 @@
 
 /** Figure attached to a question / sub-division (see types/ia-question-paper.ts). */
 export interface IaQuestionImageRef {
+	/** Proxy path (/api/examiner/question-paper/file/<id>) for a Drive figure, or a legacy public URL. */
 	url: string
+	/** Google Drive file id (private file, served via the proxy). */
+	drive_file_id?: string | null
+	/** Retained Drive web-view link. */
+	drive_url?: string | null
+	/** Legacy Supabase object path; null for a Drive figure. */
 	path?: string | null
 	width_pct?: number | null
 	px_w?: number | null
@@ -47,20 +54,28 @@ export interface IaSubQuestion {
 	k_level: string | null
 	/** Optional figure, printed centred under this sub-division. */
 	image?: IaQuestionImageRef | null
+	/** Answer key for THIS sub-division (rich HTML); a split question is keyed per sub-division. */
+	answer_key?: string | null
+	/** Optional figure that goes with this sub-division's answer key. */
+	answer_key_image?: IaQuestionImageRef | null
 	display_order: number
 }
 
 /**
  * Normalize an unknown value into a figure ref (null when absent / unusable).
- * Only http(s) URLs survive — the value is written into an <img src> when the
- * PDF is built, so `javascript:` and oversized `data:` payloads are dropped here.
+ * Only http(s) URLs and the same-origin proxy path (/api/examiner/question-paper/file/…)
+ * survive — the value is written into an <img src> when the PDF is built, so
+ * `javascript:` and oversized `data:` payloads are dropped here.
  */
 export function readQuestionImage(raw: any): IaQuestionImageRef | null {
 	const url = typeof raw?.url === 'string' ? raw.url.trim() : ''
-	if (!url || !/^https?:\/\//i.test(url)) return null
+	if (!url || !/^(https?:\/\/|\/api\/examiner\/question-paper\/file\/)/i.test(url)) return null
 	const num = (v: any) => (v == null || v === '' ? null : Number(v) || null)
+	const str = (v: any) => (typeof v === 'string' && v.trim() ? v.trim().slice(0, 500) : null)
 	return {
 		url,
+		drive_file_id: str(raw?.drive_file_id),
+		drive_url: str(raw?.drive_url),
 		path: raw?.path ? String(raw.path) : null,
 		width_pct: num(raw?.width_pct),
 		px_w: num(raw?.px_w),
@@ -98,6 +113,8 @@ export function readSubQuestions(q: any): IaSubQuestion[] {
 			co_code: s?.co_code || null,
 			k_level: s?.k_level || null,
 			image: readQuestionImage(s?.image),
+			answer_key: s?.answer_key ?? null,
+			answer_key_image: readQuestionImage(s?.answer_key_image),
 			display_order: i + 1,
 		}))
 }
@@ -227,4 +244,33 @@ export function flattenEntryQuestions(questions: any[]): FlatEntryQuestion[] {
 		}
 	}
 	return out
+}
+
+// ── "Entered" ────────────────────────────────────────────────────────────────
+
+const authoredText = (v: unknown) =>
+	String(v ?? '')
+		.replace(/<[^>]*>/g, '')
+		.replace(/&nbsp;/g, ' ')
+		.trim() !== ''
+
+/**
+ * Whether a question slot counts as entered. A plain question needs its text;
+ * a SPLIT question (i / ii …) needs text in every sub-division — its stem is
+ * optional, so counting the stem alone reported a finished split question as
+ * missing ("16 / 20" with Q11 b complete).
+ */
+export function isQuestionAuthored(q: any): boolean {
+	const subs = readSubQuestions(q)
+	return subs.length > 0 ? subs.every(sb => authoredText(sb.question_text)) : authoredText(q?.question_text)
+}
+
+/** How many of the paper's question slots are entered (see isQuestionAuthored). */
+export function countAuthored(questions: any[] | null | undefined): number {
+	return (Array.isArray(questions) ? questions : []).filter(isQuestionAuthored).length
+}
+
+/** Whether anything at all has been written into the paper. */
+export function anyAuthored(questions: any[] | null | undefined): boolean {
+	return (Array.isArray(questions) ? questions : []).some(isQuestionAuthored)
 }

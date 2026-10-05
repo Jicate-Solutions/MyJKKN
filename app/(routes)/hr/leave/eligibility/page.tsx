@@ -32,6 +32,7 @@ import toast from 'react-hot-toast';
 
 import { TimeOffShell } from '../_components/time-off-shell';
 import { RequestEligibilityDialog } from '../_components/request-eligibility-dialog';
+import { ClinicalDutyEligibilityCard } from '../_components/clinical-duty-eligibility-card';
 import { LeaveDocumentList } from '../_components/leave-document-list';
 import { LeaveDocumentViewer } from '../_components/leave-document-viewer';
 import { Alert, AlertDescription } from '@/components/ui/alert';
@@ -252,6 +253,13 @@ export default function LeaveEligibilityPage() {
             )}
           </CardContent>
         </Card>
+
+        {ctx.hasEmployeeRecord && ctx.employeeId && (
+          <ClinicalDutyEligibilityCard
+            employeeId={ctx.employeeId}
+            institutionId={ctx.institutionId || null}
+          />
+        )}
 
         {/* ---- Waiting on a decision ---------------------------------------- */}
         {showQueue && (

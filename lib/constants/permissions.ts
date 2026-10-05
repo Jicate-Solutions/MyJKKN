@@ -242,7 +242,13 @@ export const PERMISSION_CATEGORIES = [
       // courses.applications.decide for the external_participant kind alone
       // (20260821070100). Do not tick this key just to unblock /courses.
       { key: 'users.jkkn_id.view', label: 'Look Up People by JKKN ID / Roll Number / Team Code' },
-      { key: 'users.jkkn_id.issue', label: 'Issue a JKKN ID for Any Learner or Team Member' }
+      { key: 'users.jkkn_id.issue', label: 'Issue a JKKN ID for Any Learner or Team Member' },
+      // Added 2026-10-01 — Director ruling: logins last forever on the installed
+      // app; the safety net for a lost or shared phone is "Sign out of all
+      // devices". Gates fn_revoke_user_sessions (the admin button on
+      // /users/[id]). Super admins have it implicitly; no role is granted it by
+      // default — tick it in Role Management for whoever should hold it.
+      { key: 'users.sessions.revoke', label: 'Sign Anyone Out of All Their Devices' }
     ]
   },
   {
@@ -1136,6 +1142,15 @@ export const PERMISSION_CATEGORIES = [
       // grant is unchanged and still hr_head alone.
       { key: 'hr.attendance.manual.generate', label: 'Generate Manual Attendance for Team Members Without Biometric' },
       { key: 'hr.attendance.audit_export', label: 'Export the Attendance Audit Log' },
+      // Clinical duty (2026-10-05). Decides WHO may mark geotagged attendance
+      // from off-campus duty sites, and where those sites are. Requesting
+      // eligibility is deliberately ungated (own-row RLS: a person can only file
+      // for themselves) and punching is gated by an approved eligibility checked
+      // inside fn_hr_clinical_punch, so neither needs a key a rollout would block on.
+      { key: 'hr.attendance.clinical.manage', label: 'Manage Clinical Duty Eligibility & Duty Sites' },
+      // Deleting a duty site is held back from manage: hr_admin / hr_manager can
+      // add, edit and deactivate a site, only hr_head (and super admins) can delete one.
+      { key: 'hr.attendance.clinical.delete', label: 'Delete Clinical Duty Sites' },
 
       // ── Attendance month close (2026-08-22) ──────────────────────────────
       // CLOSING the month is not the same as overriding a record.
@@ -2032,10 +2047,18 @@ export const PERMISSION_CATEGORIES = [
     // spine, purchases -> Procurement). Each destination keeps its own keys and
     // its own server-side gate, so a second InstaSolver key would grant nothing
     // the destination does not re-check.
+    //
+    // The InstaSolver DESK (docs/instasolver/MYJKKN-MODULE-SPEC.md, 2026-09-30)
+    // does own data (instasolver_* tables) and adds three keys. They only decide
+    // which sidebar rows a person sees; who may actually triage, work or read
+    // analytics is decided by the database (instasolver_my_access + RLS).
     name: 'InstaSolver',
     key: 'instasolver',
     permissions: [
-      { key: 'instasolver.view', label: 'InstaSolver — raise an issue' }
+      { key: 'instasolver.view', label: 'InstaSolver — raise an issue' },
+      { key: 'instasolver.triage', label: 'InstaSolver — triage queue, workload and maintenance teams (CAO)' },
+      { key: 'instasolver.work', label: 'InstaSolver — maintenance work queue' },
+      { key: 'instasolver.analytics', label: 'InstaSolver — analytics (Principal, CAO)' }
     ]
   },
   {
@@ -2239,9 +2262,10 @@ export const PERMISSION_CATEGORIES = [
       { key: 'campus_living.vacate_requests.finalize', label: 'Finalize Vacate (retired stage)' },
       { key: 'campus_living.vacate_requests.cancel', label: 'Cancel Vacate Request (Admin / Hostel Office)' },
       { key: 'campus_living.vacate_checklist.manage', label: 'Manage Vacate Checklist Items (settings)' },
-      // 2026-10-01: chain is now bills (auto) -> principal -> warden (checklist + room damage) -> mess -> CAO -> [fine paid] -> vacated.
+      // 2026-10-01: chain is bills (auto) -> accounts -> principal -> warden (checklist + room damage) -> CAO -> [fine paid] -> vacated. Mess clearance retired (key kept).
+      { key: 'campus_living.vacate_requests.approve_accountant', label: 'Accounts Approve / Reject Vacate Request (bill verification)' },
       { key: 'campus_living.vacate_requests.approve_principal', label: 'Principal Approve / Reject Vacate Request' },
-      { key: 'campus_living.vacate_requests.approve_mess', label: 'Mess In-charge Clearance Approve / Reject Vacate Request' },
+      { key: 'campus_living.vacate_requests.approve_mess', label: 'Mess In-charge Clearance Approve / Reject Vacate Request (retired step)' },
       { key: 'campus_living.vacate_requests.approve_cao', label: 'CAO Final Approve / Reject Vacate Request (raises the damage fine)' },
       { key: 'campus_living.damage_types.manage', label: 'Manage Hostel Damage Types (settings)' },
 

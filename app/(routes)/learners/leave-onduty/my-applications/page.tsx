@@ -53,6 +53,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { ApprovalTimeline } from '@/components/academic/leave-onduty/approval-timeline';
+import { LeaveGatePassCard } from '@/components/academic/leave-onduty/leave-gate-pass-card';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -159,6 +160,9 @@ function ApplicationDetailsContent({
         <h4 className="font-medium mb-3 sm:mb-4 text-sm sm:text-base">Approval Timeline</h4>
         <ApprovalTimeline applicationId={application.id} />
       </div>
+
+      {/* Hostel gate pass (renders nothing when the type issues none) */}
+      <LeaveGatePassCard applicationId={application.id} />
 
       {/* Actions */}
       {application.status === 'pending' && (
@@ -282,8 +286,11 @@ function MyApplicationsPageInner() {
   const counts = getStatusCounts();
   const selectedApplication = applications?.find((a) => a.id === selectedApplicationId);
 
-  // Show loading while checking auth or if user is not a student (redirecting)
-  if (authLoading || isLoading || (profile && profile.role !== 'student')) {
+  // Skeleton only while something is actually loading. It used to also cover
+  // `profile.role !== 'student'` "(redirecting)" — but nothing redirects, so a
+  // staff/admin account holding learners.leave_onduty.view sat on the skeleton
+  // forever. Accounts without a learner record get an explanation below.
+  if (authLoading || isLoading) {
     return (
       <ContentLayout title="Leave/OnDuty">
         <div className="space-y-6">
@@ -300,6 +307,29 @@ function MyApplicationsPageInner() {
               </div>
             </CardContent>
           </Card>
+        </div>
+      </ContentLayout>
+    );
+  }
+
+  // This page lists the signed-in learner's OWN applications, keyed by
+  // profiles.learner_id. Without one the query never runs, and an empty list
+  // would falsely read as "you have no applications".
+  if (profile && !profile.learner_id) {
+    return (
+      <ContentLayout title="Leave/OnDuty">
+        <div className="space-y-6">
+          <Alert>
+            <AlertCircle className="h-4 w-4" />
+            <AlertDescription>
+              This page shows a learner&apos;s own Leave/OnDuty applications, and your account
+              isn&apos;t linked to a learner profile. To review learners&apos; applications, open{' '}
+              <Link href="/academic/leave-onduty/approvals" className="underline font-medium">
+                Leave/OnDuty Approvals
+              </Link>
+              .
+            </AlertDescription>
+          </Alert>
         </div>
       </ContentLayout>
     );

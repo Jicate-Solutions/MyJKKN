@@ -12,6 +12,7 @@ import { ParentBottomNav } from './parent-bottom-nav';
 import { ParentMoreDrawer } from './parent-more-drawer';
 import { ThemeDialog } from './theme-dialog';
 import { ParentInstallPrompt } from './install-prompt';
+import { SignOutNoticeBanner } from '@/components/auth/sign-out-notice-banner';
 import { useParentSession } from '@/hooks/parent/use-parent-session';
 import { useParentNotifications } from '@/hooks/parent/use-parent-features';
 
@@ -70,6 +71,9 @@ export function ParentShell({ children }: { children: ReactNode }) {
           )}
         </Link>
       </header>
+
+      {/* "An admin signed you out of all devices on <date>." — once, after the next sign-in. */}
+      <SignOutNoticeBanner endpoint="/api/parent/sign-out-notice" />
 
       <main className="flex-1 px-4 pb-24 pt-4">{children}</main>
 

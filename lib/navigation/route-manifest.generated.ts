@@ -1850,6 +1850,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "label": "Admin",
         "iconName": "FileText",
         "children": []
+      },
+      {
+        "path": "/ai-query/connect",
+        "label": "Connect an outside AI",
+        "iconName": "KeyRound",
+        "children": []
       }
     ]
   },
@@ -4607,6 +4613,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "iconName": "CheckSquare",
         "children": [
           {
+            "path": "/hr/attendance/clinical",
+            "label": "Clinical",
+            "iconName": "CheckSquare",
+            "children": []
+          },
+          {
             "path": "/hr/attendance/close",
             "label": "Close",
             "iconName": "CheckSquare",
@@ -5305,6 +5317,31 @@ export const ROUTE_MANIFEST: RouteNode[] = [
     "iconName": "FileText",
     "children": [
       {
+        "path": "/instasolver/admin",
+        "label": "Admin",
+        "iconName": "FileText",
+        "children": [
+          {
+            "path": "/instasolver/admin/categories",
+            "label": "Categories",
+            "iconName": "Tags",
+            "children": []
+          },
+          {
+            "path": "/instasolver/admin/teams",
+            "label": "Teams",
+            "iconName": "Users",
+            "children": []
+          }
+        ]
+      },
+      {
+        "path": "/instasolver/analytics",
+        "label": "Analytics",
+        "iconName": "BarChart",
+        "children": []
+      },
+      {
         "path": "/instasolver/broken",
         "label": "Broken",
         "iconName": "FileText",
@@ -5315,6 +5352,25 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "label": "Complaint",
         "iconName": "FileText",
         "children": []
+      },
+      {
+        "path": "/instasolver/dashboard",
+        "label": "Dashboard",
+        "iconName": "LayoutGrid",
+        "children": []
+      },
+      {
+        "path": "/instasolver/issues",
+        "label": "Issues",
+        "iconName": "FileText",
+        "children": [
+          {
+            "path": "/instasolver/issues/new",
+            "label": "New",
+            "iconName": "Plus",
+            "children": []
+          }
+        ]
       },
       {
         "path": "/instasolver/my-complaints",
@@ -5336,13 +5392,44 @@ export const ROUTE_MANIFEST: RouteNode[] = [
       },
       {
         "path": "/instasolver/r",
-        "label": "R",
+        "label": "Scan to report",
         "iconName": "FileText",
         "children": []
       },
       {
+        "path": "/instasolver/requirements",
+        "label": "Requirements",
+        "iconName": "FileText",
+        "children": [
+          {
+            "path": "/instasolver/requirements/new",
+            "label": "New",
+            "iconName": "Plus",
+            "children": []
+          }
+        ]
+      },
+      {
         "path": "/instasolver/track",
         "label": "Track",
+        "iconName": "FileText",
+        "children": []
+      },
+      {
+        "path": "/instasolver/triage",
+        "label": "Triage",
+        "iconName": "FileText",
+        "children": []
+      },
+      {
+        "path": "/instasolver/work",
+        "label": "Work",
+        "iconName": "FileText",
+        "children": []
+      },
+      {
+        "path": "/instasolver/workload",
+        "label": "Workload",
         "iconName": "FileText",
         "children": []
       }
