@@ -110,7 +110,7 @@ export default function NewPurchaseRequestPage() {
       return;
     }
     if (!title.trim()) {
-      toast.error('Say what it is for (e.g. Microbiology lab practicals).');
+      toast.error('Say what it is for (e.g. Microbiology practicals).');
       return;
     }
     if (cleaned.some((i) => !i.is_new && !i.domain_item_id)) {
@@ -228,7 +228,7 @@ export default function NewPurchaseRequestPage() {
               value={title}
               onChange={(e) => setTitle(e.target.value)}
               maxLength={80}
-              placeholder="e.g. Microbiology lab practicals, 2026-27 batch"
+              placeholder="e.g. Microbiology practicals, 2026-27 batch"
             />
           </div>
           {domain === 'resource_mgmt' && requestTypeSummary !== 'Restock' && (
