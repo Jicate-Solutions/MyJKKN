@@ -61,6 +61,7 @@ import { AttendanceCalendarTab } from './_components/attendance-calendar-tab';
 import { AttendanceLogTab } from './_components/attendance-log-tab';
 import { AttendanceMonthPicker } from './_components/attendance-month-picker';
 import { AttendanceSummaryCards } from './_components/attendance-summary-cards';
+import { ClinicalDutyCard } from './_components/clinical-duty-card';
 import {
   AttendanceStaffFilter,
   type SelectedStaff,
@@ -230,6 +231,10 @@ export default function MyAttendancePage() {
         ) : (
           <>
             {staffFilter}
+
+            {employee && !viewingOther && !selfBlock && (
+              <ClinicalDutyCard employeeId={employee.id} />
+            )}
 
             <Tabs value={tab} onValueChange={(v) => setParam('tab', v)}>
               <div className="flex flex-wrap items-center justify-between gap-3">

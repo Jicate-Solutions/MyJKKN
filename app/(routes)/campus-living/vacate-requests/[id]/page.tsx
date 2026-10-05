@@ -64,15 +64,21 @@ import type { VacateRequestStatus } from '@/types/hostel-vacate';
 const OPEN_STATUSES: VacateRequestStatus[] = [
   'draft',
   'pending_dues',
+  'pending_accountant',
   'pending_principal',
   'pending_warden',
-  'pending_mess',
   'pending_cao',
 ];
 
 const STEP_COPY: Partial<
   Record<VacateRequestStatus, { title: string; blurb: string; approve: string; waiting: string }>
 > = {
+  pending_accountant: {
+    title: 'Accounts Decision',
+    blurb: 'Confirm all hostel and mess bills are settled. Approving sends this request to the Principal.',
+    approve: 'Approve',
+    waiting: 'With Accounts for bill verification.',
+  },
   pending_principal: {
     title: 'Principal Decision',
     blurb: 'Approve to send this request to the Warden for the checklist and room inspection.',
@@ -81,15 +87,9 @@ const STEP_COPY: Partial<
   },
   pending_warden: {
     title: 'Warden Decision',
-    blurb: 'Tick the clearance checklist, record the room inspection, then approve to send it to the Mess In-charge.',
-    approve: 'Approve & send to Mess',
+    blurb: 'Tick the clearance checklist, record the room inspection, then approve to send it to the CAO.',
+    approve: 'Approve & send to CAO',
     waiting: 'With the Warden for the checklist and room inspection.',
-  },
-  pending_mess: {
-    title: 'Mess Clearance',
-    blurb: 'Confirm the learner has no mess issues. Approving sends the request to the CAO.',
-    approve: 'Give mess clearance',
-    waiting: 'With the Mess In-charge for clearance.',
   },
   pending_cao: {
     title: 'CAO Final Approval',

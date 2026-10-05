@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Calendar, Check, Loader2 } from 'lucide-react';
@@ -26,6 +26,7 @@ import { SectionSelectionModal } from './_components/section-selection-modal';
 import { formatTimeRange } from '@/utils/time-format';
 import { logger } from '@/lib/utils/enhanced-logger';
 import { resolvePeriodSectionId } from '@/lib/utils/academic/attendance-section-scope';
+import { rolledOverAttendanceDate } from '@/lib/utils/academic/attendance-default-date';
 import { istBusinessDate } from '@/lib/utils/date-format';
 import type {
   AttendanceSearchContext,
@@ -76,18 +77,52 @@ export default function AttendancePage() {
 
   const { checkStaffPermissions } = useAttendanceRoster();
 
+  // The date this page defaulted to by itself (not one the user picked).
+  const autoDateRef = useRef<string | null>(null);
+
   // Set client flag and initial attendance date on client side to avoid hydration mismatch
   // "Today" is India's date, not the browser's: a laptop left on a US timezone
   // opened the page on yesterday until 12:30 IST (BUG-006152).
   useEffect(() => {
     setIsClient(true);
     if (!searchContext.attendance_date) {
+      const today = istBusinessDate();
+      autoDateRef.current = today;
       setSearchContext((prev) => ({
         ...prev,
-        attendance_date: istBusinessDate()
+        attendance_date: today
       }));
     }
   }, [searchContext.attendance_date]);
+
+  // Updated: 2026-09-18 (BUG-005727 / BUG-005728 / BUG-005653) - A phone tab
+  // or installed app left open is resumed, not reloaded, so the default above
+  // kept the day the page was first opened (July 10th shown on Aug 7th). When
+  // the page is shown again on a later day, move an untouched default to today.
+  useEffect(() => {
+    const rollOver = () => {
+      if (document.visibilityState !== 'visible') return;
+      const today = istBusinessDate();
+      setSearchContext((prev) => {
+        const next = rolledOverAttendanceDate(
+          prev.attendance_date,
+          autoDateRef.current,
+          today
+        );
+        if (!next) return prev;
+        autoDateRef.current = next;
+        return { ...prev, attendance_date: next };
+      });
+    };
+    document.addEventListener('visibilitychange', rollOver);
+    window.addEventListener('focus', rollOver);
+    window.addEventListener('pageshow', rollOver);
+    return () => {
+      document.removeEventListener('visibilitychange', rollOver);
+      window.removeEventListener('focus', rollOver);
+      window.removeEventListener('pageshow', rollOver);
+    };
+  }, []);
 
   // Update search context
   const updateSearchContext = (updates: Partial<AttendanceSearchContext>) => {
