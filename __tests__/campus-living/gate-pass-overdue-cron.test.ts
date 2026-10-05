@@ -206,3 +206,17 @@ describe('what it reports', () => {
     expect(body).not.toHaveProperty('marked_overdue');
   });
 });
+
+describe('the exit-window expiry sweep (leave-linked passes)', () => {
+  const expirySweep = () => recorded.filter((r) => r.table === 'hostel_gate_passes')[1];
+
+  it('flips only ISSUED passes whose valid_until has passed, to expired — never overdue', async () => {
+    await GET(request({ secret: SECRET }));
+    const rec = expirySweep();
+    expect(rec.payload).toEqual({ status: 'expired' });
+    expect(rec.filters.find(([c]) => c === 'status')).toEqual(['status', 'issued']);
+    const until = rec.filters.find(([c]) => c === 'lt:valid_until');
+    expect(until, 'expiry sweep does not compare against valid_until').toBeTruthy();
+    expect(new Date(until![1] as string).getTime()).toBeLessThanOrEqual(Date.now());
+  });
+});

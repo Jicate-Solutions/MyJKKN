@@ -75,6 +75,12 @@ export interface TableConfig {
   // columns until their content is clipped. Defaults false, so no existing
   // table's layout changes.
   fixedColumnWidths?: boolean;
+
+  // Set false to keep selection page-scoped even when the table supplies
+  // fetchAllItemsFn — for tables that pass it only so "Export All" can fetch
+  // the full set, whose bulk actions were not built for cross-page selections.
+  // Omitted means enabled, so existing select-all tables are unchanged.
+  enableCrossPageSelectAll?: boolean;
 }
 
 // Default configuration

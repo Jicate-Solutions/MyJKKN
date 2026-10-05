@@ -14,7 +14,6 @@ import {
 import { downloadQuotationTemplate, parseQuotationFile } from '@/lib/procurement/quotation-import';
 import { matchVendor, normalizeGstin, type VendorMatchKey } from '@/lib/procurement/vendor-match';
 import type { CreateQuotationItemDto } from '@/types/procurement';
-import { Switch } from '@/components/ui/switch';
 import { cn } from '@/lib/utils';
 import { displayRequestNumber } from '@/lib/procurement/display-number';
 import { AlertBox } from '@/components/ui/alert-box';
@@ -142,8 +141,6 @@ export default function NewQuotationPage() {
   const [deliveryDays, setDeliveryDays] = useState('');
   const [paymentTerms, setPaymentTerms] = useState('');
   const [prices, setPrices] = useState<Record<string, string>>({});
-  const [notQuoted, setNotQuoted] = useState<Record<string, boolean>>({});
-  const [quantities, setQuantities] = useState<Record<string, string>>({});
   const [specs, setSpecs] = useState<Record<string, QuotedSpec>>({});
   const [openSpecs, setOpenSpecs] = useState<Record<string, boolean>>({});
   const [file, setFile] = useState<File | null>(null);
@@ -195,20 +192,17 @@ export default function NewQuotationPage() {
       const spec = specs[it.id];
       return {
         rfq_item_id: it.id,
-        unit_price: notQuoted[it.id] ? null : Number(prices[it.id] || 0),
-        quantity: quantities[it.id] ? Number(quantities[it.id]) : it.quantity,
+        // An empty price means this vendor did not quote the item.
+        unit_price: Number(prices[it.id] || 0) > 0 ? Number(prices[it.id]) : null,
+        quantity: it.quantity,
         manufacturer: spec?.manufacturer.trim() || null,
         quality_grade: spec?.quality_grade.trim() || null,
         concentration: spec?.concentration.trim() || null,
         other_specs: spec?.other_specs.trim() || null,
       };
     });
-    if (items.some((i) => i.unit_price !== null && !(i.unit_price > 0))) {
-      toast.error('Enter a unit price for every quoted item, or mark it “Not quoted”.');
-      return;
-    }
     if (items.every((i) => i.unit_price === null)) {
-      toast.error('Mark at least one item as quoted.');
+      toast.error('Enter at least one price — leave the rest empty if the vendor did not quote them.');
       return;
     }
 
@@ -369,6 +363,9 @@ export default function NewQuotationPage() {
       const filledSpecs: Record<string, QuotedSpec> = {};
 
       let keptTyped = 0;
+      // A set asked for as one item ("Computer × 5") comes back as its parts, all
+      // tagged to that item: one of each part per set, so the unit price is their sum.
+      const partsOf: Record<string, string[]> = {};
       for (const line of lines) {
         const id = line?.rfq_item_id;
         const price = typeof line?.unit_price === 'number' ? line.unit_price : NaN;
@@ -383,6 +380,23 @@ export default function NewQuotationPage() {
           keptTyped += 1;
           continue;
         }
+        const part = `${line.item_name || 'Unnamed line'} ₹${price.toLocaleString('en-IN')}`;
+        if (partsOf[id]) {
+          // Always a person's call: the AI may equally have tagged two alternative
+          // offers for one item, which must not be added up.
+          partsOf[id].push(part);
+          numericPrices[id] += price;
+          filledPrices[id] = String(numericPrices[id]);
+          marks[id] = 'uncertain';
+          filledSpecs[id] = {
+            manufacturer: '',
+            quality_grade: '',
+            concentration: '',
+            other_specs: `Set of ${partsOf[id].length} parts: ${partsOf[id].join('; ')}`,
+          };
+          continue;
+        }
+        partsOf[id] = [part];
         filledPrices[id] = String(price);
         numericPrices[id] = price;
         marks[id] = line.uncertain ? 'uncertain' : 'ai';
@@ -600,113 +614,89 @@ export default function NewQuotationPage() {
     );
   }
 
-  const quotedCount = rfq.items.filter(
-    (it) => !notQuoted[it.id] && Number(prices[it.id] || 0) > 0
-  ).length;
   const quoteTotal = rfq.items.reduce((sum, it) => {
-    if (notQuoted[it.id]) return sum;
     const price = Number(prices[it.id] || 0);
-    const qty = quantities[it.id] ? Number(quantities[it.id]) : it.quantity;
-    return sum + (price > 0 ? price * qty : 0);
+    return sum + (price > 0 ? price * Number(it.quantity) : 0);
   }, 0);
 
   const requestNo = displayRequestNumber(rfq.source_request?.request_number);
 
+  const COLS = 'grid grid-cols-[minmax(0,1fr)_112px_96px] items-center gap-3 sm:grid-cols-[minmax(0,1fr)_128px_104px]';
+  const terms = [
+    quoteNumber ? `Quote ${quoteNumber}` : null,
+    deliveryDays ? `${deliveryDays} days delivery` : null,
+    paymentTerms || null,
+  ].filter(Boolean);
+
   return (
-    <ContentLayout title="Add quotation">
-      <div className="space-y-4">
-        <div className="flex flex-wrap items-center gap-2">
-          <Button variant="ghost" size="sm" aria-label="Back to quotations" onClick={() => router.push(backHref)}>
-            <ArrowLeft className="h-4 w-4" />
-          </Button>
-          <h2 className="text-xl font-bold tracking-tight">Add quotation</h2>
-          <span className="text-sm text-muted-foreground">
-            {requestNo ? `for ${requestNo} · ` : ''}
+    <ContentLayout title="Add quote">
+      <div className="mx-auto w-full max-w-xl space-y-5">
+        <Button variant="link" className="h-8 px-0" onClick={() => router.push(backHref)}>
+          <ArrowLeft className="mr-1 h-4 w-4" />
+          Back to the purchase
+        </Button>
+        <header>
+          <h1 className="text-2xl font-bold">Add quote</h1>
+          <p className="text-sm text-muted-foreground">
+            {requestNo ? `${requestNo} · ` : ''}
             {rfq.items.length} item{rfq.items.length === 1 ? '' : 's'}
-          </span>
-        </div>
+          </p>
+        </header>
 
-        {/* ── Vendor: the four details on one row ──────────────────────────── */}
-        <Card>
-          <CardContent className="space-y-3 p-4">
-            <div className="grid gap-3 md:grid-cols-[minmax(0,2fr)_minmax(0,1fr)_minmax(0,0.8fr)_minmax(0,1.4fr)] md:items-end">
-              <div className="space-y-1">
-                <div className="flex items-center justify-between gap-2">
-                  <Label className="text-xs">Vendor</Label>
-                  <div className="inline-flex overflow-hidden rounded-md border text-[11px]">
-                    <button
-                      type="button"
-                      className={cn('px-2 py-1 sm:py-0.5', vendorMode === 'existing' && 'bg-primary text-primary-foreground')}
-                      onClick={() => {
-                        setVendorMode('existing');
-                        setVendorNote(null);
-                      }}
-                    >
-                      Existing
-                    </button>
-                    <button
-                      type="button"
-                      className={cn('px-2 py-1 sm:py-0.5', vendorMode === 'new' && 'bg-primary text-primary-foreground')}
-                      onClick={() => {
-                        setVendorMode('new');
-                        setVendorNote(null);
-                      }}
-                    >
-                      + New
-                    </button>
-                  </div>
-                </div>
-                {vendorMode === 'existing' ? (
-                  <Select
-                    value={vendorId}
-                    onValueChange={(v) => {
-                      setVendorId(v);
-                      setVendorNote(null);
-                    }}
-                  >
-                    <SelectTrigger className="h-9">
-                      <SelectValue placeholder={availableVendors.length ? 'Select vendor…' : 'No registered vendors — add a new one'} />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {availableVendors.length === 0 ? (
-                        <div className="px-3 py-2 text-sm text-muted-foreground">No registered vendors. Switch to “+ New”.</div>
-                      ) : (
-                        availableVendors.map((v) => (
-                          <SelectItem key={v.id} value={v.id}>
-                            {v.name}
-                            {v.code ? ` (${v.code})` : ''}
-                          </SelectItem>
-                        ))
-                      )}
-                    </SelectContent>
-                  </Select>
-                ) : (
-                  <Input className="h-9" placeholder="Vendor name *" value={newVendorName} onChange={(e) => setNewVendorName(e.target.value)} />
-                )}
-              </div>
-              <div className="space-y-1">
-                <Label className="text-xs">Quote no.</Label>
-                <Input className="h-9" value={quoteNumber} onChange={(e) => setQuoteNumber(e.target.value)} placeholder="Optional" />
-              </div>
-              <div className="space-y-1">
-                <Label className="text-xs">Delivery (days)</Label>
-                <Input className="h-9" type="number" value={deliveryDays} onChange={(e) => setDeliveryDays(e.target.value)} placeholder="e.g. 7" />
-              </div>
-              <div className="space-y-1">
-                <Label className="text-xs">Payment terms</Label>
-                <Input className="h-9" value={paymentTerms} onChange={(e) => setPaymentTerms(e.target.value)} placeholder="e.g. 50% advance" />
-              </div>
+        <section className="overflow-hidden rounded-2xl border bg-card shadow-sm">
+          {/* ── Vendor ─────────────────────────────────────────────────── */}
+          <div className="space-y-1.5 px-5 pt-5">
+            <div className="flex items-center justify-between gap-2">
+              <Label className="text-xs font-semibold">Vendor</Label>
+              <button
+                type="button"
+                className="text-xs text-primary hover:underline"
+                onClick={() => {
+                  setVendorMode(vendorMode === 'existing' ? 'new' : 'existing');
+                  setVendorNote(null);
+                }}
+              >
+                {vendorMode === 'existing' ? '+ New vendor' : 'Choose a registered vendor'}
+              </button>
             </div>
-
-            {vendorMode === 'new' && (
-              <div className="grid gap-2 sm:grid-cols-3 lg:grid-cols-6">
-                <Input className="h-8 text-sm" placeholder="GSTIN" value={newVendorGstin} onChange={(e) => setNewVendorGstin(e.target.value)} />
-                <Input className="h-8 text-sm" placeholder="Phone" value={newVendorPhone} onChange={(e) => setNewVendorPhone(e.target.value)} />
-                <Input className="h-8 text-sm" type="email" placeholder="Email" value={newVendorEmail} onChange={(e) => setNewVendorEmail(e.target.value)} />
-                <Input className="h-8 text-sm" placeholder="Contact person" value={newVendorContact} onChange={(e) => setNewVendorContact(e.target.value)} />
-                <Input className="h-8 text-sm" placeholder="Vendor code" value={newVendorCode} onChange={(e) => setNewVendorCode(e.target.value)} />
-                <Input className="h-8 text-sm" placeholder="Address" value={newVendorAddress} onChange={(e) => setNewVendorAddress(e.target.value)} />
-              </div>
+            {vendorMode === 'existing' ? (
+              <Select
+                value={vendorId}
+                onValueChange={(v) => {
+                  setVendorId(v);
+                  setVendorNote(null);
+                }}
+              >
+                <SelectTrigger className="h-10">
+                  <SelectValue placeholder={availableVendors.length ? 'Choose a vendor…' : 'No registered vendors — add a new one'} />
+                </SelectTrigger>
+                <SelectContent>
+                  {availableVendors.length === 0 ? (
+                    <div className="px-3 py-2 text-sm text-muted-foreground">No registered vendors yet.</div>
+                  ) : (
+                    availableVendors.map((v) => (
+                      <SelectItem key={v.id} value={v.id}>
+                        {v.name}
+                        {v.code ? ` (${v.code})` : ''}
+                      </SelectItem>
+                    ))
+                  )}
+                </SelectContent>
+              </Select>
+            ) : (
+              <>
+                <Input className="h-10" placeholder="Vendor's name" value={newVendorName} onChange={(e) => setNewVendorName(e.target.value)} />
+                <details className="text-xs">
+                  <summary className="cursor-pointer text-primary">More vendor details (optional)</summary>
+                  <div className="mt-2 grid grid-cols-2 gap-2">
+                    <Input className="h-9 text-sm" placeholder="GSTIN" value={newVendorGstin} onChange={(e) => setNewVendorGstin(e.target.value)} />
+                    <Input className="h-9 text-sm" placeholder="Phone" value={newVendorPhone} onChange={(e) => setNewVendorPhone(e.target.value)} />
+                    <Input className="h-9 text-sm" type="email" placeholder="Email" value={newVendorEmail} onChange={(e) => setNewVendorEmail(e.target.value)} />
+                    <Input className="h-9 text-sm" placeholder="Contact person" value={newVendorContact} onChange={(e) => setNewVendorContact(e.target.value)} />
+                    <Input className="col-span-2 h-9 text-sm" placeholder="Address" value={newVendorAddress} onChange={(e) => setNewVendorAddress(e.target.value)} />
+                  </div>
+                </details>
+              </>
             )}
             {vendorNote && (
               <p className="flex items-start gap-1.5 text-xs text-muted-foreground">
@@ -714,104 +704,83 @@ export default function NewQuotationPage() {
                 {vendorNote}
               </p>
             )}
-          </CardContent>
-        </Card>
-
-        {/* ── Prices ─────────────────────────────────────────────────────── */}
-        <Card className="overflow-hidden">
-          <div className="flex flex-wrap items-center justify-between gap-2 border-b px-4 py-3">
-            <span className="text-base font-semibold">Prices</span>
-            <div className="flex flex-wrap items-center gap-1.5">
-              <label
-                className={cn(
-                  'inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-md border border-dashed border-primary bg-primary/5 px-3 text-xs font-semibold text-primary hover:bg-primary/10',
-                  readInProgress && 'pointer-events-none opacity-60'
-                )}
-              >
-                <Upload className="h-3.5 w-3.5" />
-                {file ? 'Attach a different PDF' : 'Attach quotation PDF — AI fills the prices'}
-                <input
-                  type="file"
-                  accept=".pdf,image/*"
-                  className="hidden"
-                  onChange={(e) => {
-                    setFile(e.target.files?.[0] ?? null);
-                    e.target.value = '';
-                  }}
-                />
-              </label>
-              <label className="inline-flex h-8 cursor-pointer items-center gap-1 rounded-md px-2 text-xs text-muted-foreground hover:text-foreground">
-                Import Excel
-                <input
-                  type="file"
-                  accept=".csv,.xlsx,.xls"
-                  className="hidden"
-                  onChange={(e) => {
-                    handleImportPrices(e.target.files?.[0] ?? null);
-                    e.target.value = '';
-                  }}
-                />
-              </label>
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                className="h-8 px-2 text-xs font-normal text-muted-foreground"
-                onClick={() => downloadQuotationTemplate(rfq.rfq_number, rfq.items)}
-              >
-                <Download className="mr-1 h-3.5 w-3.5" />
-                Template
-              </Button>
-            </div>
+            {terms.length > 0 && <p className="text-xs text-muted-foreground">{terms.join(' · ')}</p>}
           </div>
 
-          {(file || readInProgress || aiFromScan) && (
-            <div className="space-y-1.5 border-b bg-muted/30 px-4 py-2 text-xs">
-              {file && (
-                <div className="flex flex-wrap items-center gap-2 text-muted-foreground">
-                  <span className="max-w-[320px] truncate font-medium text-foreground" title={file.name}>
-                    {file.name}
-                  </span>
-                  {file.type === 'application/pdf' && !readInProgress && (
+          {/* ── Fill the prices from a file (optional) ─────────────────────── */}
+          <div className="mt-4 flex flex-wrap items-center gap-x-3 gap-y-1 border-y bg-muted/40 px-5 py-2.5 text-xs">
+            <label className={cn('inline-flex cursor-pointer items-center gap-1.5 font-semibold text-primary hover:underline', readInProgress && 'pointer-events-none opacity-60')}>
+              <Upload className="h-3.5 w-3.5" />
+              {file ? 'Use a different PDF' : 'Read prices from the PDF'}
+              <input
+                type="file"
+                accept=".pdf"
+                className="hidden"
+                onChange={(e) => {
+                  setFile(e.target.files?.[0] ?? null);
+                  e.target.value = '';
+                }}
+              />
+            </label>
+            <span className="text-muted-foreground">·</span>
+            <label className="cursor-pointer text-muted-foreground hover:text-foreground">
+              Import Excel
+              <input
+                type="file"
+                accept=".csv,.xlsx,.xls"
+                className="hidden"
+                onChange={(e) => {
+                  handleImportPrices(e.target.files?.[0] ?? null);
+                  e.target.value = '';
+                }}
+              />
+            </label>
+            <span className="text-muted-foreground">·</span>
+            <button
+              type="button"
+              className="inline-flex items-center gap-1 text-muted-foreground hover:text-foreground"
+              onClick={() => downloadQuotationTemplate(rfq.rfq_number, rfq.items)}
+            >
+              <Download className="h-3.5 w-3.5" />
+              Template
+            </button>
+            {file && (
+              <span className="basis-full truncate text-muted-foreground">
+                {file.name}
+                {file.type === 'application/pdf' && !readInProgress && (
+                  <>
+                    {' · '}
                     <button type="button" className="text-primary hover:underline" onClick={handleExtractPdf}>
-                      Read prices again
+                      Read again
                     </button>
-                  )}
-                  <button type="button" className="hover:text-foreground" onClick={() => setFile(null)}>
-                    Remove
-                  </button>
-                </div>
-              )}
-              {readInProgress && (
-                <div role="status" aria-live="polite" className="flex items-center gap-2 text-muted-foreground">
-                  <BeatLoader color="hsl(var(--primary))" size={5} />
-                  Reading prices from the PDF… <span className="tabular-nums">{extractElapsed}s</span>
-                  {extractElapsed >= 8 && ' — almost there'}
-                </div>
-              )}
-              {aiFromScan && (
-                <p className="text-amber-800 dark:text-amber-300">
-                  Read from a scanned image — check every price before saving.
-                </p>
-              )}
-            </div>
-          )}
-
-          <div className="hidden grid-cols-[minmax(0,2fr)_150px_110px_130px_80px] gap-3 border-b bg-muted/40 px-4 py-2 text-xs font-semibold text-muted-foreground md:grid">
-            <span>Item</span>
-            <span>Unit price (₹)</span>
-            <span>Qty offered</span>
-            <span className="text-right">Line total</span>
-            <span className="text-center">Quoted?</span>
+                  </>
+                )}
+                {' · '}
+                <button type="button" className="hover:text-foreground" onClick={() => setFile(null)}>
+                  Remove
+                </button>
+              </span>
+            )}
+            {readInProgress && (
+              <span role="status" aria-live="polite" className="flex basis-full items-center gap-2 text-muted-foreground">
+                <BeatLoader color="hsl(var(--primary))" size={5} />
+                Reading prices from the PDF… <span className="tabular-nums">{extractElapsed}s</span>
+              </span>
+            )}
+            {aiFromScan && <span className="basis-full text-amber-800 dark:text-amber-300">Read from a scanned image — check every price.</span>}
           </div>
 
+          {/* ── Prices: item | price / unit | total ────────────────────────── */}
+          <div className={`${COLS} bg-muted/50 px-5 py-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground`}>
+            <span>Item</span>
+            <span className="text-right">Price / unit</span>
+            <span className="text-right">Total</span>
+          </div>
           {rfq.items.map((it) => {
             const entered = Number(prices[it.id] || 0);
-            const isNotQuoted = !!notQuoted[it.id];
             const spec = specs[it.id] ?? EMPTY_SPEC;
             const aiMark = aiFilled[it.id];
             const isOutlier = !!aiOutliers[it.id];
-            const offeredQty = quantities[it.id] ? Number(quantities[it.id]) : it.quantity;
             const specsOpen = !!openSpecs[it.id];
             // A human editing the field IS the confirmation — drop the mark.
             const clearAiMark = () =>
@@ -823,137 +792,81 @@ export default function NewQuotationPage() {
               });
             const updateSpec = (field: keyof QuotedSpec, value: string) =>
               setSpecs((p) => ({ ...p, [it.id]: { ...(p[it.id] ?? EMPTY_SPEC), [field]: value } }));
-            const quotedSwitch = (
-              <Switch
-                checked={!isNotQuoted}
-                aria-label={`${it.item_name} quoted`}
-                onCheckedChange={(on) => {
-                  setNotQuoted((p) => ({ ...p, [it.id]: !on }));
-                  if (!on) setPrices((p) => ({ ...p, [it.id]: '' }));
-                }}
-              />
-            );
             return (
               <Fragment key={it.id}>
-                <div
-                  className={cn(
-                    'grid grid-cols-2 items-center gap-3 border-b px-4 py-3 last:border-b-0 md:grid-cols-[minmax(0,2fr)_150px_110px_130px_80px]',
-                    isNotQuoted && 'bg-muted/40'
-                  )}
-                >
-                  <div className="col-span-2 min-w-0 md:col-span-1">
-                    <p className={cn('text-sm font-semibold', isNotQuoted && 'text-muted-foreground')}>{it.item_name}</p>
-                    <p className="text-xs text-muted-foreground">
-                      asked for {it.quantity} {it.unit_label || ''}
-                      {it.item_spec ? ` · ${it.item_spec}` : ''}
+                <div className={cn(COLS, 'border-t px-5 py-3', aiMark === 'uncertain' && 'bg-amber-50/70 dark:bg-amber-950/20')}>
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-semibold">
+                      {it.item_name}{' '}
+                      <span className="font-normal text-muted-foreground">
+                        × {Number(it.quantity)}
+                        {it.unit_label ? ` ${it.unit_label}` : ''}
+                      </span>
+                    </p>
+                    <p className="truncate text-xs">
+                      {isOutlier ? (
+                        <span className="font-medium text-destructive">Unusual price — check it</span>
+                      ) : aiMark === 'uncertain' ? (
+                        <span className="text-amber-800 dark:text-amber-300">AI not sure this is the right item — check</span>
+                      ) : aiMark ? (
+                        <span className="text-green-700 dark:text-green-400">✓ Read from the PDF</span>
+                      ) : (
+                        <button
+                          type="button"
+                          className="text-muted-foreground hover:text-foreground"
+                          onClick={() => setOpenSpecs((p) => ({ ...p, [it.id]: !p[it.id] }))}
+                          aria-expanded={specsOpen}
+                        >
+                          {specsOpen ? 'Hide details' : '+ Brand or details'}
+                        </button>
+                      )}
                     </p>
                   </div>
-
-                  {isNotQuoted ? (
-                    <>
-                      <span className="text-sm text-muted-foreground md:col-span-3">Not in this vendor&apos;s quotation</span>
-                      <span className="flex justify-end md:justify-center">{quotedSwitch}</span>
-                    </>
-                  ) : (
-                    <>
-                      <div>
-                        <Label className="text-xs md:hidden">Unit price (₹)</Label>
-                        <Input
-                          type="number"
-                          min={0}
-                          placeholder="0.00"
-                          aria-label={`Unit price for ${it.item_name}`}
-                          className={cn('h-9 text-right', aiMark && 'border-amber-400 bg-amber-50 dark:bg-amber-950/30')}
-                          value={prices[it.id] ?? ''}
-                          onChange={(e) => {
-                            setPrices((p) => ({ ...p, [it.id]: e.target.value }));
-                            clearAiMark();
-                          }}
-                        />
-                      </div>
-                      <div>
-                        <Label className="text-xs md:hidden">Qty offered</Label>
-                        <Input
-                          type="number"
-                          min={0}
-                          aria-label={`Quantity offered for ${it.item_name}`}
-                          className="h-9 text-right"
-                          value={quantities[it.id] ?? String(it.quantity)}
-                          onChange={(e) => setQuantities((p) => ({ ...p, [it.id]: e.target.value }))}
-                        />
-                      </div>
-                      <span className="text-right text-sm font-semibold tabular-nums">
-                        {entered > 0 ? `₹${(entered * offeredQty).toLocaleString('en-IN')}` : <span className="font-normal text-muted-foreground">—</span>}
-                      </span>
-                      <span className="flex justify-end md:justify-center">{quotedSwitch}</span>
-                    </>
-                  )}
-
-                  {!isNotQuoted && (
-                    <div className="col-span-2 -mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 md:col-span-5">
-                      <button
-                        type="button"
-                        className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
-                        onClick={() => setOpenSpecs((p) => ({ ...p, [it.id]: !p[it.id] }))}
-                        aria-expanded={specsOpen}
-                      >
-                        {specsOpen ? <ChevronDown className="h-3 w-3" /> : <Plus className="h-3 w-3" />}
-                        Brand, grade or other details
-                      </button>
-                      {aiMark && (
-                        <span className="text-[11px] font-medium text-amber-700 dark:text-amber-300">
-                          {aiMark === 'uncertain' ? 'AI guess — confirm this is the right item' : 'AI-filled — check before saving'}
-                        </span>
-                      )}
-                      {isOutlier && (
-                        <span className="text-[11px] font-medium text-destructive">Unusual price for this quotation — please verify</span>
-                      )}
-                    </div>
-                  )}
+                  <Input
+                    type="number"
+                    min={0}
+                    step="any"
+                    inputMode="decimal"
+                    placeholder="Not quoted"
+                    aria-label={`Price per unit for ${it.item_name}`}
+                    className={cn('h-9 text-right tabular-nums', aiMark && 'border-amber-400')}
+                    value={prices[it.id] ?? ''}
+                    onChange={(e) => {
+                      setPrices((p) => ({ ...p, [it.id]: e.target.value }));
+                      clearAiMark();
+                    }}
+                  />
+                  <span className={`text-right text-sm tabular-nums ${entered > 0 ? 'font-semibold' : 'text-muted-foreground'}`}>
+                    {entered > 0 ? `₹${(entered * Number(it.quantity)).toLocaleString('en-IN')}` : '—'}
+                  </span>
                 </div>
-
-                {specsOpen && !isNotQuoted && (
-                  <div className="grid gap-2 border-b bg-muted/30 px-4 py-3 sm:grid-cols-2 lg:grid-cols-4">
-                    <div className="space-y-1">
-                      <Label className="text-[11px]">Manufacturer / brand</Label>
-                      <Input className="h-8 text-xs" value={spec.manufacturer} onChange={(e) => updateSpec('manufacturer', e.target.value)} />
-                    </div>
-                    <div className="space-y-1">
-                      <Label className="text-[11px]">Quality / grade</Label>
-                      <Input className="h-8 text-xs" value={spec.quality_grade} onChange={(e) => updateSpec('quality_grade', e.target.value)} />
-                    </div>
+                {specsOpen && (
+                  <div className="grid gap-2 bg-muted/30 px-5 pb-3 sm:grid-cols-2">
+                    <Input className="h-8 text-xs" placeholder="Brand / manufacturer" value={spec.manufacturer} onChange={(e) => updateSpec('manufacturer', e.target.value)} />
+                    <Input className="h-8 text-xs" placeholder="Quality / grade" value={spec.quality_grade} onChange={(e) => updateSpec('quality_grade', e.target.value)} />
                     {it.is_chemical && (
-                      <div className="space-y-1">
-                        <Label className="text-[11px]">Concentration</Label>
-                        <Input className="h-8 text-xs" value={spec.concentration} onChange={(e) => updateSpec('concentration', e.target.value)} />
-                      </div>
+                      <Input className="h-8 text-xs" placeholder="Concentration" value={spec.concentration} onChange={(e) => updateSpec('concentration', e.target.value)} />
                     )}
-                    <div className="space-y-1">
-                      <Label className="text-[11px]">Other details</Label>
-                      <Input className="h-8 text-xs" value={spec.other_specs} onChange={(e) => updateSpec('other_specs', e.target.value)} />
-                    </div>
+                    <Input className="h-8 text-xs" placeholder="Other details" value={spec.other_specs} onChange={(e) => updateSpec('other_specs', e.target.value)} />
                   </div>
                 )}
               </Fragment>
             );
           })}
-        </Card>
 
-        {/* ── Save bar ─────────────────────────────────────────────────────── */}
-        <div className="sticky bottom-3 z-20 flex flex-col gap-2 rounded-lg border bg-background/95 px-4 py-3 shadow-lg backdrop-blur sm:flex-row sm:items-center sm:justify-between">
-          <span className="text-sm text-muted-foreground">
-            {quotedCount} of {rfq.items.length} item{rfq.items.length === 1 ? '' : 's'} quoted · Total{' '}
-            <b className="text-foreground tabular-nums">₹{quoteTotal.toLocaleString('en-IN')}</b>
-          </span>
-          <div className="flex gap-2">
-            <Button variant="outline" onClick={() => router.push(backHref)} disabled={saving}>
+          {/* ── Total and Save ─────────────────────────────────────────────── */}
+          <div className="flex items-center gap-3 border-t bg-muted/40 px-5 py-3">
+            <span className="flex-1 text-sm">
+              Total <b className="tabular-nums">₹{quoteTotal.toLocaleString('en-IN')}</b>
+            </span>
+            <Button variant="ghost" onClick={() => router.push(backHref)} disabled={saving}>
               Cancel
             </Button>
-            <Button onClick={handleSave} disabled={saving}>
-              {saving ? 'Saving…' : 'Save quotation'}
+            <Button className="h-10 px-5" onClick={handleSave} disabled={saving}>
+              {saving ? 'Saving…' : 'Save quote'}
             </Button>
           </div>
-        </div>
+        </section>
       </div>
     </ContentLayout>
   );

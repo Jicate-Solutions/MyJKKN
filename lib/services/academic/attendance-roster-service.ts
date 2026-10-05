@@ -4,6 +4,7 @@ import {
   ACTIVE_ONLY_LIFECYCLE_FILTER,
   buildRosterLifecycleFilter,
 } from '@/lib/utils/academic/provisional-roster-filter';
+import { periodMarkedForLearners } from '@/lib/utils/practical-period-sections';
 import type {
   AttendanceRosterStudent,
   AttendanceStudent,
@@ -177,6 +178,9 @@ export class AttendanceRosterService {
       timetable_id: string;
       section_id: string;
       attendance_date: string;
+      // Added: 2026-09-23 (BUG-006204) - a practical batch's learners; when set,
+      // the period counts as marked only if one of them is stored.
+      student_ids?: string[] | null;
     }>
   ): Promise<Map<string, { isMarked: boolean; recordId?: string }>> {
     const attendanceMap = new Map<
@@ -290,7 +294,7 @@ export class AttendanceRosterService {
             // Even for multi-section records, we should only mark a period as complete
             // if THIS specific slot has attendance data
             const slotData = (data as any).attendance_data[period.timetable_slot_id];
-            if (this.periodHasAttendance(slotData)) {
+            if (periodMarkedForLearners(slotData, period.student_ids)) {
               isMarked = true;
             }
           }

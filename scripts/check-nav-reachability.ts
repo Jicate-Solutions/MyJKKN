@@ -220,6 +220,18 @@ const NAV_EXCLUDE = new Set<string>([
   // chip-reachable parent /billing/apportionment list page.
   '/billing/apportionment/rules',
 
+  // InstaSolver chooser lanes — hidden from navigation on 2026-10-01 (owner's
+  // decision) but kept for direct links, e.g. an anonymous complainant's
+  // tracking link. /instasolver itself now redirects to the desk dashboard.
+  '/instasolver/broken',
+  '/instasolver/complaint',
+  '/instasolver/track',
+  // Reached from the chooser's "My complaints" / "My reports" buttons, the
+  // bell, and a room's QR sticker (/r/[token]) — not from the desk's chip row.
+  '/instasolver/my-complaints',
+  '/instasolver/my-reports',
+  '/instasolver/r',
+
   // Academic /new forms
   '/academic/batches/new',
   '/academic/leaves/new',
@@ -290,6 +302,15 @@ const NAV_EXCLUDE = new Set<string>([
   '/procurement/rfqs/[id]/quotations',
   // GRN receiving form — button-invoked ("Create GRN") from the PO detail page
   '/procurement/grn/new',
+  // One purchase = one page: the old Quotations / Deliveries list tabs were folded into
+  // Purchases. These lists still resolve (links, bookmarks) but every RFQ, order and
+  // delivery is opened from its purchase page, so they have no tab of their own.
+  '/procurement/rfqs',
+  '/procurement/purchase-orders',
+  '/procurement/grn',
+  // PO print formats — reached from "Print as → + New format" on the order page.
+  '/procurement/purchase-orders/formats',
+  '/procurement/purchase-orders/formats/new',
 
   // OKR /new + /create wizard forms
   '/okr/elective/new',

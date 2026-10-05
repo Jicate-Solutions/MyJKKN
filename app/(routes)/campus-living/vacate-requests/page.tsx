@@ -32,6 +32,7 @@ const statusVariant: Record<
   draft: 'outline',
   pending_parent: 'secondary',
   pending_dues: 'secondary',
+  pending_accountant: 'default',
   pending_principal: 'default',
   pending_warden: 'default',
   pending_mess: 'default',
@@ -114,7 +115,7 @@ export default function VacateRequestsQueuePage() {
           <KpiTile label='Bills pending' value={counts.pending_dues ?? 0} variant='secondary' />
           <KpiTile
             label='With approvers'
-            value={(counts.pending_principal ?? 0) + (counts.pending_warden ?? 0) + (counts.pending_mess ?? 0) + (counts.pending_cao ?? 0)}
+            value={(counts.pending_accountant ?? 0) + (counts.pending_principal ?? 0) + (counts.pending_warden ?? 0) + (counts.pending_mess ?? 0) + (counts.pending_cao ?? 0)}
             variant='default'
           />
           <KpiTile label='Awaiting fine' value={counts.pending_fine ?? 0} variant='secondary' />
@@ -141,9 +142,9 @@ export default function VacateRequestsQueuePage() {
               <SelectItem value='all'>All statuses</SelectItem>
               <SelectItem value='draft'>Draft</SelectItem>
               <SelectItem value='pending_dues'>Bills pending</SelectItem>
+              <SelectItem value='pending_accountant'>With Accounts</SelectItem>
               <SelectItem value='pending_principal'>With Principal</SelectItem>
               <SelectItem value='pending_warden'>With Warden</SelectItem>
-              <SelectItem value='pending_mess'>With Mess In-charge</SelectItem>
               <SelectItem value='pending_cao'>With CAO</SelectItem>
               <SelectItem value='pending_fine'>Awaiting fine payment</SelectItem>
               <SelectItem value='completed'>Vacated</SelectItem>

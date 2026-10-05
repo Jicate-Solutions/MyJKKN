@@ -86,11 +86,13 @@ export function useApproveWithModifications() {
       id,
       userId,
       itemUpdates,
+      reason,
     }: {
       id: string;
       userId: string;
       itemUpdates: { itemId: string; required_quantity: number }[];
-    }) => ProcurementPurchaseRequestService.approveWithModifications(id, userId, itemUpdates),
+      reason?: string;
+    }) => ProcurementPurchaseRequestService.approveWithModifications(id, userId, itemUpdates, reason),
     // Settled, not just success: a refused transition must refresh the page too.
     onSettled: (_r, _e, { id }) => {
       queryClient.invalidateQueries({ queryKey: ['procurement-purchase-requests'] });
