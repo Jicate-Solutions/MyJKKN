@@ -24,6 +24,8 @@ export interface ProcurementPurchaseRequest {
   approved_by: string | null;
   approved_at: string | null;
   rejection_reason: string | null;
+  /** Requester-given label, e.g. which lab the request is for. */
+  title: string | null;
   notes: string | null;
   created_at: string;
   updated_at: string;
@@ -80,6 +82,7 @@ export interface CreatePurchaseRequestDto {
   institution_id: string;
   store_id?: string | null;
   domain?: ProcurementDomain; // defaults to 'ims'
+  title?: string | null;
   notes?: string | null;
   /** Per item: domain_item_id set = restock, null = new item — request_type is derived from these, not client-supplied. */
   items: CreatePurchaseRequestItemDto[];

@@ -40,7 +40,13 @@ export class ProcurementPurchaseRequestService {
           { count: 'exact' }
         );
 
-      if (filters.search) query = query.ilike('request_number', `%${toStoredRequestNumber(filters.search)}%`);
+      if (filters.search) {
+        // Strip PostgREST or() delimiters so a typed comma/paren can't break the filter.
+        const term = filters.search.replace(/[,()]/g, ' ').trim();
+        query = query.or(
+          `request_number.ilike.%${toStoredRequestNumber(term)}%,title.ilike.%${term}%`
+        );
+      }
       if (filters.status) query = query.eq('status', filters.status);
       if (filters.request_type) query = query.eq('request_type', filters.request_type);
       if (filters.store_id) query = query.eq('store_id', filters.store_id);
@@ -153,6 +159,7 @@ export class ProcurementPurchaseRequestService {
           // and fail after everything had already been saved.
           status: 'draft',
           requested_by: userId,
+          title: data.title?.trim() || null,
           notes: data.notes ?? null,
         })
         .select()

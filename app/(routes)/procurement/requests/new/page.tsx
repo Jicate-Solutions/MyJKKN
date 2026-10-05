@@ -80,6 +80,9 @@ export default function NewPurchaseRequestPage() {
   // One note for the whole request. It is saved as the request's notes and also fills
   // every new item's reason (the server needs one per new line); an AI-read reason wins.
   const [commonReason, setCommonReason] = useState('');
+  // Short label shown on the Requests list, so one person's several requests
+  // (e.g. one per lab) can be told apart.
+  const [title, setTitle] = useState('');
 
   // Institution scope — carries over whatever the requester had filtered the
   // Requests list to (?institution=…), so a multi-institution user isn't asked to
@@ -115,6 +118,10 @@ export default function NewPurchaseRequestPage() {
     const cleaned = items.filter((i) => i.item_name.trim());
     if (cleaned.length === 0) {
       toast.error('Add at least one item.');
+      return;
+    }
+    if (!title.trim()) {
+      toast.error('Enter what this request is for (e.g. Microbiology lab).');
       return;
     }
     if (cleaned.some((i) => i.is_new && !i.reason?.trim()) && !commonReason.trim()) {
@@ -161,6 +168,7 @@ export default function NewPurchaseRequestPage() {
         data: {
           institution_id: effectiveInstitution,
           domain,
+          title: title.trim(),
           notes: commonReason.trim() || null,
           items: cleanedItems.map(({ is_new, ...i }) => ({
             ...i,
@@ -223,6 +231,16 @@ export default function NewPurchaseRequestPage() {
                   </SelectContent>
                 </Select>
               </div>
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">Request for</Label>
+              <Input
+                className="h-8 text-sm"
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                maxLength={80}
+                placeholder="e.g. Microbiology lab, LT practicals"
+              />
             </div>
             {domain === 'resource_mgmt' && requestTypeSummary !== 'Restock' && (
               <p className="text-xs text-amber-800 dark:text-amber-300">
@@ -359,6 +377,10 @@ export default function NewPurchaseRequestPage() {
           {/* Only the item list scrolls, so the footer buttons stay on screen for long AI-read lists. */}
           <div className="flex min-h-0 flex-1 flex-col space-y-4">
             <div className="grid gap-2 text-sm sm:grid-cols-2">
+              <div className="sm:col-span-2">
+                <span className="text-muted-foreground">Request for: </span>
+                {title.trim()}
+              </div>
               <div>
                 <span className="text-muted-foreground">Request type: </span>
                 {requestTypeSummary}

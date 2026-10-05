@@ -207,6 +207,7 @@ export default function PurchaseRequestDetailPage() {
           title={displayRequestNumber(pr.request_number)}
           status={<StatusBadge status={pr.status} config={PR_STATUS_CONFIG} />}
           next={[
+            pr.title,
             `Asked by ${pr.requested_by_profile?.full_name || '—'}`,
             pr.created_at ? formatDateDMY(pr.created_at) : null,
           ]

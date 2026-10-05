@@ -125,7 +125,7 @@ export default function PurchaseRequestsPage() {
               <div className="relative flex-1">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                 <Input
-                  placeholder="Search by request number..."
+                  placeholder="Search by request number or name..."
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
                   className="pl-9"
@@ -175,7 +175,7 @@ export default function PurchaseRequestsPage() {
                 rows={requests}
                 getRowKey={(req) => req.id}
                 onRowClick={(req) => router.push(`/procurement/requests/${req.id}`)}
-                rowLabel={(req) => `View request ${displayRequestNumber(req.request_number)}`}
+                rowLabel={(req) => `View request ${[req.title, displayRequestNumber(req.request_number)].filter(Boolean).join(' ')}`}
                 columns={[
                   {
                     key: 'needed',
@@ -183,7 +183,8 @@ export default function PurchaseRequestsPage() {
                     mobile: 'title',
                     cell: (req) => (
                       <div className="min-w-0">
-                        <p className="truncate font-medium">{whatIsNeeded(req)}</p>
+                        {req.title && <p className="truncate font-semibold">{req.title}</p>}
+                        <p className={req.title ? 'truncate text-sm' : 'truncate font-medium'}>{whatIsNeeded(req)}</p>
                         <p className="text-xs text-muted-foreground">
                           {displayRequestNumber(req.request_number)}
                           {req.request_type === 'new_item' ? ' · new item' : req.request_type === 'mixed' ? ' · includes new items' : ''}
