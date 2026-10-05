@@ -34,8 +34,13 @@ import { PriorityBadge } from '../_components/priority-badge';
 import { Edit, Send, XCircle, PackageCheck, Archive, Award } from 'lucide-react';
 import { CertificateDownloadDialog } from '@/components/service-requests/certificate-download-dialog';
 import { GatePassCard } from '@/components/service-requests/gate-pass-card';
+import { RequestFeeCard } from '@/components/service-requests/request-fee-card';
 import { format } from 'date-fns';
-import type { ProcessApprovalDto, ServiceRequestApprovalStep } from '@/types/service-request';
+import {
+  isFeeStep,
+  type ProcessApprovalDto,
+  type ServiceRequestApprovalStep,
+} from '@/types/service-request';
 
 export default function ServiceRequestDetailPage({
   params,
@@ -45,7 +50,7 @@ export default function ServiceRequestDetailPage({
   const { id } = use(params);
   const router = useRouter();
   const { profile } = useAuth();
-  const { can, isSuperAdmin } = usePermissions();
+  const { can, canAccess, isSuperAdmin } = usePermissions();
   const { data: request, isLoading, error } = useServiceRequest(id);
   const processApproval = useProcessApproval();
   const submitRequest = useSubmitServiceRequest();
@@ -78,6 +83,8 @@ export default function ServiceRequestDetailPage({
   const canApprove = useMemo(() => {
     if (!request || !profile) return false;
     if (request.status !== 'in_review' && request.status !== 'submitted') return false;
+    // A fee step is never decided by hand — it completes when its bill is paid.
+    if (isFeeStep(currentApprovalStep)) return false;
     if (isSuperAdmin) return true;
     if (!can('service_requests.approve')) return false;
     if (!currentApprovalStep) return false;
@@ -113,6 +120,11 @@ export default function ServiceRequestDetailPage({
     (request?.service_type?.certificate_template_keys?.length ?? 0) > 0 &&
     (isSuperAdmin || can('service_requests.manage') || isRequestApprover);
   const isCancellable = ['draft', 'returned', 'submitted'].includes(request?.status || '');
+  // Fee card: while the request sits on its fee step, and for good once a bill
+  // exists (so the paid fee stays on record after the request moves on).
+  const showFee =
+    !!request?.fee_bill_id ||
+    (['submitted', 'in_review'].includes(request?.status || '') && isFeeStep(currentApprovalStep));
 
   const handleProcessApproval = (data: ProcessApprovalDto) => {
     processApproval.mutate({ id, data });
@@ -307,6 +319,15 @@ export default function ServiceRequestDetailPage({
         {/* ── Gate Pass (Gate Pass category types only) ── */}
         {request.service_type?.issues_gate_pass && (
           <GatePassCard requestId={request.id} requestStatus={request.status} />
+        )}
+
+        {/* ── Fee (types with a fee payment step) ───── */}
+        {showFee && (
+          <RequestFeeCard
+            requestId={request.id}
+            isRequester={isRequester}
+            canCollect={isSuperAdmin || canAccess('billing.receipts', 'create')}
+          />
         )}
 
         {/* ── Main Detail View ─────────────────────── */}

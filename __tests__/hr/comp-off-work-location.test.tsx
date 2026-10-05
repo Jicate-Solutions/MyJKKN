@@ -5,7 +5,7 @@
  * HR needs to know whether a claimed holiday / week-off was worked inside or
  * outside the campus, and where. The rule lives in three places that must
  * agree: the table's CHECKs + trg_hcoc_require_work_location (the wall),
- * CompOffService.claimWorkedDay (names the fix before any upload), and the
+ * CompOffService.claimWorkedDays (names the fix before any upload), and the
  * dialog (gates Submit). This pins the last two.
  */
 
@@ -19,9 +19,26 @@ import { CompOffService } from '@/lib/services/hr/comp-off-service';
 const mutateAsync = vi.fn();
 
 vi.mock('@/hooks/hr/use-comp-off', () => ({
-  useClaimWorkedDay: () => ({ mutateAsync, isPending: false }),
+  useClaimWorkedDays: () => ({ mutateAsync, isPending: false }),
+  useCompOffBalance: () => ({ data: { credits: [] } }),
 }));
-vi.mock('@/hooks/hr/use-day-occupancy', () => ({ useDayOccupancy: () => ({ data: null }) }));
+// Every picked day is free.
+vi.mock('@/hooks/hr/use-day-occupancy', () => ({
+  useDaysOccupancy: (_e: string, dates: string[]) =>
+    Object.fromEntries(dates.map((d) => [d, null])),
+}));
+// The real day grid is react-day-picker; the dialog only needs "these days were picked".
+vi.mock('@/components/ui/calendar', () => ({
+  Calendar: ({ onSelect }: { onSelect: (d: Date[]) => void }) => (
+    <button type="button" onClick={() => {
+      const d = new Date();
+      d.setDate(d.getDate() - 3);
+      onSelect([d]);
+    }}>
+      pick a worked day
+    </button>
+  ),
+}));
 vi.mock('@/hooks/hr/use-attendance-records', () => ({
   useClosedAttendanceMonths: () => new Set<string>(),
 }));
@@ -49,8 +66,8 @@ function fakeSupabase() {
   const inserted: Record<string, unknown>[] = [];
   const client = {
     from: () => ({
-      insert: (row: Record<string, unknown>) => {
-        inserted.push(row);
+      insert: (rows: Record<string, unknown>[]) => {
+        inserted.push(...rows);
         return Promise.resolve({ error: null });
       },
     }),
@@ -61,15 +78,15 @@ function fakeSupabase() {
 const base = {
   hr_organization_id: 'org-1',
   employee_id: 'emp-1',
-  worked_date: '2026-09-06',
+  worked_dates: ['2026-09-06'],
   documents: [doc] as never[],
 };
 
-describe('CompOffService.claimWorkedDay — work location', () => {
+describe('CompOffService.claimWorkedDays — work location', () => {
   it('refuses a claim that does not say where the day was worked', async () => {
     const { client, inserted } = fakeSupabase();
     await expect(
-      CompOffService.claimWorkedDay(client, { ...base, work_location: null })
+      CompOffService.claimWorkedDays(client, { ...base, work_location: null })
     ).rejects.toThrow(/inside or outside the campus/i);
     expect(inserted).toHaveLength(0);
   });
@@ -77,7 +94,7 @@ describe('CompOffService.claimWorkedDay — work location', () => {
   it('refuses outside campus without a place', async () => {
     const { client, inserted } = fakeSupabase();
     await expect(
-      CompOffService.claimWorkedDay(client, {
+      CompOffService.claimWorkedDays(client, {
         ...base, work_location: 'outside_campus', work_place: '   ',
       })
     ).rejects.toThrow(/place you worked/i);
@@ -86,7 +103,7 @@ describe('CompOffService.claimWorkedDay — work location', () => {
 
   it('stores outside campus with the trimmed place', async () => {
     const { client, inserted } = fakeSupabase();
-    await CompOffService.claimWorkedDay(client, {
+    await CompOffService.claimWorkedDays(client, {
       ...base, work_location: 'outside_campus', work_place: '  Chennai – NAAC visit ',
     });
     expect(inserted[0]).toMatchObject({
@@ -97,7 +114,7 @@ describe('CompOffService.claimWorkedDay — work location', () => {
 
   it('drops a stray place on inside campus instead of letting the CHECK refuse it', async () => {
     const { client, inserted } = fakeSupabase();
-    await CompOffService.claimWorkedDay(client, {
+    await CompOffService.claimWorkedDays(client, {
       ...base, work_location: 'inside_campus', work_place: 'typed before switching',
     });
     expect(inserted[0]).toMatchObject({ work_location: 'inside_campus', work_place: null });
@@ -115,16 +132,9 @@ describe('Claim a worked day dialog — work location', () => {
     vi.unstubAllGlobals();
   });
 
-  const threeDaysAgo = () => {
-    const d = new Date();
-    d.setDate(d.getDate() - 3);
-    const p = (n: number) => String(n).padStart(2, '0');
-    return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
-  };
-
   function fillEverythingButLocation() {
     render(<ClaimWorkedDayDialog open onOpenChange={() => {}} />);
-    fireEvent.change(screen.getByLabelText(/worked date/i), { target: { value: threeDaysAgo() } });
+    fireEvent.click(screen.getByRole('button', { name: 'pick a worked day' }));
     fireEvent.click(screen.getByRole('button', { name: 'attach proof' }));
     return screen.getByRole('button', { name: /submit claim/i });
   }

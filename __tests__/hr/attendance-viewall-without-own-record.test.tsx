@@ -73,6 +73,12 @@ vi.mock('@/components/layout/content-layout', () => ({
   // the terminology gate reads `<div>{children}</div>` as user-facing copy.
   ContentLayout: (props: { children: React.ReactNode }) => props.children,
 }));
+// The clinical-duty punch card (f60bf1457e) reads its own data; it is not what
+// this test is about, and unmocked it builds a real Supabase client.
+vi.mock('@/app/(routes)/hr/attendance/_components/clinical-duty-card', () => ({
+  ClinicalDutyCard: () => null,
+}));
+
 vi.mock('@/app/(routes)/hr/attendance/_components/attendance-calendar-tab', () => ({
   AttendanceCalendarTab: () => <div data-testid="calendar-tab" />,
 }));

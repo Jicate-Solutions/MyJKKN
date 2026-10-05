@@ -45,6 +45,9 @@ export async function POST(
       if (error.message.includes('not awaiting') || error.message.includes('Only users with role')) {
         return NextResponse.json({ error: error.message }, { status: 403 });
       }
+      if (error.message.includes('once the fee is paid')) {
+        return NextResponse.json({ error: error.message }, { status: 400 });
+      }
     }
 
     return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
