@@ -24,7 +24,7 @@ let dir: string;
 type Rename = { from: string; to: string; sql?: string };
 type Fixture = {
   renames: Rename[];
-  ledger?: string[];
+  ledger?: (string | { version: string; name: string | null })[];
   existing?: string[];
   credentials?: boolean;
 };
@@ -148,6 +148,72 @@ describe('ledger hits are definitive in the positive direction', () => {
     const r = run({ ...base, ledger: ['20260801002301'] });
     expect(r.code).toBe(1);
     expect(r.out).toContain('ledger-target');
+  });
+});
+
+/**
+ * PR #4207, 2026-10-05: two files shared version 20271005090000. The ledger row
+ * belonged to the OTHER file (a procurement migration); the renamed
+ * gate_pass_expired_status file had never run. A hit is definitive only for the
+ * file schema_migrations.name names.
+ */
+describe('a ledger hit belongs to the file it names (PR #4207, 2026-10-05)', () => {
+  const shared = (ledgerName: string | null, existing: string[]): Fixture => ({
+    renames: [{
+      from: mig('20271005090000', 'gate_pass_expired_status'),
+      to: mig('20271005090001', 'gate_pass_expired_status'),
+      sql: `CREATE TABLE IF NOT EXISTS public.gate_pass_expiry_log (id uuid);
+            ALTER TABLE public.gate_passes ADD COLUMN IF NOT EXISTS expired_at TIMESTAMPTZ;`,
+    }],
+    ledger: [{ version: '20271005090000', name: ledgerName }],
+    existing,
+  });
+
+  it('still FAILS when the ledger row names THIS file', () => {
+    const r = run(shared('gate_pass_expired_status', []));
+    expect(r.code).toBe(1);
+    expect(r.out).toContain('ledger-source');
+  });
+
+  it('PASSES when the row names a different file and this file\'s objects are absent — with a note naming that file', () => {
+    const r = run(shared('procurement_po_approval', []));
+    expect(r.code).toBe(0);
+    expect(r.out).toContain('not-applied');
+    expect(r.out).toContain('ledger-shadowed');
+    expect(r.out).toContain('20271005090000_procurement_po_approval.sql');
+  });
+
+  it('FAILS when the row names a different file but this file\'s objects ARE present', () => {
+    const r = run(shared('procurement_po_approval',
+      ['table:gate_pass_expiry_log', 'column:gate_passes.expired_at']));
+    expect(r.code).toBe(1);
+    expect(r.out).toContain('applied-by-object');
+    expect(r.out).toContain('ledger-shadowed');
+  });
+
+  it('verdictFor itself sets aside a hit recorded under another file\'s name', async () => {
+    // Driven directly so the evidence does not hinge on the fixture format: the
+    // ledger here is the same Set of versions the pre-#4207 code already read.
+    const { verdictFor, extractObjects, extractReplacedObjects } = await import(SCRIPT);
+    const f = shared('procurement_po_approval', []).renames[0];
+    const v = verdictFor({
+      rename: { ...f, fromVersion: '20271005090000', toVersion: '20271005090001' },
+      objects: extractObjects(f.sql!),
+      replaced: extractReplacedObjects(f.sql!),
+      presentSet: new Set(),
+      ledgerSet: new Set(['20271005090000']),
+      ledgerNames: new Map([['20271005090000', 'procurement_po_approval']]),
+      attested: null,
+      credentials: true,
+    });
+    expect(v.reason).toBe('not-applied');
+    expect(v.level).toBe('pass');
+  });
+
+  it('FAILS when the row carries no name — it cannot be told apart from this file', () => {
+    const r = run(shared(null, []));
+    expect(r.code).toBe(1);
+    expect(r.out).toContain('ledger-source');
   });
 });
 

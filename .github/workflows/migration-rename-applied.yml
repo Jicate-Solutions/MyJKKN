@@ -46,6 +46,15 @@ name: Migration rename vs applied source
 # production. The guard keeps its teeth: the 2026-08-04 file above still fails,
 # on the columns, indexes and policies it creates outright.
 #
+# A LEDGER HIT IS DEFINITIVE ONLY FOR THE FILE IT NAMES (2026-10-05). Two files
+# can share one version, and the ledger row belongs to only one of them. PR #4207
+# renamed the unapplied …gate_pass_expired_status file off 20271005090000, and the
+# guard blocked it because that version WAS in the ledger — recorded for the other
+# file, a procurement migration. The guard now reads schema_migrations.name: same
+# name as the renamed file → fail as before; a different name → the hit is set
+# aside, a note names the ledger's file, and this file's own CREATEd objects decide
+# exactly as on a ledger miss; no name recorded → fail as before.
+#
 # COST TO AN ORDINARY PR: zero database round-trips. Rename detection is pure git.
 # The database is contacted only when a version-changing rename actually exists,
 # which is a handful of PRs a year. That is why this can gate on pull_request at
