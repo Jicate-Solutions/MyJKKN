@@ -1,7 +1,8 @@
 'use client';
 
 import Link from 'next/link';
-import { ArrowRight, FolderTree, Users } from 'lucide-react';
+import { ArrowRight, BellOff, FolderTree, HardHat, Tags, Users } from 'lucide-react';
+import { StatCard } from '@/components/instasolver/stat-card';
 import { PageBreadcrumb } from '@/components/navigation';
 import { PageHeader } from '@/components/page-header';
 import { AccessGate } from '@/components/instasolver/access-gate';
@@ -9,32 +10,6 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Skeleton } from '@/components/ui/skeleton';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { useAdminOverview, useInstaSolverAccess } from '@/hooks/instasolver/use-instasolver';
-import { cn } from '@/lib/utils';
-
-function Figure({
-  label,
-  value,
-  loading,
-  danger
-}: {
-  label: string;
-  value: number | undefined;
-  loading: boolean;
-  danger?: boolean;
-}) {
-  return (
-    <Card className={cn(danger && 'border-red-200 dark:border-red-900')}>
-      <CardContent className="p-4">
-        <p className="text-sm text-muted-foreground">{label}</p>
-        {loading || value === undefined ? (
-          <Skeleton className="mt-2 h-8 w-12" />
-        ) : (
-          <p className="mt-1 text-2xl font-semibold tabular-nums">{value}</p>
-        )}
-      </CardContent>
-    </Card>
-  );
-}
 
 function AdminOverview() {
   const { data: access } = useInstaSolverAccess();
@@ -55,15 +30,23 @@ function AdminOverview() {
       )}
 
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-        <Figure label="Active teams" value={data?.teams_active} loading={isLoading} />
-        <Figure label="Team members" value={data?.team_members} loading={isLoading} />
-        <Figure label="Active categories" value={data?.categories_active} loading={isLoading} />
+        {/* The dashboard card style in Administration's own colours (2026-10-05). */}
+        <StatCard label="Active teams" value={data?.teams_active} icon={HardHat} accent="teal" href="/instasolver/admin/teams" isLoading={isLoading} />
+        <StatCard label="Team members" value={data?.team_members} icon={Users} accent="cyan" href="/instasolver/admin/teams" isLoading={isLoading} />
+        <StatCard label="Active categories" value={data?.categories_active} icon={Tags}
+          accent="purple"
+          href={access?.is_admin ? '/instasolver/admin/categories' : undefined}
+          interactive
+          isLoading={isLoading}
+        />
         {showFailures && (
-          <Figure
+          <StatCard
             label="Notification failures, last 7 days"
             value={data?.notification_failures_7d}
-            loading={isLoading}
-            danger={!!data && data.notification_failures_7d > 0}
+            icon={BellOff}
+            accent="rose"
+            interactive
+            isLoading={isLoading}
           />
         )}
       </div>

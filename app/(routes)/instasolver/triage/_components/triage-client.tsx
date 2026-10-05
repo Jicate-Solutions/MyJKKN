@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { CheckCircle2, ChevronLeft, ChevronRight, RefreshCw } from 'lucide-react';
+import { CheckCircle2, ChevronLeft, ChevronRight, RefreshCw, UserPlus } from 'lucide-react';
 import { PageBreadcrumb } from '@/components/navigation';
 import { PageHeader } from '@/components/page-header';
 import { AccessGate } from '@/components/instasolver/access-gate';
@@ -13,9 +13,9 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useInstitutions, useTriageQueue } from '@/hooks/instasolver/use-instasolver';
 import type { TriageFilters, TriagedIssue } from '@/types/instasolver';
-import { ReopenDialog } from './reopen-dialog';
 import { TriageLegend } from './triage-legend';
-import { TriageList } from './triage-list';
+import { TriageList, type TriageSelection } from './triage-list';
+import { BulkAssignDialog } from '../../issues/_components/bulk-assign-dialog';
 
 type View = NonNullable<TriageFilters['view']>;
 
@@ -39,7 +39,32 @@ function TriageDesk() {
   const [page, setPage] = useState(1);
 
   const [assignTarget, setAssignTarget] = useState<TriagedIssue | null>(null);
-  const [reopenTarget, setReopenTarget] = useState<TriagedIssue | null>(null);
+
+  // Multi-select: rows awaiting triage, assigned together with one priority
+  // and team (the standalone queue's bulk assign). Cleared whenever the list
+  // underneath changes, so nothing off-screen stays selected.
+  const [selected, setSelected] = useState<Set<number>>(new Set());
+  const [bulkOpen, setBulkOpen] = useState(false);
+  const clearSelection = () => setSelected(new Set());
+  const selection: TriageSelection = {
+    selected,
+    toggle: (id) =>
+      setSelected((prev) => {
+        const next = new Set(prev);
+        if (next.has(id)) next.delete(id);
+        else next.add(id);
+        return next;
+      }),
+    setMany: (ids, on) =>
+      setSelected((prev) => {
+        const next = new Set(prev);
+        for (const id of ids) {
+          if (on) next.add(id);
+          else next.delete(id);
+        }
+        return next;
+      })
+  };
 
   const { data: institutions } = useInstitutions();
   const { data, isLoading, isFetching, error, refetch } = useTriageQueue({
@@ -77,6 +102,7 @@ function TriageDesk() {
           onValueChange={(v) => {
             setView(v as View);
             setPage(1);
+            clearSelection();
           }}
           className="min-w-0"
         >
@@ -94,6 +120,7 @@ function TriageDesk() {
           onValueChange={(v) => {
             setInstitutionId(v);
             setPage(1);
+            clearSelection();
           }}
         >
           <SelectTrigger className="w-full md:w-72" aria-label="Filter by institution">
@@ -135,9 +162,24 @@ function TriageDesk() {
         </Card>
       ) : (
         <>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button size="sm" disabled={selected.size === 0} onClick={() => setBulkOpen(true)}>
+              <UserPlus className="mr-1.5 h-4 w-4" />
+              Assign selected{selected.size ? ` (${selected.size})` : ''}
+            </Button>
+            {selected.size > 0 ? (
+              <Button size="sm" variant="ghost" onClick={clearSelection}>
+                Clear selection
+              </Button>
+            ) : (
+              <span className="text-xs text-muted-foreground">Tick issues awaiting triage to assign several at once.</span>
+            )}
+          </div>
+
           <TriageList
             rows={rows}
-            handlers={{ onAssign: setAssignTarget, onReopen: setReopenTarget }}
+            handlers={{ onAssign: setAssignTarget }}
+            selection={selection}
           />
 
           {meta && (
@@ -146,7 +188,10 @@ function TriageDesk() {
                 Page {meta.page} of {Math.max(meta.totalPages, 1)} · {meta.total} {meta.total === 1 ? 'issue' : 'issues'}
               </p>
               <div className="flex gap-2">
-                <Button variant="outline" size="sm" disabled={page <= 1 || isFetching} onClick={() => setPage((p) => p - 1)}>
+                <Button variant="outline" size="sm" disabled={page <= 1 || isFetching} onClick={() => {
+                    setPage((p) => p - 1);
+                    clearSelection();
+                  }}>
                   <ChevronLeft className="mr-1 h-4 w-4" />
                   Previous
                 </Button>
@@ -154,7 +199,10 @@ function TriageDesk() {
                   variant="outline"
                   size="sm"
                   disabled={page >= meta.totalPages || isFetching}
-                  onClick={() => setPage((p) => p + 1)}
+                  onClick={() => {
+                    setPage((p) => p + 1);
+                    clearSelection();
+                  }}
                 >
                   Next
                   <ChevronRight className="ml-1 h-4 w-4" />
@@ -168,7 +216,12 @@ function TriageDesk() {
       <TriageLegend />
 
       <AssignDialog issue={assignTarget} open={!!assignTarget} onOpenChange={(o) => !o && setAssignTarget(null)} />
-      <ReopenDialog issue={reopenTarget} open={!!reopenTarget} onOpenChange={(o) => !o && setReopenTarget(null)} />
+      <BulkAssignDialog
+        ids={[...selected]}
+        open={bulkOpen}
+        onOpenChange={setBulkOpen}
+        onDone={clearSelection}
+      />
     </div>
   );
 }

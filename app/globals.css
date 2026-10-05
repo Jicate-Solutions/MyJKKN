@@ -844,3 +844,54 @@ body {
   pointer-events: none;
   color: hsl(var(--muted-foreground));
 }
+
+/*
+ * Slim scrollbars for tables that scroll sideways — ported from the standalone
+ * InstaSolver (2026-10-05). Opt-in: add `scrollbar-slim` to a table's wrapper.
+ * The browser default under a wide table is a thick grey bar with arrow
+ * buttons; this is a 6px rounded pill on a transparent track, inset from the
+ * rounded corners, darker on hover so it is still easy to grab. It styles the
+ * wrapper's own scrollbar and the scrolling box inside components/ui/table.tsx.
+ *
+ * Chromium and Safari take the ::-webkit-scrollbar rules; Firefox gets the
+ * standard properties behind @supports, because Chromium also understands them
+ * and they would override the pseudo-element styling there.
+ */
+.scrollbar-slim {
+  --scrollbar-thumb: #cbd5e1;
+  --scrollbar-thumb-hover: #94a3b8;
+}
+.dark .scrollbar-slim {
+  --scrollbar-thumb: rgb(255 255 255 / 0.18);
+  --scrollbar-thumb-hover: rgb(255 255 255 / 0.32);
+}
+.scrollbar-slim::-webkit-scrollbar,
+.scrollbar-slim ::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+.scrollbar-slim::-webkit-scrollbar-track,
+.scrollbar-slim ::-webkit-scrollbar-track {
+  background: transparent;
+  margin-inline: 0.5rem;
+}
+.scrollbar-slim::-webkit-scrollbar-thumb,
+.scrollbar-slim ::-webkit-scrollbar-thumb {
+  background-color: var(--scrollbar-thumb);
+  border-radius: 9999px;
+}
+.scrollbar-slim::-webkit-scrollbar-thumb:hover,
+.scrollbar-slim ::-webkit-scrollbar-thumb:hover {
+  background-color: var(--scrollbar-thumb-hover);
+}
+.scrollbar-slim::-webkit-scrollbar-button,
+.scrollbar-slim ::-webkit-scrollbar-button {
+  display: none;
+}
+@supports not selector(::-webkit-scrollbar) {
+  .scrollbar-slim,
+  .scrollbar-slim * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--scrollbar-thumb) transparent;
+  }
+}
