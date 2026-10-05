@@ -286,6 +286,30 @@ describe('a ledger name is still THIS file when annotated or differently cased',
     expect(r.out).toContain('ledger-source');
   });
 
+  it('FAILS when the row is this file recorded under a DIFFERENT version prefix', () => {
+    const r = run(renameOf('20260928085422_learner_leave_types_backfill'));
+    expect(r.code).toBe(1);
+    expect(r.out).toContain('ledger-source');
+  });
+
+  it('FAILS when the row is this file written as a path with .sql', () => {
+    const r = run(renameOf('supabase/migrations/20270415090100_learner_leave_types_backfill.sql'));
+    expect(r.code).toBe(1);
+    expect(r.out).toContain('ledger-source');
+  });
+
+  it('FAILS when the row is this file with dashes for underscores', () => {
+    const r = run(renameOf('learner-leave-types-backfill'));
+    expect(r.code).toBe(1);
+    expect(r.out).toContain('ledger-source');
+  });
+
+  it('FAILS when the row is this file with words glued on after an underscore', () => {
+    const r = run(renameOf('learner_leave_types_backfill_applied_by_hand'));
+    expect(r.code).toBe(1);
+    expect(r.out).toContain('ledger-source');
+  });
+
   it('still PASSES for a genuinely different file — the #4207 case is not regressed', () => {
     const r = run(renameOf('procurement_two_signoffs_guard'));
     expect(r.code).toBe(0);

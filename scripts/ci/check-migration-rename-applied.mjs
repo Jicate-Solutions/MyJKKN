@@ -539,31 +539,35 @@ async function runQuery(sql, transport, env) {
 export function verdictFor({ rename, objects, replaced = [], presentSet, ledgerSet, ledgerNames, attested, credentials }) {
   if (ledgerSet.has(rename.fromVersion)) {
     // A ledger hit is definitive for the file it NAMES. Two files can share one
-    // version; only one of them can own the row (PR #4207, 2026-10-05: the row
+    // version, and the row names at most one of them (PR #4207, 2026-10-05: the row
     // for 20271005090000 was a procurement migration, and the renamed
     // gate_pass_expired_status file had never run). When the recorded name is a
     // DIFFERENT file, the hit says nothing about this one, so the decision falls
     // through to this file's own objects. No name recorded → no way to tell →
     // today's behaviour: fail.
+    // Residual risk: scripts/apply-migration-file.mjs records with ON CONFLICT
+    // (version) DO UPDATE SET name, so when BOTH files sharing a version were
+    // applied, the row names only the last one. Renaming the other then rests on
+    // its objects, which is the same exposure as a ledger miss.
     // 222 of 3,575 live rows (5 Oct) store the name WITH its version prefix
     // ("20271005090000_procurement_two_signoffs_guard"); strip it so both forms compare.
-    const recorded = String(ledgerNames?.get(rename.fromVersion) ?? '').trim()
-      .replace(/\.sql$/, '').replace(new RegExp(`^${rename.fromVersion}_`), '');
+    const recorded = String(ledgerNames?.get(rename.fromVersion) ?? '').trim();
     const own = [nameOf(rename.from), nameOf(rename.to)].filter(Boolean);
     // Matching must be LIBERAL, because over-matching only ever fails closed
     // (we keep today's refusal) while under-matching sets aside a row that is
-    // this file's own and lets an applied migration be re-armed. Two live forms
-    // defeated an exact compare (verified against production, 5 Oct 2026):
+    // this file's own and lets an applied migration be re-armed. Live forms that
+    // defeated a strict compare (verified against production, 5–6 Oct 2026):
     //   * a human annotation after the name — 2 rows read
     //     "learner_leave_types_backfill (applied by hand 28 Sep; recorded as ...)"
-    //   * a different capitalisation — 2 rows.
-    // So: compare case-insensitively, and treat the row as this file's whenever
-    // the file's name appears in it as a whole token.
-    const fold = (t) => String(t).toLowerCase();
-    const tokenIn = (needle, hay) =>
-      new RegExp(`(^|[^a-z0-9_])${fold(needle).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}([^a-z0-9_]|$)`)
-        .test(fold(hay));
-    const isOwnRow = own.some((o) => fold(o) === fold(recorded) || tokenIn(o, recorded));
+    //   * a different capitalisation — 2 rows
+    //   * the version prefix — 222 rows; and a prefix need not be THIS version
+    //     (the annotated row above says "recorded as 20260928085422")
+    //   * a path or a .sql suffix, and '-' written for '_'.
+    // So: fold case and '-' to '_', and treat the row as this file's whenever the
+    // file's name appears ANYWHERE in it. A row that is only a fragment of the
+    // file's name ("backfill") is still a different file.
+    const norm = (t) => String(t).toLowerCase().replace(/-/g, '_');
+    const isOwnRow = own.some((o) => norm(recorded).includes(norm(o)));
     if (!recorded || isOwnRow) {
       return { level: 'fail', reason: 'ledger-source',
         detail: `schema_migrations carries version ${rename.fromVersion}${recorded ? ` under name "${recorded}" — this file` : ' (no name recorded, so it cannot be told apart from this file)'}. That migration has run; renaming it re-arms it as pending.` };
