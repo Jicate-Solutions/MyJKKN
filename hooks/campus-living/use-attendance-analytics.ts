@@ -40,6 +40,26 @@ export function useAttendanceDashboardAnalytics(
   });
 }
 
+/**
+ * The institution / department / block cube for /campus-living/attendance.
+ * Always fetched for ALL blocks — the block filter is applied client-side to the
+ * cube, so choosing a block is instant. Built on useCampusLivingScope for the
+ * same reason as the hook above.
+ */
+export function useAttendanceBreakdown(
+  institutionId: string | undefined,
+  from: string,
+  to: string,
+) {
+  const { scopeKey, ready } = useCampusLivingScope(institutionId);
+  return useQuery({
+    queryKey: [...attendanceAnalyticsKeys.all, 'breakdown', { scope: scopeKey, from, to }] as const,
+    queryFn: () => AttendanceAnalyticsService.getBreakdown(from, to, null),
+    enabled: ready && !!from && !!to,
+    staleTime: 60_000,
+  });
+}
+
 export function useAttendanceLearnerDetail(
   institutionId: string | undefined,
   learnerId: string | undefined,

@@ -68,14 +68,21 @@ ok = ps.set_setting(key, "DUPLEX_CM")       # colour front / black back
 print("[mono-back] GDuplexType=DUPLEX_CM accepted=…", flush=True)
 ```
 
-Guarded and logged at every step: if the SDK lacks the key or rejects the
-value, the card still prints the old two-set way and the log says so.
+Then — v0.3.3, after the first v0.3.2 card printed with NO black on the
+front (the FATHER / ADM.NO / CLASS / YEAR rows and the QR were skipped; the
+back printed fine from K) — it also sets `FBlackManagement = NOBLACKPOINT`.
+With YMCO / K the front has no K panel, and the driver's default routes
+pure-black pixels to K, so they vanished. NOBLACKPOINT composes front
+black from Y+M+C: slightly lighter than resin black, but printed.
+
+Guarded and logged at every step: if the SDK lacks a key or rejects a
+value, the card still prints and the log says which setting failed.
 The front path, polling, retry and rate limit are byte-for-byte v0.3.1.
 
 Install (station PC):
 
 1. Copy `scripts/id-card-bridge/evolis_bridge.py` to
-   `C:\jkkn-bridge\evolis_bridge.v0.3.2.py` and
+   `C:\jkkn-bridge\evolis_bridge.new.py` and
    `scripts/id-card-bridge/install-mono-back.ps1` to `C:\jkkn-bridge\`.
 2. `powershell -ExecutionPolicy Bypass -File C:\jkkn-bridge\install-mono-back.ps1`
    — backs up the live file, compile-checks the new one, swaps, restarts
@@ -83,6 +90,25 @@ Install (station PC):
 3. `rollback-mono-back.ps1` restores the newest backup. `probe-sdk.ps1` is
    read-only and prints the SDK's setting names if the log shows the key
    was not accepted.
+
+### Route B — print through the Windows driver (v0.3.5)
+
+Direct prints from the Evolis design software are perfect because they go
+through the Windows driver with the Premium Suite preferences. v0.3.5 can
+take the same path: `print-via.txt` containing `driver` makes the bridge send
+each card as a two-page document (front, back) to the Windows printer
+"Evolis Primacy 2" and wait for the spooler job to finish, so "printed" still
+means printed and ribbon/card-out errors still reach the queue. Needs
+pywin32; the switch script installs it.
+
+```
+powershell -ExecutionPolicy Bypass -File C:\jkkn-bridge\switch-print-route.ps1 driver
+powershell -ExecutionPolicy Bypass -File C:\jkkn-bridge\switch-print-route.ps1 sdk
+```
+
+Use it when the SDK route's `[mono-back]` log lines show a setting rejected,
+or when the front still prints without its black rows. Nothing else changes:
+same fetch, same rotation, same retry.
 
 ## Verify — six cards settle it
 

@@ -3,14 +3,13 @@
 import { useMemo } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { ContentLayout } from '@/components/layout/content-layout';
-import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { AlertBox } from '@/components/ui/alert-box';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { InstitutionFilter } from '@/components/procurement/institution-filter';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useProcurementOverviewCounts } from '@/hooks/procurement/use-overview-counts';
-import { CircleAlert, Plus, ChevronRight } from 'lucide-react';
+import { Plus, ChevronRight } from 'lucide-react';
 
 /**
  * Procurement is a strict chain: a request must precede an RFQ, which must precede
@@ -31,31 +30,31 @@ const GATES: ReadonlyArray<{
 }> = [
   {
     gate: 1,
-    name: 'Request approval',
-    waiting: 'requests awaiting approval',
+    name: 'Item approval',
+    waiting: 'requests awaiting item approval',
     permission: 'request_approve',
-    listHref: '/procurement/requests?status=submitted',
+    listHref: '/procurement/requests?stage=submitted',
   },
   {
     gate: 2,
-    name: 'Quotations',
-    waiting: 'approved, ready for quotations',
+    name: 'Quotes',
+    waiting: 'approved, collecting quotes',
     permission: 'rfq_manage',
-    listHref: '/procurement/requests?status=approved',
+    listHref: '/procurement/requests?stage=getting_quotes',
   },
   {
     gate: 3,
-    name: 'Super Admin approval',
-    waiting: 'vendor choice to approve',
+    name: 'Final approval',
+    waiting: 'vendor choice for the Super Admin',
     permission: null,
-    listHref: '/procurement/rfqs?status=pending_award_approval',
+    listHref: '/procurement/requests?stage=with_super_admin',
   },
   {
     gate: 4,
-    name: 'Purchase orders',
+    name: 'Ordered',
     waiting: 'awaiting delivery',
     permission: 'grn_create',
-    listHref: '/procurement/purchase-orders?status=approved',
+    listHref: '/procurement/requests?stage=ordered',
   },
   {
     gate: 5,
@@ -140,120 +139,123 @@ export default function ProcurementHome() {
   const legend = colleges.filter((c) => bars.built.some((b) => b.parts.some((p) => p.id === c.id)));
   const explain = VIEWS.find((v) => v.value === view)?.explain;
 
+  const needsYou = view === 'pending' ? bars.built.filter((b) => b.mine && b.total > 0) : [];
+
   return (
     <ContentLayout title="Procurement">
-      <div className="space-y-4">
+      <div className="mx-auto w-full max-w-3xl space-y-6">
         {isError && (
           <AlertBox type="error" message="The status counts could not be loaded. Refresh the page to try again." />
         )}
 
-        <Card>
-          <CardContent className="space-y-5 p-4 sm:p-6">
-            {/* ── Filters ─────────────────────────────────────────────── */}
-            <div className="flex flex-wrap items-end gap-4">
-              <InstitutionFilter
-                className="w-full space-y-1 sm:w-[280px] [&_label]:text-xs [&_label]:text-muted-foreground"
-                label="College"
-                allLabel="All colleges"
-                value={college}
-                onChange={(id) => setParam('institution', id, 'all')}
-              />
-              <div className="space-y-1">
-                <p className="text-xs text-muted-foreground">Show</p>
-                <ToggleGroup
-                  type="single"
-                  variant="outline"
-                  value={view}
-                  onValueChange={(v) => v && setParam('view', v, 'pending')}
-                  aria-label="Which documents to count"
-                >
-                  {VIEWS.map((v) => (
-                    <ToggleGroupItem key={v.value} value={v.value} className="px-4">
-                      {v.label}
-                    </ToggleGroupItem>
-                  ))}
-                </ToggleGroup>
-              </div>
-              {/* No page heading above: the breadcrumb and tab bar already say "Procurement". */}
-              {canCreateRequest && (
-                <Button
-                  className="ml-auto"
-                  onClick={() =>
-                    router.push(
-                      college !== 'all'
-                        ? `/procurement/requests/new?institution=${college}`
-                        : '/procurement/requests/new'
-                    )
-                  }
-                >
-                  <Plus className="mr-2 h-4 w-4" />
-                  New request
-                </Button>
-              )}
-            </div>
-            <p className="text-sm text-muted-foreground">{explain}</p>
-
-            {/* ── Status bars ─────────────────────────────────────────── */}
-            <div className="space-y-2">
-              {bars.built.map((bar) => {
-                const needsYou = view === 'pending' && bar.mine && bar.total > 0;
-                const href = `${bar.listHref}&institution=${college}`;
-                return (
-                  <button
-                    key={bar.gate}
-                    type="button"
-                    onClick={() => router.push(href)}
-                    aria-label={`${bar.name}: ${bar.total}. Open the list.`}
-                    className="grid w-full grid-cols-[28px_1fr_48px_16px] items-center gap-x-3 gap-y-2 rounded-lg border p-3 text-left transition-colors hover:border-primary hover:bg-accent/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:grid-cols-[28px_minmax(170px,230px)_56px_1fr_16px] sm:gap-x-4"
-                  >
-                    <span className="inline-flex h-7 w-7 items-center justify-center rounded-md border bg-background text-xs font-semibold tabular-nums text-muted-foreground">
-                      {bar.gate}
-                    </span>
-                    <span className="min-w-0">
-                      <span className="block text-sm font-semibold leading-tight">{bar.name}</span>
-                      <span className="block text-xs text-muted-foreground">{bar.waiting}</span>
-                      {needsYou && (
-                        <span className="mt-1 inline-flex items-center gap-1 rounded-full border border-amber-500/40 bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-800 dark:bg-amber-950/40 dark:text-amber-200">
-                          <CircleAlert className="h-3 w-3" />
-                          Needs you
-                        </span>
-                      )}
-                    </span>
-                    <span
-                      className={`text-right text-3xl font-semibold tabular-nums ${
-                        isLoading ? 'text-muted-foreground/40' : needsYou ? 'text-amber-600 dark:text-amber-400' : ''
-                      }`}
-                    >
-                      {isLoading ? '—' : bar.total}
-                    </span>
-                    <span className="col-span-2 col-start-2 row-start-2 flex h-3 overflow-hidden rounded bg-muted sm:col-span-1 sm:col-start-auto sm:row-start-auto">
-                      {bar.parts.map((p) => (
-                        <span
-                          key={p.id}
-                          title={`${p.name}: ${p.count}`}
-                          className={`h-full border-l-2 border-background first:border-l-0 ${p.colour}`}
-                          style={{ width: `${(p.count / bars.max) * 100}%` }}
-                        />
-                      ))}
-                    </span>
-                    <ChevronRight className="col-start-4 row-start-1 h-4 w-4 text-muted-foreground sm:col-start-auto sm:row-start-auto" aria-hidden />
-                  </button>
-                );
-              })}
-            </div>
-
-            {legend.length > 0 && (
-              <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
-                {legend.map((c) => (
-                  <span key={c.id} className="inline-flex items-center gap-1.5">
-                    <span className={`h-2.5 w-2.5 rounded-sm ${c.colour}`} aria-hidden />
-                    {c.name}
-                  </span>
-                ))}
-              </div>
+        {/* ── Title, college, New request ─────────────────────────────── */}
+        <header className="flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <h1 className="text-2xl font-bold">Procurement</h1>
+            <p className="text-sm text-muted-foreground">What is waiting at each step, and what needs you.</p>
+          </div>
+          <div className="flex flex-wrap items-end gap-2">
+            <InstitutionFilter
+              className="w-full sm:w-60 [&_button]:h-10"
+              label={null}
+              allLabel="All colleges"
+              value={college}
+              onChange={(id) => setParam('institution', id, 'all')}
+            />
+            {canCreateRequest && (
+              <Button
+                className="h-10"
+                onClick={() =>
+                  router.push(
+                    college !== 'all' ? `/procurement/requests/new?institution=${college}` : '/procurement/requests/new'
+                  )
+                }
+              >
+                <Plus className="mr-1.5 h-4 w-4" />
+                New request
+              </Button>
             )}
-          </CardContent>
-        </Card>
+          </div>
+        </header>
+
+        {/* ── Needs you: only the steps this person acts on, as big tappable cards ── */}
+        {needsYou.length > 0 && (
+          <section className="space-y-2">
+            <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Needs you</h2>
+            <div className="grid gap-3 sm:grid-cols-2">
+              {needsYou.map((bar) => (
+                <button
+                  key={bar.gate}
+                  type="button"
+                  onClick={() => router.push(`${bar.listHref}&institution=${college}`)}
+                  className="flex flex-col items-start gap-0.5 rounded-2xl border border-amber-300 bg-amber-50 p-4 text-left transition-colors hover:border-amber-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring dark:border-amber-800 dark:bg-amber-950/40"
+                >
+                  <span className="text-3xl font-bold tabular-nums">{bar.total}</span>
+                  <span className="font-semibold">{bar.name}</span>
+                  <span className="text-xs text-muted-foreground">{bar.waiting}</span>
+                </button>
+              ))}
+            </div>
+          </section>
+        )}
+
+        {/* ── Every step: one row each, the bar split by college ─────────── */}
+        <section className="overflow-hidden rounded-2xl border bg-card shadow-sm">
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b px-5 py-3">
+            <h2 className="text-base font-semibold">Where purchases are</h2>
+            <ToggleGroup
+              type="single"
+              variant="outline"
+              size="sm"
+              value={view}
+              onValueChange={(v) => v && setParam('view', v, 'pending')}
+              aria-label="Which purchases to count"
+            >
+              {VIEWS.map((v) => (
+                <ToggleGroupItem key={v.value} value={v.value} className="px-3 text-xs">
+                  {v.label}
+                </ToggleGroupItem>
+              ))}
+            </ToggleGroup>
+          </div>
+          <ul>
+            {bars.built.map((bar) => (
+              <li key={bar.gate} className="border-b last:border-b-0">
+                <button
+                  type="button"
+                  onClick={() => router.push(`${bar.listHref}&institution=${college}`)}
+                  aria-label={`${bar.name}: ${bar.total}. Open the list.`}
+                  className="grid w-full grid-cols-[minmax(0,1fr)_48px_16px] items-center gap-x-4 gap-y-1.5 px-5 py-3 text-left transition-colors hover:bg-accent/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring sm:grid-cols-[180px_minmax(0,1fr)_48px_16px]"
+                >
+                  <span className="text-sm font-semibold">{bar.name}</span>
+                  <span className="col-span-3 row-start-2 flex h-2.5 overflow-hidden rounded-full bg-muted sm:col-span-1 sm:row-start-auto">
+                    {bar.parts.map((p) => (
+                      <span
+                        key={p.id}
+                        title={`${p.name}: ${p.count}`}
+                        className={`h-full border-l-2 border-background first:border-l-0 ${p.colour}`}
+                        style={{ width: `${(p.count / bars.max) * 100}%` }}
+                      />
+                    ))}
+                  </span>
+                  <span className={`text-right text-lg font-bold tabular-nums ${isLoading ? 'text-muted-foreground/40' : ''}`}>
+                    {isLoading ? '—' : bar.total}
+                  </span>
+                  <ChevronRight className="h-4 w-4 text-muted-foreground" aria-hidden />
+                </button>
+              </li>
+            ))}
+          </ul>
+          <div className="flex flex-wrap gap-x-4 gap-y-1 border-t px-5 py-3 text-xs text-muted-foreground">
+            <span>{explain}</span>
+            {legend.map((c) => (
+              <span key={c.id} className="inline-flex items-center gap-1.5">
+                <span className={`h-2.5 w-2.5 rounded-sm ${c.colour}`} aria-hidden />
+                {c.name}
+              </span>
+            ))}
+          </div>
+        </section>
       </div>
     </ContentLayout>
   );

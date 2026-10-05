@@ -28,6 +28,8 @@ export interface LearnerLeaveType {
   requires_sponsor_approval: boolean;
   sponsor_role_hint: string | null;
   affects_attendance: boolean;
+  /** Hostel learners get a gate pass when this type is approved (leaves campus). */
+  issues_gate_pass: boolean;
   is_active: boolean;
   sort_order: number;
   created_by: string | null;

@@ -821,26 +821,76 @@ body {
   }
 }
 /* ── IA question paper rich editor ─────────────────────────────────────────
-   The paper-wide language/font is a PAPER-level choice (ia_question_papers.
+   Mirrors COE styles/globals.css (spec "QP entry methods parity" §3, §5.3).
+
+   Tamil faces are SHIPPED (public/fonts/tamil/, copied from COE — its Bamini is
+   the repaired file; the original is rejected by Chromium's font sanitizer), so
+   the screen matches the printed paper on a PC with no Tamil fonts installed.
+   The unicode-range on Noto is what lets English stay in the UI font inside a
+   Tamil paper. */
+@font-face {
+  font-family: 'Noto Sans Tamil';
+  src: url('/fonts/tamil/NotoSansTamil-Regular.ttf') format('truetype');
+  font-weight: normal;
+  font-style: normal;
+  font-display: swap;
+  unicode-range: U+0B80-0BFF, U+200C-200D;
+}
+@font-face {
+  font-family: 'Bamini';
+  src: url('/fonts/tamil/Bamini.ttf') format('truetype');
+  font-weight: normal;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Suntommy';
+  src: url('/fonts/tamil/Suntommy.ttf') format('truetype');
+  font-weight: normal;
+  font-style: normal;
+  font-display: swap;
+}
+
+/* The paper-wide language/font is a PAPER-level choice (ia_question_papers.
    default_font): the authoring screen sets --qp-editor-font on a wrapper and it
-   cascades into every question and option editor, so the screen matches what the
-   COE PDF renderer prints from the same column.
+   cascades into every question and option editor.
 
    Bamini and Suntommy must NEVER appear in the FALLBACK stack — they are legacy
-   glyph faces whose LATIN codepoints carry Tamil shapes, so English text would
+   (TSCII) faces whose LATIN codepoints carry Tamil shapes, so English text would
    render as Tamil. They only ever apply when explicitly selected.
 
    Inline font marks saved on older papers are spans with their own font-family
    and still override this, matching the renderer. */
 .qp-rich-editor-body {
-  font-family: var(--qp-editor-font, inherit);
+  font-family: var(--qp-editor-font, 'Noto Sans Tamil'), var(--font-poppins), Arial, Helvetica, sans-serif;
 }
 
-/* The placeholder is driven by the data-placeholder attribute the editor sets. */
-.qp-rich-editor-root .ProseMirror p.is-editor-empty:first-child::before {
+.qp-rich-editor .ProseMirror { outline: none; }
+.qp-rich-editor .ProseMirror p { margin: 0 0 0.25rem; }
+/* Placeholder (empty editor) — set by the Placeholder extension. */
+.qp-rich-editor .ProseMirror p.is-editor-empty:first-child::before {
   content: attr(data-placeholder);
   float: left;
   height: 0;
   pointer-events: none;
   color: hsl(var(--muted-foreground));
 }
+/* Author-drawn tables — visible grid while editing */
+.qp-rich-editor .ProseMirror table {
+  border-collapse: collapse;
+  margin: 0.35rem 0;
+  width: auto;
+}
+.qp-rich-editor .ProseMirror td,
+.qp-rich-editor .ProseMirror th {
+  border: 1px solid hsl(var(--border));
+  padding: 2px 6px;
+  min-width: 2.5rem;
+  vertical-align: top;
+}
+.qp-rich-editor .ProseMirror th { font-weight: 600; background: hsl(var(--muted) / 0.4); }
+.qp-rich-editor .ProseMirror .selectedCell { background: hsl(var(--primary) / 0.12); }
+/* Inline math atom */
+.qp-rich-editor .qp-math { white-space: nowrap; padding: 0 1px; cursor: pointer; border-radius: 3px; transition: background-color 0.12s; }
+.qp-rich-editor [contenteditable='true'] .qp-math:hover { background: hsl(var(--primary) / 0.1); }
+.qp-rich-editor .qp-math.ProseMirror-selectednode { outline: 2px solid hsl(var(--primary)); border-radius: 2px; }

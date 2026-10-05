@@ -221297,6 +221297,7 @@ export type Database = {
         | "pending_warden"
         | "pending_chief"
         | "pending_dues"
+        | "pending_accountant"
         | "pending_principal"
         | "pending_mess"
         | "pending_cao"
@@ -222862,6 +222863,7 @@ export const Constants = {
         "pending_warden",
         "pending_chief",
         "pending_dues",
+        "pending_accountant",
         "pending_principal",
         "pending_mess",
         "pending_cao",

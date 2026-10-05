@@ -11,6 +11,11 @@ import type {
   MarkableResidentAllocation,
 } from '@/types/campus-living';
 
+/** Today's date in IST (yyyy-MM-dd) — a UTC midnight must not roll the sheet back a day. */
+function istToday(): string {
+  return new Date(Date.now() + 5.5 * 3600_000).toISOString().split('T')[0];
+}
+
 export class HostelAttendanceService {
   // ── List attendance with filters ──────────────────────────────────
   // History page passes (block_id?, date?, date_from?, date_to?, learner_id?).
@@ -225,9 +230,49 @@ export class HostelAttendanceService {
         );
       }
 
+      // Approved off-campus leave/OD for the date being marked. UX only — the
+      // BEFORE trigger on hostel_attendance (fn_cl_attendance_leave_cover) forces
+      // on_leave whatever the sheet sends. A failure is logged and the roster
+      // still renders; the trigger remains the wall.
+      const coverByLearner = new Map<
+        string,
+        { application_id: string; leave_type_code: string; is_clinical: boolean }
+      >();
+      const markDate = date ?? istToday();
+      const profileIds = list
+        .map((m) => m.allocation?.learner_id ?? m.profile?.id)
+        .filter((id): id is string => !!id);
+      if (profileIds.length > 0) {
+        const { data: cover, error: coverError } = await supabase.rpc('fn_cl_leave_cover', {
+          p_profile_ids: profileIds,
+          p_date: markDate,
+        });
+        if (coverError) {
+          logger.error(
+            'campus-living/attendance',
+            'Could not read approved-leave cover; the DB trigger still enforces it',
+            coverError,
+          );
+        } else {
+          for (const c of (cover ?? []) as Array<{
+            learner_id: string;
+            application_id: string;
+            leave_type_code: string;
+            is_clinical: boolean;
+          }>) {
+            coverByLearner.set(c.learner_id, {
+              application_id: c.application_id,
+              leave_type_code: c.leave_type_code,
+              is_clinical: c.is_clinical,
+            });
+          }
+        }
+      }
+
       for (const item of list) {
         const learnerId = item.allocation?.learner_id ?? item.profile?.id;
         item.feedback_hold = learnerId ? holds.get(learnerId) ?? null : null;
+        item.leave_cover = learnerId ? coverByLearner.get(learnerId) ?? null : null;
       }
 
       // Roll-call order: block, then floor, then room number, then name;
@@ -289,14 +334,14 @@ export class HostelAttendanceService {
       // Active allocations = the hosteller population (one bed = one hosteller).
       let allocQ = supabase
         .from('hostel_allocations')
-        .select('block_id, block:hostel_blocks!hostel_allocations_block_id_fkey(id, name, code)')
+        .select('learner_id, block_id, block:hostel_blocks!hostel_allocations_block_id_fkey(id, name, code)')
         .eq('status', 'active')
         .limit(5000);
       if (blockId) allocQ = allocQ.eq('block_id', blockId);
 
       let attQ = supabase
         .from('hostel_attendance')
-        .select('block_id, evening_status, is_curfew_violation')
+        .select('learner_id, block_id, evening_status, is_curfew_violation')
         .eq('date', date)
         .limit(5000);
       if (blockId) attQ = attQ.eq('block_id', blockId);
@@ -314,8 +359,8 @@ export class HostelAttendanceService {
       if (att.error) throw att.error;
       if (week.error) throw week.error;
 
-      type AllocRow = { block_id: string | null; block: { id: string; name: string; code: string } | null };
-      type AttRow = { block_id: string | null; evening_status: HostelAttendanceStatus | null; is_curfew_violation: boolean | null };
+      type AllocRow = { learner_id: string; block_id: string | null; block: { id: string; name: string; code: string } | null };
+      type AttRow = { learner_id: string; block_id: string | null; evening_status: HostelAttendanceStatus | null; is_curfew_violation: boolean | null };
 
       const allocRows = (allocs.data ?? []) as unknown as AllocRow[];
       const attRows = (att.data ?? []) as unknown as AttRow[];
@@ -353,7 +398,31 @@ export class HostelAttendanceService {
         }
       }
 
-      const denom = present + absent + on_leave + late_entry;
+      // Learners on an approved off-campus leave/OD who have no row yet today are
+      // On Leave, not "Not marked". Rows that exist were already coerced to
+      // on_leave by the trigger and are counted above.
+      const markedToday = new Set(attRows.map((r) => r.learner_id));
+      const unmarkedIds = allocRows.map((a) => a.learner_id).filter((id) => !markedToday.has(id));
+      if (unmarkedIds.length > 0) {
+        const { data: cover, error: coverError } = await supabase.rpc('fn_cl_leave_cover', {
+          p_profile_ids: unmarkedIds,
+          p_date: date,
+        });
+        if (coverError) {
+          logger.error('campus-living/attendance', 'Could not read approved-leave cover for dashboard', coverError);
+        } else {
+          const covered = new Set(((cover ?? []) as Array<{ learner_id: string }>).map((c) => c.learner_id));
+          for (const a of allocRows) {
+            if (!covered.has(a.learner_id)) continue;
+            on_leave += 1;
+            if (a.block_id) blockOf(a.block_id).on_leave += 1;
+          }
+        }
+      }
+
+      // On-leave learners are not in the % denominator (same rule as
+      // fn_cl_attendance_counts_in_pct) — leave must not read as absence.
+      const denom = present + absent + late_entry;
       const attendance_rate = denom > 0 ? Math.round((present / denom) * 100) : 0;
 
       const trend = new Map<string, { day: string; present: number; absent: number }>();
