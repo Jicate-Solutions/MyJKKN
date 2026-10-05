@@ -146,9 +146,14 @@ export class AIQueryService {
     ipAddress?: string;
     userAgent?: string;
   }): Promise<string | null> {
+    // p_user_id, p_institution_id and p_query_text have NO default in the
+    // function signature, so each must always be sent. JSON drops a key whose
+    // value is undefined, and PostgREST then finds no matching function
+    // (PGRST202) and the question is never logged. A person with no college
+    // has no institutionId, so send an explicit null for them.
     const { data, error } = await (this.supabase as any).rpc('log_ai_query', {
       p_user_id: params.userId,
-      p_institution_id: params.institutionId,
+      p_institution_id: params.institutionId ?? null,
       p_query_text: params.queryText,
       p_query_type: params.queryType || 'data_query',
       p_tools_called: params.toolsCalled || [],
