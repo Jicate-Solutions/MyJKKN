@@ -13,7 +13,6 @@ import {
   useCancelPO,
   useUpdatePoDocumentFields,
   useUpdatePoItemExtraFields,
-  useUpdatePoItemPrice,
 } from '@/hooks/procurement/use-purchase-orders';
 import { usePoFormats } from '@/hooks/procurement/use-po-formats';
 import { useUpdateImsSupplier } from '@/hooks/ims/use-ims-settings';
@@ -21,17 +20,11 @@ import { PO_STATUS_CONFIG, type ProcurementPoFormat } from '@/types/procurement'
 import { downloadPurchaseOrderPdf } from '@/lib/procurement/purchase-order-pdf';
 import { downloadPurchaseOrderDocx } from '@/lib/procurement/purchase-order-docx';
 import { StatusBadge } from '@/components/procurement/status-badge';
-import { ResponsiveList } from '@/components/procurement/responsive-list';
-import {
-  DocumentHeader,
-  type DocAction,
-  type DocPrimaryAction,
-} from '@/components/procurement/document-header';
+import { type DocAction, type DocPrimaryAction } from '@/components/procurement/document-header';
 import { formatDateDMY } from '@/lib/utils/date-format';
+import { displayRequestNumber } from '@/lib/procurement/display-number';
 import { STANDARD_PO_FORMAT } from '@/lib/procurement/po-document-model';
 import { AlertBox } from '@/components/ui/alert-box';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -41,6 +34,7 @@ import {
   Select,
   SelectContent,
   SelectItem,
+  SelectSeparator,
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
@@ -51,10 +45,19 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { FileDown, FileText, Send, Check, X, PackageCheck, Ban, Plus } from 'lucide-react';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import { FileDown, FileText, Send, Check, X, Ban, ClipboardList, ChevronLeft, ChevronDown } from 'lucide-react';
 import { BeatLoader } from 'react-spinners';
 import { toast } from 'sonner';
 import { errorMessage } from '@/lib/utils/supabase-error';
+
+/** Print-as option that opens the format builder instead of choosing a format. */
+const NEW_FORMAT = '__new_format';
 
 /** item_extra.<key> -> <key> */
 function extraFieldKey(source: string): string {
@@ -83,7 +86,6 @@ export default function PurchaseOrderDetailPage() {
   const { canAccess, isSuperAdmin } = usePermissions();
   const canApprove = isSuperAdmin || canAccess('procurement', 'po_approve');
   const canCreate = isSuperAdmin || canAccess('procurement', 'po_create');
-  const canReceive = isSuperAdmin || canAccess('procurement', 'grn_create');
 
   const { data: po, isLoading, isError } = usePurchaseOrder(id);
   const submitPO = useSubmitPO();
@@ -92,7 +94,6 @@ export default function PurchaseOrderDetailPage() {
   const cancelPO = useCancelPO();
   const updateDocFields = useUpdatePoDocumentFields();
   const updateItemExtra = useUpdatePoItemExtraFields();
-  const updateItemPrice = useUpdatePoItemPrice();
   const updateSupplier = useUpdateImsSupplier();
 
   const { data: formats } = usePoFormats(po?.institution_id, { activeOnly: true });
@@ -178,14 +179,6 @@ export default function PurchaseOrderDetailPage() {
     });
   };
 
-  const handleItemPriceBlur = (itemId: string, value: string) => {
-    const unitPrice = Number(value);
-    if (!(unitPrice >= 0)) return;
-    updateItemPrice.mutateAsync({ poId: id, itemId, unitPrice }).catch((e) => {
-      toast.error(errorMessage(e, 'Failed to save price'));
-    });
-  };
-
   if (isLoading) {
     return (
       <ContentLayout title="Purchase Order">
@@ -226,7 +219,6 @@ export default function PurchaseOrderDetailPage() {
     }
   };
 
-  const canCreateGrn = ['sent', 'approved', 'partially_received'].includes(po.status) && canReceive;
   const canCancel = (po.status === 'draft' || po.status === 'pending_approval') && canCreate;
 
   let primary: DocPrimaryAction | null = null;
@@ -246,13 +238,6 @@ export default function PurchaseOrderDetailPage() {
       disabled: transitionBusy,
       onClick: () => run(() => approvePO.mutateAsync({ id, userId: profile!.id }), 'Purchase order approved'),
     };
-  } else if (canCreateGrn) {
-    primary = {
-      key: 'create-grn',
-      label: 'Record delivery',
-      icon: PackageCheck,
-      onClick: () => router.push(`/procurement/grn/new?po=${po.id}`),
-    };
   }
 
   const reject: DocAction | null =
@@ -261,6 +246,15 @@ export default function PurchaseOrderDetailPage() {
       : null;
 
   const actions: DocAction[] = [];
+  const purchase = po.purchase_request;
+  if (purchase) {
+    actions.push({
+      key: 'view-purchase',
+      label: 'View purchase',
+      icon: ClipboardList,
+      onClick: () => router.push(`/procurement/requests/${purchase.id}`),
+    });
+  }
   if (canCancel) {
     actions.push({
       key: 'cancel',
@@ -277,38 +271,96 @@ export default function PurchaseOrderDetailPage() {
     });
   }
 
-  return (
-    <ContentLayout title={po.po_number}>
-      <div className="space-y-3">
-        <DocumentHeader
-          compact
-          onBack={() => router.push('/procurement/purchase-orders')}
-          backLabel="Back to purchase orders"
-          title={po.po_number}
-          status={<StatusBadge status={po.status} config={PO_STATUS_CONFIG} />}
-          next={
-            <>
-              {po.supplier?.name ?? po.supplier_id} ·{' '}
-              <span className="font-semibold text-foreground tabular-nums">
-                ₹{Number(po.total_amount).toLocaleString()}
-              </span>
-              {po.created_at ? ` · ${formatDateDMY(po.created_at)}` : ''}
-            </>
-          }
-          primary={primary}
-          reject={reject}
-          actions={actions}
-        />
+  const printedFilled =
+    Object.values(po.header_field_values || {}).filter(Boolean).length +
+    Object.values(po.footer_field_values || {}).filter(Boolean).length +
+    (po.terms_and_conditions ? 1 : 0);
+  const printedTotal = headerFieldDefs.length + footerFieldDefs.length + 1;
 
-        {/* Document toolbar — print format, library tag and downloads in one slim row. */}
-        <Card>
-          <CardContent className="flex flex-wrap items-center gap-x-3 gap-y-2 px-3 py-2">
+  return (
+    <ContentLayout title={purchase ? displayRequestNumber(purchase.request_number) : po.po_number}>
+      {/* The order page is about the printed document: a slim header, then the
+          details edge to edge. Items and vendor live on the purchase page. */}
+      <div className="w-full space-y-4">
+        <Button
+          variant="link"
+          className="h-8 px-0"
+          onClick={() => router.push(purchase ? `/procurement/requests/${purchase.id}` : '/procurement/purchase-orders')}
+        >
+          <ChevronLeft className="mr-1 h-4 w-4" />
+          {purchase ? 'Back to the purchase' : 'Purchase orders'}
+        </Button>
+
+        <header className="flex flex-wrap items-start justify-between gap-3">
+          <div className="min-w-0 space-y-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <h1 className="text-2xl font-bold">Order to {po.supplier?.name ?? 'vendor'}</h1>
+              <StatusBadge status={po.status} config={PO_STATUS_CONFIG} />
+            </div>
+            <p className="text-sm text-muted-foreground">
+              {po.po_number}
+              {purchase ? ` · Purchase ${displayRequestNumber(purchase.request_number)}` : ''}
+              {` · ${po.items.length} item${po.items.length === 1 ? '' : 's'} · `}
+              <b className="tabular-nums text-foreground">₹{Number(po.total_amount).toLocaleString('en-IN')}</b>
+              {po.created_at ? ` · ${formatDateDMY(po.created_at)}` : ''}
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {reject && (
+              <Button variant="outline" className="h-10 text-destructive" onClick={reject.onClick} disabled={transitionBusy}>
+                Reject
+              </Button>
+            )}
+            {primary && (
+              <Button className="h-10 px-5" onClick={primary.onClick} disabled={primary.disabled}>
+                {primary.icon && <primary.icon className="mr-1.5 h-4 w-4" />}
+                {primary.label}
+              </Button>
+            )}
+          </div>
+        </header>
+
+        {/* Deliveries are recorded on the purchase page; this page only prepares the order. */}
+        {['approved', 'sent', 'partially_received'].includes(po.status) && (
+          <p className="rounded-xl bg-blue-50 px-4 py-2.5 text-sm text-blue-800 dark:bg-blue-950/40 dark:text-blue-300">
+            When the goods arrive, record the delivery on{' '}
+            {purchase ? (
+              <button type="button" className="font-medium underline" onClick={() => router.push(`/procurement/requests/${purchase.id}`)}>
+                the purchase page
+              </button>
+            ) : (
+              'the purchase page'
+            )}
+            .
+          </p>
+        )}
+
+        {po.status === 'rejected' && po.rejection_reason && (
+          <p className="rounded-xl bg-red-50 px-4 py-2.5 text-sm text-red-800 dark:bg-red-950/40 dark:text-red-300">
+            Rejected: {po.rejection_reason}
+          </p>
+        )}
+
+        {/* ── Details printed on the order: edge to edge, 5 compact fields per row ── */}
+        <section className="overflow-hidden rounded-2xl border bg-card shadow-sm">
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-2 border-b px-5 py-3">
+            <span className="mr-auto">
+              <span className="block text-[15px] font-semibold">Details printed on the order</span>
+              <span className="text-xs text-muted-foreground">
+                Optional — fill only what your format prints · {printedFilled} of {printedTotal} filled
+              </span>
+            </span>
             {canCreate ? (
               <>
-                <div className="flex items-center gap-2">
-                  <Label className="text-xs font-normal text-muted-foreground">Print as</Label>
-                  <Select value={po.po_format_id ?? 'none'} onValueChange={handleFormatChange}>
-                    <SelectTrigger className="h-8 w-[170px] text-xs">
+                <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                  Print as
+                  <Select
+                    value={po.po_format_id ?? 'none'}
+                    onValueChange={(v) =>
+                      v === NEW_FORMAT ? router.push('/procurement/purchase-orders/formats/new') : handleFormatChange(v)
+                    }
+                  >
+                    <SelectTrigger className="h-8 w-40 text-[13px] text-foreground">
                       <SelectValue placeholder="Standard" />
                     </SelectTrigger>
                     <SelectContent>
@@ -318,230 +370,146 @@ export default function PurchaseOrderDetailPage() {
                           {f.name}
                         </SelectItem>
                       ))}
+                      <SelectSeparator />
+                      <SelectItem value={NEW_FORMAT} className="text-primary">
+                        + New format
+                      </SelectItem>
                     </SelectContent>
                   </Select>
-                </div>
-                {(formats ?? []).length === 0 ? (
-                  <button
-                    type="button"
-                    onClick={() => router.push('/procurement/purchase-orders/formats/new')}
-                    className="flex items-center gap-0.5 text-xs text-primary hover:underline"
-                  >
-                    <Plus className="h-3 w-3" />
-                    New format
-                  </button>
-                ) : (
+                </label>
+                {(formats ?? []).length > 0 && (
                   <label className="flex cursor-pointer items-center gap-1.5 text-xs text-muted-foreground">
-                    <Checkbox
-                      checked={setAsVendorDefault}
-                      onCheckedChange={(c) => handleToggleSetAsDefault(!!c)}
-                    />
-                    Use for {po.supplier?.name ?? 'this vendor'} always
+                    <Checkbox checked={setAsVendorDefault} onCheckedChange={(c) => handleToggleSetAsDefault(!!c)} />
+                    Always for this vendor
                   </label>
                 )}
-                <span className="hidden h-5 w-px bg-border sm:block" />
-                {/* Accreditation classification — tagged POs auto-emit NAAC library
-                    purchase-bill evidence once approved (DB trigger, Wave 2D). */}
-                <label
-                  className="flex cursor-pointer items-center gap-1.5 text-xs text-muted-foreground"
-                  title="Counts as NAAC accreditation evidence once approved"
-                >
-                  <Checkbox
-                    checked={!!po.is_library_resource}
-                    onCheckedChange={(c) =>
-                      run(
-                        () => updateDocFields.mutateAsync({ id, patch: { is_library_resource: !!c } }),
-                        c
-                          ? 'Tagged as library purchase — counts as accreditation evidence once approved'
-                          : 'Library purchase tag removed'
-                      )
-                    }
-                  />
-                  Library purchase
-                </label>
               </>
             ) : (
-              <>
-                <span className="text-xs text-muted-foreground">
-                  Prints as <span className="font-medium text-foreground">{activeFormat?.name ?? 'Standard'}</span>
-                </span>
-                {po.is_library_resource && <Badge variant="secondary">Library purchase</Badge>}
-              </>
-            )}
-            <div className="ml-auto flex gap-1.5">
-              <Button variant="outline" size="sm" className="h-8 px-2.5 text-xs" onClick={() => downloadPurchaseOrderPdf(po)}>
-                <FileDown className="mr-1 h-3.5 w-3.5" />
-                PDF
-              </Button>
-              <Button variant="outline" size="sm" className="h-8 px-2.5 text-xs" onClick={() => downloadPurchaseOrderDocx(po)}>
-                <FileText className="mr-1 h-3.5 w-3.5" />
-                Word
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
-
-        {po.status === 'rejected' && po.rejection_reason && (
-          <Card className="border-destructive/40">
-            <CardContent className="pt-6">
-              <p className="text-sm">
-                <span className="font-medium text-destructive">Rejected: </span>
-                {po.rejection_reason}
-              </p>
-            </CardContent>
-          </Card>
-        )}
-
-        {(canCreate && (headerFieldDefs.length > 0 || footerFieldDefs.length > 0)) || hasSavedDocDetails ? (
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">Details printed on the PO</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              {canCreate ? (
-                <>
-                  {headerFieldDefs.length > 0 && (
-                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                      {headerFieldDefs.map((f) => {
-                        const key = f.source.slice('header_values.'.length);
-                        return (
-                          <div key={f.key} className="space-y-1">
-                            <Label className="text-xs">{f.label}</Label>
-                            <Input
-                              value={headerValues[key] ?? ''}
-                              onChange={(e) => setHeaderValues((prev) => ({ ...prev, [key]: e.target.value }))}
-                            />
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
-                  {footerFieldDefs.length > 0 && (
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                      {footerFieldDefs.map((f) => (
-                        <div key={f.key} className="space-y-1">
-                          <Label className="text-xs">{f.label}</Label>
-                          <Input
-                            value={footerValues[f.key] ?? ''}
-                            onChange={(e) => setFooterValues((prev) => ({ ...prev, [f.key]: e.target.value }))}
-                          />
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                  <div className="space-y-1">
-                    <Label className="text-xs">Terms &amp; Conditions</Label>
-                    <Textarea value={termsText} onChange={(e) => setTermsText(e.target.value)} rows={3} />
-                  </div>
-                  <div className="flex justify-end">
-                    <Button size="sm" onClick={handleSaveDocumentDetails} disabled={updateDocFields.isPending}>
-                      Save Document Details
-                    </Button>
-                  </div>
-                </>
-              ) : (
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm">
-                  {Object.entries(po.header_field_values || {}).map(([k, v]) => (
-                    <p key={k}><span className="text-muted-foreground">{k}: </span>{v}</p>
-                  ))}
-                  {Object.entries(po.footer_field_values || {}).map(([k, v]) => (
-                    <p key={k}><span className="text-muted-foreground">{k}: </span>{v}</p>
-                  ))}
-                  {po.terms_and_conditions && (
-                    <p className="sm:col-span-2">
-                      <span className="text-muted-foreground">Terms &amp; Conditions: </span>
-                      {po.terms_and_conditions}
-                    </p>
-                  )}
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        ) : null}
-
-        <Card className="overflow-hidden">
-          <CardContent className="p-0">
-            <ResponsiveList
-              rows={po.items}
-              getRowKey={(it) => it.id}
-              columns={[
-                {
-                  key: 'item',
-                  header: 'Item',
-                  mobile: 'title',
-                  cell: (it) => (
-                    <>
-                      {it.item_name}
-                      {it.item_spec && (
-                        <span className="text-xs font-normal text-muted-foreground"> · {it.item_spec}</span>
-                      )}
-                    </>
-                  ),
-                },
-                {
-                  key: 'ordered',
-                  header: 'Ordered',
-                  className: 'text-right',
-                  cell: (it) => `${it.ordered_quantity} ${it.unit_label || ''}`,
-                },
-                {
-                  key: 'received',
-                  header: 'Received',
-                  className: 'text-right',
-                  cell: (it) => it.received_quantity,
-                },
-                {
-                  key: 'price',
-                  header: 'Price',
-                  className: 'text-right',
-                  cell: (it) =>
-                    po.status === 'draft' && canCreate ? (
-                      <Input
-                        type="number"
-                        min={0}
-                        defaultValue={String(it.unit_price)}
-                        onBlur={(e) => handleItemPriceBlur(it.id, e.target.value)}
-                        className="h-10 w-full text-right md:ml-auto md:h-8 md:w-28"
-                      />
-                    ) : (
-                      `₹${Number(it.unit_price).toLocaleString()}`
-                    ),
-                },
-                {
-                  key: 'total',
-                  header: 'Amount',
-                  className: 'text-right',
-                  cell: (it) => `₹${Number(it.line_total).toLocaleString()}`,
-                },
-                ...itemExtraColumns.map((c) => {
-                  const key = extraFieldKey(c.source);
-                  return {
-                    key: c.key,
-                    header: c.label,
-                    className: 'text-right',
-                    cell: (it: (typeof po.items)[number]) =>
-                      canCreate ? (
-                        <Input
-                          defaultValue={String(it.extra_fields?.[key] ?? '')}
-                          onBlur={(e) => handleItemExtraBlur(it.id, key, e.target.value)}
-                          className="h-10 w-full text-right md:ml-auto md:h-8 md:w-28"
-                        />
-                      ) : (
-                        it.extra_fields?.[key] ?? '-'
-                      ),
-                  };
-                }),
-              ]}
-            />
-            <div className="flex flex-wrap justify-end gap-x-6 gap-y-1 border-t bg-muted/30 px-4 py-2 text-xs text-muted-foreground tabular-nums">
-              <span>Subtotal ₹{Number(po.subtotal).toLocaleString()}</span>
-              <span>Tax ₹{Number(po.tax_amount).toLocaleString()}</span>
-              <span className="text-sm text-foreground">
-                Total <b>₹{Number(po.total_amount).toLocaleString()}</b>
+              <span className="text-xs text-muted-foreground">
+                Prints as <span className="font-medium text-foreground">{activeFormat?.name ?? 'Standard'}</span>
               </span>
-            </div>
-          </CardContent>
-        </Card>
+            )}
+            <span className="flex gap-1.5">
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="outline" size="sm" className="h-8">
+                    <FileDown className="mr-1 h-3.5 w-3.5" />
+                    Download
+                    <ChevronDown className="ml-1 h-3.5 w-3.5" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem onClick={() => downloadPurchaseOrderPdf(po)}>
+                    <FileDown className="mr-2 h-4 w-4" />
+                    PDF
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => downloadPurchaseOrderDocx(po)}>
+                    <FileText className="mr-2 h-4 w-4" />
+                    Word
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+              {canCreate && (
+                <Button size="sm" className="h-8" onClick={handleSaveDocumentDetails} disabled={updateDocFields.isPending}>
+                  {updateDocFields.isPending ? 'Saving…' : 'Save details'}
+                </Button>
+              )}
+            </span>
+          </div>
+
+          <div className="space-y-4 px-5 py-4">
+            {canCreate ? (
+              <>
+                {(headerFieldDefs.length > 0 || footerFieldDefs.length > 0) && (
+                  <div className="grid grid-cols-2 gap-x-2.5 gap-y-3 md:grid-cols-3 xl:grid-cols-5">
+                    {headerFieldDefs.map((f) => {
+                      const key = f.source.slice('header_values.'.length);
+                      return (
+                        <label key={f.key} className="min-w-0 space-y-1">
+                          <span className="block truncate text-[11px] text-muted-foreground" title={f.label}>
+                            {f.label}
+                          </span>
+                          <Input
+                            className="h-8 text-[13px]"
+                            value={headerValues[key] ?? ''}
+                            onChange={(e) => setHeaderValues((prev) => ({ ...prev, [key]: e.target.value }))}
+                          />
+                        </label>
+                      );
+                    })}
+                    {footerFieldDefs.map((f) => (
+                      <label key={f.key} className="min-w-0 space-y-1">
+                        <span className="block truncate text-[11px] text-muted-foreground" title={f.label}>
+                          {f.label}
+                        </span>
+                        <Input
+                          className="h-8 text-[13px]"
+                          value={footerValues[f.key] ?? ''}
+                          onChange={(e) => setFooterValues((prev) => ({ ...prev, [f.key]: e.target.value }))}
+                        />
+                      </label>
+                    ))}
+                  </div>
+                )}
+                <label className="block space-y-1">
+                  <span className="text-[11px] text-muted-foreground">Terms &amp; conditions</span>
+                  <Textarea className="min-h-[60px] text-[13px]" value={termsText} onChange={(e) => setTermsText(e.target.value)} rows={2} />
+                </label>
+                {itemExtraColumns.length > 0 && (
+                  <div className="space-y-2">
+                    <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Per item</span>
+                    {po.items.map((it) => (
+                      <div key={it.id} className="grid grid-cols-2 items-center gap-2.5 text-sm md:grid-cols-3 xl:grid-cols-5">
+                        <span className="min-w-0 truncate">{it.item_name}</span>
+                        {itemExtraColumns.map((c) => {
+                          const key = extraFieldKey(c.source);
+                          return (
+                            <Input
+                              key={c.key}
+                              placeholder={c.label}
+                              aria-label={`${c.label} for ${it.item_name}`}
+                              defaultValue={String(it.extra_fields?.[key] ?? '')}
+                              onBlur={(e) => handleItemExtraBlur(it.id, key, e.target.value)}
+                              className="h-8 text-[13px]"
+                            />
+                          );
+                        })}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </>
+            ) : (
+              <div className="grid grid-cols-2 gap-x-2.5 gap-y-2 text-sm md:grid-cols-3 xl:grid-cols-5">
+                {Object.entries({ ...(po.header_field_values || {}), ...(po.footer_field_values || {}) }).map(([k, v]) => (
+                  <p key={k} className="min-w-0">
+                    <span className="block truncate text-[11px] text-muted-foreground">{k}</span>
+                    {v || '—'}
+                  </p>
+                ))}
+                {po.terms_and_conditions && (
+                  <p className="col-span-full">
+                    <span className="block text-[11px] text-muted-foreground">Terms &amp; conditions</span>
+                    {po.terms_and_conditions}
+                  </p>
+                )}
+              </div>
+            )}
+          </div>
+        </section>
+
+        {canCancel && (
+          <p className="text-center text-sm text-muted-foreground">
+            <button
+              type="button"
+              className="hover:underline"
+              disabled={transitionBusy}
+              onClick={() => run(() => cancelPO.mutateAsync({ id, userId: profile!.id }), 'Purchase order cancelled')}
+            >
+              Cancel this order
+            </button>
+          </p>
+        )}
       </div>
 
       {/* Reject dialog */}

@@ -47,6 +47,7 @@ import type {
   JobAnalytics,
   MonthlySalaryBand,
   OnboardToStaffPayload,
+  RecruitmentPipelineResponse,
   RoleCategory,
 } from '@/types/hr-recruitment';
 import type { LeaveApprovalStep } from '@/types/hr';
@@ -1021,6 +1022,21 @@ export function useApprovalsJobOverview(search?: string) {
 }
 
 /** Promoted candidates linked to a job (soft role_specific_details->>'job_id' link). */
+/** Every application + pipeline candidate the caller may see (All Candidates page). */
+export function useRecruitmentPipeline() {
+  return useQuery({
+    queryKey: ['hr-recruitment-pipeline'],
+    queryFn: async () => {
+      const res = await fetch(`${BASE}/pipeline`);
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || `Pipeline fetch failed: ${res.status}`);
+      }
+      return (await res.json()) as RecruitmentPipelineResponse;
+    },
+  });
+}
+
 export function useCandidatesForJob(jobId: string | undefined) {
   return useQuery({
     queryKey: ['hr-recruitment-job-candidates', jobId],

@@ -16,12 +16,12 @@ import Underline from '@tiptap/extension-underline';
 import Link from '@tiptap/extension-link';
 import Placeholder from '@tiptap/extension-placeholder';
 import TextAlign from '@tiptap/extension-text-align';
-import TextStyle from '@tiptap/extension-text-style';
+import { TextStyle } from '@tiptap/extension-text-style';
 import Color from '@tiptap/extension-color';
 import FontFamily from '@tiptap/extension-font-family';
 import Highlight from '@tiptap/extension-highlight';
 import Image from '@tiptap/extension-image';
-import Table from '@tiptap/extension-table';
+import { Table } from '@tiptap/extension-table';
 import TableRow from '@tiptap/extension-table-row';
 import TableCell from '@tiptap/extension-table-cell';
 import TableHeader from '@tiptap/extension-table-header';
@@ -77,7 +77,13 @@ export function SopEditor(props: SopEditorProps) {
 
   const extensions = useMemo(
     () => [
-      StarterKit.configure({ heading: { levels: [1, 2, 3, 4, 5, 6] } }),
+      // TipTap v3's StarterKit bundles Link and Underline; they are switched off
+      // here because both are registered (and configured) explicitly below.
+      StarterKit.configure({
+        heading: { levels: [1, 2, 3, 4, 5, 6] },
+        link: false,
+        underline: false,
+      }),
       Underline,
       Link.configure({ openOnClick: false, autolink: true, linkOnPaste: true }),
       Placeholder.configure({ placeholder }),
@@ -109,6 +115,9 @@ export function SopEditor(props: SopEditorProps) {
     content: initialContent,
     editable: !readOnly,
     immediatelyRender: false, // Next.js SSR safety
+    // v3 no longer re-renders on every transaction by default; the ribbon reads
+    // editor.isActive()/getAttributes() during render, so keep the v2 behaviour.
+    shouldRerenderOnTransaction: true,
     onUpdate: ({ editor: ed }) => {
       onChange?.(ed.getJSON() as SopDocContent);
     },

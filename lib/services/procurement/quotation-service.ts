@@ -110,7 +110,7 @@ export class ProcurementQuotationService {
     try {
       if (!dto.items?.length) throw new Error('A quotation must price at least one item.');
       if (!dto.items.some((i) => i.unit_price !== null)) {
-        throw new Error('At least one item must have a quoted price — mark the rest "Not quoted".');
+        throw new Error('Enter at least one price — leave the rest empty if the vendor did not quote them.');
       }
 
       const total = dto.items.reduce(
@@ -170,6 +170,15 @@ export class ProcurementQuotationService {
       console.error('[ProcurementQuotationService] createQuotation:', error);
       throw error;
     }
+  }
+
+  /** Link the vendor's PDF after the prices are saved (the upload runs in the background). */
+  static async attachQuotationDocument(id: string, url: string, fileId: string | null): Promise<void> {
+    const { error } = await this.supabase
+      .from('procurement_quotations')
+      .update({ document_url: url, document_file_id: fileId })
+      .eq('id', id);
+    if (error) throw error;
   }
 
   static async deleteQuotation(id: string): Promise<void> {

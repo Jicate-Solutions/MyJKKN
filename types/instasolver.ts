@@ -365,6 +365,20 @@ export interface DashboardStats {
   generated_at: string;
 }
 
+/** One "Your next step" group: how many, and the first one to open. */
+export interface NextStepGroup {
+  count: number;
+  first: { id: number; title: string; assigned_to: string | null } | null;
+}
+
+export interface NextSteps {
+  toConfirm: NextStepGroup;
+  disputed: NextStepGroup;
+  needsPriority: NextStepGroup;
+  toStart: NextStepGroup;
+  inProgress: NextStepGroup;
+}
+
 export interface LabelTotal {
   label: string;
   total: number;
