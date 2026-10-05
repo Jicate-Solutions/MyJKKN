@@ -138,7 +138,9 @@ export function getCandidateColumns({
       ),
       enableSorting: false,
       enableHiding: false,
-      size: 40, minSize: 40, maxSize: 40,
+      enableResizing: false,
+      // The shared cell adds px-4 (32px) — 48 leaves exactly the 16px checkbox.
+      size: 48, minSize: 48, maxSize: 48,
     },
     {
       id: 'name',
@@ -265,10 +267,17 @@ export function getCandidateColumns({
     {
       id: 'actions',
       header: () => <span className="sr-only">Actions</span>,
-      cell: ({ row }) => <RowActions row={row.original} canApprove={canApprove} />,
+      cell: ({ row }) => (
+        <div className="flex justify-end">
+          <RowActions row={row.original} canApprove={canApprove} />
+        </div>
+      ),
       enableSorting: false,
       enableHiding: false,
-      size: 56, minSize: 56, maxSize: 56,
+      enableResizing: false,
+      // The shared cell adds px-4 (32px) — 64 leaves exactly the 32px ⋯ button,
+      // which at 56 was squeezed into 24px and clipped against the edge.
+      size: 64, minSize: 64, maxSize: 64,
     },
   ];
 }

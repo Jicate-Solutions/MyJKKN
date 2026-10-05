@@ -327,6 +327,9 @@ function AllCandidatesInner() {
             </CardContent>
           </Card>
         ) : (
+          // .pinned-actions-col (app/globals.css) keeps the last column — the
+          // row ⋯ menu — stuck to the right edge while the wide table scrolls.
+          <div className="pinned-actions-col">
           <DataTable<PipelineRow, unknown>
             fetchDataFn={fetchData}
             fetchByIdsFn={fetchByIds}
@@ -353,6 +356,9 @@ function AllCandidatesInner() {
               enableColumnVisibility: true,
               enableColumnResizing: true,
               columnResizingTableId: 'hr-recruitment-all-candidates',
+              // Honour each column's declared size and scroll horizontally,
+              // instead of squeezing every column to fit the container.
+              fixedColumnWidths: true,
             }}
             renderToolbarContent={({ selectedRows, totalSelectedCount, resetSelection }) =>
               totalSelectedCount > 0 ? (
@@ -371,6 +377,7 @@ function AllCandidatesInner() {
               ) : null
             }
           />
+          </div>
         )}
       </div>
     </ContentLayout>
