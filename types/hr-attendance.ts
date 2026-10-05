@@ -145,6 +145,9 @@ export interface AttendanceRecord {
   second_half_attended: boolean | null;
   institution_id: string | null;
   notes: string | null;
+  /** Set on source = 'clinical_geotag' days only. */
+  gps_lat?: number | null;
+  gps_lng?: number | null;
   /** LEFT joined — null if the status type row was deleted. */
   status: { code: string; label: string } | null;
 }

@@ -516,7 +516,7 @@ const SERVICE_WORKER_PATHS = new Set([
 ]);
 
 const STATIC_ASSET_PATTERN =
-  /^\/(_next|icons)|\.(?:js|css|png|ico|svg|json|xml|html|woff2?)$/;
+  /^\/(_next|icons)|\.(?:js|css|png|ico|svg|json|xml|html|woff2?|ttf)$/;
 
 // Optimized helper to check if path is public - O(1) lookup
 const isPublicPath = (path: string): boolean => {

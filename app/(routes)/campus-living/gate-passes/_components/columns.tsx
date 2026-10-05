@@ -36,6 +36,7 @@ export const GATE_PASS_STATUS_CONFIG: Record<
   overdue: { label: 'Overdue', variant: 'destructive' },
   rejected: { label: 'Rejected', variant: 'destructive' },
   cancelled: { label: 'Cancelled', variant: 'secondary' },
+  expired: { label: 'Expired', variant: 'secondary' },
 };
 
 export function formatMoment(value: string | null | undefined): string {

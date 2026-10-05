@@ -14,9 +14,8 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Switch } from '@/components/ui/switch';
+import { ANY, FilterBar, type FilterDef, type PinnedFilter } from '@/components/instasolver/filter-bar';
 import {
   useCategories,
   useInstaSolverAccess,
@@ -24,13 +23,11 @@ import {
   useRequirements
 } from '@/hooks/instasolver/use-instasolver';
 import { InstaSolverRequirementService } from '@/lib/services/instasolver/requirement-service';
-import { PAGE_SIZE, REQUIREMENT_STATUS_META, REQUIREMENT_STATUS_VALUES } from '@/lib/instasolver/constants';
+import { EXPORT_BUTTON_CLASS, PAGE_SIZE, REQUIREMENT_STATUS_META, REQUIREMENT_STATUS_VALUES } from '@/lib/instasolver/constants';
 import { cn } from '@/lib/utils';
 import type { RequirementFilters, RequirementStatus } from '@/types/instasolver';
 import { downloadCsv, requirementsToCsv } from './export-csv';
 import { RequirementsTable } from './requirements-table';
-
-const ALL = 'all';
 
 function parseStatuses(raw: string | null): RequirementStatus[] {
   if (!raw) return [];
@@ -53,6 +50,14 @@ export function RequirementsClient() {
 
   const [searchText, setSearchText] = useState(search);
   const [exporting, setExporting] = useState(false);
+
+  // Re-sync the box when the URL changes from outside (Back, Clear all) —
+  // adjusted during render, so there is no flash of the stale term.
+  const [syncedSearch, setSyncedSearch] = useState(search);
+  if (syncedSearch !== search) {
+    setSyncedSearch(search);
+    setSearchText(search);
+  }
 
   const { data: access } = useInstaSolverAccess();
   const { data: institutions } = useInstitutions();
@@ -94,12 +99,59 @@ export function RequirementsClient() {
   const rows = data?.data ?? [];
   const meta = data?.metadata;
 
-  const toggleStatus = (s: RequirementStatus) => {
-    const next = statuses.includes(s) ? statuses.filter((x) => x !== s) : [...statuses, s];
-    setParams({ status: next.length ? next.join(',') : null });
-  };
-
   const hasFilters = !!(search || statuses.length || institution || category || mine);
+
+  // The standalone list's filters: one pill each. A requester's list is their
+  // own, so they get Status only; the office also gets Institution, Category
+  // and Show. Several statuses at once (from a link) show as a pinned pill.
+  const officeView = !!access && (access.is_manager || access.is_principal);
+  const filterDefs: FilterDef[] = [
+    {
+      key: 'status',
+      label: 'Status',
+      value: statuses.length === 1 ? statuses[0] : ANY,
+      onChange: (v) => setParams({ status: v === ANY ? null : v }),
+      options: REQUIREMENT_STATUS_VALUES.map((v) => ({ value: v, label: REQUIREMENT_STATUS_META[v].label })),
+      anyLabel: 'Any status'
+    },
+    {
+      key: 'institution',
+      label: 'Institution',
+      value: institution || ANY,
+      onChange: (v) => setParams({ institution: v === ANY ? null : v }),
+      options: (institutions ?? []).map((i) => ({ value: i.id, label: i.name })),
+      anyLabel: 'Any institution'
+    },
+    {
+      key: 'category',
+      label: 'Category',
+      value: category || ANY,
+      onChange: (v) => setParams({ category: v === ANY ? null : v }),
+      options: (categories ?? []).map((c) => ({ value: String(c.id), label: c.name })),
+      anyLabel: 'Any category'
+    },
+    {
+      key: 'mine',
+      label: 'Show',
+      value: mine ? 'mine' : ANY,
+      onChange: (v) => setParams({ mine: v === ANY ? null : '1' }),
+      options: [{ value: 'mine', label: 'Requested by me' }],
+      anyLabel: 'Everything I can see'
+    }
+  ];
+  const pinned: PinnedFilter[] = [
+    ...(statuses.length > 1
+      ? [
+          {
+            key: 'status-many',
+            label: `Status: ${statuses.map((s) => REQUIREMENT_STATUS_META[s].label).join(', ')}`,
+            onClear: () => setParams({ status: null })
+          }
+        ]
+      : []),
+    // A requester has no Show pill, so "Requested by me" from a link is pinned.
+    ...(!officeView && mine ? [{ key: 'mine', label: 'Requested by me', onClear: () => setParams({ mine: null }) }] : [])
+  ];
 
   async function exportCsv() {
     try {
@@ -122,14 +174,11 @@ export function RequirementsClient() {
     }
   }
 
+  // Request an item first, Export CSV beside it on the same line (violet, as in
+  // the standalone app). shrink-0 + nowrap: a long page description must not
+  // squeeze the pair and push Export CSV underneath.
   const actions = (
-    <>
-      {access?.is_manager && (
-        <Button variant="outline" onClick={exportCsv} disabled={exporting}>
-          {exporting ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <Download className="mr-1.5 h-4 w-4" />}
-          Export CSV
-        </Button>
-      )}
+    <div className="flex shrink-0 flex-nowrap items-center gap-2">
       {access?.can_report && (
         <Button asChild>
           <Link href="/instasolver/requirements/new">
@@ -137,7 +186,13 @@ export function RequirementsClient() {
           </Link>
         </Button>
       )}
-    </>
+      {access?.is_manager && (
+        <Button className={EXPORT_BUTTON_CLASS} onClick={exportCsv} disabled={exporting}>
+          {exporting ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <Download className="mr-1.5 h-4 w-4" />}
+          Export CSV
+        </Button>
+      )}
+    </div>
   );
 
   return (
@@ -146,84 +201,43 @@ export function RequirementsClient() {
         items={[{ label: 'InstaSolver', href: '/instasolver/dashboard' }, { label: 'Requirements', isCurrent: true }]}
       />
       <PageHeader
-        title="Requirements"
-        description="Items requested for learning studios, the learning auditorium, the learning commons and offices"
+        title={!officeView || mine ? 'Your requirements' : 'Requirements'}
+        description={
+          !officeView || mine
+            ? 'Everything you have requested, with its live status and full history.'
+            : 'Items requested for learning studios, the learning auditorium, the learning commons and offices'
+        }
         actions={actions}
       />
 
-      <Card>
-        <CardContent className="space-y-4 p-4">
-          <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_220px_220px]">
-            <div className="relative">
-              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                value={searchText}
-                onChange={(e) => setSearchText(e.target.value)}
-                placeholder="Search by item or reference"
-                className="pl-9"
-                aria-label="Search requirements"
-              />
-            </div>
-            <Select
-              value={institution || ALL}
-              onValueChange={(v) => setParams({ institution: v === ALL ? null : v })}
-            >
-              <SelectTrigger aria-label="Institution">
-                <SelectValue placeholder="Institution" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value={ALL}>All institutions</SelectItem>
-                {institutions?.map((i) => (
-                  <SelectItem key={i.id} value={i.id}>
-                    {i.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <Select value={category || ALL} onValueChange={(v) => setParams({ category: v === ALL ? null : v })}>
-              <SelectTrigger aria-label="Category">
-                <SelectValue placeholder="Category" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value={ALL}>All categories</SelectItem>
-                {categories?.map((c) => (
-                  <SelectItem key={c.id} value={String(c.id)}>
-                    {c.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+      <FilterBar
+        filters={officeView ? filterDefs : filterDefs.filter((f) => f.key === 'status')}
+        hasActive={hasFilters}
+        pinned={pinned}
+        onClearAll={() => {
+          setSearchText('');
+          setParams({ q: null, status: null, institution: null, category: null, mine: null });
+        }}
+        search={
+          <div className="relative">
+            <Search
+              className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"
+              aria-hidden
+            />
+            <Label htmlFor="requirement-search" className="sr-only">
+              Search requests
+            </Label>
+            <Input
+              id="requirement-search"
+              value={searchText}
+              onChange={(e) => setSearchText(e.target.value)}
+              placeholder="Search requests…"
+              title="Search by item or reference number"
+              className="rounded-full pl-9"
+            />
           </div>
-
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div className="flex flex-wrap gap-2" role="group" aria-label="Filter by status">
-              {REQUIREMENT_STATUS_VALUES.map((s) => {
-                const on = statuses.includes(s);
-                return (
-                  <button
-                    key={s}
-                    type="button"
-                    aria-pressed={on}
-                    onClick={() => toggleStatus(s)}
-                    className={cn(
-                      'rounded-full border px-3 py-1 text-sm transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-ring',
-                      on ? 'border-primary bg-primary text-primary-foreground' : 'hover:bg-muted'
-                    )}
-                  >
-                    {REQUIREMENT_STATUS_META[s].label}
-                  </button>
-                );
-              })}
-            </div>
-            <div className="flex items-center gap-2">
-              <Switch id="only-mine" checked={mine} onCheckedChange={(v) => setParams({ mine: v ? '1' : null })} />
-              <Label htmlFor="only-mine" className="text-sm font-normal">
-                Only mine
-              </Label>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
+        }
+      />
 
       {error ? (
         <Card>

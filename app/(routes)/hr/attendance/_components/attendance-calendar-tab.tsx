@@ -186,6 +186,9 @@ function CellTooltip({ day }: { day: AttendanceDay }) {
           {formatDuration(day.effectiveMinutes)}
         </p>
       )}
+      {day.record?.source === 'clinical_geotag' && (
+        <p>{day.record.notes ?? 'Clinical duty'} (geotagged from the app)</p>
+      )}
       {day.lateMinutes !== null && day.lateMinutes > 0 && (
         <p>
           Late by {day.lateMinutes} minute(s).

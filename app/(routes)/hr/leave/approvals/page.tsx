@@ -57,7 +57,7 @@ import { CompOffClaimsQueue } from '../_components/comp-off-claims-queue';
 import { ApprovalDetailSheet } from '../_components/approval-detail-sheet';
 import { LeaveDocumentViewer } from '../_components/leave-document-viewer';
 import {
-  ApprovalsDataTable, approvalFiltersActive, emptyApprovalFilters,
+  ApprovalsDataTable, approvalFiltersActive, emptyApprovalFilters, leaveTypeFilterKey,
   type ApprovalFilterState, type ToolbarSelection,
 } from '../_components/approvals-data-table';
 import type { ApprovalColumnActions } from '../_components/approval-queue-columns';
@@ -78,10 +78,25 @@ import { getErrorMessage } from '@/lib/utils';
 import { isReviewStep } from '../_components/format';
 import type { HRLeaveApprovalQueueRow } from '@/types/hr';
 
+/**
+ * The leave sub-tabs. Leave types are per organisation (14 separate "Casual
+ * Leave" rows), so a row is placed by its leave_type_code, never by id. Every
+ * code not listed here — Clinical Duty, PhD, Vacation, … — lands in Other.
+ */
+const LEAVE_TYPE_TABS = [
+  { key: 'type-cl', label: 'Casual Leave', code: 'cl' },
+  { key: 'type-od', label: 'On Duty', code: 'od' },
+  { key: 'type-comp-off', label: 'Comp Off Leave', code: 'comp_off' },
+] as const;
+const OTHER_LEAVE_TAB = { key: 'type-other', label: 'Other Leave' } as const;
+
+const leaveTabKey = (r: HRLeaveApprovalQueueRow) =>
+  LEAVE_TYPE_TABS.find((t) => t.code === (r.leave_type_code ?? '').trim().toLowerCase())?.key ??
+  OTHER_LEAVE_TAB.key;
+
 export default function LeaveApprovalsPage() {
   const params = useSearchParams();
   const tab = params.get('tab');
-  const view = tab === 'comp-off' ? 'comp-off' : tab === 'short-time-off' ? 'short' : 'leave';
 
   const { data: canApprove, isLoading: gateLoading } = useCanApproveLeave();
   const { data: queue, error: queueError, isLoading, refetch, isFetching, dataUpdatedAt } =
@@ -145,6 +160,31 @@ export default function LeaveApprovalsPage() {
     [all]
   );
 
+  // Fixed sub-tabs, replacing the single mixed "Leave Requests" tab. Always
+  // all four, so the bar does not shift as a queue empties.
+  const leaveTypeTabs = useMemo(
+    () =>
+      [...LEAVE_TYPE_TABS, OTHER_LEAVE_TAB].map((t) => ({
+        key: t.key,
+        label: t.label,
+        rows: leaveRows.filter((r) => leaveTabKey(r) === t.key),
+      })),
+    [leaveRows]
+  );
+
+  // No ?tab opens Casual Leave. `?tab=leave` (every leave type together) is
+  // kept for the Month Close links, which count all leave for a month.
+  const view =
+    tab === 'comp-off' ? 'comp-off'
+    : tab === 'short-time-off' ? 'short'
+    : tab === 'leave' ? 'leave'
+    : leaveTypeTabs.some((t) => t.key === tab) ? tab!
+    : LEAVE_TYPE_TABS[0].key;
+  const activeType = leaveTypeTabs.find((t) => t.key === view);
+  const isTypeView = view.startsWith('type-');
+  // Only Other mixes several types, so only it keeps the type filter.
+  const showTypeFilter = !isTypeView || view === OTHER_LEAVE_TAB.key;
+
   // Options come from the rows actually in the queue, so an approver never sees
   // a filter that can only ever return nothing.
   const institutions = useMemo(() => {
@@ -169,12 +209,13 @@ export default function LeaveApprovalsPage() {
 
   const leaveTypes = useMemo(() => {
     const m = new Map<string, string>();
-    const source = view === 'short' ? shortRows : leaveRows;
+    const source = view === 'short' ? shortRows : activeType?.rows ?? leaveRows;
     for (const r of source) {
-      if (r.leave_type_id) m.set(r.leave_type_id, r.leave_type_name ?? 'Unnamed type');
+      const key = leaveTypeFilterKey(r);
+      if (key && !m.has(key)) m.set(key, r.leave_type_name!.trim());
     }
     return [...m.entries()].sort((a, b) => a[1].localeCompare(b[1]));
-  }, [view, leaveRows, shortRows]);
+  }, [view, leaveRows, shortRows, activeType]);
 
   const mineCount = useMemo(() => all.filter((r) => r.waiting_on_me).length, [all]);
 
@@ -376,7 +417,14 @@ export default function LeaveApprovalsPage() {
 
   const withCount = (label: string, n: number) => (n > 0 ? `${label} (${n})` : label);
   const subTabs = [
-    { label: withCount('Leave Requests', openLeaveCount), href: '/hr/leave/approvals' },
+    ...leaveTypeTabs.map((t, i) => ({
+      label: withCount(t.label, t.rows.filter(isOpen).length),
+      // Casual Leave answers the bare URL, so it highlights as the default.
+      href: i === 0 ? '/hr/leave/approvals' : `/hr/leave/approvals?tab=${t.key}`,
+    })),
+    ...(tab === 'leave'
+      ? [{ label: withCount('All Leave', openLeaveCount), href: '/hr/leave/approvals?tab=leave' }]
+      : []),
     {
       label: withCount('Short Time Off', openShortCount),
       href: '/hr/leave/approvals?tab=short-time-off',
@@ -470,17 +518,20 @@ export default function LeaveApprovalsPage() {
         </Select>
       )}
 
-      <Select value={filters.leaveTypeId} onValueChange={(v) => set('leaveTypeId', v)}>
-        <SelectTrigger className="h-8 w-full sm:w-[190px]" aria-label="Filter by type">
-          <SelectValue placeholder="All types" />
-        </SelectTrigger>
-        <SelectContent>
-          <SelectItem value="any">All types</SelectItem>
-          {leaveTypes.map(([id, name]) => (
-            <SelectItem key={id} value={id}>{name}</SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
+      {/* A single-type tab already IS the type filter. */}
+      {showTypeFilter && (
+        <Select value={filters.leaveTypeId} onValueChange={(v) => set('leaveTypeId', v)}>
+          <SelectTrigger className="h-8 w-full sm:w-[190px]" aria-label="Filter by type">
+            <SelectValue placeholder="All types" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="any">All types</SelectItem>
+            {leaveTypes.map(([id, name]) => (
+              <SelectItem key={id} value={id}>{name}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      )}
 
       <Select
         value={filters.status}
@@ -592,9 +643,14 @@ export default function LeaveApprovalsPage() {
               // page number and sort rather than carrying them across two
               // different column sets.
               key={view}
-              rows={view === 'short' ? shortRows : leaveRows}
+              rows={view === 'short' ? shortRows : isTypeView ? activeType?.rows ?? [] : leaveRows}
               variant={view === 'short' ? 'short' : 'leave'}
-              filters={filters}
+              // A type id picked on another tab would match nothing here.
+              filters={
+                showTypeFilter && leaveTypes.some(([id]) => id === filters.leaveTypeId)
+                  ? filters
+                  : { ...filters, leaveTypeId: 'any' }
+              }
               actions={actions}
               refetchKey={dataUpdatedAt}
               toolbar={toolbar}
