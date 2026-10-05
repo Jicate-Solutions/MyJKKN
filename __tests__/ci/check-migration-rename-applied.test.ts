@@ -236,6 +236,71 @@ describe('a ledger hit belongs to the file it names (PR #4207, 2026-10-05)', () 
   });
 });
 
+/**
+ * 2026-10-05, found by reading the LIVE ledger rather than the fixtures. The
+ * shadowed-version rule above compares schema_migrations.name to the file name.
+ * Two name forms in production defeat an exact, case-sensitive compare, and both
+ * fail in the DANGEROUS direction — this file's own row is mistaken for another
+ * file's, the hit is set aside, and an applied migration can be re-armed:
+ *
+ *   * 2 rows carry a human annotation after the name, e.g.
+ *     "learner_leave_types_backfill (applied by hand 28 Sep; recorded as
+ *      20260928085422; W12 desk 2026-10-01 on Director approval)"
+ *   * 2 rows differ from the file only in capitalisation.
+ *
+ * Matching is therefore liberal: over-matching keeps today's refusal (safe),
+ * under-matching re-arms applied work (unsafe).
+ */
+describe('a ledger name is still THIS file when annotated or differently cased', () => {
+  // A body with a createable object, so the 'nothing-parsed' net does not mask
+  // the verdict, and an empty presentSet so only the name decides.
+  const renameOf = (ledgerName: string | null): Fixture => ({
+    renames: [{
+      from: mig('20270415090100', 'learner_leave_types_backfill'),
+      to: mig('20270415090200', 'learner_leave_types_backfill'),
+      sql: 'CREATE TABLE IF NOT EXISTS public.leave_types_backfill_log (id uuid);',
+    }],
+    ledger: [{ version: '20270415090100', name: ledgerName }],
+    existing: [],
+  });
+
+  it('FAILS when the row is this file with an annotation after the name (live form)', () => {
+    const r = run(renameOf(
+      'learner_leave_types_backfill (applied by hand 28 Sep; recorded as 20260928085422; W12 desk 2026-10-01 on Director approval)'
+    ));
+    expect(r.code).toBe(1);
+    expect(r.out).toContain('ledger-source');
+  });
+
+  it('FAILS when the row is this file in a different case', () => {
+    const r = run(renameOf('Learner_Leave_Types_Backfill'));
+    expect(r.code).toBe(1);
+    expect(r.out).toContain('ledger-source');
+  });
+
+  it('FAILS when the row is this file, version-prefixed AND annotated', () => {
+    const r = run(renameOf(
+      '20270415090100_learner_leave_types_backfill (re-recorded 1 Oct)'
+    ));
+    expect(r.code).toBe(1);
+    expect(r.out).toContain('ledger-source');
+  });
+
+  it('still PASSES for a genuinely different file — the #4207 case is not regressed', () => {
+    const r = run(renameOf('procurement_two_signoffs_guard'));
+    expect(r.code).toBe(0);
+    expect(r.out).toContain('ledger-shadowed');
+  });
+
+  it('does not treat a name that merely CONTAINS a shorter word as this file', () => {
+    // 'backfill' alone is not this file; the token test must match the whole
+    // recorded name against the whole file name, not any fragment of it.
+    const r = run(renameOf('backfill'));
+    expect(r.code).toBe(0);
+    expect(r.out).toContain('ledger-shadowed');
+  });
+});
+
 describe('fail-closed when production cannot be reached', () => {
   const unreachable: Fixture = {
     renames: [{

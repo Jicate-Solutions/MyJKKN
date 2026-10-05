@@ -550,7 +550,21 @@ export function verdictFor({ rename, objects, replaced = [], presentSet, ledgerS
     const recorded = String(ledgerNames?.get(rename.fromVersion) ?? '').trim()
       .replace(/\.sql$/, '').replace(new RegExp(`^${rename.fromVersion}_`), '');
     const own = [nameOf(rename.from), nameOf(rename.to)].filter(Boolean);
-    if (!recorded || own.includes(recorded)) {
+    // Matching must be LIBERAL, because over-matching only ever fails closed
+    // (we keep today's refusal) while under-matching sets aside a row that is
+    // this file's own and lets an applied migration be re-armed. Two live forms
+    // defeated an exact compare (verified against production, 5 Oct 2026):
+    //   * a human annotation after the name — 2 rows read
+    //     "learner_leave_types_backfill (applied by hand 28 Sep; recorded as ...)"
+    //   * a different capitalisation — 2 rows.
+    // So: compare case-insensitively, and treat the row as this file's whenever
+    // the file's name appears in it as a whole token.
+    const fold = (t) => String(t).toLowerCase();
+    const tokenIn = (needle, hay) =>
+      new RegExp(`(^|[^a-z0-9_])${fold(needle).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}([^a-z0-9_]|$)`)
+        .test(fold(hay));
+    const isOwnRow = own.some((o) => fold(o) === fold(recorded) || tokenIn(o, recorded));
+    if (!recorded || isOwnRow) {
       return { level: 'fail', reason: 'ledger-source',
         detail: `schema_migrations carries version ${rename.fromVersion}${recorded ? ` under name "${recorded}" — this file` : ' (no name recorded, so it cannot be told apart from this file)'}. That migration has run; renaming it re-arms it as pending.` };
     }
