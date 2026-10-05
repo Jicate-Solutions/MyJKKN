@@ -12,7 +12,11 @@ const config: Config = {
     // Export CSV button colour in one constants file (lib/instasolver/constants.ts)
     // so no component writes its own. Those class names must be scanned, or
     // Tailwind never generates them (the violet Export CSV rendered white on white).
-    './lib/instasolver/**/*.{ts,tsx}'
+    './lib/instasolver/**/*.{ts,tsx}',
+    // Same trap: the mark-entry part palette (PART_COLORS) lives in a types
+    // file. Unscanned, bg-sky-700 was never generated and Part B's sticky
+    // header rendered transparent.
+    './types/mark-entry.ts'
   ],
   theme: {
     extend: {

@@ -133,7 +133,8 @@ export class CiaMarksService {
     for (const c of courses) {
       if (c.course_code) {
         map.set(c.course_code, {
-          course_name: c.course_name ?? '',
+          // COE's /api/v1/courses mapper renames the column to `course_title`.
+          course_name: c.course_name || c.course_title || '',
           internal_max_mark: c.internal_max_mark ?? 0,
         });
       }
