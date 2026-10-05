@@ -22209,3 +22209,12 @@ CREATE TRIGGER trg_hr_cde_updated
 -- 4. Helpers ---------------------------------------------------------------------
 -- Is this person approved for clinical duty on this date? Matches an approved,
 -- in-date row at staff, department or institution level.
+
+-- Mirrored from supabase/migrations/20271005120000_comp_off_claim_batch.sql
+ALTER TABLE public.hr_comp_off_credits
+  ADD COLUMN IF NOT EXISTS claim_batch_id uuid NULL;
+COMMENT ON COLUMN public.hr_comp_off_credits.claim_batch_id IS
+  'Shared by the credit rows of one multi-day claim submission; NULL for a single-day claim or a non-claim credit.';
+CREATE INDEX IF NOT EXISTS idx_hr_comp_off_credits_claim_batch
+  ON public.hr_comp_off_credits (claim_batch_id)
+  WHERE claim_batch_id IS NOT NULL;
