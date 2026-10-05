@@ -6,6 +6,8 @@ import { ContentLayout } from '@/components/layout/content-layout';
 import { useAuth } from '@/hooks/use-auth';
 import { useGrns } from '@/hooks/procurement/use-grns';
 import { useDebounceValue } from '@/hooks/use-debounce-value';
+import { useUserInstitutionAccess } from '@/hooks/use-user-institution-access';
+import { displayRequestNumber } from '@/lib/procurement/display-number';
 import { InstitutionFilter } from '@/components/procurement/institution-filter';
 import { StatusBadge } from '@/components/procurement/status-badge';
 import { ResponsiveList } from '@/components/procurement/responsive-list';
@@ -56,6 +58,11 @@ export default function GrnListPage() {
   const { data: response, isLoading, isError } = useGrns(filters);
   const grns = response?.data ?? [];
 
+  // Request numbers restart per college, so "All colleges" also names the college.
+  const { institutions } = useUserInstitutionAccess();
+  const collegeName = (id: string) =>
+    institutions.find((i) => i.institution_id === id)?.institution_name ?? '-';
+
   return (
     <ContentLayout title="Deliveries">
       <div className="space-y-4 sm:space-y-6">
@@ -73,7 +80,7 @@ export default function GrnListPage() {
               <div className="relative flex-1">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                 <Input
-                  placeholder="Search by delivery number..."
+                  placeholder="Search by purchase no., delivery or PO number..."
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
                   className="pl-9"
@@ -126,14 +133,28 @@ export default function GrnListPage() {
                 rowLabel={(grn) => `View ${grn.grn_number}`}
                 columns={[
                   {
-                    key: 'grn',
-                    header: 'Delivery #',
+                    key: 'purchase',
+                    header: 'Purchase no.',
                     mobile: 'title',
-                    className: 'font-medium',
-                    cell: (grn) => grn.grn_number,
+                    cell: (grn) => (
+                      <div className="min-w-0">
+                        <div className="font-medium">
+                          {grn.purchase_request
+                            ? displayRequestNumber(grn.purchase_request.request_number)
+                            : grn.grn_number}
+                        </div>
+                        <div className="text-xs font-normal text-muted-foreground">
+                          {grn.purchase_request ? `Delivery ${grn.grn_number}` : ''}
+                          {grn.purchase_request && grn.purchase_order ? ' · ' : ''}
+                          {grn.purchase_order ? `Order ${grn.purchase_order.po_number}` : ''}
+                        </div>
+                      </div>
+                    ),
                   },
+                  ...(allColleges
+                    ? [{ key: 'college', header: 'College', cell: (grn: (typeof grns)[number]) => collegeName(grn.institution_id) }]
+                    : []),
                   { key: 'date', header: 'Date', cell: (grn) => formatDateDMY(grn.created_at) },
-                  { key: 'po', header: 'PO #', cell: (grn) => grn.purchase_order?.po_number || '-' },
                   { key: 'vendor', header: 'Vendor', cell: (grn) => grn.supplier?.name || '-' },
                   { key: 'invoice', header: 'Invoice', cell: (grn) => grn.invoice_number || '-' },
                   { key: 'items', header: 'Items', cell: (grn) => grn.item_count ?? '-' },

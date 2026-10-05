@@ -37,7 +37,8 @@ export interface ApprovalFilterState {
   institutionId: string;
   /** 'any' or a departments.id. Null-department rows match only 'any'. */
   departmentId: string;
-  /** 'any' or an hr_leave_types.id. */
+  /** 'any' or a leaveTypeFilterKey() — a type NAME, not an id: each
+   *  organisation has its own copy of every type (14 × "Permission (Hourly)"). */
   leaveTypeId: string;
   /** 'open' = pending + escalated (the default work queue); 'any' = everything
    *  the RPC returned, decided history included. */
@@ -91,6 +92,10 @@ function haystack(r: HRLeaveApprovalQueueRow): string {
     .toLowerCase();
 }
 
+/** Groups the per-organisation copies of one leave type under its name. */
+export const leaveTypeFilterKey = (r: Pick<HRLeaveApprovalQueueRow, 'leave_type_name'>) =>
+  (r.leave_type_name ?? '').trim().toLowerCase();
+
 export function matchesApprovalFilters(
   r: HRLeaveApprovalQueueRow,
   f: ApprovalFilterState,
@@ -104,7 +109,7 @@ export function matchesApprovalFilters(
   }
   if (f.institutionId !== 'any' && r.institution_id !== f.institutionId) return false;
   if (f.departmentId !== 'any' && r.department_id !== f.departmentId) return false;
-  if (f.leaveTypeId !== 'any' && r.leave_type_id !== f.leaveTypeId) return false;
+  if (f.leaveTypeId !== 'any' && leaveTypeFilterKey(r) !== f.leaveTypeId) return false;
   if (f.status === 'open') {
     if (r.status !== 'pending' && r.status !== 'escalated') return false;
   } else if (f.status !== 'any' && r.status !== f.status) {

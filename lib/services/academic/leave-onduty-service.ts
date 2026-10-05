@@ -655,7 +655,7 @@ export class LeaveOndutyService {
     // rule of the type is enforced server-side by fn_lo_seed_approvals.
     const { data: leaveType, error: leaveTypeError } = await supabase
       .from('learner_leave_types')
-      .select('id, code, category, requires_sponsor_approval, is_active')
+      .select('id, code, category, requires_sponsor_approval, issues_gate_pass, is_active')
       .eq('id', data.leave_type_id)
       .maybeSingle();
 
@@ -664,6 +664,15 @@ export class LeaveOndutyService {
     }
     if (!leaveType || !leaveType.is_active || leaveType.category !== data.category) {
       throw new Error('Please choose a valid leave type.');
+    }
+
+    // A gate-pass type needs the exit/return time so the pass has a real window.
+    // Day scholars get no pass (the DB decides), so the times are stored only when
+    // the learner supplied them.
+    if (leaveType.issues_gate_pass && data.exit_time && data.return_time) {
+      if (data.start_date === data.end_date && data.return_time <= data.exit_time) {
+        throw new Error('Return time must be after the exit time for a same-day leave.');
+      }
     }
 
     // Sponsor gate: the application waits at current_step 0 until the sponsor
@@ -706,6 +715,8 @@ export class LeaveOndutyService {
         selected_periods: selectedPeriods,
         reason: data.reason,
         attachment_url: attachmentUrl,
+        exit_time: leaveType.issues_gate_pass ? data.exit_time || null : null,
+        return_time: leaveType.issues_gate_pass ? data.return_time || null : null,
         status: 'pending',
         applicable_type: applicableType,
         // When sponsor approval is required, start at step 0 (sponsor gate).

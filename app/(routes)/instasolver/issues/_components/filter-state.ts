@@ -1,8 +1,8 @@
 // URL <-> IssueFilters for the issue list. The URL is the source of truth so a
 // filtered list can be shared and survives a refresh.
 
-import { ISSUE_STATUS_VALUES, PAGE_SIZE, SEVERITY_VALUES } from '@/lib/instasolver/constants';
-import type { IssueFilters, IssueScope, IssueStatus, Severity } from '@/types/instasolver';
+import { ISSUE_STATUS_VALUES, PAGE_SIZE, PRIORITY_VALUES, SEVERITY_VALUES } from '@/lib/instasolver/constants';
+import type { IssueFilters, IssueScope, IssueStatus, Priority, Severity } from '@/types/instasolver';
 
 const SCOPES: IssueScope[] = ['all', 'mine', 'assigned_to_me', 'my_teams'];
 
@@ -20,6 +20,7 @@ export function parseFilters(params: URLSearchParams): IssueFilters {
     search: params.get('q') || undefined,
     status: list<IssueStatus>(params.get('status'), ISSUE_STATUS_VALUES),
     severity: list<Severity>(params.get('severity'), SEVERITY_VALUES),
+    priority: list<Priority>(params.get('priority'), PRIORITY_VALUES),
     institution_id: params.get('institution') || undefined,
     category_id: Number.isFinite(category) && category > 0 ? category : undefined,
     scope: scope && SCOPES.includes(scope) ? scope : undefined,
@@ -35,6 +36,7 @@ export function toParams(f: IssueFilters): URLSearchParams {
   if (f.search) p.set('q', f.search);
   if (f.status?.length) p.set('status', f.status.join(','));
   if (f.severity?.length) p.set('severity', f.severity.join(','));
+  if (f.priority?.length) p.set('priority', f.priority.join(','));
   if (f.institution_id) p.set('institution', f.institution_id);
   if (f.category_id) p.set('category', String(f.category_id));
   if (f.scope && f.scope !== 'all') p.set('scope', f.scope);
@@ -49,6 +51,7 @@ export function hasActiveFilters(f: IssueFilters): boolean {
     f.search ||
     f.status?.length ||
     f.severity?.length ||
+    f.priority?.length ||
     f.institution_id ||
     f.category_id ||
     (f.scope && f.scope !== 'all') ||

@@ -52,7 +52,7 @@ import type { VacateReason, VacateRequestStatus } from '@/types/hostel-vacate';
 
 /** Statuses that count as an open request (mirrors hvr_one_open_per_allocation). */
 const OPEN_STATUSES: VacateRequestStatus[] = [
-  'draft', 'pending_dues', 'pending_principal', 'pending_warden', 'pending_mess', 'pending_cao', 'pending_fine',
+  'draft', 'pending_dues', 'pending_accountant', 'pending_principal', 'pending_warden', 'pending_mess', 'pending_cao', 'pending_fine',
 ];
 
 const formatInr = (n: number) => `₹${Number(n).toLocaleString('en-IN')}`;

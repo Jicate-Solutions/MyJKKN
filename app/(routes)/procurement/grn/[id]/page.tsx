@@ -16,6 +16,7 @@ import {
 import { validateLineForVerify } from '@/lib/services/procurement/three-way-match';
 import { GRN_STATUS_CONFIG, GRN_MATCH_CONFIG, type ProcurementGrnReplacement } from '@/types/procurement';
 import { formatDateDMY, formatDateTimeDMY } from '@/lib/utils/date-format';
+import { displayRequestNumber } from '@/lib/procurement/display-number';
 import { StatusBadge } from '@/components/procurement/status-badge';
 import { ResponsiveList } from '@/components/procurement/responsive-list';
 import {
@@ -37,7 +38,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { CheckCircle2, AlertTriangle, PackagePlus, Ban } from 'lucide-react';
+import { CheckCircle2, AlertTriangle, PackagePlus, Ban, ClipboardList } from 'lucide-react';
 import { BeatLoader } from 'react-spinners';
 import { toast } from 'sonner';
 import { errorMessage } from '@/lib/utils/supabase-error';
@@ -170,6 +171,15 @@ export default function GrnDetailPage() {
   }
 
   const actions: DocAction[] = [];
+  const purchase = grn.purchase_request;
+  if (purchase) {
+    actions.push({
+      key: 'view-purchase',
+      label: 'View purchase',
+      icon: ClipboardList,
+      onClick: () => router.push(`/procurement/requests/${purchase.id}`),
+    });
+  }
   if (pending) {
     actions.push({
       key: 'cancel',
@@ -186,17 +196,27 @@ export default function GrnDetailPage() {
   }
 
   return (
-    <ContentLayout title={grn.grn_number}>
+    <ContentLayout title={purchase ? displayRequestNumber(purchase.request_number) : grn.grn_number}>
       <div className="space-y-4 sm:space-y-6 max-w-5xl">
         <DocumentHeader
           onBack={() => router.push('/procurement/grn')}
           backLabel="Back to deliveries"
-          title={grn.grn_number}
+          title={
+            purchase ? (
+              <>
+                Purchase no. {displayRequestNumber(purchase.request_number)}
+                <span className="ml-2 text-sm font-normal text-muted-foreground">Delivery {grn.grn_number}</span>
+              </>
+            ) : (
+              grn.grn_number
+            )
+          }
           status={<StatusBadge status={grn.status} config={GRN_STATUS_CONFIG} />}
           next={
             <>
               {statusHint && <span className="font-medium text-foreground">{statusHint} </span>}
-              {grn.purchase_order?.po_number ?? ''} · {grn.supplier?.name ?? grn.supplier_id}
+              {grn.purchase_order ? `Order ${grn.purchase_order.po_number} · ` : ''}
+              {grn.supplier?.name ?? grn.supplier_id}
             </>
           }
           primary={primary}

@@ -31,6 +31,7 @@ function usePoTransition(fn: (args: { id: string; userId: string; reason?: strin
     onSettled: (_r, _e, { id }) => {
       queryClient.invalidateQueries({ queryKey: ['procurement-purchase-orders'] });
       queryClient.invalidateQueries({ queryKey: ['procurement-purchase-order', id] });
+      queryClient.invalidateQueries({ queryKey: ['procurement-journey'] });
     },
   });
 }

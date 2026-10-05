@@ -54,7 +54,7 @@ export function useRequestGatePass(requestId: string | undefined, enabled: boole
   });
 }
 
-function QrImage({ token }: { token: string }) {
+export function QrImage({ token }: { token: string }) {
   const [url, setUrl] = useState('');
   useEffect(() => {
     QRCode.toDataURL(token, { width: 224, margin: 1, errorCorrectionLevel: 'M' })
@@ -94,6 +94,8 @@ export function statusMeta(status: string): { label: string; className: string }
       return { label: 'Completed', className: 'bg-slate-100 text-slate-800 dark:bg-slate-800 dark:text-slate-100' };
     case 'cancelled':
       return { label: 'Cancelled', className: 'bg-slate-100 text-slate-600' };
+    case 'expired':
+      return { label: 'Expired · exit window closed', className: 'bg-slate-100 text-slate-600' };
     default:
       return { label: status, className: 'bg-slate-100 text-slate-800' };
   }
