@@ -1,13 +1,8 @@
 'use client';
 
-import Link from 'next/link';
-import { usePathname } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
-import { Check, X, Minus, ArrowRight } from 'lucide-react';
-import { Card, CardContent } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
-import { displayRequestNumber } from '@/lib/procurement/display-number';
+import { formatDateDMY } from '@/lib/utils/date-format';
 import {
   ProcurementJourneyService,
   type JourneyAnchor,
@@ -15,147 +10,97 @@ import {
 } from '@/lib/services/procurement/journey-service';
 
 /**
- * The same five-step tracker on every procurement screen of one request:
+ * The slim progress line at the top of the purchase page:
  *
- *   1 Request → 2 Request approval → 3 Quotations → 4 Super Admin approval → 5 Delivery
+ *   Asked → Item approval → Quotes → Final approval → Delivered
  *
- * It answers the two questions users kept asking — "where did my request go?" and
- * "who has to do something now?" — and the "Next step" box links straight to the
- * screen where that person acts, so nobody has to know which tab holds it.
+ * The two sign-offs are named checkpoints with who signed and when, so nobody has to
+ * wonder whether a purchase was approved. One line underneath says who acts now.
+ * Everything happens on the same page, so there are no "go to" links here.
  */
 
-type StepState = 'done' | 'current' | 'blocked' | 'upcoming' | 'skipped';
+type StepState = 'done' | 'current' | 'blocked' | 'upcoming';
 
 interface Step {
   title: string;
   state: StepState;
-  who?: string;
+  /** Under the dot: who signed / what happened, or who it waits for. */
   note?: string;
-  action?: { label: string; href: string };
 }
 
 const QUOTE_DECIDED = ['pending_award_approval', 'awarded', 'closed'];
+const signed = (who: string | null, at: string | null) =>
+  [who, at ? formatDateDMY(at) : null].filter(Boolean).join(' · ') || 'Approved';
 
-function buildSteps(j: RequestJourney): Step[] {
+function buildSteps(j: RequestJourney): { steps: Step[]; now: string | null } {
   const req = j.request;
   const rfq = j.rfq;
-  const quotesHref = rfq ? `/procurement/rfqs/${rfq.id}/quotations` : '';
+  let now: string | null = null;
 
-  // 1 — Request
-  const s1: Step = !req
-    ? { title: 'Request', state: 'skipped', note: 'Quotation raised without a request' }
-    : req.status === 'draft'
-      ? {
-          title: 'Request',
-          state: 'current',
-          who: 'Requester',
-          note: 'Not submitted yet',
-          action: { label: 'Open request', href: `/procurement/requests/${req.id}` },
-        }
-      : req.status === 'cancelled'
-        ? { title: 'Request', state: 'blocked', note: 'Cancelled' }
-        : { title: 'Request', state: 'done', note: displayRequestNumber(req.request_number) };
+  const s1: Step =
+    req?.status === 'cancelled'
+      ? { title: 'Asked', state: 'blocked', note: 'Cancelled' }
+      : req?.status === 'draft'
+        ? { title: 'Asked', state: 'current', note: 'Not submitted' }
+        : { title: 'Asked', state: 'done' };
+  if (req?.status === 'draft') now = 'Requester — submit the request';
 
-  // 2 — Request approval
+  // Sign-off 1
   let s2: Step;
-  if (!req) s2 = { title: 'Request approval', state: 'skipped' };
-  else if (req.status === 'submitted')
-    s2 = {
-      title: 'Request approval',
-      state: 'current',
-      who: 'Approver',
-      note: 'Approve or reject the request',
-      action: { label: 'Open request', href: `/procurement/requests/${req.id}` },
-    };
-  else if (req.status === 'rejected')
-    s2 = { title: 'Request approval', state: 'blocked', note: req.rejection_reason || 'Rejected' };
-  else if (req.status === 'approved' || req.status === 'converted')
-    s2 = { title: 'Request approval', state: 'done', note: 'Approved' };
-  else s2 = { title: 'Request approval', state: 'upcoming' };
+  if (req?.status === 'submitted') {
+    s2 = { title: 'Item approval', state: 'current', note: 'Waiting for approver' };
+    now = 'Approver — approve or reject the items';
+  } else if (req?.status === 'rejected') {
+    s2 = { title: 'Item approval', state: 'blocked', note: req.rejection_reason || 'Rejected' };
+  } else if (req && (req.status === 'approved' || req.status === 'converted')) {
+    s2 = { title: 'Item approval', state: 'done', note: signed(req.approved_by_name, req.approved_at) };
+  } else s2 = { title: 'Item approval', state: 'upcoming' };
 
-  // 3 — Quotations & comparison
   let s3: Step;
-  if (rfq && QUOTE_DECIDED.includes(rfq.status))
-    s3 = {
-      title: 'Quotations',
-      state: 'done',
-      note: `${rfq.quotation_count} quotation${rfq.quotation_count === 1 ? '' : 's'} · vendor chosen`,
-    };
-  else if (rfq && rfq.status === 'cancelled') s3 = { title: 'Quotations', state: 'blocked', note: 'Cancelled' };
-  else if (rfq)
-    s3 = {
-      title: 'Quotations',
-      state: 'current',
-      who: 'Store keeper',
-      note: rfq.award_rejection_reason
-        ? `Sent back by Super Admin: ${rfq.award_rejection_reason}`
-        : rfq.quotation_count === 0
-          ? 'Upload vendor quotations'
-          : rfq.chosen_count === 0
-            ? 'Compare quotations and choose vendors'
-            : 'Send the chosen vendors to the Super Admin',
-      action: { label: 'Open quotations', href: quotesHref },
-    };
-  else if (req && (req.status === 'approved' || req.status === 'converted'))
-    s3 = {
-      title: 'Quotations',
-      state: 'current',
-      who: 'Store keeper',
-      note: 'Start collecting vendor quotations',
-      action: { label: 'Start quotations', href: `/procurement/requests/${req.id}` },
-    };
-  else s3 = { title: 'Quotations', state: 'upcoming' };
+  if (rfq && QUOTE_DECIDED.includes(rfq.status)) {
+    s3 = { title: 'Quotes', state: 'done', note: `${rfq.quotation_count} vendor${rfq.quotation_count === 1 ? '' : 's'}` };
+  } else if (rfq?.status === 'cancelled') {
+    s3 = { title: 'Quotes', state: 'blocked', note: 'Cancelled' };
+  } else if (rfq || s2.state === 'done') {
+    const count = rfq?.quotation_count ?? 0;
+    s3 = { title: 'Quotes', state: 'current', note: count ? `${count} vendor${count === 1 ? '' : 's'} so far` : 'Collecting' };
+    now = rfq?.award_rejection_reason
+      ? `Store — sent back by the Super Admin: ${rfq.award_rejection_reason}`
+      : count === 0
+        ? 'Store — upload the vendors’ quotes'
+        : (rfq?.chosen_count ?? 0) === 0
+          ? 'Store — choose a vendor for each item'
+          : 'Store — send the choice for final approval';
+  } else s3 = { title: 'Quotes', state: 'upcoming' };
 
-  // 4 — Super Admin approval
+  // Sign-off 2
   let s4: Step;
-  if (rfq?.status === 'pending_award_approval')
-    s4 = {
-      title: 'Super Admin approval',
-      state: 'current',
-      who: 'Super Admin',
-      note: 'Check the chosen vendors and prices, then approve',
-      action: { label: 'Review & approve', href: quotesHref },
-    };
-  else if (rfq && (rfq.status === 'awarded' || rfq.status === 'closed'))
-    s4 = {
-      title: 'Super Admin approval',
-      state: 'done',
-      note: `${j.orders.length} order${j.orders.length === 1 ? '' : 's'} created`,
-    };
-  else s4 = { title: 'Super Admin approval', state: 'upcoming' };
+  if (rfq?.status === 'pending_award_approval') {
+    s4 = { title: 'Final approval', state: 'current', note: 'Waiting for Super Admin' };
+    now = 'Super Admin — approve the chosen vendors and prices';
+  } else if (rfq && (rfq.status === 'awarded' || rfq.status === 'closed')) {
+    s4 = { title: 'Final approval', state: 'done', note: signed(rfq.award_approved_by_name, rfq.award_approved_at) };
+  } else s4 = { title: 'Final approval', state: 'upcoming' };
 
-  // 5 — Delivery & stock
   let s5: Step;
   const openOrders = j.orders.filter((o) => !['completed', 'closed'].includes(o.status));
-  const toCheck = j.receipts.find((r) => r.status === 'pending_verification' || r.status === 'draft');
-  if (s4.state !== 'done') s5 = { title: 'Delivery', state: 'upcoming' };
-  else if (j.orders.length > 0 && openOrders.length === 0)
-    s5 = { title: 'Delivery', state: 'done', note: 'Received and added to stock' };
-  else if (toCheck)
-    s5 = {
-      title: 'Delivery',
-      state: 'current',
-      who: 'Store verifier',
-      note: 'Check the delivered goods and add them to stock',
-      action: { label: 'Check & add to stock', href: `/procurement/grn/${toCheck.id}` },
-    };
-  else if (openOrders.length > 0)
-    s5 = {
-      title: 'Delivery',
-      state: 'current',
-      who: 'Store keeper',
-      note: 'Send the purchase order PDF to the vendor, then record the delivery when goods arrive',
-      action: { label: 'Open purchase order', href: `/procurement/purchase-orders/${openOrders[0].id}` },
-    };
-  else s5 = { title: 'Delivery', state: 'upcoming' };
+  const toCheck = j.receipts.some((r) => r.status === 'pending_verification' || r.status === 'draft');
+  if (s4.state !== 'done') s5 = { title: 'Delivered', state: 'upcoming' };
+  else if (j.orders.length > 0 && openOrders.length === 0) s5 = { title: 'Delivered', state: 'done', note: 'In stock' };
+  else {
+    s5 = { title: 'Delivered', state: 'current', note: toCheck ? 'Check delivery' : 'Waiting for goods' };
+    now = toCheck
+      ? 'Store verifier — check the delivery and add it to stock'
+      : 'Store — send the order PDF to the vendor, record the delivery when goods arrive';
+  }
 
-  return [s1, s2, s3, s4, s5];
+  return { steps: [s1, s2, s3, s4, s5], now };
 }
 
 export function useRequestJourney(anchor: JourneyAnchor, revision?: string) {
   return useQuery({
-    // `revision` is the host page's own status, so the tracker refetches the moment
-    // an action on that page moves the document on.
+    // `revision` is the host page's own status, so the line refetches the moment an
+    // action on that page moves the purchase on.
     queryKey: ['procurement-journey', anchor.requestId ?? null, anchor.rfqId ?? null, anchor.poId ?? null, revision ?? null],
     queryFn: () => ProcurementJourneyService.getJourney(anchor),
     enabled: !!(anchor.requestId || anchor.rfqId || anchor.poId),
@@ -163,77 +108,53 @@ export function useRequestJourney(anchor: JourneyAnchor, revision?: string) {
   });
 }
 
-function StepIcon({ state, index }: { state: StepState; index: number }) {
-  const base = 'flex h-8 w-8 shrink-0 items-center justify-center rounded-full border text-sm font-semibold';
-  if (state === 'done') return <span className={cn(base, 'border-green-600 bg-green-600 text-white')}><Check className="h-4 w-4" /></span>;
-  if (state === 'blocked') return <span className={cn(base, 'border-red-600 bg-red-600 text-white')}><X className="h-4 w-4" /></span>;
-  if (state === 'skipped') return <span className={cn(base, 'border-dashed text-muted-foreground')}><Minus className="h-4 w-4" /></span>;
-  if (state === 'current') return <span className={cn(base, 'border-primary bg-primary text-primary-foreground ring-4 ring-primary/20')}>{index + 1}</span>;
-  return <span className={cn(base, 'text-muted-foreground')}>{index + 1}</span>;
+/** Who has to act now, in one line — the purchase page puts it in its action bar. */
+export function journeyNow(journey: RequestJourney): string | null {
+  return buildSteps(journey).now;
 }
 
-export function RequestJourney({ anchor, revision }: { anchor: JourneyAnchor; revision?: string }) {
-  const pathname = usePathname();
-  const { data, isLoading, isError } = useRequestJourney(anchor, revision);
-  if (isLoading || isError || !data) return null;
+const DOT: Record<StepState, string> = {
+  done: 'bg-green-600',
+  current: 'bg-amber-500 ring-4 ring-amber-200 dark:ring-amber-900',
+  blocked: 'bg-red-600',
+  upcoming: 'border border-muted-foreground/50',
+};
 
-  const steps = buildSteps(data);
-  const current = steps.find((s) => s.state === 'current');
-  const stopped = steps.find((s) => s.state === 'blocked');
-
+/**
+ * One short line of dots: Asked — Item approval — Quotes — Final approval — Delivered.
+ * The current step is bold; a signed-off approval shows who and when on hover and
+ * as small text under the line (`signedOff`).
+ */
+export function PurchaseProgress({ journey }: { journey: RequestJourney }) {
+  const { steps } = buildSteps(journey);
+  const signed = steps.filter((s) => s.state === 'done' && (s.title === 'Item approval' || s.title === 'Final approval') && s.note);
+  const current = steps.find((s) => s.state === 'current' || s.state === 'blocked');
   return (
-    <Card>
-      <CardContent className="space-y-4 pt-6">
-        <ol className="grid gap-3 sm:grid-cols-5 sm:gap-2">
-          {steps.map((s, i) => (
-            <li key={s.title} className="flex items-start gap-3 sm:flex-col sm:items-center sm:text-center">
-              <StepIcon state={s.state} index={i} />
-              <div className="min-w-0">
-                <p className={cn('text-sm font-medium', s.state === 'upcoming' && 'text-muted-foreground')}>
-                  {s.title}
-                </p>
-                {s.note && (s.state === 'done' || s.state === 'blocked' || s.state === 'skipped') && (
-                  <p className={cn('text-xs', s.state === 'blocked' ? 'text-red-700' : 'text-muted-foreground')}>
-                    {s.note}
-                  </p>
-                )}
-                {s.state === 'current' && s.who && (
-                  <p className="text-xs font-medium text-primary">Now: {s.who}</p>
-                )}
-              </div>
-            </li>
-          ))}
-        </ol>
-
-        {current ? (
-          <div className="flex flex-col gap-3 rounded-md border border-primary/30 bg-primary/5 p-3 sm:flex-row sm:items-center sm:justify-between">
-            <div className="text-sm">
-              <p className="font-medium">
-                Next step · {current.title}
-                {current.who ? ` — ${current.who}` : ''}
-              </p>
-              {current.note && <p className="text-muted-foreground">{current.note}</p>}
-            </div>
-            {current.action && current.action.href !== pathname && (
-              <Button asChild className="shrink-0">
-                <Link href={current.action.href}>
-                  {current.action.label}
-                  <ArrowRight className="ml-2 h-4 w-4" />
-                </Link>
-              </Button>
-            )}
-          </div>
-        ) : stopped ? (
-          <p className="rounded-md border border-red-300 bg-red-50 p-3 text-sm text-red-800">
-            Stopped at {stopped.title.toLowerCase()}
-            {stopped.note ? ` — ${stopped.note}` : ''}.
-          </p>
-        ) : steps[4].state === 'done' ? (
-          <p className="rounded-md border border-green-300 bg-green-50 p-3 text-sm text-green-800">
-            Complete — the goods are in stock.
-          </p>
-        ) : null}
-      </CardContent>
-    </Card>
+    <div className="space-y-1">
+      <ol className="flex flex-wrap items-center gap-x-1.5 gap-y-1 text-xs text-muted-foreground" aria-label="Progress">
+        {steps.map((s, i) => (
+          <li key={s.title} className="flex items-center gap-1.5">
+            {i > 0 && <span aria-hidden className="h-px w-4 bg-border" />}
+            <span aria-hidden className={cn('h-2 w-2 shrink-0 rounded-full', DOT[s.state])} />
+            <span
+              className={cn(
+                s.state === 'current' && 'font-semibold text-amber-800 dark:text-amber-300',
+                s.state === 'blocked' && 'font-semibold text-red-700',
+                s.state === 'done' && 'text-foreground'
+              )}
+              title={s.note}
+            >
+              {s.title}
+            </span>
+            <span className="sr-only"> — {s.state}</span>
+          </li>
+        ))}
+      </ol>
+      {/* Only who signed off — the current step is already bold on the line above. */}
+      {signed.length > 0 && (
+        <p className="text-xs text-muted-foreground">{signed.map((s) => `${s.title} ✓ ${s.note}`).join(' · ')}</p>
+      )}
+      {current?.state === 'blocked' && current.note && <p className="text-xs text-red-700">{current.note}</p>}
+    </div>
   );
 }

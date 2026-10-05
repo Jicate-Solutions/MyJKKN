@@ -2853,3 +2853,17 @@ DROP TRIGGER IF EXISTS trg_sign_out_notices_updated_at ON public.sign_out_notice
 CREATE TRIGGER trg_sign_out_notices_updated_at
   BEFORE UPDATE ON public.sign_out_notices
   FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
+-- 20261005100000: reject unfunded leave requests when a balance moves
+DROP TRIGGER IF EXISTS trg_hlme_reject_unfunded ON public.hr_leave_month_entries;
+CREATE TRIGGER trg_hlme_reject_unfunded
+  AFTER INSERT OR UPDATE OF days ON public.hr_leave_month_entries
+  FOR EACH ROW EXECUTE FUNCTION public.hr_trig_reject_unfunded_after_balance_change();
+
+DROP TRIGGER IF EXISTS trg_hlb_reject_unfunded ON public.hr_leave_balances;
+CREATE TRIGGER trg_hlb_reject_unfunded
+  AFTER UPDATE OF used, carried_forward, entitled ON public.hr_leave_balances
+  FOR EACH ROW
+  WHEN (NEW.used > OLD.used
+     OR NEW.carried_forward < OLD.carried_forward
+     OR NEW.entitled < OLD.entitled)
+  EXECUTE FUNCTION public.hr_trig_reject_unfunded_after_balance_change();

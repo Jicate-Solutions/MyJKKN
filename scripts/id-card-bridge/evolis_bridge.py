@@ -1,4 +1,4 @@
-"""Evolis Primacy 2 <-> MyJKKN print bridge (v0.3.2, 2026-10-03: mono back).
+"""Evolis Primacy 2 <-> MyJKKN print bridge (v0.3.5, 2026-10-03: SDK tuned for mono back, or print via the Windows driver).
 Polls MyJKKN for pending ID-card print jobs and drives the printer via the
 official Evolis SDK. Runs as a Windows Service (nssm) in Block 4.
 Duplex: if the claim response says has_back, the back PNG is fetched and staged
@@ -14,9 +14,24 @@ per card). The "Front / Back combination = YMCO / K" saved in Evolis Premium
 Suite does not reach an SDK session. So after the back is staged (which is
 what resets GDuplexType) the session is told DUPLEX_CM explicitly: colour
 front from Y-M-C-O, black back from the SAME set's K panel. One set per card,
-300 per roll. The front path is unchanged. The 15 s post-card pause is also
-cut to 2 s (print() blocks for the whole card, so it was pure idle time). See
-MyJKKN repo docs/modules/id-cards/2026-10-01-OPS-bridge-mono-back.md.
+300 per roll. The 15 s post-card pause is also cut to 2 s (print() blocks for
+the whole card, so it was pure idle time).
+
+v0.3.3 — with no K panel on the front, the driver's default black management
+dropped every pure-black front element (text rows, QR) on the first v0.3.2
+card. FBlackManagement=NOBLACKPOINT composes front black from Y+M+C instead.
+
+v0.3.4 — the session first loads the settings saved in Evolis Premium Suite
+(init_from_driver_settings), so a bridge card starts from the same setup as a
+direct print from the Evolis software, which prints perfectly. The two
+explicit settings above are still asserted after the back is staged.
+
+v0.3.5 — optional second route, PRINT_VIA=driver (env var, or the word
+"driver" in C:/jkkn-bridge/print-via.txt): the card goes through the Windows
+printer driver as a two-page document, the same path the Evolis design
+software uses with the preferences saved in Evolis Premium Suite. Needs
+pywin32. The SDK route stays the default.
+See MyJKKN repo docs/modules/id-cards/2026-10-01-OPS-bridge-mono-back.md.
 """
 import os, sys, time, traceback
 os.environ.setdefault("PYTHONUTF8", "1")
@@ -32,6 +47,27 @@ BACK_ROTATE_DEGREES = 90  # back ONLY: flip to -90 if the first card's back is
                           # plastic, and correcting it must not break the front.
 
 BASE_URL = os.environ.get("MYJKKN_BASE_URL", "https://www.jkkn.ai")
+
+# v0.3.5 - HOW the card reaches the printer:
+#   "sdk"    (default) Evolis SDK PrintSession, as always.
+#   "driver" the Windows printer driver - the SAME path the Evolis design
+#            software uses, with the preferences saved in Evolis Premium Suite
+#            (YMCO / K: colour front from Y+M+C incl. composed black, black
+#            back from K, one ribbon set). Needs pywin32 on the station PC
+#            (pip install pywin32).
+# Set with the env var PRINT_VIA, or by writing the word into
+# C:\jkkn-bridge\print-via.txt (no service re-configuration needed).
+def _print_via():
+    v = os.environ.get("PRINT_VIA", "").strip().lower()
+    if not v:
+        try:
+            with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "print-via.txt")) as f:
+                v = f.read().strip().lower()
+        except Exception:
+            v = ""
+    return "driver" if v == "driver" else "sdk"
+WINDOWS_PRINTER = os.environ.get("EVOLIS_WINDOWS_PRINTER", "Evolis Primacy 2")
+DRIVER_WAIT_SECONDS = 180  # how long to wait for the spooler to finish a card
 TOKEN = os.environ.get("AGENT_PRINT_TOKEN", "")
 PRINTER = os.environ.get("EVOLIS_PRINTER_URI", "socket://192.10.1.102:9100")  # SDK URI (socket://IP:port)
 POLL_SECONDS = 5
@@ -118,6 +154,26 @@ def prep_bmp(png_body, png_path, rotate_degrees):
           str(img.height) + " (rotate=" + str(rotate_degrees) + ")", flush=True)
     return bmp_path
 
+def _load_driver_settings(ps):
+    """Start the SDK session from the settings saved in Evolis Premium Suite.
+
+    A direct print from the Evolis software goes through the Windows driver and
+    uses those settings (YMCO / K, colour tuning, black handling) - and prints
+    perfectly. An SDK PrintSession starts from factory defaults instead, which
+    is why the same card behaved differently through the bridge. Call BEFORE
+    set_image(); guarded - an SDK without this call just keeps the defaults.
+    """
+    fn = getattr(ps, "init_from_driver_settings", None)
+    if fn is None:
+        print("[mono-back] init_from_driver_settings not in this SDK - using session defaults", flush=True)
+        return
+    try:
+        ok = fn()
+        print("[mono-back] driver settings loaded accepted=" + str(ok), flush=True)
+    except Exception as e:
+        print("[mono-back] init_from_driver_settings FAILED: " + repr(e), flush=True)
+
+
 def _force_mono_back(ps):
     """Colour front + black back from ONE ribbon set (GDuplexType=DUPLEX_CM).
 
@@ -143,9 +199,132 @@ def _force_mono_back(ps):
         now = "?"
     print("[mono-back] GDuplexType=DUPLEX_CM accepted=" + str(ok) + " now=" + str(now), flush=True)
 
+    # v0.3.3 - With DUPLEX_CM the FRONT has no K panel. The driver's default
+    # black management routes pure-black pixels (RGB 0,0,0) to the K panel,
+    # so on the first v0.3.2 card every pure-black element on the front - the
+    # FATHER / ADM.NO / CLASS / YEAR rows and the QR code - simply vanished
+    # (2026-10-03 print). NOBLACKPOINT makes the driver compose front black
+    # from Y+M+C instead. Slightly lighter than resin black, but present.
+    fkey = getattr(evolis.SettingKey, "FBlackManagement", None)
+    if fkey is None:
+        print("[mono-back] SettingKey.FBlackManagement missing - front black will drop out; run probe-sdk.ps1", flush=True)
+        return
+    try:
+        fok = ps.set_setting(fkey, "NOBLACKPOINT")
+    except Exception as e:
+        print("[mono-back] set_setting(FBlackManagement, NOBLACKPOINT) FAILED: " + repr(e), flush=True)
+        return
+    try:
+        fnow = ps.get_setting(fkey)
+    except Exception:
+        fnow = "?"
+    print("[mono-back] FBlackManagement=NOBLACKPOINT accepted=" + str(fok) + " now=" + str(fnow), flush=True)
+
+
+def print_via_driver(job_id, front_bmp, back_bmp):
+    """Print one card through the Windows driver: one document, page 1 = front,
+    page 2 = back (the driver's dual-side preference puts page 2 on the back).
+    Waits for the spooler job to finish so 'printed' still means printed.
+    Returns (success, error_message)."""
+    try:
+        import win32print, win32ui  # pywin32
+        from PIL import ImageWin
+    except Exception as e:
+        return False, "Driver printing needs pywin32 on this PC (pip install pywin32): " + repr(e)
+    hdc = None
+    spool_id = None
+    try:
+        hdc = win32ui.CreateDC()
+        hdc.CreatePrinterDC(WINDOWS_PRINTER)
+        page_w = hdc.GetDeviceCaps(8)    # HORZRES, device pixels
+        page_h = hdc.GetDeviceCaps(10)   # VERTRES
+        spool_id = hdc.StartDoc("MyJKKN ID card " + str(job_id))
+        for path in (front_bmp, back_bmp):
+            if not path:
+                continue
+            img = Image.open(path).convert("RGB")
+            # Our BMPs are portrait; match the page if the driver is landscape.
+            if (img.width > img.height) != (page_w > page_h):
+                img = img.rotate(90, expand=True)
+            hdc.StartPage()
+            ImageWin.Dib(img).draw(hdc.GetHandleOutput(), (0, 0, page_w, page_h))
+            hdc.EndPage()
+        hdc.EndDoc()
+        print("[driver] spooled job " + str(spool_id) + " to " + WINDOWS_PRINTER + " page=" +
+              str(page_w) + "x" + str(page_h) + (" duplex" if back_bmp else " front-only"), flush=True)
+    except Exception as e:
+        try:
+            if hdc is not None:
+                hdc.AbortDoc()
+        except Exception:
+            pass
+        return False, friendly(str(e))
+    finally:
+        try:
+            if hdc is not None:
+                hdc.DeleteDC()
+        except Exception:
+            pass
+
+    # Wait for the spooler: the job vanishes once the printer has taken it.
+    # JOB_STATUS_ERROR = 0x2, _OFFLINE = 0x20, _PAPEROUT = 0x40 (cards/ribbon).
+    deadline = time.time() + DRIVER_WAIT_SECONDS
+    try:
+        h = win32print.OpenPrinter(WINDOWS_PRINTER)
+    except Exception as e:
+        return False, friendly(str(e))
+    try:
+        while time.time() < deadline:
+            jobs = win32print.EnumJobs(h, 0, 99, 1)
+            mine = [j for j in jobs if j.get("JobId") == spool_id]
+            if not mine:
+                return True, None
+            st = mine[0].get("Status", 0)
+            if st & 0x2:
+                return False, "Printer reported an error on the job - check ribbon, cards and cover, then Retry"
+            if st & 0x20:
+                return False, FRIENDLY_ERRORS["offline"]
+            if st & 0x40:
+                return False, FRIENDLY_ERRORS["feeder"]
+            time.sleep(2)
+        return False, "Printer did not finish the card within " + str(DRIVER_WAIT_SECONDS) + " s - check the printer, then Retry"
+    finally:
+        try:
+            win32print.ClosePrinter(h)
+        except Exception:
+            pass
+
 
 def print_card(job, has_back=False):
     """Print one card (duplex when has_back). Returns (success, error_message)."""
+    if _print_via() == "driver":
+        return print_card_driver(job, has_back)
+    return print_card_sdk(job, has_back)
+
+
+def print_card_driver(job, has_back=False):
+    """Fetch + prep both faces exactly like the SDK path, then hand them to the
+    Windows driver (see print_via_driver). Same error contract as the SDK path."""
+    cards_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "cards")
+    os.makedirs(cards_dir, exist_ok=True)
+    body, err = fetch_side_png(job, "front")
+    if err:
+        return False, err
+    front_bmp = prep_bmp(body, os.path.join(cards_dir, "job-" + str(job["id"]) + ".png"), ROTATE_DEGREES)
+    back_bmp = None
+    if has_back:
+        body, err = fetch_side_png(job, "back")
+        if err == "back_not_configured":
+            print("job " + str(job["id"]) + ": template has no back - printing front-only", flush=True)
+        elif err:
+            return False, err
+        else:
+            back_bmp = prep_bmp(body, os.path.join(cards_dir, "job-" + str(job["id"]) + "-back.png"), BACK_ROTATE_DEGREES)
+    return print_via_driver(job["id"], front_bmp, back_bmp)
+
+
+def print_card_sdk(job, has_back=False):
+    """Print one card through the Evolis SDK (duplex when has_back). Returns (success, error_message)."""
     import evolis
     co = evolis.Connection(PRINTER, evolis.OpenMode.DIRECT)
     if not co.is_open():
@@ -159,6 +338,7 @@ def print_card(job, has_back=False):
         front_bmp = prep_bmp(body, os.path.join(cards_dir, "job-" + str(job["id"]) + ".png"),
                              ROTATE_DEGREES)
         ps = evolis.PrintSession(co)
+        _load_driver_settings(ps)  # same starting point as a direct print
         ps.set_image(evolis.CardFace.FRONT, front_bmp)
         if has_back:
             body, err = fetch_side_png(job, "back")
@@ -191,7 +371,7 @@ def main():
     if not TOKEN:
         print("AGENT_PRINT_TOKEN not set - bridge cannot authenticate. Exiting.")
         sys.exit(1)
-    print(f"bridge v0.3.2 (duplex-aware, mono back) up: base={BASE_URL} printer={PRINTER}", flush=True)
+    print(f"bridge v0.3.5 up: via={_print_via()} base={BASE_URL} sdk_printer={PRINTER} windows_printer={WINDOWS_PRINTER}", flush=True)
     while True:
         try:
             jobs = api("GET", "/api/id-cards/jobs?status=pending&limit=1")

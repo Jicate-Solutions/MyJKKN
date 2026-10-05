@@ -20,12 +20,20 @@ export interface RequestJourney {
     request_number: string;
     status: string;
     rejection_reason: string | null;
+    requested_by: string | null;
+    /** Sign-off 1 — who approved the items, and when. */
+    approved_at: string | null;
+    approved_by_name: string | null;
   } | null;
   rfq: {
     id: string;
     rfq_number: string;
     status: string;
     award_rejection_reason: string | null;
+    /** Sign-off 2 — the Super Admin's final approval. */
+    award_submitted_at: string | null;
+    award_approved_at: string | null;
+    award_approved_by_name: string | null;
     quotation_count: number;
     chosen_count: number;
   } | null;
@@ -66,11 +74,23 @@ export class ProcurementJourneyService {
     if (requestId) {
       const { data, error } = await db
         .from('procurement_purchase_requests')
-        .select('id, request_number, status, rejection_reason')
+        .select(
+          'id, request_number, status, rejection_reason, requested_by, approved_at, approver:profiles!approved_by(full_name)'
+        )
         .eq('id', requestId)
         .maybeSingle();
       if (error) throw error;
-      request = data ?? null;
+      request = data
+        ? {
+            id: data.id,
+            request_number: data.request_number,
+            status: data.status,
+            rejection_reason: data.rejection_reason,
+            requested_by: data.requested_by,
+            approved_at: data.approved_at,
+            approved_by_name: data.approver?.full_name ?? null,
+          }
+        : null;
     }
 
     // The quotation for this request: the one the user came from, else the newest
@@ -80,11 +100,16 @@ export class ProcurementJourneyService {
       rfq_number: string;
       status: string;
       award_rejection_reason: string | null;
+      award_submitted_at: string | null;
+      award_approved_at: string | null;
+      award_approver?: { full_name: string | null } | null;
     } | null = null;
+    const RFQ_COLS =
+      'id, rfq_number, status, award_rejection_reason, award_submitted_at, award_approved_at, award_approver:profiles!award_approved_by(full_name)';
     if (rfqId) {
       const { data, error } = await db
         .from('procurement_rfqs')
-        .select('id, rfq_number, status, award_rejection_reason')
+        .select(RFQ_COLS)
         .eq('id', rfqId)
         .maybeSingle();
       if (error) throw error;
@@ -92,7 +117,7 @@ export class ProcurementJourneyService {
     } else if (requestId) {
       const { data, error } = await db
         .from('procurement_rfqs')
-        .select('id, rfq_number, status, award_rejection_reason')
+        .select(RFQ_COLS)
         .eq('source_request_id', requestId)
         .neq('status', 'cancelled')
         .order('created_at', { ascending: false })
@@ -125,8 +150,10 @@ export class ProcurementJourneyService {
       for (const q of (quotes || []) as Array<{ items?: Array<{ rfq_item_id: string; awarded: boolean }> }>) {
         for (const it of q.items || []) if (it.awarded) chosen.add(it.rfq_item_id);
       }
+      const { award_approver, ...rfqCols } = rfqRow;
       rfq = {
-        ...rfqRow,
+        ...rfqCols,
+        award_approved_by_name: award_approver?.full_name ?? null,
         quotation_count: (quotes || []).length,
         chosen_count: chosen.size,
       };

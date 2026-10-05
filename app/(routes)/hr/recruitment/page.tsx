@@ -6,7 +6,7 @@ import {
   Breadcrumb, BreadcrumbItem, BreadcrumbLink, BreadcrumbList, BreadcrumbPage, BreadcrumbSeparator,
 } from '@/components/ui/breadcrumb';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { ArrowRight, UserPlus, Users, Inbox } from 'lucide-react';
+import { ArrowRight, UserPlus, Users, Inbox, UserSearch } from 'lucide-react';
 
 const TILES = [
   {
@@ -26,6 +26,12 @@ const TILES = [
     label: 'Approvals',
     icon: Inbox,
     description: 'Review candidates awaiting your sign-off in the approval chain',
+  },
+  {
+    href: '/hr/recruitment/candidates',
+    label: 'All Candidates',
+    icon: UserSearch,
+    description: 'Everyone who applied, across every job — filter by college, category, stage and more',
   },
 ];
 

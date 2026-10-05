@@ -3,19 +3,16 @@ import type { ModuleNavConfig } from '@/lib/navigation/nav-config';
 /**
  * Procurement — in-page tab bar (AutoTabNav).
  *
- * Three working tabs, in the order the work happens
- * (docs/procurement/simplified-flow-spec.md):
- *   Requests — what someone needs
- *   Purchase — vendor quotations, AI comparison, Super Admin approval
- *   Receive  — approved orders waiting for delivery, then goods receipts
+ * Two tabs. One purchase = one page (/procurement/requests/[id]): the items and
+ * their approval, the vendors' quotes and the Super Admin's final approval, the
+ * orders and deliveries all sit on that page, so there is nothing to switch tabs for.
+ *   Overview  — what is waiting at each step, per college
+ *   Purchases — every purchase and the stage it is at
  *
- * The URLs are unchanged (/rfqs, /purchase-orders, /grn) so bookmarks, the
- * permission map in lib/sidebarMenuLink.ts and deep links keep working; only the
- * grouping a user sees changed. Receive covers two routes, so it lists both in
- * matchPaths and the pages share a ReceiveSwitcher.
- *
- * Per-tab visibility is NOT declared here — AutoTabNav.canShowChip() gates each tab
- * by its MENU_PERMISSIONS entry (lib/sidebarMenuLink.ts).
+ * The older routes (/rfqs, /purchase-orders, /grn) still work — links, bookmarks and
+ * the permission map in lib/sidebarMenuLink.ts keep resolving — and count as the
+ * Purchases tab. Per-tab visibility is gated by AutoTabNav.canShowChip() from
+ * MENU_PERMISSIONS (lib/sidebarMenuLink.ts), not here.
  */
 const config: ModuleNavConfig = {
   module: 'procurement',
@@ -27,22 +24,10 @@ const config: ModuleNavConfig = {
       matchPaths: ['/procurement'],
     },
     {
-      label: 'Requests',
-      icon: 'FileText',
+      label: 'Purchases',
+      icon: 'ShoppingCart',
       href: '/procurement/requests',
-      matchPaths: ['/procurement/requests'],
-    },
-    {
-      label: 'Quotations',
-      icon: 'FileSearch',
-      href: '/procurement/rfqs',
-      matchPaths: ['/procurement/rfqs'],
-    },
-    {
-      label: 'Deliveries',
-      icon: 'PackageCheck',
-      href: '/procurement/purchase-orders',
-      matchPaths: ['/procurement/purchase-orders', '/procurement/grn'],
+      matchPaths: ['/procurement/requests', '/procurement/rfqs', '/procurement/purchase-orders', '/procurement/grn'],
     },
   ],
 };

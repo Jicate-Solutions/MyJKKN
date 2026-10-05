@@ -239,6 +239,25 @@ export function useDashboardStats() {
   return useQuery({ queryKey: instasolverKeys.dashboard, queryFn: () => InstaSolverStatsService.dashboard(), ...DYNAMIC });
 }
 
+export function useNextSteps(want: { manager: boolean; maintenance: boolean; reporter: boolean }, enabled = true) {
+  return useQuery({
+    queryKey: ['instasolver', 'next-steps', want],
+    queryFn: () => InstaSolverIssueService.nextSteps(want),
+    enabled,
+    ...DYNAMIC,
+    refetchOnWindowFocus: true
+  });
+}
+
+export function useWorkStatusCounts(enabled = true) {
+  return useQuery({
+    queryKey: ['instasolver', 'work-status-counts'],
+    queryFn: () => InstaSolverIssueService.workStatusCounts(),
+    enabled,
+    ...DYNAMIC
+  });
+}
+
 export function useAnalytics(days: number, enabled = true) {
   return useQuery({
     queryKey: instasolverKeys.analytics(days),

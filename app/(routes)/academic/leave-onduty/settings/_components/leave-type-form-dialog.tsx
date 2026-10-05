@@ -78,6 +78,7 @@ const formSchema = z.object({
   requires_sponsor_approval: z.boolean(),
   sponsor_role_hint: z.string().max(100).optional(),
   affects_attendance: z.boolean(),
+  issues_gate_pass: z.boolean(),
   is_active: z.boolean(),
   sort_order: z
     .union([z.string(), z.number()])
@@ -102,6 +103,7 @@ const DEFAULT_VALUES: FormValues = {
   requires_sponsor_approval: false,
   sponsor_role_hint: '',
   affects_attendance: true,
+  issues_gate_pass: false,
   is_active: true,
   sort_order: 0,
 };
@@ -151,6 +153,7 @@ export function LeaveTypeFormDialog({ open, onOpenChange, mode, leaveType }: Lea
         requires_sponsor_approval: leaveType.requires_sponsor_approval,
         sponsor_role_hint: leaveType.sponsor_role_hint ?? '',
         affects_attendance: leaveType.affects_attendance,
+        issues_gate_pass: leaveType.issues_gate_pass ?? false,
         is_active: leaveType.is_active,
         sort_order: leaveType.sort_order,
       });
@@ -423,6 +426,23 @@ export function LeaveTypeFormDialog({ open, onOpenChange, mode, leaveType }: Lea
                   render={({ field }) => (
                     <FormItem className="flex flex-row items-center justify-between rounded-lg border p-3">
                       <FormLabel className="text-sm">Affects Attendance</FormLabel>
+                      <FormControl>
+                        <Switch checked={field.value} onCheckedChange={field.onChange} />
+                      </FormControl>
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="issues_gate_pass"
+                  render={({ field }) => (
+                    <FormItem className="flex flex-row items-center justify-between rounded-lg border p-3">
+                      <div>
+                        <FormLabel className="text-sm">Issues Gate Pass</FormLabel>
+                        <p className="text-xs text-muted-foreground">
+                          Hostel learners get a 12-hour gate pass and are marked On Leave in hostel attendance.
+                        </p>
+                      </div>
                       <FormControl>
                         <Switch checked={field.value} onCheckedChange={field.onChange} />
                       </FormControl>

@@ -189,6 +189,23 @@ export function statusLabel(entity: 'issue' | 'requirement', value: string | nul
   return meta?.label ?? value;
 }
 
+/**
+ * One look for "take this away with you" (Export CSV), as in the standalone
+ * app: violet, because the other colours are spoken for — green is the brand
+ * and "done", and red, amber and blue each say something about an issue's
+ * state. An export says nothing about an issue, so it takes a colour that says
+ * nothing about one either.
+ */
+export const EXPORT_BUTTON_CLASS =
+  'bg-violet-700 text-white shadow-sm hover:bg-violet-800 dark:bg-violet-600 dark:hover:bg-violet-500';
+
+/**
+ * "Request an item" beside the green "Report an issue": a solid blue, so the
+ * two actions read as two different things at a glance (violet is Export CSV).
+ */
+export const REQUEST_BUTTON_CLASS =
+  'bg-sky-600 text-white shadow-sm hover:bg-sky-700 dark:bg-sky-600 dark:hover:bg-sky-500';
+
 export const MAX_PHOTOS = 5;
 export const MAX_PHOTO_BYTES = 5 * 1024 * 1024;
 export const PHOTO_MIME_TYPES = ['image/jpeg', 'image/png', 'image/webp'] as const;

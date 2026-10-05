@@ -195,6 +195,7 @@ export interface HRRecruitmentCandidatePackage {
   hr_organization_id: string | null;
 
   proposed_by: string;
+  proposer?: { full_name: string | null; email: string | null } | null;
   proposed_monthly_salary: number | null;   // optional — package may be proposed without a figure
   proposed_monthly_salary_breakdown: MonthlySalaryBreakdown | null;
   currency: string;
@@ -905,3 +906,37 @@ export const SCORECARD_RECOMMENDATION_LABELS: Record<ScorecardRecommendation, st
   no_hire: 'No Hire',
   strong_no_hire: 'Strong No-Hire',
 };
+
+// =====================================================================================
+// All Candidates page (/hr/recruitment/candidates) — cross-job pipeline read
+// =====================================================================================
+
+/** The job context every pipeline row carries (one per job referenced). */
+export interface PipelineJobSummary {
+  id: string;
+  title: string;
+  job_code: string | null;
+  job_type: JobType | null;
+  role_category: RoleCategory;
+  status: JobStatus;
+  institution_id: string | null;
+  institution_name: string | null;
+  department_id: string | null;
+  department_name: string | null;
+  city: string | null;
+}
+
+/** A pipeline candidate as the All Candidates page needs it (no approval chain). */
+export type PipelineCandidateRecord = Pick<
+  HRRecruitmentCandidate,
+  | 'id' | 'institution_id' | 'name' | 'email' | 'phone' | 'cvviz_url' | 'role_category'
+  | 'role_title' | 'status' | 'is_emergency' | 'source' | 'submitted_at'
+> & { job_id: string | null };
+
+/** GET /api/hr/recruitment/pipeline — everything in recruitment the caller may see. */
+export interface RecruitmentPipelineResponse {
+  applications: HRJobApplication[];
+  candidates: PipelineCandidateRecord[];
+  jobs: PipelineJobSummary[];
+  institutions: { id: string; name: string }[];
+}
