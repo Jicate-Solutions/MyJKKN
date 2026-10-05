@@ -59,13 +59,12 @@ const config: ModuleNavConfig = {
           href: '/hr/recruitment/jobs',
           matchPaths: ['/hr/recruitment/jobs'],
         },
-        // Candidates list page not yet built (only [id] detail exists).
-        // Removed 2026-05-11 so the nav-config-href-audit gate ships
-        // as-enforcing. app/(routes)/hr/recruitment/candidates/page.tsx now
-        // exists, but only as a redirect to /hr/recruitment — it keeps the
-        // bare URL from 404ing, it is NOT a destination. A real candidates
-        // list is still the precondition for re-adding this nav entry;
-        // pointing nav at a redirect is worse UX than no link at all.
+        {
+          label: 'All Candidates',
+          icon: 'Users',
+          href: '/hr/recruitment/candidates',
+          matchPaths: ['/hr/recruitment/candidates'],
+        },
         {
           label: 'My Submissions',
           icon: 'ClipboardList',
