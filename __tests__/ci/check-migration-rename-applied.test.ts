@@ -210,6 +210,25 @@ describe('a ledger hit belongs to the file it names (PR #4207, 2026-10-05)', () 
     expect(v.level).toBe('pass');
   });
 
+  it('FAILS when the row is this file under the version-prefixed name form', async () => {
+    // 222 of 3,575 live ledger rows store "<version>_<name>", not "<name>". The
+    // file's OWN row in that form must still count as applied, not as a shadow.
+    const { verdictFor, extractObjects, extractReplacedObjects, nameOf } = await import(SCRIPT);
+    const f = shared('procurement_po_approval', []).renames[0];
+    const v = verdictFor({
+      rename: { ...f, fromVersion: '20271005090000', toVersion: '20271005090001' },
+      objects: extractObjects(f.sql!),
+      replaced: extractReplacedObjects(f.sql!),
+      presentSet: new Set(),
+      ledgerSet: new Set(['20271005090000']),
+      ledgerNames: new Map([['20271005090000', `20271005090000_${nameOf(f.from)}`]]),
+      attested: null,
+      credentials: true,
+    });
+    expect(v.reason).toBe('ledger-source');
+    expect(v.level).toBe('fail');
+  });
+
   it('FAILS when the row carries no name — it cannot be told apart from this file', () => {
     const r = run(shared(null, []));
     expect(r.code).toBe(1);

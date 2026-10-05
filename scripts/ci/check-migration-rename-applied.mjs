@@ -545,7 +545,10 @@ export function verdictFor({ rename, objects, replaced = [], presentSet, ledgerS
     // DIFFERENT file, the hit says nothing about this one, so the decision falls
     // through to this file's own objects. No name recorded → no way to tell →
     // today's behaviour: fail.
-    const recorded = String(ledgerNames?.get(rename.fromVersion) ?? '').trim();
+    // 222 of 3,575 live rows (5 Oct) store the name WITH its version prefix
+    // ("20271005090000_procurement_two_signoffs_guard"); strip it so both forms compare.
+    const recorded = String(ledgerNames?.get(rename.fromVersion) ?? '').trim()
+      .replace(/\.sql$/, '').replace(new RegExp(`^${rename.fromVersion}_`), '');
     const own = [nameOf(rename.from), nameOf(rename.to)].filter(Boolean);
     if (!recorded || own.includes(recorded)) {
       return { level: 'fail', reason: 'ledger-source',
