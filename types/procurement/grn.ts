@@ -1,5 +1,6 @@
 // types/procurement/grn.ts
 import type { ProcurementDomain } from '@/lib/services/procurement/domain-adapters/types';
+import type { PurchaseRequestRef } from './purchase-order';
 
 export type GrnStatus =
   | 'draft'
@@ -39,6 +40,8 @@ export interface ProcurementGrn {
   updated_at: string;
   supplier?: { id: string; name: string; code: string; gstin: string | null } | null;
   purchase_order?: { id: string; po_number: string } | null;
+  /** The request behind the order (GRN -> PO -> RFQ -> request) — the "Purchase no." users track. */
+  purchase_request?: PurchaseRequestRef | null;
   received_by_profile?: { full_name: string | null } | null;
   verified_by_profile?: { full_name: string | null } | null;
   item_count?: number;
