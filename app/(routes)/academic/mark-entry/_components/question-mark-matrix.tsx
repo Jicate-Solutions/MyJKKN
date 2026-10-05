@@ -27,22 +27,33 @@ interface Props {
   onToggleAbsent: (studentId: string, absent: boolean) => void;
 }
 
+/** Question column: never narrower than COL_W, never stretched past COL_MAX_W. */
 const COL_W = 62;
+const COL_MAX_W = 132;
+const ABS_W = 46;
+const TOTAL_W = 84;
+const FIXED_W = FROZEN_W.sno + FROZEN_W.register + FROZEN_W.name + ABS_W + TOTAL_W;
+/** Height of the part band (header row 1) — row 2 sticks directly beneath it. */
+const GROUP_H = 28;
 
 /**
  * Desktop entry grid: learners down, questions across.
  *
- * Two layout traps live here, both of which look fine until you scroll:
+ * Three layout traps live here, all of which look fine until you scroll:
  *
  *  1. **Frozen columns need PINNED widths.** Each column's `left` offset is the
  *     sum of the widths before it (FROZEN_LEFT). If a column is left to
  *     `table-layout: auto` it sizes to its content, drifts from that offset, and
  *     the frozen columns overlap. Every frozen cell therefore carries explicit
  *     width/minWidth/maxWidth, and names WRAP rather than `whitespace-nowrap` so
- *     a long name cannot widen the column.
+ *     a long name cannot widen the column. The `<colgroup>` pins the same widths
+ *     for the fixed table layout; only the QUESTION columns are left unsized, so
+ *     they alone share any spare width and the grid fills the screen.
  *  2. **The scroll container needs its own stacking context.** The app header is
  *     `sticky z-20`; sticky header cells at z-30/z-40 would paint over it.
  *     `isolate` keeps those z-indexes contained.
+ *  3. **Every sticky cell needs an OPAQUE background.** A translucent tint (or a
+ *     class Tailwind never generated) lets the rows scroll visibly through it.
  */
 export function QuestionMarkMatrix({
   questions,
@@ -64,6 +75,26 @@ export function QuestionMarkMatrix({
     parts.forEach((p, i) => map.set(p.part_label, i));
     return map;
   }, [parts]);
+
+  /** Consecutive questions of one part, collapsed into a single header band. */
+  const partGroups = useMemo(() => {
+    const groups: { label: string; span: number; idx: number; hint: string | null }[] = [];
+    for (const q of questions) {
+      const last = groups[groups.length - 1];
+      if (last && last.label === q.part_label) {
+        last.span += 1;
+        continue;
+      }
+      const part = parts.find((p) => p.part_label === q.part_label);
+      groups.push({
+        label: q.part_label,
+        span: 1,
+        idx: partIndex.get(q.part_label) ?? 0,
+        hint: part?.num_to_answer != null ? `any ${part.num_to_answer} of ${part.group_count}` : null,
+      });
+    }
+    return groups;
+  }, [questions, parts, partIndex]);
 
   /** Enter moves DOWN the same question — the way a stack of scripts is graded. */
   const handleKeyDown = useCallback(
@@ -88,26 +119,54 @@ export function QuestionMarkMatrix({
   return (
     <div
       className={cn(
-        'rounded-lg border bg-background',
-        isFullScreen && 'fixed inset-0 z-50 rounded-none border-0'
+        'overflow-hidden rounded-xl border bg-card shadow-sm',
+        isFullScreen && 'fixed inset-0 z-50 rounded-none border-0 shadow-none'
       )}
     >
-      <div className='flex items-center justify-between border-b px-3 py-2'>
-        <p className='text-xs text-muted-foreground'>
-          {learners.length} learner{learners.length === 1 ? '' : 's'} · {questions.length} question
-          {questions.length === 1 ? '' : 's'} · Enter moves down the column
-        </p>
-        <Button variant='ghost' size='sm' className='h-7 px-2' onClick={onToggleFullScreen}>
-          {isFullScreen ? (
-            <>
-              <Minimize2 className='h-4 w-4 mr-1' /> Exit
-            </>
-          ) : (
-            <>
-              <Maximize2 className='h-4 w-4 mr-1' /> Full screen
-            </>
-          )}
-        </Button>
+      <div className='flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-b px-4 py-2.5'>
+        <div className='flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1.5'>
+          <p className='text-sm font-medium'>
+            {learners.length} learner{learners.length === 1 ? '' : 's'}
+            <span className='font-normal text-muted-foreground'>
+              {' '}
+              · {questions.length} question{questions.length === 1 ? '' : 's'}
+            </span>
+          </p>
+          <div className='flex flex-wrap items-center gap-1.5'>
+            {partGroups.map((g) => (
+              <span
+                key={g.label}
+                className={cn(
+                  'inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[11px] font-medium',
+                  partColor(g.idx).chip
+                )}
+              >
+                <span className={cn('h-1.5 w-1.5 rounded-full', partColor(g.idx).dot)} />
+                Part {g.label}
+                {g.hint && <span className='font-normal opacity-75'>· {g.hint}</span>}
+              </span>
+            ))}
+          </div>
+        </div>
+        <div className='flex items-center gap-3'>
+          <p className='hidden items-center gap-1.5 text-xs text-muted-foreground xl:flex'>
+            <kbd className='rounded border bg-muted px-1.5 py-0.5 font-sans text-[10px] font-medium text-foreground'>
+              Enter
+            </kbd>
+            moves down the column
+          </p>
+          <Button variant='outline' size='sm' className='h-8 gap-1.5 px-2.5' onClick={onToggleFullScreen}>
+            {isFullScreen ? (
+              <>
+                <Minimize2 className='h-3.5 w-3.5' /> Exit
+              </>
+            ) : (
+              <>
+                <Maximize2 className='h-3.5 w-3.5' /> Full screen
+              </>
+            )}
+          </Button>
+        </div>
       </div>
 
       {/* `isolate` contains the sticky z-indexes; min-w-0 keeps the wide table
@@ -115,70 +174,125 @@ export function QuestionMarkMatrix({
       <div
         className={cn(
           'isolate min-w-0 overflow-auto',
-          isFullScreen ? 'h-[calc(100vh-3rem)]' : 'max-h-[70vh]'
+          isFullScreen ? 'h-[calc(100vh-3.25rem)]' : 'max-h-[70vh]'
         )}
       >
-        <table className='border-separate border-spacing-0 text-sm' style={{ tableLayout: 'fixed' }}>
+        {/* w-full + fixed layout: spare width goes to the unsized question columns.
+            minWidth keeps them at COL_W when the paper is wider than the screen (the
+            container scrolls instead); maxWidth stops a 3-question paper from
+            spreading its inputs across a whole monitor. */}
+        <table
+          className='w-full border-separate border-spacing-0 text-sm'
+          style={{
+            tableLayout: 'fixed',
+            minWidth: FIXED_W + questions.length * COL_W,
+            maxWidth: FIXED_W + questions.length * COL_MAX_W,
+          }}
+        >
+          <colgroup>
+            <col style={{ width: FROZEN_W.sno }} />
+            <col style={{ width: FROZEN_W.register }} />
+            <col style={{ width: FROZEN_W.name }} />
+            {questions.map((q) => (
+              <col key={q.id} />
+            ))}
+            <col style={{ width: ABS_W }} />
+            <col style={{ width: TOTAL_W }} />
+          </colgroup>
           <thead>
+            {/* Row 1 — one band per part. The frozen, AB and Total heads span both rows. */}
             <tr>
-              <Th sticky left={FROZEN_LEFT.sno} width={FROZEN_W.sno}>
-                S.No
+              <Th left={FROZEN_LEFT.sno} width={FROZEN_W.sno} className='text-center'>
+                #
               </Th>
-              <Th sticky left={FROZEN_LEFT.register} width={FROZEN_W.register}>
-                Register Number
+              <Th left={FROZEN_LEFT.register} width={FROZEN_W.register}>
+                Register No.
               </Th>
-              <Th sticky left={FROZEN_LEFT.name} width={FROZEN_W.name}>
-                Name of the Learner
+              <Th left={FROZEN_LEFT.name} width={FROZEN_W.name} className='border-r'>
+                Learner
               </Th>
 
-              {questions.map((q, i) => {
-                const idx = partIndex.get(q.part_label) ?? 0;
-                const color = partColor(idx);
-                const isPartStart = i === 0 || questions[i - 1].part_label !== q.part_label;
+              {partGroups.map((g) => {
+                const color = partColor(g.idx);
                 return (
                   <th
-                    key={q.id}
-                    title={q.question_text ? stripHtml(q.question_text) : undefined}
+                    key={g.label}
+                    colSpan={g.span}
+                    title={g.hint ? `Part ${g.label} — answer ${g.hint}` : `Part ${g.label}`}
                     className={cn(
-                      'sticky top-0 z-30 border-b px-1 py-1.5 align-top text-center font-medium',
-                      color.header,
-                      isPartStart && color.edge
+                      'sticky top-0 z-30 px-2 py-0 text-left font-semibold',
+                      color.group,
+                      color.edge
                     )}
-                    style={{ width: COL_W, minWidth: COL_W, maxWidth: COL_W }}
+                    style={{ height: GROUP_H }}
                   >
-                    <div className='text-[10px] opacity-80'>
-                      {q.is_choice_alternative ? (
-                        <span className='rounded bg-amber-400 px-1 text-amber-950'>OR</span>
-                      ) : (
-                        `PART ${q.part_label}`
+                    <div className='flex items-center gap-1.5 overflow-hidden whitespace-nowrap text-[11px] uppercase tracking-wide'>
+                      <span className={cn('h-1.5 w-1.5 shrink-0 rounded-full', color.dot)} />
+                      <span className='truncate'>Part {g.label}</span>
+                      {g.hint && g.span > 2 && (
+                        <span className='truncate font-normal normal-case tracking-normal opacity-70'>
+                          · {g.hint}
+                        </span>
                       )}
-                    </div>
-                    <div className='text-xs font-semibold'>Q{q.label}</div>
-                    <div className='text-[10px] opacity-80'>{q.marks} marks</div>
-                    <div className='text-[10px] opacity-70'>
-                      {[q.co_code, q.k_level].filter(Boolean).join(' · ') || '—'}
                     </div>
                   </th>
                 );
               })}
 
               <th
-                className='sticky top-0 z-30 border-b bg-slate-600 px-1 py-1.5 text-center font-medium text-slate-50'
-                style={{ width: 46, minWidth: 46, maxWidth: 46 }}
+                rowSpan={2}
+                className='sticky top-0 z-30 border-b border-l bg-slate-50 px-1 py-1.5 text-center align-middle text-[11px] font-semibold uppercase tracking-wide text-slate-600 dark:bg-slate-900 dark:text-slate-300'
+                style={{ width: ABS_W, minWidth: ABS_W, maxWidth: ABS_W }}
                 title='Absent — the learner did not sit this assessment. Saved as grade AAA, which is a different fact from a zero.'
               >
-                <div className='text-[10px] opacity-80'>ABS</div>
-                <div className='text-xs font-semibold'>AB</div>
+                AB
               </th>
 
               <th
-                className='sticky top-0 z-30 border-b bg-indigo-800 px-2 py-1.5 text-center font-medium text-indigo-50'
-                style={{ width: 80, minWidth: 80, maxWidth: 80 }}
+                rowSpan={2}
+                className='sticky right-0 top-0 z-40 border-b border-l bg-indigo-50 px-2 py-1.5 text-center align-middle text-indigo-950 dark:bg-indigo-950 dark:text-indigo-100'
+                style={{ width: TOTAL_W, minWidth: TOTAL_W, maxWidth: TOTAL_W }}
               >
-                <div className='text-[10px] opacity-80'>TOTAL</div>
-                <div className='text-xs font-semibold'>{componentLabel}</div>
-                <div className='text-[10px] opacity-80'>Max: {componentMax}</div>
+                <div className='text-[10px] font-semibold uppercase tracking-wide opacity-70'>Total</div>
+                <div className='truncate text-xs font-semibold'>{componentLabel}</div>
+                <div className='text-[10px] opacity-70'>out of {componentMax}</div>
               </th>
+            </tr>
+
+            {/* Row 2 — one cell per question, stuck directly under the part band. */}
+            <tr>
+              {questions.map((q, i) => {
+                const idx = partIndex.get(q.part_label) ?? 0;
+                const color = partColor(idx);
+                const isPartStart = i === 0 || questions[i - 1].part_label !== q.part_label;
+                const meta = [q.co_code, q.k_level].filter(Boolean).join(' · ');
+                return (
+                  <th
+                    key={q.id}
+                    title={q.question_text ? stripHtml(q.question_text) : undefined}
+                    className={cn(
+                      'sticky z-30 border-b px-1 py-1.5 align-top text-center font-medium',
+                      color.header,
+                      isPartStart && color.edge
+                    )}
+                    // 1px overlap with the band above so no sliver of a scrolling
+                    // row can show between the two sticky rows.
+                    style={{ top: GROUP_H - 1 }}
+                  >
+                    {q.is_choice_alternative && (
+                      // Sits on the divider between the two alternatives: "6a or 6b".
+                      <span className='absolute left-0 top-1.5 -translate-x-1/2 rounded-full bg-amber-100 px-1 text-[9px] font-semibold uppercase leading-4 text-amber-800 ring-1 ring-amber-300'>
+                        or
+                      </span>
+                    )}
+                    <div className='text-xs font-semibold'>Q{q.label}</div>
+                    <div className='text-[10px] opacity-70'>
+                      {q.marks} mark{q.marks === 1 ? '' : 's'}
+                    </div>
+                    <div className='mt-0.5 truncate text-[9px] font-normal opacity-60'>{meta || '—'}</div>
+                  </th>
+                );
+              })}
             </tr>
           </thead>
 
@@ -187,14 +301,18 @@ export function QuestionMarkMatrix({
               const total = sumMarks(learner.marks);
               const over = componentMax > 0 && total > componentMax;
               return (
-                <tr key={learner.student_id} className='even:bg-muted/30'>
-                  <Td sticky left={FROZEN_LEFT.sno} width={FROZEN_W.sno} className='text-center text-xs text-muted-foreground'>
+                <tr key={learner.student_id} className='group'>
+                  <Td
+                    left={FROZEN_LEFT.sno}
+                    width={FROZEN_W.sno}
+                    className='text-center text-xs tabular-nums text-muted-foreground group-focus-within:font-semibold group-focus-within:text-primary'
+                  >
                     {rowIndex + 1}
                   </Td>
-                  <Td sticky left={FROZEN_LEFT.register} width={FROZEN_W.register} className='font-mono text-xs'>
+                  <Td left={FROZEN_LEFT.register} width={FROZEN_W.register} className='font-mono text-xs'>
                     {learner.register_number}
                   </Td>
-                  <Td sticky left={FROZEN_LEFT.name} width={FROZEN_W.name} className='text-xs'>
+                  <Td left={FROZEN_LEFT.name} width={FROZEN_W.name} className='border-r text-xs font-medium'>
                     {learner.student_name}
                   </Td>
 
@@ -215,7 +333,6 @@ export function QuestionMarkMatrix({
                           color.cell,
                           isPartStart && color.edge
                         )}
-                        style={{ width: COL_W, minWidth: COL_W, maxWidth: COL_W }}
                       >
                         <input
                           ref={(el) => {
@@ -241,12 +358,16 @@ export function QuestionMarkMatrix({
                             onChange(learner.student_id, q.id, Number.isFinite(n) ? n : null);
                           }}
                           className={cn(
-                            'h-7 w-12 rounded border bg-background text-center text-xs',
-                            'focus:outline-none focus:ring-2 focus:ring-primary/40',
+                            'h-7 w-12 rounded-md border bg-background text-center text-xs font-medium tabular-nums shadow-sm transition-colors',
+                            'focus:outline-none focus:ring-2',
+                            // Up/Down already move between rows, so the native
+                            // spinner only steals width from a 48px box.
+                            '[appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none',
                             color.input,
+                            color.focus,
                             q.is_choice_alternative && 'border-dashed',
                             (lock || learner.is_absent) &&
-                              'cursor-not-allowed bg-muted text-muted-foreground',
+                              'cursor-not-allowed border-transparent bg-muted text-muted-foreground shadow-none',
                             invalid && 'border-red-500 text-red-600 ring-1 ring-red-500'
                           )}
                         />
@@ -255,12 +376,12 @@ export function QuestionMarkMatrix({
                   })}
 
                   <td
-                    className='border-b px-1 py-1 text-center'
-                    style={{ width: 46, minWidth: 46, maxWidth: 46 }}
+                    className='border-b border-l px-1 py-1 text-center group-hover:bg-muted/60'
+                    style={{ width: ABS_W, minWidth: ABS_W, maxWidth: ABS_W }}
                   >
                     <input
                       type='checkbox'
-                      className='h-4 w-4 cursor-pointer accent-slate-600'
+                      className='h-4 w-4 cursor-pointer rounded accent-slate-600'
                       disabled={readOnly}
                       checked={!!learner.is_absent}
                       aria-label={`Mark ${learner.register_number} absent`}
@@ -269,17 +390,18 @@ export function QuestionMarkMatrix({
                     />
                   </td>
 
+                  {/* Frozen on the right so the running total stays in view on a wide paper. */}
                   <td
-                    className='border-b bg-indigo-50/70 px-2 py-1 text-center dark:bg-indigo-950/40'
-                    style={{ width: 80, minWidth: 80, maxWidth: 80 }}
+                    className='sticky right-0 z-20 border-b border-l bg-indigo-50 px-2 py-1 text-center dark:bg-indigo-950'
+                    style={{ width: TOTAL_W, minWidth: TOTAL_W, maxWidth: TOTAL_W }}
                   >
                     <span
                       className={cn(
-                        'font-mono text-sm font-semibold',
+                        'inline-flex min-w-[2.5rem] justify-center rounded-md px-1.5 py-0.5 font-mono text-sm font-semibold tabular-nums',
                         learner.is_absent
-                          ? 'text-muted-foreground'
+                          ? 'bg-slate-200 text-slate-600 dark:bg-slate-800 dark:text-slate-300'
                           : over
-                            ? 'text-red-600'
+                            ? 'bg-red-100 text-red-700 ring-1 ring-red-300 dark:bg-red-950 dark:text-red-300'
                             : 'text-indigo-700 dark:text-indigo-300'
                       )}
                     >
@@ -296,23 +418,24 @@ export function QuestionMarkMatrix({
   );
 }
 
-/** Sticky header cell for the frozen columns. z-40 so it beats the question heads. */
+/** Frozen-column header cell, spanning both header rows. z-40 so it beats the question heads. */
 function Th({
   children,
-  sticky,
   left,
   width,
+  className,
 }: {
   children: React.ReactNode;
-  sticky?: boolean;
   left: number;
   width: number;
+  className?: string;
 }) {
   return (
     <th
+      rowSpan={2}
       className={cn(
-        'sticky top-0 border-b bg-slate-800 px-2 py-1.5 text-left text-xs font-medium text-slate-50',
-        sticky && 'z-40'
+        'sticky top-0 z-40 border-b bg-slate-50 px-2 py-1.5 text-left align-middle text-[11px] font-semibold uppercase tracking-wide text-slate-600 dark:bg-slate-900 dark:text-slate-300',
+        className
       )}
       style={{ left, width, minWidth: width, maxWidth: width }}
     >
@@ -321,15 +444,14 @@ function Th({
   );
 }
 
+/** Frozen-column body cell. */
 function Td({
   children,
-  sticky,
   left,
   width,
   className,
 }: {
   children: React.ReactNode;
-  sticky?: boolean;
   left: number;
   width: number;
   className?: string;
@@ -337,10 +459,9 @@ function Td({
   return (
     <td
       className={cn(
-        'border-b px-2 py-1 align-middle',
-        // Opaque background is required: a transparent frozen cell lets the
-        // scrolling question columns show through underneath it.
-        sticky && 'sticky z-20 bg-background',
+        // Opaque background is required (hover included): a transparent frozen
+        // cell lets the scrolling question columns show through underneath it.
+        'sticky z-20 border-b bg-background px-2 py-1 align-middle group-hover:bg-muted',
         className
       )}
       style={{ left, width, minWidth: width, maxWidth: width }}
