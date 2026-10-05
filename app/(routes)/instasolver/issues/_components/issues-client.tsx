@@ -12,6 +12,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useInstaSolverAccess, useIssues } from '@/hooks/instasolver/use-instasolver';
 import { InstaSolverIssueService } from '@/lib/services/instasolver/issue-service';
+import { EXPORT_BUTTON_CLASS } from '@/lib/instasolver/constants';
 import type { IssueFilters } from '@/types/instasolver';
 import { BulkAssignDialog } from './bulk-assign-dialog';
 import { downloadCsv, issuesToCsv } from './export-csv';
@@ -76,7 +77,22 @@ export function IssuesClient() {
   return (
     <div className="space-y-4">
       <PageBreadcrumb items={[{ label: 'InstaSolver', href: '/instasolver/dashboard' }, { label: 'Issues', isCurrent: true }]} />
-      <PageHeader title="Issues" description="Faults reported across the campus" actions={actions} />
+      {/* As in the standalone app: a reporter's list is their own, and says so. */}
+      {(() => {
+        const officeView = !!access && (access.is_manager || access.is_maintenance || access.is_principal);
+        const own = !!access && (!officeView || filters.scope === 'mine');
+        return (
+          <PageHeader
+            title={own ? 'Your issues' : 'Issues'}
+            description={
+              own
+                ? 'Everything you have reported, with its live status and full history.'
+                : 'Everything you have access to. Use the filters to narrow it down.'
+            }
+            actions={actions}
+          />
+        );
+      })()}
       {access && restored ? (
         <IssuesBody filters={filters} access={access} update={update} clear={clear} />
       ) : (
@@ -151,7 +167,7 @@ function IssuesBody({
             <UserPlus className="mr-1.5 h-4 w-4" />
             Assign selected{selected.size ? ` (${selected.size})` : ''}
           </Button>
-          <Button size="sm" variant="outline" onClick={exportCsv} disabled={exporting}>
+          <Button size="sm" className={EXPORT_BUTTON_CLASS} onClick={exportCsv} disabled={exporting}>
             {exporting ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <Download className="mr-1.5 h-4 w-4" />}
             Export CSV
           </Button>

@@ -54,7 +54,7 @@ export interface DirectExtractedVendor {
  * don't, so the route re-reads rather than reusing them.
  */
 export interface DirectExtractResult {
-  version: 3;
+  version: typeof EXTRACT_RESULT_VERSION;
   lines: DirectExtractedLine[];
   unmatched_note: string | null;
   vendor: DirectExtractedVendor | null;
@@ -65,7 +65,9 @@ export interface DirectExtractResult {
 
 // 3: lines carry `uncertain` from a same/similar/none match grade. Readings saved
 // at 2 are re-read instead of reused, so an old over-confident match never returns.
-export const EXTRACT_RESULT_VERSION = 3;
+// 4: the parts of a set ("Computer" quoted as CPU + RAM + monitor…) are all tagged
+// to that item, so a set quote is no longer read as one part.
+export const EXTRACT_RESULT_VERSION = 4;
 
 /** Either key name works (see ai-clients/api-key.ts). */
 export const directExtractApiKey = anthropicApiKey;
@@ -199,6 +201,10 @@ export async function extractQuotationDirect(
                 'it must be the same kind of product — a PoE injector is not a keyboard, a switch is not a camera. ' +
                 'Grade it: match "same", "similar" (unsure) or "none". When it is "none", set rfq_item_id to "". ' +
                 'A quotation often lists things nobody asked for; leave those unmatched rather than forcing a fit. ' +
+                'Exception — sets: when a requested item is a complete set (e.g. a computer or desktop) and the ' +
+                'quotation prices it as its parts (processor, motherboard, RAM, SSD, monitor, keyboard, mouse, cabinet…), ' +
+                'give EVERY part line that requested item\'s id with match "similar"; one item may then have many lines. ' +
+                'Give each part its own UNIT price, as quoted. ' +
                 'Return unit_price as a plain number. Also capture manufacturer, quality_grade, ' +
                 'concentration, and other_specs when the quotation states them for that line — ' +
                 'leave them out when not shown, do not guess.\n\nRequested items (id — name):\n' +

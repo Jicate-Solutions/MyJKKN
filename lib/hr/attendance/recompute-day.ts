@@ -83,7 +83,8 @@ export async function recomputeAttendanceDay(
     .select('id, institution_id, status_type_id, in_at, out_at, day_calc, first_half_attended, second_half_attended, late_minutes, excused_minutes, shift_timing_id')
     .eq('employee_id', employeeId)
     .eq('work_date', workDate)
-    .eq('source', 'biometric')
+    // clinical_geotag rows carry real in/out punches too (fn_hr_clinical_punch).
+    .in('source', ['biometric', 'clinical_geotag'])
     .maybeSingle();
   if (recErr) throw recErr;
   if (!record) return { changed: false, from: null, to: null, reason: 'No biometric record for that day.' };

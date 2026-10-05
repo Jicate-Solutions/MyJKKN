@@ -4607,6 +4607,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "iconName": "CheckSquare",
         "children": [
           {
+            "path": "/hr/attendance/clinical",
+            "label": "Clinical",
+            "iconName": "CheckSquare",
+            "children": []
+          },
+          {
             "path": "/hr/attendance/close",
             "label": "Close",
             "iconName": "CheckSquare",

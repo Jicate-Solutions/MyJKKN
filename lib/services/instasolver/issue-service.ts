@@ -10,6 +10,8 @@ import type {
   IssueFilters,
   IssueStatus,
   ListResponse,
+  NextStepGroup,
+  NextSteps,
   TriageFilters,
   TriageIssueDto,
   TriagedIssue,
@@ -262,6 +264,84 @@ export class InstaSolverIssueService {
         return query.is('assigned_to', null).in('assigned_team_id', teamIds).in('status', ['assigned', 'in_progress']);
       }
     }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Dashboard — "Your next step" (ported from the standalone IssueService.nextSteps)
+  // Each group is a count plus its first item, so the dashboard can open THAT
+  // item when it is the only one. All RLS-scoped.
+  // ---------------------------------------------------------------------------
+  static async nextSteps(want: { manager: boolean; maintenance: boolean; reporter: boolean }): Promise<NextSteps> {
+    const client = db();
+    const uid = await currentUserId(client);
+    const teamIds = want.maintenance ? await myTeamIds(client) : [];
+    const cols = 'id, title, assigned_to';
+
+     
+    const group = async (build: (q: any) => any): Promise<NextStepGroup> => {
+      const { data, error, count } = await build(
+        client.from('instasolver_issues').select(cols, { count: 'exact' })
+      ).limit(1);
+      unwrap({ data, error });
+      return { count: count ?? 0, first: (data?.[0] as NextStepGroup['first']) ?? null };
+    };
+    const empty: NextStepGroup = { count: 0, first: null };
+
+    const [toConfirm, disputed, needsPriority, toStart, inProgress] = await Promise.all([
+      want.reporter
+        ? group((q) =>
+            q.eq('reported_by', uid).eq('status', 'completed')
+              .is('resolution_confirmed_at', null).is('resolution_disputed_at', null)
+              .order('completed_at', { ascending: true }))
+        : empty,
+      want.manager
+        ? group((q) =>
+            q.eq('status', 'completed').not('resolution_disputed_at', 'is', null)
+              .order('resolution_disputed_at', { ascending: true }))
+        : empty,
+      want.manager
+        ? group((q) => q.eq('status', 'pending').order('created_at', { ascending: true }))
+        : empty,
+      want.maintenance
+        ? group((q) => {
+            const mine = teamIds.length
+              ? `assigned_to.eq.${uid},and(assigned_to.is.null,assigned_team_id.in.(${teamIds.join(',')}))`
+              : `assigned_to.eq.${uid}`;
+            // Urgent first: priority is an enum declared urgent → low.
+            return q.eq('status', 'assigned').or(mine)
+              .order('priority', { ascending: true, nullsFirst: false })
+              .order('created_at', { ascending: true });
+          })
+        : empty,
+      want.maintenance
+        ? group((q) =>
+            q.eq('status', 'in_progress').eq('assigned_to', uid).order('created_at', { ascending: true }))
+        : empty
+    ]);
+    return { toConfirm, disputed, needsPriority, toStart, inProgress };
+  }
+
+  /** "Your work by status": issues with your name or your team on them. */
+  static async workStatusCounts(): Promise<Record<'assigned' | 'in_progress' | 'completed', number>> {
+    const client = db();
+    const uid = await currentUserId(client);
+    const teamIds = await myTeamIds(client);
+    const mine = teamIds.length
+      ? `assigned_to.eq.${uid},assigned_team_id.in.(${teamIds.join(',')})`
+      : `assigned_to.eq.${uid}`;
+    const statuses = ['assigned', 'in_progress', 'completed'] as const;
+    const counts = await Promise.all(
+      statuses.map(async (s) => {
+        const { count, error } = await client
+          .from('instasolver_issues')
+          .select('id', { count: 'exact', head: true })
+          .eq('status', s)
+          .or(mine);
+        unwrap({ data: null, error });
+        return count ?? 0;
+      })
+    );
+    return { assigned: counts[0], in_progress: counts[1], completed: counts[2] };
   }
 
   // ---------------------------------------------------------------------------

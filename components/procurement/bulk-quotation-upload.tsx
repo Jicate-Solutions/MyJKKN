@@ -37,9 +37,11 @@ import type { RfqWithDetails } from '@/types/procurement';
  *
  * The review is built around what was ASKED FOR, not around the PDF: for every
  * requested item the question is "what did this vendor quote for it?", answered by
- * picking one of the lines the AI read from the PDF (pre-picked where the AI
- * matched it), typing a price, or "not in this quote". Lines the vendor quoted that
- * nobody asked for are simply ignored. Nothing is saved until Save.
+ * picking the line(s) the AI read from the PDF (pre-picked where the AI matched
+ * them), typing a price, or "not in this quote". A set asked for as one item
+ * ("Computer × 5") is often quoted as its parts — CPU, RAM, monitor… — so one item
+ * may take several lines, and its unit price is their sum. Lines the vendor quoted
+ * that nobody asked for are simply ignored. Nothing is saved until Save.
  */
 
 type RowStatus = 'reading' | 'ready' | 'failed' | 'saving' | 'saved';
@@ -55,9 +57,12 @@ interface ReadLine {
   other_specs: string;
 }
 
-/** The answer for one requested item. undefined = not answered yet. */
+/**
+ * The answer for one requested item. undefined = not answered yet.
+ * `idxs` holds one line for a plain item, or every part of a set (never empty).
+ */
 type Choice =
-  | { kind: 'line'; idx: number; confirmed: boolean }
+  | { kind: 'line'; idxs: number[]; confirmed: boolean }
   | { kind: 'custom'; price: string }
   | { kind: 'none' };
 
@@ -80,6 +85,11 @@ const READ_CONCURRENCY = 3;
 const NEW_VENDOR = '__new__';
 const rupees = (n: number) => `₹${n.toLocaleString('en-IN', { maximumFractionDigits: 2 })}`;
 const emptyVendor = () => ({ name: '', gstin: '', phone: '', email: '', address: '', contact: '' });
+const linesOf = (r: Row, c: Choice | undefined): ReadLine[] =>
+  c?.kind === 'line' ? r.lines.filter((l) => c.idxs.includes(l.idx)) : [];
+/** Lines already given to some requested item. */
+const usedIdxs = (choices: Row['choices']) =>
+  new Set(Object.values(choices).flatMap((c) => (c?.kind === 'line' ? c.idxs : [])));
 
 export function BulkQuotationUpload({
   rfq,
@@ -129,26 +139,31 @@ export function BulkQuotationUpload({
         other_specs: line.other_specs ?? '',
       });
       // The AI's own match pre-picks the line; an unsure match still needs a look.
-      if (line.rfq_item_id && !choices[line.rfq_item_id]) {
+      if (line.rfq_item_id) {
         // Shown as a match only when the AI was sure AND the names share a word —
         // "Keyboard" ← "POE INJECTOR 48V" stays an AI guess for a person to check,
         // whichever reader (office runner, direct, cached) produced it.
         const asked = rfq.items.find((it) => it.id === line.rfq_item_id)?.item_name ?? '';
         const sure = !line.uncertain && namesShareAWord(asked, line.item_name || '');
-        choices[line.rfq_item_id] = { kind: 'line', idx, confirmed: sure };
+        const prev = choices[line.rfq_item_id];
+        // Several lines for one item = the parts of a set. Their sum becomes the
+        // price, so a person always looks once — the AI may equally have tagged
+        // two alternative offers for the same item, which must not be added up.
+        choices[line.rfq_item_id] =
+          prev?.kind === 'line'
+            ? { kind: 'line', idxs: [...prev.idxs, idx], confirmed: false }
+            : { kind: 'line', idxs: [idx], confirmed: sure };
       }
     }
 
     // Items the AI left unmatched: suggest the first quote line that shares a word
     // with the item's name — as a guess to confirm, never as a match.
-    const usedIdx = new Set(
-      Object.values(choices).flatMap((ch) => (ch?.kind === 'line' ? [ch.idx] : []))
-    );
+    const usedIdx = usedIdxs(choices);
     for (const it of rfq.items) {
       if (choices[it.id]) continue;
       const hit = lines.find((l) => !usedIdx.has(l.idx) && namesShareAWord(it.item_name, l.name));
       if (hit) {
-        choices[it.id] = { kind: 'line', idx: hit.idx, confirmed: false };
+        choices[it.id] = { kind: 'line', idxs: [hit.idx], confirmed: false };
         usedIdx.add(hit.idx);
       }
     }
@@ -219,11 +234,30 @@ export function BulkQuotationUpload({
     for (let i = 0; i < Math.min(READ_CONCURRENCY, fresh.length); i++) void worker();
   };
 
+  /** Items the AI found no line for and nobody has answered yet. */
+  const unfoundIds = (r: Row) => rfq.items.filter((it) => !r.choices[it.id]).map((it) => it.id);
+
+  /**
+   * One click instead of one per row: everything the AI could not find in these
+   * PDFs is marked "Not in this quote". AI guesses still wait for a person.
+   */
+  const markUnfoundNotQuoted = (keys: string[]) =>
+    setRows((prev) =>
+      prev.map((r) => {
+        if (!keys.includes(r.key) || r.status !== 'ready') return r;
+        const choices = { ...r.choices };
+        for (const id of unfoundIds(r)) choices[id] = { kind: 'none' };
+        return { ...r, choices };
+      })
+    );
+
   const priceOf = (r: Row, itemId: string): number | null => {
     const c = r.choices[itemId];
     if (!c || c.kind === 'none') return null;
     if (c.kind === 'custom') return Number(c.price) > 0 ? Number(c.price) : null;
-    return r.lines.find((l) => l.idx === c.idx)?.price ?? null;
+    // One of each part per set: the set's unit price is the parts' unit prices added up.
+    const parts = linesOf(r, c);
+    return parts.length ? parts.reduce((s, l) => s + l.price, 0) : null;
   };
 
   /** Items still waiting for an answer: unanswered, an unconfirmed AI guess, or a blank typed price. */
@@ -280,6 +314,7 @@ export function BulkQuotationUpload({
     setSaving(true);
     let ok = 0;
     let noPdf = 0;
+    const savedKeys = new Set<string>();
     for (const r of savable) {
       patch(r.key, { status: 'saving' });
       try {
@@ -330,8 +365,8 @@ export function BulkQuotationUpload({
             document_url,
             document_file_id,
             items: rfq.items.map((it) => {
-              const c = r.choices[it.id];
-              const line = c?.kind === 'line' ? r.lines.find((l) => l.idx === c.idx) : undefined;
+              const parts = linesOf(r, r.choices[it.id]);
+              const line = parts.length === 1 ? parts[0] : undefined;
               return {
                 rfq_item_id: it.id,
                 unit_price: priceOf(r, it.id), // null = not quoted
@@ -339,13 +374,18 @@ export function BulkQuotationUpload({
                 manufacturer: line?.manufacturer || null,
                 quality_grade: line?.quality_grade || null,
                 concentration: line?.concentration || null,
-                other_specs: line?.other_specs || null,
+                // A set keeps its breakdown, so the comparison still shows what the price buys.
+                other_specs:
+                  parts.length > 1
+                    ? `Set of ${parts.length} parts: ${parts.map((p) => `${p.name} ${rupees(p.price)}`).join('; ')}`
+                    : line?.other_specs || null,
               };
             }),
           },
           userId: profile.id,
         });
         patch(r.key, { status: 'saved' });
+        savedKeys.add(r.key);
         ok++;
       } catch (e) {
         patch(r.key, { status: 'ready', error: errorMessage(e, 'Could not save') });
@@ -355,16 +395,16 @@ export function BulkQuotationUpload({
     queryClient.invalidateQueries({ queryKey: ['procurement-vendors-select', rfq.institution_id] });
     if (ok) toast.success(`${ok} quotation${ok === 1 ? '' : 's'} saved`);
     if (noPdf) toast.warning(`${noPdf} PDF${noPdf === 1 ? ' was' : 's were'} not attached (file storage failed) — the prices were saved.`);
-    setRows((prev) => {
-      const left = prev.filter((r) => r.status !== 'saved');
-      if (left.length === 0) {
-        onOpenChange(false);
-        setSelectedKey(null);
-      } else {
-        setSelectedKey(left[0].key);
-      }
-      return left;
-    });
+    // Side effects stay out of the setRows updater: React runs updaters during
+    // render, and closing the dialog there updates the parent page mid-render.
+    const left = rows.filter((r) => r.status !== 'saved' && !savedKeys.has(r.key));
+    setRows((prev) => prev.filter((r) => r.status !== 'saved'));
+    if (left.length === 0) {
+      setSelectedKey(null);
+      onOpenChange(false);
+    } else {
+      setSelectedKey(left[0].key);
+    }
   };
 
   const close = (o: boolean) => {
@@ -564,6 +604,22 @@ export function BulkQuotationUpload({
                     </p>
                   )}
 
+                  {(() => {
+                    const n = selected.status === 'ready' ? unfoundIds(selected).length : 0;
+                    if (!n) return null;
+                    return (
+                      <div className="flex flex-wrap items-center justify-between gap-2 rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
+                        <span>
+                          {n} item{n === 1 ? '' : 's'} not found in this quote. If this vendor didn&apos;t quote
+                          {n === 1 ? ' it' : ' them'}, mark {n === 1 ? 'it' : 'them'} and move on.
+                        </span>
+                        <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => markUnfoundNotQuoted([selected.key])}>
+                          Mark {n} as not quoted
+                        </Button>
+                      </div>
+                    );
+                  })()}
+
                   {/* For each thing asked for: what the AI found in this quote, and whether to trust it */}
                   <div className="overflow-hidden rounded-lg border">
                     <div className="hidden grid-cols-[minmax(0,1fr)_64px_minmax(0,1.6fr)_110px] gap-3 border-b bg-muted/40 px-3 py-2 text-xs font-semibold text-muted-foreground md:grid">
@@ -575,17 +631,23 @@ export function BulkQuotationUpload({
                     {rfq.items.map((it) => {
                       const c = selected.choices[it.id];
                       const price = priceOf(selected, it.id);
-                      const line = c?.kind === 'line' ? selected.lines.find((l) => l.idx === c.idx) : undefined;
+                      const parts = linesOf(selected, c);
+                      const isSet = parts.length > 1;
                       const unsure = c?.kind === 'line' && !c.confirmed;
                       const unanswered = !c;
                       const needsYou = unsure || unanswered || (c?.kind === 'custom' && !(Number(c.price) > 0));
-                      const value = c ? (c.kind === 'line' ? `line:${c.idx}` : c.kind) : '';
+                      const value = c ? (c.kind === 'line' ? (isSet ? '' : `line:${c.idxs[0]}`) : c.kind) : '';
                       const onPick = (v: string) => {
                         if (v === 'none') setChoice(selected.key, it.id, { kind: 'none' });
                         else if (v === 'custom')
                           setChoice(selected.key, it.id, { kind: 'custom', price: price != null ? String(price) : '' });
-                        else setChoice(selected.key, it.id, { kind: 'line', idx: Number(v.slice(5)), confirmed: true });
+                        else setChoice(selected.key, it.id, { kind: 'line', idxs: [Number(v.slice(5))], confirmed: true });
                       };
+                      // Adding or removing a part is a person's decision, so it confirms the set.
+                      const setParts = (idxs: number[]) =>
+                        setChoice(selected.key, it.id, idxs.length ? { kind: 'line', idxs, confirmed: true } : { kind: 'none' });
+                      const taken = usedIdxs(selected.choices);
+                      const addable = c?.kind === 'line' ? selected.lines.filter((l) => !taken.has(l.idx)) : [];
                       return (
                         <div
                           key={it.id}
@@ -606,13 +668,45 @@ export function BulkQuotationUpload({
 
                           {/* found in the quote */}
                           <div className="col-span-2 min-w-0 space-y-1.5 md:col-span-1">
-                            {line ? (
+                            {parts.length ? (
                               <div className="flex items-start justify-between gap-2">
-                                <div className="min-w-0">
-                                  <p className="text-sm leading-snug">{line.name}</p>
-                                  <p className="text-xs text-muted-foreground">
-                                    <b className="text-foreground tabular-nums">{rupees(line.price)}</b> each
-                                  </p>
+                                <div className="min-w-0 flex-1">
+                                  {isSet ? (
+                                    <>
+                                      <p className="text-xs font-semibold text-muted-foreground">
+                                        Set of {parts.length} parts from this quote
+                                      </p>
+                                      <ul className="mt-1 space-y-0.5">
+                                        {parts.map((p) => (
+                                          <li key={p.idx} className="flex items-center justify-between gap-2 text-sm leading-snug">
+                                            <span className="min-w-0 truncate" title={p.name}>{p.name}</span>
+                                            <span className="flex shrink-0 items-center gap-1">
+                                              <span className="tabular-nums text-muted-foreground">{rupees(p.price)}</span>
+                                              <button
+                                                type="button"
+                                                className="rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground"
+                                                aria-label={`Remove ${p.name} from ${it.item_name}`}
+                                                disabled={selected.status === 'saving'}
+                                                onClick={() => setParts(c?.kind === 'line' ? c.idxs.filter((i) => i !== p.idx) : [])}
+                                              >
+                                                <X className="h-3.5 w-3.5" />
+                                              </button>
+                                            </span>
+                                          </li>
+                                        ))}
+                                      </ul>
+                                      <p className="mt-1 border-t pt-1 text-xs text-muted-foreground">
+                                        <b className="text-foreground tabular-nums">{rupees(price ?? 0)}</b> per set (parts added up)
+                                      </p>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <p className="text-sm leading-snug">{parts[0].name}</p>
+                                      <p className="text-xs text-muted-foreground">
+                                        <b className="text-foreground tabular-nums">{rupees(parts[0].price)}</b> each
+                                      </p>
+                                    </>
+                                  )}
                                 </div>
                                 {unsure ? (
                                   <span className="shrink-0 rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-800 dark:bg-amber-950 dark:text-amber-300">
@@ -653,10 +747,10 @@ export function BulkQuotationUpload({
                                 <Button
                                   size="sm"
                                   className="h-7 text-xs"
-                                  onClick={() => setChoice(selected.key, it.id, { kind: 'line', idx: c.idx, confirmed: true })}
+                                  onClick={() => setChoice(selected.key, it.id, { ...c, confirmed: true })}
                                 >
                                   <Check className="mr-1 h-3.5 w-3.5" />
-                                  Yes, same item
+                                  {isSet ? 'Yes, these parts make one set' : 'Yes, same item'}
                                 </Button>
                               )}
                               <Select value={value} onValueChange={onPick} disabled={selected.status === 'saving'}>
@@ -683,6 +777,32 @@ export function BulkQuotationUpload({
                                   <SelectItem value="none">Not in this quote</SelectItem>
                                 </SelectContent>
                               </Select>
+                              {addable.length > 0 && c?.kind === 'line' && (
+                                // Keyed on the part count so the picker resets to its placeholder after each add.
+                                <Select
+                                  key={c.idxs.length}
+                                  onValueChange={(v) => setParts([...c.idxs, Number(v.slice(5))])}
+                                  disabled={selected.status === 'saving'}
+                                >
+                                  <SelectTrigger
+                                    className="h-7 w-auto gap-1 px-2 text-xs text-muted-foreground"
+                                    aria-label={`Add another part of the quote to ${it.item_name}`}
+                                  >
+                                    <Plus className="h-3.5 w-3.5" />
+                                    Add part (set)
+                                  </SelectTrigger>
+                                  <SelectContent className="max-w-[560px]">
+                                    {addable.map((l) => (
+                                      <SelectItem key={l.idx} value={`line:${l.idx}`}>
+                                        <span className="flex w-full items-center justify-between gap-4">
+                                          <span className="truncate">{l.name}</span>
+                                          <b className="shrink-0 tabular-nums">{rupees(l.price)}</b>
+                                        </span>
+                                      </SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                              )}
                               {unanswered && (
                                 <Button
                                   size="sm"
@@ -707,11 +827,7 @@ export function BulkQuotationUpload({
                   <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
                     <span className="text-xs text-muted-foreground">
                       {(() => {
-                        const used = new Set(
-                          Object.values(selected.choices)
-                            .filter((c): c is Extract<Choice, { kind: 'line' }> => c?.kind === 'line')
-                            .map((c) => c.idx)
-                        );
+                        const used = usedIdxs(selected.choices);
                         const other = selected.lines.filter((l) => !used.has(l.idx)).length;
                         return other ? `${other} other line${other === 1 ? '' : 's'} in this PDF not asked for — ignored` : '';
                       })()}
@@ -740,7 +856,16 @@ export function BulkQuotationUpload({
                 </>
               )}
             </span>
-            <div className="flex gap-2">
+            <div className="flex flex-wrap gap-2">
+              {(() => {
+                const keys = rows.filter((r) => r.status === 'ready' && unfoundIds(r).length > 0).map((r) => r.key);
+                if (keys.length < 2 || stillReading) return null;
+                return (
+                  <Button variant="ghost" className="text-muted-foreground" onClick={() => markUnfoundNotQuoted(keys)} disabled={saving}>
+                    Mark not-found items as not quoted in all {keys.length} PDFs
+                  </Button>
+                );
+              })()}
               <Button variant="outline" onClick={() => close(false)} disabled={saving || stillReading}>
                 Cancel
               </Button>
