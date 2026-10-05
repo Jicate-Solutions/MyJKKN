@@ -94,6 +94,10 @@ export interface PurchaseRequestFilters {
   all_institutions?: boolean;
   store_id?: string;
   status?: PurchaseRequestStatus;
+  /** Only purchases raised by this user ("Raised by me"). */
+  requested_by?: string;
+  /** Purchase stage (lib/procurement/purchase-stage.ts) — overrides `status`. */
+  stage?: string;
   request_type?: PurchaseRequestType;
   search?: string;
   page?: number;

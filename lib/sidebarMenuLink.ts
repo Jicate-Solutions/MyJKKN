@@ -4400,10 +4400,9 @@ export function GetPages(pathname: string): MenuGroup[] {
           icon: ShoppingCart,
           submenus: [
             { href: '/procurement', label: 'Overview', active: pathname === '/procurement' },
-            // Same three working tabs as app/(routes)/procurement/nav-config.ts.
-            { href: '/procurement/requests', label: 'Requests', active: pathname.startsWith('/procurement/requests') },
-            { href: '/procurement/rfqs', label: 'Quotations', active: pathname.startsWith('/procurement/rfqs') },
-            { href: '/procurement/purchase-orders', label: 'Deliveries', active: pathname.startsWith('/procurement/purchase-orders') || pathname.startsWith('/procurement/grn') },
+            // Same tabs as app/(routes)/procurement/nav-config.ts: one purchase = one page,
+            // so quotes, orders and deliveries all open from Purchases.
+            { href: '/procurement/requests', label: 'Purchases', active: ['/procurement/requests', '/procurement/rfqs', '/procurement/purchase-orders', '/procurement/grn'].some((p) => pathname.startsWith(p)) },
           ]
         }
       ]

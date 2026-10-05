@@ -28,6 +28,7 @@ import {
   type DocPrimaryAction,
 } from '@/components/procurement/document-header';
 import { formatDateDMY } from '@/lib/utils/date-format';
+import { displayRequestNumber } from '@/lib/procurement/display-number';
 import { STANDARD_PO_FORMAT } from '@/lib/procurement/po-document-model';
 import { AlertBox } from '@/components/ui/alert-box';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -51,7 +52,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { FileDown, FileText, Send, Check, X, PackageCheck, Ban, Plus } from 'lucide-react';
+import { FileDown, FileText, Send, Check, X, PackageCheck, Ban, Plus, ClipboardList } from 'lucide-react';
 import { BeatLoader } from 'react-spinners';
 import { toast } from 'sonner';
 import { errorMessage } from '@/lib/utils/supabase-error';
@@ -261,6 +262,15 @@ export default function PurchaseOrderDetailPage() {
       : null;
 
   const actions: DocAction[] = [];
+  const purchase = po.purchase_request;
+  if (purchase) {
+    actions.push({
+      key: 'view-purchase',
+      label: 'View purchase',
+      icon: ClipboardList,
+      onClick: () => router.push(`/procurement/requests/${purchase.id}`),
+    });
+  }
   if (canCancel) {
     actions.push({
       key: 'cancel',
@@ -278,16 +288,26 @@ export default function PurchaseOrderDetailPage() {
   }
 
   return (
-    <ContentLayout title={po.po_number}>
+    <ContentLayout title={purchase ? displayRequestNumber(purchase.request_number) : po.po_number}>
       <div className="space-y-3">
         <DocumentHeader
           compact
           onBack={() => router.push('/procurement/purchase-orders')}
           backLabel="Back to purchase orders"
-          title={po.po_number}
+          title={
+            purchase ? (
+              <>
+                Purchase no. {displayRequestNumber(purchase.request_number)}
+                <span className="ml-2 text-sm font-normal text-muted-foreground">Order {po.po_number}</span>
+              </>
+            ) : (
+              po.po_number
+            )
+          }
           status={<StatusBadge status={po.status} config={PO_STATUS_CONFIG} />}
           next={
             <>
+              {purchase?.title ? `${purchase.title} · ` : ''}
               {po.supplier?.name ?? po.supplier_id} ·{' '}
               <span className="font-semibold text-foreground tabular-nums">
                 ₹{Number(po.total_amount).toLocaleString()}
