@@ -31,19 +31,19 @@ export function useCompOffBalance(employeeId?: string) {
   });
 }
 
-export function useClaimWorkedDay() {
+export function useClaimWorkedDays() {
   const qc = useQueryClient();
   const supabase = createClientSupabaseClient();
   return useMutation({
     mutationFn: (input: {
       hr_organization_id: string;
       employee_id: string;
-      worked_date: string;
+      worked_dates: string[];
       notes?: string | null;
       documents: LeaveDocument[];
       work_location: CompOffWorkLocation | null;
       work_place?: string | null;
-    }) => CompOffService.claimWorkedDay(supabase, input),
+    }) => CompOffService.claimWorkedDays(supabase, input),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: [KEY] });
       // A claimant who is also an approver should see their new claim appear

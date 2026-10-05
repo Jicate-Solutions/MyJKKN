@@ -76,6 +76,8 @@ export function ServiceTypeForm({ initialData, onSubmit, isSubmitting }: Service
       approver_user_ids: s.approver_user_ids ?? [],
       is_required: s.is_required,
       on_return_restart_from_step: s.on_return_restart_from_step,
+      fee_category_id: s.fee_category_id ?? null,
+      fee_amount: s.fee_amount != null ? Number(s.fee_amount) : null,
     })) || []
   );
 
@@ -118,7 +120,7 @@ export function ServiceTypeForm({ initialData, onSubmit, isSubmitting }: Service
       color: initialData?.color || '#3B82F6',
       allowed_roles: initialData?.allowed_roles || [],
       approval_workflow_type: initialData?.approval_workflow_type || 'sequential',
-      max_active_requests: initialData?.max_active_requests || 1,
+      max_active_requests: initialData?.max_active_requests ?? 1,
       auto_fulfill_on_approval: initialData?.auto_fulfill_on_approval || false,
       enable_priority: initialData?.enable_priority || false,
       enable_attachments: initialData?.enable_attachments || false,
@@ -400,9 +402,13 @@ export function ServiceTypeForm({ initialData, onSubmit, isSubmitting }: Service
               <Input
                 id="max_active_requests"
                 type="number"
-                min={1}
+                min={0}
                 {...register('max_active_requests', { valueAsNumber: true })}
               />
+              <p className="text-xs text-muted-foreground">
+                How many requests of this type one user may have in progress at a time.
+                0 = no limit.
+              </p>
             </div>
 
             <div className="space-y-2">

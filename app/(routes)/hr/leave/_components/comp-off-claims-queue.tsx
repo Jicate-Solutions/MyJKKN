@@ -27,7 +27,7 @@
  * decisions.
  */
 
-import { useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { AlertCircle, Check, Clock, X } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -143,7 +143,7 @@ export function CompOffClaimsQueue() {
     [biometric]
   );
   const rows = useMemo(
-    () => claims.map((c) => toTableRow(c, bioById.get(c.id))),
+    () => claims.map((c) => toTableRow(c, bioById.get(c.id), claims)),
     [claims, bioById]
   );
 
@@ -166,6 +166,17 @@ export function CompOffClaimsQueue() {
 
   const busy = decide.isPending || bulkBusy;
 
+  /** Every row of the submission `r` belongs to, oldest day first. */
+  const batchOf = useCallback(
+    (r: CompOffClaimTableRow) =>
+      r.claim_batch_id
+        ? rows
+            .filter((x) => x.claim_batch_id === r.claim_batch_id)
+            .sort((a, b) => a.worked_date.localeCompare(b.worked_date))
+        : [r],
+    [rows]
+  );
+
   const actions: CompOffClaimActions = useMemo(
     () => ({
       onView: (r) => setDetailRow(r),
@@ -181,11 +192,29 @@ export function CompOffClaimsQueue() {
         setRevokeError(null);
         setRevoking(r);
       },
+      // A multi-day claim's days go through the SAME bulk dialogs and the same
+      // split as a hand-made selection, so a day the database would refuse
+      // (no punch, lapsed, own claim) is skipped and named, never attempted.
+      onApproveBatch: (r) => {
+        const split = splitBulkApproval(batchOf(r), { today, ownStaffId: ctx.employeeId });
+        const skipped = describeSkipped(split.skipped);
+        if (skipped) toast(`Skipped: ${skipped}`);
+        if (split.eligible.length === 0) return;
+        setApproveError(null);
+        setApproving({ kind: 'bulk', rows: split.eligible, reset: () => {} });
+      },
+      onRejectBatch: (r) => {
+        const split = splitBulkReject(batchOf(r), { today, ownStaffId: ctx.employeeId });
+        if (split.eligible.length === 0) return;
+        setRejectReason('');
+        setRejectError(null);
+        setRejecting({ kind: 'bulk', rows: split.eligible, reset: () => {} });
+      },
       isPending: busy || revoke.isPending,
       today,
       ownStaffId: ctx.employeeId,
     }),
-    [busy, revoke.isPending, today, ctx.employeeId]
+    [busy, revoke.isPending, today, ctx.employeeId, batchOf]
   );
 
   // Asked per row, on demand — a consumed credit and a closed month are both
@@ -422,6 +451,7 @@ export function CompOffClaimsQueue() {
 
       <CompOffClaimDetailSheet
         claim={detailRow}
+        siblings={detailRow?.batch_position ? batchOf(detailRow) : []}
         isOwn={!!detailRow && detailRow.employee_id === ctx.employeeId}
         lapsed={!!detailRow && detailRow.status === 'pending' && detailRow.expires_on < today}
         biometric={detailRow ? bioById.get(detailRow.id) ?? null : null}

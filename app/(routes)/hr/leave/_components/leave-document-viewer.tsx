@@ -82,8 +82,15 @@ export function LeaveDocumentViewer({
         components/ui/dialog.tsx) — a tall document would push the whole panel
         off the viewport with nothing to scroll. The height, the flex column and
         the min-h-0 on the body are all load-bearing.
+
+        z-[100] / z-[95]: the viewer also opens from INSIDE the detail Sheets
+        (z-[85] overlay / z-[90] panel), where the default z-50 put it behind
+        the Sheet, dimmed and unreachable.
       */}
-      <DialogContent className="flex h-[90vh] max-h-[90vh] w-[95vw] max-w-4xl flex-col gap-0 overflow-hidden p-0">
+      <DialogContent
+        className="z-[100] flex h-[90vh] max-h-[90vh] w-[95vw] max-w-4xl flex-col gap-0 overflow-hidden p-0"
+        overlayClassName="z-[95]"
+      >
         {/*
           Radix unmounts a closed Dialog's content, so every open mounts this
           fresh and its state starts at the clicked document with nothing
