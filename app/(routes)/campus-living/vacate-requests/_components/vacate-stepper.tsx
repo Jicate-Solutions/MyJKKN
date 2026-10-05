@@ -8,7 +8,7 @@ import type { HostelVacateApproval, HostelVacateRequest, VacateStep } from '@/ty
 type StepState = 'done' | 'current' | 'upcoming' | 'rejected';
 
 /** Order of the step statuses; a request sits at exactly one of them. */
-const ORDER: VacateStep[] = ['bills', 'principal', 'warden', 'mess', 'cao', 'fine'];
+const ORDER: VacateStep[] = ['bills', 'accountant', 'principal', 'warden', 'cao', 'fine'];
 
 function stepState(
   request: HostelVacateRequest,

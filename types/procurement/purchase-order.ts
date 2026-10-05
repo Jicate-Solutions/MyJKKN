@@ -58,6 +58,15 @@ export interface ProcurementPurchaseOrder {
   approved_by_profile?: { full_name: string | null } | null;
   po_format?: ProcurementPoFormat | null;
   item_count?: number;
+  /** The request this order came from (PO -> RFQ -> request). Its number is the "Purchase no." users track. */
+  purchase_request?: PurchaseRequestRef | null;
+}
+
+/** The source purchase request of a PO / GRN, as embedded by the list and detail selects. */
+export interface PurchaseRequestRef {
+  id: string;
+  request_number: string;
+  title: string | null;
 }
 
 export interface ProcurementPurchaseOrderItem {

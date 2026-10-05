@@ -1,191 +1,100 @@
 'use client';
 
+// InstaSolver desk — Dashboard, laid out as the standalone InstaSolver
+// dashboard (C:\jkkn_instasolver app/(app)/dashboard): a greeting with today's
+// date and the Report an issue / Request an item buttons, "Your next step" with
+// one-tap actions, every figure group the person's access calls for (Your
+// reports, Your work, Across all institutions, Your institution), "Your work
+// by status" for maintenance team members, and the latest reports beside the
+// report / request tiles (the Principal gets their institution).
+//
+// Every figure comes from instasolver_get_dashboard_stats() or an RLS-scoped
+// count — nothing on this page can render a number the database did not produce.
+
 import Link from 'next/link';
 import { PackagePlus, Plus } from 'lucide-react';
 import { PageBreadcrumb } from '@/components/navigation';
-import { PageHeader } from '@/components/page-header';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent } from '@/components/ui/card';
-import { useDashboardStats, useInstaSolverAccess } from '@/hooks/instasolver/use-instasolver';
-import { NextStepPanel } from './_components/next-step';
-import { StatTile, TileGroup } from './_components/stat-tile';
+import { REQUEST_BUTTON_CLASS } from '@/lib/instasolver/constants';
+import { Skeleton } from '@/components/ui/skeleton';
+import { useInstaSolverAccess, useReporterProfile } from '@/hooks/instasolver/use-instasolver';
+import { DashboardSummary } from './_components/dashboard-summary';
+import { DashboardStatCards } from './_components/dashboard-stat-cards';
+import { MaintenanceReport } from './_components/maintenance-report';
+import { DashboardPanels } from './_components/dashboard-panels';
+import { dashboardRole } from './_components/role';
+
+/** "Good morning" by the clock in India, not the server's or a traveller's. */
+function greetingAt(now: Date): string {
+  const hour = Number(
+    new Intl.DateTimeFormat('en-IN', { hour: 'numeric', hourCycle: 'h23', timeZone: 'Asia/Kolkata' }).format(now)
+  );
+  if (hour < 12) return 'Good morning';
+  if (hour < 17) return 'Good afternoon';
+  return 'Good evening';
+}
 
 export default function InstaSolverDashboardPage() {
-  const { data: access, isLoading: accessLoading } = useInstaSolverAccess();
-  const { data: stats, isLoading: statsLoading, error } = useDashboardStats();
-  const loading = accessLoading || statsLoading;
+  const { data: access, isLoading, error } = useInstaSolverAccess();
+  const { data: profile } = useReporterProfile();
 
-  const reportActions = access?.can_report ? (
-    <>
-      <Button asChild>
-        <Link href="/instasolver/issues/new">
-          <Plus className="mr-1.5 h-4 w-4" /> Report an issue
-        </Link>
-      </Button>
-      <Button asChild variant="outline">
-        <Link href="/instasolver/requirements/new">
-          <PackagePlus className="mr-1.5 h-4 w-4" /> Request an item
-        </Link>
-      </Button>
-    </>
-  ) : undefined;
+  const now = new Date();
+  const firstName = profile?.full_name?.trim().split(/\s+/)[0];
+  const today = new Intl.DateTimeFormat('en-IN', {
+    weekday: 'long',
+    day: 'numeric',
+    month: 'long',
+    timeZone: 'Asia/Kolkata'
+  }).format(now);
 
   return (
     <div className="space-y-6">
-      <PageBreadcrumb items={[{ label: 'InstaSolver', href: '/instasolver/dashboard' }, { label: 'Dashboard', isCurrent: true }]} />
-      <PageHeader
-        title="InstaSolver"
-        description="Faults to fix and items to request, and where each one stands"
-        actions={reportActions}
+      <PageBreadcrumb
+        items={[{ label: 'InstaSolver', href: '/instasolver/dashboard' }, { label: 'Dashboard', isCurrent: true }]}
       />
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0">
+          <h1 className="text-2xl font-bold tracking-tight">
+            {greetingAt(now)}
+            {firstName ? `, ${firstName}` : ''}
+          </h1>
+          <p className="text-sm text-muted-foreground">{today}</p>
+        </div>
+        {/* The two things anyone comes here to do, always at hand. */}
+        {access?.can_report ? (
+          <div className="flex flex-wrap gap-2">
+            <Button asChild>
+              <Link href="/instasolver/issues/new">
+                <Plus className="mr-1.5 h-4 w-4" /> Report an issue
+              </Link>
+            </Button>
+            <Button asChild className={REQUEST_BUTTON_CLASS}>
+              <Link href="/instasolver/requirements/new">
+                <PackagePlus className="mr-1.5 h-4 w-4" /> Request an item
+              </Link>
+            </Button>
+          </div>
+        ) : null}
+      </div>
 
-      {error && (
-        <Card>
-          <CardContent className="p-4 text-sm text-destructive">
-            The figures could not be loaded. Refresh the page to try again.
-          </CardContent>
-        </Card>
-      )}
-
-      {access && stats && <NextStepPanel access={access} stats={stats} />}
-
-      <TileGroup title="Your reports" description="Everything you have raised">
-        <StatTile
-          label="Issues still open"
-          value={stats?.own.issues_open}
-          loading={loading}
-          href="/instasolver/issues?scope=mine"
-        />
-        <StatTile
-          label="Awaiting your confirmation"
-          value={stats?.own.awaiting_confirmation}
-          loading={loading}
-          tone="warning"
-          href="/instasolver/issues?scope=mine&status=completed"
-        />
-        <StatTile
-          label="Requirements open"
-          value={stats?.own.requirements_open}
-          loading={loading}
-          href="/instasolver/requirements?mine=1"
-        />
-      </TileGroup>
-
-      {access?.is_maintenance && (
-        <TileGroup title="Your work" description="Jobs given to you or your team">
-          <StatTile label="Assigned to me" value={stats?.mine.assigned_to_me} loading={loading} href="/instasolver/work" />
-          <StatTile
-            label="To claim"
-            value={stats?.mine.to_claim}
-            loading={loading}
-            tone="warning"
-            href="/instasolver/work?tab=to_claim"
-          />
-          <StatTile
-            label="In progress"
-            value={stats?.mine.in_progress}
-            loading={loading}
-            href="/instasolver/work?tab=in_progress"
-          />
-          <StatTile
-            label="Completed today"
-            value={stats?.mine.completed_today}
-            loading={loading}
-            tone="success"
-            href="/instasolver/work?tab=completed"
-          />
-        </TileGroup>
-      )}
-
-      {access?.is_manager && (
-        <TileGroup title="Across all institutions" description="What needs the CAO">
-          <StatTile
-            label="Awaiting triage"
-            value={stats?.issues.pending}
-            loading={loading}
-            tone="warning"
-            href="/instasolver/triage"
-          />
-          <StatTile
-            label="Unassigned"
-            value={stats?.issues.unassigned}
-            loading={loading}
-            href="/instasolver/issues?unassigned=1"
-          />
-          <StatTile
-            label="Fix disputed"
-            value={stats?.issues.disputed}
-            loading={loading}
-            tone="danger"
-            href="/instasolver/issues?disputed=1"
-          />
-          <StatTile
-            label="Critical and open"
-            value={stats?.issues.critical_open}
-            loading={loading}
-            tone="danger"
-            href="/instasolver/issues?severity=critical&status=pending,assigned,in_progress"
-          />
-          <StatTile
-            label="In progress"
-            value={stats?.issues.in_progress}
-            loading={loading}
-            href="/instasolver/issues?status=in_progress"
-          />
-          <StatTile
-            label="Completed today"
-            value={stats?.issues.completed_today}
-            loading={loading}
-            tone="success"
-            href="/instasolver/issues?status=completed"
-          />
-          <StatTile
-            label="Requirements awaiting review"
-            value={stats?.requirements.pending}
-            loading={loading}
-            tone="warning"
-            href="/instasolver/requirements?status=pending"
-          />
-        </TileGroup>
-      )}
-
-      {access?.is_principal && !access.is_manager && (
-        <TileGroup title="Your institution" description="Issues raised at the institutions you lead">
-          <StatTile label="All issues" value={stats?.issues.total} loading={loading} href="/instasolver/issues" />
-          <StatTile
-            label="Awaiting triage"
-            value={stats?.issues.pending}
-            loading={loading}
-            tone="warning"
-            href="/instasolver/issues?status=pending"
-          />
-          <StatTile
-            label="Assigned"
-            value={stats?.issues.assigned}
-            loading={loading}
-            href="/instasolver/issues?status=assigned"
-          />
-          <StatTile
-            label="In progress"
-            value={stats?.issues.in_progress}
-            loading={loading}
-            href="/instasolver/issues?status=in_progress"
-          />
-          <StatTile
-            label="Completed"
-            value={stats?.issues.completed}
-            loading={loading}
-            tone="success"
-            href="/instasolver/issues?status=completed"
-          />
-          <StatTile
-            label="Critical and open"
-            value={stats?.issues.critical_open}
-            loading={loading}
-            tone="danger"
-            href="/instasolver/issues?severity=critical&status=pending,assigned,in_progress"
-          />
-        </TileGroup>
+      {error ? (
+        <p className="rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+          Your access could not be checked. Refresh the page to try again.
+        </p>
+      ) : isLoading || !access ? (
+        <div className="space-y-4">
+          <Skeleton className="h-16 w-full rounded-xl" />
+          <Skeleton className="h-24 w-full rounded-xl" />
+          <Skeleton className="h-48 w-full rounded-xl" />
+        </div>
+      ) : (
+        <>
+          <DashboardSummary role={dashboardRole(access)} access={access} />
+          <DashboardStatCards access={access} />
+          {/* Maintenance team members: their own work by status. */}
+          {access.is_maintenance ? <MaintenanceReport /> : null}
+          <DashboardPanels role={dashboardRole(access)} />
+        </>
       )}
     </div>
   );

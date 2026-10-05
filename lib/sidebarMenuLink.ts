@@ -322,6 +322,7 @@ export const MENU_PERMISSIONS: MenuPermissions = {
 
   // AI Assistant
   '/ai-query': 'ai_query.view', // AI Query System access
+  '/ai-query/connect': 'ai_query.view', // Personal keys for outside AIs that accept a custom MCP server with a bearer key (Claude Code, Claude Desktop, Gemini CLI, Zoho Zia)
 
   // ======================================================================
   // InstaSolver — the ONE front door for "something is wrong here".
@@ -605,6 +606,10 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // entry here longest-prefix resolution would hand all of them the ability to
   // freeze an institution-month.
   '/hr/attendance/close': 'hr.attendance.period.view',
+  // Clinical duty: who may punch from off-campus sites, and where. Without its
+  // own entry the '/hr/attendance' prefix (hr.attendance.view_self, 22+ roles)
+  // would admit every staff member to the approvals screen.
+  '/hr/attendance/clinical': 'hr.attendance.clinical.manage',
   // The hub at /hr/payroll only redirects to the page above, but it needs its
   // own entry: without one the longest-prefix match falls through to '/hr' →
   // 'hr.view', so anyone in HR could open it and be denied one redirect later.
@@ -2451,6 +2456,15 @@ export function GetPages(pathname: string): MenuGroup[] {
           submenus: []
         },
         {
+          // Personal keys for outside AIs that accept a custom MCP server with
+          // a bearer key, through the MCP door. Same gate as the AI Assistant.
+          href: '/ai-query/connect',
+          label: 'Connect an outside AI',
+          active: pathname.startsWith('/ai-query/connect'),
+          icon: Key,
+          submenus: []
+        },
+        {
           href: '/guide',
           label: 'Guide',
           active: pathname === '/guide' || pathname.startsWith('/guide/'),
@@ -3861,6 +3875,7 @@ export function GetPages(pathname: string): MenuGroup[] {
           submenus: [
             { href: '/hr/recruitment', label: 'Dashboard', active: pathname === '/hr/recruitment' },
             { href: '/hr/recruitment/jobs', label: 'Job Postings', active: pathname.startsWith('/hr/recruitment/jobs') },
+            { href: '/hr/recruitment/candidates', label: 'All Candidates', active: pathname.startsWith('/hr/recruitment/candidates') },
             { href: '/hr/recruitment/submit', label: 'Apply for Jobs', active: pathname === '/hr/recruitment/submit' },
             { href: '/hr/recruitment/my', label: 'My Submissions', active: pathname === '/hr/recruitment/my' },
             { href: '/hr/recruitment/approvals', label: 'Approvals', active: pathname === '/hr/recruitment/approvals' },
@@ -3907,6 +3922,7 @@ export function GetPages(pathname: string): MenuGroup[] {
           label: 'Attendance & Time',
           active:
             pathname.startsWith('/hr/attendance/close')
+            || pathname.startsWith('/hr/attendance/clinical')
             || pathname.startsWith('/hr/admin/shift-timings')
             || pathname.startsWith('/hr/admin/work-patterns'),
           icon: Clock,
@@ -3916,6 +3932,7 @@ export function GetPages(pathname: string): MenuGroup[] {
             // and /hr/attendance itself belongs to Self Service.
             { href: '/hr/attendance?view=all', label: 'All Attendance', active: false },
             { href: '/hr/attendance/close', label: 'Month Close', active: pathname.startsWith('/hr/attendance/close') },
+            { href: '/hr/attendance/clinical', label: 'Clinical Duty', active: pathname.startsWith('/hr/attendance/clinical') },
             { href: '/hr/admin/shift-timings', label: 'Shift Timings', active: pathname.startsWith('/hr/admin/shift-timings') },
             { href: '/hr/admin/work-patterns', label: 'Work Patterns', active: pathname.startsWith('/hr/admin/work-patterns') },
           ]
@@ -4400,10 +4417,9 @@ export function GetPages(pathname: string): MenuGroup[] {
           icon: ShoppingCart,
           submenus: [
             { href: '/procurement', label: 'Overview', active: pathname === '/procurement' },
-            // Same three working tabs as app/(routes)/procurement/nav-config.ts.
-            { href: '/procurement/requests', label: 'Requests', active: pathname.startsWith('/procurement/requests') },
-            { href: '/procurement/rfqs', label: 'Quotations', active: pathname.startsWith('/procurement/rfqs') },
-            { href: '/procurement/purchase-orders', label: 'Deliveries', active: pathname.startsWith('/procurement/purchase-orders') || pathname.startsWith('/procurement/grn') },
+            // Same tabs as app/(routes)/procurement/nav-config.ts: one purchase = one page,
+            // so quotes, orders and deliveries all open from Purchases.
+            { href: '/procurement/requests', label: 'Purchases', active: ['/procurement/requests', '/procurement/rfqs', '/procurement/purchase-orders', '/procurement/grn'].some((p) => pathname.startsWith(p)) },
           ]
         }
       ]

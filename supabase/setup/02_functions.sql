@@ -68056,7 +68056,6 @@ CREATE OR REPLACE FUNCTION public.fn_activate_learners_for_first_present(
   -- The caller knows; the function cannot work it out, and a guessed
   -- provenance is worse than none.
   p_marked_by_source      text
-=======
 -- ===========================================================================
 -- Course Events: self-service registration, service-role branch (2026-09-19)
 -- Source: 20260919140000_course_selfserve_registration.sql
@@ -76628,3 +76627,832 @@ COMMENT ON FUNCTION public.fn_revoke_user_sessions(uuid) IS
 
 REVOKE EXECUTE ON FUNCTION public.fn_revoke_user_sessions(uuid) FROM anon, PUBLIC;
 GRANT  EXECUTE ON FUNCTION public.fn_revoke_user_sessions(uuid) TO authenticated;
+
+
+-- ============================================================================
+-- Hostel vacate: Accounts approval step, Mess clearance step removed
+-- ============================================================================
+-- draft -> [submit] -> pending_dues (auto bill check) -> pending_accountant
+--       -> pending_principal -> pending_warden (checklist + room inspection)
+--       -> pending_cao -> pending_fine (only when damage_total > 0) -> completed
+--
+-- Mess clearance is no longer a step. Its enum value / permission key / approval
+-- rows stay so history keeps rendering; fn_cl_vacate_advance still moves a
+-- stranded pending_mess row on to the CAO.
+--
+-- Builds on 20261001110000_hostel_vacate_approval_chain_damage_fine.sql — only
+-- the functions whose body changes are redefined here.
+-- ============================================================================
+
+-- ─── 0. Backup of the role grants this migration edits ─────────────────────
+CREATE TABLE IF NOT EXISTS public.bak_vacate_accountant_role_grants_20261001 AS
+SELECT id, role_key, permissions, now() AS backed_up_at
+FROM public.custom_roles
+WHERE role_key = 'accounts';
+ALTER TABLE public.bak_vacate_accountant_role_grants_20261001 ENABLE ROW LEVEL SECURITY;
+
+-- ─── 1. Approval log accepts the new step ──────────────────────────────────
+ALTER TABLE public.hostel_vacate_approvals DROP CONSTRAINT IF EXISTS hostel_vacate_approvals_step_check;
+ALTER TABLE public.hostel_vacate_approvals
+  ADD CONSTRAINT hostel_vacate_approvals_step_check
+  CHECK (step IN ('bills', 'accountant', 'principal', 'warden', 'mess', 'cao', 'fine'));
+
+-- ─── 2. One open request per allocation — includes the new status ──────────
+DROP INDEX IF EXISTS public.hvr_one_open_per_allocation;
+CREATE UNIQUE INDEX hvr_one_open_per_allocation
+  ON public.hostel_vacate_requests (allocation_id)
+  WHERE status IN ('draft', 'pending_parent', 'pending_warden', 'pending_chief', 'pending_dues', 'approved',
+                   'pending_accountant', 'pending_principal', 'pending_mess', 'pending_cao', 'pending_fine');
+
+-- ─── 3. Helpers ────────────────────────────────────────────────────────────
+CREATE OR REPLACE FUNCTION public._cl_vacate_step_perm(p_status text)
+RETURNS text
+LANGUAGE sql IMMUTABLE
+SET search_path TO 'public', 'pg_temp'
+AS $$
+  SELECT CASE p_status
+    WHEN 'pending_accountant' THEN 'campus_living.vacate_requests.approve_accountant'
+    WHEN 'pending_principal'  THEN 'campus_living.vacate_requests.approve_principal'
+    WHEN 'pending_warden'     THEN 'campus_living.vacate_requests.approve_warden'
+    WHEN 'pending_mess'       THEN 'campus_living.vacate_requests.approve_mess'
+    WHEN 'pending_cao'        THEN 'campus_living.vacate_requests.approve_cao'
+  END;
+$$;
+REVOKE EXECUTE ON FUNCTION public._cl_vacate_step_perm(text) FROM PUBLIC, anon;
+GRANT  EXECUTE ON FUNCTION public._cl_vacate_step_perm(text) TO authenticated, service_role;
+
+CREATE OR REPLACE FUNCTION public._cl_vacate_step_name(p_status text)
+RETURNS text
+LANGUAGE sql IMMUTABLE
+SET search_path TO 'public', 'pg_temp'
+AS $$
+  SELECT CASE p_status
+    WHEN 'pending_accountant' THEN 'accountant'
+    WHEN 'pending_principal'  THEN 'principal'
+    WHEN 'pending_warden'     THEN 'warden'
+    WHEN 'pending_mess'       THEN 'mess'
+    WHEN 'pending_cao'        THEN 'cao'
+    WHEN 'pending_fine'       THEN 'fine'
+    WHEN 'pending_dues'       THEN 'bills'
+  END;
+$$;
+REVOKE EXECUTE ON FUNCTION public._cl_vacate_step_name(text) FROM PUBLIC, anon;
+GRANT  EXECUTE ON FUNCTION public._cl_vacate_step_name(text) TO authenticated, service_role;
+
+-- Step 1 -> 2 when every hostel/mess bill is settled. Used by recheck + trigger.
+CREATE OR REPLACE FUNCTION public._cl_vacate_advance_from_dues(p_request_id uuid)
+RETURNS boolean
+LANGUAGE plpgsql SECURITY DEFINER
+SET search_path TO 'public', 'pg_temp'
+AS $$
+DECLARE
+  r     public.hostel_vacate_requests%ROWTYPE;
+  v_out numeric;
+BEGIN
+  SELECT * INTO r FROM public.hostel_vacate_requests WHERE id = p_request_id FOR UPDATE;
+  IF NOT FOUND OR r.status <> 'pending_dues' THEN
+    RETURN false;
+  END IF;
+  v_out := (public._cl_vacate_bills(r.learner_id)->>'total_outstanding')::numeric;
+  IF v_out > 0 THEN
+    RETURN false;
+  END IF;
+  UPDATE public.hostel_vacate_requests
+     SET status = 'pending_accountant', updated_at = now()
+   WHERE id = r.id;
+  PERFORM public._cl_vacate_log(r.id, 'bills', 'system', NULL, 'All hostel and mess bills are cleared');
+  RETURN true;
+END;
+$$;
+REVOKE EXECUTE ON FUNCTION public._cl_vacate_advance_from_dues(uuid) FROM PUBLIC, anon, authenticated;
+GRANT  EXECUTE ON FUNCTION public._cl_vacate_advance_from_dues(uuid) TO service_role;
+
+-- ─── 4. Submit: bills cleared -> straight to Accounts ──────────────────────
+CREATE OR REPLACE FUNCTION public.fn_cl_vacate_submit(p_request_id uuid)
+RETURNS public.hostel_vacate_requests
+LANGUAGE plpgsql SECURITY DEFINER
+SET search_path TO 'public', 'pg_temp'
+AS $$
+DECLARE
+  v_uid uuid := auth.uid();
+  r     public.hostel_vacate_requests%ROWTYPE;
+  v_row public.hostel_vacate_requests;
+  v_out numeric;
+BEGIN
+  IF v_uid IS NULL THEN
+    RAISE EXCEPTION 'Not authenticated' USING ERRCODE = '42501';
+  END IF;
+
+  SELECT * INTO r FROM public.hostel_vacate_requests WHERE id = p_request_id FOR UPDATE;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Vacate request % not found', p_request_id USING ERRCODE = 'P0002';
+  END IF;
+
+  IF NOT (public.is_super_admin() OR public.is_admin() OR r.submitted_by_id = v_uid) THEN
+    RAISE EXCEPTION 'Only the person who raised this request can submit it' USING ERRCODE = '42501';
+  END IF;
+  IF r.status <> 'draft' THEN
+    RAISE EXCEPTION 'Request is not a draft (status=%)', r.status USING ERRCODE = 'P0001';
+  END IF;
+
+  IF r.reason_type = 'medical' AND NOT EXISTS (
+    SELECT 1 FROM public.hostel_vacate_documents d
+     WHERE d.vacate_request_id = r.id AND d.document_type = 'medical_certificate'
+  ) THEN
+    RAISE EXCEPTION 'Medical-reason vacates require a medical certificate before submit'
+      USING ERRCODE = 'P0001';
+  END IF;
+
+  INSERT INTO public.hostel_clearance_items
+    (vacate_request_id, item_key, item_label, is_required, sort_order, checklist_item_id)
+  SELECT r.id, 'chk_' || replace(m.id::text, '-', ''), m.item_label, m.is_required, m.sort_order, m.id
+    FROM public.hostel_vacate_checklist_items m
+   WHERE m.is_active
+     AND (m.applies_to_reasons IS NULL OR r.reason_type = ANY (m.applies_to_reasons))
+  ON CONFLICT (vacate_request_id, item_key) DO NOTHING;
+
+  -- Step 1: automatic bill check. Cleared -> straight to Accounts.
+  v_out := (public._cl_vacate_bills(r.learner_id)->>'total_outstanding')::numeric;
+
+  UPDATE public.hostel_vacate_requests
+     SET status = CASE WHEN v_out > 0 THEN 'pending_dues' ELSE 'pending_accountant' END::public.vacate_request_status_enum,
+         warden_last_action_at = now(),
+         updated_at = now()
+   WHERE id = r.id
+  RETURNING * INTO v_row;
+
+  PERFORM public._cl_vacate_log(
+    r.id, 'bills', 'system', NULL,
+    CASE WHEN v_out > 0
+         THEN 'Submitted — outstanding hostel/mess bills: ' || v_out::text
+         ELSE 'Submitted — all hostel and mess bills are cleared' END);
+
+  -- Hold the bed while the request is open (still occupied, not reallocatable).
+  UPDATE public.hostel_allocations
+     SET status = 'pending_vacate', updated_at = now()
+   WHERE id = r.allocation_id AND status = 'active';
+
+  RETURN v_row;
+END;
+$$;
+REVOKE EXECUTE ON FUNCTION public.fn_cl_vacate_submit(uuid) FROM PUBLIC, anon;
+GRANT  EXECUTE ON FUNCTION public.fn_cl_vacate_submit(uuid) TO authenticated, service_role;
+
+-- ─── 5. Create: duplicate-open check knows the new status ──────────────────
+CREATE OR REPLACE FUNCTION public.fn_cl_vacate_create(
+  p_allocation_id  uuid,
+  p_reason_type    public.vacate_reason_enum,
+  p_reason_text    text,
+  p_requested_date date,
+  p_medical_notes  text DEFAULT NULL
+)
+RETURNS public.hostel_vacate_requests
+LANGUAGE plpgsql SECURITY DEFINER
+SET search_path TO 'public', 'pg_temp'
+AS $$
+DECLARE
+  v_uid       uuid := auth.uid();
+  a           public.hostel_allocations%ROWTYPE;
+  v_on_behalf boolean;
+  v_type      public.hostel_resident_type_enum;
+  v_row       public.hostel_vacate_requests;
+BEGIN
+  IF v_uid IS NULL THEN
+    RAISE EXCEPTION 'Not authenticated' USING ERRCODE = '42501';
+  END IF;
+
+  SELECT * INTO a FROM public.hostel_allocations WHERE id = p_allocation_id FOR SHARE;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Allocation % not found', p_allocation_id USING ERRCODE = 'P0002';
+  END IF;
+  IF a.status <> 'active' THEN
+    RAISE EXCEPTION 'Only an active allocation can be vacated (current status: %)', a.status
+      USING ERRCODE = 'P0001';
+  END IF;
+
+  v_on_behalf := a.learner_id IS DISTINCT FROM v_uid;
+
+  IF v_on_behalf THEN
+    IF NOT (public.is_super_admin() OR public.is_admin()
+            OR (public.user_has_permission('campus_living.vacate_requests.submit_on_behalf')
+                AND public.fn_cl_vacate_scope_ok(a.institution_id, a.id))) THEN
+      RAISE EXCEPTION 'Not authorized to raise a vacate request for this resident'
+        USING ERRCODE = '42501';
+    END IF;
+  ELSIF NOT (public.is_super_admin() OR public.is_admin()
+             OR public.user_has_permission('campus_living.vacate_requests.submit')) THEN
+    RAISE EXCEPTION 'Not authorized to submit a vacate request' USING ERRCODE = '42501';
+  END IF;
+
+  IF p_reason_text IS NULL OR char_length(btrim(p_reason_text)) < 10 THEN
+    RAISE EXCEPTION 'Reason must be at least 10 characters' USING ERRCODE = '22023';
+  END IF;
+  IF p_requested_date IS NULL THEN
+    RAISE EXCEPTION 'Requested vacate date is required' USING ERRCODE = '22023';
+  END IF;
+
+  IF EXISTS (
+    SELECT 1 FROM public.hostel_vacate_requests x
+     WHERE x.allocation_id = a.id
+       AND x.status IN ('draft', 'pending_parent', 'pending_warden', 'pending_chief', 'pending_dues', 'approved',
+                        'pending_accountant', 'pending_principal', 'pending_mess', 'pending_cao', 'pending_fine')
+  ) THEN
+    RAISE EXCEPTION 'An open vacate request already exists for this allocation' USING ERRCODE = '23505';
+  END IF;
+
+  SELECT COALESCE((SELECT resident_type FROM public.hostel_residents WHERE id = a.resident_id), 'learner')
+    INTO v_type;
+
+  INSERT INTO public.hostel_vacate_requests (
+    institution_id, allocation_id, resident_id, learner_id, resident_type,
+    reason_type, reason_text, requested_vacate_date,
+    is_permanent, is_scheduled, has_medical_grounds, medical_notes,
+    status, submitted_by_id, submitted_on_behalf_of_id
+  ) VALUES (
+    a.institution_id, a.id, a.resident_id, a.learner_id, v_type,
+    p_reason_type, btrim(p_reason_text), p_requested_date,
+    p_reason_type <> 'semester_end',
+    p_reason_type IN ('graduation', 'semester_end', 'transfer'),
+    p_reason_type = 'medical',
+    CASE WHEN p_reason_type = 'medical' THEN NULLIF(btrim(COALESCE(p_medical_notes, '')), '') END,
+    'draft', v_uid,
+    CASE WHEN v_on_behalf THEN a.learner_id END
+  )
+  RETURNING * INTO v_row;
+
+  RETURN v_row;
+END;
+$$;
+REVOKE EXECUTE ON FUNCTION public.fn_cl_vacate_create(uuid, public.vacate_reason_enum, text, date, text) FROM PUBLIC, anon;
+GRANT  EXECUTE ON FUNCTION public.fn_cl_vacate_create(uuid, public.vacate_reason_enum, text, date, text) TO authenticated, service_role;
+
+-- ─── 6. Approve — one RPC, dispatches on the current step ──────────────────
+CREATE OR REPLACE FUNCTION public.fn_cl_vacate_advance(
+  p_request_id uuid,
+  p_remarks    text DEFAULT NULL
+)
+RETURNS jsonb
+LANGUAGE plpgsql SECURITY DEFINER
+SET search_path TO 'public', 'pg_temp'
+AS $$
+DECLARE
+  v_uid      uuid := auth.uid();
+  r          public.hostel_vacate_requests%ROWTYPE;
+  v_perm     text;
+  v_step     text;
+  v_pending  integer;
+  v_out      numeric;
+  v_fine     uuid;
+  v_final    jsonb;
+  v_next     text;
+BEGIN
+  IF v_uid IS NULL THEN
+    RAISE EXCEPTION 'Not authenticated' USING ERRCODE = '42501';
+  END IF;
+
+  SELECT * INTO r FROM public.hostel_vacate_requests WHERE id = p_request_id FOR UPDATE;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Vacate request % not found', p_request_id USING ERRCODE = 'P0002';
+  END IF;
+
+  v_perm := public._cl_vacate_step_perm(r.status::text);
+  v_step := public._cl_vacate_step_name(r.status::text);
+  IF v_perm IS NULL THEN
+    RAISE EXCEPTION 'Request is not waiting for an approval (status=%)', r.status USING ERRCODE = 'P0001';
+  END IF;
+
+  IF NOT (public.is_super_admin() OR public.is_admin()
+          OR (public.user_has_permission(v_perm)
+              AND public.fn_cl_vacate_scope_ok(r.institution_id, r.allocation_id))) THEN
+    RAISE EXCEPTION 'Not authorized to approve this step (%)', v_step USING ERRCODE = '42501';
+  END IF;
+
+  IF r.status = 'pending_accountant' THEN
+    -- The bills must still be clear at the moment Accounts signs off.
+    v_out := (public._cl_vacate_bills(r.learner_id)->>'total_outstanding')::numeric;
+    IF v_out > 0 THEN
+      RAISE EXCEPTION 'Unpaid hostel bills: % outstanding. Clear them before approving.', v_out
+        USING ERRCODE = 'P0001';
+    END IF;
+    v_next := 'pending_principal';
+
+  ELSIF r.status = 'pending_principal' THEN
+    v_next := 'pending_warden';
+
+  ELSIF r.status = 'pending_warden' THEN
+    SELECT COUNT(*) INTO v_pending
+      FROM public.hostel_clearance_items
+     WHERE vacate_request_id = r.id AND is_required AND NOT is_cleared;
+    IF v_pending > 0 THEN
+      RAISE EXCEPTION '% required checklist item(s) are not cleared yet', v_pending USING ERRCODE = 'P0001';
+    END IF;
+    IF NOT r.room_inspected THEN
+      RAISE EXCEPTION 'Record the room inspection (damages, or "No damage") before approving'
+        USING ERRCODE = 'P0001';
+    END IF;
+    v_next := 'pending_cao';
+
+  ELSIF r.status = 'pending_mess' THEN
+    -- Retired step: only a row stranded here before the change lands on it.
+    v_next := 'pending_cao';
+
+  ELSE -- pending_cao
+    v_out := (public._cl_vacate_bills(r.learner_id)->>'total_outstanding')::numeric;
+    IF v_out > 0 THEN
+      RAISE EXCEPTION 'Unpaid hostel bills: % outstanding. Clear them before approving.', v_out
+        USING ERRCODE = 'P0001';
+    END IF;
+  END IF;
+
+  PERFORM public._cl_vacate_log(r.id, v_step, 'approved', v_uid, p_remarks);
+
+  IF r.status <> 'pending_cao' THEN
+    UPDATE public.hostel_vacate_requests
+       SET status = v_next::public.vacate_request_status_enum,
+           warden_last_action_at = now(), updated_at = now()
+     WHERE id = r.id;
+    RETURN jsonb_build_object('success', true, 'request_id', r.id, 'status', v_next);
+  END IF;
+
+  -- CAO: final approval.
+  UPDATE public.hostel_vacate_requests
+     SET approved_by = v_uid, approved_at = now(),
+         approval_remarks = NULLIF(btrim(COALESCE(p_remarks, '')), ''),
+         updated_at = now()
+   WHERE id = r.id;
+
+  IF COALESCE(r.damage_total, 0) > 0 THEN
+    v_fine := public._cl_vacate_create_fine_bill(r.id, v_uid);
+    UPDATE public.hostel_vacate_requests
+       SET status = 'pending_fine', updated_at = now()
+     WHERE id = r.id;
+    PERFORM public._cl_vacate_log(r.id, 'fine', 'system', NULL,
+      'Fine bill raised for room damage: ' || r.damage_total::text);
+    RETURN jsonb_build_object('success', true, 'request_id', r.id, 'status', 'pending_fine',
+                              'fine_bill_id', v_fine, 'fine_amount', r.damage_total);
+  END IF;
+
+  v_final := public._cl_vacate_finalize(r.id);
+  RETURN v_final || jsonb_build_object('status', 'completed');
+END;
+$$;
+REVOKE EXECUTE ON FUNCTION public.fn_cl_vacate_advance(uuid, text) FROM PUBLIC, anon;
+GRANT  EXECUTE ON FUNCTION public.fn_cl_vacate_advance(uuid, text) TO authenticated, service_role;
+
+-- ─── 7. Cancel: the new status can be cancelled too ────────────────────────
+CREATE OR REPLACE FUNCTION public.fn_cl_vacate_cancel(p_request_id uuid, p_reason text)
+RETURNS public.hostel_vacate_requests
+LANGUAGE plpgsql SECURITY DEFINER
+SET search_path TO 'public', 'pg_temp'
+AS $$
+DECLARE
+  v_uid  uuid := auth.uid();
+  r      public.hostel_vacate_requests%ROWTYPE;
+  v_perm text;
+  v_row  public.hostel_vacate_requests;
+BEGIN
+  IF v_uid IS NULL THEN
+    RAISE EXCEPTION 'Not authenticated' USING ERRCODE = '42501';
+  END IF;
+  IF p_reason IS NULL OR char_length(btrim(p_reason)) < 3 THEN
+    RAISE EXCEPTION 'A cancellation reason is required' USING ERRCODE = '22023';
+  END IF;
+
+  SELECT * INTO r FROM public.hostel_vacate_requests WHERE id = p_request_id FOR UPDATE;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Vacate request % not found', p_request_id USING ERRCODE = 'P0002';
+  END IF;
+
+  v_perm := public._cl_vacate_step_perm(r.status::text);
+  IF NOT (public.is_super_admin() OR public.is_admin()
+          OR r.submitted_by_id = v_uid OR r.learner_id = v_uid
+          OR ((public.user_has_permission('campus_living.vacate_requests.cancel')
+               OR (v_perm IS NOT NULL AND public.user_has_permission(v_perm)))
+              AND public.fn_cl_vacate_scope_ok(r.institution_id, r.allocation_id))) THEN
+    RAISE EXCEPTION 'Not authorized to cancel this vacate request' USING ERRCODE = '42501';
+  END IF;
+  -- pending_fine is past the point of no return: the CAO already approved and a
+  -- bill exists. Accounts cancels that bill through its own flow instead.
+  IF r.status NOT IN ('draft', 'pending_dues', 'pending_accountant', 'pending_principal', 'pending_warden',
+                      'pending_mess', 'pending_cao') THEN
+    RAISE EXCEPTION 'Cannot cancel a request in status %', r.status USING ERRCODE = 'P0001';
+  END IF;
+
+  UPDATE public.hostel_vacate_requests
+     SET status = 'cancelled', cancelled_reason = btrim(p_reason),
+         completed_at = now(), updated_at = now()
+   WHERE id = r.id
+  RETURNING * INTO v_row;
+
+  IF r.status <> 'draft' THEN
+    PERFORM public._cl_vacate_log(r.id, COALESCE(public._cl_vacate_step_name(r.status::text), 'bills'),
+                                  'cancelled', v_uid, p_reason);
+  END IF;
+
+  UPDATE public.hostel_allocations
+     SET status = 'active', updated_at = now()
+   WHERE id = r.allocation_id AND status = 'pending_vacate';
+
+  RETURN v_row;
+END;
+$$;
+REVOKE EXECUTE ON FUNCTION public.fn_cl_vacate_cancel(uuid, text) FROM PUBLIC, anon;
+GRANT  EXECUTE ON FUNCTION public.fn_cl_vacate_cancel(uuid, text) TO authenticated, service_role;
+
+-- ─── 8. Permission grants (merge with ||, never replace) ───────────────────
+DO $$
+DECLARE
+  v_hit int;
+BEGIN
+  UPDATE public.custom_roles
+     SET permissions = COALESCE(permissions, '{}'::jsonb) || jsonb_build_object(
+           'campus_living.vacate_requests.view',               true,
+           'campus_living.vacate_requests.approve_accountant', true),
+         updated_at = now()
+   WHERE role_key = 'accounts';
+  GET DIAGNOSTICS v_hit = ROW_COUNT;
+  IF v_hit = 0 THEN RAISE WARNING 'role accounts not found; approve_accountant not granted'; END IF;
+END $$;
+
+COMMENT ON FUNCTION public.fn_cl_vacate_advance(uuid, text) IS
+  'Approve the step a vacate request is at (accountant -> principal -> warden -> CAO). Permission per step + scope checked in the DB. Accountant and CAO steps re-check hostel/mess bills; warden step needs required checklist ticked and the room inspection recorded; CAO raises ONE fine bill (pending_fine) when damages exist, else completes.';
+
+
+-- 20261005100000: reject leave requests that no longer fit their balance
+CREATE OR REPLACE FUNCTION public.fn_hr_leave_reject_unfunded(p_application_id uuid)
+RETURNS boolean
+LANGUAGE plpgsql
+SECURITY DEFINER
+-- NOT '': hr_calc_leave_days reads hr_organizations unqualified.
+SET search_path TO 'public', 'extensions'
+AS $function$
+DECLARE
+  a        record;
+  t        record;
+  v_days   numeric;
+  v_short  record;
+  v_cao    uuid;
+  v_reason text;
+  v_final  integer;
+  v_step   jsonb;
+  v_chain  jsonb;
+  v_now    timestamptz := now();
+  v_email  text;
+  v_notif  uuid;
+  v_range  text;
+BEGIN
+  SELECT * INTO a FROM public.hr_leave_applications
+  WHERE id = p_application_id AND status IN ('pending', 'escalated')
+  FOR UPDATE;
+  IF NOT FOUND THEN RETURN false; END IF;
+
+  SELECT request_category, leave_type_name, skip_weekends, skip_holidays INTO t
+  FROM public.hr_leave_types WHERE id = a.leave_type_id;
+  IF t.request_category IS DISTINCT FROM 'leave' THEN RETURN false; END IF;
+
+  v_days := public.hr_calc_leave_days(
+    a.start_date, a.end_date, a.duration_type,
+    COALESCE(t.skip_weekends, true), COALESCE(t.skip_holidays, true),
+    a.hr_organization_id, a.employee_id);
+  -- A request on a non-working day is not a balance problem; leave it alone.
+  IF COALESCE(v_days, 0) <= 0 THEN RETURN false; END IF;
+
+  SELECT * INTO v_short FROM public.fn_hr_leave_balance_shortfall(
+    a.employee_id, a.leave_type_id, a.hr_academic_year_id, a.id, a.start_date, v_days);
+  IF NOT FOUND THEN RETURN false; END IF;
+
+  SELECT ur.user_id INTO v_cao
+  FROM public.user_roles ur
+  JOIN public.custom_roles cr ON cr.id = ur.role_id
+  WHERE cr.role_key = 'cao' AND cr.is_active
+  ORDER BY ur.user_id LIMIT 1;
+  IF v_cao IS NULL THEN
+    RAISE WARNING 'fn_hr_leave_reject_unfunded: no active CAO, % left pending', a.id;
+    RETURN false;
+  END IF;
+
+  v_reason := format(
+    'No leave balance available. %s: %s day(s) available as of %s; this request needs %s.',
+    t.leave_type_name, v_short.available, to_char(v_short.as_of, 'DD Mon YYYY'), v_days);
+
+  v_chain := COALESCE(a.approval_chain, '[]'::jsonb);
+  v_final := public.fn_hr_leave_final_step_index(v_chain);
+  IF v_final >= 0 THEN
+    v_step := (v_chain -> v_final) || jsonb_build_object(
+      'status', 'rejected',
+      'decided_by', v_cao,
+      'decided_at', v_now,
+      'comment', v_reason,
+      'decisions', COALESCE(v_chain -> v_final -> 'decisions', '[]'::jsonb)
+        || jsonb_build_array(jsonb_build_object(
+             'by', v_cao, 'at', v_now, 'decision', 'rejected', 'comment', v_reason)));
+    v_chain := jsonb_set(v_chain, ARRAY[v_final::text], v_step);
+  END IF;
+
+  BEGIN
+    UPDATE public.hr_leave_applications
+    SET status = 'rejected',
+        approval_chain = v_chain,
+        final_approver_id = v_cao,
+        final_decided_at = v_now,
+        rejection_reason = v_reason
+    WHERE id = a.id;
+  EXCEPTION WHEN OTHERS THEN
+    -- e.g. the month is closed. Never fail the HR save that triggered this.
+    RAISE WARNING 'fn_hr_leave_reject_unfunded: % not rejected: %', a.id, SQLERRM;
+    RETURN false;
+  END;
+
+  SELECT NULLIF(btrim(s.institution_email), '') INTO v_email
+  FROM public.staff s WHERE s.id = a.employee_id;
+
+  INSERT INTO public.hr_decision_emails
+    (leave_application_id, employee_id, decision, to_email, status, last_error)
+  VALUES
+    (a.id, a.employee_id, 'rejected', v_email,
+     CASE WHEN v_email IS NULL THEN 'skipped' ELSE 'pending' END,
+     CASE WHEN v_email IS NULL THEN 'No institution email on the staff record' END)
+  ON CONFLICT DO NOTHING;
+
+  v_range := a.start_date::text || ' → ' || a.end_date::text;
+  INSERT INTO public.notifications (title, body, created_by, targeting, category, kind, url, metadata)
+  VALUES (
+    'Leave Request Rejected',
+    format('Your %s request for %s has been rejected. Reason: %s', t.leave_type_name, v_range, v_reason),
+    a.applied_by,
+    jsonb_build_object('type', 'user', 'user_ids', jsonb_build_array(a.applied_by)),
+    'staff', 'work_item', '/hr/leave/' || a.id,
+    jsonb_build_object('source', 'staff_notify', 'event_type', 'leave_rejected',
+                       'reference_id', a.id, 'leave_type', t.leave_type_name,
+                       'rejection_reason', v_reason))
+  RETURNING id INTO v_notif;
+  INSERT INTO public.user_notifications (notification_id, user_id) VALUES (v_notif, a.applied_by);
+
+  RETURN true;
+END;
+$function$;
+
+COMMENT ON FUNCTION public.fn_hr_leave_reject_unfunded(uuid) IS
+  'Rejects one pending/escalated day-leave request that no longer fits its balance, as the CAO, reason "No leave balance available"; queues the applicant email and in-app notification. Returns false when nothing was done. Non-working-day requests are ignored.';
+
+REVOKE ALL ON FUNCTION public.fn_hr_leave_reject_unfunded(uuid) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.fn_hr_leave_reject_unfunded(uuid) TO service_role;
+
+CREATE OR REPLACE FUNCTION public.hr_trig_reject_unfunded_after_balance_change()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO ''
+AS $function$
+DECLARE
+  r record;
+BEGIN
+  FOR r IN
+    SELECT id FROM public.hr_leave_applications
+    WHERE employee_id = NEW.employee_id
+      AND leave_type_id = NEW.leave_type_id
+      AND hr_academic_year_id IS NOT DISTINCT FROM NEW.hr_academic_year_id
+      AND status IN ('pending', 'escalated')
+  LOOP
+    PERFORM public.fn_hr_leave_reject_unfunded(r.id);
+  END LOOP;
+  RETURN NULL;
+END;
+$function$;
+
+REVOKE ALL ON FUNCTION public.hr_trig_reject_unfunded_after_balance_change() FROM PUBLIC, anon, authenticated;
+
+
+-- 20261005120000: clinical duty geotag attendance
+CREATE OR REPLACE FUNCTION public.fn_hr_clinical_eligible(p_employee_id uuid, p_date date)
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+  SELECT EXISTS (
+    SELECT 1
+    FROM public.staff s
+    JOIN public.hr_clinical_duty_eligibilities e ON e.institution_id = s.institution_id
+    WHERE s.id = p_employee_id
+      AND e.status = 'approved'
+      AND e.valid_from <= p_date
+      AND (e.valid_until IS NULL OR e.valid_until >= p_date)
+      AND (   (e.scope_type = 'staff'       AND e.employee_id   = s.id)
+           OR (e.scope_type = 'department'  AND e.department_id = s.department_id)
+           OR (e.scope_type = 'institution'))
+  );
+$function$;
+
+-- The duty sites this person may punch at on a date.
+CREATE OR REPLACE FUNCTION public.fn_hr_clinical_allowed_sites(p_employee_id uuid, p_date date)
+RETURNS SETOF public.hr_clinical_duty_sites
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+  SELECT DISTINCT st.*
+  FROM public.staff s
+  JOIN public.hr_clinical_duty_eligibilities e ON e.institution_id = s.institution_id
+  JOIN public.hr_clinical_duty_sites st
+    ON st.institution_id = s.institution_id AND st.is_active
+   AND (e.site_ids IS NULL OR st.id = ANY (e.site_ids))
+  WHERE s.id = p_employee_id
+    AND e.status = 'approved'
+    AND e.valid_from <= p_date
+    AND (e.valid_until IS NULL OR e.valid_until >= p_date)
+    AND (   (e.scope_type = 'staff'       AND e.employee_id   = s.id)
+         OR (e.scope_type = 'department'  AND e.department_id = s.department_id)
+         OR (e.scope_type = 'institution'));
+$function$;
+
+REVOKE ALL ON FUNCTION public.fn_hr_clinical_eligible(uuid, date) FROM PUBLIC, anon;
+REVOKE ALL ON FUNCTION public.fn_hr_clinical_allowed_sites(uuid, date) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_hr_clinical_eligible(uuid, date) TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.fn_hr_clinical_allowed_sites(uuid, date) TO authenticated, service_role;
+
+-- 5. The punch -------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.fn_hr_clinical_punch(
+  p_lat        numeric,
+  p_lng        numeric,
+  p_accuracy_m numeric
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public', 'extensions'
+AS $function$
+DECLARE
+  v_uid     uuid := (SELECT auth.uid());
+  v_today   date := (now() AT TIME ZONE 'Asia/Kolkata')::date;
+  v_staff   record;
+  v_site    record;
+  v_dist    integer;
+  v_rec     record;
+  v_type    text;
+  v_in_at   timestamptz;
+  v_org     uuid;
+  v_absent  uuid;
+BEGIN
+  IF v_uid IS NULL THEN
+    RAISE EXCEPTION 'Sign in to mark attendance.' USING ERRCODE = '28000';
+  END IF;
+
+  IF p_lat IS NULL OR p_lng IS NULL OR p_lat NOT BETWEEN -90 AND 90 OR p_lng NOT BETWEEN -180 AND 180 THEN
+    RAISE EXCEPTION 'Your location could not be read. Turn on location access and try again.' USING ERRCODE = '22023';
+  END IF;
+  IF p_accuracy_m IS NULL OR p_accuracy_m < 0 OR p_accuracy_m > 100 THEN
+    RAISE EXCEPTION 'Your location is not accurate enough (% m, needs 100 m or better). Move to an open area and try again.',
+      COALESCE(round(p_accuracy_m)::text, 'unknown') USING ERRCODE = '22023';
+  END IF;
+
+  -- The caller's own staff record that is approved today. Never a parameter.
+  SELECT s.id, s.institution_id INTO v_staff
+  FROM public.staff s
+  WHERE s.profile_id = v_uid AND s.is_active
+    AND public.fn_hr_clinical_eligible(s.id, v_today)
+  ORDER BY s.id LIMIT 1;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'You are not approved for clinical duty attendance.' USING ERRCODE = '42501';
+  END IF;
+
+  IF NOT public.fn_hr_institution_included(v_staff.institution_id) THEN
+    RAISE EXCEPTION 'Attendance is not managed in HR for your institution.' USING ERRCODE = '42501';
+  END IF;
+
+  -- Nearest allowed site (haversine, metres).
+  SELECT x.*, round(x.d)::integer AS dist INTO v_site
+  FROM (
+    SELECT st.id, st.name, st.radius_m,
+           2 * 6371000 * asin(sqrt(
+             power(sin(radians(st.lat - p_lat) / 2), 2) +
+             cos(radians(p_lat)) * cos(radians(st.lat)) *
+             power(sin(radians(st.lng - p_lng) / 2), 2))) AS d
+    FROM public.fn_hr_clinical_allowed_sites(v_staff.id, v_today) st
+  ) x
+  ORDER BY x.d LIMIT 1;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'No clinical duty site is set up for you. Ask HR to add one.' USING ERRCODE = 'P0001';
+  END IF;
+  v_dist := v_site.dist;
+  IF v_dist > v_site.radius_m THEN
+    RAISE EXCEPTION 'You are % m from % (allowed within % m). Move to the duty site and try again.',
+      v_dist, v_site.name, v_site.radius_m USING ERRCODE = 'P0001';
+  END IF;
+
+  -- Serialise this person's punches so a double tap cannot create two rows.
+  PERFORM pg_advisory_xact_lock(hashtextextended(v_staff.id::text || ':clinical:' || v_today::text, 0));
+
+  SELECT * INTO v_rec FROM public.hr_attendance_records
+  WHERE employee_id = v_staff.id AND work_date = v_today;
+  IF FOUND AND v_rec.source <> 'clinical_geotag' THEN
+    RAISE EXCEPTION 'Today already has attendance from %. A clinical punch cannot be added.', v_rec.source
+      USING ERRCODE = 'P0001';
+  END IF;
+
+  SELECT punched_at INTO v_in_at FROM public.hr_clinical_punches
+  WHERE employee_id = v_staff.id AND work_date = v_today AND punch_type = 'in';
+
+  IF v_in_at IS NULL THEN
+    v_type := 'in';
+  ELSIF EXISTS (SELECT 1 FROM public.hr_clinical_punches
+                WHERE employee_id = v_staff.id AND work_date = v_today AND punch_type = 'out') THEN
+    RAISE EXCEPTION 'You have already punched in and out today.' USING ERRCODE = 'P0001';
+  ELSIF now() < v_in_at + interval '1 minute' THEN
+    RAISE EXCEPTION 'You punched in a moment ago. Wait a minute before punching out.' USING ERRCODE = 'P0001';
+  ELSE
+    v_type := 'out';
+  END IF;
+
+  INSERT INTO public.hr_clinical_punches
+    (employee_id, work_date, punch_type, site_id, lat, lng, accuracy_m, distance_m)
+  VALUES
+    (v_staff.id, v_today, v_type, v_site.id, p_lat, p_lng, round(p_accuracy_m)::integer, v_dist);
+
+  IF v_type = 'in' THEN
+    SELECT id INTO v_org FROM public.hr_organizations WHERE institution_id = v_staff.institution_id LIMIT 1;
+    IF v_org IS NULL THEN
+      RAISE EXCEPTION 'Your institution has no HR organisation set up.' USING ERRCODE = 'P0001';
+    END IF;
+    SELECT id INTO v_absent FROM public.hr_attendance_status_types
+    WHERE code = 'ABSENT' AND institution_id IS NULL;
+
+    -- ABSENT until the OUT punch: the evaluator judges the whole day then.
+    INSERT INTO public.hr_attendance_records
+      (employee_id, hr_organization_id, institution_id, work_date, status_type_id,
+       in_at, source, day_calc, gps_lat, gps_lng, gps_accuracy_m, device_status, notes)
+    VALUES
+      (v_staff.id, v_org, v_staff.institution_id, v_today, v_absent,
+       now(), 'clinical_geotag', 'NONE', p_lat, p_lng, round(p_accuracy_m)::integer,
+       'clinical_in_progress', 'Clinical duty - ' || v_site.name);
+  ELSE
+    UPDATE public.hr_attendance_records
+       SET out_at = now(), device_status = 'clinical_complete', updated_at = now()
+     WHERE employee_id = v_staff.id AND work_date = v_today;
+  END IF;
+
+  RETURN jsonb_build_object(
+    'employee_id', v_staff.id, 'work_date', v_today, 'punch_type', v_type,
+    'punched_at', now(), 'site_name', v_site.name, 'distance_m', v_dist);
+END;
+$function$;
+
+REVOKE ALL ON FUNCTION public.fn_hr_clinical_punch(numeric, numeric, numeric) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_hr_clinical_punch(numeric, numeric, numeric) TO authenticated, service_role;
+
+-- 6. Decide / revoke (permission checked inside) -----------------------------------
+CREATE OR REPLACE FUNCTION public.fn_hr_clinical_decide(p_id uuid, p_approve boolean, p_note text DEFAULT NULL)
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+BEGIN
+  IF NOT public.user_has_permission('hr.attendance.clinical.manage') THEN
+    RAISE EXCEPTION 'You do not have permission to decide clinical duty eligibility.' USING ERRCODE = '42501';
+  END IF;
+  IF NOT p_approve AND COALESCE(btrim(p_note), '') = '' THEN
+    RAISE EXCEPTION 'Give a reason when rejecting.' USING ERRCODE = '22023';
+  END IF;
+  UPDATE public.hr_clinical_duty_eligibilities
+     SET status = CASE WHEN p_approve THEN 'approved' ELSE 'rejected' END,
+         decided_by = (SELECT auth.uid()), decided_at = now(), decision_note = p_note
+   WHERE id = p_id AND status = 'pending';
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'That request is not pending.' USING ERRCODE = 'P0001';
+  END IF;
+END;
+$function$;
+
+CREATE OR REPLACE FUNCTION public.fn_hr_clinical_revoke(p_id uuid, p_reason text)
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+BEGIN
+  IF NOT public.user_has_permission('hr.attendance.clinical.manage') THEN
+    RAISE EXCEPTION 'You do not have permission to revoke clinical duty eligibility.' USING ERRCODE = '42501';
+  END IF;
+  IF COALESCE(btrim(p_reason), '') = '' THEN
+    RAISE EXCEPTION 'Give a reason for revoking.' USING ERRCODE = '22023';
+  END IF;
+  UPDATE public.hr_clinical_duty_eligibilities
+     SET status = 'revoked', revoked_by = (SELECT auth.uid()), revoked_at = now(), revoke_reason = p_reason
+   WHERE id = p_id AND status = 'approved';
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'That grant is not active.' USING ERRCODE = 'P0001';
+  END IF;
+END;
+$function$;
+
+REVOKE ALL ON FUNCTION public.fn_hr_clinical_decide(uuid, boolean, text) FROM PUBLIC, anon;
+REVOKE ALL ON FUNCTION public.fn_hr_clinical_revoke(uuid, text) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_hr_clinical_decide(uuid, boolean, text) TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.fn_hr_clinical_revoke(uuid, text) TO authenticated, service_role;
+
+-- 7. RLS -----------------------------------------------------------------------------
+-- Sites: HR managers write; managers and staff of that institution who are
+-- eligible read.

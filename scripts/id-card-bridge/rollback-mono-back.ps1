@@ -3,6 +3,17 @@
 #
 #   powershell -ExecutionPolicy Bypass -File C:\jkkn-bridge\rollback-mono-back.ps1
 
+# Must run as Administrator: stopping/starting the service needs it. Without
+# this, "net stop" fails with "System error 5 / Access is denied", the file
+# is swapped but the OLD bridge keeps running (seen 2026-10-03).
+$isAdmin = ([Security.Principal.WindowsPrincipal] `
+  [Security.Principal.WindowsIdentity]::GetCurrent()
+  ).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+if (-not $isAdmin) {
+  Write-Host "Run this in PowerShell opened AS ADMINISTRATOR (right-click -> Run as administrator). Nothing changed."
+  exit 1
+}
+
 $dir = "C:\jkkn-bridge"
 $py = "$dir\evolis_bridge.py"
 
