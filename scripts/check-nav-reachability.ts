@@ -302,10 +302,8 @@ const NAV_EXCLUDE = new Set<string>([
   '/procurement/rfqs/[id]/quotations',
   // GRN receiving form — button-invoked ("Create GRN") from the PO detail page
   '/procurement/grn/new',
-  // One purchase = one page: the old Quotations / Deliveries list tabs were folded into
-  // Purchases. These lists still resolve (links, bookmarks) but every RFQ, order and
-  // delivery is opened from its purchase page, so they have no tab of their own.
-  '/procurement/rfqs',
+  // One purchase = one page: the old Deliveries tab was folded away. These lists still
+  // resolve (links, bookmarks) but every order and delivery opens from its purchase page.
   '/procurement/purchase-orders',
   '/procurement/grn',
   // PO print formats — reached from "Print as → + New format" on the order page.

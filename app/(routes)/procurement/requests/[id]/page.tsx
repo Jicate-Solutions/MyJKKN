@@ -373,7 +373,7 @@ export default function PurchasePage() {
       <div className={`mx-auto w-full space-y-5 ${(journey?.rfq?.quotation_count ?? 0) >= 3 ? 'max-w-5xl' : 'max-w-2xl'}`}>
         <Button variant="link" className="h-8 px-0" onClick={() => router.push('/procurement/requests')}>
           <ChevronLeft className="mr-1 h-4 w-4" />
-          Purchases
+          Requests
         </Button>
 
         {/* ── Title and where it is: plain text, no box ─────────────────── */}
