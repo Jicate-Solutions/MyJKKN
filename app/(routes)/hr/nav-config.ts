@@ -363,6 +363,7 @@ const config: ModuleNavConfig = {
         '/hr/admin/academic-years',
         '/hr/admin/sanctioned-posts',
         '/hr/attendance/import',
+        '/hr/attendance/clinical',
         '/hr/attendance/regularize/approvals',
       ],
     },

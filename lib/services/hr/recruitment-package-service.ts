@@ -45,11 +45,11 @@ export class RecruitmentPackageService {
   ): Promise<HRRecruitmentCandidatePackage[]> {
     const { data, error } = await supabase
       .from('hr_recruitment_candidate_packages')
-      .select('*')
+      .select('*, proposer:profiles!hr_recruitment_candidate_packages_proposed_by_fkey(full_name, email)')
       .eq('candidate_id', candidateId)
       .order('created_at', { ascending: true });
     if (error) throw error;
-    return (data ?? []) as HRRecruitmentCandidatePackage[];
+    return (data ?? []) as unknown as HRRecruitmentCandidatePackage[];
   }
 
   static async getPackage(

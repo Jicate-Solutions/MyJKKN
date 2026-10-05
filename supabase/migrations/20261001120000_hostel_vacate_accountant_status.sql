@@ -1,0 +1,12 @@
+-- ============================================================================
+-- Hostel vacate: Accounts (Chief Accountant) approval status
+-- ============================================================================
+-- Must be its own migration: a freshly added enum value cannot be used in the
+-- same transaction that adds it. The follow-up migration
+-- 20261001120100_hostel_vacate_accountant_step.sql uses it.
+--
+-- Flow: draft -> pending_dues (bills not cleared) -> pending_accountant ->
+--       pending_principal -> pending_warden -> pending_cao -> [pending_fine]
+--       -> completed. pending_mess stays in the enum for legacy rows only.
+-- ============================================================================
+ALTER TYPE public.vacate_request_status_enum ADD VALUE IF NOT EXISTS 'pending_accountant';

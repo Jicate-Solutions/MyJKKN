@@ -454,3 +454,64 @@ describe('describeDeparture — the one rule both scanners share', () => {
     ).toBe('approved_window_closed');
   });
 });
+
+describe('decideGateAction — 12-hour exit window on a leave-linked pass', () => {
+  // NOW = 8:40 PM IST on 14 Aug. The window below is 8:00 AM–8:00 PM IST on
+  // the 14th, i.e. ALREADY CLOSED, though the leave itself runs to the 16th.
+  const WINDOW_OPEN = '2026-08-14T02:30:00.000Z'; // 8:00 AM IST
+  const WINDOW_CLOSE = '2026-08-14T14:30:00.000Z'; // 8:00 PM IST
+  const RETURN_16TH = '2026-08-16T12:30:00.000Z';
+
+  it('is APPROVED while now is inside [valid_from, valid_until]', () => {
+    const d = decideGateAction(
+      [pass({ expected_return: RETURN_16TH, valid_from: WINDOW_OPEN, valid_until: '2026-08-14T16:00:00.000Z' })],
+      NOW
+    );
+    expect(d.verdict).toBe('approved');
+    expect(d.action).toBe('out');
+  });
+
+  it('is BLOCKED once valid_until has passed, even though expected_return is days away', () => {
+    const d = decideGateAction(
+      [pass({ expected_return: RETURN_16TH, valid_from: WINDOW_OPEN, valid_until: WINDOW_CLOSE })],
+      NOW
+    );
+    expect(d.verdict).toBe('blocked');
+    expect(d.action).toBeNull();
+    expect(d.blockedReason).toBe('approved_window_closed');
+  });
+
+  it('is BLOCKED with its own reason before valid_from, naming when it opens', () => {
+    const d = decideGateAction(
+      [pass({ expected_return: RETURN_16TH, valid_from: '2026-08-15T02:30:00.000Z', valid_until: '2026-08-15T14:30:00.000Z' })],
+      NOW
+    );
+    expect(d.verdict).toBe('blocked');
+    expect(d.blockedReason).toBe('exit_window_not_open');
+    expect(d.detail).toMatch(/opens at/);
+  });
+
+  it('an expired pass is a dead end, never a green light', () => {
+    const d = decideGateAction(
+      [pass({ status: 'expired', expected_return: RETURN_16TH, valid_from: WINDOW_OPEN, valid_until: WINDOW_CLOSE })],
+      NOW
+    );
+    expect(d.verdict).toBe('blocked');
+    expect(d.action).toBeNull();
+    expect(d.blockedReason).toBe('approved_window_closed');
+  });
+
+  it('a legacy pass with no window behaves exactly as before', () => {
+    const d = decideGateAction([pass({ valid_from: null, valid_until: null })], NOW);
+    expect(d.verdict).toBe('approved');
+  });
+
+  it('a learner already OUT can still come IN after the exit window closed', () => {
+    const d = decideGateAction(
+      [pass({ status: 'active', expected_return: RETURN_16TH, valid_from: WINDOW_OPEN, valid_until: WINDOW_CLOSE })],
+      NOW
+    );
+    expect(d.verdict).toBe('returning');
+    expect(d.action).toBe('in');
+  });
+});

@@ -11,7 +11,6 @@ import { InstitutionFilter } from '@/components/procurement/institution-filter';
 import { registeredDomainOptions } from '@/lib/services/procurement/domain-adapters/registry';
 import type { DomainCtx, ProcurementDomain } from '@/lib/services/procurement/domain-adapters/types';
 import type { CreatePurchaseRequestItemDto } from '@/types/procurement';
-import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -22,14 +21,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
-} from '@/components/ui/dialog';
-import { Plus, Trash2, ArrowLeft } from 'lucide-react';
+import { Plus, X, ChevronLeft } from 'lucide-react';
 import { toast } from 'sonner';
 import { errorMessage } from '@/lib/utils/supabase-error';
 import { displayRequestNumber } from '@/lib/procurement/display-number';
@@ -76,10 +68,10 @@ export default function NewPurchaseRequestPage() {
     () => domainOptions[0]?.value ?? 'ims'
   );
   const [items, setItems] = useState<ItemRow[]>([emptyRow()]);
-  const [previewOpen, setPreviewOpen] = useState(false);
-  // One note for the whole request. It is saved as the request's notes and also fills
-  // every new item's reason (the server needs one per new line); an AI-read reason wins.
-  const [commonReason, setCommonReason] = useState('');
+  // "What is it for?" — ONE field. It names the purchase on every list and is the
+  // reason the approver reads; it also fills each new item's reason (the server
+  // needs one per new line) unless an AI-read reason is already there.
+  const [title, setTitle] = useState('');
 
   // Institution scope — carries over whatever the requester had filtered the
   // Requests list to (?institution=…), so a multi-institution user isn't asked to
@@ -117,8 +109,8 @@ export default function NewPurchaseRequestPage() {
       toast.error('Add at least one item.');
       return;
     }
-    if (cleaned.some((i) => i.is_new && !i.reason?.trim()) && !commonReason.trim()) {
-      toast.error('Enter a reason for this request.');
+    if (!title.trim()) {
+      toast.error('Say what it is for (e.g. Microbiology practicals).');
       return;
     }
     if (cleaned.some((i) => !i.is_new && !i.domain_item_id)) {
@@ -126,8 +118,8 @@ export default function NewPurchaseRequestPage() {
       return;
     }
 
-    // Validation passed — gate creation behind a read-only review step.
-    setPreviewOpen(true);
+    // Validation passed — the form itself is the review, so submit straight away.
+    await handleConfirmCreate();
   };
 
   // Cleaned line items as they will be submitted (also drives the preview table).
@@ -136,9 +128,9 @@ export default function NewPurchaseRequestPage() {
       items
         .filter((i) => i.item_name.trim())
         .map((i) =>
-          i.is_new && !i.reason?.trim() ? { ...i, reason: commonReason.trim() } : i
+          i.is_new && !i.reason?.trim() ? { ...i, reason: title.trim() } : i
         ),
-    [items, commonReason]
+    [items, title]
   );
 
   // Display-only summary of the request's composition — mirrors the derivation the
@@ -161,7 +153,8 @@ export default function NewPurchaseRequestPage() {
         data: {
           institution_id: effectiveInstitution,
           domain,
-          notes: commonReason.trim() || null,
+          title: title.trim(),
+          notes: null,
           items: cleanedItems.map(({ is_new, ...i }) => ({
             ...i,
             required_quantity: Number(i.required_quantity) || 0,
@@ -170,9 +163,9 @@ export default function NewPurchaseRequestPage() {
         },
         userId: profile.id,
       });
-      setPreviewOpen(false);
-      toast.success(`Request ${displayRequestNumber(created.request_number)} submitted`);
-      router.push('/procurement/requests');
+      toast.success(`Purchase ${displayRequestNumber(created.request_number)} submitted for item approval`);
+      // Straight to the purchase page — its progress line shows who acts next.
+      router.push(created.id ? `/procurement/requests/${created.id}` : '/procurement/requests');
     } catch (e) {
       toast.error(errorMessage(e, 'Failed to create request'));
     }
@@ -180,29 +173,28 @@ export default function NewPurchaseRequestPage() {
 
   return (
     <ContentLayout title="New Request">
-      <div className="max-w-3xl space-y-4">
-        <div className="flex items-center gap-2">
-          <Button variant="ghost" size="sm" aria-label="Go back" onClick={() => router.back()}>
-            <ArrowLeft className="h-4 w-4" />
-          </Button>
-          <h2 className="text-xl font-bold tracking-tight sm:text-2xl">New Request</h2>
-        </div>
+      {/* A paper-form column: one card, top to bottom, each field as wide as its content. */}
+      <div className="mx-auto w-full max-w-xl space-y-5">
+        <Button variant="link" className="h-8 px-0" onClick={() => router.back()}>
+          <ChevronLeft className="mr-1 h-4 w-4" />
+          Back
+        </Button>
+        <h1 className="text-2xl font-bold">What do you need?</h1>
 
-        {/* ── One card: where it's for, then the items ──────────────────── */}
-        <Card>
-          <CardContent className="space-y-4 p-4">
-            <div className="grid gap-3 sm:grid-cols-2">
-              <InstitutionFilter
-                className="space-y-1 [&_button]:h-8 [&_button]:text-sm [&_label]:text-xs"
-                value={effectiveInstitution || undefined}
-                onChange={(id) => {
-                  setInstitutionId(id);
-                  // Different institution = different inventory catalog; clear picks.
-                  setItems([emptyRow()]);
-                }}
-              />
-              <div className="space-y-1">
-                <Label className="text-xs">What are you buying?</Label>
+        <section className="space-y-5 rounded-2xl border bg-card p-5 shadow-sm">
+          <div className="flex flex-wrap gap-3">
+            <InstitutionFilter
+              className="w-full space-y-1 sm:w-72 [&_button]:h-10 [&_label]:text-xs [&_label]:font-semibold"
+              value={effectiveInstitution || undefined}
+              onChange={(id) => {
+                setInstitutionId(id);
+                // Different institution = different inventory catalog; clear picks.
+                setItems([emptyRow()]);
+              }}
+            />
+            {domainOptions.length > 1 && (
+              <div className="w-full space-y-1 sm:w-56">
+                <Label className="text-xs font-semibold">Type</Label>
                 <Select
                   value={domain}
                   onValueChange={(v) => {
@@ -211,7 +203,7 @@ export default function NewPurchaseRequestPage() {
                     setItems([emptyRow()]);
                   }}
                 >
-                  <SelectTrigger className="h-8 text-sm">
+                  <SelectTrigger className="h-10">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -223,194 +215,127 @@ export default function NewPurchaseRequestPage() {
                   </SelectContent>
                 </Select>
               </div>
-            </div>
-            {domain === 'resource_mgmt' && requestTypeSummary !== 'Restock' && (
-              <p className="text-xs text-amber-800 dark:text-amber-300">
-                Buying things that get used up or expire (reagents, gloves)? Request them under
-                <b> Consumables &amp; chemicals</b> instead.
-              </p>
             )}
-
-            <div className="border-t pt-3">
-              <div className="hidden grid-cols-[minmax(0,2fr)_minmax(0,1.3fr)_64px_28px] gap-2 px-1 pb-1 text-xs text-muted-foreground md:grid">
-                <span>Item</span>
-                <span>Specification</span>
-                <span>Qty</span>
-                <span />
-              </div>
-
-              <div className="divide-y">
-                {items.map((item, idx) => {
-                  return (
-                    <div key={idx} className="space-y-1.5 py-2">
-                      <div className="grid grid-cols-[1fr_64px_28px] gap-2 md:grid-cols-[minmax(0,2fr)_minmax(0,1.3fr)_64px_28px]">
-                        <div className="col-span-3 md:col-span-1 [&_button]:h-8 [&_button]:text-sm">
-                          <CatalogItemPicker
-                            domain={domain}
-                            ctx={ctx}
-                            value={item.item_name || null}
-                            placeholder="Search or type an item…"
-                            onSelect={(sel) =>
-                              updateItem(idx, {
-                                is_new: false,
-                                domain_item_id: sel.domainItemId,
-                                item_name: sel.name,
-                                item_spec: sel.spec ?? item.item_spec ?? '',
-                                unit_id: sel.unitId ?? null,
-                                unit_label: sel.unitLabel ?? item.unit_label ?? '',
-                                current_stock: sel.currentStock ?? null,
-                                reorder_level: sel.reorderLevel ?? null,
-                                estimated_cost:
-                                  item.estimated_cost ?? (sel.costPrice != null ? sel.costPrice : undefined),
-                              })
-                            }
-                            // Not in the catalog → the same box turns it into a new-item line.
-                            onCreateNew={(name) =>
-                              updateItem(idx, {
-                                is_new: true,
-                                item_name: name,
-                                domain_item_id: null,
-                                unit_id: null,
-                                current_stock: null,
-                                reorder_level: null,
-                              })
-                            }
-                          />
-                        </div>
-                        <Input
-                          className="col-span-3 h-8 text-sm md:col-span-1"
-                          value={item.item_spec ?? ''}
-                          onChange={(e) => updateItem(idx, { item_spec: e.target.value })}
-                          placeholder="Size, brand, grade…"
-                        />
-                        <Input
-                          className="h-8 text-sm"
-                          type="number"
-                          min={1}
-                          aria-label="Quantity"
-                          value={item.required_quantity}
-                          onChange={(e) => updateItem(idx, { required_quantity: Number(e.target.value) })}
-                        />
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-8 w-7"
-                          aria-label="Remove item"
-                          onClick={() => removeRow(idx)}
-                          disabled={items.length === 1}
-                        >
-                          <Trash2 className="h-4 w-4 text-destructive" />
-                        </Button>
-                      </div>
-                      {item.is_new && (
-                        <span className="inline-block rounded bg-blue-100 px-1.5 py-0.5 text-[11px] font-medium text-blue-800 dark:bg-blue-950 dark:text-blue-200">
-                          New item
-                        </span>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-
-              <div className="space-y-1 pt-2">
-                <Label className="text-xs">
-                  Reason for this request
-                  {items.some((i) => i.is_new) ? ' (required for new items)' : ' (optional)'}
-                </Label>
-                <Input
-                  className="h-8 text-sm"
-                  value={commonReason}
-                  onChange={(e) => setCommonReason(e.target.value)}
-                  placeholder="e.g. Practical chemicals for the 2026-27 batch"
-                />
-              </div>
-
-              <div className="flex flex-wrap items-center gap-1">
-                <Button variant="ghost" size="sm" className="mt-1 text-primary" onClick={addRow}>
-                  <Plus className="mr-1 h-4 w-4" />
-                  Add another item
-                </Button>
-                <RequestFileImport
-                  domain={domain}
-                  ctx={ctx}
-                  // Imported lines replace the blank starter row(s) and follow any already filled in.
-                  onAdd={(rows) => setItems((cur) => [...cur.filter((r) => r.item_name.trim()), ...rows])}
-                />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        <div className="flex justify-end gap-2">
-          <Button variant="outline" onClick={() => router.back()}>
-            Cancel
-          </Button>
-          <Button onClick={handleSubmit} disabled={createPR.isPending}>
-            Review &amp; submit
-          </Button>
-        </div>
-      </div>
-
-      <Dialog open={previewOpen} onOpenChange={setPreviewOpen}>
-        <DialogContent className="flex max-h-[90vh] max-w-2xl flex-col">
-          <DialogHeader>
-            <DialogTitle>Review request</DialogTitle>
-          </DialogHeader>
-          {/* Only the item list scrolls, so the footer buttons stay on screen for long AI-read lists. */}
-          <div className="flex min-h-0 flex-1 flex-col space-y-4">
-            <div className="grid gap-2 text-sm sm:grid-cols-2">
-              <div>
-                <span className="text-muted-foreground">Request type: </span>
-                {requestTypeSummary}
-              </div>
-              <div>
-                <span className="text-muted-foreground">Items: </span>
-                {cleanedItems.length}
-              </div>
-            </div>
-            <div className="min-h-0 flex-1 overflow-auto rounded-md border">
-              <table className="w-full text-sm">
-                <thead className="sticky top-0 z-10 bg-background">
-                  <tr className="border-b bg-muted/50 text-left text-xs text-muted-foreground">
-                    <th className="px-3 py-2 font-medium">Item</th>
-                    <th className="px-3 py-2 font-medium">Qty</th>
-                    <th className="px-3 py-2 font-medium">Unit</th>
-                    <th className="px-3 py-2 font-medium">Type</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {cleanedItems.map((item, idx) => (
-                    <tr key={idx} className="border-b last:border-0">
-                      <td className="px-3 py-2">
-                        {item.item_name}
-                        {item.item_spec?.trim() && (
-                          <span className="block text-xs text-muted-foreground">
-                            {item.item_spec}
-                          </span>
-                        )}
-                      </td>
-                      <td className="px-3 py-2">{item.required_quantity}</td>
-                      <td className="px-3 py-2">{item.unit_label?.trim() || '—'}</td>
-                      <td className="px-3 py-2">{item.is_new ? 'New item' : 'From catalog'}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
           </div>
-          <p className="hidden text-sm text-muted-foreground sm:block">
-            It goes for approval first; then the store collects vendor quotations.
-          </p>
-          <DialogFooter className="gap-2 sm:gap-0">
-            <Button variant="outline" className="w-full sm:w-auto" onClick={() => setPreviewOpen(false)}>
-              Back to edit
+
+          <div className="space-y-1">
+            <Label htmlFor="request-title" className="text-xs font-semibold">
+              What is it for?
+            </Label>
+            <Input
+              id="request-title"
+              className="h-10"
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              maxLength={80}
+              placeholder="e.g. Microbiology practicals, 2026-27 batch"
+            />
+          </div>
+          {domain === 'resource_mgmt' && requestTypeSummary !== 'Restock' && (
+            <p className="text-xs text-amber-800 dark:text-amber-300">
+              Buying things that get used up or expire (reagents, gloves)? Request them under
+              <b> Consumables &amp; chemicals</b> instead.
+            </p>
+          )}
+
+          {/* Items: a light row each — what, a hint, qty, remove */}
+          <fieldset className="space-y-2">
+            <legend className="mb-1 text-xs font-semibold">Items</legend>
+            {items.map((item, idx) => (
+              <div key={idx} className="flex items-start gap-2 rounded-xl bg-muted/50 p-2.5">
+                <div className="min-w-0 flex-1 space-y-1.5 [&_button]:h-9">
+                  <CatalogItemPicker
+                    domain={domain}
+                    ctx={ctx}
+                    value={item.item_name || null}
+                    placeholder="Search or type an item…"
+                    onSelect={(sel) =>
+                      updateItem(idx, {
+                        is_new: false,
+                        domain_item_id: sel.domainItemId,
+                        item_name: sel.name,
+                        item_spec: sel.spec ?? item.item_spec ?? '',
+                        unit_id: sel.unitId ?? null,
+                        unit_label: sel.unitLabel ?? item.unit_label ?? '',
+                        current_stock: sel.currentStock ?? null,
+                        reorder_level: sel.reorderLevel ?? null,
+                        estimated_cost: item.estimated_cost ?? (sel.costPrice != null ? sel.costPrice : undefined),
+                      })
+                    }
+                    // Not in the catalog → the same box turns it into a new-item line.
+                    onCreateNew={(name) =>
+                      updateItem(idx, {
+                        is_new: true,
+                        item_name: name,
+                        domain_item_id: null,
+                        unit_id: null,
+                        current_stock: null,
+                        reorder_level: null,
+                      })
+                    }
+                  />
+                  {item.item_name && (
+                    <Input
+                      className="h-8 bg-background text-xs"
+                      value={item.item_spec ?? ''}
+                      onChange={(e) => updateItem(idx, { item_spec: e.target.value })}
+                      placeholder="Size, brand, grade (optional)"
+                      aria-label={`Specification for ${item.item_name}`}
+                    />
+                  )}
+                  {item.is_new ? (
+                    <p className="text-xs text-blue-700 dark:text-blue-300">New item — not in the store yet</p>
+                  ) : item.current_stock != null ? (
+                    <p className="text-xs text-amber-700 dark:text-amber-400">
+                      {Number(item.current_stock)} already in stock
+                      {item.reorder_level != null ? ` · reorder at ${Number(item.reorder_level)}` : ''}
+                    </p>
+                  ) : null}
+                </div>
+                <Input
+                  className="h-9 w-16 shrink-0 bg-background text-center tabular-nums"
+                  type="number"
+                  min={1}
+                  aria-label={`Quantity${item.item_name ? ` for ${item.item_name}` : ''}`}
+                  value={item.required_quantity}
+                  onChange={(e) => updateItem(idx, { required_quantity: Number(e.target.value) })}
+                />
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-9 w-8 shrink-0 text-muted-foreground"
+                  aria-label="Remove item"
+                  onClick={() => removeRow(idx)}
+                  disabled={items.length === 1}
+                >
+                  <X className="h-4 w-4" />
+                </Button>
+              </div>
+            ))}
+            <div className="flex flex-wrap items-center gap-1">
+              <Button variant="ghost" size="sm" className="text-primary" onClick={addRow}>
+                <Plus className="mr-1 h-4 w-4" />
+                Add item
+              </Button>
+              <RequestFileImport
+                domain={domain}
+                ctx={ctx}
+                // Imported lines replace the blank starter row(s) and follow any already filled in.
+                onAdd={(rows) => setItems((cur) => [...cur.filter((r) => r.item_name.trim()), ...rows])}
+              />
+            </div>
+          </fieldset>
+
+          <div className="flex items-center justify-end gap-2 pt-1">
+            <Button variant="ghost" onClick={() => router.back()}>
+              Cancel
             </Button>
-            <Button className="w-full sm:w-auto" onClick={handleConfirmCreate} disabled={createPR.isPending}>
-              {createPR.isPending ? 'Submitting…' : 'Submit request'}
+            <Button className="h-11 px-6" onClick={handleSubmit} disabled={createPR.isPending}>
+              {createPR.isPending ? 'Sending…' : 'Send for approval'}
             </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+          </div>
+        </section>
+      </div>
     </ContentLayout>
   );
 }

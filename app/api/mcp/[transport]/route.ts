@@ -4,6 +4,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js';
 import { registerAllTools } from '@/lib/mcp/register-tools';
 import { verifyMcpToken } from '@/lib/mcp/auth-bridge';
+import { handlePersonalKeyRequest, isPersonalKeyToken } from '@/lib/mcp/personal-door';
 
 /**
  * MCP route handler using the SDK directly (stateless mode).
@@ -15,6 +16,12 @@ async function handler(req: Request) {
   const authHeader = req.headers.get('Authorization');
   const [type, token] = authHeader?.split(' ') ?? [];
   const bearerToken = type?.toLowerCase() === 'bearer' ? token : undefined;
+
+  // A person's OWN key (jkkn_pk_…): catalog tools, run as that person, never
+  // with the service role. Administrator keys continue below, unchanged.
+  if (isPersonalKeyToken(bearerToken)) {
+    return handlePersonalKeyRequest(req, bearerToken);
+  }
 
   let authResult: Awaited<ReturnType<typeof verifyMcpToken>>;
   try {
