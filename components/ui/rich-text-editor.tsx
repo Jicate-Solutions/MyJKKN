@@ -280,6 +280,9 @@ export function RichTextEditor({
     // Tiptap renders on the server otherwise, causing hydration mismatches in
     // the Next.js App Router. Defer the first render to the client.
     immediatelyRender: false,
+    // v3 no longer re-renders on every transaction by default; the toolbar reads
+    // editor.isActive() during render, so keep the v2 behaviour.
+    shouldRerenderOnTransaction: true,
     extensions: [
       StarterKit.configure({
         // Extended mode enables Word/SOP-style headings; compact mode keeps the
@@ -287,7 +290,11 @@ export function RichTextEditor({
         heading: extended ? { levels: [1, 2, 3] } : false,
         codeBlock: false,
         code: false,
-        blockquote: false
+        blockquote: false,
+        // TipTap v3's StarterKit bundles Link and Underline; both are registered
+        // explicitly below, so switch the bundled copies off.
+        link: false,
+        underline: false
       }),
       Underline,
       Link.configure({
@@ -338,7 +345,7 @@ export function RichTextEditor({
       const currentValue = isEmpty ? '' : currentHTML;
 
       if (value !== currentValue) {
-        editor.commands.setContent(value || '');
+        editor.commands.setContent(value || '', { emitUpdate: false });
       }
     }
   }, [editor, value]);
