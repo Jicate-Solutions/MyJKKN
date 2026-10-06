@@ -16,6 +16,7 @@ import {
   RefreshCw,
   X,
   Loader2,
+  Globe,
 } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
@@ -54,6 +55,7 @@ import type {
 } from '@/types/hr-recruitment';
 
 import { SkillsInput } from './skills-input';
+import { EMPTY_JOB_SEO, JobSeoCard, jobSeoToColumns, validateJobSeo } from '../../_components/job-seo-card';
 
 // ---------------------------------------------------------------------------
 // Location data
@@ -88,6 +90,7 @@ const SECTIONS = [
   { id: 'job-specification', label: 'Job Specification', Icon: BookOpen },
   { id: 'job-description', label: 'Job Description', Icon: FileText },
   { id: 'skills', label: 'Skills', Icon: Zap },
+  { id: 'website-seo', label: 'Website SEO', Icon: Globe },
 ] as const;
 
 type SectionId = (typeof SECTIONS)[number]['id'];
@@ -150,6 +153,9 @@ export function CreateJobForm() {
 
   // ---- Meta ----
   const [positionsOpen, setPositionsOpen] = useState(1);
+  // ---- Website SEO (hidden from applicants) ----
+  const [seo, setSeo] = useState(EMPTY_JOB_SEO);
+
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -217,6 +223,12 @@ export function CreateJobForm() {
         scrollToSection('basic-details');
         return;
       }
+      const seoError = validateJobSeo(seo);
+      if (seoError) {
+        setError(seoError);
+        scrollToSection('website-seo');
+        return;
+      }
       setError(null);
       setIsSaving(true);
       try {
@@ -248,6 +260,7 @@ export function CreateJobForm() {
           department_id: departmentId || undefined,
           positions_open: positionsOpen,
           status: saveStatus as JobStatus,
+          ...jobSeoToColumns(seo),
         });
         toast.success(saveStatus === 'open' ? 'Job published!' : 'Draft saved');
         router.push('/hr/recruitment/jobs');
@@ -263,7 +276,7 @@ export function CreateJobForm() {
       title, institutionId, roleCategory, jobCode, jobType, industry, employerType,
       country, locationState, city, zipCode, educationLevel, minExpYears, maxExpYears,
       minSalary, maxSalary, salaryCurrency, salaryDuration, displaySalary,
-      description, qualifications, skills, departmentId, positionsOpen,
+      description, qualifications, skills, departmentId, positionsOpen, seo,
       createJob, router, scrollToSection,
     ]
   );
@@ -899,6 +912,9 @@ export function CreateJobForm() {
               <SkillsInput skills={skills} onChange={setSkills} />
             </CardContent>
           </Card>
+
+          {/* ── Website SEO (hidden from applicants) ───────────────── */}
+          <JobSeoCard value={seo} onChange={setSeo} jobTitle={title} institutionName={institutionName} />
 
           {/* Mobile-only: positions open + public toggle */}
           <Card className="lg:hidden">
