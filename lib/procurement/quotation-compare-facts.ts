@@ -82,6 +82,30 @@ export interface FactVendor {
   above_cheapest_full: number | null;
   suspect_prices: number;
   notes: string | null;
+  /** Past-delivery record (vendor rating loop); absent when not loaded. */
+  history?: VendorHistory;
+}
+
+/** What past deliveries say about a vendor — from procurement_vendor_kpis + ratings. */
+export interface VendorHistory {
+  /** 0–100, null with no data at all. */
+  score: number | null;
+  /** A/B/C/D, null while New (fewer than 3 deliveries). D = Watch. */
+  grade: string | null;
+  deliveries: number;
+  /** Ratings of 2★ or less, or "not to spec", on THIS RFQ's items from this vendor. */
+  low_item_ratings: { item: string; avg_stars: number; ratings: number; comment: string | null }[];
+}
+
+/** Adds each vendor's history (kept out of buildCompareFacts so that stays pure on quotes). */
+export function attachVendorHistory(
+  facts: CompareFacts,
+  history: Map<string, VendorHistory>,
+): CompareFacts {
+  return {
+    ...facts,
+    vendors: facts.vendors.map((v) => (history.has(v.supplier_id) ? { ...v, history: history.get(v.supplier_id) } : v)),
+  };
 }
 
 export interface ScenarioLine {
@@ -331,6 +355,25 @@ export function renderFactsForPrompt(f: CompareFacts): string {
         v.validity_expired ? ' (EXPIRED)' : ''
       } | ${cell(v.quote_number)} |`,
     );
+  }
+
+  const withHistory = f.vendors.filter((v) => v.history);
+  if (withHistory.length) {
+    out.push('\n### Vendor history (past 12 months of deliveries and user ratings)');
+    out.push('Grades: A strong, B good, C fair, D = Watch (poor record). New = fewer than 3 deliveries, i.e. no history yet — not a bad sign.');
+    out.push('| Ref | Vendor | Grade | Score /100 | Deliveries | Poor ratings on these items |');
+    out.push('|---|---|---|---|---|---|');
+    for (const v of withHistory) {
+      const h = v.history!;
+      const low = h.low_item_ratings.length
+        ? h.low_item_ratings
+            .map((r) => `${cell(r.item)} ${r.avg_stars}★ (${r.ratings})${r.comment ? `: "${cell(r.comment)}"` : ''}`)
+            .join('; ')
+        : '—';
+      out.push(
+        `| ${v.ref} | ${cell(v.name)} | ${h.grade === 'D' ? 'D (WATCH)' : h.grade ?? 'New'} | ${h.score ?? '—'} | ${h.deliveries} | ${low} |`,
+      );
+    }
   }
 
   out.push('\n### Items');
