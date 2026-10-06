@@ -5,3 +5,4 @@ export * from './quotation';
 export * from './purchase-order';
 export * from './grn';
 export * from './po-format';
+export * from './approval-chain';
