@@ -206,7 +206,7 @@ CREATE POLICY ppri_approver_read ON public.procurement_purchase_request_items FO
 
 -- 4 starter categories (steps are set on the Approval Flows page).
 INSERT INTO public.procurement_categories (name, sort_order) VALUES
-  ('Learning lab chemicals & glassware', 1), ('IT & electronics', 2),
+  ('Chemicals & glassware', 1), ('IT & electronics', 2),
   ('Stationery & office', 3), ('Furniture & maintenance', 4)
 ON CONFLICT DO NOTHING;
 ```
