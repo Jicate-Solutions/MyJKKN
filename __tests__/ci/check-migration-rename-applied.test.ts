@@ -24,7 +24,7 @@ let dir: string;
 type Rename = { from: string; to: string; sql?: string };
 type Fixture = {
   renames: Rename[];
-  ledger?: string[];
+  ledger?: (string | { version: string; name: string | null })[];
   existing?: string[];
   credentials?: boolean;
 };
@@ -148,6 +148,180 @@ describe('ledger hits are definitive in the positive direction', () => {
     const r = run({ ...base, ledger: ['20260801002301'] });
     expect(r.code).toBe(1);
     expect(r.out).toContain('ledger-target');
+  });
+});
+
+/**
+ * PR #4207, 2026-10-05: two files shared version 20271005090000. The ledger row
+ * belonged to the OTHER file (a procurement migration); the renamed
+ * gate_pass_expired_status file had never run. A hit is definitive only for the
+ * file schema_migrations.name names.
+ */
+describe('a ledger hit belongs to the file it names (PR #4207, 2026-10-05)', () => {
+  const shared = (ledgerName: string | null, existing: string[]): Fixture => ({
+    renames: [{
+      from: mig('20271005090000', 'gate_pass_expired_status'),
+      to: mig('20271005090001', 'gate_pass_expired_status'),
+      sql: `CREATE TABLE IF NOT EXISTS public.gate_pass_expiry_log (id uuid);
+            ALTER TABLE public.gate_passes ADD COLUMN IF NOT EXISTS expired_at TIMESTAMPTZ;`,
+    }],
+    ledger: [{ version: '20271005090000', name: ledgerName }],
+    existing,
+  });
+
+  it('still FAILS when the ledger row names THIS file', () => {
+    const r = run(shared('gate_pass_expired_status', []));
+    expect(r.code).toBe(1);
+    expect(r.out).toContain('ledger-source');
+  });
+
+  it('PASSES when the row names a different file and this file\'s objects are absent — with a note naming that file', () => {
+    const r = run(shared('procurement_po_approval', []));
+    expect(r.code).toBe(0);
+    expect(r.out).toContain('not-applied');
+    expect(r.out).toContain('ledger-shadowed');
+    expect(r.out).toContain('20271005090000_procurement_po_approval.sql');
+  });
+
+  it('FAILS when the row names a different file but this file\'s objects ARE present', () => {
+    const r = run(shared('procurement_po_approval',
+      ['table:gate_pass_expiry_log', 'column:gate_passes.expired_at']));
+    expect(r.code).toBe(1);
+    expect(r.out).toContain('applied-by-object');
+    expect(r.out).toContain('ledger-shadowed');
+  });
+
+  it('verdictFor itself sets aside a hit recorded under another file\'s name', async () => {
+    // Driven directly so the evidence does not hinge on the fixture format: the
+    // ledger here is the same Set of versions the pre-#4207 code already read.
+    const { verdictFor, extractObjects, extractReplacedObjects } = await import(SCRIPT);
+    const f = shared('procurement_po_approval', []).renames[0];
+    const v = verdictFor({
+      rename: { ...f, fromVersion: '20271005090000', toVersion: '20271005090001' },
+      objects: extractObjects(f.sql!),
+      replaced: extractReplacedObjects(f.sql!),
+      presentSet: new Set(),
+      ledgerSet: new Set(['20271005090000']),
+      ledgerNames: new Map([['20271005090000', 'procurement_po_approval']]),
+      attested: null,
+      credentials: true,
+    });
+    expect(v.reason).toBe('not-applied');
+    expect(v.level).toBe('pass');
+  });
+
+  it('FAILS when the row is this file under the version-prefixed name form', async () => {
+    // 222 of 3,575 live ledger rows store "<version>_<name>", not "<name>". The
+    // file's OWN row in that form must still count as applied, not as a shadow.
+    const { verdictFor, extractObjects, extractReplacedObjects, nameOf } = await import(SCRIPT);
+    const f = shared('procurement_po_approval', []).renames[0];
+    const v = verdictFor({
+      rename: { ...f, fromVersion: '20271005090000', toVersion: '20271005090001' },
+      objects: extractObjects(f.sql!),
+      replaced: extractReplacedObjects(f.sql!),
+      presentSet: new Set(),
+      ledgerSet: new Set(['20271005090000']),
+      ledgerNames: new Map([['20271005090000', `20271005090000_${nameOf(f.from)}`]]),
+      attested: null,
+      credentials: true,
+    });
+    expect(v.reason).toBe('ledger-source');
+    expect(v.level).toBe('fail');
+  });
+
+  it('FAILS when the row carries no name — it cannot be told apart from this file', () => {
+    const r = run(shared(null, []));
+    expect(r.code).toBe(1);
+    expect(r.out).toContain('ledger-source');
+  });
+});
+
+/**
+ * 2026-10-05, found by reading the LIVE ledger rather than the fixtures. The
+ * shadowed-version rule above compares schema_migrations.name to the file name.
+ * Two name forms in production defeat an exact, case-sensitive compare, and both
+ * fail in the DANGEROUS direction — this file's own row is mistaken for another
+ * file's, the hit is set aside, and an applied migration can be re-armed:
+ *
+ *   * 2 rows carry a human annotation after the name, e.g.
+ *     "learner_leave_types_backfill (applied by hand 28 Sep; recorded as
+ *      20260928085422; W12 desk 2026-10-01 on Director approval)"
+ *   * 2 rows differ from the file only in capitalisation.
+ *
+ * Matching is therefore liberal: over-matching keeps today's refusal (safe),
+ * under-matching re-arms applied work (unsafe).
+ */
+describe('a ledger name is still THIS file when annotated or differently cased', () => {
+  // A body with a createable object, so the 'nothing-parsed' net does not mask
+  // the verdict, and an empty presentSet so only the name decides.
+  const renameOf = (ledgerName: string | null): Fixture => ({
+    renames: [{
+      from: mig('20270415090100', 'learner_leave_types_backfill'),
+      to: mig('20270415090200', 'learner_leave_types_backfill'),
+      sql: 'CREATE TABLE IF NOT EXISTS public.leave_types_backfill_log (id uuid);',
+    }],
+    ledger: [{ version: '20270415090100', name: ledgerName }],
+    existing: [],
+  });
+
+  it('FAILS when the row is this file with an annotation after the name (live form)', () => {
+    const r = run(renameOf(
+      'learner_leave_types_backfill (applied by hand 28 Sep; recorded as 20260928085422; W12 desk 2026-10-01 on Director approval)'
+    ));
+    expect(r.code).toBe(1);
+    expect(r.out).toContain('ledger-source');
+  });
+
+  it('FAILS when the row is this file in a different case', () => {
+    const r = run(renameOf('Learner_Leave_Types_Backfill'));
+    expect(r.code).toBe(1);
+    expect(r.out).toContain('ledger-source');
+  });
+
+  it('FAILS when the row is this file, version-prefixed AND annotated', () => {
+    const r = run(renameOf(
+      '20270415090100_learner_leave_types_backfill (re-recorded 1 Oct)'
+    ));
+    expect(r.code).toBe(1);
+    expect(r.out).toContain('ledger-source');
+  });
+
+  it('FAILS when the row is this file recorded under a DIFFERENT version prefix', () => {
+    const r = run(renameOf('20260928085422_learner_leave_types_backfill'));
+    expect(r.code).toBe(1);
+    expect(r.out).toContain('ledger-source');
+  });
+
+  it('FAILS when the row is this file written as a path with .sql', () => {
+    const r = run(renameOf('supabase/migrations/20270415090100_learner_leave_types_backfill.sql'));
+    expect(r.code).toBe(1);
+    expect(r.out).toContain('ledger-source');
+  });
+
+  it('FAILS when the row is this file with dashes for underscores', () => {
+    const r = run(renameOf('learner-leave-types-backfill'));
+    expect(r.code).toBe(1);
+    expect(r.out).toContain('ledger-source');
+  });
+
+  it('FAILS when the row is this file with words glued on after an underscore', () => {
+    const r = run(renameOf('learner_leave_types_backfill_applied_by_hand'));
+    expect(r.code).toBe(1);
+    expect(r.out).toContain('ledger-source');
+  });
+
+  it('still PASSES for a genuinely different file — the #4207 case is not regressed', () => {
+    const r = run(renameOf('procurement_two_signoffs_guard'));
+    expect(r.code).toBe(0);
+    expect(r.out).toContain('ledger-shadowed');
+  });
+
+  it('does not treat a name that merely CONTAINS a shorter word as this file', () => {
+    // 'backfill' alone is not this file; the token test must match the whole
+    // recorded name against the whole file name, not any fragment of it.
+    const r = run(renameOf('backfill'));
+    expect(r.code).toBe(0);
+    expect(r.out).toContain('ledger-shadowed');
   });
 });
 
