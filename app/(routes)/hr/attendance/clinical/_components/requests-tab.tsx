@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { format } from 'date-fns';
 import { Check, Loader2, X } from 'lucide-react';
 
@@ -15,6 +15,7 @@ import {
 } from '@/components/ui/table';
 import {
   useClinicalEligibilities,
+  useClinicalSites,
   useDecideClinicalEligibility,
   useRevokeClinicalEligibility,
 } from '@/hooks/hr/use-clinical-duty';
@@ -56,6 +57,15 @@ export function RequestsTab({ institutions }: { institutions: InstitutionOption[
   });
   const decide = useDecideClinicalEligibility();
   const revoke = useRevokeClinicalEligibility();
+
+  // The Site column: a request stores site IDS, so the names come from the duty
+  // sites list (all institutions, inactive ones included — a request may still
+  // point at a site that has since been switched off).
+  const { data: sites, isLoading: sitesLoading } = useClinicalSites();
+  const siteById = useMemo(
+    () => new Map((sites ?? []).map((s) => [s.id, s] as const)),
+    [sites]
+  );
 
   const rows = data ?? [];
 
@@ -109,6 +119,7 @@ export function RequestsTab({ institutions }: { institutions: InstitutionOption[
                 <TableHead>Staff</TableHead>
                 <TableHead>Scope</TableHead>
                 <TableHead>Institution</TableHead>
+                <TableHead>Site</TableHead>
                 <TableHead>Valid</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead>Reason</TableHead>
@@ -123,7 +134,7 @@ export function RequestsTab({ institutions }: { institutions: InstitutionOption[
                   `rows` is [] while loading, so the map below renders nothing. */}
               {isLoading && (
                 <TableRow className="hover:bg-transparent">
-                  <TableCell colSpan={8} className="h-56">
+                  <TableCell colSpan={9} className="h-56">
                     <div
                       role="status"
                       aria-live="polite"
@@ -148,6 +159,32 @@ export function RequestsTab({ institutions }: { institutions: InstitutionOption[
                     <TableCell>{SCOPE_LABEL[r.scope_type]}</TableCell>
                     <TableCell className="text-muted-foreground">
                       {r.institution?.name ?? '—'}
+                    </TableCell>
+                    <TableCell className="max-w-[240px]">
+                      {/* site_ids null = every active site of the institution
+                          (fn_hr_clinical_allowed_sites); otherwise the named
+                          sites only. */}
+                      {r.site_ids == null ? (
+                        <span className="text-muted-foreground">All sites</span>
+                      ) : r.site_ids.length === 0 ? (
+                        <span className="text-muted-foreground">—</span>
+                      ) : sitesLoading ? (
+                        <span className="text-muted-foreground">…</span>
+                      ) : (
+                        <div className="flex flex-wrap gap-1">
+                          {r.site_ids.map((id) => {
+                            const site = siteById.get(id);
+                            return (
+                              <Badge key={id} variant="outline" className="font-normal">
+                                {site ? site.name : 'Removed site'}
+                                {site && !site.is_active && (
+                                  <span className="ml-1 text-muted-foreground">(inactive)</span>
+                                )}
+                              </Badge>
+                            );
+                          })}
+                        </div>
+                      )}
                     </TableCell>
                     <TableCell className="whitespace-nowrap">
                       {fmtDate(r.valid_from)} – {r.valid_until ? fmtDate(r.valid_until) : 'open'}
