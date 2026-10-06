@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { format } from 'date-fns';
-import { Check, X } from 'lucide-react';
+import { Check, Loader2, X } from 'lucide-react';
 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -46,7 +46,7 @@ const subjectOf = (r: ClinicalEligibility) => {
 type Pending = { kind: 'reject' | 'revoke'; row: ClinicalEligibility } | null;
 
 export function RequestsTab({ institutions }: { institutions: InstitutionOption[] }) {
-  const [status, setStatus] = useState<FilterStatus>('pending');
+  const [status, setStatus] = useState<FilterStatus>('all');
   const [institutionId, setInstitutionId] = useState('any');
   const [dialog, setDialog] = useState<Pending>(null);
 
@@ -89,14 +89,14 @@ export function RequestsTab({ institutions }: { institutions: InstitutionOption[
             </SelectContent>
           </Select>
         )}
-        <span className="text-xs text-muted-foreground">
-          {rows.length} request{rows.length === 1 ? '' : 's'}
-        </span>
+        {!isLoading && (
+          <span className="text-xs text-muted-foreground">
+            {rows.length} request{rows.length === 1 ? '' : 's'}
+          </span>
+        )}
       </div>
 
-      {isLoading ? (
-        <div className="text-sm text-muted-foreground">Loading requests…</div>
-      ) : rows.length === 0 ? (
+      {!isLoading && rows.length === 0 ? (
         <EmptyState
           title="No requests in this view"
           description="No clinical duty requests match the current filters."
@@ -117,6 +117,24 @@ export function RequestsTab({ institutions }: { institutions: InstitutionOption[
               </TableRow>
             </TableHeader>
             <TableBody>
+              {/* One row spanning every column, so the spinner sits in the middle
+                  of the table (both ways) under the real column headings instead
+                  of a line of text in the top-left that the table then replaces.
+                  `rows` is [] while loading, so the map below renders nothing. */}
+              {isLoading && (
+                <TableRow className="hover:bg-transparent">
+                  <TableCell colSpan={8} className="h-56">
+                    <div
+                      role="status"
+                      aria-live="polite"
+                      className="flex h-full flex-col items-center justify-center gap-2 text-sm text-muted-foreground"
+                    >
+                      <Loader2 className="h-6 w-6 animate-spin" />
+                      Loading requests…
+                    </div>
+                  </TableCell>
+                </TableRow>
+              )}
               {rows.map((r) => {
                 const subject = subjectOf(r);
                 return (
