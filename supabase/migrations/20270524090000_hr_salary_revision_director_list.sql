@@ -328,9 +328,16 @@ BEGIN
   SELECT monthly_gross INTO v_now_pay
     FROM public.hr_staff_salaries WHERE staff_id = v_r.staff_id AND superseded_by IS NULL;
 
+  -- A fresh yes after a missed start finds the earlier outcome row (request_id
+  -- is UNIQUE), so it is overwritten rather than deleted and re-inserted.
   INSERT INTO public.hr_salary_revision_outcomes
     (request_id, staff_id, previous_monthly_gross, new_monthly_gross, starts_on)
-  VALUES (p_request_id, v_r.staff_id, COALESCE(v_now_pay, v_r.current_monthly_gross), v_final, v_start);
+  VALUES (p_request_id, v_r.staff_id, COALESCE(v_now_pay, v_r.current_monthly_gross), v_final, v_start)
+  ON CONFLICT (request_id) DO UPDATE
+     SET staff_id = EXCLUDED.staff_id,
+         previous_monthly_gross = EXCLUDED.previous_monthly_gross,
+         new_monthly_gross = EXCLUDED.new_monthly_gross,
+         starts_on = EXCLUDED.starts_on;
 
   SELECT profile_id, TRIM(BOTH FROM COALESCE(first_name, '') || ' ' || COALESCE(last_name, ''))
     INTO v_subject, v_name
@@ -421,8 +428,8 @@ BEGIN
       -- for a fresh yes, which sets a fresh start date. Both are told.
       IF v_r.starts_on < p_today THEN
         -- The person was told of a change that is not happening on that date;
-        -- the fresh yes tells them again, with the new date.
-        DELETE FROM public.hr_salary_revision_outcomes WHERE request_id = v_r.id;
+        -- the fresh yes tells them again, with the new date, and overwrites
+        -- their outcome row (approve_one upserts on request_id).
         UPDATE public.hr_salary_revision_requests
            SET status = 'waiting_director', starts_on = NULL, final_monthly_gross = NULL,
                director_decided_by = NULL, director_decided_at = NULL,
