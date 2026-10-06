@@ -103,19 +103,37 @@ const ORIGINALS: Expected[] = [
   { url: 'qr/generate', slug: ['qr', 'generate'], name: 'qr-generate', params: {}, methods: ['GET'] },
 ];
 
+/**
+ * Endpoints added to the table after the fold (2026-10-06): spot entries and
+ * changing a fixture side. Kept apart from ORIGINALS so that list stays the
+ * transcript of the fold.
+ */
+const ADDED: Expected[] = [
+  { url: 'spot-entry', slug: ['spot-entry'], name: 'spot-entry', params: {}, methods: ['POST'] },
+  {
+    url: `matches/${MATCH_ID}/side`,
+    slug: ['matches', MATCH_ID, 'side'],
+    name: 'matches-match-side',
+    params: { matchId: MATCH_ID },
+    methods: ['POST'],
+  },
+];
+
+const ALL_ROUTES: Expected[] = [...ORIGINALS, ...ADDED];
+
 const ALL_METHODS: TournamentMethod[] = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'];
 
 describe('tournament catch-all dispatch', () => {
-  it('covers exactly the 11 route files that were folded', () => {
+  it('covers exactly the 11 folded route files plus the endpoints added since', () => {
     expect(ORIGINALS).toHaveLength(11);
-    expect(TOURNAMENT_ROUTES).toHaveLength(11);
+    expect(TOURNAMENT_ROUTES).toHaveLength(ALL_ROUTES.length);
 
     const names = TOURNAMENT_ROUTES.map((r) => r.name);
-    expect(new Set(names).size).toBe(11);
-    expect([...names].sort()).toEqual([...ORIGINALS.map((o) => o.name)].sort());
+    expect(new Set(names).size).toBe(ALL_ROUTES.length);
+    expect([...names].sort()).toEqual([...ALL_ROUTES.map((o) => o.name)].sort());
   });
 
-  it.each(ORIGINALS)('resolves /$url to the $name handler', (expected) => {
+  it.each(ALL_ROUTES)('resolves /$url to the $name handler', (expected) => {
     const match = matchTournamentRoute(expected.slug);
 
     expect(match, `no table entry matched /${expected.url}`).not.toBeNull();
@@ -123,7 +141,7 @@ describe('tournament catch-all dispatch', () => {
     expect(match!.params).toEqual(expected.params);
   });
 
-  it.each(ORIGINALS)('/$url still answers exactly its original methods', (expected) => {
+  it.each(ALL_ROUTES)('/$url still answers exactly its original methods', (expected) => {
     const match = matchTournamentRoute(expected.slug)!;
 
     // Declared methods match the original file's exports...
@@ -189,6 +207,8 @@ describe('tournament catch-all dispatch', () => {
     [['award', 'extra']],
     [['public-register', 'extra']],
     [['fixtures', 'extra']],
+    [['spot-entry', 'extra']],
+    [['matches', MATCH_ID, 'side', 'extra']],
   ])('rejects the unknown path /%s', (slug) => {
     expect(matchTournamentRoute(slug)).toBeNull();
   });

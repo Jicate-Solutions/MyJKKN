@@ -24,9 +24,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Loader2, GitBranch, CalendarClock, RefreshCw, Swords, Trophy, Medal, Network } from 'lucide-react';
+import { Loader2, GitBranch, CalendarClock, RefreshCw, Swords, Trophy, Medal, Network, UserPen, UserPlus } from 'lucide-react';
 import { formatIstDate, formatIstTime } from '@/lib/utils/date-format';
-import type { TournamentMatch, RecordResultDto } from '@/types/tournament';
+import type { TournamentMatch, RecordResultDto, TournamentDivision, TournamentEntry } from '@/types/tournament';
 import {
   useGenerateFixtures,
   useScheduleMatch,
@@ -37,6 +37,12 @@ import {
 import { useMediaQuery } from '@/hooks/use-media-query';
 import { MobileScoreSheet } from './mobile-score-sheet';
 import { istLocalInputToIso } from '@/lib/utils/date-format';
+import {
+  EditMatchSideDialog,
+  SpotEntryDialog,
+  editableSlots,
+  unplacedEntries,
+} from './fixture-edit-dialogs';
 
 function MatchStatusBadge({ status }: { status: string }) {
   const map: Record<string, string> = {
@@ -222,6 +228,9 @@ export function DivisionFixtures({
   entryCount,
   divisionFormat,
   canManage = true,
+  division,
+  divisionLabel,
+  entries = [],
 }: {
   eventId: string;
   divisionId: string;
@@ -230,12 +239,22 @@ export function DivisionFixtures({
   divisionFormat?: string;
   /** false → read-only bracket (committee members / view-only roles). */
   canManage?: boolean;
+  /** The division row — needed for spot entries (eligibility, fee, team vs individual). */
+  division?: TournamentDivision;
+  divisionLabel?: string;
+  /** This division's entries — the pool an organiser places into the bracket from. */
+  entries?: TournamentEntry[];
 }) {
   const generate = useGenerateFixtures(eventId);
   const award = useAwardAchievements(eventId);
   const poolKnockout = useGenerateKnockoutFromPools(eventId);
   const [scheduling, setScheduling] = useState<TournamentMatch | null>(null);
   const [recording, setRecording] = useState<TournamentMatch | null>(null);
+  const [editing, setEditing] = useState<TournamentMatch | null>(null);
+  const [spotOpen, setSpotOpen] = useState(false);
+  // Changing sides is knockout-only (fn_tournament_set_match_side).
+  const canEditSides = canManage && divisionFormat === 'knockout';
+  const unplaced = useMemo(() => unplacedEntries(entries, matches), [entries, matches]);
   // Phones get the one-handed courtside score sheet; wider screens keep the dialog.
   // Only read after a tap (recording != null), which is always post-hydration.
   const isPhone = useMediaQuery('(max-width: 640px)');
@@ -258,6 +277,21 @@ export function DivisionFixtures({
     }
     return [...m.entries()].sort((a, b) => a[0] - b[0]);
   }, [matches]);
+
+  const spotEntryButton = canManage && division && (
+    <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => setSpotOpen(true)}>
+      <UserPlus className="mr-1 h-3 w-3" /> Spot entry
+    </Button>
+  );
+  const spotEntryDialog = spotOpen && division && (
+    <SpotEntryDialog
+      eventId={eventId}
+      division={division}
+      divisionLabel={divisionLabel ?? division.sport}
+      open={spotOpen}
+      onOpenChange={setSpotOpen}
+    />
+  );
 
   if (matches.length === 0) {
     return (
@@ -283,8 +317,10 @@ export function DivisionFixtures({
             {entryCount < 2 && (
               <p className="mt-1 text-[11px] text-muted-foreground">Need at least 2 entries.</p>
             )}
+            {spotEntryButton && <div className="mt-2">{spotEntryButton}</div>}
           </>
         )}
+        {spotEntryDialog}
       </div>
     );
   }
@@ -296,6 +332,7 @@ export function DivisionFixtures({
           <Swords className="h-3.5 w-3.5" /> Fixtures
         </span>
         <div className="flex flex-wrap items-center justify-end gap-1">
+          {spotEntryButton}
           {canManage && poolsDone && (
             <Button
               size="sm"
@@ -352,6 +389,14 @@ export function DivisionFixtures({
         </div>
       </div>
 
+      {canEditSides && unplaced.length > 0 && (
+        <p className="mb-2 rounded-md bg-amber-50 p-2 text-xs text-amber-800 dark:bg-amber-950/40 dark:text-amber-300">
+          Not in the bracket yet: {unplaced.map((e) => e.entry_name).join(', ')}. Use{' '}
+          <UserPen className="inline h-3 w-3" /> on an unplayed match or a bye to place{' '}
+          {unplaced.length === 1 ? 'it' : 'them'}.
+        </p>
+      )}
+
       <div className="space-y-3">
         {byRound.map(([round, ms]) => (
           <div key={round}>
@@ -378,6 +423,18 @@ export function DivisionFixtures({
                     </span>
                   )}
                   <MatchStatusBadge status={m.status} />
+                  {canEditSides && editableSlots(m, matches).length > 0 && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-7"
+                      onClick={() => setEditing(m)}
+                      title={m.status === 'bye' ? 'Fill the bye' : 'Change a team'}
+                      aria-label={m.status === 'bye' ? 'Fill the bye' : 'Change a team'}
+                    >
+                      <UserPen className="h-3.5 w-3.5" />
+                    </Button>
+                  )}
                   {canManage && m.status !== 'bye' && (
                     <Button
                       size="sm"
@@ -408,6 +465,17 @@ export function DivisionFixtures({
         ))}
       </div>
 
+      {editing && (
+        <EditMatchSideDialog
+          eventId={eventId}
+          match={editing}
+          matches={matches}
+          entries={entries}
+          open={!!editing}
+          onOpenChange={(v) => !v && setEditing(null)}
+        />
+      )}
+      {spotEntryDialog}
       {scheduling && (
         <ScheduleDialog
           eventId={eventId}

@@ -742,6 +742,47 @@ export interface GenerateFixturesResult {
   matches_created: number;
 }
 
+/**
+ * Put an entry into one side of an unplayed knockout match, or into the empty
+ * side of a bye (fn_tournament_set_match_side, migration 20271006100000).
+ */
+export interface SetMatchSideDto {
+  slot: 'a' | 'b';
+  entry_id: string;
+}
+
+/** How an organiser collected a spot entry's fee (fee divisions only). */
+export type SpotEntryPaymentMethod = 'cash' | 'upi' | 'card' | 'other';
+
+export const SPOT_ENTRY_PAYMENT_METHODS: { value: SpotEntryPaymentMethod; label: string }[] = [
+  { value: 'cash', label: 'Cash' },
+  { value: 'upi', label: 'UPI' },
+  { value: 'card', label: 'Card' },
+  { value: 'other', label: 'Other' },
+];
+
+/**
+ * An organiser registering someone at the venue after registration closed
+ * (/api/events/tournament/[eventId]/spot-entry). Eligibility is checked as for
+ * self-registration; a fee division needs the fee collected first.
+ */
+export interface CreateSpotEntryDto {
+  division_id: string;
+  entry_name: string;                 // player name OR team name
+  /** Optional JKKN learner register / roll number — links the learner (or team captain). */
+  learner_register_number?: string | null;
+  is_external?: boolean;
+  institution_name?: string | null;
+  participant_phone?: string | null;
+  participant_gender?: string | null;
+  participant_age?: number | null;
+  members?: CreateTeamMemberDto[];
+  /** Required (true) for a division with an entry fee. */
+  fee_collected?: boolean;
+  payment_method?: SpotEntryPaymentMethod | null;
+  payment_reference?: string | null;
+}
+
 // ============================================================================
 // PR4 — Results + standings + public scoreboard
 // ============================================================================

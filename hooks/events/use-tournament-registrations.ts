@@ -7,7 +7,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import toast from 'react-hot-toast';
 import { TournamentRegistrationService } from '@/lib/services/events/tournament/tournament-registration-service';
-import type { UpdateEntryDto } from '@/types/tournament';
+import type { CreateSpotEntryDto, UpdateEntryDto } from '@/types/tournament';
 
 const KEYS = {
   entries: (eventId: string) => ['tournament-entries', eventId] as const,
@@ -45,6 +45,18 @@ export function useMarkEntryPaid(eventId: string) {
       toast.success('Marked as paid');
     },
     onError: (e: Error) => toast.error(e.message || 'Failed to mark paid'),
+  });
+}
+
+export function useAddSpotEntry(eventId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (dto: CreateSpotEntryDto) => TournamentRegistrationService.addSpotEntry(eventId, dto),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: KEYS.entries(eventId) });
+      toast.success('Spot entry added');
+    },
+    onError: (e: Error) => toast.error(e.message || 'Failed to add the entry'),
   });
 }
 

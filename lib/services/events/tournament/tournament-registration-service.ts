@@ -5,7 +5,7 @@
 // so this service does NOT touch Supabase directly.
 // Created: 2026-06-22 (Sports Tournament PR2).
 
-import type { TournamentEntry, UpdateEntryDto } from '@/types/tournament';
+import type { CreateSpotEntryDto, TournamentEntry, UpdateEntryDto } from '@/types/tournament';
 
 async function asJson<T>(res: Response): Promise<T> {
   const body = await res.json().catch(() => ({}));
@@ -21,6 +21,23 @@ export class TournamentRegistrationService {
     const res = await fetch(`/api/events/tournament/${eventId}/entries`, { cache: 'no-store' });
     const data = await asJson<{ entries: TournamentEntry[] }>(res);
     return data.entries ?? [];
+  }
+
+  /**
+   * Organiser adds a walk-in entry (eligibility checked server-side; a fee
+   * division needs the fee collected first). It is not placed in a generated
+   * bracket — place it with setMatchSide.
+   */
+  static async addSpotEntry(
+    eventId: string,
+    dto: CreateSpotEntryDto
+  ): Promise<{ entry_id: string; access_code: string | null }> {
+    const res = await fetch(`/api/events/tournament/${eventId}/spot-entry`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(dto),
+    });
+    return asJson<{ entry_id: string; access_code: string | null }>(res);
   }
 
   /** Update an entry (seed/status/name/notes). */
