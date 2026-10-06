@@ -104,3 +104,5 @@ BEGIN
 END;
 $function$;
 
+REVOKE ALL ON FUNCTION public.procurement_revise_quotation(uuid, jsonb, text, jsonb) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.procurement_revise_quotation(uuid, jsonb, text, jsonb) TO authenticated;

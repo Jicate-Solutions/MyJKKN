@@ -82,7 +82,7 @@ export default function PurchasePage() {
   const returnPR = useReturnPurchaseRequest();
   const resubmitPR = useResubmitPurchaseRequest();
   // Category approval steps (empty for a request raised without a category).
-  const { data: approvals = [] } = useRequestApprovals(id);
+  const { data: approvals = [], isLoading: approvalsLoading, isError: approvalsFailed } = useRequestApprovals(id);
   const { data: approverNames = {} } = useApproverNames(approvals.flatMap((a) => a.approver_ids));
   const approveStep = useApproveStep();
   const decideStep = useDecideStep();
@@ -123,9 +123,14 @@ export default function PurchasePage() {
   // (or a Super Admin) decides. Without a category: the old single-approver rule.
   const chained = !!pr?.category_id && approvals.length > 0;
   const waitingStep = currentStep(approvals);
-  const canApprove = chained
-    ? isSuperAdmin || (waitingStep?.stage === 'request' && isMyTurn(approvals, profile?.id))
-    : isSuperAdmin || canAccess('procurement', 'request_approve');
+  // Until a categorised request's steps are known, nobody gets the old single-approver
+  // buttons — an empty list while loading (or after an error) must not skip the order.
+  const stepsUnknown = !!pr?.category_id && (approvalsLoading || approvalsFailed);
+  const canApprove = stepsUnknown
+    ? false
+    : chained
+      ? isSuperAdmin || (waitingStep?.stage === 'request' && isMyTurn(approvals, profile?.id))
+      : isSuperAdmin || canAccess('procurement', 'request_approve');
   const isOwner = pr?.requested_by === profile?.id;
   // The DB refuses self-approval too (fn_procurement_guard_approval); say it upfront.
   const selfApproval = isOwner && !isSuperAdmin;
@@ -666,7 +671,7 @@ export default function PurchasePage() {
             </Button>
             <Button
               className="w-full sm:w-auto"
-              disabled={!returnReason.trim() || returnPR.isPending}
+              disabled={!returnReason.trim() || returnPR.isPending || decideStep.isPending}
               onClick={async () => {
                 await run(
                   () =>
@@ -707,7 +712,7 @@ export default function PurchasePage() {
             <Button
               variant="destructive"
               className="w-full sm:w-auto"
-              disabled={!rejectReason.trim()}
+              disabled={!rejectReason.trim() || rejectPR.isPending || decideStep.isPending}
               onClick={async () => {
                 await run(
                   () =>

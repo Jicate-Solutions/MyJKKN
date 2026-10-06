@@ -1,6 +1,6 @@
 // types/procurement/approval-chain.ts
 //
-// Category approval chains (migration 20271006110000). The Super Admin keeps a
+// Category approval chains (migration 20271006105000). The Super Admin keeps a
 // list of purchase categories, each with ordered steps; a request copies its
 // category's steps at submit (procurement_request_approvals) and goes through
 // them once.

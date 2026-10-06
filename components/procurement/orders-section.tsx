@@ -338,7 +338,8 @@ function OrderCard({
           disabled={downloading}
           onClick={async () => {
             // A required blank the quotation didn't give: open the order with it highlighted.
-            const missing = missingPoFields(po);
+            // The store fills a missing blank first; anyone else just gets the PDF.
+            const missing = canRenegotiate ? missingPoFields(po) : [];
             if (missing.length) {
               toast.info(`Fill ${missing.map((k) => PO_REQUIRED_FIELDS[k]).join(', ')} on the order first`);
               router.push(`/procurement/purchase-orders/${po.id}`);
@@ -347,8 +348,12 @@ function OrderCard({
             setDownloading(true);
             try {
               await downloadPurchaseOrderPdf(po);
-              // Downloaded to send to the vendor: the order is now "sent".
-              if (po.status === 'approved') markSent.mutate(po.id);
+              // Downloaded by the store to send to the vendor: the order is now "sent".
+              if (canRenegotiate && po.status === 'approved') {
+                markSent.mutate(po.id, {
+                  onError: (e) => toast.error(errorMessage(e, 'Could not mark the order as sent')),
+                });
+              }
             } catch (e) {
               toast.error(errorMessage(e, 'Could not make the PDF'));
             } finally {

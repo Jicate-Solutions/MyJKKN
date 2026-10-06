@@ -206,7 +206,7 @@ CREATE POLICY ppri_approver_read ON public.procurement_purchase_request_items FO
 
 -- 4 starter categories (steps are set on the Approval Flows page).
 INSERT INTO public.procurement_categories (name, sort_order) VALUES
-  ('Lab chemicals & glassware', 1), ('IT & electronics', 2),
+  ('Learning lab chemicals & glassware', 1), ('IT & electronics', 2),
   ('Stationery & office', 3), ('Furniture & maintenance', 4)
 ON CONFLICT DO NOTHING;
 ```
@@ -772,7 +772,7 @@ Commit.
 
 - Layout: `const { data: hasWork } = useHasApprovalWork();` allow when `isSuperAdmin || canAccess('procurement','view') || hasWork`. A user who is only an approver gets no tabs (AutoTabNav hides them) — they land via the notification link or `/procurement/approvals`.
 - `/procurement/approvals`: list from `useMyApprovals()` — request no., title, college, category, *"Step 2 of 4 — Principal"*, submitted date; row → `/procurement/requests/[id]`. Empty: "Nothing waiting for you."
-- Add `Approvals` to the Overview staff card list in `components/procurement/overview/staff-overview.tsx` gate 1 `listHref` when the user has approval work.
+- Add `Approvals` to the Overview team-member card list in `components/procurement/overview/staff-overview.tsx` gate 1 `listHref` when the user has approval work.
 
 Commit.
 

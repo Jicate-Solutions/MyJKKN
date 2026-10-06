@@ -164,7 +164,8 @@ function ApproverList({
     const from = source ? stepsOf(source, stage) : [];
     if (!from.length) return;
     void persist(
-      from.map((s) => ({ ...s })),
+      // New rows for this category: never the source's step ids, or saving moves its rows here.
+      from.map(({ id: _id, ...s }) => s),
       `Copied ${title.toLowerCase()} from ${source!.name}`,
       steps.length ? steps : undefined
     );

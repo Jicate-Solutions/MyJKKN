@@ -1,4 +1,4 @@
--- Migration: 20271006120000_procurement_chain_requester_step
+-- Migration: 20271006115000_procurement_chain_requester_step
 -- Purpose:   A request only ever goes to the approvers the Super Admin set for its
 --            category — never to "all Super Admins".
 --
@@ -101,7 +101,7 @@ BEGIN
 END;
 $$;
 
--- Guard: same as 20271006110000 §4, except the self-approval check is for the
+-- Guard: same as 20271006105000 §4, except the self-approval check is for the
 -- old single-approver rule only (chain requests: see procurement_approve_request_step).
 CREATE OR REPLACE FUNCTION public.fn_procurement_guard_approval()
  RETURNS trigger

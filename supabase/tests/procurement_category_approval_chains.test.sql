@@ -1,4 +1,4 @@
--- Test for 20271006110000_procurement_category_approval_chains.
+-- Test for 20271006105000_procurement_category_approval_chains.
 --
 -- Run it in ONE call together with the migration body, against a database where the
 -- migration is not applied yet:   <migration SQL>  +  <this file>

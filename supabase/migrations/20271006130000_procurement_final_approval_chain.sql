@@ -1,4 +1,9 @@
 -- Migration: 20271006130000_procurement_final_approval_chain
+-- ci:allow-secdef-authenticated every SECURITY DEFINER function here that signed-in users may call
+-- either checks the caller inside (is_super_admin, approver_ids, role_has_institution_access) or
+-- answers only about the caller themself: procurement_is_request_approver / is_rfq_approver /
+-- my_approvals / has_approval_work filter on auth.uid() = ANY(approver_ids), and
+-- procurement_request_has_chain returns only whether a request has steps (used by RLS policies).
 -- Purpose:   Each category now has TWO approver lists, set by the Super Admin:
 --              * Request approval (stage 'request') — the items asked for, as before
 --              * Final approval   (stage 'final')   — the vendors and prices chosen
@@ -127,8 +132,11 @@ LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
   CROSS JOIN LATERAL (SELECT procurement_resolve_step(s.approver_kind, s.role_key, s.same_college,
                              s.user_id, p_institution_id, p_department_id) AS ids) r
   WHERE s.category_id = p_category_id AND s.stage = 'request'
+  AND (p_institution_id IS NULL OR public.role_has_institution_access(p_institution_id))
   ORDER BY s.step_order;
 $$;
+REVOKE ALL ON FUNCTION public.procurement_preview_chain(uuid, uuid, uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.procurement_preview_chain(uuid, uuid, uuid) TO authenticated;
 
 -- ═══ 3. Saving a list: per stage, 0–10 approvers ══════════════════════════════════
 DROP FUNCTION IF EXISTS public.procurement_save_category_steps(uuid, jsonb);
@@ -692,3 +700,11 @@ CREATE POLICY ims_suppliers_rfq_approver_read ON public.ims_suppliers
   FOR SELECT TO authenticated USING (EXISTS (
     SELECT 1 FROM procurement_quotations q
      WHERE q.supplier_id = ims_suppliers.id AND public.procurement_is_rfq_approver(q.rfq_id)));
+
+-- Re-created above, so lock them again in this file: CREATE OR REPLACE keeps grants on
+-- the live database, but every migration must say who may call what.
+REVOKE ALL ON FUNCTION public.procurement_notify_step(uuid, uuid) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.procurement_approve_request_step(uuid, text, jsonb) FROM PUBLIC, anon;
+REVOKE ALL ON FUNCTION public.procurement_decide_request_step(uuid, text, text) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.procurement_approve_request_step(uuid, text, jsonb) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.procurement_decide_request_step(uuid, text, text) TO authenticated;

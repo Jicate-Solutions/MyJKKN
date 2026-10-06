@@ -85,6 +85,8 @@ export default function PurchaseOrderDetailPage() {
   const [footerValues, setFooterValues] = useState<Record<string, string>>({});
   // What was last written, so a blur with nothing changed doesn't save again.
   const [lastSaved, setLastSaved] = useState('');
+  // HSN / GST typed on a line, kept here too so Download prints them even while the save is in flight.
+  const [itemEdits, setItemEdits] = useState<Record<string, Record<string, string>>>({});
   const [syncedId, setSyncedId] = useState<string | undefined>(undefined);
   if (po && po.id !== syncedId) {
     setSyncedId(po.id);
@@ -184,15 +186,32 @@ export default function PurchaseOrderDetailPage() {
   const docFormat = po.po_format ?? STANDARD_PO_FORMAT;
   const extraCols = docFormat.item_columns.filter((c) => c.source.startsWith('item_extra.'));
   // The order exactly as it will print, with what's typed here.
-  const livePo = { ...po, header_field_values: headerValues, footer_field_values: footerValues };
+  const livePo = {
+    ...po,
+    header_field_values: headerValues,
+    footer_field_values: footerValues,
+    items: po.items.map((it) =>
+      itemEdits[it.id] ? { ...it, extra_fields: { ...(it.extra_fields ?? {}), ...itemEdits[it.id] } } : it
+    ),
+  };
   const liveModel = resolvePoDocumentModel(livePo);
   const missing = [...REQUIRED_KEYS].filter((k) => !String(headerValues[k] ?? '').trim());
 
   const extraOf = (i: number, key: string) => {
     const col = extraCols.find((c) => c.key === key);
-    const it = po.items[i];
+    const it = livePo.items[i];
     return col && it ? { it, k: extraFieldKey(col.source) } : null;
   };
+  /** A line has no value of its own and none from the quotation / item master. */
+  const isBlank = (i: number, key: string) => {
+    const x = extraOf(i, key);
+    if (!x) return false;
+    const own = x.it.extra_fields?.[x.k];
+    return (own === undefined || own === '') && !catalogExtra(x.it, x.k);
+  };
+  const rememberItemEdit = (itemId: string, k: string, value: string) =>
+    setItemEdits((prev) => ({ ...prev, [itemId]: { ...(prev[itemId] ?? {}), [k]: value } }));
+
   const edit: PoPreviewEdit | undefined = canCreate
     ? {
         value: (k) => (FOOTER_KEYS.has(k) ? footerValues[k] : headerValues[k]) ?? '',
@@ -218,16 +237,21 @@ export default function PurchaseOrderDetailPage() {
         onItemCommit: (i, key, value) => {
           const x = extraOf(i, key);
           if (!x) return;
+          rememberItemEdit(x.it.id, x.k, value);
           updateItemExtra
             .mutateAsync({ poId: id, itemId: x.it.id, extraFields: { [x.k]: value } })
             .catch((e) => toast.error(errorMessage(e, 'Could not save')));
         },
-        // Every line the quotation didn't give a value for.
+        // Only the lines still blank: never over a value typed or taken from the quotation.
         onApplyAll: (key, value) => {
           const col = extraCols.find((c) => c.key === key);
           if (!col) return;
-          const itemIds = po.items.filter((_, i) => edit?.itemEditable(i, key)).map((it) => it.id);
-          if (!itemIds.length) return;
+          const itemIds = livePo.items.filter((_, i) => isBlank(i, key)).map((it) => it.id);
+          if (!itemIds.length) {
+            toast.info(`Every line already has ${col.label}`);
+            return;
+          }
+          for (const itemId of itemIds) rememberItemEdit(itemId, extraFieldKey(col.source), value);
           applyToAll
             .mutateAsync({ poId: id, itemIds, extraFields: { [extraFieldKey(col.source)]: value } })
             .then(() => toast.success(`${col.label} ${value} on ${itemIds.length} items`))
@@ -238,15 +262,21 @@ export default function PurchaseOrderDetailPage() {
 
   // Download = what's on screen, saved first so a reprint matches.
   const download = async (as: 'pdf' | 'word') => {
-    if (missing.length > 0) {
+    // Only someone who can fill the blanks is held back by them; a reader just downloads.
+    if (canCreate && missing.length > 0) {
       toast.error(`Fill ${missing.map((k) => PO_REQUIRED_FIELDS[k]).join(', ')} first`);
       return;
     }
     try {
       await saveBlanks();
       await (as === 'pdf' ? downloadPurchaseOrderPdf(livePo) : downloadPurchaseOrderDocx(livePo));
-      // Downloaded to send to the vendor: the order is now "sent".
-      if (po.status === 'approved') markSent.mutate(po.id);
+      // Downloaded by the store to send to the vendor: the order is now "sent".
+      // A reader downloading to look leaves it as it is.
+      if (canCreate && po.status === 'approved') {
+        markSent.mutate(po.id, {
+          onError: (e) => toast.error(errorMessage(e, 'Could not mark the order as sent')),
+        });
+      }
     } catch (e) {
       toast.error(errorMessage(e, 'Could not prepare the order'));
     }

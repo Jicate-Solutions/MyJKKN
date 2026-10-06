@@ -1,4 +1,9 @@
--- Migration: 20271006110000_procurement_category_approval_chains
+-- Migration: 20271006105000_procurement_category_approval_chains
+-- ci:allow-secdef-authenticated every SECURITY DEFINER function here that signed-in users may call
+-- either checks the caller inside (is_super_admin, approver_ids, role_has_institution_access) or
+-- answers only about the caller themself: procurement_is_request_approver / is_rfq_approver /
+-- my_approvals / has_approval_work filter on auth.uid() = ANY(approver_ids), and
+-- procurement_request_has_chain returns only whether a request has steps (used by RLS policies).
 -- Purpose:   A purchase request is approved, once, by the steps the Super Admin set for
 --            its CATEGORY (e.g. HOD → Principal → CAO → Chairperson) instead of "anyone
 --            holding procurement.request_approve".
@@ -90,7 +95,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_pra_one_pending
   ON public.procurement_request_approvals (request_id) WHERE status = 'pending';
 COMMENT ON TABLE public.procurement_request_approvals IS
   'A request''s approval steps, copied from its category at submit with the people resolved then. '
-  'Written only by the SECURITY DEFINER functions in 20271006110000.';
+  'Written only by the SECURITY DEFINER functions in 20271006105000.';
 
 -- ═══ 2. Helpers ═══════════════════════════════════════════════════════════════════
 
@@ -294,7 +299,7 @@ CREATE TRIGGER trg_ppr_notify_submitted
   EXECUTE FUNCTION public.fn_procurement_notify_request_submitted();
 
 -- ═══ 4. Guard: a chain request changes status only through the step RPCs ══════════
--- Same body as 20271006100000 §2, plus the chain branch for purchase requests.
+-- Same body as 20271006095000 §2, plus the chain branch for purchase requests.
 CREATE OR REPLACE FUNCTION public.fn_procurement_guard_approval()
  RETURNS trigger
  LANGUAGE plpgsql
@@ -587,6 +592,7 @@ LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
   CROSS JOIN LATERAL (SELECT procurement_resolve_step(s.approver_kind, s.role_key, s.same_college,
                              s.user_id, p_institution_id, p_department_id) AS ids) r
   WHERE s.category_id = p_category_id
+  AND (p_institution_id IS NULL OR public.role_has_institution_access(p_institution_id))
   ORDER BY s.step_order;
 $$;
 
@@ -654,6 +660,9 @@ CREATE POLICY ppri_approver_read ON public.procurement_purchase_request_items
 
 -- ═══ 8. Grants ════════════════════════════════════════════════════════════════════
 
+REVOKE ALL ON TABLE public.procurement_categories FROM anon, PUBLIC;
+REVOKE ALL ON TABLE public.procurement_category_approval_steps FROM anon, PUBLIC;
+REVOKE ALL ON TABLE public.procurement_request_approvals FROM anon, PUBLIC;
 GRANT SELECT ON public.procurement_categories, public.procurement_category_approval_steps,
   public.procurement_request_approvals TO authenticated;
 

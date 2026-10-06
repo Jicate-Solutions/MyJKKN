@@ -1,6 +1,6 @@
 // lib/services/procurement/approval-chain-service.ts
 //
-// Category approval chains (migration 20271006110000).
+// Category approval chains (migration 20271006105000).
 //   * Categories + their steps: set by the Super Admin on /procurement/approval-flows.
 //     Steps are saved only through procurement_save_category_steps (validates roles).
 //   * A request copies its category's steps at submit; each step is decided only
