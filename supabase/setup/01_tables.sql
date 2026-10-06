@@ -11231,3 +11231,25 @@ COMMENT ON COLUMN public.hr_comp_off_credits.claim_batch_id IS
 CREATE INDEX IF NOT EXISTS idx_hr_comp_off_credits_claim_batch
   ON public.hr_comp_off_credits (claim_batch_id)
   WHERE claim_batch_id IS NOT NULL;
+
+-- ===========================================================================
+-- Source: 20261006120000_hr_leave_type_super_admin_delete.sql
+-- ===========================================================================
+CREATE TABLE IF NOT EXISTS public.hr_leave_type_deletions (
+  id                  uuid        PRIMARY KEY DEFAULT gen_random_uuid(),
+  deleted_at          timestamptz NOT NULL DEFAULT now(),
+  deleted_by          uuid,
+  leave_type_id       uuid        NOT NULL,
+  leave_type_name     text        NOT NULL,
+  leave_type_code     text,
+  hr_organization_id  uuid,
+  organization_name   text,
+  was_active          boolean,
+  removed             jsonb       NOT NULL DEFAULT '{}'::jsonb,
+  type_snapshot       jsonb       NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS hr_leave_type_deletions_deleted_at_idx
+  ON public.hr_leave_type_deletions (deleted_at DESC);
+COMMENT ON TABLE public.hr_leave_type_deletions IS
+  'Tombstone of every hr_leave_type_delete_super_admin() commit: who, when, how many rows of each kind went with the type, and the type row itself as jsonb. No foreign keys on purpose. Balances and adjustments are NOT recoverable from it.';

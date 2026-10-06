@@ -34,6 +34,10 @@ export interface LeaveTypeColumnActions {
   onActivate: (t: HRLeaveType) => Promise<void> | void;
   /** Asks the page to open its delete confirmation. */
   onDelete: (t: HRLeaveType) => void;
+  /** profiles.is_super_admin — unlocks the super-admin delete on every row. */
+  isSuperAdmin: boolean;
+  /** Asks the page to open the super-admin delete confirmation. */
+  onSuperDelete: (t: HRLeaveType) => void;
   /**
    * hr_organization_id → institution name, from useHrOrgMappings.
    *
@@ -353,6 +357,8 @@ export function getLeaveTypeColumns(
           onArchive={actions.onArchive}
           onActivate={actions.onActivate}
           onDelete={actions.onDelete}
+          isSuperAdmin={actions.isSuperAdmin}
+          onSuperDelete={actions.onSuperDelete}
         />
       ),
     },

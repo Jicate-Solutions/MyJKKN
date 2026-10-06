@@ -9,7 +9,8 @@
  * stops the three forms drifting apart.
  */
 
-import { useMemo } from 'react';
+import { useEffect, useMemo } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { useCurrentEmployee } from '@/hooks/hr/use-regularization';
 import { useCurrentHRAcademicYear } from '@/hooks/hr/use-hr-academic-years';
 import { useLeaveBalance } from '@/hooks/hr/use-leave';
@@ -38,7 +39,21 @@ export interface TimeOffContext {
   hasEmployeeRecord: boolean;
 }
 
-export function useTimeOffContext(): TimeOffContext {
+export function useTimeOffContext(
+  options: {
+    /**
+     * Re-read the balances each time this turns true — pass a drawer's `open`.
+     *
+     * The drawers stay MOUNTED while closed, so the mount refetch on
+     * useLeaveBalance never fires when one opens, and the balance rows carry the
+     * leave type's own rules (documents, notice, max days, STO limits). Without
+     * this a type edited by HR keeps its old rule on screen for the 5-minute
+     * staleTime, while the server enforces the new one.
+     */
+    refreshWhen?: boolean;
+  } = {}
+): TimeOffContext {
+  const qc = useQueryClient();
   const { data: employee, isLoading: employeeLoading } = useCurrentEmployee();
 
   // One group-wide year, resolved by date bracket. This used to route through
@@ -59,6 +74,12 @@ export function useTimeOffContext(): TimeOffContext {
     employeeId || undefined,
     hrAcademicYearId || undefined
   );
+
+  const refreshWhen = options.refreshWhen ?? false;
+  useEffect(() => {
+    if (!refreshWhen || !employeeId) return;
+    qc.invalidateQueries({ queryKey: ['hr-leave-balance', employeeId] });
+  }, [refreshWhen, employeeId, qc]);
 
   const list = useMemo(() => balances ?? [], [balances]);
 

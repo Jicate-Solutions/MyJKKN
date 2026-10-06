@@ -11702,3 +11702,18 @@ CREATE POLICY hr_cp_select ON public.hr_clinical_punches FOR SELECT TO authentic
   );
 
 -- 8. Permission key + grants (the key means nothing until a role holds it) -----------
+
+-- ===========================================================================
+-- Source: 20261006120000_hr_leave_type_super_admin_delete.sql
+-- ===========================================================================
+ALTER TABLE public.hr_leave_type_deletions ENABLE ROW LEVEL SECURITY;
+
+-- Read-only for super admins. No INSERT/UPDATE/DELETE policy exists, so nothing
+-- but the DEFINER function below (and the service role) can write a row.
+DROP POLICY IF EXISTS hr_leave_type_deletions_select ON public.hr_leave_type_deletions;
+CREATE POLICY hr_leave_type_deletions_select ON public.hr_leave_type_deletions
+  FOR SELECT TO authenticated
+  USING ((SELECT public.is_super_admin()));
+
+REVOKE ALL ON public.hr_leave_type_deletions FROM anon, authenticated;
+GRANT SELECT ON public.hr_leave_type_deletions TO authenticated;

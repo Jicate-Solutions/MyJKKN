@@ -502,7 +502,8 @@ export function LeaveTypeFormDialog({ open, onOpenChange, hrOrgId, leaveType, on
                   approved eligibility. They request it once with a supporting document, the
                   approvers set under <strong>Who approves eligibility</strong> decide it (or the
                   ones under <strong>Who approves this</strong> until you set some), and
-                  afterwards applying for this leave needs no document at all.
+                  afterwards every application for this leave still needs its own document
+                  while <strong>Requires documents</strong> is ticked.
                   {' '}Grant it directly to anyone already using it from{' '}
                   <strong>HR → Leave → Eligibility</strong> <em>before</em> saving this.
                 </AlertDescription>
