@@ -51,7 +51,7 @@ Response `200` (cache it on your side, e.g. `next: { revalidate: 300 }`):
   "seo": {
     "title": "Senior Learner Pharmacology Job | JKKN College of Pharmacy",
     "description": "…",
-    "keywords": ["pharmacology faculty job", "Komarapalayam"],
+    "keywords": ["pharmacology teaching job", "Komarapalayam"],
     "og_image": null,
     "noindex": false
   }
