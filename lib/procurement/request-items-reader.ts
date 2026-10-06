@@ -83,11 +83,15 @@ const RECORD_TOOL: Anthropic.Tool = {
             },
             quantity: {
               type: 'number',
-              description: 'How many are wanted, as a plain number. Use 1 only when the file gives no quantity.',
+              description:
+                'How many are wanted, as a plain number. Use 1 only when the file gives no quantity. ' +
+                'When a pack size is given ("Ammonium chloride 500 g × 2"), count PACKS: quantity 2, and "500 g" goes in spec.',
             },
             unit: {
               type: 'string',
-              description: 'The unit the quantity is counted in (Nos, Box, Pkt, Kg, L, Ream…), if given. Omit if none.',
+              description:
+                'The unit the quantity is counted in (Nos, Box, Pkt, Bottle, Ream…), if given. Omit if none. ' +
+                'Never g/ml when the quantity counts packs — "500 g" is the pack, not the unit.',
             },
             reason: {
               type: 'string',

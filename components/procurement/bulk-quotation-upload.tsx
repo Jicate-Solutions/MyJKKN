@@ -27,6 +27,7 @@ import { ProcurementQuotationService } from '@/lib/services/procurement/quotatio
 import { readQuotationPdf, type ExtractResult } from '@/lib/procurement/read-quotation-pdf';
 import { matchVendor, normalizeGstin } from '@/lib/procurement/vendor-match';
 import { namesShareAWord } from '@/lib/procurement/item-name-match';
+import { comparePacks, isMeasuredUnit, parsePack, qtyWithPack, requestedPack, type PackCheck } from '@/lib/procurement/pack-size';
 import { errorMessage } from '@/lib/utils/supabase-error';
 import { cn } from '@/lib/utils';
 import type { RfqWithDetails } from '@/types/procurement';
@@ -51,10 +52,15 @@ interface ReadLine {
   idx: number;
   name: string;
   price: number;
+  /** The pack this price is for, as the vendor printed it ("100 ml"). '' = not printed. */
+  pack: string;
   manufacturer: string;
   quality_grade: string;
   concentration: string;
   other_specs: string;
+  /** GST rate / HSN printed on this line — carried to the PO so nobody types them. */
+  gst_percent: number | null;
+  hsn: string;
 }
 
 /**
@@ -75,11 +81,35 @@ interface Row {
   newVendor: { name: string; gstin: string; phone: string; email: string; address: string; contact: string };
   vendorNote?: string;
   quoteNumber: string;
+  quoteDate: string;
+  validityDate: string;
   deliveryDays: string;
   paymentTerms: string;
+  warranty: string;
   lines: ReadLine[];
   choices: Record<string, Choice | undefined>;
 }
+
+type RfqItem = RfqWithDetails['items'][number];
+
+/** How a quoted line's pack relates to what was asked for. */
+const packCheckOf = (it: RfqItem, l: ReadLine | undefined): PackCheck =>
+  comparePacks(requestedPack(it), l ? parsePack(l.pack) : null, {
+    soldByMeasure: !!it.is_chemical || isMeasuredUnit(it.unit_label),
+  });
+
+/** "1 × 500 ml" when the pack is known, else "20 Nos". */
+const askedLabel = (it: RfqItem) => {
+  const p = requestedPack(it);
+  const q = Number(it.quantity);
+  return p ? `${q} × ${p.label}` : qtyWithPack(q, it);
+};
+
+/** The one value every entry shares, else null. */
+const sameOf = <T,>(xs: (T | null)[]): T | null =>
+  xs.length && xs[0] != null && xs.every((x) => x === xs[0]) ? xs[0] : null;
+
+const round2 = (n: number) => Math.round(n * 100) / 100;
 
 const READ_CONCURRENCY = 3;
 const NEW_VENDOR = '__new__';
@@ -115,6 +145,8 @@ export function BulkQuotationUpload({
   const [rows, setRows] = useState<Row[]>([]);
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  /** The last step before saving: every item with the qty and pack it is saved for. */
+  const [reviewing, setReviewing] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   // Reads finish asynchronously; the ref lets them match against the current list.
   const vendorsRef = useRef(allVendors);
@@ -138,18 +170,29 @@ export function BulkQuotationUpload({
         idx,
         name: line.item_name || 'Unnamed line',
         price,
+        // Older reads (and the office runner) have no `pack`; the size is then
+        // usually in the specs or in the line's own name ("Molisch Reagent 100ml").
+        pack: line.pack || parsePack(line.other_specs)?.label || parsePack(line.item_name)?.label || '',
         manufacturer: line.manufacturer ?? '',
         quality_grade: line.quality_grade ?? '',
         concentration: line.concentration ?? '',
         other_specs: line.other_specs ?? '',
+        gst_percent: typeof line.gst_percent === 'number' ? line.gst_percent : null,
+        hsn: line.hsn ?? '',
       });
       // The AI's own match pre-picks the line; an unsure match still needs a look.
       if (line.rfq_item_id) {
         // Shown as a match only when the AI was sure AND the names share a word —
         // "Keyboard" ← "POE INJECTOR 48V" stays an AI guess for a person to check,
         // whichever reader (office runner, direct, cached) produced it.
-        const asked = rfq.items.find((it) => it.id === line.rfq_item_id)?.item_name ?? '';
-        const sure = !line.uncertain && namesShareAWord(asked, line.item_name || '');
+        const askedItem = rfq.items.find((it) => it.id === line.rfq_item_id);
+        // A pack that can't be put on the requested footing (500 ml solution for
+        // 500 g of the solid) is never accepted silently, however sure the AI was.
+        const sure =
+          !line.uncertain &&
+          namesShareAWord(askedItem?.item_name ?? '', line.item_name || '') &&
+          !!askedItem &&
+          packCheckOf(askedItem, lines[lines.length - 1]).kind !== 'mismatch';
         const prev = choices[line.rfq_item_id];
         // Several lines for one item = the parts of a set. Their sum becomes the
         // price, so a person always looks once — the AI may equally have tagged
@@ -200,8 +243,11 @@ export function BulkQuotationUpload({
       newVendor,
       vendorNote,
       quoteNumber: result.quote_number ?? '',
+      quoteDate: result.quote_date ?? '',
+      validityDate: result.validity_date ?? '',
       deliveryDays: result.delivery_days ? String(result.delivery_days) : '',
       paymentTerms: result.payment_terms ?? '',
+      warranty: result.warranty ?? '',
     });
   };
 
@@ -217,13 +263,17 @@ export function BulkQuotationUpload({
       vendorId: '',
       newVendor: emptyVendor(),
       quoteNumber: '',
+      quoteDate: '',
+      validityDate: '',
       deliveryDays: '',
       paymentTerms: '',
+      warranty: '',
       lines: [],
       choices: {},
     }));
     setRows((prev) => [...prev, ...fresh]);
     setSelectedKey((k) => k ?? fresh[0].key);
+    setReviewing(false);
 
     // Read a few at a time so a stack of PDFs doesn't flood the reader.
     const queue = [...fresh];
@@ -256,7 +306,25 @@ export function BulkQuotationUpload({
     if (c.kind === 'custom') return Number(c.price) > 0 ? Number(c.price) : null;
     // One of each part per set: the set's unit price is the parts' unit prices added up.
     const parts = linesOf(r, c);
-    return parts.length ? parts.reduce((s, l) => s + l.price, 0) : null;
+    if (parts.length !== 1) return parts.length ? parts.reduce((s, l) => s + l.price, 0) : null;
+    // One line: put its price on the requested pack — ₹135 for 100 ml of a 500 ml
+    // requirement is ₹675, not ₹135.
+    const it = rfq.items.find((x) => x.id === itemId);
+    const chk = it ? packCheckOf(it, parts[0]) : null;
+    return chk?.kind === 'scaled' ? round2(parts[0].price * chk.factor) : parts[0].price;
+  };
+
+  /**
+   * What the saved price stands on, kept with the quote so Compare & award shows it:
+   * "Quoted 100 ml @ ₹135 — ×5 for 500 ml". Empty when the packs match or are unknown.
+   */
+  const packNote = (it: RfqItem, c: Choice | undefined, line: ReadLine | undefined): string => {
+    if (c?.kind !== 'line' || !line) return '';
+    const chk = packCheckOf(it, line);
+    const asked = requestedPack(it)?.label;
+    if (chk.kind === 'scaled') return `Quoted ${line.pack} @ ${rupees(line.price)} — ×${chk.factor} for ${asked}`;
+    if (chk.kind === 'mismatch') return `Quoted ${line.pack}, asked ${asked} — accepted by reviewer`;
+    return '';
   };
 
   /** Items still waiting for an answer: unanswered, an unconfirmed AI guess, or a blank typed price. */
@@ -339,8 +407,11 @@ export function BulkQuotationUpload({
             rfq_id: rfq.id,
             supplier_id: supplierId,
             vendor_quote_number: r.quoteNumber || null,
+            quote_date: r.quoteDate || null,
+            validity_date: r.validityDate || null,
             delivery_time_days: r.deliveryDays ? Number(r.deliveryDays) : null,
             payment_terms: r.paymentTerms || null,
+            warranty: r.warranty || null,
             document_url: null,
             document_file_id: null,
             items: rfq.items.map((it) => {
@@ -353,11 +424,14 @@ export function BulkQuotationUpload({
                 manufacturer: line?.manufacturer || null,
                 quality_grade: line?.quality_grade || null,
                 concentration: line?.concentration || null,
+                // A set's parts share one rate when the vendor printed one; else leave it for the PO.
+                gst_percent: sameOf(parts.map((p) => p.gst_percent)),
+                hsn: line?.hsn || null,
                 // A set keeps its breakdown, so the comparison still shows what the price buys.
                 other_specs:
                   parts.length > 1
                     ? `Set of ${parts.length} parts: ${parts.map((p) => `${p.name} ${rupees(p.price)}`).join('; ')}`
-                    : line?.other_specs || null,
+                    : [packNote(it, r.choices[it.id], line), line?.other_specs].filter(Boolean).join(' · ') || null,
               };
             }),
           },
@@ -372,6 +446,7 @@ export function BulkQuotationUpload({
       }
     }
     setSaving(false);
+    setReviewing(false);
     queryClient.invalidateQueries({ queryKey: ['procurement-vendors-select', rfq.institution_id] });
     if (ok) toast.success(`${ok} quotation${ok === 1 ? '' : 's'} saved`);
     // Attach the PDFs to Drive in the background — the prices are already saved.
@@ -421,6 +496,7 @@ export function BulkQuotationUpload({
     if (!o) {
       setRows([]);
       setSelectedKey(null);
+      setReviewing(false);
     }
     onOpenChange(o);
   };
@@ -446,11 +522,93 @@ export function BulkQuotationUpload({
   const titleOf = (r: Row) =>
     r.status === 'reading' ? 'Reading the quote…' : r.vendorId || r.newVendor.name.trim() ? `Quote from ${vendorName(r)}` : 'Add quote';
 
+  // ── Review before save: per vendor, every item with Asked | Vendor quoted | Price | Total.
+  const notReady = rows.filter((r) => r.status !== 'saved' && statusOf[r.key]?.tone !== 'ok').length;
+  const reviewBody = (
+    <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-5 py-4">
+      {notReady > 0 && (
+        <p className="rounded-lg bg-secondary/20 px-3 py-2 text-[13px] text-foreground">
+          {notReady} quote{notReady === 1 ? ' is' : 's are'} not ready and will not be saved now.
+        </p>
+      )}
+      {savable.map((r) => (
+        <section key={r.key} className="overflow-hidden rounded-xl border">
+          <header className="flex flex-wrap items-baseline justify-between gap-2 bg-muted/50 px-4 py-2.5">
+            <span className="font-semibold">{vendorName(r)}</span>
+            <span className="text-sm">
+              Total <b className="tabular-nums">{rupees(totalOf(r))}</b>
+            </span>
+          </header>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="text-left text-[11px] uppercase tracking-wide text-muted-foreground">
+                <tr className="border-b">
+                  <th className="px-4 py-2 font-semibold">Item</th>
+                  <th className="px-2 py-2 font-semibold">Asked</th>
+                  <th className="px-2 py-2 font-semibold">Vendor quoted</th>
+                  <th className="px-2 py-2 text-right font-semibold">Price / unit</th>
+                  <th className="px-4 py-2 text-right font-semibold">Total</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rfq.items.map((it) => {
+                  const c = r.choices[it.id];
+                  const price = priceOf(r, it.id);
+                  const parts = linesOf(r, c);
+                  const one = parts.length === 1 ? parts[0] : undefined;
+                  const chk = one ? packCheckOf(it, one) : null;
+                  const quoted =
+                    price == null
+                      ? 'Not quoted'
+                      : c?.kind === 'custom'
+                        ? 'Price typed in'
+                        : parts.length > 1
+                          ? `Set of ${parts.length} parts`
+                          : `${one?.pack || 'pack not printed'} @ ${rupees(one?.price ?? 0)}`;
+                  const tone =
+                    chk?.kind === 'mismatch'
+                      ? 'bg-secondary/20'
+                      : chk?.kind === 'scaled'
+                        ? 'bg-primary/10'
+                        : '';
+                  return (
+                    <tr key={it.id} className={cn('border-b last:border-0 align-top', tone, price == null && 'text-muted-foreground')}>
+                      <td className="px-4 py-2">
+                        <span className="font-medium">{it.item_name}</span>
+                        {it.item_spec && <span className="block text-xs text-muted-foreground">{it.item_spec}</span>}
+                      </td>
+                      <td className="whitespace-nowrap px-2 py-2 tabular-nums">{askedLabel(it)}</td>
+                      <td className="px-2 py-2">
+                        {quoted}
+                        {chk?.kind === 'scaled' && (
+                          <span className="block text-xs text-primary">
+                            ×{chk.factor} for {requestedPack(it)?.label}
+                          </span>
+                        )}
+                        {chk?.kind === 'mismatch' && (
+                          <span className="block text-xs font-medium text-foreground">⚠ {chk.reason}</span>
+                        )}
+                      </td>
+                      <td className="whitespace-nowrap px-2 py-2 text-right tabular-nums">{price != null ? rupees(price) : '—'}</td>
+                      <td className="whitespace-nowrap px-4 py-2 text-right font-semibold tabular-nums">
+                        {price != null ? rupees(price * Number(it.quantity)) : '—'}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      ))}
+    </div>
+  );
+
   return (
     <Dialog open={open} onOpenChange={close}>
       <DialogContent
         className={`flex max-h-[90vh] flex-col gap-0 overflow-hidden rounded-2xl p-0 ${
-          many ? 'max-w-3xl' : rows.length === 1 ? 'max-w-xl' : 'max-w-md'
+          many || reviewing ? 'max-w-3xl' : rows.length === 1 ? 'max-w-xl' : 'max-w-md'
         }`}
       >
         {fileInput}
@@ -496,7 +654,7 @@ export function BulkQuotationUpload({
                   <>
                     <span className="truncate">{selected.file.name}</span>
                     {selected.vendorNote && selected.vendorId && (
-                      <span className="text-green-700 dark:text-green-400">· ✓ vendor {selected.vendorNote}</span>
+                      <span className="text-primary">· ✓ vendor {selected.vendorNote}</span>
                     )}
                     {pdfUrl && (
                       <a href={pdfUrl} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">
@@ -516,7 +674,8 @@ export function BulkQuotationUpload({
               </DialogDescription>
             </DialogHeader>
 
-            <div className={`grid min-h-0 flex-1 overflow-hidden ${many ? 'grid-cols-[180px_minmax(0,1fr)] sm:grid-cols-[200px_minmax(0,1fr)]' : 'grid-cols-1'}`}>
+            {reviewing ? reviewBody : (
+            <div className={`grid min-h-0 flex-1 overflow-hidden ${many ?'grid-cols-[180px_minmax(0,1fr)] sm:grid-cols-[200px_minmax(0,1fr)]' : 'grid-cols-1'}`}>
               {/* ── Vendor rail (several PDFs): name + one status word ─────── */}
               {many && (
                 <nav aria-label="Quotes" className="flex flex-col gap-1 overflow-y-auto border-r bg-muted/40 p-2">
@@ -524,7 +683,7 @@ export function BulkQuotationUpload({
                     const st = statusOf[r.key];
                     const isSel = selected?.key === r.key;
                     const dot =
-                      st?.tone === 'ok' ? 'text-green-700 dark:text-green-400' : st?.tone === 'warn' ? 'text-amber-700 dark:text-amber-400' : 'text-muted-foreground';
+                      st?.tone === 'ok' ? 'text-primary' : st?.tone === 'warn' ? 'text-foreground' : 'text-muted-foreground';
                     return (
                       <button
                         key={r.key}
@@ -585,7 +744,7 @@ export function BulkQuotationUpload({
                     )}
 
                     {selected.error && (
-                      <p className="mx-5 mt-4 rounded-lg bg-amber-50 px-3 py-2 text-[13px] text-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
+                      <p className="mx-5 mt-4 rounded-lg bg-secondary/20 px-3 py-2 text-[13px] text-foreground">
                         {selected.error}
                       </p>
                     )}
@@ -659,6 +818,7 @@ export function BulkQuotationUpload({
                         const unsure = c?.kind === 'line' && !c.confirmed;
                         const unanswered = !c;
                         const notQuoted = c?.kind === 'none';
+                        const pack = !isSet && c?.kind === 'line' && parts[0] ? packCheckOf(it, parts[0]) : null;
                         const amber = unsure;
                         const qty = Number(it.quantity);
                         const lineValue = c ? (c.kind === 'line' ? (isSet ? '' : `line:${c.idxs[0]}`) : c.kind) : '';
@@ -690,7 +850,10 @@ export function BulkQuotationUpload({
                               {selected.lines.map((l) => (
                                 <SelectItem key={l.idx} value={`line:${l.idx}`}>
                                   <span className="flex w-full items-center justify-between gap-4">
-                                    <span className="truncate">{l.name}</span>
+                                    <span className="truncate">
+                                      {l.name}
+                                      {l.pack && <span className="text-muted-foreground"> · {l.pack}</span>}
+                                    </span>
                                     <b className="shrink-0 tabular-nums">{rupees(l.price)}</b>
                                   </span>
                                 </SelectItem>
@@ -702,20 +865,26 @@ export function BulkQuotationUpload({
                         return (
                           <div
                             key={it.id}
-                            className={cn(COLS, 'border-t px-5 py-3', amber && 'bg-amber-50/70 dark:bg-amber-950/20')}
+                            className={cn(COLS, 'border-t px-5 py-3', amber && 'bg-secondary/20')}
                           >
                             <div className="min-w-0">
                               <p className="truncate text-sm font-semibold">
                                 {it.item_name}{' '}
-                                <span className="font-normal text-muted-foreground">
-                                  × {qty}
-                                  {it.unit_label ? ` ${it.unit_label}` : ''}
-                                </span>
+                                <span className="font-normal text-muted-foreground">· {askedLabel(it)}</span>
                               </p>
+                              {/* What the vendor's price is for, against what was asked. */}
+                              {pack?.kind === 'scaled' && (
+                                <p className="truncate text-xs text-primary">
+                                  Quoted {parts[0].pack} @ {rupees(parts[0].price)} → ×{pack.factor} for {requestedPack(it)?.label}
+                                </p>
+                              )}
+                              {pack?.kind === 'mismatch' && (
+                                <p className="truncate text-xs font-medium text-foreground">⚠ {pack.reason}</p>
+                              )}
                               {/* one short status — actions live in the row's ⋯ menu */}
                               <p className="truncate text-xs">
                                 {unsure ? (
-                                  <span className="text-amber-800 dark:text-amber-300">
+                                  <span className="text-foreground">
                                     {isSet ? `${parts.length} parts = one set?` : `“${parts[0]?.name}”?`}{' '}
                                     <button
                                       type="button"
@@ -726,7 +895,7 @@ export function BulkQuotationUpload({
                                     </button>
                                   </span>
                                 ) : unanswered || notQuoted || c?.kind === 'custom' ? null : (
-                                  <span className="text-green-700 dark:text-green-400" title={parts.map((p) => p.name).join(', ')}>
+                                  <span className="text-primary" title={parts.map((p) => p.name).join(', ')}>
                                     ✓ {isSet ? `Set of ${parts.length} parts` : parts[0]?.name}
                                   </span>
                                 )}
@@ -783,7 +952,7 @@ export function BulkQuotationUpload({
                                 placeholder="Not quoted"
                                 className={cn(
                                   'h-9 bg-background text-right tabular-nums',
-                                  amber && 'border-amber-400'
+                                  amber && 'border-secondary'
                                 )}
                                 value={c?.kind === 'custom' ? c.price : price != null ? String(price) : ''}
                                 onChange={(e) => typed(e.target.value)}
@@ -802,11 +971,16 @@ export function BulkQuotationUpload({
                 )}
               </div>
             </div>
+            )}
 
             {/* ── Footer: total, what is left, Save ─────────────────────────── */}
             <div className="flex flex-wrap items-center gap-3 border-t bg-muted/40 px-6 py-3">
               <span className="min-w-0 flex-1 text-sm">
-                {stillReading ? (
+                {reviewing ? (
+                  <span className="text-muted-foreground">
+                    Check each item&apos;s quantity and pack against the vendor&apos;s quote, then confirm.
+                  </span>
+                ) : stillReading ? (
                   <span className="text-muted-foreground">Reading the PDFs…</span>
                 ) : many ? (
                   <>
@@ -815,7 +989,7 @@ export function BulkQuotationUpload({
                     </b>{' '}
                     ready
                     {selected && statusOf[selected.key]?.tone === 'warn' && (
-                      <span className="text-amber-700 dark:text-amber-400"> · {vendorName(selected)}: {statusOf[selected.key]?.blocker}</span>
+                      <span className="text-foreground"> · {vendorName(selected)}: {statusOf[selected.key]?.blocker}</span>
                     )}
                   </>
                 ) : selected ? (
@@ -824,16 +998,32 @@ export function BulkQuotationUpload({
                       Total <b className="tabular-nums">{rupees(totalOf(selected))}</b>
                     </span>
                     {statusOf[selected.key]?.tone === 'warn' && (
-                      <span className="block text-xs text-amber-700 dark:text-amber-400">{statusOf[selected.key]?.blocker}</span>
+                      <span className="block text-xs text-foreground">{statusOf[selected.key]?.blocker}</span>
                     )}
                   </>
                 ) : null}
               </span>
-              <Button variant="ghost" onClick={() => close(false)} disabled={saving || stillReading}>
-                Cancel
-              </Button>
-              <Button className="h-10 px-5" onClick={saveAll} disabled={saving || stillReading || savable.length === 0}>
-                {saving ? 'Saving…' : savable.length > 1 ? `Save ${savable.length} quotes` : 'Save quote'}
+              {reviewing ? (
+                <Button variant="ghost" onClick={() => setReviewing(false)} disabled={saving}>
+                  Back to edit
+                </Button>
+              ) : (
+                <Button variant="ghost" onClick={() => close(false)} disabled={saving || stillReading}>
+                  Cancel
+                </Button>
+              )}
+              {/* Nothing is saved straight from the edit view: the person first sees every
+                  item with the quantity and pack it is being saved for. */}
+              <Button
+                className="h-10 px-5"
+                onClick={reviewing ? saveAll : () => setReviewing(true)}
+                disabled={saving || stillReading || savable.length === 0}
+              >
+                {saving
+                  ? 'Saving…'
+                  : reviewing
+                    ? savable.length > 1 ? `Confirm & save ${savable.length} quotes` : 'Confirm & save'
+                    : 'Review items & qty'}
               </Button>
             </div>
           </>

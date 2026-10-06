@@ -309,6 +309,9 @@ const NAV_EXCLUDE = new Set<string>([
   // PO print formats — reached from "Print as → + New format" on the order page.
   '/procurement/purchase-orders/formats',
   '/procurement/purchase-orders/formats/new',
+  // "Waiting for my approval" — approvers (HOD, Principal, CAO…) arrive from their
+  // notification or the Overview card; most of them have no Procurement tabs at all.
+  '/procurement/approvals',
 
   // OKR /new + /create wizard forms
   '/okr/elective/new',

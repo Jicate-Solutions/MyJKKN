@@ -105,6 +105,7 @@ export default function PurchasesPage() {
   const CHIPS: Array<{ value: string; label: string; count?: number }> = [
     { value: 'all', label: 'All' },
     { value: 'submitted', label: 'Item approval', count: stageCount(1) },
+    { value: 'returned', label: 'Sent back' },
     { value: 'getting_quotes', label: 'Getting quotes', count: stageCount(2) },
     { value: 'with_super_admin', label: 'Final approval', count: stageCount(3) },
     { value: 'ordered', label: 'Ordered', count: stageCount(4) },
@@ -118,12 +119,13 @@ export default function PurchasesPage() {
     if (st === 'submitted') return (isSuperAdmin || canAccess('procurement', 'request_approve')) && req.requested_by !== profile?.id;
     if (st === 'with_super_admin') return isSuperAdmin;
     if (st === 'getting_quotes') return isSuperAdmin || canAccess('procurement', 'quotation_manage');
+    if (st === 'returned') return req.requested_by === profile?.id;
     return false;
   };
 
   return (
     <ContentLayout title="Requests">
-      <div className="mx-auto w-full max-w-3xl space-y-5">
+      <div className="w-full space-y-5">
         <header className="flex flex-wrap items-center justify-between gap-3">
           <h1 className="text-2xl font-bold">Requests</h1>
           {canCreate && (
@@ -210,7 +212,7 @@ export default function PurchasesPage() {
                       onClick={() => router.push(`/procurement/requests/${req.id}`)}
                       aria-label={`Open purchase ${[req.title, displayRequestNumber(req.request_number)].filter(Boolean).join(' ')}`}
                       className={`flex w-full flex-wrap items-center gap-x-4 gap-y-1 px-5 py-3.5 text-left transition-colors hover:bg-accent/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring ${
-                        mine ? 'bg-amber-50/60 dark:bg-amber-950/20' : ''
+                        mine ? 'bg-secondary/20' : ''
                       }`}
                     >
                       <span className="min-w-0 flex-1 basis-64">

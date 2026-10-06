@@ -33,6 +33,12 @@ const config: ModuleNavConfig = {
       href: '/procurement/rfqs',
       matchPaths: ['/procurement/rfqs', '/procurement/purchase-orders', '/procurement/grn'],
     },
+    {
+      label: 'Approval flows',
+      icon: 'GitBranch',
+      href: '/procurement/approval-flows',
+      matchPaths: ['/procurement/approval-flows'],
+    },
   ],
 };
 

@@ -1972,6 +1972,8 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/procurement/grn': 'procurement.view',
   '/procurement/grn/[id]': 'procurement.view',
   '/procurement/grn/new': 'procurement.grn_create',
+  '/procurement/approval-flows': 'super_admin', // Super admin only - approval steps per purchase category
+  '/procurement/approvals': 'procurement.view', // approvers without procurement.view reach it via the layout gate
   '/meetings': 'meetings.view',
   // Universal Booking sub-surfaces (reconcile 2026-06-19) — gate each by its
   // module permission so the sidebar submenus render per-role.
