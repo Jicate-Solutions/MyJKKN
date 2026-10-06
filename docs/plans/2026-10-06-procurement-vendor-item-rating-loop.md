@@ -547,7 +547,7 @@ Add a small badge `N to rate` linking to `/procurement/requests/{id}#rate`, fed 
 
 ### Task 11: `procurement_send_rating_prompts()` + cron
 
-**Files:** Create `supabase/migrations/20271007100300_procurement_rating_prompts.sql`
+**Files:** Create `supabase/migrations/20271007100400_procurement_rating_prompts.sql`
 
 ```sql
 CREATE OR REPLACE FUNCTION public.procurement_send_rating_prompts()
@@ -609,7 +609,7 @@ Verify: `select procurement_send_rating_prompts();` → `0` (no GRNs yet); `sele
 ### Task 13: Watch vendor needs a reason
 
 **Files:**
-- Create: `supabase/migrations/20271007100400_procurement_award_watch_reason.sql` — `ALTER TABLE procurement_rfqs ADD COLUMN IF NOT EXISTS award_watch_reason text;`
+- Create: `supabase/migrations/20271007100500_procurement_award_watch_reason.sql` — `ALTER TABLE procurement_rfqs ADD COLUMN IF NOT EXISTS award_watch_reason text;`
 - Modify: the award submit flow in `quotes-section.tsx` (search `submitAward` / `procurement_submit_award`) — if any awarded vendor's grade is `D`, show a required textarea "Why this vendor?" and write it to `award_watch_reason` in the same mutation before calling the RPC.
 - Modify: the Super Admin award approval view (find via `grep -rn "award_submitted_at" components/procurement`) — show the reason in an amber callout.
 
