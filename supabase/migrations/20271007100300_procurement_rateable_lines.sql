@@ -29,6 +29,7 @@ RETURNS TABLE (
 $$;
 
 -- "N to rate" per request for the current user (My requests badge).
+-- ci:allow-secdef-authenticated returns only the caller's own requests (requested_by = auth.uid()) and a count — nothing another user owns
 CREATE OR REPLACE FUNCTION public.procurement_my_unrated_counts()
 RETURNS TABLE (request_id uuid, unrated int)
 LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$

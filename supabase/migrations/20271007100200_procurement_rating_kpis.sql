@@ -2,6 +2,8 @@
 -- SECURITY DEFINER on purpose: every viewer must see the same score for a vendor, and a
 -- store admin's GRN RLS would otherwise give them a partial history. Returns aggregates only.
 -- Window: last 12 months.
+-- Callers: anyone who can open Procurement (procurement.view) or a Super Admin;
+-- auth.uid() IS NULL = postgres/service_role (server routes, cron).
 
 CREATE OR REPLACE FUNCTION public.procurement_vendor_kpis(p_supplier_ids uuid[])
 RETURNS TABLE (
@@ -93,7 +95,8 @@ RETURNS TABLE (
     LEFT JOIN gi_agg  gi USING (supplier_id)
     LEFT JOIN price   p  USING (supplier_id)
     LEFT JOIN stars   st USING (supplier_id)
-    LEFT JOIN quotes  qq USING (supplier_id);
+    LEFT JOIN quotes  qq USING (supplier_id)
+   WHERE (auth.uid() IS NULL OR public.is_super_admin() OR public.user_has_permission('procurement.view'));
 $$;
 
 -- Global star means, the prior that small samples are shrunk toward.
@@ -102,7 +105,9 @@ RETURNS TABLE (delivery_mean numeric, item_mean numeric)
 LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
   SELECT avg(stars) FILTER (WHERE kind = 'delivery'),
          avg(stars) FILTER (WHERE kind = 'item_quality')
-    FROM procurement_ratings WHERE created_at > now() - interval '12 months';
+    FROM procurement_ratings
+   WHERE created_at > now() - interval '12 months'
+     AND (auth.uid() IS NULL OR public.is_super_admin() OR public.user_has_permission('procurement.view'));
 $$;
 
 -- Item × vendor × manufacturer ratings, for the request item picker and Ask AI.
@@ -118,6 +123,7 @@ LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
          max(r.updated_at)
     FROM procurement_ratings r JOIN ims_suppliers s ON s.id = r.supplier_id
    WHERE r.kind = 'item_quality' AND r.item_id = ANY (p_item_ids)
+     AND (auth.uid() IS NULL OR public.is_super_admin() OR public.user_has_permission('procurement.view'))
    GROUP BY r.item_id, r.supplier_id, s.name, r.manufacturer;
 $$;
 
