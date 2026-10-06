@@ -341,7 +341,16 @@ export function DivisionFixtures({
               className="h-7 text-xs"
               disabled={generate.isPending}
               onClick={() => {
-                if (confirm('Regenerate fixtures? This deletes existing matches for this division.')) {
+                // Regenerate deletes every match, results included. Say how many
+                // results would go, so it is never pressed by mistake mid-meet.
+                const decided = matches.filter((m) =>
+                  ['completed', 'walkover', 'disqualified'].includes(m.status),
+                ).length;
+                const msg =
+                  decided > 0
+                    ? `Regenerate fixtures? This deletes all ${matches.length} matches for this division, including ${decided} result${decided === 1 ? '' : 's'} already recorded. This cannot be undone.`
+                    : 'Regenerate fixtures? This deletes existing matches for this division.';
+                if (confirm(msg)) {
                   generate.mutate({ divisionId, regenerate: true });
                 }
               }}
@@ -382,11 +391,13 @@ export function DivisionFixtures({
                     <Button
                       size="sm"
                       variant="outline"
-                      className="h-7"
+                      className="h-7 text-xs"
                       onClick={() => setScheduling(m)}
                       title="Schedule"
+                      aria-label="Schedule"
                     >
-                      <CalendarClock className="h-3.5 w-3.5" />
+                      {/* Visible text: phones never show the title tooltip (BUG-006255). */}
+                      <CalendarClock className="mr-1 h-3.5 w-3.5" /> Time
                     </Button>
                   )}
                   {/* Record result — only once both sides are known and not a bye */}
@@ -394,11 +405,13 @@ export function DivisionFixtures({
                     <Button
                       size="sm"
                       variant={m.status === 'completed' ? 'ghost' : 'outline'}
-                      className="h-7"
+                      className="h-7 text-xs"
                       onClick={() => setRecording(m)}
                       title={m.status === 'completed' ? 'Edit result' : 'Record result'}
+                      aria-label={m.status === 'completed' ? 'Edit result' : 'Record result'}
                     >
-                      <Trophy className="h-3.5 w-3.5" />
+                      <Trophy className="mr-1 h-3.5 w-3.5" />
+                      {m.status === 'completed' ? 'Edit result' : 'Result'}
                     </Button>
                   )}
                 </div>
