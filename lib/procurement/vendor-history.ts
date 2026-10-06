@@ -12,6 +12,15 @@ import type { ItemVendorRating } from '@/types/procurement';
  */
 export const POOR_ITEM_STARS = 3;
 
+/** Poor = shrunk average at/below POOR_ITEM_STARS, or anyone said it was not to spec. */
+export function isPoorItemRating(r: Pick<ItemVendorRating, 'star_sum' | 'star_n' | 'meets_no'>, itemMean = 4): boolean {
+  return shrinkStars(Number(r.star_sum), Number(r.star_n), itemMean) <= POOR_ITEM_STARS || Number(r.meets_no) > 0;
+}
+
+/** What people actually gave, to one decimal — for display. */
+export const rawAverage = (r: Pick<ItemVendorRating, 'star_sum' | 'star_n'>) =>
+  Math.round((Number(r.star_sum) / Number(r.star_n)) * 10) / 10;
+
 export function buildVendorHistory(
   kpis: VendorKpis[],
   means: RatingMeans,
@@ -23,13 +32,10 @@ export function buildVendorHistory(
   for (const k of kpis) {
     const s = computeVendorScore(k, means);
     const low = itemRatings
-      .filter((r) => r.supplier_id === k.supplier_id)
-      .map((r) => ({ r, avg: shrinkStars(Number(r.star_sum), Number(r.star_n), itemMean) }))
-      .filter(({ r, avg }) => avg <= POOR_ITEM_STARS || Number(r.meets_no) > 0)
-      .map(({ r }) => ({
+      .filter((r) => r.supplier_id === k.supplier_id && isPoorItemRating(r, itemMean))
+      .map((r) => ({
         item: itemNameById.get(r.item_id) ?? 'item',
-        // Raw average for display — what people actually gave.
-        avg_stars: Math.round((Number(r.star_sum) / Number(r.star_n)) * 10) / 10,
+        avg_stars: rawAverage(r),
         ratings: Number(r.star_n),
         comment: r.latest_comment,
       }));
