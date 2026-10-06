@@ -12,6 +12,7 @@ import {
   isBillLearnerVisible,
   isBillYearLearnerVisible,
 } from '@/lib/utils/billing/learner-visibility';
+import { findEarlierYearDuesBlock } from '@/lib/utils/billing/academic-year-payment-order';
 import { parentPortalBaseUrl } from '@/lib/utils/parent-url';
 import type { PayPayload } from '@/types/parent-portal';
 
@@ -85,6 +86,17 @@ export async function POST(req: NextRequest) {
         { error: 'One or more bills cannot be paid online. Please contact the accounts office.' },
         { status: 403 }
       );
+    }
+
+    // Year order (oldest first): a bill cannot be paid while a bill of an older
+    // academic year still has a balance — clear those first (separate checkout).
+    const yearOrder = await findEarlierYearDuesBlock(db, {
+      studentId: learnerId,
+      billIds,
+      hiddenCategoryIds,
+    });
+    if (yearOrder.blocked) {
+      return NextResponse.json({ error: yearOrder.message }, { status: 409 });
     }
 
     const base = parentPortalBaseUrl(); // e.g. http://localhost:3000/parent
