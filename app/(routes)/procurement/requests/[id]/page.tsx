@@ -23,6 +23,7 @@ import { ApprovalStepsPanel } from '@/components/procurement/approval-steps-pane
 import { useApproveStep, useApproverNames, useDecideStep, useRequestApprovals } from '@/hooks/procurement/use-approval-chains';
 import { currentStep, isMyTurn } from '@/lib/procurement/approval-chain';
 import { QuotesSection } from '@/components/procurement/quotes-section';
+import { RateItemsCard } from '@/components/procurement/rate-items-card';
 import { OrdersSection } from '@/components/procurement/orders-section';
 import { formatDateDMY } from '@/lib/utils/date-format';
 import { displayRequestNumber } from '@/lib/procurement/display-number';
@@ -554,6 +555,9 @@ export default function PurchasePage() {
         </header>
 
         <ApprovalStepsPanel approvals={approvals} approverNames={approverNames} />
+
+        {/* Requester rates what was delivered (hidden until something is). */}
+        {rfqId && (isOwner || isSuperAdmin) && <RateItemsCard requestId={id} />}
 
         {isOrdered && rfqId ? (
           <>

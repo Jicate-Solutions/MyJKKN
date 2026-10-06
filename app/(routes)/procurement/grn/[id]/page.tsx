@@ -42,6 +42,10 @@ import { CheckCircle2, AlertTriangle, PackagePlus, Ban, ClipboardList } from 'lu
 import { BeatLoader } from 'react-spinners';
 import { toast } from 'sonner';
 import { errorMessage } from '@/lib/utils/supabase-error';
+import { DeliveryRatingRow } from '@/components/procurement/delivery-rating-row';
+
+// Same set the rating RPCs accept.
+const RATEABLE_GRN_STATUSES: string[] = ['partially_accepted', 'replacement_requested', 'accepted', 'completed'];
 
 export default function GrnDetailPage() {
   const router = useRouter();
@@ -474,6 +478,13 @@ export default function GrnDetailPage() {
             {formatDateTimeDMY(grn.verified_at)}.
           </p>
         )}
+
+        {/* Store admin's delivery rating — feeds the vendor score */}
+        {profile?.id &&
+          RATEABLE_GRN_STATUSES.includes(grn.status) &&
+          (isSuperAdmin || profile.id === grn.verified_by || profile.id === grn.received_by) && (
+            <DeliveryRatingRow grnId={grn.id} userId={profile.id} />
+          )}
       </div>
 
       {/* Receive-replacement dialog */}
