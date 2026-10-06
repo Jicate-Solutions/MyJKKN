@@ -9,6 +9,7 @@ export const PUBLIC_JOB_SELECT = [
   'city', 'state', 'country', 'education_level', 'min_experience_years', 'max_experience_years',
   'requirements', 'positions_open', 'posted_at', 'closes_at', 'status', 'is_public',
   'display_salary', 'min_monthly_salary', 'max_monthly_salary', 'salary_currency', 'salary_duration',
+  'seo_title', 'seo_description', 'seo_keywords', 'seo_og_image', 'seo_noindex',
   'institution:institutions(id, name)', 'department:departments(id, department_name)',
 ].join(', ');
 
@@ -33,6 +34,17 @@ export interface PublicJob {
   posted_at: string | null;
   closes_at: string | null;
   salary: { min: number | null; max: number | null; currency: string; duration: string } | null;
+  /**
+   * Website-only SEO (hr_recruitment_jobs.seo_*). The website puts these in the
+   * page <head> and never on the page itself; null/empty = build from the job.
+   */
+  seo: {
+    title: string | null;
+    description: string | null;
+    keywords: string[];
+    og_image: string | null;
+    noindex: boolean;
+  };
 }
 
 export type PublicJobRow = Record<string, unknown>;
@@ -83,5 +95,12 @@ export function toPublicJob(row: PublicJobRow): PublicJob {
           duration: str(row.salary_duration) ?? 'per_month',
         }
       : null,
+    seo: {
+      title: str(row.seo_title)?.trim() ?? null,
+      description: str(row.seo_description)?.trim() ?? null,
+      keywords: strArr(row.seo_keywords).map((k) => k.trim()),
+      og_image: str(row.seo_og_image),
+      noindex: row.seo_noindex === true,
+    },
   };
 }

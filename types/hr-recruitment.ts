@@ -382,6 +382,14 @@ export interface HRRecruitmentJob {
   salary_duration: SalaryDuration;
   display_salary: boolean;
 
+  // Website SEO (added 2026-10-06) — <head> of jkkn.ac.in/careers/<job> only,
+  // never shown to applicants. Empty = the website builds its own.
+  seo_title: string | null;
+  seo_description: string | null;
+  seo_keywords: string[];
+  seo_og_image: string | null;
+  seo_noindex: boolean;
+
   status: JobStatus;
   is_public: boolean;
 
@@ -424,6 +432,11 @@ export interface HRRecruitmentJobInsert {
   salary_currency?: string;
   salary_duration?: SalaryDuration;
   display_salary?: boolean;
+  seo_title?: string | null;
+  seo_description?: string | null;
+  seo_keywords?: string[];
+  seo_og_image?: string | null;
+  seo_noindex?: boolean;
   status?: JobStatus;
   is_public?: boolean;
   posted_at?: string | null;
@@ -457,6 +470,11 @@ export type HRRecruitmentJobUpdate = Partial<
     | 'salary_currency'
     | 'salary_duration'
     | 'display_salary'
+    | 'seo_title'
+    | 'seo_description'
+    | 'seo_keywords'
+    | 'seo_og_image'
+    | 'seo_noindex'
     | 'status'
     | 'is_public'
     | 'posted_at'

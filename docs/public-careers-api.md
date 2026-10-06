@@ -47,9 +47,23 @@ Response `200` (cache it on your side, e.g. `next: { revalidate: 300 }`):
   "qualifications": ["M.Pharm"], "skills": ["…"],
   "positions_open": 2,
   "posted_at": "2026-09-01T00:00:00Z", "closes_at": null,
-  "salary": { "min": 30000, "max": 50000, "currency": "INR", "duration": "per_month" }
+  "salary": { "min": 30000, "max": 50000, "currency": "INR", "duration": "per_month" },
+  "seo": {
+    "title": "Senior Learner Pharmacology Job | JKKN College of Pharmacy",
+    "description": "…",
+    "keywords": ["pharmacology faculty job", "Komarapalayam"],
+    "og_image": null,
+    "noindex": false
+  }
 }
 ```
+
+`seo` (added 2026-10-06, columns `hr_recruitment_jobs.seo_*`, edited in the HR job
+form's **Website SEO** card) is for the page `<head>` only — `<title>`, meta
+description/keywords, share image, robots. **Never render it on the page**: applicants
+must see `title` and `description`. Every field is optional (`null` / `[]` / `false`);
+when empty, build SEO from the job's own fields. `noindex: true` means "keep the job
+listed and open, but ask search engines not to index it" (test jobs).
 
 `salary` is `null` unless HR chose to display it. `department` may be `null`.
 
