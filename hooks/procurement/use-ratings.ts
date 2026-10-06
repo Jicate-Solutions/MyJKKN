@@ -73,7 +73,8 @@ function useInvalidateRatings() {
 export function useRateDelivery() {
   const invalidate = useInvalidateRatings();
   return useMutation({
-    mutationFn: ProcurementRatingService.rateDelivery.bind(ProcurementRatingService),
+    mutationFn: (input: Parameters<typeof ProcurementRatingService.rateDelivery>[0]) =>
+      ProcurementRatingService.rateDelivery(input),
     onSuccess: () => {
       invalidate();
       toast.success('Thanks — delivery rating saved');
@@ -85,7 +86,8 @@ export function useRateDelivery() {
 export function useRateItem() {
   const invalidate = useInvalidateRatings();
   return useMutation({
-    mutationFn: ProcurementRatingService.rateItem.bind(ProcurementRatingService),
+    mutationFn: (input: Parameters<typeof ProcurementRatingService.rateItem>[0]) =>
+      ProcurementRatingService.rateItem(input),
     onSuccess: () => {
       invalidate();
       toast.success('Thanks — rating saved');

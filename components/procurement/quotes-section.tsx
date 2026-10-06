@@ -57,6 +57,9 @@ import {
 } from 'lucide-react';
 import { QuotationChatPanel } from '@/components/procurement/quotation-chat-panel';
 import { BulkQuotationUpload } from '@/components/procurement/bulk-quotation-upload';
+import { VendorScoreBadge } from '@/components/procurement/vendor-score-badge';
+import { useVendorScores } from '@/hooks/procurement/use-ratings';
+import { ProcurementRfqService } from '@/lib/services/procurement/rfq-service';
 import { BeatLoader } from 'react-spinners';
 import { toast } from 'sonner';
 import { errorMessage } from '@/lib/utils/supabase-error';
@@ -137,6 +140,12 @@ export function QuotesSection({
     () => quotations.map((q) => ({ supplierId: q.supplier_id, name: q.supplier?.name ?? 'Vendor' })),
     [quotations]
   );
+  // Vendor score from past deliveries + ratings (the rating feedback loop).
+  const { data: vendorScores } = useVendorScores(vendorColumns.map((v) => v.supplierId));
+  // Choosing a Watch-grade vendor needs a reason the approver can read.
+  const [watchOpen, setWatchOpen] = useState(false);
+  const [watchReason, setWatchReason] = useState('');
+  const [savingWatch, setSavingWatch] = useState(false);
 
   const livePrices = useMemo(
     () =>
@@ -333,7 +342,25 @@ export function QuotesSection({
       node
     );
 
-  const sendForApproval = () => run(() => submitAward.mutateAsync(rfqId), 'Sent for final approval');
+  // Chosen vendors graded D (Watch). Their names go in the reason prompt.
+  const watchVendors = [...new Set(comparison.flatMap((r) => r.quotes.filter((q) => q.awarded).map((q) => q.supplier_id)))]
+    .filter((sid) => vendorScores?.get(sid)?.grade === 'D')
+    .map((sid) => vendorColumns.find((v) => v.supplierId === sid)?.name ?? 'Vendor');
+
+  const submitWithReason = async (reason: string | null) => {
+    setSavingWatch(true);
+    try {
+      // Clear a stale reason too, so the approver never reads one for a vendor no longer chosen.
+      if (reason !== null || rfq.award_watch_reason) await ProcurementRfqService.setAwardWatchReason(rfqId, reason);
+      await run(() => submitAward.mutateAsync(rfqId), 'Sent for final approval');
+      setWatchOpen(false);
+    } catch (e) {
+      toast.error(errorMessage(e, 'Could not save the reason'));
+    } finally {
+      setSavingWatch(false);
+    }
+  };
+  const sendForApproval = () => (watchVendors.length > 0 ? setWatchOpen(true) : void submitWithReason(null));
 
   return (
     <div className="space-y-3">
@@ -423,7 +450,8 @@ export function QuotesSection({
                           {g.name}{' '}
                           <span className="font-normal normal-case tracking-normal text-muted-foreground">
                             · {g.lines.length} item{g.lines.length === 1 ? '' : 's'}
-                          </span>
+                          </span>{' '}
+                          <VendorScoreBadge score={vendorScores?.get(id)} vendorName={g.name} className="normal-case tracking-normal" />
                         </span>
                         <span className="text-right font-semibold tabular-nums">{rupees(g.total)}</span>
                       </summary>
@@ -435,7 +463,10 @@ export function QuotesSection({
                   ) : (
                     <div key={id} className="border-t">
                       <div className="flex items-baseline justify-between gap-3 pb-1.5 pt-3">
-                        <span className="truncate text-[13px] font-bold uppercase tracking-wide">{g.name}</span>
+                        <span className="flex min-w-0 items-center gap-2">
+                          <span className="truncate text-[13px] font-bold uppercase tracking-wide">{g.name}</span>
+                          <VendorScoreBadge score={vendorScores?.get(id)} vendorName={g.name} />
+                        </span>
                         {pdfLink(id, g.name)}
                       </div>
                       <div className="max-h-72 space-y-1.5 overflow-y-auto pb-3">{g.lines.map(lineRow)}</div>
@@ -453,6 +484,11 @@ export function QuotesSection({
               </div>
 
               {/* exceptions only — nothing here when everything is normal */}
+              {rfq.award_watch_reason && (
+                <div className="mx-6 mb-3 rounded-xl border border-red-600/40 bg-red-50 px-3 py-2.5 text-[13px] text-red-900 dark:bg-red-950/40 dark:text-red-200">
+                  <b>Vendor on Watch chosen</b> — {rfq.award_watch_reason}
+                </div>
+              )}
               {(vendorColumns.length === 1 || aboveLowest.length > 0 || noQuote.length > 0) && (
                 <div className="mx-6 mb-4 space-y-1 rounded-xl bg-secondary/20 px-3 py-2.5 text-[13px] text-foreground">
                   {vendorColumns.length === 1 && (
@@ -623,7 +659,10 @@ export function QuotesSection({
                 <div>
                   <div className="flex items-start justify-between gap-3 px-5 py-4">
                     <div className="min-w-0">
-                      <p className="font-semibold">{v.name}</p>
+                      <p className="flex items-center gap-2 font-semibold">
+                        {v.name}
+                        <VendorScoreBadge score={vendorScores?.get(v.supplierId)} vendorName={v.name} />
+                      </p>
                       {terms.length > 0 && <p className="text-xs text-muted-foreground">{terms.join(' · ')}</p>}
                     </div>
                     {q.document_file_id ? (
@@ -730,6 +769,7 @@ export function QuotesSection({
                               <span className="min-w-0 truncate text-sm font-semibold" title={v.name}>
                                 {v.name}
                               </span>
+                              <VendorScoreBadge score={vendorScores?.get(v.supplierId)} vendorName={v.name} />
                               <span className="ml-auto flex shrink-0 items-center gap-1.5 text-muted-foreground">
                                 {q?.document_file_id ? (
                                   <button
@@ -1035,6 +1075,41 @@ export function QuotesSection({
           awardedIds={awardedIds}
         />
       )}
+
+      <Dialog open={watchOpen} onOpenChange={(o) => !savingWatch && setWatchOpen(o)}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Vendor on Watch</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">
+            {watchVendors.join(', ')} {watchVendors.length === 1 ? 'has' : 'have'} a poor record on past deliveries
+            (late, short or rejected items, or low ratings). Say why you are still choosing{' '}
+            {watchVendors.length === 1 ? 'this vendor' : 'these vendors'} — the approver will see it.
+          </p>
+          <div className="space-y-1.5">
+            <Label htmlFor="watch-reason">Reason</Label>
+            <Textarea
+              id="watch-reason"
+              value={watchReason}
+              onChange={(e) => setWatchReason(e.target.value)}
+              placeholder="e.g. Only vendor with this brand; delivery issues were resolved in August"
+              rows={3}
+              maxLength={500}
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setWatchOpen(false)} disabled={savingWatch}>
+              Back
+            </Button>
+            <Button
+              disabled={watchReason.trim().length < 5 || savingWatch}
+              onClick={() => void submitWithReason(watchReason.trim())}
+            >
+              {savingWatch ? 'Sending…' : 'Send for final approval'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={sendBackOpen} onOpenChange={setSendBackOpen}>
         <DialogContent>
