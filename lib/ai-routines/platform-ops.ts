@@ -664,5 +664,21 @@ export const PLATFORM_OPS_ROUTINES: AIRoutine[] = [
     "sideEffects": "DB writes only: one event_feedback_forms row plus its section and four questions per qualifying event. Never a second form on an event that already has one, never touches induction events (they run their own three feedback channels), never backfills beyond the lookback window. SENDS NOTHING — no notification, email or push; attendees find the form themselves at /my-event-feedback.",
     "safeToManualTrigger": true,
     "notes": "Rules-based, no LLM. Fires via the AI-routine dispatcher (ai_routine_schedules row 'events-standard-feedback-forms' — day/time editable in /admin/ai-routines), NOT a raw vercel.json cron. Auth: CRON_SECRET (Bearer ONLY, constant-time — no ?secret= query param). Safe to manual-trigger: idempotent by construction (the NOT EXISTS on event_feedback_forms makes a same-day re-run a no-op). 'Ended' is the LATER of events.end_date and events.event_date+end_time in IST, because those two columns can disagree (see scripts/ci/check-event-time-consistency.mjs) and a form must never open while people are still in the room. Migration 20261206143000."
+  },
+  {
+    "id": "walkin-claims-weekly-note",
+    "name": "Walk-in agency claims — weekly note to the release owner and the Director",
+    "category": "platform-ops",
+    "type": "cron",
+    "schedule": "Weekly · Monday 09:15 IST (editable via dispatcher)",
+    "triggerPath": "/api/cron/walkin-claims-weekly-note",
+    "callsClaude": false,
+    "featureKey": null,
+    "featureKeyNote": "Three count queries and a note; no model involved.",
+    "whatItDoes": "Tells the walk-in release owner and the Director how many walk-in agency claims are still waiting for someone to confirm they are genuine (consultant_lead_attributions on a walk_in enquiry with payout_cleared_at NULL), the date the oldest has been waiting since, and how many were released in the last 7 days, with a link to /admission/consultants/review-worklist. Counts only, never a rupee amount. Director ruling 2026-09-27: both people, by email AND the in-app bell.",
+    "configKnobs": "platform_policies admission.walkin_release.weekly_note_recipient_ids (JSON array of profile ids; seeded with the Director) plus admission.walkin_release.owner_user_id (JSON string; the owner is added at runtime and de-duplicated — a missing owner row is logged and skipped). Day/time editable at /admin/ai-routines.",
+    "sideEffects": "WRITES one notifications row (+ user_notifications link) per recipient per ISO week and SENDS one email per recipient via Resend when that row is freshly created. Moves no money and releases nothing.",
+    "safeToManualTrigger": true,
+    "notes": "Idempotent per ISO week (IST calendar): notifications.idempotency_key walkin-claims-weekly-note:<week>:<user>, and the email is gated on that row being new, so a re-run in the same week sends nothing. Auth: CRON_SECRET, Bearer ONLY (constant-time). Migration 20270610100000."
   }
 ];

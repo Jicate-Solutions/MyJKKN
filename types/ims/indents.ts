@@ -137,6 +137,13 @@ export type CreateImsIndentDto = {
   }>;
 };
 
+/**
+ * Before any approval is final: the requester may still edit or delete the indent.
+ * Includes the HOD step (pending_local_approval) — a lab assistant's indent waits
+ * there, and a mistake found while waiting was otherwise stuck.
+ */
+export const EDITABLE_INDENT_STATUSES: readonly ImsIndentStatus[] = ['draft', 'pending_local_approval', 'pending_approval'];
+
 export const INDENT_STATUS_CONFIG: Record<ImsIndentStatus, { label: string; variant: 'default' | 'secondary' | 'destructive' | 'outline' }> = {
   draft: { label: 'Draft', variant: 'secondary' },
   // Phase D: dual-purpose status — HOD approval for department-scoped

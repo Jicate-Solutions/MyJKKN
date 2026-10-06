@@ -9,9 +9,14 @@
  * Scope (server-enforced): fn_ai_my_conversations pins auth.uid() and filters
  * ai_jobs.requested_by = auth.uid(), so a user only ever sees their OWN chats
  * (no cross-user visibility, no delete).
+ *
+ * "Repeat…" on a past chat schedules its opening question (ScheduleDialog);
+ * the "Scheduled" tab lists the person's own schedules (ScheduleList). A link
+ * of the form /ai-query?scheduled=<id> (from a scheduled answer's email or
+ * notification) opens this sheet straight on that schedule.
  */
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import {
   Sheet,
   SheetContent,
@@ -23,9 +28,15 @@ import {
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Badge } from '@/components/ui/badge';
-import { History, Loader2, MessageSquare, MessagesSquare } from 'lucide-react';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { History, Loader2, MessageSquare, MessagesSquare, Repeat } from 'lucide-react';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { cn } from '@/lib/utils';
+import { ScheduleDialog } from './ScheduleDialog';
+import { ScheduleList } from './ScheduleList';
+
+type HistoryTab = 'chats' | 'scheduled';
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 interface ConversationRow {
   conversation_id: string;
@@ -57,6 +68,10 @@ export function ChatHistorySheet({
   const [loading, setLoading] = useState(false);
   const [errored, setErrored] = useState(false);
   const [rows, setRows] = useState<ConversationRow[]>([]);
+  const [tab, setTab] = useState<HistoryTab>('chats');
+  const [repeatQuestion, setRepeatQuestion] = useState<string | null>(null);
+  const [scheduleRefresh, setScheduleRefresh] = useState(0);
+  const [focusScheduleId, setFocusScheduleId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -86,6 +101,19 @@ export function ChatHistorySheet({
     setOpen(false);
   };
 
+  // Arriving from a scheduled answer's link: open straight on that schedule.
+  // Read once from the URL (no useSearchParams, so the page needs no Suspense).
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const id = new URLSearchParams(window.location.search).get('scheduled');
+    if (id && UUID_RE.test(id)) {
+      setFocusScheduleId(id);
+      setTab('scheduled');
+      setOpen(true);
+      void load();
+    }
+  }, [load]);
+
   return (
     <Sheet
       open={open}
@@ -107,10 +135,22 @@ export function ChatHistorySheet({
             Your past chats
           </SheetTitle>
           <SheetDescription className="text-xs">
-            Only you can see your own chats — tap one to reopen it and continue.
+            Only you can see your own chats — tap one to reopen it and continue, or press Repeat…
+            to have it answered for you on a schedule.
           </SheetDescription>
         </SheetHeader>
 
+        <Tabs
+          value={tab}
+          onValueChange={(v) => setTab(v as HistoryTab)}
+          className="flex min-h-0 flex-1 flex-col"
+        >
+          <TabsList className="mx-4 mt-3 grid grid-cols-2">
+            <TabsTrigger value="chats">Past chats</TabsTrigger>
+            <TabsTrigger value="scheduled">Scheduled</TabsTrigger>
+          </TabsList>
+
+        <TabsContent value="chats" className="mt-0 min-h-0 flex-1 data-[state=active]:flex data-[state=active]:flex-col">
         <ScrollArea className="flex-1 px-4 py-3">
           {loading ? (
             <div className="flex items-center justify-center py-16 text-muted-foreground">
@@ -128,11 +168,11 @@ export function ChatHistorySheet({
           ) : (
             <div className="space-y-2">
               {rows.map((r) => (
+                <div key={r.conversation_id} className="relative">
                 <button
-                  key={r.conversation_id}
                   type="button"
                   onClick={() => handleSelect(r.conversation_id)}
-                  className="w-full text-left rounded-lg border border-border/60 bg-gradient-to-br from-muted/60 to-muted/20 p-3 transition-colors hover:border-primary/40 hover:from-muted/80 hover:to-muted/40 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+                  className="w-full text-left rounded-lg border border-border/60 bg-gradient-to-br from-muted/60 to-muted/20 p-3 pb-9 transition-colors hover:border-primary/40 hover:from-muted/80 hover:to-muted/40 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
                 >
                   <div className="flex items-start justify-between gap-2">
                     <p className="text-sm font-medium text-foreground/90 line-clamp-2">
@@ -155,11 +195,47 @@ export function ChatHistorySheet({
                     <span>{new Date(r.last_at).toLocaleString()}</span>
                   </div>
                 </button>
+                {r.title && (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="absolute bottom-1.5 right-1.5 h-7 px-2 text-xs text-muted-foreground hover:text-foreground"
+                    onClick={() => setRepeatQuestion(r.title)}
+                    aria-label={`Repeat the question: ${r.title}`}
+                  >
+                    <Repeat className="mr-1 h-3 w-3" />
+                    Repeat…
+                  </Button>
+                )}
+                </div>
               ))}
             </div>
           )}
         </ScrollArea>
+        </TabsContent>
+
+        <TabsContent value="scheduled" className="mt-0 min-h-0 flex-1 data-[state=active]:flex data-[state=active]:flex-col">
+          <ScrollArea className="flex-1 px-4 py-3">
+            {tab === 'scheduled' && (
+              <ScheduleList refreshKey={scheduleRefresh} focusId={focusScheduleId} />
+            )}
+          </ScrollArea>
+        </TabsContent>
+        </Tabs>
       </SheetContent>
+
+      <ScheduleDialog
+        open={repeatQuestion !== null}
+        onOpenChange={(o) => {
+          if (!o) setRepeatQuestion(null);
+        }}
+        question={repeatQuestion ?? ''}
+        onCreated={() => {
+          setScheduleRefresh((n) => n + 1);
+          setTab('scheduled');
+        }}
+      />
     </Sheet>
   );
 }

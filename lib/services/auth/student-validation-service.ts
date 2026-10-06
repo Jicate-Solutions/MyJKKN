@@ -53,8 +53,24 @@ export class StudentValidationService {
    * Security: Uses service role client to bypass RLS for reliable validation
    * Allowed statuses: active, graduated
    * Blocked statuses: all others
+   *
+   * 'database_error' means the status could not be READ — it is not a block.
+   * One retry after a short pause absorbs a momentary failure; if it persists
+   * the caller still gets 'database_error' and must not sign anyone out for it
+   * (the proxy holds the learner on a reconnecting page instead).
    */
-  static async validateStudentAccess(userId: string): Promise<StudentValidationResult> {
+  static async validateStudentAccess(
+    userId: string,
+    retryDelayMs = 200
+  ): Promise<StudentValidationResult> {
+    const first = await StudentValidationService.validateOnce(userId);
+    if (first.reason !== 'database_error') return first;
+
+    await new Promise((resolve) => setTimeout(resolve, retryDelayMs));
+    return StudentValidationService.validateOnce(userId);
+  }
+
+  private static async validateOnce(userId: string): Promise<StudentValidationResult> {
     try {
       console.log('[StudentValidation] 🔍 Starting validation for user:', userId);
       const adminClient = createServiceRoleClient();

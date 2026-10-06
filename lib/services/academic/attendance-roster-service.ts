@@ -4,6 +4,7 @@ import {
   ACTIVE_ONLY_LIFECYCLE_FILTER,
   buildRosterLifecycleFilter,
 } from '@/lib/utils/academic/provisional-roster-filter';
+import { periodMarkedForLearners } from '@/lib/utils/practical-period-sections';
 import type {
   AttendanceRosterStudent,
   AttendanceStudent,
@@ -19,6 +20,68 @@ import type {
  * @see AttendanceCoreService for marking and validation methods
  * @see AttendanceService for timetable lookup and utility methods
  */
+export interface AttendanceRecordForCheck {
+  id: string;
+  section_id: string | null;
+  section_ids: string[] | null;
+  attendance_data: Record<string, unknown> | null;
+}
+
+/**
+ * A saved period slot carries learners either directly (standard periods) or
+ * nested under subdivision groups (combined/subdivided periods save
+ * `students: []` at the top level and put the real rows in `groups[].students`).
+ */
+export function slotHasAttendance(slotData: any): boolean {
+  if (!slotData) return false;
+  if (Array.isArray(slotData.students) && slotData.students.length > 0) return true;
+  if (Array.isArray(slotData.groups)) {
+    return slotData.groups.some(
+      (group: any) => Array.isArray(group?.students) && group.students.length > 0
+    );
+  }
+  return false;
+}
+
+/**
+ * The record (of one timetable and day) that holds attendance for `slotId`,
+ * looking only at records whose section_id / section_ids overlap `sectionIds`,
+ * or at every record when no section is known. Null when none holds it.
+ * With `learnerIds` (a practical batch's learners, BUG-006204) the slot counts
+ * only when one of THOSE learners is stored, so another batch's save in the
+ * same slot does not read as this batch's.
+ * When several records hold it, the section's OWN record wins (section_id is
+ * the period's first section, then any of its sections), so the report link
+ * opens that record rather than a combined group's — as the old lookup did.
+ */
+export function findMarkedAttendanceRecord(
+  records: AttendanceRecordForCheck[],
+  slotId: string,
+  sectionIds: Array<string | null | undefined>,
+  learnerIds?: string[] | null,
+): AttendanceRecordForCheck | null {
+  const ordered = sectionIds.filter((s): s is string => !!s);
+  const wanted = new Set(ordered);
+  const rank = (record: AttendanceRecordForCheck): number => {
+    if (wanted.size === 0) return 0;
+    if (record.section_id != null && record.section_id === ordered[0]) return 0;
+    if (record.section_id != null && wanted.has(record.section_id)) return 1;
+    if ((record.section_ids ?? []).some((s) => wanted.has(s))) return 2;
+    return -1;
+  };
+  let best: AttendanceRecordForCheck | null = null;
+  let bestRank = Infinity;
+  for (const record of records) {
+    const r = rank(record);
+    if (r < 0 || r >= bestRank) continue;
+    if (periodMarkedForLearners(record.attendance_data?.[slotId], learnerIds)) {
+      best = record;
+      bestRank = r;
+    }
+  }
+  return best;
+}
+
 export class AttendanceRosterService {
   private static get supabase() {
     return createClientSupabaseClient();
@@ -156,150 +219,82 @@ export class AttendanceRosterService {
    * unmarked even though the record was saved.
    */
   private static periodHasAttendance(slotData: any): boolean {
-    if (!slotData) return false;
-    if (Array.isArray(slotData.students) && slotData.students.length > 0) {
-      return true;
-    }
-    if (Array.isArray(slotData.groups)) {
-      return slotData.groups.some(
-        (group: any) => Array.isArray(group?.students) && group.students.length > 0
-      );
-    }
-    return false;
+    return slotHasAttendance(slotData);
   }
 
   /**
-   * Check existing attendance for multiple periods at once
+   * Check existing attendance for multiple periods at once.
+   *
+   * Updated: 2026-09-28 (BUG-004733, BUG-004557) - A period is marked when ANY
+   * attendance record for its timetable and day holds that slot with learners,
+   * among the records whose section_id / section_ids overlap the period's
+   * sections (every record of the day when the period has no sections).
+   * It used to read ONE record, picked by the period's FIRST section, so:
+   *  - practical / specialisation periods (MBA timetable 254c52b7) are saved in
+   *    the record of whichever batch marked them, not the first section's, and
+   *    the tab never turned marked;
+   *  - two records containing the section made .maybeSingle() fail, which also
+   *    read as not marked.
    */
   static async checkExistingAttendanceForPeriods(
     periods: Array<{
       timetable_slot_id: string;
       timetable_id: string;
       section_id: string;
+      section_ids?: string[];
       attendance_date: string;
+      // Added: 2026-09-23 (BUG-006204) - a practical batch's learners; when set,
+      // the period counts as marked only if one of them is stored.
+      student_ids?: string[] | null;
     }>
   ): Promise<Map<string, { isMarked: boolean; recordId?: string }>> {
-    const attendanceMap = new Map<
-      string,
-      { isMarked: boolean; recordId?: string }
-    >();
+    const attendanceMap = new Map<string, { isMarked: boolean; recordId?: string }>();
 
     try {
-      // Group periods by timetable_id, section_id, and date for efficient querying
-      const groupedPeriods = new Map<string, typeof periods>();
-
-      periods.forEach((period) => {
-        const key = `${period.timetable_id}_${period.section_id}_${period.attendance_date}`;
-        if (!groupedPeriods.has(key)) {
-          groupedPeriods.set(key, []);
-        }
-        groupedPeriods.get(key)!.push(period);
-      });
-
-      // Query attendance records for each group
-      for (const [_, groupPeriods] of groupedPeriods) {
-        if (groupPeriods.length === 0) continue;
-
-        const firstPeriod = groupPeriods[0];
-
-        // Validate parameters before query. A missing section_id is EXPECTED for
-        // semester-level timetables (periods span all sections, so there's no
-        // single section to pre-check) — that's a normal skip, not an error.
-        // We still surface a genuinely malformed period (missing timetable/date)
-        // at warn level.
-        if (
-          !firstPeriod.timetable_id ||
-          !firstPeriod.section_id ||
-          !firstPeriod.attendance_date
-        ) {
-          const isExpectedNoSection =
-            !!firstPeriod.timetable_id &&
-            !!firstPeriod.attendance_date &&
-            !firstPeriod.section_id;
-          const logParams = {
-            timetable_id: firstPeriod.timetable_id,
-            section_id: firstPeriod.section_id,
-            attendance_date: firstPeriod.attendance_date
-          };
-          if (isExpectedNoSection) {
-            logger.debug(
-              'academic/attendance',
-              'Skipping attendance pre-check for semester-level period (no specific section)',
-              logParams
-            );
-          } else {
-            logger.warn(
-              'academic/attendance',
-              'Invalid parameters for attendance check',
-              logParams
-            );
-          }
-          // Mark all periods in this group as not marked.
-          groupPeriods.forEach((period) => {
-            attendanceMap.set(period.timetable_slot_id, { isMarked: false });
+      // One read per timetable and day, not per section.
+      const groups = new Map<string, typeof periods>();
+      for (const period of periods) {
+        if (!period.timetable_id || !period.attendance_date) {
+          logger.warn('academic/attendance', 'Invalid parameters for attendance check', {
+            timetable_id: period.timetable_id,
+            attendance_date: period.attendance_date,
           });
+          attendanceMap.set(period.timetable_slot_id, { isMarked: false });
           continue;
         }
+        const key = `${period.timetable_id}_${period.attendance_date}`;
+        if (!groups.has(key)) groups.set(key, []);
+        groups.get(key)!.push(period);
+      }
 
-        // Updated: 2025-10-09 - Check for both section_id match and section_ids array containment
-        // For multi-section timetables, attendance is stored with section_ids array
-        // We need to check if the section is either:
-        // 1. The main section_id (for single-section or as primary in multi-section)
-        // 2. In the section_ids array (for multi-section timetables)
-
-        // First try to find by exact section_id match
-        let { data, error } = await this.supabase
+      for (const groupPeriods of groups.values()) {
+        const first = groupPeriods[0];
+        const { data, error } = await this.supabase
           .from('student_attendance')
-          .select('id, attendance_data, section_ids')
-          .eq('timetable_id', firstPeriod.timetable_id)
-          .eq('section_id', firstPeriod.section_id)
-          .eq('attendance_date', firstPeriod.attendance_date)
-          .maybeSingle();
-
-        // If not found by section_id, try finding by section_ids array containment
-        if (!data && firstPeriod.section_id) {
-          const { data: arrayData, error: arrayError } = await this.supabase
-            .from('student_attendance')
-            .select('id, attendance_data, section_ids')
-            .eq('timetable_id', firstPeriod.timetable_id)
-            .eq('attendance_date', firstPeriod.attendance_date)
-            .contains('section_ids', [firstPeriod.section_id])
-            .maybeSingle();
-
-          if (arrayData) {
-            data = arrayData;
-            error = arrayError;
-          }
-        }
+          .select('id, section_id, section_ids, attendance_data')
+          .eq('timetable_id', first.timetable_id)
+          .eq('attendance_date', first.attendance_date);
 
         if (error) {
           logger.error('academic/attendance', 'Error checking existing attendance', error);
-          // Mark all periods in this group as not marked on error
           groupPeriods.forEach((period) => {
             attendanceMap.set(period.timetable_slot_id, { isMarked: false });
           });
           continue;
         }
 
-        // Check each period in this group
-        groupPeriods.forEach((period) => {
-          let isMarked = false;
-
-          if ((data as any)?.attendance_data) {
-            // Updated: 2025-10-09 - Check ONLY this specific slot, not any other slots
-            // Even for multi-section records, we should only mark a period as complete
-            // if THIS specific slot has attendance data
-            const slotData = (data as any).attendance_data[period.timetable_slot_id];
-            if (this.periodHasAttendance(slotData)) {
-              isMarked = true;
-            }
-          }
-
+        for (const period of groupPeriods) {
+          const record = findMarkedAttendanceRecord(
+            (data ?? []) as AttendanceRecordForCheck[],
+            period.timetable_slot_id,
+            [period.section_id, ...(period.section_ids ?? [])],
+            period.student_ids,
+          );
           attendanceMap.set(period.timetable_slot_id, {
-            isMarked,
-            recordId: isMarked ? (data as any)?.id : undefined
+            isMarked: !!record,
+            recordId: record?.id,
           });
-        });
+        }
       }
     } catch (error) {
       logger.error('academic/attendance', 'Error in checkExistingAttendanceForPeriods', error);

@@ -141,7 +141,7 @@ export function HeaderFieldsEditor({ fields, onChange }: HeaderFieldsEditorProps
                   </div>
 
                   <div className="lg:col-span-2 flex items-end justify-end">
-                    <Button type="button" variant="ghost" size="icon" className="h-10 w-10 text-red-500 hover:text-red-700 sm:h-8 sm:w-8" aria-label="Remove field" onClick={() => removeField(index)}>
+                    <Button type="button" variant="ghost" size="icon" className="h-10 w-10 text-destructive hover:text-destructive sm:h-8 sm:w-8" aria-label="Remove field" onClick={() => removeField(index)}>
                       <Trash2 className="h-4 w-4" />
                     </Button>
                   </div>

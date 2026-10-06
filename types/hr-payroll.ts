@@ -1,7 +1,7 @@
 /**
  * HR Payroll Module — TypeScript Types (T4.3 PR 2)
  *
- * Spec: specs/t4-payroll-design-lock-2026-05-15.md (20 decisions, lock 2026-05-15)
+ * No written spec; the schema lives in the two migrations below.
  * Migration (substrate): 20260628000000_t4_3_payroll_periods_approvals_payslips.sql
  * Migration (RPCs):      20260629000000_t4_3_pr2_payroll_rpcs.sql
  *
@@ -230,6 +230,12 @@ export interface SalaryClosePreviewRow {
   net_pay: number;
   /** Days the evaluator could not judge. Non-zero means fix attendance first. */
   unprocessed_days: number;
+  /**
+   * Which organisation pays this person. The preview lists who WORKS at the
+   * institution being closed, so this can name a different organisation. Null
+   * when no payer is recorded or the caller cannot read hr_staff_payroll.
+   */
+  paid_by_name: string | null;
 }
 
 export interface SalaryClosePreviewExclusion {
@@ -238,6 +244,7 @@ export interface SalaryClosePreviewExclusion {
   staff_name: string;
   designation: string | null;
   department_name: string | null;
+  paid_by_name: string | null;
   reason: SalaryRegisterExclusionReason;
 }
 
@@ -250,7 +257,14 @@ export interface SalaryClosePreview {
   period_basis: number;
   payable: SalaryClosePreviewRow[];
   excluded: SalaryClosePreviewExclusion[];
+  /** People who WORK at this institution — the ones this close freezes. */
   roster_count: number;
+  /**
+   * People this institution PAYS who work at ANOTHER institution, by where they
+   * work. Informational: their attendance is frozen, and their pay verified, when
+   * their own work location closes — not here. Not part of the fingerprint.
+   */
+  paid_elsewhere: Array<{ institution_name: string; count: number }>;
   total_net_pay: number;
   unprocessed_days: number;
   /**

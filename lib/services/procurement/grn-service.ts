@@ -13,6 +13,12 @@
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { getAdapter } from './domain-adapters/registry';
 import { matchLine, validateLineForVerify } from './three-way-match';
+import {
+  PO_PURCHASE_REQUEST_EMBED,
+  rfqIdsForRequestSearch,
+  sanitizeOrSearch,
+  withPurchaseRequest,
+} from './purchase-order-service';
 import type { ProcurementDomain, DomainCtx } from './domain-adapters/types';
 import type {
   ProcurementGrn,
@@ -24,6 +30,13 @@ import type {
   GrnExpectations,
   GrnFilters,
 } from '@/types/procurement';
+
+/** Lifts purchase_order.rfq.source_request up to `purchase_request` (the "Purchase no."). */
+function withGrnPurchaseRequest(row: any) {
+  if (!row?.purchase_order) return { ...row, purchase_request: null };
+  const { purchase_request, ...purchase_order } = withPurchaseRequest(row.purchase_order);
+  return { ...row, purchase_order, purchase_request };
+}
 
 export class ProcurementGrnService {
   private static get supabase() {
@@ -42,14 +55,35 @@ export class ProcurementGrnService {
         .select(
           `*,
            supplier:ims_suppliers(id,name,code,gstin),
-           purchase_order:procurement_purchase_orders(id,po_number),
+           purchase_order:procurement_purchase_orders(id,po_number,${PO_PURCHASE_REQUEST_EMBED}),
            received_by_profile:profiles!received_by(full_name),
            verified_by_profile:profiles!verified_by(full_name),
            items:procurement_grn_items(count)`,
           { count: 'exact' }
         );
 
-      if (filters.search) query = query.ilike('grn_number', `%${filters.search}%`);
+      if (filters.search) {
+        // Match the GRN number, the order's PO number or the purchase (request)
+        // number — the latter two resolved to PO ids first (see rfqIdsForRequestSearch).
+        const term = sanitizeOrSearch(filters.search);
+        const rfqIds = await rfqIdsForRequestSearch(term);
+        const { data: pos, error: poErr } = await this.supabase
+          .from('procurement_purchase_orders')
+          .select('id')
+          .or(
+            rfqIds.length
+              ? `po_number.ilike.%${term}%,rfq_id.in.(${rfqIds.join(',')})`
+              : `po_number.ilike.%${term}%`
+          )
+          .limit(200);
+        if (poErr) throw poErr;
+        const poIds = (pos || []).map((r: { id: string }) => r.id);
+        query = query.or(
+          poIds.length
+            ? `grn_number.ilike.%${term}%,purchase_order_id.in.(${poIds.join(',')})`
+            : `grn_number.ilike.%${term}%`
+        );
+      }
       if (filters.status) query = query.eq('status', filters.status);
       if (filters.purchase_order_id) query = query.eq('purchase_order_id', filters.purchase_order_id);
       if (filters.supplier_id) query = query.eq('supplier_id', filters.supplier_id);
@@ -65,7 +99,7 @@ export class ProcurementGrnService {
       if (error) throw error;
 
       const rows = (data || []).map((r: any) => ({
-        ...r,
+        ...withGrnPurchaseRequest(r),
         item_count: Array.isArray(r.items) ? r.items[0]?.count ?? 0 : 0,
       }));
 
@@ -91,7 +125,7 @@ export class ProcurementGrnService {
         .select(
           `*,
            supplier:ims_suppliers(id,name,code,gstin),
-           purchase_order:procurement_purchase_orders(id,po_number),
+           purchase_order:procurement_purchase_orders(id,po_number,${PO_PURCHASE_REQUEST_EMBED}),
            received_by_profile:profiles!received_by(full_name),
            verified_by_profile:profiles!verified_by(full_name)`
         )
@@ -106,7 +140,7 @@ export class ProcurementGrnService {
         .order('created_at', { ascending: true });
       if (itemsErr) throw itemsErr;
 
-      return { ...header, items: items || [] } as GrnWithItems;
+      return { ...withGrnPurchaseRequest(header), items: items || [] } as GrnWithItems;
     } catch (error) {
       console.error('[ProcurementGrnService] getGrn:', error);
       throw error;
@@ -439,6 +473,7 @@ export class ProcurementGrnService {
                   grnId: grn.id,
                   grnNumber: grn.grn_number,
                   purchaseOrderId: grn.purchase_order_id,
+                  supplierId: grn.supplier_id,
                   grnItemId: line.id,
                 },
                 ctx
@@ -771,6 +806,7 @@ export class ProcurementGrnService {
             grnId: grn.id,
             grnNumber,
             purchaseOrderId: parentGrn.purchase_order_id,
+            supplierId: parentGrn.supplier_id,
             grnItemId: newItem.id,
           },
           ctx

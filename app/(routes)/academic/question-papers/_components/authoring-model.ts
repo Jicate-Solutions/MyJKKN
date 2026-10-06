@@ -34,6 +34,19 @@ export interface EditableQuestion {
   sub_questions: IaSubQuestion[];
 }
 
+/**
+ * One change to a question: the fields to set, or a function of the CURRENT
+ * working copy that returns them.
+ *
+ * The function form exists for the rich editors. Each is memoised on what it
+ * shows, so it keeps the handler it was last rendered with — and a handler that
+ * rebuilt `options` or `sub_questions` from the copy IT closed over would write
+ * stale siblings back, undoing whatever was typed in them since.
+ */
+export type QuestionPatch =
+  | Partial<EditableQuestion>
+  | ((current: EditableQuestion) => Partial<EditableQuestion>);
+
 /** Server question → working copy. */
 export function seedQuestion(q: IaPaperQuestion): EditableQuestion {
   return {

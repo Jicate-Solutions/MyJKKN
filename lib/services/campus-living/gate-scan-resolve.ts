@@ -42,6 +42,8 @@ export type GateVerdict = 'approved' | 'returning' | 'blocked';
 export type BlockedReason =
   | 'no_approved_pass'
   | 'approved_window_closed'
+  /** A leave-linked pass whose 12-hour exit window has not opened yet. */
+  | 'exit_window_not_open'
   | 'has_left'
   /** The card belongs to a team member, or to somebody we could not classify. */
   | 'not_a_learner'
@@ -64,6 +66,36 @@ export interface ScannedPass {
   expected_return: string;
   out_time: string | null;
   pass_number: string;
+  /**
+   * Leave-linked passes only: the learner must go OUT inside
+   * [valid_from, valid_until] (12 hours from the leave start). NULL on every
+   * other pass, which keeps using `expected_return` alone.
+   */
+  valid_from?: string | null;
+  valid_until?: string | null;
+}
+
+/** 'before' / 'inside' / 'after' the pass's exit window; legacy passes are always 'inside'. */
+function exitWindow(p: ScannedPass, nowMs: number): 'before' | 'inside' | 'after' {
+  const from = p.valid_from ? new Date(p.valid_from).getTime() : NaN;
+  const until = p.valid_until ? new Date(p.valid_until).getTime() : NaN;
+  if (!Number.isNaN(from) && nowMs < from) return 'before';
+  if (!Number.isNaN(until) && nowMs > until) return 'after';
+  return 'inside';
+}
+
+/** "6 Oct, 8:00 PM" — a window edge can be on another day than the scan. */
+function formatWindowEdge(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '--';
+  return d.toLocaleString('en-IN', {
+    day: 'numeric',
+    month: 'short',
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true,
+    timeZone: 'Asia/Kolkata',
+  });
 }
 
 export interface GateDecision {
@@ -186,7 +218,7 @@ export function decideGateAction(passes: ScannedPass[], now: Date): GateDecision
   const issued = live.filter((p) => p.status === 'issued').sort(byEarliestDue);
   const open = issued.filter((p) => {
     const due = new Date(p.expected_return).getTime();
-    return !Number.isNaN(due) && due > nowMs;
+    return !Number.isNaN(due) && due > nowMs && exitWindow(p, nowMs) === 'inside';
   });
 
   if (open.length > 0) {
@@ -204,16 +236,37 @@ export function decideGateAction(passes: ScannedPass[], now: Date): GateDecision
   }
 
   // ── 3. Blocked. No override exists, by decision. ────────────────────
-  if (issued.length > 0) {
+  // A leave pass that has not opened yet is a different instruction from one
+  // that has closed: the guard says "come back at X", not "ask for a new pass".
+  const notYetOpen = issued.find((p) => exitWindow(p, nowMs) === 'before');
+  if (notYetOpen?.valid_from) {
+    return {
+      verdict: 'blocked',
+      pass: null,
+      action: null,
+      blockedReason: 'exit_window_not_open',
+      headline: 'PASS NOT VALID YET',
+      detail: `This pass opens at ${formatWindowEdge(notYetOpen.valid_from)}. Do not allow before then.`,
+      isLate: false,
+      lateByMinutes: 0,
+    };
+  }
+
+  // An 'expired' pass (12-hour exit window closed unused) is the same dead end.
+  const expiredPass = live.find((p) => p.status === 'expired');
+  if (issued.length > 0 || expiredPass) {
     // Approved, but for a window that has already closed.
-    const expired = issued[issued.length - 1];
+    const closed = issued.length > 0 ? issued[issued.length - 1] : expiredPass!;
+    const closedAt = closed.valid_until
+      ? formatWindowEdge(closed.valid_until)
+      : formatClock(closed.expected_return);
     return {
       verdict: 'blocked',
       pass: null,
       action: null,
       blockedReason: 'approved_window_closed',
       headline: 'GATE PASS NOT APPROVED',
-      detail: `The approved window closed at ${formatClock(expired.expected_return)}. Contact the warden for a new pass. Do not allow.`,
+      detail: `The approved window closed at ${closedAt}. Contact the warden for a new pass. Do not allow.`,
       isLate: false,
       lateByMinutes: 0,
     };

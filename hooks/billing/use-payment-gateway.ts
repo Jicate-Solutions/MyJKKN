@@ -68,9 +68,11 @@ export function useInitiatePayment() {
       console.log('[billing/payment] Payment session created:', data.session_id);
     },
     onError: (error: Error) => {
-      toast.error('Payment Initiation Failed', {
-        
-      });
+      // The route's message says WHY (e.g. earlier-year dues pending) — show it.
+      toast.error(
+        error.message ? `Payment Initiation Failed: ${error.message}` : 'Payment Initiation Failed',
+        { duration: 8000 }
+      );
     },
   });
 }

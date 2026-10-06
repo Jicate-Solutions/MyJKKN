@@ -1,5 +1,6 @@
 import { createBrowserClient } from '@supabase/ssr';
 import { Database } from '@/types/supabase';
+import { refreshBlipSafeFetch } from './refresh-blip-fetch';
 
 // Create a Supabase client with extended timeout for complex queries
 export function createClientSupabaseClientWithTimeout(timeoutMs: number = 30000) {
@@ -11,7 +12,10 @@ export function createClientSupabaseClientWithTimeout(timeoutMs: number = 30000)
         headers: {
           // Set a longer timeout for complex queries
           'x-client-info': `supabase-js-timeout/${timeoutMs}`
-        }
+        },
+        // Same browser-client singleton and cookies as client.ts: keep the login
+        // on a temporary token-refresh error. See refresh-blip-fetch.ts.
+        fetch: refreshBlipSafeFetch
       },
       db: {
         schema: 'public'

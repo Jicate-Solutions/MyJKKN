@@ -15,6 +15,18 @@ import { itemColumnWeights, splitSpans } from './po-document-layout';
 
 const FONT = 'times'; // closest built-in serif to the paper PO's Bookman Old Style
 
+const TABLE_STYLES = {
+  font: FONT,
+  fontSize: 9,
+  textColor: 0,
+  lineColor: 0,
+  lineWidth: 0.2,
+  // Tight rows so a typical order and its terms fit on one page.
+  cellPadding: { top: 1, bottom: 1, left: 1.5, right: 1.5 },
+  valign: 'middle' as const,
+  overflow: 'linebreak' as const,
+};
+
 export function downloadPurchaseOrderPdf(po: PoWithItems): void {
   const m = resolvePoDocumentModel(po);
   const doc = new jsPDF({ unit: 'mm', format: 'a4' });
@@ -25,8 +37,9 @@ export function downloadPurchaseOrderPdf(po: PoWithItems): void {
   const sum = weights.reduce((a, b) => a + b, 0);
   const grid = weights.map((w) => (w / sum) * width);
   const n = grid.length;
-  const [vSpan, qlSpan, qvSpan] = splitSpans(grid, [0.5, 0.28, 0.22]);
-  const [tSpan, eSpan, sSpan] = splitSpans(grid, [0.5, 0.17, 0.33]);
+  // The quotation value column gets room for a whole quotation number ("8190/CGSC/QUO/2026-27").
+  const [vSpan, qlSpan, qvSpan] = splitSpans(grid, [0.46, 0.24, 0.3]);
+  const [tSpan, eSpan, sSpan] = splitSpans(grid, [0.46, 0.24, 0.3]);
 
   const c = (content: string, styles: CellDef['styles'] = {}, extra: Partial<CellDef> = {}): CellDef => ({
     content,
@@ -44,17 +57,27 @@ export function downloadPurchaseOrderPdf(po: PoWithItems): void {
   body.push([c('PURCHASE ORDER', { ...bold, ...center, fontSize: 11 }, { colSpan: n })]);
 
   // To M/s. vendor (merged down) | quotation label | value.
-  // The text only sizes the cell (the vendor name is one size up, so it gets an
-  // extra line); didDrawCell draws it with the name in bold.
-  const vendorText = ['To', m.vendor.name, '', ...m.vendor.lines, m.vendor.phone].join('\n');
+  // Long names and addresses wrap inside the vendor box — never run into the
+  // quotation boxes. The text only sizes the cell; didDrawCell draws it.
+  const vendorWidth = grid.slice(0, vSpan).reduce((a, b) => a + b, 0) - 3;
+  doc.setFont(FONT, 'bold');
+  doc.setFontSize(12);
+  const nameLines: string[] = doc.splitTextToSize(m.vendor.name, vendorWidth);
+  doc.setFont(FONT, 'normal');
+  doc.setFontSize(11);
+  const addressLines: string[] = m.vendor.lines.flatMap((l) => doc.splitTextToSize(l, vendorWidth) as string[]);
+  doc.setFontSize(9);
+  const phoneLines: string[] = m.vendor.phone ? doc.splitTextToSize(m.vendor.phone, vendorWidth) : [];
+  // One sizing line per drawn line, plus a little air.
+  const vendorText = ['To', ...nameLines, ...addressLines, ...phoneLines, ''].join('\n');
   const vendorRow = body.length;
   m.quoteFields.forEach((f, i) => {
     body.push([
       ...(i === 0
-        ? [c(vendorText, { valign: 'top', fontSize: 10 }, { colSpan: vSpan, rowSpan: m.quoteFields.length })]
+        ? [c(vendorText, { valign: 'top', fontSize: 11 }, { colSpan: vSpan, rowSpan: m.quoteFields.length })]
         : []),
       c(f.label, { ...bold, fontSize: 7.5 }, { colSpan: qlSpan }),
-      c(f.value, { ...bold, ...center }, { colSpan: qvSpan }),
+      c(f.value, { ...bold, ...center, fontSize: 8.5 }, { colSpan: qvSpan }),
     ]);
   });
 
@@ -69,52 +92,16 @@ export function downloadPurchaseOrderPdf(po: PoWithItems): void {
     body.push([c(t.label, { ...bold, ...right }, { colSpan: n - 1 }), c(t.value, { ...bold, ...right })]);
   }
 
-  // TERMS & CONDITION | ENCLOSURE | SPECIAL NOTE.
-  body.push([
-    c('TERMS & CONDITION', { ...bold, ...center }, { colSpan: tSpan }),
-    c('ENCLOSURE', { ...bold, ...center }, { colSpan: eSpan }),
-    c('SPECIAL NOTE', { ...bold, ...center }, { colSpan: sSpan }),
-  ]);
-  // Sizes the cell; didDrawCell draws label / colon / value on fixed tab stops.
-  const termsText = m.terms.map((t) => `${t.label}  : ${t.value}`).join('\n\n');
-  const termsRow = body.length;
-  const enclosure = [
-    m.enclosure.mode,
-    `Dated${m.enclosure.dated ? `\n${m.enclosure.dated}` : ''}`,
-    `Bank${m.enclosure.bank ? `\n${m.enclosure.bank}` : ''}`,
-    `Amount (Rs.)${m.enclosure.amount ? `\n${m.enclosure.amount}` : ''}`,
-  ];
-  enclosure.forEach((text, i) => {
-    body.push([
-      ...(i === 0 ? [c(termsText, { ...bold, valign: 'top', minCellHeight: 30 }, { colSpan: tSpan, rowSpan: 4 })] : []),
-      c(text, { ...bold, ...center }, { colSpan: eSpan }),
-      ...(i === 0
-        ? [c(m.specialNote, { ...bold, ...center, valign: 'middle', fontSize: 11 }, { colSpan: sSpan, rowSpan: 4 })]
-        : []),
-    ]);
-  });
-
   autoTable(doc, {
     startY: margin,
     margin: { left: margin, right: margin, top: margin, bottom: margin },
     tableWidth: width,
     body,
     theme: 'plain',
-    styles: {
-      font: FONT,
-      fontSize: 9,
-      textColor: 0,
-      lineColor: 0,
-      lineWidth: 0.2,
-      cellPadding: 1.5,
-      valign: 'middle',
-      overflow: 'linebreak',
-    },
+    styles: TABLE_STYLES,
     columnStyles: Object.fromEntries(grid.map((w, i) => [i, { cellWidth: w }])),
     willDrawCell: (data) => {
-      const custom =
-        data.column.index === 0 && (data.row.index === vendorRow || data.row.index === termsRow);
-      if (custom) data.cell.text = [];
+      if (data.column.index === 0 && data.row.index === vendorRow) data.cell.text = [];
     },
     didDrawCell: (data) => {
       const x = data.cell.x + 1.5;
@@ -124,28 +111,20 @@ export function downloadPurchaseOrderPdf(po: PoWithItems): void {
         doc.setFontSize(10);
         doc.text('To', x, y);
         doc.setFontSize(12);
-        y += 5.5;
-        doc.text(m.vendor.name, x, y);
+        for (const line of nameLines) {
+          y += 5.5;
+          doc.text(line, x, y);
+        }
         doc.setFont(FONT, 'normal');
         doc.setFontSize(11);
-        for (const line of m.vendor.lines) {
+        for (const line of addressLines) {
           y += 5;
           doc.text(line, x, y);
         }
-        if (m.vendor.phone) {
-          doc.setFontSize(9);
-          doc.text(m.vendor.phone, x, y + 4.5);
-        }
-      }
-      if (data.column.index === 0 && data.row.index === termsRow) {
-        doc.setFont(FONT, 'bold');
-        doc.setFontSize(10);
-        for (const t of m.terms) {
-          doc.text(t.label, x, y);
-          doc.text(':', x + 20, y);
-          const value = doc.splitTextToSize(t.value, data.cell.width - 26);
-          doc.text(value, x + 23, y);
-          y += 6 + (value.length - 1) * 4.2;
+        doc.setFontSize(9);
+        for (const line of phoneLines) {
+          y += 4.5;
+          doc.text(line, x, y);
         }
       }
       if (data.row.index === 0 && data.column.index === 0) {
@@ -155,6 +134,63 @@ export function downloadPurchaseOrderPdf(po: PoWithItems): void {
           align: 'right',
           baseline: 'middle',
         });
+      }
+    },
+  });
+
+  // TERMS & CONDITION | ENCLOSURE | SPECIAL NOTE — its own table, kept whole:
+  // when it doesn't fit under the items it moves to the next page together.
+  const foot: RowInput[] = [];
+  foot.push([
+    c('TERMS & CONDITION', { ...bold, ...center }, { colSpan: tSpan }),
+    c('ENCLOSURE', { ...bold, ...center }, { colSpan: eSpan }),
+    c('SPECIAL NOTE', { ...bold, ...center }, { colSpan: sSpan }),
+  ]);
+  // Sizes the cell; didDrawCell draws label / colon / value on fixed tab stops.
+  const termsText = m.terms.map((t) => `${t.label}  : ${t.value}`).join('\n\n');
+  const termsRow = foot.length;
+  const enclosure = [
+    m.enclosure.mode,
+    `Dated${m.enclosure.dated ? `\n${m.enclosure.dated}` : ''}`,
+    `Bank${m.enclosure.bank ? `\n${m.enclosure.bank}` : ''}`,
+    `Amount (Rs.)${m.enclosure.amount ? `\n${m.enclosure.amount}` : ''}`,
+  ];
+  enclosure.forEach((text, i) => {
+    foot.push([
+      ...(i === 0 ? [c(termsText, { ...bold, valign: 'top', minCellHeight: 30 }, { colSpan: tSpan, rowSpan: 4 })] : []),
+      c(text, { ...bold, ...center }, { colSpan: eSpan }),
+      ...(i === 0
+        ? [c(m.specialNote, { ...bold, ...center, valign: 'middle', fontSize: 11 }, { colSpan: sSpan, rowSpan: 4 })]
+        : []),
+    ]);
+  });
+
+
+  autoTable(doc, {
+    startY: (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY,
+    margin: { left: margin, right: margin, top: margin, bottom: margin },
+    tableWidth: width,
+    body: foot,
+    theme: 'plain',
+    pageBreak: 'avoid',
+    rowPageBreak: 'avoid',
+    styles: TABLE_STYLES,
+    columnStyles: Object.fromEntries(grid.map((w, i) => [i, { cellWidth: w }])),
+    willDrawCell: (data) => {
+      if (data.column.index === 0 && data.row.index === termsRow) data.cell.text = [];
+    },
+    didDrawCell: (data) => {
+      if (data.column.index !== 0 || data.row.index !== termsRow) return;
+      const x = data.cell.x + 1.5;
+      let y = data.cell.y + 5;
+      doc.setFont(FONT, 'bold');
+      doc.setFontSize(10);
+      for (const t of m.terms) {
+        doc.text(t.label, x, y);
+        doc.text(':', x + 20, y);
+        const value = doc.splitTextToSize(t.value, data.cell.width - 26);
+        doc.text(value, x + 23, y);
+        y += 6 + (value.length - 1) * 4.2;
       }
     },
   });

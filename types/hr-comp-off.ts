@@ -152,8 +152,16 @@ export interface CompOffCredit {
   rejection_reason: string | null;
   work_location: CompOffWorkLocation | null;
   work_place: string | null;
+  /** Shared by the days of one multi-day claim; null for a single-day claim. */
+  claim_batch_id?: string | null;
   /** 0 once lapsed — never negative. */
   days_until_expiry: number;
+  /**
+   * Who approved or refused the claim (who revoked it, for a revoked one).
+   * Null while pending, for a decision taken before 2026-09-30 (nobody was
+   * recorded), and for the nightly auto-reject.
+   */
+  decided_by_name?: string | null;
 }
 
 export interface CompOffBalance {
@@ -229,6 +237,8 @@ export interface PendingCompOffClaim {
   notes: string | null;
   work_location: CompOffWorkLocation | null;
   work_place: string | null;
+  /** Shared by the days of one multi-day claim; null for a single-day claim. */
+  claim_batch_id: string | null;
   /** Proof of the worked day — same Drive-backed shape as leave documents. */
   documents: LeaveDocument[];
   created_at: string;
@@ -249,4 +259,83 @@ export interface CompOffClaimQueueRow extends PendingCompOffClaim {
    */
   revoked_at: string | null;
   revoke_reason: string | null;
+}
+
+/** Most individual days one claim may carry — a month of dates. */
+export const MAX_CLAIM_DAYS = 31;
+
+/**
+ * Why a picked worked day cannot be claimed, or null when it can. The same
+ * refusals the database raises per row (future date, expired on arrival,
+ * closed month, day already occupied) — named here so the claimant sees which
+ * day to remove before the all-or-nothing insert refuses the lot.
+ */
+export function claimDayProblem(
+  workedDate: string,
+  today: string,
+  opts: {
+    closedMonth: boolean;
+    clash: string | null;
+    /** Status of an earlier claim for this day, if any (see priorClaimStatus). */
+    priorClaim?: CompOffCreditStatus | null;
+  }
+): string | null {
+  if (workedDate > today) return 'You cannot claim a day you have not worked yet.';
+  if (opts.priorClaim) {
+    return `Already claimed (${PRIOR_CLAIM_LABEL[opts.priorClaim] ?? opts.priorClaim}) — a worked day can be claimed only once.`;
+  }
+  if (addOneMonth(workedDate) < today) {
+    return `Too late — a credit for this day expired on ${formatIsoDate(addOneMonth(workedDate))}.`;
+  }
+  if (opts.closedMonth) return 'Attendance for this month is closed. Ask HR to reopen it.';
+  if (opts.clash) return `Already booked: ${opts.clash}.`;
+  return null;
+}
+
+/**
+ * A worked day can be claimed ONCE: any earlier claim for it blocks a new one
+ * except one the staff member withdrew. Mirrors fn_hr_comp_off_prior_claim,
+ * which trg_hcoc_one_claim_per_day raises on — this only names it early.
+ * Returns date -> the blocking status.
+ */
+export function priorClaimStatus(
+  credits: Array<Pick<CompOffCredit, 'worked_date' | 'status'>>
+): Map<string, CompOffCreditStatus> {
+  const rank: Partial<Record<CompOffCreditStatus, number>> = {
+    consumed: 0, approved: 1, pending: 2, rejected: 3,
+  };
+  const out = new Map<string, CompOffCreditStatus>();
+  for (const c of credits) {
+    const r = rank[c.status];
+    if (r === undefined) continue;
+    const cur = out.get(c.worked_date);
+    if (cur === undefined || r < (rank[cur] ?? 9)) out.set(c.worked_date, c.status);
+  }
+  return out;
+}
+
+const PRIOR_CLAIM_LABEL: Partial<Record<CompOffCreditStatus, string>> = {
+  consumed: 'credit already used',
+  approved: 'approved',
+  pending: 'awaiting approval',
+  rejected: 'rejected',
+};
+
+/** "Day 2 of 3" for a claim row whose submission carried several days; null otherwise. */
+export function claimBatchPosition(
+  row: Pick<PendingCompOffClaim, 'id' | 'claim_batch_id'>,
+  rows: Array<Pick<PendingCompOffClaim, 'id' | 'claim_batch_id' | 'worked_date'>>
+): { index: number; total: number } | null {
+  if (!row.claim_batch_id) return null;
+  const siblings = rows
+    .filter((r) => r.claim_batch_id === row.claim_batch_id)
+    .sort((a, b) => a.worked_date.localeCompare(b.worked_date));
+  if (siblings.length < 2) return null;
+  return { index: siblings.findIndex((r) => r.id === row.id) + 1, total: siblings.length };
+}
+
+/** DD/MM/YYYY for an ISO date, without a timezone shift. */
+export function formatIsoDate(iso: string): string {
+  const [y, m, d] = iso.split('-');
+  return `${d}/${m}/${y}`;
 }

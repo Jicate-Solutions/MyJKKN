@@ -872,6 +872,27 @@ export class ConsultantService {
   }
 
   /**
+   * How many of this agency's learners the rate card is NOT counting yet because
+   * their walk-in credit is still waiting for the release owner. Lets the card say
+   * so instead of its total shrinking silently.
+   */
+  static async getConsultantRateCardWalkinHeld(
+    consultantId: string,
+    year: number
+  ): Promise<number> {
+    const supabase = createClientSupabaseClient();
+
+    const { data, error } = await (supabase as any).rpc(
+      'fn_consultant_rate_card_walkin_held',
+      { p_consultant_id: consultantId, p_academic_year: year }
+    );
+
+    if (error) throw new Error(error.message);
+
+    return Number(data ?? 0);
+  }
+
+  /**
    * Per institution, how much of the counted learners' 1st-year academic fees
    * has been collected. Same learner set as getConsultantRateCardEarnings.
    */

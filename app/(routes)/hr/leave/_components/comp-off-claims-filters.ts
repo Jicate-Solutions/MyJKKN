@@ -11,6 +11,7 @@
 import type { PeriodRange } from './period-filter';
 import {
   biometricBlocksApproval,
+  claimBatchPosition,
   describeBiometric,
   formatWorkLocation,
   type CompOffBiometricStatus,
@@ -79,6 +80,8 @@ export interface CompOffClaimTableRow extends CompOffClaimQueueRow {
   /** '' when there is nothing to report (outside campus, not recorded, not loaded). */
   biometric_label: string;
   status_label: string;
+  /** "Day 2 of 3" when the submission carried several days; null otherwise. */
+  batch_position: { index: number; total: number } | null;
 }
 
 const STATUS_LABEL: Record<CompOffClaimQueueRow['status'], string> = {
@@ -91,7 +94,8 @@ const STATUS_LABEL: Record<CompOffClaimQueueRow['status'], string> = {
 
 export function toTableRow(
   row: CompOffClaimQueueRow,
-  check: CompOffClaimBiometric | undefined
+  check: CompOffClaimBiometric | undefined,
+  all: CompOffClaimQueueRow[] = []
 ): CompOffClaimTableRow {
   return {
     ...row,
@@ -101,6 +105,7 @@ export function toTableRow(
     // A revoked claim stores status='rejected'; the label has to say which of
     // the two happened, because only one of them was ever granted.
     status_label: row.revoked_at ? 'Revoked' : STATUS_LABEL[row.status] ?? row.status,
+    batch_position: claimBatchPosition(row, all),
   };
 }
 

@@ -18,7 +18,7 @@ export interface ImsSupplier {
   payment_terms?: string | null;
   /** Typical delivery lead time in days (procurement). */
   lead_time_days?: number | null;
-  /** Vendor rating 0-5 (procurement). */
+  /** @deprecated Never used. The vendor score is computed from deliveries + ratings (lib/procurement/vendor-score.ts). */
   rating?: number | null;
   /** JSON bank/payment details for PO settlement (procurement). */
   bank_details?: Record<string, unknown> | null;

@@ -144,7 +144,24 @@ export interface CdcDriveInstitutionSemesterTarget {
    * Groups not listed here are not targeted.
    */
   degree_semesters?: CdcDriveDegreeSemesterTarget[];
+  /**
+   * Gender the drive is open to (2026-10-03). Absent / 'all' = everyone. The
+   * drive form sets ONE value for the whole drive and writes it on every
+   * entry; matching is against learners_profiles.gender ('Male' / 'Female').
+   */
+  gender?: CdcDriveTargetGender;
 }
+export type CdcDriveTargetGender = 'all' | 'male' | 'female';
+export const CDC_DRIVE_GENDER_LABELS: Record<CdcDriveTargetGender, string> = {
+  all: 'Both (male & female)',
+  male: 'Male only',
+  female: 'Female only',
+};
+/** learners_profiles.gender value a targeted gender matches. */
+export const CDC_DRIVE_GENDER_DB_VALUE: Record<Exclude<CdcDriveTargetGender, 'all'>, string> = {
+  male: 'Male',
+  female: 'Female',
+};
 export interface CdcDriveDegreeSemesterTarget {
   /** Group key from the picker ("UG", "PG", …). */
   key: string;
@@ -154,6 +171,17 @@ export interface CdcDriveDegreeSemesterTarget {
   all_program_ids: string[];
   /** semesters.semester_order values. Empty = every semester of the group. */
   semester_orders: number[];
+  /**
+   * Gender for THIS block only (2026-10-03). Absent = the drive-level gender on
+   * the institution entry. 'all' explicitly opens the block to everyone even
+   * when the drive-level choice is one gender.
+   */
+  gender?: CdcDriveTargetGender;
+  /**
+   * Gender per PROGRAM inside the block (programs.id → gender). Wins over the
+   * block's gender for that program; programs not listed follow the block.
+   */
+  program_genders?: Record<string, CdcDriveTargetGender>;
 }
 export type CdcDriveInstitutionSemesters = CdcDriveInstitutionSemesterTarget[];
 
@@ -185,6 +213,9 @@ export interface CdcDrive {
   /** Set when CDC finalizes the participant list (20260919110000). */
   participants_finalized_at: string | null;
   participants_finalized_by: string | null;
+  /** Public no-login registration link (20261003100000). Absent until that migration is applied. */
+  public_registration_enabled?: boolean;
+  public_token?: string | null;
   title: string;
   description: string | null;
   status: CdcDriveStatus;

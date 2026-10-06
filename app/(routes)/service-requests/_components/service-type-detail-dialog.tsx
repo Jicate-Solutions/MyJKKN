@@ -25,7 +25,7 @@ import {
 } from 'lucide-react';
 import { useServiceType } from '@/hooks/service-requests/use-service-types';
 import { useScopeLookups, resolveScopeNames } from '@/hooks/service-requests/use-scope-lookups';
-import { SERVICE_TYPE_SCOPE_CONFIG, ALL_ROLES_WILDCARD } from '@/types/service-request';
+import { SERVICE_TYPE_SCOPE_CONFIG, ALL_ROLES_WILDCARD, isFeeStep } from '@/types/service-request';
 import { SCOPE_ICONS } from './scope-icons';
 import { cn } from '@/lib/utils';
 
@@ -128,7 +128,11 @@ export function ServiceTypeDetailDialog({
                   />
                   <InfoRow
                     label="Max Active Requests"
-                    value={String(serviceType.max_active_requests)}
+                    value={
+                      serviceType.max_active_requests > 0
+                        ? String(serviceType.max_active_requests)
+                        : 'No limit'
+                    }
                   />
                   <InfoRow
                     label="Auto-Fulfill on Approval"
@@ -254,6 +258,11 @@ export function ServiceTypeDetailDialog({
                               )}
                             </p>
                           </div>
+                          {isFeeStep(step) && (
+                            <Badge variant="secondary" className="text-[10px]">
+                              Fee Rs. {Number(step.fee_amount)}
+                            </Badge>
+                          )}
                           {step.is_required && (
                             <Badge variant="outline" className="text-[10px]">
                               Required

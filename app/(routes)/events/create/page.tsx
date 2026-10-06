@@ -83,9 +83,17 @@ import {
   emptyEventCreateForm,
   nextFormTab,
   prevFormTab,
+  resolveHostInstitutionId,
   validateEventForm,
 } from './_components/event-create-form';
 import type { EventCreateForm, FormTabKey } from './_components/event-create-form';
+import { SourcePicker } from './_components/source-picker';
+import type {
+  EventSourceLink,
+  EventSourcePrefill,
+  EventSourceType,
+} from './_components/event-sources';
+import { createClientSupabaseClient } from '@/lib/supabase/client';
 
 type Step = 'format' | 'home' | 'preset' | 'details';
 const STEP_ORDER: Step[] = ['format', 'home', 'preset', 'details'];
@@ -113,7 +121,14 @@ export default function CreateEventPage() {
   const router = useRouter();
   const { profile } = useAuth();
   const { selectedInstitutionId } = useUserInstitutionAccess();
-  const { institutions, loading: institutionsLoading } = useInstitutionsWithAccess();
+  // entityType 'all' on purpose: the default ('institution') drops admin
+  // offices and schools, so Main Office and school staff never saw their own
+  // home entity in the host list. The accessible-institutions RPC is already
+  // the authority on what this user may host under; narrowing it again here
+  // only hid entities they are entitled to.
+  const { institutions, loading: institutionsLoading } = useInstitutionsWithAccess({
+    entityType: 'all',
+  });
 
   // Every active college, for the joint hosts. `institutions` above is only what
   // this user may file an event under (an HOD sees just their own college), but
@@ -141,17 +156,15 @@ export default function CreateEventPage() {
   // behalf of any of them, and the default is not always the one they mean.
   const [hostOverride, setHostOverride] = useState<string | null>(null);
   const ambientInstitutionId = selectedInstitutionId || profile?.institution_id || '';
-  const institutionId = useMemo(() => {
-    if (hostOverride) return hostOverride;
-    // Before the accessible list resolves, keep the ambient value so nothing that
-    // gates on institutionId flickers.
-    if (!institutions.length) return ambientInstitutionId;
-    // Only default to the ambient institution if the user can actually host under
-    // it — otherwise the Select would sit on a value that isn't one of its options.
-    return institutions.some((i) => i.id === ambientInstitutionId)
-      ? ambientInstitutionId
-      : institutions[0].id;
-  }, [hostOverride, institutions, ambientInstitutionId]);
+  const institutionId = useMemo(
+    () =>
+      resolveHostInstitutionId({
+        hostOverride,
+        institutions,
+        ambientInstitutionId,
+      }),
+    [hostOverride, institutions, ambientInstitutionId],
+  );
 
   const [step, setStep] = useState<Step>('format');
   const [tab, setTab] = useState<FormTabKey>('basics');
@@ -180,6 +193,40 @@ export default function CreateEventPage() {
   const [clashes, setClashes] = useState<EventVenueClash[]>([]);
   const [checking, setChecking] = useState(false);
   const [inchargePickerOpen, setInchargePickerOpen] = useState(false);
+
+  // "Create from an existing record" (event-sources.ts). The link rides into
+  // config.source; the prefill only seeds the form — every field stays editable.
+  const [sourceType, setSourceType] = useState<EventSourceType | null>(null);
+  const [source, setSource] = useState<EventSourceLink | null>(null);
+
+  const applySource = async (prefill: EventSourcePrefill) => {
+    setSource(prefill.source);
+    setForm((prev) => ({ ...prev, ...prefill.form }));
+    if (prefill.form.last_day) setMultiDay(true);
+    if (prefill.offCampus !== null) setOffCampus(prefill.offCampus);
+    if (!prefill.roomName) {
+      toast.success(`Prefilled from "${prefill.source.label}"`);
+      return;
+    }
+    // Source modules store the room as free text; match it to a real
+    // Resource Management room so it can be held. Exact name only — a fuzzy
+    // match could silently book the wrong hall.
+    const { data } = await createClientSupabaseClient()
+      .from('resources')
+      .select('id, name')
+      .ilike('name', prefill.roomName.replace(/[%_\\]/g, '\\$&'))
+      .limit(2);
+    if (data && data.length === 1) {
+      setVenueResourceId(data[0].id);
+      toast.success(`Prefilled from "${prefill.source.label}" — room: ${data[0].name}`);
+    } else {
+      setVenueResourceId('');
+      toast(
+        `Prefilled from "${prefill.source.label}". Couldn't match the room "${prefill.roomName}" — pick it on the Venue tab.`,
+        { icon: '⚠️', duration: 7000 },
+      );
+    }
+  };
 
   // The room is held at the Resource Management grain: the same hours on EACH day
   // of the event, never one continuous multi-day block.
@@ -402,6 +449,7 @@ export default function CreateEventPage() {
         endIso,
         offCampus,
         venueResourceId,
+        source,
       });
       const created = await EventBaseService.createEvent(dto);
 
@@ -543,7 +591,9 @@ export default function CreateEventPage() {
 
         {!institutionId && !institutionsLoading && (
           <p className="text-sm text-destructive">
-            You don&apos;t have access to any institution to host an event under.
+            {institutions.length
+              ? 'Pick the college or office hosting this event on the Basics tab — it decides where the event is filed and which rooms it can hold.'
+              : "You don't have access to any institution to host an event under."}
           </p>
         )}
 
@@ -718,6 +768,15 @@ export default function CreateEventPage() {
                 </>
               ) : (
                 <Tabs value={tab} onValueChange={(v) => setTab(v as FormTabKey)}>
+                  <div className="mb-4">
+                    <SourcePicker
+                      sourceType={sourceType}
+                      onSourceTypeChange={setSourceType}
+                      linked={source}
+                      onPick={applySource}
+                      onClear={() => setSource(null)}
+                    />
+                  </div>
                   <TabsList className="mb-4 flex h-auto flex-wrap justify-start gap-1">
                     {DETAIL_TABS.map((t, i) => (
                       <TabsTrigger key={t.key} value={t.key} className="gap-1.5 text-xs">

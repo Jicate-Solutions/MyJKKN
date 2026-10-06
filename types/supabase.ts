@@ -81452,6 +81452,128 @@ export type Database = {
           },
         ]
       }
+      hostel_damage_types: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          default_amount: number
+          id: string
+          is_active: boolean
+          name: string
+          sort_order: number
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          default_amount?: number
+          id?: string
+          is_active?: boolean
+          name: string
+          sort_order?: number
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          default_amount?: number
+          id?: string
+          is_active?: boolean
+          name?: string
+          sort_order?: number
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: []
+      }
+      hostel_vacate_approvals: {
+        Row: {
+          acted_at: string
+          action: string
+          actor_id: string | null
+          id: string
+          remarks: string | null
+          step: string
+          vacate_request_id: string
+        }
+        Insert: {
+          acted_at?: string
+          action: string
+          actor_id?: string | null
+          id?: string
+          remarks?: string | null
+          step: string
+          vacate_request_id: string
+        }
+        Update: {
+          acted_at?: string
+          action?: string
+          actor_id?: string | null
+          id?: string
+          remarks?: string | null
+          step?: string
+          vacate_request_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "hostel_vacate_approvals_vacate_request_id_fkey"
+            columns: ["vacate_request_id"]
+            isOneToOne: false
+            referencedRelation: "hostel_vacate_requests"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      hostel_vacate_damages: {
+        Row: {
+          amount: number
+          created_at: string
+          damage_name: string
+          damage_type_id: string | null
+          id: string
+          note: string | null
+          recorded_by: string | null
+          vacate_request_id: string
+        }
+        Insert: {
+          amount: number
+          created_at?: string
+          damage_name: string
+          damage_type_id?: string | null
+          id?: string
+          note?: string | null
+          recorded_by?: string | null
+          vacate_request_id: string
+        }
+        Update: {
+          amount?: number
+          created_at?: string
+          damage_name?: string
+          damage_type_id?: string | null
+          id?: string
+          note?: string | null
+          recorded_by?: string | null
+          vacate_request_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "hostel_vacate_damages_damage_type_id_fkey"
+            columns: ["damage_type_id"]
+            isOneToOne: false
+            referencedRelation: "hostel_damage_types"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hostel_vacate_damages_vacate_request_id_fkey"
+            columns: ["vacate_request_id"]
+            isOneToOne: false
+            referencedRelation: "hostel_vacate_requests"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       hostel_vacate_checklist_items: {
         Row: {
           applies_to_reasons:
@@ -81553,6 +81675,9 @@ export type Database = {
           allocation_id: string
           approval_chain_run_id: string | null
           approval_remarks: string | null
+          damage_total: number
+          fine_bill_id: string | null
+          room_inspected: boolean
           approved_at: string | null
           approved_by: string | null
           bills_snapshot: Json | null
@@ -81589,6 +81714,9 @@ export type Database = {
           allocation_id: string
           approval_chain_run_id?: string | null
           approval_remarks?: string | null
+          damage_total?: number
+          fine_bill_id?: string | null
+          room_inspected?: boolean
           approved_at?: string | null
           approved_by?: string | null
           bills_snapshot?: Json | null
@@ -81625,6 +81753,9 @@ export type Database = {
           allocation_id?: string
           approval_chain_run_id?: string | null
           approval_remarks?: string | null
+          damage_total?: number
+          fine_bill_id?: string | null
+          room_inspected?: boolean
           approved_at?: string | null
           approved_by?: string | null
           bills_snapshot?: Json | null
@@ -84315,6 +84446,7 @@ export type Database = {
         Row: {
           approved_at: string | null
           approved_by: string | null
+          claim_batch_id: string | null
           consumed_at: string | null
           consumed_by_application_id: string | null
           created_at: string
@@ -84341,6 +84473,7 @@ export type Database = {
         Insert: {
           approved_at?: string | null
           approved_by?: string | null
+          claim_batch_id?: string | null
           consumed_at?: string | null
           consumed_by_application_id?: string | null
           created_at?: string
@@ -84367,6 +84500,7 @@ export type Database = {
         Update: {
           approved_at?: string | null
           approved_by?: string | null
+          claim_batch_id?: string | null
           consumed_at?: string | null
           consumed_by_application_id?: string | null
           created_at?: string
@@ -91058,6 +91192,11 @@ export type Database = {
           role_category: string
           salary_currency: string
           salary_duration: string
+          seo_description: string | null
+          seo_keywords: string[]
+          seo_noindex: boolean
+          seo_og_image: string | null
+          seo_title: string | null
           state: string | null
           status: string
           title: string
@@ -91093,6 +91232,11 @@ export type Database = {
           role_category: string
           salary_currency?: string
           salary_duration?: string
+          seo_description?: string | null
+          seo_keywords?: string[]
+          seo_noindex?: boolean
+          seo_og_image?: string | null
+          seo_title?: string | null
           state?: string | null
           status?: string
           title: string
@@ -91128,6 +91272,11 @@ export type Database = {
           role_category?: string
           salary_currency?: string
           salary_duration?: string
+          seo_description?: string | null
+          seo_keywords?: string[]
+          seo_noindex?: boolean
+          seo_og_image?: string | null
+          seo_title?: string | null
           state?: string | null
           status?: string
           title?: string
@@ -206906,8 +207055,20 @@ export type Database = {
         Args: { p_request_id: string }
         Returns: Database["public"]["Tables"]["hostel_vacate_requests"]["Row"]
       }
-      fn_cl_vacate_warden_approve: {
+      fn_cl_vacate_advance: {
         Args: { p_remarks?: string; p_request_id: string }
+        Returns: Json
+      }
+      fn_cl_vacate_complete_after_fine: {
+        Args: { p_request_id: string }
+        Returns: Json
+      }
+      fn_cl_vacate_recheck_bills: {
+        Args: { p_request_id: string }
+        Returns: Json
+      }
+      fn_cl_vacate_set_damages: {
+        Args: { p_lines: Json; p_no_damage: boolean; p_request_id: string }
         Returns: Json
       }
       fn_clarification_ask: {
@@ -221154,6 +221315,11 @@ export type Database = {
         | "pending_warden"
         | "pending_chief"
         | "pending_dues"
+        | "pending_accountant"
+        | "pending_principal"
+        | "pending_mess"
+        | "pending_cao"
+        | "pending_fine"
         | "approved"
         | "completed"
         | "rejected"
@@ -222715,6 +222881,11 @@ export const Constants = {
         "pending_warden",
         "pending_chief",
         "pending_dues",
+        "pending_accountant",
+        "pending_principal",
+        "pending_mess",
+        "pending_cao",
+        "pending_fine",
         "approved",
         "completed",
         "rejected",
