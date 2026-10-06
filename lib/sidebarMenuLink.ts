@@ -1977,6 +1977,8 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/procurement/grn': 'procurement.view',
   '/procurement/grn/[id]': 'procurement.view',
   '/procurement/grn/new': 'procurement.grn_create',
+  '/procurement/approval-flows': 'super_admin', // Super admin only - approval steps per purchase category
+  '/procurement/approvals': 'procurement.view', // approvers without procurement.view reach it via the layout gate
   '/meetings': 'meetings.view',
   // Universal Booking sub-surfaces (reconcile 2026-06-19) — gate each by its
   // module permission so the sidebar submenus render per-role.
@@ -4417,9 +4419,10 @@ export function GetPages(pathname: string): MenuGroup[] {
           icon: ShoppingCart,
           submenus: [
             { href: '/procurement', label: 'Overview', active: pathname === '/procurement' },
-            // Same tabs as app/(routes)/procurement/nav-config.ts: one purchase = one page,
-            // so quotes, orders and deliveries all open from Purchases.
-            { href: '/procurement/requests', label: 'Purchases', active: ['/procurement/requests', '/procurement/rfqs', '/procurement/purchase-orders', '/procurement/grn'].some((p) => pathname.startsWith(p)) },
+            // Same tabs as app/(routes)/procurement/nav-config.ts; orders and deliveries
+            // open from the purchase page, so they count as Quotations.
+            { href: '/procurement/requests', label: 'Requests', active: pathname.startsWith('/procurement/requests') },
+            { href: '/procurement/rfqs', label: 'Quotations', active: ['/procurement/rfqs', '/procurement/purchase-orders', '/procurement/grn'].some((p) => pathname.startsWith(p)) },
           ]
         }
       ]

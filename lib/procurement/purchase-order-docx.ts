@@ -78,9 +78,9 @@ export async function downloadPurchaseOrderDocx(po: PoWithItems): Promise<void> 
   const widthOf = (from: number, span: number) => grid.slice(from, from + span).reduce((a, b) => a + b, 0);
 
   // Vendor block | quotation label | quotation value ≈ 50% / 28% / 22%.
-  const [vSpan, qlSpan, qvSpan] = splitSpans(grid, [0.5, 0.28, 0.22]);
+  const [vSpan, qlSpan, qvSpan] = splitSpans(grid, [0.46, 0.24, 0.3]);
   // Terms | Enclosure | Special note ≈ 50% / 17% / 33%.
-  const [tSpan, eSpan, sSpan] = splitSpans(grid, [0.5, 0.17, 0.33]);
+  const [tSpan, eSpan, sSpan] = splitSpans(grid, [0.46, 0.24, 0.3]);
 
   const rows: TableRow[] = [];
 

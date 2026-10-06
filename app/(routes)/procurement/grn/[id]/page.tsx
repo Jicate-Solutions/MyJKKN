@@ -253,13 +253,13 @@ export default function GrnDetailPage() {
         {pending && (hasMismatch || chemicalBlocks.length > 0) && (
           <div className="space-y-2">
             {hasMismatch && (
-              <span className="flex items-center gap-1.5 text-sm text-amber-600">
+              <span className="flex items-center gap-1.5 text-sm text-foreground">
                 <AlertTriangle className="h-4 w-4" />
                 A line has a quantity or price mismatch — review before verifying.
               </span>
             )}
             {chemicalBlocks.length > 0 && (
-              <div className="flex items-start gap-1.5 text-sm text-red-600">
+              <div className="flex items-start gap-1.5 text-sm text-destructive">
                 <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
                 <span>
                   Verify is blocked until chemical items have a batch number and expiry date.
@@ -297,7 +297,7 @@ export default function GrnDetailPage() {
                         </Badge>
                       )}
                       {it.replacement_required && (
-                        <span className="block text-xs font-normal text-orange-600">Replacement requested</span>
+                        <span className="block text-xs font-normal text-foreground">Replacement requested</span>
                       )}
                       {Number(it.missing_quantity) > 0 && (
                         <span className="block text-xs font-normal text-muted-foreground">
@@ -491,7 +491,7 @@ export default function GrnDetailPage() {
               </p>
             </div>
             {repTarget?.grn_item?.is_chemical && (
-              <div className="rounded-md bg-amber-50 dark:bg-amber-950/30 p-2 text-xs text-amber-700 dark:text-amber-400">
+              <div className="rounded-md bg-secondary/20 p-2 text-xs text-foreground">
                 Chemical item — batch number and expiry date are required to post to inventory.
               </div>
             )}

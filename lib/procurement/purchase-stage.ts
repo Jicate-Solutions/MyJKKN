@@ -9,6 +9,7 @@ import { PR_STATUS_CONFIG } from '@/types/procurement';
 export type PurchaseStage =
   | 'draft'
   | 'submitted'
+  | 'returned'
   | 'approved'
   | 'rejected'
   | 'cancelled'
@@ -30,6 +31,7 @@ export const STAGE_CONFIG: Record<string, { label: string; color: string }> = {
 /** Stage filter options for the Purchases list, in the order the work happens. */
 export const STAGE_FILTERS: Array<{ value: PurchaseStage; label: string }> = [
   { value: 'submitted', label: 'Waiting item approval' },
+  { value: 'returned', label: 'Sent back for changes' },
   { value: 'getting_quotes', label: 'Getting quotes' },
   { value: 'with_super_admin', label: 'Waiting final approval' },
   { value: 'ordered', label: 'Ordered' },

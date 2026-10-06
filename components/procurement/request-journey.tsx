@@ -3,6 +3,8 @@
 import { useQuery } from '@tanstack/react-query';
 import { cn } from '@/lib/utils';
 import { formatDateDMY } from '@/lib/utils/date-format';
+import { latestRound } from '@/lib/procurement/approval-chain';
+import type { RequestApproval } from '@/types/procurement';
 import {
   ProcurementJourneyService,
   type JourneyAnchor,
@@ -19,9 +21,9 @@ import {
  * Everything happens on the same page, so there are no "go to" links here.
  */
 
-type StepState = 'done' | 'current' | 'blocked' | 'upcoming';
+export type StepState = 'done' | 'current' | 'blocked' | 'upcoming';
 
-interface Step {
+export interface Step {
   title: string;
   state: StepState;
   /** Under the dot: who signed / what happened, or who it waits for. */
@@ -29,6 +31,15 @@ interface Step {
 }
 
 const QUOTE_DECIDED = ['pending_award_approval', 'awarded', 'closed'];
+
+/** One set approver as a dot on the line. */
+function chainStep(a: RequestApproval): Step {
+  if (a.status === 'approved') return { title: a.label, state: 'done', note: signed(a.acted_by_profile?.full_name ?? null, a.acted_at) };
+  if (a.status === 'pending') return { title: a.label, state: 'current', note: 'Waiting for approval' };
+  if (a.status === 'returned') return { title: a.label, state: 'blocked', note: `Sent back: ${a.remarks ?? ''}` };
+  if (a.status === 'rejected') return { title: a.label, state: 'blocked', note: `Rejected: ${a.remarks ?? ''}` };
+  return { title: a.label, state: 'upcoming' };
+}
 const signed = (who: string | null, at: string | null) =>
   [who, at ? formatDateDMY(at) : null].filter(Boolean).join(' · ') || 'Approved';
 
@@ -50,6 +61,9 @@ function buildSteps(j: RequestJourney): { steps: Step[]; now: string | null } {
   if (req?.status === 'submitted') {
     s2 = { title: 'Item approval', state: 'current', note: 'Waiting for approver' };
     now = 'Approver — approve or reject the items';
+  } else if (req?.status === 'returned') {
+    s2 = { title: 'Item approval', state: 'current', note: `Sent back: ${req.returned_reason ?? 'changes needed'}` };
+    now = 'Requester — make the changes and send it again';
   } else if (req?.status === 'rejected') {
     s2 = { title: 'Item approval', state: 'blocked', note: req.rejection_reason || 'Rejected' };
   } else if (req && (req.status === 'approved' || req.status === 'converted')) {
@@ -114,9 +128,9 @@ export function journeyNow(journey: RequestJourney): string | null {
 }
 
 const DOT: Record<StepState, string> = {
-  done: 'bg-green-600',
-  current: 'bg-amber-500 ring-4 ring-amber-200 dark:ring-amber-900',
-  blocked: 'bg-red-600',
+  done: 'bg-primary',
+  current: 'bg-secondary ring-4 ring-secondary/30',
+  blocked: 'bg-destructive',
   upcoming: 'border border-muted-foreground/50',
 };
 
@@ -125,21 +139,33 @@ const DOT: Record<StepState, string> = {
  * The current step is bold; a signed-off approval shows who and when on hover and
  * as small text under the line (`signedOff`).
  */
-export function PurchaseProgress({ journey }: { journey: RequestJourney }) {
-  const { steps } = buildSteps(journey);
-  const signed = steps.filter((s) => s.state === 'done' && (s.title === 'Item approval' || s.title === 'Final approval') && s.note);
+export function PurchaseProgress({ journey, approvals = [] }: { journey: RequestJourney; approvals?: RequestApproval[] }) {
+  const base = buildSteps(journey).steps; // Asked · Item approval · Quotes · Final approval · Delivered
+  // A request with category approvers: one dot per set approver in place of
+  // "Item approval" (request list) and "Final approval" (final list).
+  const reqChain = latestRound(approvals, 'request').map(chainStep);
+  const finalChain = latestRound(approvals, 'final').map(chainStep);
+  const steps = [
+    base[0],
+    ...(reqChain.length ? reqChain : [base[1]]),
+    base[2],
+    ...(finalChain.length ? finalChain : [base[3]]),
+    base[4],
+  ];
+  const approvalTitles = new Set(['Item approval', 'Final approval', ...reqChain.map((s) => s.title), ...finalChain.map((s) => s.title)]);
+  const signed = steps.filter((s) => s.state === 'done' && approvalTitles.has(s.title) && s.note);
   const current = steps.find((s) => s.state === 'current' || s.state === 'blocked');
   return (
     <div className="space-y-1">
       <ol className="flex flex-wrap items-center gap-x-1.5 gap-y-1 text-xs text-muted-foreground" aria-label="Progress">
         {steps.map((s, i) => (
-          <li key={s.title} className="flex items-center gap-1.5">
+          <li key={`${i}-${s.title}`} className="flex items-center gap-1.5">
             {i > 0 && <span aria-hidden className="h-px w-4 bg-border" />}
             <span aria-hidden className={cn('h-2 w-2 shrink-0 rounded-full', DOT[s.state])} />
             <span
               className={cn(
-                s.state === 'current' && 'font-semibold text-amber-800 dark:text-amber-300',
-                s.state === 'blocked' && 'font-semibold text-red-700',
+                s.state === 'current' && 'font-semibold text-foreground',
+                s.state === 'blocked' && 'font-semibold text-destructive',
                 s.state === 'done' && 'text-foreground'
               )}
               title={s.note}
@@ -154,7 +180,12 @@ export function PurchaseProgress({ journey }: { journey: RequestJourney }) {
       {signed.length > 0 && (
         <p className="text-xs text-muted-foreground">{signed.map((s) => `${s.title} ✓ ${s.note}`).join(' · ')}</p>
       )}
-      {current?.state === 'blocked' && current.note && <p className="text-xs text-red-700">{current.note}</p>}
+      {current?.state === 'blocked' && current.note && <p className="text-xs text-destructive">{current.note}</p>}
     </div>
   );
+}
+
+/** The five steps with who signed / what is awaited — for a vertical timeline view. */
+export function journeySteps(journey: RequestJourney): { steps: Step[]; now: string | null } {
+  return buildSteps(journey);
 }

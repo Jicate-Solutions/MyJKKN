@@ -82,7 +82,7 @@ export function PoFormatForm({ institutionId, createdBy, initial, onSave }: PoFo
         <CardContent className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
           <div className="space-y-2">
             <Label htmlFor="format-name">
-              Name <span className="text-red-500">*</span>
+              Name <span className="text-destructive">*</span>
             </Label>
             <Input
               id="format-name"

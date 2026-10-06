@@ -2,7 +2,7 @@
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { ProcurementPurchaseOrderService } from '@/lib/services/procurement/purchase-order-service';
-import type { PurchaseOrderFilters } from '@/types/procurement';
+import type { PurchaseOrderFilters, ProposePoRevisionDto } from '@/types/procurement';
 
 export function usePurchaseOrders(filters: PurchaseOrderFilters) {
   return useQuery({
@@ -67,6 +67,25 @@ export function useUpdatePoDocumentFields() {
   });
 }
 
+/** One value (e.g. GST 18%) onto many lines of an order, refreshed once at the end. */
+export function useApplyPoItemExtraToAll() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      itemIds,
+      extraFields,
+    }: {
+      poId: string;
+      itemIds: string[];
+      extraFields: Record<string, string | number>;
+    }) =>
+      Promise.all(itemIds.map((itemId) => ProcurementPurchaseOrderService.updateItemExtraFields(itemId, extraFields))),
+    onSuccess: (_r, { poId }) => {
+      queryClient.invalidateQueries({ queryKey: ['procurement-purchase-order', poId] });
+    },
+  });
+}
+
 export function useUpdatePoItemExtraFields() {
   const queryClient = useQueryClient();
   return useMutation({
@@ -92,6 +111,71 @@ export function useUpdatePoItemPrice() {
     onSuccess: (_r, { poId }) => {
       queryClient.invalidateQueries({ queryKey: ['procurement-purchase-order', poId] });
       queryClient.invalidateQueries({ queryKey: ['procurement-purchase-orders'] });
+    },
+  });
+}
+
+export function usePoRevisions(poId: string) {
+  return useQuery({
+    queryKey: ['procurement-po-revisions', poId],
+    queryFn: () => ProcurementPurchaseOrderService.getRevisions(poId),
+    enabled: !!poId,
+  });
+}
+
+/** Everything a renegotiation touches: the order, its revisions, the journey, the Overview. */
+function useRevisionRefresh() {
+  const queryClient = useQueryClient();
+  return (poId: string) => {
+    for (const key of [
+      ['procurement-po-revisions', poId],
+      ['procurement-purchase-order', poId],
+      ['procurement-purchase-orders'],
+      ['procurement-journey'],
+      ['procurement-overview-waiting'],
+      ['procurement-overview-counts'],
+      ['procurement-quotations'],
+    ]) {
+      void queryClient.invalidateQueries({ queryKey: key });
+    }
+  };
+}
+
+export function useProposePoRevision() {
+  const refresh = useRevisionRefresh();
+  return useMutation({
+    mutationFn: (dto: ProposePoRevisionDto) => ProcurementPurchaseOrderService.proposeRevision(dto),
+    onSettled: (_r, _e, dto) => refresh(dto.poId),
+  });
+}
+
+export function useDecidePoRevision() {
+  const refresh = useRevisionRefresh();
+  return useMutation({
+    mutationFn: (v: { poId: string; revisionId: string; approve: boolean; note?: string }) =>
+      ProcurementPurchaseOrderService.decideRevision(v.revisionId, v.approve, v.note),
+    onSettled: (_r, _e, v) => refresh(v.poId),
+  });
+}
+
+export function useWithdrawPoRevision() {
+  const refresh = useRevisionRefresh();
+  return useMutation({
+    mutationFn: (v: { poId: string; revisionId: string }) => ProcurementPurchaseOrderService.withdrawRevision(v.revisionId),
+    onSettled: (_r, _e, v) => refresh(v.poId),
+  });
+}
+
+/** Downloading the order document marks it sent to the vendor (approved -> sent). */
+export function useMarkPoSent() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => ProcurementPurchaseOrderService.markSent(id),
+    onSuccess: (changed, id) => {
+      if (!changed) return;
+      queryClient.invalidateQueries({ queryKey: ['procurement-purchase-order', id] });
+      queryClient.invalidateQueries({ queryKey: ['procurement-purchase-orders'] });
+      queryClient.invalidateQueries({ queryKey: ['procurement-journey'] });
     },
   });
 }

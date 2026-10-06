@@ -634,9 +634,14 @@ export class ImsInventoryService {
         query = query.eq('store_id', storeId);
       }
 
-      const { data, error } = await query;
+      const { data: rows, error } = await query;
 
       if (error) throw error;
+      // A–Z the way people read it (case-insensitive, numbers in order) — the
+      // database's byte order puts "acetone" after "Zinc".
+      const data = [...(rows || [])].sort((a: { name: string }, b: { name: string }) =>
+        (a.name ?? '').trim().localeCompare((b.name ?? '').trim(), 'en', { sensitivity: 'base', numeric: true })
+      );
 
       return (data || []) as ImsItemForSelect[];
     } catch (error) {
