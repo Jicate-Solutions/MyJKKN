@@ -6,6 +6,8 @@ import { ContentLayout } from '@/components/layout/content-layout';
 import { useRfq } from '@/hooks/procurement/use-rfqs';
 import { QuotesSection } from '@/components/procurement/quotes-section';
 import { AlertBox } from '@/components/ui/alert-box';
+import { EmptyState } from '@/components/empty-state';
+import { Button } from '@/components/ui/button';
 import { displayRequestNumber } from '@/lib/procurement/display-number';
 import { BeatLoader } from 'react-spinners';
 
@@ -29,6 +31,23 @@ export default function RfqQuotationsRedirect() {
         <div className="py-12">
           <AlertBox type="error" message="Failed to load these quotes. Please try again." />
         </div>
+      </ContentLayout>
+    );
+  }
+  // Finished loading with nothing: deleted, or not visible to this user. Say so
+  // instead of spinning forever.
+  if (!isLoading && !rfq) {
+    return (
+      <ContentLayout title="Quotes">
+        <EmptyState
+          title="Quotes not found"
+          description="They may have been removed, or you may not have access to them."
+          action={
+            <Button variant="outline" onClick={() => router.push('/procurement/rfqs')}>
+              Back to quotations
+            </Button>
+          }
+        />
       </ContentLayout>
     );
   }

@@ -7,9 +7,9 @@
 
 import { Badge } from '@/components/ui/badge';
 import type { HostelRoomWithBedsAndOccupancy } from '@/lib/services/campus-living/hostel-room-service';
+import { useBlockFloors } from '@/hooks/campus-living/use-hostel-floors';
+import { floorDisplayName } from '@/lib/utils/floor-label';
 import { formatRoomPurpose, formatTierAccess } from './room-meta';
-
-const FLOOR_LABELS = ['Ground Floor', '1st Floor', '2nd Floor', '3rd Floor'];
 
 const inr = (v: number | null | undefined) =>
   v != null
@@ -25,13 +25,16 @@ export function RoomDetailsContent({
 }: {
   room: HostelRoomWithBedsAndOccupancy;
 }) {
+  // Same query the rooms page already runs, so this reads the cache.
+  const { data: floors } = useBlockFloors(room.block_id);
+  const floorName = floors?.find((f) => f.floor_number === room.floor)?.name;
   return (
     <div className="grid grid-cols-2 gap-2 text-sm">
       <div className="text-muted-foreground">Room No.:</div>
       <div className="font-medium">{room.room_number}</div>
 
       <div className="text-muted-foreground">Floor:</div>
-      <div>{FLOOR_LABELS[room.floor] ?? `Floor ${room.floor}`}</div>
+      <div>{floorDisplayName(room.floor, floorName)}</div>
 
       <div className="text-muted-foreground">Type:</div>
       <div className="capitalize">{room.room_type}</div>

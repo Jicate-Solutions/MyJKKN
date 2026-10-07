@@ -6,6 +6,9 @@
 import type {
   TournamentMatch,
   ScheduleMatchDto,
+  SetMatchSideDto,
+  SetFixtureModeDto,
+  ManualMatchDto,
   GenerateFixturesResult,
   RecordResultDto,
 } from '@/types/tournament';
@@ -66,6 +69,67 @@ export class TournamentFixturesService {
       body: JSON.stringify(dto),
     });
     return asJson<{ match: TournamentMatch; clash: unknown[] | null; warning: string | null }>(res);
+  }
+
+  /**
+   * Put an entry into one side of an unplayed knockout match, or fill the empty
+   * side of a bye. The server holds every rule (fn_tournament_set_match_side).
+   */
+  static async setMatchSide(
+    eventId: string,
+    matchId: string,
+    dto: SetMatchSideDto
+  ): Promise<{ match: TournamentMatch }> {
+    const res = await fetch(`/api/events/tournament/${eventId}/matches/${matchId}/side`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(dto),
+    });
+    return asJson<{ match: TournamentMatch }>(res);
+  }
+
+  /** Switch a division to manual fixtures, or back to auto (which regenerates the bracket). */
+  static async setFixtureMode(
+    eventId: string,
+    dto: SetFixtureModeDto
+  ): Promise<{ mode: string; matches_created?: number }> {
+    const res = await fetch(`/api/events/tournament/${eventId}/fixture-mode`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(dto),
+    });
+    return asJson<{ mode: string; matches_created?: number }>(res);
+  }
+
+  /** Add (matchId omitted) or edit a match in a manual-mode division. */
+  static async saveManualMatch(
+    eventId: string,
+    dto: ManualMatchDto,
+    matchId?: string
+  ): Promise<{ match: TournamentMatch }> {
+    const url = matchId
+      ? `/api/events/tournament/${eventId}/manual-matches/${matchId}`
+      : `/api/events/tournament/${eventId}/manual-matches`;
+    const res = await fetch(url, {
+      method: matchId ? 'PATCH' : 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(dto),
+    });
+    return asJson<{ match: TournamentMatch }>(res);
+  }
+
+  /** Delete a match without a result from a manual-mode division. */
+  static async deleteManualMatch(
+    eventId: string,
+    matchId: string,
+    expected: { expected_side_a: string | null; expected_side_b: string | null }
+  ): Promise<{ ok: true }> {
+    const res = await fetch(`/api/events/tournament/${eventId}/manual-matches/${matchId}`, {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(expected),
+    });
+    return asJson<{ ok: true }>(res);
   }
 
   /** Record a match result (advances the knockout winner). */

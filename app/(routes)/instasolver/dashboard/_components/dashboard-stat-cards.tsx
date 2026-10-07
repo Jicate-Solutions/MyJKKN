@@ -24,7 +24,7 @@ import {
 import { Card, CardContent } from '@/components/ui/card';
 import { useDashboardStats } from '@/hooks/instasolver/use-instasolver';
 import type { InstaSolverAccess } from '@/types/instasolver';
-import { StatCard } from './stat-card';
+import { StatCard } from '@/components/instasolver/stat-card';
 
 const BASE = '/instasolver';
 

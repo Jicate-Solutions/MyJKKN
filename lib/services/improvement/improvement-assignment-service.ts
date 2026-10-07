@@ -27,10 +27,15 @@
  *   those owners. Per-idea assignment is a column on the idea instead, which that
  *   sync cannot reach. The two concepts stay separate on purpose.
  *
- * MANUAL, NOT AUTO-ROUTED
- *   A manager picks the person. Auto-routing area -> current department owner is
- *   the obvious follow-up and is deliberately unbuilt: it would route only 4 of
- *   the 10 areas in use today, because only 4 department_owner rows exist.
+ * SUPERSEDED FOR ROUTING BY improvement_idea_assignees (2026-10-07)
+ *   This single-person column is no longer how an idea is routed. Since
+ *   20271007090000_improvement_stage_assignees.sql the people an idea is with
+ *   live in `improvement_idea_assignees` — the CEO while Logged, the department
+ *   owners while Under Review, then whoever the owner picks — written through
+ *   `ImprovementService.setAssignees` and the status RPC. The status RPC no
+ *   longer calls `fn_improvement_assign_idea`. This service and its RPC still
+ *   work and the column still grants its holder read access to the idea, but
+ *   nothing on the board writes it any more.
  *
  * The `improvement_*` tables are live in prod but absent from the generated
  * `types/supabase.ts`, so calls cast through `(supabase as any)` — the same

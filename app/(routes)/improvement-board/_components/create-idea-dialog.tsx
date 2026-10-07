@@ -30,6 +30,20 @@ import {
   SelectValue
 } from '@/components/ui/select';
 import {
+  AlertCircle,
+  BarChart3,
+  Building2,
+  LayoutGrid,
+  Lightbulb,
+  Send,
+  TrendingUp,
+  Type,
+  Users,
+  Wrench,
+  Zap,
+  type LucideIcon
+} from 'lucide-react';
+import {
   ImprovementService,
   type ImprovementArea
 } from '@/lib/services/improvement/improvement-service';
@@ -50,6 +64,9 @@ interface CreateIdeaDialogProps {
   onCreated: () => void;
 }
 
+/** `text-base` on phones stops iOS zooming the page when a field takes focus. */
+const CONTROL = 'rounded-xl text-base sm:text-sm';
+
 export function CreateIdeaDialog({
   open,
   onOpenChange,
@@ -69,6 +86,13 @@ export function CreateIdeaDialog({
   const [submitting, setSubmitting] = useState(false);
 
   const canSubmit = !!title.trim() && !!areaId && !!problem.trim() && !!proposedFix.trim();
+
+  const requiredDone = [
+    !!title.trim(),
+    !!areaId,
+    !!problem.trim(),
+    !!proposedFix.trim()
+  ].filter(Boolean).length;
 
   const reset = () => {
     setTitle('');
@@ -112,35 +136,72 @@ export function CreateIdeaDialog({
 
   return (
     <Dialog open={open} onOpenChange={(o) => { if (!submitting) onOpenChange(o); }}>
-      <DialogContent className="max-h-[90vh] max-w-2xl overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle>File an improvement idea</DialogTitle>
-          <DialogDescription>
-            A short business case: what is wrong, what you would change, and which
-            data shows it matters.
-          </DialogDescription>
+      {/* Header and footer stay put; only the form scrolls. `dvh` keeps the  */}
+      {/* footer above a phone's browser chrome and on-screen keyboard.       */}
+      <DialogContent className="flex max-h-[92dvh] w-[calc(100vw-1.5rem)] max-w-2xl flex-col gap-0 overflow-hidden rounded-2xl border-0 p-0 [&>button]:text-white [&>button]:opacity-90">
+        <DialogHeader className="space-y-0 bg-gradient-to-br from-emerald-600 via-teal-600 to-sky-600 px-4 py-5 text-left text-white sm:px-6">
+          <div className="flex items-start gap-3 pr-8">
+            <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-white/20 ring-1 ring-white/30">
+              <Lightbulb className="h-5 w-5" aria-hidden="true" />
+            </span>
+            <div className="min-w-0 space-y-1">
+              <DialogTitle className="text-lg leading-tight text-white sm:text-xl">
+                File an improvement idea
+              </DialogTitle>
+              <DialogDescription className="text-sm text-white/85">
+                A short business case: what is wrong, what you would change, and
+                which data shows it matters.
+              </DialogDescription>
+            </div>
+          </div>
+
+          <div className="mt-4 flex items-center gap-3">
+            <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-white/25">
+              <div
+                className="h-full rounded-full bg-white transition-all duration-300"
+                style={{ width: `${(requiredDone / 4) * 100}%` }}
+              />
+            </div>
+            <span className="shrink-0 text-xs font-medium text-white/90">
+              {requiredDone} of 4 required
+            </span>
+          </div>
         </DialogHeader>
 
-        <div className="space-y-4 py-2">
+        <div className="flex-1 space-y-5 overflow-y-auto px-4 py-5 sm:px-6">
           <div className="space-y-2">
-            <Label>
-              Title <span className="text-red-500">*</span>
-            </Label>
+            <div className="flex items-end justify-between gap-2">
+              <FieldLabel
+                icon={Type}
+                tone="bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300"
+                required
+              >
+                Title
+              </FieldLabel>
+              <span className="text-muted-foreground text-xs">
+                {title.length}/160
+              </span>
+            </div>
             <Input
               placeholder="One line that names the improvement…"
               value={title}
               onChange={(e) => setTitle(e.target.value)}
               maxLength={160}
+              className={`h-11 ${CONTROL}`}
             />
           </div>
 
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div className="space-y-2">
-              <Label>
-                Area <span className="text-red-500">*</span>
-              </Label>
+              <FieldLabel
+                icon={LayoutGrid}
+                tone="bg-teal-100 text-teal-700 dark:bg-teal-950 dark:text-teal-300"
+                required
+              >
+                Area
+              </FieldLabel>
               <Select value={areaId} onValueChange={setAreaId}>
-                <SelectTrigger>
+                <SelectTrigger className={`h-11 ${CONTROL}`}>
                   <SelectValue placeholder="Select an area…" />
                 </SelectTrigger>
                 <SelectContent>
@@ -159,12 +220,18 @@ export function CreateIdeaDialog({
             </div>
 
             <div className="space-y-2">
-              <Label>Target department (optional)</Label>
+              <FieldLabel
+                icon={Building2}
+                tone="bg-indigo-100 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300"
+                optional
+              >
+                Target department
+              </FieldLabel>
               <Select
                 value={departmentId || 'none'}
                 onValueChange={(v) => setDepartmentId(v === 'none' ? '' : v)}
               >
-                <SelectTrigger>
+                <SelectTrigger className={`h-11 ${CONTROL}`}>
                   <SelectValue placeholder="Any / not specific…" />
                 </SelectTrigger>
                 <SelectContent>
@@ -180,81 +247,165 @@ export function CreateIdeaDialog({
           </div>
 
           <div className="space-y-2">
-            <Label>
-              The problem <span className="text-red-500">*</span>
-            </Label>
+            <FieldLabel
+              icon={AlertCircle}
+              tone="bg-rose-100 text-rose-700 dark:bg-rose-950 dark:text-rose-300"
+              required
+            >
+              The problem
+            </FieldLabel>
             <Textarea
               placeholder="What is not working today, and who does it affect?"
               value={problem}
               onChange={(e) => setProblem(e.target.value)}
               rows={3}
+              className={CONTROL}
             />
           </div>
 
           <div className="space-y-2">
-            <Label>
-              Proposed fix <span className="text-red-500">*</span>
-            </Label>
+            <FieldLabel
+              icon={Wrench}
+              tone="bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300"
+              required
+            >
+              Proposed fix
+            </FieldLabel>
             <Textarea
               placeholder="What you would change, concretely."
               value={proposedFix}
               onChange={(e) => setProposedFix(e.target.value)}
               rows={3}
+              className={CONTROL}
             />
           </div>
 
-          <div className="space-y-2">
-            <Label>Expected impact</Label>
-            <Textarea
-              placeholder="What improves if this is applied — time, cost, quality, experience?"
-              value={expectedImpact}
-              onChange={(e) => setExpectedImpact(e.target.value)}
-              rows={2}
-            />
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div className="space-y-2">
+              <FieldLabel
+                icon={TrendingUp}
+                tone="bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300"
+              >
+                Expected impact
+              </FieldLabel>
+              <Textarea
+                placeholder="What improves if this is applied — time, cost, quality, experience?"
+                value={expectedImpact}
+                onChange={(e) => setExpectedImpact(e.target.value)}
+                rows={3}
+                className={CONTROL}
+              />
+            </div>
+
+            <div className="space-y-2">
+              <FieldLabel
+                icon={BarChart3}
+                tone="bg-sky-100 text-sky-700 dark:bg-sky-950 dark:text-sky-300"
+              >
+                Evidence — which data shows it
+              </FieldLabel>
+              <Textarea
+                placeholder="Which numbers, feedback, or records back this up?"
+                value={evidence}
+                onChange={(e) => setEvidence(e.target.value)}
+                rows={3}
+                className={CONTROL}
+              />
+            </div>
           </div>
 
           <div className="space-y-2">
-            <Label>Evidence — which data shows it</Label>
-            <Textarea
-              placeholder="Which numbers, feedback, or records back this up?"
-              value={evidence}
-              onChange={(e) => setEvidence(e.target.value)}
-              rows={2}
-            />
-          </div>
-
-          <div className="space-y-2">
-            <Label>Contributors (optional)</Label>
+            <FieldLabel
+              icon={Users}
+              tone="bg-violet-100 text-violet-700 dark:bg-violet-950 dark:text-violet-300"
+              optional
+            >
+              Contributors
+            </FieldLabel>
             <Input
               placeholder="Who else helped, and how? (a short note)"
               value={contributorNote}
               onChange={(e) => setContributorNote(e.target.value)}
+              className={`h-11 ${CONTROL}`}
             />
           </div>
 
-          <div className="flex items-center gap-2 rounded-md border border-amber-200 bg-amber-50 p-3">
+          <label
+            htmlFor="idea-urgent"
+            className={`flex cursor-pointer items-center gap-3 rounded-xl border p-3.5 transition-colors ${
+              isUrgent
+                ? 'border-amber-400 bg-gradient-to-r from-amber-100 to-orange-100 dark:border-amber-700 dark:from-amber-950 dark:to-orange-950'
+                : 'border-amber-200 bg-amber-50 dark:border-amber-900 dark:bg-amber-950/40'
+            }`}
+          >
             <Checkbox
               id="idea-urgent"
               checked={isUrgent}
               onCheckedChange={(v) => setIsUrgent(v === true)}
             />
-            <Label htmlFor="idea-urgent" className="cursor-pointer font-normal">
-              Mark as urgent — request fast-track review
-            </Label>
-          </div>
+            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-amber-500 text-white">
+              <Zap className="h-4 w-4" aria-hidden="true" />
+            </span>
+            <span className="min-w-0">
+              <span className="block text-sm font-medium">Mark as urgent</span>
+              <span className="text-muted-foreground block text-xs">
+                Request fast-track review
+              </span>
+            </span>
+          </label>
         </div>
 
-        <DialogFooter>
+        <DialogFooter className="bg-muted/40 flex-col-reverse gap-2 border-t px-4 py-3 sm:flex-row sm:space-x-0 sm:px-6">
           <DialogClose asChild>
-            <Button variant="outline" disabled={submitting}>
+            <Button
+              variant="outline"
+              disabled={submitting}
+              className="h-11 w-full sm:w-auto"
+            >
               Cancel
             </Button>
           </DialogClose>
-          <Button onClick={handleSubmit} disabled={!canSubmit || submitting}>
+          <Button
+            onClick={handleSubmit}
+            disabled={!canSubmit || submitting}
+            className="h-11 w-full bg-gradient-to-r from-emerald-600 to-teal-600 text-white shadow-sm hover:from-emerald-700 hover:to-teal-700 sm:w-auto"
+          >
+            <Send className="mr-2 h-4 w-4" aria-hidden="true" />
             {submitting ? 'Filing…' : 'File idea'}
           </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+function FieldLabel({
+  icon: Icon,
+  tone,
+  required,
+  optional,
+  children
+}: {
+  icon: LucideIcon;
+  tone: string;
+  required?: boolean;
+  optional?: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <Label className="flex items-center gap-2 text-sm font-medium">
+      <span
+        className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-md ${tone}`}
+      >
+        <Icon className="h-3.5 w-3.5" aria-hidden="true" />
+      </span>
+      <span>
+        {children}
+        {required && <span className="text-red-500"> *</span>}
+        {optional && (
+          <span className="text-muted-foreground font-normal"> (optional)</span>
+        )}
+      </span>
+    </Label>
   );
 }
