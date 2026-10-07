@@ -3,7 +3,7 @@
 /**
  * React Query hooks for the salary register sign-off (20271007161107).
  *
- * They go through /api/hr/payroll/register/[runId]/signoff, which calls the
+ * They go through /api/hr/payroll/register/signoff?runId=…, which calls the
  * database functions with the person's own session. A refusal comes back as
  * { success: false, error } and is thrown with that exact message, so the
  * toast says why (rule #27).
@@ -30,7 +30,7 @@ async function readEnvelope<T>(res: Response): Promise<T> {
 }
 
 const signoffUrl = (runId: string) =>
-  `/api/hr/payroll/register/${encodeURIComponent(runId)}/signoff`;
+  `/api/hr/payroll/register/signoff?runId=${encodeURIComponent(runId)}`;
 
 export function useRegisterSignoffStatus(runId: string | null) {
   return useQuery<RegisterSignoffStatus>({

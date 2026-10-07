@@ -1,9 +1,12 @@
 export const dynamic = 'force-dynamic';
 
 /**
- * GET    /api/hr/payroll/register/[runId]/signoff — both sign-off steps.
- * POST   /api/hr/payroll/register/[runId]/signoff — { stage, note } signs one step.
- * DELETE /api/hr/payroll/register/[runId]/signoff — { signoffId, reason } withdraws one.
+ * GET    /api/hr/payroll/register/signoff?runId=… — both sign-off steps.
+ * POST   /api/hr/payroll/register/signoff?runId=… — { stage, note } signs one step.
+ * DELETE /api/hr/payroll/register/signoff?runId=… — { signoffId, reason } withdraws one.
+ *
+ * The run id rides in the query string, not a [runId] segment: a static path
+ * costs nothing against the Vercel route budget (scripts/ci/check-route-budget.sh).
  *
  * Migration 20271007161107. Every call goes to the database function with the
  * person's OWN session client: the function reads auth.uid() to name the
@@ -32,9 +35,8 @@ function refusal(err: unknown, fallback: string) {
   return NextResponse.json({ success: false, error: message }, { status: 500 });
 }
 
-async function readRunId(context?: { params?: Promise<Record<string, string>> }) {
-  const params = await context?.params;
-  return params?.runId ?? null;
+function readRunId(request: Request) {
+  return new URL(request.url).searchParams.get('runId') || null;
 }
 
 async function readBody(request: Request): Promise<Record<string, unknown>> {
@@ -43,9 +45,9 @@ async function readBody(request: Request): Promise<Record<string, unknown>> {
 }
 
 export const GET = withAuth(
-  async (_request, auth, context) => {
+  async (request, auth) => {
     await connection();
-    const runId = await readRunId(context);
+    const runId = readRunId(request);
     if (!runId) return NextResponse.json({ success: false, error: 'runId is required' }, { status: 400 });
     try {
       const status = await RegisterSignoffService.getStatus(auth.supabase, runId);
@@ -58,9 +60,9 @@ export const GET = withAuth(
 );
 
 export const POST = withAuth(
-  async (request, auth, context) => {
+  async (request, auth) => {
     await connection();
-    const runId = await readRunId(context);
+    const runId = readRunId(request);
     if (!runId) return NextResponse.json({ success: false, error: 'runId is required' }, { status: 400 });
 
     const body = await readBody(request);
@@ -92,9 +94,9 @@ export const POST = withAuth(
 );
 
 export const DELETE = withAuth(
-  async (request, auth, context) => {
+  async (request, auth) => {
     await connection();
-    const runId = await readRunId(context);
+    const runId = readRunId(request);
     if (!runId) return NextResponse.json({ success: false, error: 'runId is required' }, { status: 400 });
 
     const body = await readBody(request);
