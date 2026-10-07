@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { SupabaseClient } from '@supabase/supabase-js';
 
-import { HRMemoService } from '@/lib/services/hr/memo-service';
+import { HRMemoService, UNRESOLVABLE_EVENT_REASON, istDate } from '@/lib/services/hr/memo-service';
 import {
   dueNudges,
   effectiveMode,
@@ -22,7 +22,7 @@ type Filter = (r: Row) => boolean;
 
 interface Write {
   table: string;
-  op: 'insert' | 'update';
+  op: 'insert' | 'update' | 'upsert';
   payload: unknown;
 }
 
@@ -52,6 +52,8 @@ function makeFake(opts: {
   policy: unknown;
   tables?: Record<string, Row[]>;
   triggers?: Row;
+  /** Tables whose inserts fail (to prove a claim is released). */
+  failInsertOn?: string[];
 }) {
   const tables: Record<string, Row[]> = {
     institution_leaves: [],
@@ -74,10 +76,12 @@ function makeFake(opts: {
 
   class Builder {
     private filters: Filter[] = [];
-    private op: 'select' | 'insert' | 'update' = 'select';
+    private op: 'select' | 'insert' | 'update' | 'upsert' = 'select';
     private payload: unknown = null;
     private returning = false;
     private lim: number | null = null;
+    private rng: [number, number] | null = null;
+    private orders: Array<{ col: string; asc: boolean }> = [];
     private mode: 'many' | 'single' | 'maybe' = 'many';
     constructor(private readonly table: string) {}
 
@@ -93,6 +97,11 @@ function makeFake(opts: {
     update(patch: Row) {
       this.op = 'update';
       this.payload = patch;
+      return this;
+    }
+    upsert(rows: Row | Row[]) {
+      this.op = 'upsert';
+      this.payload = rows;
       return this;
     }
     eq(c: string, v: unknown) {
@@ -119,11 +128,16 @@ function makeFake(opts: {
       this.filters.push((r) => String(field(r, c)) <= v);
       return this;
     }
-    order() {
+    order(col: string, o?: { ascending?: boolean }) {
+      this.orders.push({ col, asc: o?.ascending !== false });
       return this;
     }
     limit(n: number) {
       this.lim = n;
+      return this;
+    }
+    range(from: number, to: number) {
+      this.rng = [from, to];
       return this;
     }
     single() {
@@ -139,8 +153,29 @@ function makeFake(opts: {
       const rows = tables[this.table];
       if (!rows) return { data: null, error: { message: `relation ${this.table} does not exist` } };
 
+      if (this.op === 'upsert') {
+        // ON CONFLICT (notification_id, user_id) DO NOTHING
+        const list = (Array.isArray(this.payload) ? this.payload : [this.payload]) as Row[];
+        const fresh = list.filter(
+          (n) => !rows.some((r) => r.notification_id === n.notification_id && r.user_id === n.user_id),
+        );
+        rows.push(...fresh.map((r) => ({ id: newId(), ...r })));
+        writes.push({ table: this.table, op: 'upsert', payload: list });
+        return { data: null, error: null };
+      }
+
       if (this.op === 'insert') {
         const list = (Array.isArray(this.payload) ? this.payload : [this.payload]) as Row[];
+        if (opts.failInsertOn?.includes(this.table)) {
+          return { data: null, error: { message: `insert into ${this.table} refused (test)` } };
+        }
+        if (this.table === 'notifications') {
+          for (const n of list) {
+            if (n.idempotency_key != null && rows.some((r) => r.idempotency_key === n.idempotency_key)) {
+              return { data: null, error: { message: 'duplicate key', code: '23505' } };
+            }
+          }
+        }
         if (this.table === 'hr_memo_nudges') {
           for (const n of list) {
             if (rows.some((r) => r.memo_id === n.memo_id && r.nudge_kind === n.nudge_kind)) {
@@ -159,10 +194,21 @@ function makeFake(opts: {
       if (this.op === 'update') {
         for (const r of matched) Object.assign(r, this.payload as Row);
         writes.push({ table: this.table, op: 'update', payload: this.payload });
-        return { data: null, error: null };
+        return { data: this.returning ? matched.map((r) => ({ ...r })) : null, error: null };
       }
 
-      const limited = this.lim == null ? matched : matched.slice(0, this.lim);
+      if (this.orders.length > 0) {
+        matched.sort((a, b) => {
+          for (const o of this.orders) {
+            const x = String(field(a, o.col) ?? '');
+            const y = String(field(b, o.col) ?? '');
+            if (x !== y) return (x < y ? -1 : 1) * (o.asc ? 1 : -1);
+          }
+          return 0;
+        });
+      }
+      let limited = this.rng ? matched.slice(this.rng[0], this.rng[1] + 1) : matched;
+      if (this.lim != null) limited = limited.slice(0, this.lim);
       if (this.mode === 'many') return { data: limited.map((r) => ({ ...r })), error: null };
       return { data: limited[0] ? { ...limited[0] } : null, error: null };
     }
@@ -447,7 +493,9 @@ describe('nudge windows (pure)', () => {
     const rem = { memo_id: 'm', nudge_kind: 'staff_reminder' as const, recorded_at: daysAgo(2) };
     expect(dueNudges([memo('m', 5)], [rem], NOW, s)).toEqual([]);
     const rem3 = { ...rem, recorded_at: daysAgo(3) };
-    expect(dueNudges([memo('m', 6)], [rem3], NOW, s)).toEqual([{ memo_id: 'm', kind: 'hod_notice' }]);
+    expect(dueNudges([memo('m', 6)], [rem3], NOW, s)).toEqual([
+      { memo_id: 'm', kind: 'hod_notice', reminder_delivered: true },
+    ]);
     const hod = { memo_id: 'm', nudge_kind: 'hod_notice' as const, recorded_at: daysAgo(1) };
     expect(dueNudges([memo('m', 40)], [rem3, hod], NOW, s)).toEqual([]);
   });
@@ -484,5 +532,246 @@ describe('migration 20270613101223 seeds the detector switched off', () => {
   it('seeds the switch as dry_run, never live', () => {
     expect(sql).toMatch(/'\{"mode":"dry_run"/);
     expect(sql).not.toMatch(/"mode":"live"/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Follow-up to the #4151 deep review (each test fails with its fix reverted)
+// ---------------------------------------------------------------------------
+const hoursAgo = (h: number) => new Date(NOW.getTime() - h * 3_600_000).toISOString();
+
+function liveWithMemo(nudges: Row[], extra: Partial<Record<string, Row[]>> = {}) {
+  const tables = scenario();
+  return makeFake({
+    policy: { mode: 'live' },
+    tables: {
+      ...tables,
+      institution_leaves: [],
+      hr_memos: [{ id: 'memo-old', staff_id: STAFF_B, status: 'issued', issued_at: daysAgo(10) }],
+      hr_memo_nudges: nudges,
+      ...(extra as Record<string, Row[]>),
+    },
+  });
+}
+
+describe('review finding 1 — events for a non-team-member id never sit pending', () => {
+  it('live: an event naming a profile id (a holiday declarer) is dismissed with the reason, and is not previewed again', async () => {
+    const fake = makeFake({ policy: { mode: 'live' }, tables: scenario() });
+    const svc = new HRMemoService(fake.client);
+    await svc.runDetection(RUN, { now: NOW });
+
+    const ev = fake.tables.hr_memo_eligibility_events.find((e) => e.staff_id === PROFILE_A);
+    expect(ev).toMatchObject({ is_dismissed: true, dismissed_reason: UNRESOLVABLE_EVENT_REASON });
+    expect(ev?.processed_into_memo_id ?? null).toBeNull();
+
+    const second = await svc.runDetection(RUN2, { now: NOW });
+    expect(second.preview.memos.find((m) => m.staff_id === PROFILE_A)).toBeUndefined();
+  });
+
+  it('live: the pending read takes the OLDEST events first, so a pile of newer rows cannot crowd out a real one', async () => {
+    const junk: Row[] = Array.from({ length: 600 }, (_, i) => ({
+      id: `junk-${String(i).padStart(4, '0')}`,
+      staff_id: `ffffffff-0000-4000-8000-${String(i).padStart(12, '0')}`,
+      event_type: 'leave_before_approval',
+      event_detail: { leave_id: `x${i}` },
+      detected_at: daysAgo(1),
+      processed_into_memo_id: null,
+      is_dismissed: false,
+    }));
+    const real: Row = {
+      id: 'real-event',
+      staff_id: STAFF_A,
+      event_type: 'leave_before_approval',
+      event_detail: { leave_id: 'leave-real', leave_name: 'Casual' },
+      detected_at: daysAgo(5),
+      processed_into_memo_id: null,
+      is_dismissed: false,
+    };
+    const fake = makeFake({
+      policy: { mode: 'live' },
+      tables: { ...scenario(), institution_leaves: [], hr_memos: [], hr_memo_eligibility_events: [...junk, real] },
+    });
+    const res = await new HRMemoService(fake.client).runDetection(RUN, { now: NOW });
+
+    expect(res.memos_created).toBe(1);
+    expect(fake.tables.hr_memos.find((m) => m.triggered_by_event_id === 'real-event')).toBeDefined();
+  });
+});
+
+describe('review finding 2 — the head is never told a reminder was sent when it was not', () => {
+  const s: MemoDetectorSettings = { ...DEFAULT_MEMO_DETECTOR_SETTINGS, mode: 'live' };
+  const memo = { id: 'm', status: 'issued', issued_at: daysAgo(10) };
+  const rem = (status: string, recordedDaysAgo: number, createdDaysAgo = recordedDaysAgo) => ({
+    id: 'r1',
+    memo_id: 'm',
+    nudge_kind: 'staff_reminder' as const,
+    status,
+    recorded_at: daysAgo(recordedDaysAgo),
+    created_at: daysAgo(createdDaysAgo),
+  });
+
+  it('a reminder still being sent (fresh claim) starts no head notice', () => {
+    const fresh = { ...rem('claimed', 0), recorded_at: hoursAgo(1), created_at: hoursAgo(1) };
+    expect(dueNudges([memo], [fresh], NOW, s)).toEqual([]);
+  });
+
+  it('a failed reminder inside the retry window is retried, and no head notice goes out', () => {
+    expect(dueNudges([memo], [rem('failed', 1)], NOW, s)).toEqual([
+      { memo_id: 'm', kind: 'staff_reminder', retry_of: { id: 'r1', status: 'failed', recorded_at: daysAgo(1) } },
+    ]);
+  });
+
+  it('a reminder with nobody to send it to tells the head it was NOT delivered', async () => {
+    expect(dueNudges([memo], [rem('no_recipient', 3)], NOW, s)).toEqual([
+      { memo_id: 'm', kind: 'hod_notice', reminder_delivered: false },
+    ]);
+
+    const fake = liveWithMemo([
+      { id: 'n1', memo_id: 'memo-old', nudge_kind: 'staff_reminder', status: 'no_recipient', recorded_at: daysAgo(3), created_at: daysAgo(3) },
+    ]);
+    const res = await new HRMemoService(fake.client).runDetection(RUN, { now: NOW });
+    expect(res.nudges_sent).toBe(1);
+    const notice = fake.tables.notifications.at(-1) as Row;
+    expect(String(notice.body)).toMatch(/could NOT be delivered/);
+    expect(String(notice.body)).not.toMatch(/already been sent/);
+  });
+
+  it('a reminder that kept failing past the retry window also tells the head it was NOT delivered', () => {
+    expect(dueNudges([memo], [rem('failed', 3, 5)], NOW, s)).toEqual([
+      { memo_id: 'm', kind: 'hod_notice', reminder_delivered: false },
+    ]);
+  });
+});
+
+describe('review finding 4 — two overlapping runs issue ONE memo', () => {
+  it('concurrent runs over the same pending event create one memo and one notice', async () => {
+    const event: Row = {
+      id: 'ev-1',
+      staff_id: STAFF_A,
+      event_type: 'leave_before_approval',
+      event_detail: { leave_id: 'leave-x', leave_name: 'Casual' },
+      detected_at: daysAgo(1),
+      processed_into_memo_id: null,
+      is_dismissed: false,
+    };
+    const fake = makeFake({
+      policy: { mode: 'live' },
+      tables: { ...scenario(), institution_leaves: [], hr_memos: [], hr_memo_eligibility_events: [event] },
+    });
+    const a = new HRMemoService(fake.client);
+    const b = new HRMemoService(fake.client);
+    const [r1, r2] = await Promise.all([a.runDetection(RUN, { now: NOW }), b.runDetection(RUN2, { now: NOW })]);
+
+    expect(r1.memos_created + r2.memos_created).toBe(1);
+    expect(fake.tables.hr_memos).toHaveLength(1);
+    expect(fake.tables.notifications).toHaveLength(1);
+    expect(fake.tables.hr_memo_eligibility_events[0].processed_into_memo_id).toBe(fake.tables.hr_memos[0].id);
+  });
+
+  it('a memo insert that fails releases the claim, so the next run can issue it', async () => {
+    const event: Row = {
+      id: 'ev-2',
+      staff_id: STAFF_A,
+      event_type: 'leave_before_approval',
+      event_detail: { leave_id: 'leave-y' },
+      detected_at: daysAgo(1),
+      processed_into_memo_id: null,
+      is_dismissed: false,
+    };
+    const fake = makeFake({
+      policy: { mode: 'live' },
+      tables: { ...scenario(), institution_leaves: [], hr_memos: [], hr_memo_eligibility_events: [event] },
+      failInsertOn: ['hr_memos'],
+    });
+    const res = await new HRMemoService(fake.client).runDetection(RUN, { now: NOW });
+    expect(res.memos_created).toBe(0);
+    expect(res.errors.join(' ')).toMatch(/memo for event ev-2/);
+    expect(fake.tables.hr_memo_eligibility_events[0].processed_into_memo_id).toBeNull();
+  });
+});
+
+describe('review finding 5 — a failed or abandoned nudge is retried, within bounds', () => {
+  it('a failed reminder from yesterday is re-claimed and sent', async () => {
+    const fake = liveWithMemo([
+      { id: 'n1', memo_id: 'memo-old', nudge_kind: 'staff_reminder', status: 'failed', recorded_at: daysAgo(1), created_at: daysAgo(1) },
+    ]);
+    const res = await new HRMemoService(fake.client).runDetection(RUN, { now: NOW });
+    expect(res.nudges_sent).toBe(1);
+    expect(fake.tables.hr_memo_nudges).toHaveLength(1);
+    expect(fake.tables.hr_memo_nudges[0]).toMatchObject({ status: 'sent', run_id: RUN, recipient_profile_ids: [PROFILE_B] });
+  });
+
+  it('a claim abandoned by a crashed run (older than the stale limit) is retried', async () => {
+    const fake = liveWithMemo([
+      { id: 'n1', memo_id: 'memo-old', nudge_kind: 'staff_reminder', status: 'claimed', recorded_at: hoursAgo(12), created_at: hoursAgo(12) },
+    ]);
+    const res = await new HRMemoService(fake.client).runDetection(RUN, { now: NOW });
+    expect(res.nudges_sent).toBe(1);
+    expect(fake.tables.hr_memo_nudges[0]).toMatchObject({ status: 'sent' });
+  });
+
+  it('a retry after a crash that had already written the notice does not send it twice', async () => {
+    const fake = liveWithMemo(
+      [{ id: 'n1', memo_id: 'memo-old', nudge_kind: 'staff_reminder', status: 'claimed', recorded_at: hoursAgo(12), created_at: hoursAgo(12) }],
+      {
+        notifications: [{ id: 'notif-1', title: 't', body: 'b', idempotency_key: 'hr_memo_nudge:memo-old:staff_reminder' }],
+        user_notifications: [],
+      },
+    );
+    const res = await new HRMemoService(fake.client).runDetection(RUN, { now: NOW });
+    expect(res.nudges_sent).toBe(1);
+    expect(fake.tables.notifications).toHaveLength(1);
+    expect(fake.tables.user_notifications).toEqual([expect.objectContaining({ notification_id: 'notif-1', user_id: PROFILE_B })]);
+  });
+
+  it('retries stop after the retry window', async () => {
+    const fake = liveWithMemo([
+      { id: 'n1', memo_id: 'memo-old', nudge_kind: 'staff_reminder', status: 'failed', recorded_at: daysAgo(1), created_at: daysAgo(3) },
+    ]);
+    const res = await new HRMemoService(fake.client).runDetection(RUN, { now: NOW });
+    expect(res.nudges_sent).toBe(0);
+    expect(fake.tables.hr_memo_nudges[0]).toMatchObject({ status: 'failed' });
+  });
+});
+
+describe('review finding 8 — every open memo past the cutoff is read, not just the newest 1000', () => {
+  it('the OLDEST of 1,001 open memos still gets its head notice', async () => {
+    const memos: Row[] = Array.from({ length: 1001 }, (_, i) => ({
+      id: `memo-${String(i).padStart(4, '0')}`,
+      staff_id: STAFF_B,
+      status: 'issued',
+      issued_at: new Date(NOW.getTime() - (10 * 86_400_000 + i * 60_000)).toISOString(),
+    }));
+    const oldest = memos[1000].id as string;
+    const nudges: Row[] = memos.flatMap((m) => {
+      const rows: Row[] = [
+        { id: `r-${m.id}`, memo_id: m.id, nudge_kind: 'staff_reminder', status: 'sent', recorded_at: daysAgo(4), created_at: daysAgo(4) },
+      ];
+      if (m.id !== oldest) {
+        rows.push({ id: `h-${m.id}`, memo_id: m.id, nudge_kind: 'hod_notice', status: 'sent', recorded_at: daysAgo(1), created_at: daysAgo(1) });
+      }
+      return rows;
+    });
+    const fake = makeFake({
+      policy: { mode: 'live' },
+      tables: { ...scenario(), institution_leaves: [], hr_memos: memos, hr_memo_nudges: nudges },
+    });
+    const res = await new HRMemoService(fake.client).runDetection(RUN, { now: NOW });
+    expect(res.nudges_sent).toBe(1);
+    expect(fake.tables.hr_memo_nudges.find((n) => n.memo_id === oldest && n.nudge_kind === 'hod_notice')).toMatchObject({
+      status: 'sent',
+    });
+  });
+});
+
+describe('review finding 9 — the issue date in a message is the Indian calendar date', () => {
+  it('a memo issued at 01:30 IST is dated that day, not the UTC day before', async () => {
+    expect(istDate('2026-10-05T20:00:00Z')).toBe('2026-10-06');
+    const fake = liveWithMemo([], {
+      hr_memos: [{ id: 'memo-old', staff_id: STAFF_B, status: 'issued', issued_at: '2026-10-05T20:00:00Z' }],
+    });
+    await new HRMemoService(fake.client).runDetection(RUN, { now: NOW });
+    const notice = fake.tables.notifications.at(-1) as Row;
+    expect(String(notice.body)).toContain('issued to you on 2026-10-06');
   });
 });
