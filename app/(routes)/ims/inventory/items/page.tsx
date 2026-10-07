@@ -553,9 +553,9 @@ function InventoryItemsPageInner() {
         // destination differs. The request records what changed and what those
         // fields held, and a super admin's approval is what writes to the item.
         //
-        // Returns early: the stock operations below adjust quantities directly,
-        // which this role has no permission for and which are not part of what
-        // is being approved.
+        // Returns early: the stock operations below write quantities directly,
+        // which this role may not do. Stock edits ride along in the request
+        // instead, and the approval applies them.
         if (!canEdit && canProposeEdit) {
           await createChangeRequest.mutateAsync({
             itemId: editingItem.id,
@@ -564,6 +564,16 @@ function InventoryItemsPageInner() {
             requestedBy: profile?.id || '',
             original: editingItem as unknown as Record<string, unknown>,
             proposed: updateData as unknown as Record<string, unknown>,
+            stock: {
+              original: {
+                opening_quantity: Number(editingItem.stock?.opening_quantity) || 0,
+                current_quantity: Number(editingItem.stock?.current_quantity) || 0,
+              },
+              proposed: {
+                opening_quantity: formData.edit_opening_quantity,
+                current_quantity: formData.edit_current_quantity,
+              },
+            },
           });
           setDialogOpen(false);
           setEditingItem(null);

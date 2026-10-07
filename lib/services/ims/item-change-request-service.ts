@@ -79,6 +79,14 @@ export const ITEM_FIELD_LABELS: Record<string, string> = {
   image_url: 'Image',
 };
 
+/** Per-store stock values a request may carry. Applied to ims_stock_summary. */
+export type ProposableStockField = 'opening_quantity' | 'current_quantity';
+
+export const STOCK_FIELD_LABELS: Record<ProposableStockField, string> = {
+  opening_quantity: 'Opening stock',
+  current_quantity: 'Stock balance',
+};
+
 export interface ImsItemChangeRequest {
   id: string;
   item_id: string;
@@ -89,6 +97,8 @@ export interface ImsItemChangeRequest {
   reason: string | null;
   proposed_changes: Record<string, unknown>;
   current_values: Record<string, unknown>;
+  stock_changes: Partial<Record<ProposableStockField, number>>;
+  stock_before: Partial<Record<ProposableStockField, number>>;
   status: 'pending' | 'approved' | 'rejected' | 'cancelled';
   reviewed_by: string | null;
   reviewed_at: string | null;
@@ -158,11 +168,39 @@ export class ImsItemChangeRequestService {
     requestedBy: string;
     original: Record<string, any>;
     proposed: Record<string, any>;
+    /**
+     * Stock as the form showed it and as the requester left it. Lives on
+     * ims_stock_summary, not ims_items, so it travels in its own columns —
+     * without it, a stock-only edit diffed to nothing and no request was raised.
+     */
+    stock?: {
+      original: Record<ProposableStockField, number>;
+      proposed: Record<ProposableStockField, number>;
+    } | null;
     reason?: string | null;
   }): Promise<ImsItemChangeRequest | null> {
     const { changes, before } = diffItemChanges(input.original, input.proposed);
 
-    if (Object.keys(changes).length === 0) return null;
+    const stockChanges: Partial<Record<ProposableStockField, number>> = {};
+    const stockBefore: Partial<Record<ProposableStockField, number>> = {};
+    if (input.stock) {
+      for (const field of Object.keys(STOCK_FIELD_LABELS) as ProposableStockField[]) {
+        const was = Number(input.stock.original[field]) || 0;
+        const now = Number(input.stock.proposed[field]) || 0;
+        if (was !== now) {
+          stockChanges[field] = now;
+          stockBefore[field] = was;
+        }
+      }
+    }
+
+    if (Object.keys(changes).length === 0 && Object.keys(stockChanges).length === 0) {
+      return null;
+    }
+    // Stock is per store; the database refuses a stock change with no store.
+    if (Object.keys(stockChanges).length > 0 && !input.storeId) {
+      throw new Error('Pick a store before requesting a stock change.');
+    }
 
     const { data, error } = await this.supabase
       .from('ims_item_change_requests')
@@ -173,6 +211,8 @@ export class ImsItemChangeRequestService {
         requested_by: input.requestedBy,
         proposed_changes: changes,
         current_values: before,
+        stock_changes: stockChanges,
+        stock_before: stockBefore,
         reason: input.reason ?? null,
       })
       .select()

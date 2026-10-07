@@ -18,7 +18,11 @@ import {
   useImsItemChangeRequests,
   useReviewImsItemChangeRequest,
 } from '@/hooks/ims/use-ims-item-change-requests';
-import { ITEM_FIELD_LABELS } from '@/lib/services/ims/item-change-request-service';
+import {
+  ITEM_FIELD_LABELS,
+  STOCK_FIELD_LABELS,
+  type ProposableStockField,
+} from '@/lib/services/ims/item-change-request-service';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -121,7 +125,24 @@ function ItemApprovalsPageInner() {
         ) : (
           <div className="space-y-4">
             {requests.map((req) => {
-              const fields = Object.keys(req.proposed_changes ?? {});
+              // Item fields and stock fields render as one diff; the approver
+              // decides on the whole request, so it should read as one list.
+              const rows = [
+                ...Object.keys(req.proposed_changes ?? {}).map((field) => ({
+                  key: field,
+                  label: ITEM_FIELD_LABELS[field] ?? field,
+                  before: req.current_values?.[field],
+                  after: req.proposed_changes?.[field],
+                })),
+                ...(Object.keys(req.stock_changes ?? {}) as ProposableStockField[]).map(
+                  (field) => ({
+                    key: `stock.${field}`,
+                    label: STOCK_FIELD_LABELS[field] ?? field,
+                    before: req.stock_before?.[field],
+                    after: req.stock_changes?.[field],
+                  }),
+                ),
+              ];
               return (
                 <Card key={req.id}>
                   <CardHeader className="pb-3">
@@ -159,24 +180,24 @@ function ItemApprovalsPageInner() {
 
                     {/* The diff — the actual decision. */}
                     <div className="rounded-lg border divide-y">
-                      {fields.map((field) => (
+                      {rows.map((row) => (
                         <div
-                          key={field}
+                          key={row.key}
                           className="grid grid-cols-1 sm:grid-cols-[1fr_auto_1fr] items-center gap-2 p-3"
                         >
                           <div>
                             <p className="text-xs text-muted-foreground">
-                              {ITEM_FIELD_LABELS[field] ?? field}
+                              {row.label}
                             </p>
                             <p className="text-sm line-through text-muted-foreground break-all">
-                              {display(req.current_values?.[field])}
+                              {display(row.before)}
                             </p>
                           </div>
                           <ArrowRight className="h-4 w-4 text-muted-foreground hidden sm:block" />
                           <div className="sm:text-right">
                             <p className="text-xs text-muted-foreground sm:hidden">changes to</p>
                             <p className="text-sm font-medium break-all">
-                              {display(req.proposed_changes?.[field])}
+                              {display(row.after)}
                             </p>
                           </div>
                         </div>
