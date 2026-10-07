@@ -13,6 +13,7 @@ import {
   Download,
   Eye,
   GraduationCap,
+  Lock,
   Receipt,
   Wallet,
 } from 'lucide-react';
@@ -33,6 +34,11 @@ import { PaymentSelectionModal } from '@/components/billing/payment-selection-mo
 import { useConnectedFeeHeads } from '@/hooks/billing/use-connected-fee-heads';
 import { useTabParam } from '@/hooks/use-tab-param';
 import { MY_BILLS_RECEIPT_PARAM } from '@/lib/billing/payment-status-flow';
+import {
+  earlierDuesFor,
+  earlierDuesShortReason,
+  earlierDuesSummary,
+} from '@/lib/utils/billing/academic-year-payment-order';
 import { FEE_HEAD_LABELS, fmtDate, groupByYear, inr, isOverdue } from './shared';
 import { ReceiptDialog, downloadMyReceiptPdf, type ReceiptPdfContext } from './receipt-dialog';
 
@@ -109,6 +115,23 @@ export function MyBillsClient({
     if (connectivity.allConnected) return true;
     return !!b.kind && connectivity.feeHeads.includes(b.kind);
   };
+
+  // Year order (oldest first): a bill stays locked while any bill of an OLDER
+  // academic year (any fee head) has a balance. The payment route enforces
+  // this; here it only explains the lock instead of failing at checkout.
+  const yearOrderRows = outstanding.map((b) => ({
+    year: b.academicYear,
+    yearKey: b.yearKey,
+    balance: b.balanceAmount,
+    status: b.status,
+  }));
+  const olderDuesOf = (b: MyBill) => earlierDuesFor(yearOrderRows, b.yearKey);
+  const payLockReason = (b: MyBill) => {
+    const dues = olderDuesOf(b);
+    return dues.years.length > 0 ? earlierDuesShortReason(dues) : null;
+  };
+  const payOnlineFor = (b: MyBill) =>
+    canPayBill(b) && !payLockReason(b) ? () => setPayBill(b) : undefined;
 
   // The shared PaymentSelectionModal speaks the admin StudentBill shape — adapt
   // the lean MyBill row to the fields it (and the amount selector) reads.
@@ -264,7 +287,8 @@ export function MyBillsClient({
                       key={bill.id}
                       bill={bill}
                       lateCharge={lateCharges?.[bill.id]}
-                      onPayOnline={canPayBill(bill) ? () => setPayBill(bill) : undefined}
+                      onPayOnline={payOnlineFor(bill)}
+                      payLockedReason={canPayBill(bill) ? payLockReason(bill) : null}
                     />
                   ))}
                 </YearSection>
@@ -272,6 +296,7 @@ export function MyBillsClient({
               {outstandingGroups.map((group, index) => {
                 const groupDue = group.items.reduce((sum, b) => sum + b.balanceAmount, 0);
                 const hasOverdue = group.items.some((b) => isOverdue(b.dueDate));
+                const lockedBill = group.items.find((b) => canPayBill(b) && payLockReason(b));
                 return (
                   <YearSection
                     key={group.year}
@@ -282,12 +307,22 @@ export function MyBillsClient({
                     amountClassName='text-destructive'
                     amountLabel='due'
                   >
+                    {lockedBill && (
+                      <div className='flex items-start gap-2 bg-amber-50 px-4 py-3 text-xs text-amber-800 dark:bg-amber-950/40 dark:text-amber-300 sm:px-5'>
+                        <Lock className='mt-0.5 h-3.5 w-3.5 shrink-0' aria-hidden='true' />
+                        <span>
+                          Online payment for this academic year opens once your earlier dues are
+                          cleared. Still pending: {earlierDuesSummary(olderDuesOf(lockedBill))}.
+                        </span>
+                      </div>
+                    )}
                     {group.items.map((bill) => (
                       <BillRow
                         key={bill.id}
                         bill={bill}
                         lateCharge={lateCharges?.[bill.id]}
-                        onPayOnline={canPayBill(bill) ? () => setPayBill(bill) : undefined}
+                        onPayOnline={payOnlineFor(bill)}
+                        payLockedReason={canPayBill(bill) ? payLockReason(bill) : null}
                       />
                     ))}
                   </YearSection>
@@ -421,6 +456,7 @@ function BillRow({
   bill,
   lateCharge,
   onPayOnline,
+  payLockedReason,
 }: {
   bill: MyBill;
   /**
@@ -431,6 +467,11 @@ function BillRow({
   lateCharge?: MyBillLateCharge;
   /** Present only when this bill's fee head has a connected payment account. */
   onPayOnline?: () => void;
+  /**
+   * Set while a bill of an OLDER academic year still has a balance —
+   * replaces the Pay button with a disabled "Locked" one and shows the reason.
+   */
+  payLockedReason?: string | null;
 }) {
   const overdue = isOverdue(bill.dueDate);
   const partiallyPaid = bill.paidAmount > 0;
@@ -461,6 +502,11 @@ function BillRow({
         >
           <CalendarClock className='h-3.5 w-3.5' /> Due {fmtDate(bill.dueDate)}
         </div>
+        {payLockedReason && (
+          <div className='flex items-center gap-1.5 text-xs font-medium text-amber-700 dark:text-amber-400'>
+            <Lock className='h-3.5 w-3.5 shrink-0' aria-hidden='true' /> {payLockedReason}
+          </div>
+        )}
         {partiallyPaid && (
           <div className='flex max-w-xs items-center gap-2'>
             <Progress
@@ -556,6 +602,17 @@ function BillRow({
           >
             <CreditCard className='h-4 w-4' aria-hidden='true' />
             <span>Pay</span>
+          </Button>
+        )}
+        {!onPayOnline && payLockedReason && (
+          <Button
+            variant='outline'
+            disabled
+            className='h-11 gap-1.5 rounded-full px-5 sm:h-9 sm:rounded-md sm:px-4'
+            aria-label={`Online payment locked: ${payLockedReason}`}
+          >
+            <Lock className='h-4 w-4' aria-hidden='true' />
+            <span>Locked</span>
           </Button>
         )}
       </div>

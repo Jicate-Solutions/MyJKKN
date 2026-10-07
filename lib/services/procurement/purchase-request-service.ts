@@ -1,7 +1,8 @@
 // lib/services/procurement/purchase-request-service.ts
 //
 // Purchase Request service (PRD steps 1-2). PR and "Requisition" are one entity
-// across a status lifecycle: draft -> submitted -> approved/rejected -> converted.
+// across a status lifecycle: draft -> submitted -> approved/rejected -> converted,
+// with submitted <-> returned when the approver sends it back for changes.
 // Numbering uses the shared procurement_next_number RPC (doc_type 'PR').
 
 import { createClientSupabaseClient } from '@/lib/supabase/client';
@@ -173,6 +174,8 @@ export class ProcurementPurchaseRequestService {
           requested_by: userId,
           title: data.title?.trim() || null,
           notes: data.notes ?? null,
+          category_id: data.category_id ?? null,
+          department_id: data.department_id ?? null,
         })
         .select()
         .single();
@@ -198,7 +201,14 @@ export class ProcurementPurchaseRequestService {
 
       // Inserted as draft first so approvers never see a submitted header without its
       // lines; flipped only once the items are in.
-      return await this.submitPurchaseRequest(header.id);
+      try {
+        return await this.submitPurchaseRequest(header.id);
+      } catch (submitError) {
+        // The category's approval steps refused it (no HOD set, nobody in a role…).
+        // Don't leave a half-made draft behind: the person fixes it and submits again.
+        await this.supabase.from('procurement_purchase_requests').delete().eq('id', header.id).eq('status', 'draft');
+        throw submitError;
+      }
     } catch (error) {
       console.error('[ProcurementPurchaseRequestService] createPurchaseRequest:', error);
       throw error;
@@ -259,6 +269,66 @@ export class ProcurementPurchaseRequestService {
       approved_at: new Date().toISOString(),
       rejection_reason: reason,
     });
+  }
+
+  /**
+   * submitted -> returned: the approver sends it back to the requester with what to
+   * change. The DB guard stamps returned_by/at and bumps return_count; the reason is
+   * also appended to notes so the request keeps its history after resubmitting.
+   */
+  static async returnPurchaseRequest(id: string, reason: string): Promise<ProcurementPurchaseRequest> {
+    const why = reason?.trim();
+    if (!why) throw new Error('Say what the requester must change.');
+    await this.appendNote(id, `Sent back: ${why}`);
+    return this.transition(id, 'submitted', { status: 'returned', returned_reason: why });
+  }
+
+  /**
+   * returned -> submitted: the requester's fixes — changed quantities, removed lines,
+   * a reply to the approver — then the request goes back for item approval.
+   */
+  static async resubmitPurchaseRequest(
+    id: string,
+    changes: { itemUpdates: { itemId: string; required_quantity: number }[]; removedItemIds: string[]; reply?: string }
+  ): Promise<ProcurementPurchaseRequest> {
+    try {
+      for (const u of changes.itemUpdates) {
+        if (!(u.required_quantity > 0)) throw new Error('Quantity must be greater than 0.');
+        const { error } = await this.supabase
+          .from('procurement_purchase_request_items')
+          .update({ required_quantity: u.required_quantity })
+          .eq('id', u.itemId)
+          .eq('request_id', id);
+        if (error) throw error;
+      }
+      if (changes.removedItemIds.length) {
+        const { error } = await this.supabase
+          .from('procurement_purchase_request_items')
+          .delete()
+          .in('id', changes.removedItemIds)
+          .eq('request_id', id);
+        if (error) throw error;
+      }
+      if (changes.reply?.trim()) await this.appendNote(id, `Reply: ${changes.reply.trim()}`);
+      return this.transition(id, 'returned', { status: 'submitted', submitted_at: new Date().toISOString() });
+    } catch (error) {
+      console.error('[ProcurementPurchaseRequestService] resubmitPurchaseRequest:', error);
+      throw error;
+    }
+  }
+
+  private static async appendNote(id: string, line: string) {
+    const { data, error } = await this.supabase
+      .from('procurement_purchase_requests')
+      .select('notes')
+      .eq('id', id)
+      .single();
+    if (error) throw error;
+    const { error: upErr } = await this.supabase
+      .from('procurement_purchase_requests')
+      .update({ notes: data?.notes ? `${data.notes}\n${line}` : line })
+      .eq('id', id);
+    if (upErr) throw upErr;
   }
 
   /**

@@ -473,6 +473,7 @@ export class ProcurementGrnService {
                   grnId: grn.id,
                   grnNumber: grn.grn_number,
                   purchaseOrderId: grn.purchase_order_id,
+                  supplierId: grn.supplier_id,
                   grnItemId: line.id,
                 },
                 ctx
@@ -805,6 +806,7 @@ export class ProcurementGrnService {
             grnId: grn.id,
             grnNumber,
             purchaseOrderId: parentGrn.purchase_order_id,
+            supplierId: parentGrn.supplier_id,
             grnItemId: newItem.id,
           },
           ctx

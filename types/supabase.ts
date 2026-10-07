@@ -91192,6 +91192,11 @@ export type Database = {
           role_category: string
           salary_currency: string
           salary_duration: string
+          seo_description: string | null
+          seo_keywords: string[]
+          seo_noindex: boolean
+          seo_og_image: string | null
+          seo_title: string | null
           state: string | null
           status: string
           title: string
@@ -91227,6 +91232,11 @@ export type Database = {
           role_category: string
           salary_currency?: string
           salary_duration?: string
+          seo_description?: string | null
+          seo_keywords?: string[]
+          seo_noindex?: boolean
+          seo_og_image?: string | null
+          seo_title?: string | null
           state?: string | null
           status?: string
           title: string
@@ -91262,6 +91272,11 @@ export type Database = {
           role_category?: string
           salary_currency?: string
           salary_duration?: string
+          seo_description?: string | null
+          seo_keywords?: string[]
+          seo_noindex?: boolean
+          seo_og_image?: string | null
+          seo_title?: string | null
           state?: string | null
           status?: string
           title?: string

@@ -73,6 +73,8 @@ export interface AcceptedReceiptLine {
   grnId: string;
   grnNumber: string;
   purchaseOrderId?: string | null;
+  /** Vendor on the GRN — stamped on the stock batch so issues/returns trace back to who supplied it. */
+  supplierId?: string | null;
   /**
    * The procurement_grn_items row driving this post. Domains that post via a
    * SECURITY DEFINER RPC (RM) hand it to the DB so the write is bound to a real

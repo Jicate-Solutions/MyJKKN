@@ -114,6 +114,39 @@ export function useRejectPurchaseRequest() {
   });
 }
 
+export function useReturnPurchaseRequest() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, reason }: { id: string; reason: string }) =>
+      ProcurementPurchaseRequestService.returnPurchaseRequest(id, reason),
+    onSettled: (_r, _e, { id }) => {
+      queryClient.invalidateQueries({ queryKey: ['procurement-purchase-requests'] });
+      queryClient.invalidateQueries({ queryKey: ['procurement-purchase-request', id] });
+      queryClient.invalidateQueries({ queryKey: ['procurement-overview-waiting'] });
+    },
+  });
+}
+
+export function useResubmitPurchaseRequest() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      id,
+      ...changes
+    }: {
+      id: string;
+      itemUpdates: { itemId: string; required_quantity: number }[];
+      removedItemIds: string[];
+      reply?: string;
+    }) => ProcurementPurchaseRequestService.resubmitPurchaseRequest(id, changes),
+    onSettled: (_r, _e, { id }) => {
+      queryClient.invalidateQueries({ queryKey: ['procurement-purchase-requests'] });
+      queryClient.invalidateQueries({ queryKey: ['procurement-purchase-request', id] });
+      queryClient.invalidateQueries({ queryKey: ['procurement-overview-waiting'] });
+    },
+  });
+}
+
 export function useCancelPurchaseRequest() {
   const queryClient = useQueryClient();
   return useMutation({
