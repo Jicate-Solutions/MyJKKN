@@ -30,6 +30,14 @@ export const GET = withAuth(
   async (request, auth) => {
     await connection();
     const raw = request.nextUrl.searchParams.get('view') ?? 'all';
+    // 7 Oct 2026: held parts of raises waiting on the Director (Director list only).
+    if (raw === 'targets') {
+      try {
+        return NextResponse.json({ listed: await SalaryRevisionService.targetsListed(auth.supabase) });
+      } catch (err) {
+        return errorResponse(err, 'list');
+      }
+    }
     if (raw === 'held') {
       try {
         return NextResponse.json({ held: await SalaryRevisionService.held(auth.supabase) });
