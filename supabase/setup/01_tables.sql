@@ -11253,3 +11253,37 @@ CREATE INDEX IF NOT EXISTS hr_leave_type_deletions_deleted_at_idx
   ON public.hr_leave_type_deletions (deleted_at DESC);
 COMMENT ON TABLE public.hr_leave_type_deletions IS
   'Tombstone of every hr_leave_type_delete_super_admin() commit: who, when, how many rows of each kind went with the type, and the type row itself as jsonb. No foreign keys on purpose. Balances and adjustments are NOT recoverable from it.';
+
+-- ============================================================================
+-- Updated: 2027-10-07 - Added hr_salary_register_signoffs
+-- Source: supabase/migrations/20271007161107_hr_salary_register_signoff.sql
+-- (named two-step sign-off on the monthly salary register; HR harness proof 1)
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS public.hr_salary_register_signoffs (
+  id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  run_id          uuid NOT NULL REFERENCES public.hr_salary_register_runs(id) ON DELETE CASCADE,
+  -- Copied from the run at signing so RLS scopes without a join.
+  institution_id  uuid NOT NULL,
+  stage           text NOT NULL CHECK (stage IN ('college_check', 'accounts_sign')),
+  signed_by       uuid NOT NULL REFERENCES auth.users(id),
+  signed_at       timestamptz NOT NULL DEFAULT now(),
+  note            text,
+  revoked_at      timestamptz,
+  revoked_by      uuid,
+  revoke_reason   text,
+  created_at      timestamptz NOT NULL DEFAULT now(),
+  updated_at      timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT hr_salary_register_signoffs_revoke_reason_chk
+    CHECK (revoked_at IS NULL OR length(btrim(revoke_reason)) >= 10)
+);
+
+-- One ACTIVE signature per step per run. Withdrawn rows stay as history.
+CREATE UNIQUE INDEX IF NOT EXISTS uq_hr_salary_register_signoffs_active
+  ON public.hr_salary_register_signoffs (run_id, stage)
+  WHERE revoked_at IS NULL;
+
+CREATE INDEX IF NOT EXISTS idx_hr_salary_register_signoffs_run
+  ON public.hr_salary_register_signoffs (run_id);
+
+COMMENT ON TABLE public.hr_salary_register_signoffs IS
+  'Named two-step sign-off on a frozen salary register run: college_check (hr.payroll.register.check) then accounts_sign (hr.payroll.register.sign). Written only by fn_hr_register_signoff / fn_hr_register_signoff_revoke. Withdrawn rows are kept. Migration 20271007161107.';

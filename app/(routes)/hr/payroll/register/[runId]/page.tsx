@@ -48,6 +48,7 @@ import type { HRSalaryRegisterLine } from '@/types/hr-payroll';
 
 import { AdjustmentDialog } from '../_components/adjustment-dialog';
 import { RegisterDataTable } from '../_components/register-data-table';
+import { SignoffPanel } from '../_components/signoff-panel';
 import {
   DEFAULT_REGISTER_FILTERS,
   RegisterFilters,
@@ -244,6 +245,7 @@ export default function SalaryRegisterRunPage({
               </CardContent>
             </Card>
 
+            <SignoffPanel runId={run.id} isSuperseded={Boolean(run.superseded_at)} />
             {/* Filters belong TO the table, so they share its surface instead of
                 floating above it as an unrelated toolbar. */}
             <section aria-label="Register lines" className="space-y-3">

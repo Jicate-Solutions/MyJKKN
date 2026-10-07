@@ -1083,6 +1083,13 @@ export const PERMISSION_CATEGORIES = [
       // complete one.
       { key: 'hr.payroll.register.view', label: 'View Salary Register' },
       { key: 'hr.payroll.register.manage', label: 'Generate Salary Register' },
+      // Named two-step sign-off on a register run (20271007161107). Granted to
+      // NO role by the migration: until the Director grants them in Role
+      // Management, only super admins can sign. The check comes first (meant
+      // for the principal), then the accounts sign-off; the person who
+      // generated the run cannot sign either, and nobody signs both.
+      { key: 'hr.payroll.register.check', label: 'Check Salary Register (College)' },
+      { key: 'hr.payroll.register.sign', label: 'Sign Salary Register (Accounts)' },
 
       // ── Employee Self Service (2026-07-21) ───────────────────────────────
       // Gates for the "Employee Self Service" sidebar group. Every key here
