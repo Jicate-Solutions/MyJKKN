@@ -83,6 +83,7 @@ export function QuotesSection({
   requestId,
   onApproved,
   itemApproval,
+  finalApprover,
 }: {
   rfqId: string;
   /** The purchase request — its category's Final approval list decides who approves here. */
@@ -90,6 +91,12 @@ export function QuotesSection({
   onApproved?: () => void;
   /** "name on date" of sign-off 1, shown among the final-approval checks. */
   itemApproval?: string | null;
+  /**
+   * Who gives the final approval, from the category's Final approval steps
+   * ("A → B"). Those steps are only copied onto the request when it is sent,
+   * so before that this is the only way to name them. Null = Super Admin.
+   */
+  finalApprover?: string | null;
 }) {
   const router = useRouter();
   const queryClient = useQueryClient();
@@ -929,6 +936,12 @@ export function QuotesSection({
           <div className="flex flex-wrap items-center justify-between gap-3 border-t px-5 py-3">
             {/* Only what the table above doesn't already say. */}
             <div className="min-w-0 text-sm">
+              <span className="block text-muted-foreground">
+                Final approval by{' '}
+                <span className="font-medium text-foreground">
+                  {finalStep?.label ?? finalApprover ?? 'Super Admin'}
+                </span>
+              </span>
               {awardSummary.vendors.length > 1 && (
                 <span className="block">
                   <b className="tabular-nums">{rupees(awardSummary.grandTotal)}</b>{' '}
