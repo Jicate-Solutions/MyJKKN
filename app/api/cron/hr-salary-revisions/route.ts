@@ -9,26 +9,34 @@
 //                 listing everything waiting. Nothing expires; nothing is
 //                 approved by it.
 //
-// Auth: CRON_SECRET via `Authorization: Bearer <secret>` (Vercel cron) or
-// `?secret=` for a manual run — the same as the sibling cron routes. Runs as
-// the service role: auth.uid() is NULL, which is what both functions require.
+// Auth: CRON_SECRET via `Authorization: Bearer <secret>` (Vercel cron) ONLY,
+// compared in constant time (30 Sep, W12 review). No `?secret=` branch: this
+// route writes pay, and query-string secrets land in access logs. Runs as the
+// service role: auth.uid() is NULL, which is what both functions require.
 // =====================================================================
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 export const maxDuration = 60;
 
+import { timingSafeEqual } from 'node:crypto';
 import { NextRequest, NextResponse } from 'next/server';
 import { createServiceRoleClient } from '@/lib/supabase/server';
+
+// Same shape as app/api/cron/hr-naac-evidence: Bearer only, constant-time.
+function bearerMatches(authHeader: string | null, secret: string): boolean {
+  const presented = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : '';
+  const a = Buffer.from(presented);
+  const b = Buffer.from(secret);
+  return a.length === b.length && timingSafeEqual(a, b);
+}
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
   const cronSecret = process.env.CRON_SECRET;
   if (!cronSecret) {
     return NextResponse.json({ ok: false, error: 'CRON_SECRET not configured' }, { status: 500 });
   }
-  const authHeader = request.headers.get('authorization');
-  const querySecret = request.nextUrl.searchParams.get('secret');
-  if (authHeader !== `Bearer ${cronSecret}` && querySecret !== cronSecret) {
+  if (!bearerMatches(request.headers.get('authorization'), cronSecret)) {
     return NextResponse.json({ ok: false, error: 'unauthorized' }, { status: 401 });
   }
 

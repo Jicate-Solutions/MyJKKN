@@ -102,7 +102,7 @@ function completionNote(issue: Issue): string | null {
 // ---------------------------------------------------------------------------
 function WorkTable({ tab, rows, h }: { tab: WorkTab; rows: Issue[]; h: WorkActionHandlers }) {
   return (
-    <div className="hidden rounded-md border md:block">
+    <div className="scrollbar-slim hidden overflow-x-auto rounded-md border md:block">
       <Table>
         <TableHeader>
           <TableRow>

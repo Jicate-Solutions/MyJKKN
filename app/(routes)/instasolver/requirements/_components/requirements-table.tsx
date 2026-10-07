@@ -18,7 +18,7 @@ export function RequirementsTable({ rows }: { rows: Requirement[] }) {
   return (
     <>
       {/* Tablet and desktop */}
-      <div className="hidden rounded-md border md:block">
+      <div className="scrollbar-slim hidden overflow-x-auto rounded-md border md:block">
         <Table>
           <TableHeader>
             <TableRow>

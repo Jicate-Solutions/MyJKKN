@@ -10,7 +10,7 @@ export default function NewGrnPage() {
   const poId = searchParams.get('po') || '';
 
   return (
-    <ContentLayout title="Receive Goods">
+    <ContentLayout title="Record delivery">
       <GrnForm
         poId={poId}
         onSaved={(id) => router.push(`/procurement/grn/${id}`)}

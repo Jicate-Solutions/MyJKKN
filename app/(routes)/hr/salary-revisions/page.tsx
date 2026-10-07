@@ -6,7 +6,9 @@
  *
  * The Director's rulings of 29 September 2026 (20270519090000):
  *   - a principal asks for their own college, an HOD for their own department
- *     (it goes to the principal first), the HR head for anyone;
+ *     (it goes to the principal first, except an HOD's request for their own
+ *     raise, which goes straight to the Director: 1 Oct 2026), the HR head for
+ *     anyone;
  *   - the Director gives the final yes or no; a yes starts on the 1st of the
  *     month after it, never earlier;
  *   - ONE open request per person — a second asker is sent to the waiting one.

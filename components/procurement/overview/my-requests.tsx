@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import Link from 'next/link';
 import { useAuth } from '@/hooks/use-auth';
 import { usePurchaseRequest, usePurchaseRequests } from '@/hooks/procurement/use-purchase-requests';
@@ -12,7 +12,8 @@ import { formatDateDMY } from '@/lib/utils/date-format';
 import { cn } from '@/lib/utils';
 import { AlertBox } from '@/components/ui/alert-box';
 import type { ProcurementPurchaseRequest } from '@/types/procurement';
-import { Segmented } from './segmented';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { BeatLoader } from 'react-spinners';
 import { packOrUnit } from '@/lib/procurement/pack-size';
 import { useMyUnratedCounts } from '@/hooks/procurement/use-ratings';
 
@@ -66,7 +67,8 @@ function nameOf(req: ProcurementPurchaseRequest): string {
   return items.length > 1 ? `${first} + ${items.length - 1} more` : first;
 }
 
-export function MyRequests() {
+/** `action` (the New request button) ends the toolbar row, as on Requests. */
+export function MyRequests({ action }: { action?: ReactNode } = {}) {
   const { profile } = useAuth();
   const { data, isLoading, isError } = usePurchaseRequests({
     requested_by: profile?.id,
@@ -95,50 +97,48 @@ export function MyRequests() {
     <div className="space-y-5">
       {isError && <AlertBox type="error" message="Your requests could not be loaded. Refresh the page to try again." />}
 
-      <p className="text-sm text-muted-foreground">
-        {sentBack.length > 0 && (
-          <b className="text-foreground">
-            {sentBack.length} sent back to you ·{' '}
-          </b>
-        )}
-        {drafts.length > 0 && (
-          <b className="text-foreground">
-            {drafts.length} draft{drafts.length === 1 ? '' : 's'} not submitted ·{' '}
-          </b>
-        )}
-        {toRate > 0 && (
-          <b className="text-foreground">
-            {toRate} item{toRate === 1 ? '' : 's'} to rate ·{' '}
-          </b>
-        )}
-        {count('moving')} on the way · {count('finished')} finished
-      </p>
+      {/* One toolbar row: which list · New request last. */}
+      <div className="flex flex-wrap items-center gap-2">
+        <Select
+          value={tab}
+          onValueChange={(t) => {
+            setTab(t as Tab);
+            setSel(null);
+          }}
+        >
+          <SelectTrigger className="h-9 w-full sm:w-52" aria-label="Show">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="todo">To do ({count('todo')})</SelectItem>
+            <SelectItem value="moving">On the way ({count('moving')})</SelectItem>
+            <SelectItem value="finished">Finished ({count('finished')})</SelectItem>
+          </SelectContent>
+        </Select>
+        {action && <div className="w-full sm:ml-auto sm:w-auto [&>button]:w-full">{action}</div>}
+      </div>
 
-      <section
-        aria-label="My requests"
-        className="overflow-hidden rounded-2xl bg-card shadow-[0_1px_2px_rgba(16,24,40,.06),0_4px_14px_rgba(16,24,40,.07)]"
-      >
-        <div className="border-b px-4 py-3">
-          <Segmented
-            label="Show"
-            value={tab}
-            onChange={(t) => {
-              setTab(t);
-              setSel(null);
-            }}
-            options={[
-              { value: 'todo', label: 'To do', count: count('todo'), warn: true },
-              { value: 'moving', label: 'On the way', count: count('moving') },
-              { value: 'finished', label: 'Finished', count: count('finished') },
-            ]}
-          />
-        </div>
+      {/* Only what the dropdown doesn't already count: things waiting on the requester. */}
+      {(sentBack.length > 0 || drafts.length > 0 || toRate > 0) && (
+        <p className="text-sm font-semibold">
+          {[
+            sentBack.length > 0 && `${sentBack.length} sent back to you`,
+            drafts.length > 0 && `${drafts.length} draft${drafts.length === 1 ? '' : 's'} not submitted`,
+            toRate > 0 && `${toRate} item${toRate === 1 ? '' : 's'} to rate`,
+          ]
+            .filter(Boolean)
+            .join(' · ')}
+        </p>
+      )}
 
+      <section aria-label="My requests" className="overflow-hidden rounded-xl border bg-background shadow">
         <div className="flex flex-wrap">
           {/* List */}
           <div className="flex min-w-0 flex-[1_1_320px] flex-col gap-1 bg-muted/30 p-2.5 md:border-r">
             {isLoading ? (
-              <p className="px-3 py-8 text-center text-sm text-muted-foreground">Loading…</p>
+              <div className="flex justify-center py-12">
+                <BeatLoader color="hsl(var(--primary))" size={10} />
+              </div>
             ) : visible.length === 0 ? (
               <p className="px-3 py-8 text-center text-sm text-muted-foreground">
                 {tab === 'todo' ? 'Nothing for you to do.' : tab === 'moving' ? 'Nothing on the way.' : 'Nothing finished yet.'}
@@ -275,7 +275,7 @@ function RequestDetail({ id }: { id: string }) {
               aria-pressed={section === key}
               onClick={() => setSection(key)}
               className={cn(
-                '-mb-px inline-flex min-h-10 items-center gap-1.5 border-b-2 border-transparent text-[13px] font-semibold text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                '-mb-px inline-flex min-h-10 sm:min-h-9 items-center gap-1.5 border-b-2 border-transparent text-[13px] font-semibold text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
                 section === key && 'border-primary text-foreground'
               )}
             >
@@ -375,7 +375,7 @@ function RequestDetail({ id }: { id: string }) {
         {toRate > 0 && (
           <Link
             href={`/procurement/requests/${pr.id}#rate`}
-            className="inline-flex min-h-10 items-center rounded-lg border border-amber-500/60 px-4 text-sm font-semibold text-amber-800 hover:bg-amber-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring dark:text-amber-300 dark:hover:bg-amber-950/40"
+            className="inline-flex min-h-10 sm:min-h-9 items-center rounded-lg border border-amber-500/60 px-4 text-sm font-semibold text-amber-800 hover:bg-amber-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring dark:text-amber-300 dark:hover:bg-amber-950/40"
           >
             Rate {toRate} item{toRate === 1 ? '' : 's'}
           </Link>
@@ -383,7 +383,7 @@ function RequestDetail({ id }: { id: string }) {
         <Link
           href={`/procurement/requests/${pr.id}`}
           className={cn(
-            'inline-flex min-h-10 items-center rounded-lg px-4 text-sm font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+            'inline-flex min-h-10 sm:min-h-9 items-center rounded-lg px-4 text-sm font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
             action.cls
           )}
         >

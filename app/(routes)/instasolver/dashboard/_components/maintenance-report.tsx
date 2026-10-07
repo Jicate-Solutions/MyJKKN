@@ -12,7 +12,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { cn } from '@/lib/utils';
 import { useWorkStatusCounts } from '@/hooks/instasolver/use-instasolver';
 import { ISSUE_STATUS_META, type Tone } from '@/lib/instasolver/constants';
-import { TONE_ICON } from './stat-card';
+import { TONE_ICON } from '@/components/instasolver/stat-card';
 
 const KEYS: { status: 'assigned' | 'in_progress' | 'completed'; icon: LucideIcon; tab: string }[] = [
   { status: 'assigned', icon: UserCheck, tab: 'assigned' },
