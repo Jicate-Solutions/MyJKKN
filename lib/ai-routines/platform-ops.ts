@@ -38,6 +38,23 @@ export const PLATFORM_OPS_ROUTINES: AIRoutine[] = [
     "notes": "DUAL-LANE ROUTE: only the daily rank+escalate lane moved to the dispatcher. The hourly '17,47 * * * *' ?mode=collect lane REMAINS a vercel.json cron — the dispatcher cannot express sub-daily schedules and triggerPath cannot carry a query string (registry-cron-wiring test checks the path exists on disk). Auth: Bearer or ?secret=. IST math: 04:43 UTC = 10:13 IST → slot 10:00 (minute_of_day 613)."
   },
   {
+    "id": "hr-playbook-lessons",
+    "name": "HR playbooks — gather rejection reasons + draft playbook lines",
+    "category": "platform-ops",
+    "type": "cron",
+    "schedule": "Weekly · Monday 07:13 IST (editable via dispatcher)",
+    "cronExpr": "43 1 * * 1 UTC equivalent (dispatcher only, never in vercel.json; minute_of_day 433 = 07:13 IST, the 07:00 slot)",
+    "triggerPath": "/api/cron/hr-playbook-lessons",
+    "callsClaude": false,
+    "featureKey": null,
+    "featureKeyNote": "Rules-based: two SECURITY DEFINER functions (fn_hr_duty_lessons_harvest, fn_hr_playbook_propose_from_lessons), keyword matching only; no model involved.",
+    "whatItDoes": "Gathers the reason text people already type when rejecting or reversing HR work (leave, comp-off, attendance corrections, documents, photographs, HR forms) from the last 35 days into hr_duty_lessons, sorted into a reason code by keyword ('other' when none match). Then, for any reason seen at least the threshold number of times inside the window, drafts one proposed playbook line for the HR head on /hr/playbooks.",
+    "configKnobs": "platform_policies hr.harness.playbooks.pattern_threshold (3) and hr.harness.playbooks.pattern_window_days (30) — unreadable or not a positive whole number = nothing proposed. Keywords and suggested lines: hr_duty_reason_codes rows. Day/time editable at /admin/ai-routines.",
+    "sideEffects": "writes lessons and proposals; sends nothing",
+    "safeToManualTrigger": true,
+    "notes": "Idempotent: the lessons log is unique on (duty_code, item_table, item_id, kind, occurred_at) and at most one lesson-pattern proposal per reason can wait at a time. Answers 500 when a harvest source cannot be read. Auth: Bearer CRON_SECRET only. Migration 20271007161139."
+  },
+  {
     "id": "teaching-cohort-sync",
     "name": "Teaching-enterprise cohort sync",
     "category": "platform-ops",
