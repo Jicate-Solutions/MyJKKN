@@ -14,13 +14,15 @@ import { EmptyState } from '@/components/empty-state';
 import { AlertBox } from '@/components/ui/alert-box';
 import { formatDateDMY } from '@/lib/utils/date-format';
 import { displayRequestNumber } from '@/lib/procurement/display-number';
-import { STAGE_CONFIG, stageOf } from '@/lib/procurement/purchase-stage';
+import { STAGE_CONFIG, STAGE_FILTERS, stageOf } from '@/lib/procurement/purchase-stage';
 import { type ProcurementPurchaseRequest, type PurchaseRequestFilters } from '@/types/procurement';
 import { Checkbox } from '@/components/ui/checkbox';
-import { useProcurementOverviewCounts } from '@/hooks/procurement/use-overview-counts';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Plus, Search } from 'lucide-react';
+import { ChevronRight, Plus, Search } from 'lucide-react';
+import { useMyApprovals } from '@/hooks/procurement/use-approval-chains';
+import { ResponsiveList } from '@/components/procurement/responsive-list';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { BeatLoader } from 'react-spinners';
 
 /** "Keyboard × 5" · "Keyboard × 5, Mouse × 2" · "Keyboard × 5 + 3 more" */
@@ -31,6 +33,14 @@ function whatIsNeeded(req: ProcurementPurchaseRequest): string {
   if (items.length <= 2) return items.map(fmt).join(', ');
   return `${fmt(items[0])} + ${items.length - 1} more`;
 }
+
+const WAITING_ON: Record<string, string> = {
+  submitted: 'item approvers',
+  getting_quotes: 'the store team',
+  with_super_admin: 'Super Admin',
+  ordered: 'delivery',
+  returned: 'the requester',
+};
 
 // Older links (Overview bars, bookmarks) still say ?status=<request status>.
 const LEGACY_STATUS_TO_STAGE: Record<string, string> = { approved: 'getting_quotes', converted: 'getting_quotes' };
@@ -48,11 +58,16 @@ export default function PurchasesPage() {
   const [search, setSearch] = useState('');
   const debouncedSearch = useDebounceValue(search, 300);
   const searchParams = useSearchParams();
-  // The Overview status bars link here with ?institution=<id|all>&status=<status>.
+  const [view, setView] = useState<'list' | 'table'>('table');
+  // The Status dropdown's first choice is "Waiting for you" (not a stage — worked
+  // out below from My approvals), and the page opens on it. The Overview status
+  // bars link here with ?institution=<id|all>&status=<status>, which opens on that
+  // stage instead.
   const [stageFilter, setStageFilter] = useState<string>(() => {
     const raw = searchParams.get('stage') ?? searchParams.get('status');
-    return raw ? LEGACY_STATUS_TO_STAGE[raw] ?? raw : 'all';
+    return raw ? LEGACY_STATUS_TO_STAGE[raw] ?? raw : 'waiting';
   });
+  const waitingForMe = stageFilter === 'waiting';
   // Opens on every college the viewer may see (RLS scopes the rows): requesters
   // usually raise purchases for a college other than their profile's, and a list
   // pinned to the profile college hid their own requests from them.
@@ -80,10 +95,12 @@ export default function PurchasesPage() {
 
   const filters: PurchaseRequestFilters = {
     search: debouncedSearch || undefined,
-    stage: stageFilter !== 'all' ? stageFilter : undefined,
+    stage: stageFilter !== 'all' && !waitingForMe ? stageFilter : undefined,
     institution_id: allColleges ? undefined : effectiveInstitution,
     all_institutions: allColleges,
     requested_by: mineOnly ? profile?.id : undefined,
+    // "Waiting for you" is worked out here, so load enough rows for the counts to be true.
+    limit: 200,
   };
 
   const { data: response, isLoading, isError } = usePurchaseRequests(filters);
@@ -96,41 +113,78 @@ export default function PurchasesPage() {
     (r) => (stageFilter !== 'ordered' && stageFilter !== 'received') || stageOf(r) === stageFilter
   );
 
-  // Counts per stage for the chips (same numbers as the Overview, RLS-scoped).
-  const { data: countRows = [] } = useProcurementOverviewCounts(7);
-  const stageCount = (gate: number) =>
-    countRows
-      .filter((r) => r.gate === gate && (allColleges || r.institution_id === effectiveInstitution))
-      .reduce((n, r) => n + r.pending, 0);
-  const CHIPS: Array<{ value: string; label: string; count?: number }> = [
-    { value: 'all', label: 'All' },
-    { value: 'submitted', label: 'Item approval', count: stageCount(1) },
-    { value: 'returned', label: 'Sent back' },
-    { value: 'getting_quotes', label: 'Getting quotes', count: stageCount(2) },
-    { value: 'with_super_admin', label: 'Final approval', count: stageCount(3) },
-    { value: 'ordered', label: 'Ordered', count: stageCount(4) },
-    { value: 'received', label: 'Received' },
-    { value: 'rejected', label: 'Rejected' },
-  ];
+  // "Waiting for you" = purchase approvals where it is this viewer's turn: their request-approval
+  // or final-approval step (plus the Super Admin's own final approvals). Same source as My approvals.
+  const { data: myApprovals = [] } = useMyApprovals();
+  const approvalIds = new Set(myApprovals.map((a) => a.request_id));
+  const yourTurn = (req: ProcurementPurchaseRequest) => approvalIds.has(req.id);
 
-  // Whose move it is, from this viewer's point of view.
-  const yourTurn = (req: ProcurementPurchaseRequest) => {
-    const st = stageOf(req);
-    if (st === 'submitted') return (isSuperAdmin || canAccess('procurement', 'request_approve')) && req.requested_by !== profile?.id;
-    if (st === 'with_super_admin') return isSuperAdmin;
-    if (st === 'getting_quotes') return isSuperAdmin || canAccess('procurement', 'quotation_manage');
-    if (st === 'returned') return req.requested_by === profile?.id;
-    return false;
-  };
+  // With a stage picked the rows are only that stage, so fall back to every
+  // request waiting on this viewer (My approvals) for the dropdown's count.
+  const waitingCount =
+    waitingForMe || stageFilter === 'all' ? requests.filter(yourTurn).length : approvalIds.size;
+  const shown = (waitingForMe ? requests.filter(yourTurn) : requests)
+    .slice()
+    .sort((x, y) => Number(yourTurn(y)) - Number(yourTurn(x)));
 
   return (
     <ContentLayout title="Requests">
       <div className="w-full space-y-5">
-        <header className="flex flex-wrap items-center justify-between gap-3">
-          <h1 className="text-2xl font-bold">Requests</h1>
+        <div className="flex flex-wrap gap-2">
+          <div className="relative min-w-[220px] flex-1">
+            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              placeholder="Search item, purchase no. or title"
+              aria-label="Search purchases"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="h-9 pl-9"
+            />
+          </div>
+          <Select value={stageFilter} onValueChange={setStageFilter}>
+            <SelectTrigger className="h-9 w-full sm:w-48" aria-label="Status">
+              <SelectValue placeholder="All statuses" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="waiting">Waiting for you ({waitingCount})</SelectItem>
+              <SelectItem value="all">All statuses</SelectItem>
+              {STAGE_FILTERS.map((f) => (
+                <SelectItem key={f.value} value={f.value}>
+                  {f.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <label className="flex h-9 cursor-pointer items-center gap-2 rounded-md border bg-background px-3 text-sm shadow">
+            <Checkbox checked={mineOnly} onCheckedChange={(v) => setMineOnly(v === true)} />
+            Raised by me
+          </label>
+          <InstitutionFilter
+            value={allColleges ? 'all' : effectiveInstitution}
+            onChange={setInstitutionId}
+            allLabel="All colleges"
+            label={null}
+            className="w-full sm:w-52 [&_button]:h-9"
+          />
+          <div role="group" aria-label="Layout" className="inline-flex gap-0.5 rounded-lg bg-muted p-[3px] sm:ml-auto">
+            {(['list', 'table'] as const).map((v) => (
+              <button
+                key={v}
+                type="button"
+                aria-pressed={view === v}
+                onClick={() => setView(v)}
+                className={`h-7 rounded-md px-2.5 text-[13px] font-medium capitalize transition-colors ${
+                  view === v ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
+                }`}
+              >
+                {v}
+              </button>
+            ))}
+          </div>
+          {/* The primary action ends the filter row instead of sitting alone above it. */}
           {canCreate && (
             <Button
-              className="h-10"
+              className="h-9"
               onClick={() =>
                 router.push(
                   effectiveInstitution ? `/procurement/requests/new?institution=${effectiveInstitution}` : '/procurement/requests/new'
@@ -141,56 +195,11 @@ export default function PurchasesPage() {
               New request
             </Button>
           )}
-        </header>
-
-        {/* Stage chips with counts replace the stage drop-down: one tap filters. */}
-        <nav aria-label="Stage" className="flex flex-wrap gap-2">
-          {CHIPS.map((c) => {
-            const on = stageFilter === c.value;
-            return (
-              <button
-                key={c.value}
-                type="button"
-                aria-pressed={on}
-                onClick={() => setStageFilter(c.value)}
-                className={`inline-flex h-9 items-center gap-1.5 rounded-full border px-3.5 text-sm transition-colors ${
-                  on ? 'border-foreground bg-foreground text-background' : 'bg-card hover:border-foreground/40'
-                }`}
-              >
-                {c.label}
-                {c.count ? <b className="tabular-nums">{c.count}</b> : null}
-              </button>
-            );
-          })}
-        </nav>
-
-        <div className="flex flex-wrap gap-2">
-          <div className="relative min-w-[220px] flex-1">
-            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              placeholder="Search item, purchase no. or title"
-              aria-label="Search purchases"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className="h-10 pl-9"
-            />
-          </div>
-          <label className="flex h-10 cursor-pointer items-center gap-2 rounded-md border bg-card px-3 text-sm">
-            <Checkbox checked={mineOnly} onCheckedChange={(v) => setMineOnly(v === true)} />
-            Raised by me
-          </label>
-          <InstitutionFilter
-            value={allColleges ? 'all' : effectiveInstitution}
-            onChange={setInstitutionId}
-            allLabel="All colleges"
-            label={null}
-            className="w-full sm:w-52 [&_button]:h-10"
-          />
         </div>
 
         {/* Rows read like a sentence: what · number · college · who · stage. Rows that
             need this viewer are lightly tinted. */}
-        <section className="overflow-hidden rounded-2xl border bg-card shadow-sm">
+        <section className="overflow-hidden rounded-xl border bg-background shadow">
           {isLoading ? (
             <div className="flex items-center justify-center py-12">
               <BeatLoader color="hsl(var(--primary))" size={10} />
@@ -199,23 +208,81 @@ export default function PurchasesPage() {
             <div className="px-6 py-12">
               <AlertBox type="error" message="Failed to load purchases. Please try again." />
             </div>
-          ) : requests.length === 0 ? (
-            <EmptyState title="No requests found" description="Requests you raise, or that are routed to you, appear here." />
+          ) : shown.length === 0 ? (
+            <EmptyState
+              title={waitingForMe ? 'Nothing is waiting for you' : 'No requests found'}
+              description={waitingForMe ? 'Requests that need your approval appear here.' : 'Requests you raise, or that are routed to you, appear here.'}
+            />
+          ) : view === 'table' ? (
+            <ResponsiveList
+              rows={shown}
+              getRowKey={(req) => req.id}
+              onRowClick={(req) => router.push(`/procurement/requests/${req.id}`)}
+              rowLabel={(req) => `Open purchase ${[req.title, displayRequestNumber(req.request_number)].filter(Boolean).join(' ')}`}
+              columns={[
+                {
+                  key: 'request',
+                  header: 'Request',
+                  mobile: 'title',
+                  className: 'max-w-[280px] truncate',
+                  cell: (req) => (
+                    <>
+                      <span className="font-medium">{req.title || whatIsNeeded(req)}</span>
+                      {req.title && <span className="font-normal text-muted-foreground"> · {whatIsNeeded(req)}</span>}
+                    </>
+                  ),
+                },
+                { key: 'no', header: 'Purchase no.', className: 'whitespace-nowrap', cell: (req) => displayRequestNumber(req.request_number) },
+                {
+                  key: 'college',
+                  header: 'College',
+                  className: 'max-w-[200px] truncate',
+                  cell: (req) => collegeName(req.institution_id) ?? '—',
+                },
+                { key: 'by', header: 'Raised by', className: 'whitespace-nowrap', cell: (req) => req.requested_by_profile?.full_name ?? '—' },
+                { key: 'date', header: 'Date', className: 'whitespace-nowrap', cell: (req) => formatDateDMY(req.created_at) },
+                {
+                  key: 'status',
+                  header: 'Status',
+                  mobile: 'badge',
+                  cell: (req) => <StatusBadge status={stageOf(req)} config={STAGE_CONFIG} />,
+                },
+                {
+                  key: 'act',
+                  header: '',
+                  mobile: 'hidden',
+                  className: 'text-right',
+                  cell: (req) => {
+                    const mine = yourTurn(req);
+                    return (
+                      <span
+                        className={`inline-flex h-8 items-center gap-1 rounded-md px-3 text-xs font-medium ${
+                          mine ? 'bg-primary font-semibold text-primary-foreground' : 'text-muted-foreground'
+                        }`}
+                      >
+                        {mine ? 'Review' : 'Open'}
+                        <ChevronRight className="h-4 w-4" />
+                      </span>
+                    );
+                  },
+                },
+              ]}
+            />
           ) : (
             <ul>
-              {requests.map((req) => {
+              {shown.map((req) => {
                 const mine = yourTurn(req);
+                const stage = stageOf(req);
+                const closed = stage === 'received' || stage === 'rejected' || stage === 'cancelled';
                 return (
-                  <li key={req.id} className="border-b last:border-b-0">
+                  <li key={req.id} className="relative border-b last:border-b-0">
                     <button
                       type="button"
                       onClick={() => router.push(`/procurement/requests/${req.id}`)}
                       aria-label={`Open purchase ${[req.title, displayRequestNumber(req.request_number)].filter(Boolean).join(' ')}`}
-                      className={`flex w-full flex-wrap items-center gap-x-4 gap-y-1 px-5 py-3.5 text-left transition-colors hover:bg-accent/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring ${
-                        mine ? 'bg-secondary/20' : ''
-                      }`}
+                      className={`grid w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 gap-y-1 px-4 py-2 text-left transition-colors hover:bg-accent/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring md:grid-cols-[minmax(0,1.6fr)_minmax(220px,1fr)_auto]`}
                     >
-                      <span className="min-w-0 flex-1 basis-64">
+                      <span className="col-span-2 min-w-0 md:col-span-1">
                         <span className="block truncate font-semibold">
                           {req.title || whatIsNeeded(req)}
                           {req.title && <span className="font-normal text-muted-foreground"> · {whatIsNeeded(req)}</span>}
@@ -231,7 +298,24 @@ export default function PurchasesPage() {
                             .join(' · ')}
                         </span>
                       </span>
-                      <StatusBadge status={stageOf(req)} config={STAGE_CONFIG} />
+
+                      <span className="flex min-w-0 flex-wrap items-center gap-x-2.5 gap-y-0.5">
+                        <StatusBadge status={stage} config={STAGE_CONFIG} />
+                        {!closed && (
+                          <span className="truncate text-xs text-muted-foreground">
+                            Waiting on {mine ? 'you' : WAITING_ON[stage] ?? 'the team'}
+                          </span>
+                        )}
+                      </span>
+
+                      <span
+                        className={`inline-flex h-8 items-center gap-1 rounded-md px-3 text-xs font-medium ${
+                          mine ? 'bg-primary font-semibold text-primary-foreground' : 'text-muted-foreground'
+                        }`}
+                      >
+                        {mine ? 'Review' : 'Open'}
+                        <ChevronRight className="h-4 w-4" />
+                      </span>
                     </button>
                   </li>
                 );

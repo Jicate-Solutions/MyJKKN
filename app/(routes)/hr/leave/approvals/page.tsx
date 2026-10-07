@@ -57,7 +57,7 @@ import { CompOffClaimsQueue } from '../_components/comp-off-claims-queue';
 import { ApprovalDetailSheet } from '../_components/approval-detail-sheet';
 import { LeaveDocumentViewer } from '../_components/leave-document-viewer';
 import {
-  ApprovalsDataTable, approvalFiltersActive, emptyApprovalFilters, leaveTypeFilterKey,
+  ApprovalHistoryToggle, ApprovalsDataTable, approvalFiltersActive, emptyApprovalFilters, leaveTypeFilterKey,
   type ApprovalFilterState, type ToolbarSelection,
 } from '../_components/approvals-data-table';
 import type { ApprovalColumnActions } from '../_components/approval-queue-columns';
@@ -439,9 +439,15 @@ export default function LeaveApprovalsPage() {
   // derived per institution, so a carried-over id would filter the table to
   // nothing while the control still displayed a department name.
   const set = <K extends keyof ApprovalFilterState>(k: K, v: ApprovalFilterState[K]) =>
-    setFilters((f) => (
-      k === 'institutionId' ? { ...f, [k]: v, departmentId: 'any' } : { ...f, [k]: v }
-    ));
+    setFilters((f) => {
+      if (k === 'institutionId') return { ...f, [k]: v, departmentId: 'any' };
+      // "Waiting on me" only ever matches requests still waiting, so it and
+      // "Past decisions" exclude each other: choosing one clears the other,
+      // or past decisions would show as an empty, broken-looking table.
+      if (k === 'status' && v === 'decided') return { ...f, status: 'decided', mineOnly: false };
+      if (k === 'mineOnly' && v === true && f.status === 'decided') return { ...f, mineOnly: true, status: 'open' };
+      return { ...f, [k]: v };
+    });
 
   /** Rendered into the DataTable toolbar, beside its own search box. */
   const toolbar = (sel: ToolbarSelection) => {
@@ -548,6 +554,7 @@ export default function LeaveApprovalsPage() {
           <SelectItem value="rejected">Rejected</SelectItem>
           <SelectItem value="withdrawn">Withdrawn</SelectItem>
           <SelectItem value="cancelled">Cancelled</SelectItem>
+          <SelectItem value="decided">All past decisions</SelectItem>
           <SelectItem value="any">Any status</SelectItem>
         </SelectContent>
       </Select>
@@ -634,6 +641,11 @@ export default function LeaveApprovalsPage() {
               </AlertDescription>
             </Alert>
           )}
+
+          <ApprovalHistoryToggle
+            status={filters.status}
+            onChange={(v) => set('status', v)}
+          />
 
           {isLoading ? (
             <Skeleton className="h-96" />

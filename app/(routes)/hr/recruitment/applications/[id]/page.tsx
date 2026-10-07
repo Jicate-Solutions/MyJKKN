@@ -229,10 +229,13 @@ export default function ApplicationDetailPage() {
                   href={application.resume_url}
                   target="_blank"
                   rel="noopener noreferrer"
+                  // The file name ("CV(Avikal Pandey) (1) (1).pdf") is noise as a
+                  // label; keep it on hover only.
+                  title={application.resume_filename ?? undefined}
                   className="inline-flex w-full items-center justify-center gap-1.5 rounded-md border px-2 py-1.5 text-xs font-medium text-primary hover:bg-muted/50 transition-colors"
                 >
                   <FileText className="h-3 w-3" />
-                  {application.resume_filename || 'View Resume'}
+                  Open Resume
                   <ExternalLink className="h-3 w-3" />
                 </a>
               )}
