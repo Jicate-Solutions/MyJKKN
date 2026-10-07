@@ -12012,6 +12012,80 @@ CREATE POLICY hr_duty_proofs_objects_select ON storage.objects
   FOR SELECT TO authenticated
   USING (bucket_id = 'hr-duty-proofs' AND public.fn_hr_duty_proof_can_view_object(name));
 
+-- ===========================================================================
+-- Source: 20271007161139_hr_duty_playbooks_and_lessons.sql (RLS, policies and table grants)
+-- HR staff harness — playbooks, the lessons log and credited authorship.
+-- Seeds (reason codes, two platform_policies rows, the ai_routine_schedules
+-- row) and the apply-time guards live only in the migration.
+-- ===========================================================================
+ALTER TABLE public.hr_duty_reason_codes ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS hr_duty_reason_codes_read ON public.hr_duty_reason_codes;
+
+CREATE POLICY hr_duty_reason_codes_read ON public.hr_duty_reason_codes
+  FOR SELECT USING (auth.uid() IS NOT NULL);
+
+DROP POLICY IF EXISTS hr_duty_reason_codes_write ON public.hr_duty_reason_codes;
+
+CREATE POLICY hr_duty_reason_codes_write ON public.hr_duty_reason_codes
+  FOR ALL USING (public.is_super_admin()) WITH CHECK (public.is_super_admin());
+
+REVOKE ALL ON public.hr_duty_reason_codes FROM anon, PUBLIC;
+
+GRANT SELECT, INSERT, UPDATE ON public.hr_duty_reason_codes TO authenticated;
+
+ALTER TABLE public.hr_duty_reason_codes_audit ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS hr_duty_reason_codes_audit_read ON public.hr_duty_reason_codes_audit;
+
+CREATE POLICY hr_duty_reason_codes_audit_read ON public.hr_duty_reason_codes_audit
+  FOR SELECT USING (public.is_super_admin());
+
+REVOKE ALL ON public.hr_duty_reason_codes_audit FROM anon, PUBLIC;
+
+GRANT SELECT ON public.hr_duty_reason_codes_audit TO authenticated;
+
+ALTER TABLE public.hr_duty_lessons ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS hr_duty_lessons_select ON public.hr_duty_lessons;
+
+CREATE POLICY hr_duty_lessons_select ON public.hr_duty_lessons
+  FOR SELECT USING (
+    public.is_super_admin() OR public.is_admin()
+    OR (public.user_has_permission('hr.harness.playbooks.manage')
+        AND public.role_has_institution_access(institution_id))
+  );
+
+REVOKE ALL ON public.hr_duty_lessons FROM anon, PUBLIC, authenticated;
+
+GRANT SELECT ON public.hr_duty_lessons TO authenticated;
+
+ALTER TABLE public.hr_playbook_line_proposals ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS hr_playbook_proposals_select ON public.hr_playbook_line_proposals;
+
+CREATE POLICY hr_playbook_proposals_select ON public.hr_playbook_line_proposals
+  FOR SELECT USING (
+    public.is_super_admin() OR public.is_admin()
+    OR public.user_has_permission('hr.harness.playbooks.manage')
+    OR suggested_by = auth.uid()
+  );
+
+REVOKE ALL ON public.hr_playbook_line_proposals FROM anon, PUBLIC, authenticated;
+
+GRANT SELECT ON public.hr_playbook_line_proposals TO authenticated;
+
+ALTER TABLE public.hr_playbook_lines ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS hr_playbook_lines_select ON public.hr_playbook_lines;
+
+CREATE POLICY hr_playbook_lines_select ON public.hr_playbook_lines
+  FOR SELECT USING (public.fn_hr_playbook_can_read());
+
+REVOKE ALL ON public.hr_playbook_lines FROM anon, PUBLIC, authenticated;
+
+GRANT SELECT ON public.hr_playbook_lines TO authenticated;
+
 
 -- ============================================================================
 -- Updated: 2026-10-01 - HR staff harness (duties R9 onboarding, A3 regularisation):

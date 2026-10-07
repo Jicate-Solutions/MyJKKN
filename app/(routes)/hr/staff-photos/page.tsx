@@ -27,6 +27,7 @@
  * would be a second, weaker copy of that rule.
  */
 
+import { DutyPlaybookCard } from '@/components/hr/duty-playbook/duty-playbook-card';
 import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { toast } from 'sonner';
@@ -170,6 +171,7 @@ export default function StaffPhotoQueuePage() {
       </Breadcrumb>
 
       <div className="mt-6 space-y-4">
+        <DutyPlaybookCard duty="S3" />
         {orphans.length > 0 ? (
           <div className="flex items-start gap-3 rounded-md border border-amber-300 bg-amber-50/60 p-3 text-sm">
             <AlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0 text-amber-700" />
