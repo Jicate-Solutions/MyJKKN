@@ -76,6 +76,7 @@ import {
   type DocumentRequestTarget,
 } from '../_components/document-download-dialog';
 import { DocumentSettingsDialog } from '../_components/document-settings-dialog';
+import { ManualEntryDialog } from '../_components/manual-entry-dialog';
 import { RegisterDataTable } from '../_components/register-data-table';
 import { SignoffPanel } from '../_components/signoff-panel';
 import {
@@ -138,6 +139,8 @@ export default function SalaryRegisterRunPage({
   const updateLine = useUpdateSalaryRegisterLine(runId);
 
   const [adjustLine, setAdjustLine] = useState<HRSalaryRegisterLine | null>(null);
+  // Days entered by hand for someone with no biometric record (2026-10-07).
+  const [manualLine, setManualLine] = useState<HRSalaryRegisterLine | null>(null);
   // Opens on the payable rows. Excluded people are a filter away rather than a
   // second table — they are the work list, not a footnote.
   const [filters, setFilters] = useState<RegisterFilterState>(DEFAULT_REGISTER_FILTERS);
@@ -458,6 +461,7 @@ export default function SalaryRegisterRunPage({
                   isSuperseded={Boolean(run.superseded_at)}
                   detailHref={detailHref}
                   onAdjust={setAdjustLine}
+                  onManualEntry={setManualLine}
                 />
               </section>
             ) : (
@@ -497,6 +501,12 @@ export default function SalaryRegisterRunPage({
             />
           </>
         )}
+
+        <ManualEntryDialog
+          line={manualLine}
+          runId={runId}
+          onOpenChange={(open) => { if (!open) setManualLine(null); }}
+        />
 
         <AdjustmentDialog
           line={adjustLine}

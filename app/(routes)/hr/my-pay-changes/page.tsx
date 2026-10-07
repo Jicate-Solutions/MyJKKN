@@ -11,6 +11,9 @@
  * caller's own rows.
  *
  * Reached from the notice; not listed in the sidebar.
+ *
+ * 7 Oct 2026 (default taken): a raise held in two parts shows the person their
+ * own target numbers here, read-only (TargetSection, no buttons).
  */
 
 import Link from 'next/link';
@@ -23,6 +26,7 @@ import { useMyPayOutcomes } from '@/hooks/hr/use-salary-revisions';
 import { longDate, toAmount } from '@/lib/hr/salary-revision';
 import { formatRupees } from '@/lib/hr/salary-suggestion';
 import { todayIST } from '@/lib/hr/raise-effective-date';
+import { TargetSection } from '../salary-revisions/_components/target-section';
 
 export const navMeta = { label: 'My Pay Changes', icon: 'Wallet' };
 
@@ -70,6 +74,7 @@ export default function MyPayChangesPage() {
                   )}
                   .
                 </p>
+                {o.targets?.plan && <TargetSection targets={o.targets} today={today} />}
               </CardContent>
             </Card>
           );

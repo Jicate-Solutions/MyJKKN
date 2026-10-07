@@ -27,6 +27,32 @@
 \set sF7 '00000000-0000-0000-0000-000000020018'
 \set OB  '00000000-0000-0000-0000-000000000eb2'
 
+-- 7 Oct 2026 (target-gated raises, 20271007180207, stacked on this PR): the
+-- pay written on the start date is the pay at the yes plus the annual
+-- increment (the set percent of it, or the whole raise if smaller); the rest
+-- is held. Worked out here from the setting itself, not from what the code
+-- wrote. Without that file (this PR alone) there is no setting and the whole
+-- figure is written, as before.
+CREATE OR REPLACE FUNCTION t.on_start(p_base numeric, p_final numeric) RETURNS numeric
+LANGUAGE sql STABLE AS $$
+  SELECT CASE WHEN p_final <= p_base THEN p_final
+              ELSE p_base + LEAST(round(p_base * COALESCE(
+                     (SELECT (value->>'annual_increment_percent')::numeric FROM public.platform_policies
+                       WHERE policy_key = 'hr.salary_revision.target_rules' AND scope_type = 'global' AND is_active),
+                     100) / 100), p_final - p_base) END
+$$;
+GRANT EXECUTE ON FUNCTION t.on_start(numeric, numeric) TO anon, authenticated;
+-- 7 Oct 2026: one held raise at a time. Before a second raise for the same
+-- person, the Director lapses the earlier held part (here as the console;
+-- nobody's pay changes). Without that file there is nothing to lapse.
+CREATE OR REPLACE FUNCTION t.lapse_open_held(p_staff uuid) RETURNS void LANGUAGE plpgsql AS $$
+BEGIN
+  IF to_regclass('public.hr_salary_revision_target_plans') IS NOT NULL THEN
+    EXECUTE 'UPDATE public.hr_salary_revision_target_plans SET state = ''lapsed'', state_reason = ''lapsed_by_director'''
+         || ' WHERE staff_id = $1 AND state NOT IN (''none'', ''lapsed'')' USING p_staff;
+  END IF;
+END $$;
+
 -- ── 0. The data grant (ruling 1), read as postgres ──────────────────────────
 SELECT t.check('migration grants the ask keys to principal, hod and hr_head only',
   (SELECT bool_and(CASE role_key
@@ -263,13 +289,14 @@ SELECT t.check('the person is never told about a no',
 -- ── 9. Told only after a yes (ruling 5) ─────────────────────────────────────
 SELECT t.login(:'F1');
 SELECT t.check('the person sees their own outcome after the yes',
-  (SELECT count(*) = 1 AND bool_and(new_monthly_gross = 52500 AND previous_monthly_gross = 48000 AND NOT is_cut)
+  (SELECT count(*) = 1 AND bool_and(new_monthly_gross = t.on_start(48000, 52500) AND previous_monthly_gross = 48000 AND NOT is_cut)
      FROM public.hr_salary_revision_outcomes));
 SELECT t.check('the person cannot see anybody else''s outcome',
   (SELECT count(*) FROM public.hr_salary_revision_outcomes WHERE staff_id <> :'sF1') = 0);
 RESET ROLE;
 SELECT t.check('the person got one in-app notice, about the new pay',
-  (SELECT count(*) = 1 AND bool_and(n.title = 'Your monthly pay is changing' AND n.body LIKE '%₹52,500%')
+  (SELECT count(*) = 1 AND bool_and(n.title = 'Your monthly pay is changing'
+                                    AND n.body LIKE '%' || public.hr_salary_revision_rupees(t.on_start(48000, 52500)) || '%')
      FROM public.user_notifications u JOIN public.notifications n ON n.id = u.notification_id
     WHERE u.user_id = :'F1'));
 SELECT t.check('nobody tells the person about a no', NOT EXISTS (SELECT 1 FROM public.user_notifications WHERE user_id = :'F4'));
@@ -310,7 +337,7 @@ SELECT public.hr_salary_revision_ist_today() AS today,
 SELECT t.check('on the start date the two raises due are written', public.hr_salary_revision_apply_due_on(:'start1') = 2);
 SELECT t.check('running it again writes nothing more', public.hr_salary_revision_apply_due_on(:'start1') = 0);
 SELECT t.check('the written row starts on the 1st and keeps who pays, PF and the allowance',
-  (SELECT effective_from = :'start1'::date AND monthly_gross = 52500 AND eligible_for_pf AND epf_amount = 1800
+  (SELECT effective_from = :'start1'::date AND monthly_gross = t.on_start(48000, 52500) AND eligible_for_pf AND epf_amount = 1800
           AND allowance_amount = 2500 AND allowance_label = 'Conveyance' AND notes LIKE '%request%'
           AND hr_organization_id = '00000000-0000-0000-0000-000000000ea1'
      FROM public.hr_staff_salaries WHERE staff_id = :'sF1' AND superseded_by IS NULL));
@@ -323,11 +350,11 @@ SELECT t.login(:'H');
 SELECT t.check('this month''s register still reads the old pay after the raise is written',
   (SELECT monthly_gross FROM public.hr_staff_salaries_in_force(ARRAY[:'sF1']::uuid[], :'month_end')) = 48000);
 SELECT t.check('next month''s register reads the new pay',
-  (SELECT monthly_gross FROM public.hr_staff_salaries_in_force(ARRAY[:'sF1']::uuid[], :'next_month_end')) = 52500);
+  (SELECT monthly_gross FROM public.hr_staff_salaries_in_force(ARRAY[:'sF1']::uuid[], :'next_month_end')) = t.on_start(48000, 52500));
 SELECT t.check('the in-force read walks further back through history',
   (SELECT monthly_gross FROM public.hr_staff_salaries_in_force(ARRAY[:'sF1']::uuid[], '2026-01-31')) = 45000);
 SELECT t.check('the old register read (current row) would have given this month the new pay',
-  (SELECT monthly_gross FROM public.hr_staff_salaries WHERE staff_id = :'sF1' AND superseded_by IS NULL) = 52500);
+  (SELECT monthly_gross FROM public.hr_staff_salaries WHERE staff_id = :'sF1' AND superseded_by IS NULL) = t.on_start(48000, 52500));
 SELECT t.check('people with no future-dated row read exactly as before',
   (SELECT count(*) FROM public.hr_staff_salaries_in_force(ARRAY[:'sF2', :'sF3', :'sF5']::uuid[], :'month_end')) = 3
   AND (SELECT bool_and(i.id = s.id) FROM public.hr_staff_salaries_in_force(ARRAY[:'sF2', :'sF3', :'sF5']::uuid[], :'month_end') i
@@ -379,15 +406,16 @@ SELECT t.check('the fresh yes carries a fresh start date',
   (SELECT starts_on = :'start1'::date AND final_monthly_gross = 25000 FROM public.hr_salary_revision_requests WHERE id = :'req_f7'));
 RESET ROLE;
 SELECT t.check('a fresh yes after a missed start leaves one outcome row, at the fresh yes',
-  (SELECT count(*) = 1 AND bool_and(o.new_monthly_gross = r.final_monthly_gross AND o.starts_on = r.starts_on
-                                     AND o.staff_id = r.staff_id AND o.new_monthly_gross = 25000)
+  (SELECT count(*) = 1 AND bool_and(o.new_monthly_gross = t.on_start(o.previous_monthly_gross, r.final_monthly_gross)
+                                     AND o.starts_on = r.starts_on AND r.final_monthly_gross = 25000
+                                     AND o.staff_id = r.staff_id AND o.new_monthly_gross = t.on_start(20000, 25000))
      FROM public.hr_salary_revision_outcomes o JOIN public.hr_salary_revision_requests r ON r.id = o.request_id
     WHERE o.request_id = :'req_f7'),
   (SELECT string_agg(o.new_monthly_gross::text || ' from ' || o.starts_on::text, ', ')
      FROM public.hr_salary_revision_outcomes o WHERE o.request_id = :'req_f7'));
 SELECT t.check('the fresh yes is written on its own start date', public.hr_salary_revision_apply_due_on(:'start1') = 1);
 SELECT t.check('the fresh yes is the pay in force',
-  (SELECT monthly_gross FROM public.hr_staff_salaries WHERE staff_id = :'sF7' AND superseded_by IS NULL) = 25000
+  (SELECT monthly_gross FROM public.hr_staff_salaries WHERE staff_id = :'sF7' AND superseded_by IS NULL) = t.on_start(20000, 25000)
   AND (SELECT status = 'applied' FROM public.hr_salary_revision_requests WHERE id = :'req_f7')
   AND (SELECT count(*) FROM public.hr_salary_revision_outcomes WHERE request_id = :'req_f7') = 1);
 
@@ -910,8 +938,9 @@ SELECT t.login(NULL);
 SELECT t.check('a stamped yes is written on its start date even after the decider setting changes (job run by a signed-in list member)',
   (SELECT status = 'applied' FROM public.hr_salary_revision_requests WHERE id = :'req_m')
   AND (SELECT status = 'applied' FROM public.hr_salary_revision_requests WHERE id = :'req_i2')
-  AND (SELECT monthly_gross FROM public.hr_staff_salaries WHERE staff_id = :'sM' AND superseded_by IS NULL) = 70000
-  AND (SELECT monthly_gross FROM public.hr_staff_salaries WHERE staff_id = :'sI' AND superseded_by IS NULL) = 165000,
+  -- M was paid 60,000 and I 150,000 when asked (seeded above).
+  AND (SELECT monthly_gross FROM public.hr_staff_salaries WHERE staff_id = :'sM' AND superseded_by IS NULL) = t.on_start(60000, 70000)
+  AND (SELECT monthly_gross FROM public.hr_staff_salaries WHERE staff_id = :'sI' AND superseded_by IS NULL) = t.on_start(150000, 165000),
   (SELECT string_agg(status || '/' || COALESCE(apply_note, '-'), ' ; ') FROM public.hr_salary_revision_requests WHERE id IN (:'req_m', :'req_i2')));
 SET ROLE authenticated;
 SELECT t.login(:'D');
@@ -1488,6 +1517,7 @@ DELETE FROM auth.users WHERE id IN (:'D', :'PL', :'F7');
 \set LIST 'platform.the_director_profile_ids'
 RESET ROLE;
 SELECT t.login(NULL);
+SELECT t.lapse_open_held(:'sL');
 SET ROLE authenticated;
 SELECT t.login(:'H');
 SELECT public.fn_hr_salary_revision_propose(:'sL', 140000, 'Dean L, second revision') AS req_l2 \gset
