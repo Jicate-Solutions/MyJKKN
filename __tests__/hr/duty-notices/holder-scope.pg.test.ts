@@ -193,7 +193,7 @@ describe.skipIf(!RUN)('HR duty notices: recipients stay in the college (migratio
     if (tmp) rmSync(tmp, { recursive: true, force: true });
   });
 
-  it('item 1: a role\'s holders in college A — by profile, staff row or access grant — and no one from college B', async () => {
+  it('item 1: a role\'s holders in college A — by profile, team-member record or access grant — and no one from college B', async () => {
     expect(await roleHolders(['it_admin'], INST_A)).toEqual(sorted(P.itA, P.itStaffA, P.itGrantA, P.itLegacyA));
     expect(await roleHolders(['it_admin'], INST_B)).toEqual(sorted(P.itStaffA, P.itGrantA, P.itB));
   });

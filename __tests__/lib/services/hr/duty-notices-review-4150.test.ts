@@ -470,7 +470,7 @@ describe('risk 3: a request decided between the two reads', () => {
 describe('risk 4: joining soon is one notice, not one per open step', () => {
   it('three open steps owned by the same HR team: one notice, recipients de-duplicated', async () => {
     const candidate = {
-      id: 'c9', name: 'Meena', role_title: 'Lab Assistant', status: 'approved', institution_id: 'inst-1',
+      id: 'c9', name: 'Meena', role_title: 'Office Assistant', status: 'approved', institution_id: 'inst-1',
       expected_joining_date: '2026-10-12', actual_joining_date: null,
       role_specific_details: {
         onboarding_started_at: '2026-10-09T04:00:00Z',
