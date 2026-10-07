@@ -100,7 +100,8 @@ function HRAutomationContent() {
         since.setDate(since.getDate() - LOOKBACK_DAYS);
         const sinceDate = since.toISOString().slice(0, 10);
 
-        const { data, error: qErr } = await supabase
+        // Types only: hr_automation_rule_fires is not in the generated DB types.
+        const { data, error: qErr } = await (supabase as any)
           .from('hr_automation_rule_fires')
           .select(
             'id, rule_key, staff_id, institution_id, fired_on, fired_at, deduction_minutes, deduction_amount, occurrence_index, context, staff:staff_id ( id, first_name, last_name )',
