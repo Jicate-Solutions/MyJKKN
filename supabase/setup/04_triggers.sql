@@ -2916,3 +2916,15 @@ CREATE TRIGGER trg_guard_director_list_removals_for_raises
   FOR EACH ROW
   WHEN (OLD.policy_key = 'platform.the_director_profile_ids')
   EXECUTE FUNCTION public.fn_guard_director_list_removals_for_raises();
+
+-- ===========================================================================
+-- Source: 20271007161139_hr_duty_playbooks_and_lessons.sql (triggers)
+-- HR staff harness — playbooks, the lessons log and credited authorship.
+-- Seeds (reason codes, two platform_policies rows, the ai_routine_schedules
+-- row) and the apply-time guards live only in the migration.
+-- ===========================================================================
+DROP TRIGGER IF EXISTS hr_duty_reason_codes_audit_trg ON public.hr_duty_reason_codes;
+
+CREATE TRIGGER hr_duty_reason_codes_audit_trg
+  BEFORE UPDATE ON public.hr_duty_reason_codes
+  FOR EACH ROW EXECUTE FUNCTION public.fn_hr_duty_reason_codes_audit();

@@ -11306,3 +11306,158 @@ CREATE INDEX IF NOT EXISTS hr_leave_type_deletions_deleted_at_idx
   ON public.hr_leave_type_deletions (deleted_at DESC);
 COMMENT ON TABLE public.hr_leave_type_deletions IS
   'Tombstone of every hr_leave_type_delete_super_admin() commit: who, when, how many rows of each kind went with the type, and the type row itself as jsonb. No foreign keys on purpose. Balances and adjustments are NOT recoverable from it.';
+
+-- ===========================================================================
+-- Source: 20271007161139_hr_duty_playbooks_and_lessons.sql (tables, indexes)
+-- HR staff harness — playbooks, the lessons log and credited authorship.
+-- Seeds (reason codes, two platform_policies rows, the ai_routine_schedules
+-- row) and the apply-time guards live only in the migration.
+-- ===========================================================================
+CREATE TABLE IF NOT EXISTS public.hr_duty_reason_codes (
+  -- shared config mixin (config-table-pattern.md, verbatim)
+  id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  config_key    text NOT NULL,                  -- '<duty_code>.<code>', e.g. 'L1.late_application'
+  display_name  text NOT NULL,
+  description   text,
+  is_active     boolean NOT NULL DEFAULT true,
+  created_at    timestamptz NOT NULL DEFAULT now(),
+  updated_at    timestamptz NOT NULL DEFAULT now(),
+  updated_by    uuid REFERENCES public.profiles(id),
+  change_reason text,
+
+  -- typed columns
+  duty_code      text NOT NULL
+                   CHECK (duty_code ~ '^(R[1-9]|L[1-5]|A[1-6]|P[1-4]|S[1-4]|G([1-9]|10))$'),
+  code           text NOT NULL CHECK (code ~ '^[a-z][a-z0-9_]{1,40}$'),
+  label          text NOT NULL CHECK (char_length(label) BETWEEN 3 AND 80),
+  -- Lowercase keywords. Letters, digits, spaces, apostrophes and hyphens only,
+  -- so the matcher can splice them into a regex without escaping.
+  match_terms    text[] NOT NULL DEFAULT '{}',
+  match_order    integer NOT NULL DEFAULT 100,  -- lower is tried first
+  suggested_line text CHECK (suggested_line IS NULL OR char_length(suggested_line) BETWEEN 10 AND 240),
+
+  CONSTRAINT hr_duty_reason_codes_key_shape CHECK (config_key = duty_code || '.' || code),
+  CONSTRAINT hr_duty_reason_codes_terms_lowercase
+    CHECK (array_to_string(match_terms, '|') = lower(array_to_string(match_terms, '|'))),
+  CONSTRAINT hr_duty_reason_codes_terms_plain
+    CHECK (array_to_string(match_terms, '|') ~ '^([a-z0-9][a-z0-9 ''-]*[a-z0-9](\|[a-z0-9][a-z0-9 ''-]*[a-z0-9])*)?$'),
+  CONSTRAINT hr_duty_reason_codes_line_unless_other
+    CHECK (code = 'other' OR suggested_line IS NOT NULL)
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS hr_duty_reason_codes_active_unique
+  ON public.hr_duty_reason_codes (duty_code, code) WHERE is_active = true;
+
+CREATE UNIQUE INDEX IF NOT EXISTS hr_duty_reason_codes_config_key_active_unique
+  ON public.hr_duty_reason_codes (config_key) WHERE is_active = true;
+
+COMMENT ON TABLE public.hr_duty_reason_codes IS
+  'Per HR duty, the short list of reasons a rejection or reversal is sorted into (by keyword), and the playbook line each reason suggests. config_key = duty_code.code. Config table (shared mixin). 20271007161139.';
+
+CREATE TABLE IF NOT EXISTS public.hr_duty_reason_codes_audit (
+  id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  config_id     uuid NOT NULL REFERENCES public.hr_duty_reason_codes(id),
+  changed_at    timestamptz NOT NULL DEFAULT now(),
+  changed_by    uuid REFERENCES public.profiles(id),
+  old_value     jsonb,
+  new_value     jsonb,
+  change_reason text
+);
+
+CREATE TABLE IF NOT EXISTS public.hr_duty_lessons (
+  id             uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  duty_code      text NOT NULL
+                   CHECK (duty_code ~ '^(R[1-9]|L[1-5]|A[1-6]|P[1-4]|S[1-4]|G([1-9]|10))$'),
+  institution_id uuid,                 -- NULL when the record has no college
+  item_table     text NOT NULL,
+  item_id        uuid NOT NULL,
+  kind           text NOT NULL CHECK (kind IN ('reject','reversal','reopen','send_back')),
+  reason_code    text NOT NULL,        -- the keyword bucket; the reason's words are never kept
+  source         text NOT NULL CHECK (source IN ('harvest')),
+  occurred_at    timestamptz NOT NULL,
+  created_at     timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT hr_duty_lessons_once UNIQUE (duty_code, item_table, item_id, kind, occurred_at)
+);
+
+CREATE INDEX IF NOT EXISTS hr_duty_lessons_pattern_idx
+  ON public.hr_duty_lessons (duty_code, reason_code, occurred_at DESC);
+
+COMMENT ON TABLE public.hr_duty_lessons IS
+  'One row per rejection or reversal a person decided on an HR duty, with the reason sorted into a keyword bucket (reason_code). The reason text itself is never stored, and no name is: only the bucket, the duty, the college, the time and a pointer to the source record (item_table, item_id), which is the only way back to the person. Gathered weekly (source=harvest). 20271007161139.';
+
+CREATE TABLE IF NOT EXISTS public.hr_playbook_line_proposals (
+  id             uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  duty_code      text NOT NULL
+                   CHECK (duty_code ~ '^(R[1-9]|L[1-5]|A[1-6]|P[1-4]|S[1-4]|G([1-9]|10))$'),
+  proposed_text  text NOT NULL CHECK (char_length(proposed_text) BETWEEN 10 AND 240),
+  source         text NOT NULL CHECK (source IN ('suggestion','lesson_pattern')),
+  reason_code    text,
+  -- {count, window_days, first_at, last_at} only: no item ids, no names.
+  evidence       jsonb,
+  suggested_by   uuid REFERENCES public.profiles(id),
+  status         text NOT NULL DEFAULT 'proposed' CHECK (status IN ('proposed','accepted','declined')),
+  decided_by     uuid REFERENCES public.profiles(id),
+  decided_at     timestamptz,
+  decision_note  text CHECK (decision_note IS NULL OR char_length(decision_note) <= 500),
+  edited_text    text CHECK (edited_text IS NULL OR char_length(edited_text) BETWEEN 10 AND 240),
+  created_at     timestamptz NOT NULL DEFAULT now(),
+
+  CONSTRAINT hr_playbook_proposals_evidence_shape CHECK (
+    evidence IS NULL OR (
+      jsonb_typeof(evidence) = 'object'
+      AND evidence - ARRAY['count','window_days','first_at','last_at'] = '{}'::jsonb
+    )
+  ),
+  CONSTRAINT hr_playbook_proposals_source_fields CHECK (
+    (source = 'suggestion' AND suggested_by IS NOT NULL AND evidence IS NULL)
+    OR (source = 'lesson_pattern' AND suggested_by IS NULL AND reason_code IS NOT NULL
+        AND evidence ? 'count')
+  ),
+  CONSTRAINT hr_playbook_proposals_decided_fields CHECK (
+    (status = 'proposed') = (decided_at IS NULL)
+  )
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS hr_playbook_proposals_one_open_pattern
+  ON public.hr_playbook_line_proposals (duty_code, reason_code)
+  WHERE status = 'proposed' AND source = 'lesson_pattern';
+
+CREATE INDEX IF NOT EXISTS hr_playbook_proposals_open_idx
+  ON public.hr_playbook_line_proposals (status, duty_code);
+
+CREATE INDEX IF NOT EXISTS hr_playbook_proposals_suggested_by_idx
+  ON public.hr_playbook_line_proposals (suggested_by) WHERE suggested_by IS NOT NULL;
+
+COMMENT ON TABLE public.hr_playbook_line_proposals IS
+  'Playbook lines waiting for the HR head (hr.harness.playbooks.manage): suggestions by team members (credited by name) and lines drafted from a reason seen often (lesson_pattern). 20271007161139.';
+
+CREATE TABLE IF NOT EXISTS public.hr_playbook_lines (
+  id                 uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  duty_code          text NOT NULL
+                       CHECK (duty_code ~ '^(R[1-9]|L[1-5]|A[1-6]|P[1-4]|S[1-4]|G([1-9]|10))$'),
+  line_text          text NOT NULL CHECK (char_length(line_text) BETWEEN 10 AND 240),
+  position           integer NOT NULL DEFAULT 0,
+  status             text NOT NULL DEFAULT 'active' CHECK (status IN ('active','retired')),
+  authored_by        uuid NOT NULL REFERENCES public.profiles(id),   -- the credited person
+  source             text NOT NULL CHECK (source IN ('hr_head','suggestion','lesson_pattern')),
+  source_proposal_id uuid REFERENCES public.hr_playbook_line_proposals(id),
+  lesson_count       integer CHECK (lesson_count IS NULL OR lesson_count > 0),
+  accepted_by        uuid NOT NULL REFERENCES public.profiles(id),
+  accepted_at        timestamptz NOT NULL DEFAULT now(),
+  -- Set when the decider changed the words before accepting; the card then
+  -- names both people ("suggested by X · edited by Y").
+  edited_by          uuid REFERENCES public.profiles(id),
+  retired_by         uuid REFERENCES public.profiles(id),
+  retired_at         timestamptz,
+  retire_note        text CHECK (retire_note IS NULL OR char_length(retire_note) <= 500),
+  created_at         timestamptz NOT NULL DEFAULT now(),
+  updated_at         timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT hr_playbook_lines_retired_fields CHECK ((status = 'retired') = (retired_at IS NOT NULL)),
+  CONSTRAINT hr_playbook_lines_lesson_count CHECK (source <> 'lesson_pattern' OR lesson_count IS NOT NULL)
+);
+
+CREATE INDEX IF NOT EXISTS hr_playbook_lines_duty_idx
+  ON public.hr_playbook_lines (duty_code, position) WHERE status = 'active';
+
+COMMENT ON TABLE public.hr_playbook_lines IS
+  'The short playbook shown on each HR duty screen. authored_by is the person credited, edited_by the decider who changed the words (if any); names are read from profiles at read time, never copied. Readable by team members (a staff row), super admins, admins and holders of hr.harness.playbooks.manage (fn_hr_playbook_can_read). 20271007161139.';
