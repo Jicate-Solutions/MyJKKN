@@ -49,6 +49,7 @@ import {
   type IgVerificationResult,
   type PublicationSubmitContext,
 } from '@/lib/services/ai-pulse/pulse-impact-service';
+import { igPermalinkLikePattern } from '@/lib/services/social/ig-post-lookup';
 import { logger } from '@/lib/utils/enhanced-logger';
 
 const MODULE = 'ai-pulse/submit-publication';
@@ -308,7 +309,7 @@ export async function POST(request: NextRequest) {
       .select(
         'id, permalink, posted_at, ig_media_id, account_id, ig_accounts(id, username, department_id)'
       )
-      .ilike('permalink', `%/${shortcode}/%`)
+      .like('permalink', igPermalinkLikePattern(shortcode))
       .limit(1)
       .maybeSingle();
 

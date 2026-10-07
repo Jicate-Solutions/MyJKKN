@@ -29,9 +29,9 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { usePermissions } from '@/hooks/use-permissions';
-import { useApproveMany, useHeldApprovals, useSalaryRevisionList } from '@/hooks/hr/use-salary-revisions';
+import { useApproveMany, useHeldApprovals, useSalaryRevisionList, useTargetDecide, useTargetsListed } from '@/hooks/hr/use-salary-revisions';
 import { changeText, heldReasonInWords, longDate, toAmount } from '@/lib/hr/salary-revision';
-import { firstOfNextMonthIST } from '@/lib/hr/raise-effective-date';
+import { firstOfNextMonthIST, todayIST } from '@/lib/hr/raise-effective-date';
 import {
   BandWarning,
   NoAccess,
@@ -41,6 +41,7 @@ import {
   SuggestionBeside,
   rupees, BandChangedNote, RequestNote } from '../_components/revision-bits';
 import { RevisionTable } from '../_components/revision-table';
+import { TargetsListedSection } from '../_components/targets-listed';
 
 export const navMeta = { label: 'Approve Salary Revisions', icon: 'BadgeCheck' };
 
@@ -51,6 +52,9 @@ export default function ApproveSalaryRevisionsPage() {
   const approveMany = useApproveMany();
   // 1 Oct 2026: answered for the Director list only; anyone else sees nothing.
   const held = useHeldApprovals(canApprove);
+  // 7 Oct 2026: held parts of raises waiting on him (Director list only).
+  const listed = useTargetsListed(canApprove);
+  const decideMonth = useTargetDecide();
   const [ticked, setTicked] = useState<Set<string>>(new Set());
   const [confirming, setConfirming] = useState(false);
 
@@ -229,6 +233,18 @@ export default function ApproveSalaryRevisionsPage() {
                 ))}
               </ul>
             </section>
+          )}
+
+          {listed.data && listed.data.length > 0 && (
+            <TargetsListedSection
+              rows={listed.data}
+              today={todayIST()}
+              busy={decideMonth.isPending}
+              onDecide={(id, month, met) => decideMonth.mutate({ id, month, met }, {
+                onSuccess: () => toast.success(met ? 'Counted as met.' : 'Counted as missed.'),
+                onError: (e: Error) => toast.error(e.message),
+              })}
+            />
           )}
 
           {withPrincipal.length > 0 && (
