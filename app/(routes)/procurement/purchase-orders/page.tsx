@@ -43,7 +43,7 @@ export default function PurchaseOrdersPage() {
   const [statusFilter, setStatusFilter] = useState<string>(() => searchParams.get('status') ?? 'all');
   const [institutionId, setInstitutionId] = useState<string | undefined>(
     // Opens on every college the viewer may see (RLS scopes the rows), as Requests
-    // does: store staff often handle orders for a college other than their profile's.
+    // does: the store team often handles orders for a college other than their profile's.
     () => searchParams.get('institution') ?? 'all'
   );
   // 'all' = every college the viewer may see (RLS scopes the rows). effectiveInstitution

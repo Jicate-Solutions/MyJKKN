@@ -86,7 +86,7 @@ export default function ProcurementHome() {
   return (
     <ContentLayout title="Procurement">
       <div className="w-full space-y-5">
-        {/* Staff already see this count as "Waiting for you" in their toolbar; the
+        {/* Team members on the full view already see this count as "Waiting for you" in their toolbar; the
             banner is for approvers who only get the My requests view. */}
         {showMine && myApprovals.length > 0 && (
           <Link
