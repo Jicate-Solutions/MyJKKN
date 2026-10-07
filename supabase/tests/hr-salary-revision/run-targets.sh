@@ -762,9 +762,12 @@ mutate_file probe-settled-stale.sql "R1 U1: a counted missed month is never sett
 mutate_file probe-settled-stale.sql "R2 U1: a missed month with a day not in the record is not settled" \
   's/^     AND public\.hr_target_schedule_missing_days\(p_staff_id, v_d0, v_d1\) = 0;$/     AND true;/' \
   'R8-U1 a counted missed month with a day no longer in the schedule record is not settled: the month after it is not counted (still "so far")'
-mutate_file probe-settled-window.sql "R3 U1: the window waits for its unsettled month (the stop)" \
+# Round 10: with X1 the window check needs every window month settled, so
+# RV3-P4 stays waiting without this stop; the stop's own case is the later
+# months of a paid part (RV3-P1: no pause ahead of the stale month).
+mutate_file probe-settled-stale.sql "R3 U1: the months after a month waiting for its days wait (the stop)" \
   's/^            v_stop := v_m;  -- waiting for its days$/            CONTINUE;/' \
-  'RV3-P4 the window must not go back to the Director while a missed month in it waits to be measured again (re-recorded it would release)'
+  'RV3-P1 while an earlier counted missed month waits to be measured again on its new holidays, a later month must not pause'
 mutate_file probe-settled-off.sql "R4 U2: OFF closes only this month" \
   "s/^     WHERE request_id = p_request_id AND month = v_cur_m AND status = 'in_progress';$/     WHERE request_id = p_request_id AND status = 'in_progress';/" \
   'RV3-P3 a one-night OFF must not throw away a finished, met month that was only waiting for a day (calendar: M4 met resets, M5 not measured (OFF night), M6 = 1 miss, no pause)'
