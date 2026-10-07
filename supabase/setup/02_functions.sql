@@ -83232,7 +83232,9 @@ GRANT EXECUTE ON FUNCTION public.fn_hr_duty_desk_summary() TO authenticated, ser
 -- round 8 U1-U5: one 'settled' rule for calendar order, OFF closes only this month,
 -- keys worked out once, the listing's missing-day pass always gets its share;
 -- round 9 W1-W3: the window counts only its own months, rows kept for missing days,
--- a month final by its status has no keys worked out).
+-- a month final by its status has no keys worked out; round 10 X1: the window is
+-- over only with nothing unsettled before this month and every window month settled;
+-- today's live pass takes the least recently recorded first).
 -- Source: 20271008093015_hr_salary_revision_target_scheduled_periods.sql
 -- ----------------------------------------------------------------------------
 -- b. The helpers
@@ -83552,7 +83554,11 @@ BEGIN
      CROSS JOIN LATERAL (SELECT public.hr_target_schedule_institutions(r.staff_id) AS ids) x
      WHERE NOT EXISTS (SELECT 1 FROM public.hr_target_scheduled_periods sp
                         WHERE sp.staff_id = r.staff_id AND sp.day = p_today)
-     ORDER BY r.staff_id
+     -- 8 Oct 2026 (round 10): the least recently recorded on the day itself
+     -- first (never: first of all), so with more people than the limit the
+     -- same people are not left out of the live record every night.
+     ORDER BY (SELECT max(sp.day) FROM public.hr_target_scheduled_periods sp
+                WHERE sp.staff_id = r.staff_id AND sp.recorded_live) NULLS FIRST, r.staff_id
      LIMIT v_left - v_keep;
   GET DIAGNOSTICS v_got = ROW_COUNT;
   v_left := v_left - v_got;
@@ -83613,7 +83619,8 @@ REVOKE EXECUTE ON FUNCTION public.hr_target_schedule_needs(date, integer, intege
 COMMENT ON FUNCTION public.hr_target_schedule_needs(date, integer, integer) IS
   'Internal (default vv, 8 Oct 2026). The (team member, day) pairs the nightly job should record in '
   'hr_target_scheduled_periods, each with the day''s holiday key worked out now: today for everyone, then every '
-  'person''s days whose approved holidays changed, then missing days newest first (round 7, B1). Stops working out '
+  'person''s days whose approved holidays changed, then missing days newest first (round 7, B1). Today''s pass takes '
+  'the people least recently recorded on the day itself first (round 10). Stops working out '
   'further people once p_budget_ms has passed: the stale-day pass at half of it, the missing-day pass once it has '
   'listed one person''s days (round 8, U5). A share of the rows (a quarter, at most 50) is kept for missing days, '
   'so today''s and stale days never fill the whole limit (round 9, W2). Migration 20271008093015.';
@@ -84478,22 +84485,33 @@ BEGIN
       -- RULING 3: the window is over, every month of it counted and acted on,
       -- and nothing released: back to the Director with the numbers.
       SELECT * INTO v_p FROM public.hr_salary_revision_target_plans WHERE request_id = v_p.request_id;
-      -- 8 Oct 2026 (round 8, U1): the same rule holds here. The window's last
-      -- month is first counted by the run that closes the window, and that run
-      -- stops at any window month that is not settled before it (a missed
-      -- month waiting to be measured again on new holidays or leave, a flagged
-      -- one, one left by the cap): the last month is then not counted, so the
-      -- count below falls short and the part stays waiting. Waiting, it stays
-      -- in hr_target_schedule_ranges, so its days are recorded again (RV3-P4).
+      -- 8 Oct 2026 (round 8, U1; corrected in round 10, X1): the same rule
+      -- holds here. The window is over only when this run left nothing before
+      -- this month unsettled (v_stop is clear: no window month waiting for its
+      -- days, flagged, or left by the cap) AND every window month is acted on
+      -- and settled (hr_salary_revision_target_month_settled: a missed month
+      -- only on a complete record whose leave and holiday keys are still
+      -- today's). Round 8 said the stop alone kept the count short; it did not:
+      -- a window month closed as not measured by an OFF night is acted on
+      -- without the run counting it, so the count was met while an earlier
+      -- window month waited to be measured again (RV5-A: M4 counted missed,
+      -- then stale on a new department holiday; M5 closed not measured; the M6
+      -- run stopped at M4 yet sent the part back to the Director, so it left
+      -- hr_target_schedule_ranges and M4, which measured again would release,
+      -- never was). Waiting, the part stays in hr_target_schedule_ranges, so
+      -- its days are recorded again (RV3-P4).
       -- 8 Oct 2026 (round 9, W1): only the window's own months are counted
       -- (window_start to v_last). The months a part waited for measurement
       -- while it was OFF are written as not measured (acted) BEFORE its window:
       -- counted, they sent the part back to the Director a month early (the
       -- release it earned lost) or, too many, never (RV4-A1, A2, B).
       IF v_p.state = 'waiting' AND v_cur_m > v_last
+         AND v_stop IS NULL
          AND (SELECT count(*) FROM public.hr_salary_revision_target_months mo
                WHERE mo.request_id = v_p.request_id AND mo.month >= v_p.window_start AND mo.month <= v_last
-                 AND mo.acted) = v_p.window_months THEN
+                 AND mo.acted
+                 AND public.hr_salary_revision_target_month_settled(v_p.request_id, v_p.staff_id, mo.month)
+             ) = v_p.window_months THEN
         UPDATE public.hr_salary_revision_target_plans
            SET state = 'back_to_director', state_reason = 'window_over', updated_at = now()
          WHERE request_id = v_p.request_id;

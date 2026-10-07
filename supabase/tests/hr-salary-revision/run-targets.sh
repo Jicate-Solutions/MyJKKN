@@ -21,7 +21,7 @@
 #      function hand-edited live stops it (the drift check); it re-applies;
 #   6. probe-schedule.sql (findings 1-6, the coverage wait, the record's rules),
 #      every line PASS, and one mutation control per finding;
-#   7. (rounds 7-9) probe-order.sql, probe-stale.sql and probe-settled-*.sql,
+#   7. (rounds 7-10) probe-order.sql, probe-stale.sql and probe-settled-*.sql,
 #      each after probe-schedule.sql on its own database, each with its controls.
 # Run: bash supabase/tests/hr-salary-revision/run-targets.sh   (PORT= to move it)
 # FINGERPRINTS=1 prints the drift check's fingerprints (main's and this file's)
@@ -202,7 +202,7 @@ echo "   total: $(grep -c '^PASS' "$WORK/sched.txt") PASS, $(grep -c '^FAIL' "$W
 # 8 Oct 2026, review round 7: the money review's probes (B1-B4), and round 8:
 # the round-3 reviews' probes (probe-settled-*.sql: one rule for calendar
 # order, U1-U4), each on its own database, after probe-schedule.sql.
-for pf in probe-order.sql probe-stale.sql probe-settled-stale.sql probe-settled-off.sql probe-settled-window.sql probe-settled-flag.sql probe-settled-cap.sql probe-settled-race.sql probe-settled-wait-off.sql probe-settled-wait-off-b.sql; do
+for pf in probe-order.sql probe-stale.sql probe-settled-stale.sql probe-settled-off.sql probe-settled-window.sql probe-settled-flag.sql probe-settled-cap.sql probe-settled-race.sql probe-settled-wait-off.sql probe-settled-wait-off-b.sql probe-settled-window-off.sql probe-settled-window-race.sql probe-live-order.sql; do
   echo "== PROBE (rounds 7-9: $pf, after probe-schedule.sql)"
   build "$MIG" targets || exit 1
   probe_after_sched "$pf" | tee "$WORK/$pf.txt" | sed 's/^/   /'
@@ -781,16 +781,33 @@ mutate_file probe-settled-cap.sql "R8 U4: nothing at or after the month the cap 
   's/^            v_stop := v_m;  -- the cap$/            NULL;/' \
   'R8-U4b nothing at or after the month the cap left is acted on: M6, already counted, is not acted on'
 # 8 Oct 2026, review round 9 (the round-4 money review): one control per fix.
+# Round 10: with the stop and the settled rule in the window check (X1), a
+# window month not yet counted keeps the window open whatever the lower bound,
+# so RV4-A2 and RV4-B (the "a month early" side) no longer catch this
+# mutation; the lower bound's own case is the "too many, never" side: RV4-A1.
 mutate_file probe-settled-wait-off.sql "R9 W1: the window counts only its own months (lower bound)" \
   's/ AND mo\.month >= v_p\.window_start AND mo\.month <= v_last$/ AND mo.month <= v_last/' \
-  'RV4-A2 the window must not go back to the Director while m8'
-mutate_file probe-settled-wait-off-b.sql "R9b W1: the natural window after an OFF wait" \
-  's/ AND mo\.month >= v_p\.window_start AND mo\.month <= v_last$/ AND mo.month <= v_last/' \
-  'RV4-B natural 6-month window'
+  'RV4-A1 window of 2 months over, both counted missed: back to the Director'
 mutate_sched "R10 W2: rows kept back for the missing-day pass" \
   's/^  v_keep := CASE WHEN v_left >= 2 THEN LEAST\(50, GREATEST\(1, v_left \/ 4\)\) ELSE 0 END;$/  v_keep := 0;/' \
   'R9-W2 a small row limit (8)'
 mutate_file probe-settled-wait-off.sql "R11 W3: a final month's keys are not worked out" \
   '/^        CONTINUE WHEN v_m < v_cur_m AND v_found$/{N;d;}' \
   'R9-W3 finished months final by their status'
+# 8 Oct 2026, review round 10 (the round-5 money review): X1, the window-over
+# check honours the stop and needs every window month settled. R12 removes the
+# whole new condition (both lines); R12b only the settled clause. The stop
+# clause alone (v_stop IS NULL) has no control of its own: every stop is at a
+# window month that is not settled (waiting for its days, flagged, left by the
+# cap), so the settled clause already keeps such a window open; it is kept as
+# the stated rule (nothing unsettled before this month).
+mutate_file probe-settled-window-off.sql "R12 X1: the window-over check honours the stop and the settled rule" \
+  's/^         AND v_stop IS NULL$/         AND true/; s/^                 AND public\.hr_salary_revision_target_month_settled\(v_p\.request_id, v_p\.staff_id, mo\.month\)$/                 AND true/' \
+  'RV5-A the window must not go back to the Director while M4'
+mutate_file probe-settled-window-race.sql "R12b X1: every window month settled, not only acted on" \
+  's/^                 AND public\.hr_salary_revision_target_month_settled\(v_p\.request_id, v_p\.staff_id, mo\.month\)$/                 AND true/' \
+  'RV5-R the window must not go back to the Director while its last month'
+mutate_file probe-live-order.sql "R13 today's live pass: least recently recorded on the day itself first" \
+  's/^     ORDER BY \(SELECT max\(sp\.day\) FROM public\.hr_target_scheduled_periods sp$/     ORDER BY r.staff_id, (SELECT max(sp.day) FROM public.hr_target_scheduled_periods sp/' \
+  'R10-L today'"'"'s live pass takes the people least recently recorded on the day itself first'
 echo "== mutation controls: $CAUGHT caught, $MISSED not caught"
