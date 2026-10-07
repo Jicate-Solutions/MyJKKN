@@ -47,19 +47,25 @@
 // This is a fast UI-level gate, not the enforcement boundary: /procurement and
 // each lane re-check their own keys server-side when the filer arrives.
 
-import { AlertCircle } from 'lucide-react';
+import { AlertCircle, Info } from 'lucide-react';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
 import { PageHeader } from '@/components/page-header';
 import { Card, CardContent } from '@/components/ui/card';
 import { hasDbAdminBypass } from '@/lib/navigation/permission-filter';
 import { hasMyComplaintsPage } from '@/lib/instasolver/follow-up-links';
+import { REPORTING_MOVED_NOTE, cameFromOldDeskLink } from '@/lib/instasolver/one-report-path';
 import { createClient } from '@/lib/supabase/server';
 import { ChooserClient } from './_components/chooser-client';
 
 export const dynamic = 'force-dynamic';
 
-export default async function InstaSolverPage() {
+export default async function InstaSolverPage({
+  searchParams
+}: {
+  searchParams?: Promise<Record<string, string | string[] | undefined>>;
+}) {
+  const showMovedNote = cameFromOldDeskLink(await searchParams);
   const supabase = await createClient();
   const {
     data: { user }
@@ -110,6 +116,15 @@ export default async function InstaSolverPage() {
           description="Tell us what's wrong. It goes to the right person, and you'll see when it's fixed."
         />
       </div>
+      {showMovedNote && (
+        <p
+          role="status"
+          className="mt-4 flex items-start gap-2 rounded-md border border-sky-200 bg-sky-50 px-3 py-2 text-sm text-sky-900 dark:border-sky-900 dark:bg-sky-950/40 dark:text-sky-100"
+        >
+          <Info className="mt-0.5 h-4 w-4 shrink-0" />
+          {REPORTING_MOVED_NOTE}
+        </p>
+      )}
       <ChooserClient
         canRaisePurchase={canRaisePurchase}
         showMyComplaints={hasMyComplaintsPage()}
