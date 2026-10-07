@@ -79,6 +79,17 @@ const REGISTER_HEADERS = [
  */
 const REGISTER_WIDTHS = [7, 10.6, 21.1, 12.7, 21.9, 14.4, 15.9, 12.7, 10, 11, 10, 12, 12, 13, 11, 10, 15, 11, 11, 12, 10, 10, 10, 12, 13, 14, 11, 28, 34];
 
+/**
+ * The Remarks cell. A row whose days were entered by hand says so first, with
+ * the reason (2026-10-07) — the workbook is read away from the screen, where
+ * the Manual badge is not. Any remark of the row's own follows it.
+ */
+export function remarksFor(l: Pick<HRSalaryRegisterLine, 'entry_source' | 'manual_reason' | 'remarks'>): string {
+  const manual =
+    l.entry_source === 'manual' ? `Manual entry: ${l.manual_reason?.trim() || 'no reason recorded'}` : '';
+  return [manual, l.remarks?.trim() ?? ''].filter(Boolean).join('; ');
+}
+
 /** DD/MM/YYYY — the format the hand-kept register uses. */
 function formatDMY(iso: string | null): string {
   if (!iso) return '';
@@ -289,7 +300,7 @@ function addRegisterSheet(
       l.net_pay,
       // Blank on lines generated before 2026-09-23, which did not record it.
       l.work_institution_name ?? '',
-      l.remarks ?? '',
+      remarksFor(l),
     ]);
   });
 

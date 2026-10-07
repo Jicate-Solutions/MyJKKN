@@ -2945,6 +2945,13 @@ CREATE TRIGGER trg_hostel_blocks_seed_floors
   AFTER INSERT ON public.hostel_blocks
   FOR EACH ROW EXECUTE FUNCTION public.fn_hostel_blocks_seed_floors();
 
+
+-- Mirrored from supabase/migrations/20271007150000_hr_salary_register_manual_days.sql
+DROP TRIGGER IF EXISTS trg_hr_salary_register_manual_days_touch ON public.hr_salary_register_manual_days;
+CREATE TRIGGER trg_hr_salary_register_manual_days_touch
+  BEFORE UPDATE ON public.hr_salary_register_manual_days
+  FOR EACH ROW EXECUTE FUNCTION public.fn_touch_updated_at();
+
 -- =============================================================================
 -- Mirrored from supabase/migrations/20271007170139_staff_admin_records_super_admin_only.sql
 -- Updated: 2026-10-07 (round 15) - appended, not edited in place: main's

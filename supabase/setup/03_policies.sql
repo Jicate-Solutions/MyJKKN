@@ -11814,3 +11814,77 @@ CREATE POLICY hostel_floors_delete_permission ON public.hostel_floors
     OR ((SELECT user_has_permission('campus_living.blocks.edit'))
         AND role_has_hostel_block_scope(block_id, NULL::uuid))
   );
+
+
+-- Mirrored from supabase/migrations/20271007150000_hr_salary_register_manual_days.sql
+ALTER TABLE public.hr_salary_register_manual_days ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS hr_salary_register_manual_days_select ON public.hr_salary_register_manual_days;
+CREATE POLICY hr_salary_register_manual_days_select
+  ON public.hr_salary_register_manual_days
+  FOR SELECT TO authenticated
+  USING (
+    (SELECT public.is_super_admin())
+    OR (
+      (SELECT public.user_has_permission('hr.payroll.register.view'))
+      AND (SELECT public.role_has_institution_access(institution_id))
+    )
+  );
+
+-- institution_id is pinned to the organisation's own institution, so a manager
+-- of one college cannot file days against another college's register.
+DROP POLICY IF EXISTS hr_salary_register_manual_days_insert ON public.hr_salary_register_manual_days;
+CREATE POLICY hr_salary_register_manual_days_insert
+  ON public.hr_salary_register_manual_days
+  FOR INSERT TO authenticated
+  WITH CHECK (
+    EXISTS (
+      SELECT 1 FROM public.hr_organizations o
+       WHERE o.id = hr_salary_register_manual_days.hr_organization_id
+         AND o.institution_id = hr_salary_register_manual_days.institution_id
+    )
+    AND (
+      (SELECT public.is_super_admin())
+      OR (
+        (SELECT public.user_has_permission('hr.payroll.register.manage'))
+        AND (SELECT public.role_has_institution_access(institution_id))
+      )
+    )
+  );
+
+DROP POLICY IF EXISTS hr_salary_register_manual_days_update ON public.hr_salary_register_manual_days;
+CREATE POLICY hr_salary_register_manual_days_update
+  ON public.hr_salary_register_manual_days
+  FOR UPDATE TO authenticated
+  USING (
+    (SELECT public.is_super_admin())
+    OR (
+      (SELECT public.user_has_permission('hr.payroll.register.manage'))
+      AND (SELECT public.role_has_institution_access(institution_id))
+    )
+  )
+  WITH CHECK (
+    EXISTS (
+      SELECT 1 FROM public.hr_organizations o
+       WHERE o.id = hr_salary_register_manual_days.hr_organization_id
+         AND o.institution_id = hr_salary_register_manual_days.institution_id
+    )
+    AND (
+      (SELECT public.is_super_admin())
+      OR (
+        (SELECT public.user_has_permission('hr.payroll.register.manage'))
+        AND (SELECT public.role_has_institution_access(institution_id))
+      )
+    )
+  );
+
+-- No DELETE policy: an entry is corrected, never silently removed.
+
+DROP POLICY IF EXISTS hr_salary_register_manual_days_service_role ON public.hr_salary_register_manual_days;
+CREATE POLICY hr_salary_register_manual_days_service_role
+  ON public.hr_salary_register_manual_days
+  FOR ALL TO service_role
+  USING (true) WITH CHECK (true);
+
+REVOKE ALL ON public.hr_salary_register_manual_days FROM anon;
+GRANT SELECT, INSERT, UPDATE ON public.hr_salary_register_manual_days TO authenticated;
