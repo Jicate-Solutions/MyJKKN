@@ -78,6 +78,8 @@ vi.mock('@/components/data-table/data-table', async () => {
         return () => { alive = false; };
       }, [fetchDataFn]);
       return (
+        <>
+        {props.renderToolbarContent?.({ selectedRows: [], totalSelectedCount: 0, resetSelection: () => {} })}
         <table>
           <tbody>
             {rows.map((r) => (
@@ -85,6 +87,7 @@ vi.mock('@/components/data-table/data-table', async () => {
             ))}
           </tbody>
         </table>
+        </>
       );
     },
   };
@@ -115,4 +118,25 @@ it('opens on requests waiting for a decision and shows past months behind a visi
   fireEvent.click(screen.getByRole('button', { name: /waiting for a decision/i }));
   expect(await screen.findByText('Anita K')).toBeInTheDocument();
   expect(screen.queryByText('Ravi M')).not.toBeInTheDocument();
+});
+
+it('"Past decisions" is never empty just because "Waiting on me" was on, and the two exclude each other', async () => {
+  render(<LeaveApprovalsPage />);
+  expect(await screen.findByText('Anita K')).toBeInTheDocument();
+
+  const mine = screen.getByRole('button', { name: /waiting on me/i });
+  fireEvent.click(mine);
+  expect(await screen.findByText('Anita K')).toBeInTheDocument();
+
+  // Waiting on me matches only rows still waiting; switching to history must
+  // drop it, or every past decision is filtered out.
+  fireEvent.click(screen.getByRole('button', { name: /past decisions/i }));
+  expect(await screen.findByText('Ravi M')).toBeInTheDocument();
+  expect(screen.queryByText('Anita K')).not.toBeInTheDocument();
+
+  // And turning Waiting on me back on returns to the waiting view.
+  fireEvent.click(screen.getByRole('button', { name: /waiting on me/i }));
+  expect(await screen.findByText('Anita K')).toBeInTheDocument();
+  expect(screen.queryByText('Ravi M')).not.toBeInTheDocument();
+  expect(screen.getByRole('button', { name: /waiting for a decision/i })).toHaveAttribute('aria-pressed', 'true');
 });
