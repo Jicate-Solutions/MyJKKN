@@ -20,6 +20,8 @@ export interface RequestJourney {
     request_number: string;
     status: string;
     rejection_reason: string | null;
+    /** Set while (and after) the approver sent it back for changes. */
+    returned_reason: string | null;
     requested_by: string | null;
     /** Sign-off 1 — who approved the items, and when. */
     approved_at: string | null;
@@ -75,7 +77,7 @@ export class ProcurementJourneyService {
       const { data, error } = await db
         .from('procurement_purchase_requests')
         .select(
-          'id, request_number, status, rejection_reason, requested_by, approved_at, approver:profiles!approved_by(full_name)'
+          'id, request_number, status, rejection_reason, returned_reason, requested_by, approved_at, approver:profiles!approved_by(full_name)'
         )
         .eq('id', requestId)
         .maybeSingle();
@@ -86,6 +88,7 @@ export class ProcurementJourneyService {
             request_number: data.request_number,
             status: data.status,
             rejection_reason: data.rejection_reason,
+            returned_reason: data.returned_reason ?? null,
             requested_by: data.requested_by,
             approved_at: data.approved_at,
             approved_by_name: data.approver?.full_name ?? null,

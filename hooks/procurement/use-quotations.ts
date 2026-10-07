@@ -75,3 +75,16 @@ export function useUnawardLine(rfqId: string) {
     },
   });
 }
+
+export function useReviseQuotation(rfqId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (input: Parameters<typeof ProcurementQuotationService.reviseQuotation>[0]) =>
+      ProcurementQuotationService.reviseQuotation(input),
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: ['procurement-quotations', rfqId] });
+      queryClient.invalidateQueries({ queryKey: ['procurement-comparison', rfqId] });
+      queryClient.invalidateQueries({ queryKey: ['procurement-overview-waiting'] });
+    },
+  });
+}

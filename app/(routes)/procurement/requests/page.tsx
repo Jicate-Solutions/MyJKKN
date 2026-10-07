@@ -36,7 +36,7 @@ function whatIsNeeded(req: ProcurementPurchaseRequest): string {
 const LEGACY_STATUS_TO_STAGE: Record<string, string> = { approved: 'getting_quotes', converted: 'getting_quotes' };
 
 /**
- * Purchases — the one list. Every purchase from "asked for" to "received", with its
+ * Requests — the one list. Every purchase from "asked for" to "received", with its
  * stage in plain words; a row opens the purchase page where all the work happens.
  */
 export default function PurchasesPage() {
@@ -59,7 +59,19 @@ export default function PurchasesPage() {
   const [institutionId, setInstitutionId] = useState<string | undefined>(
     () => searchParams.get('institution') ?? 'all'
   );
-  const [mineOnly, setMineOnly] = useState(() => searchParams.get('mine') === '1');
+  // People who only raise requests open on their own requests, so they can follow
+  // what happened to each one; approvers and buyers open on everything. Ticking the
+  // box (or ?mine=1 / ?mine=0) overrides the default.
+  const [mineChoice, setMineOnly] = useState<boolean | null>(() => {
+    const m = searchParams.get('mine');
+    return m === '1' ? true : m === '0' ? false : null;
+  });
+  const handlesOthers =
+    isSuperAdmin ||
+    canAccess('procurement', 'request_approve') ||
+    canAccess('procurement', 'quotation_manage') ||
+    canAccess('procurement', 'rfq_manage');
+  const mineOnly = mineChoice ?? !handlesOthers;
   // 'all' = every college the viewer may see (RLS scopes the rows). effectiveInstitution
   // stays a concrete college for anything that creates a document.
   const allColleges = institutionId === 'all';
@@ -93,6 +105,7 @@ export default function PurchasesPage() {
   const CHIPS: Array<{ value: string; label: string; count?: number }> = [
     { value: 'all', label: 'All' },
     { value: 'submitted', label: 'Item approval', count: stageCount(1) },
+    { value: 'returned', label: 'Sent back' },
     { value: 'getting_quotes', label: 'Getting quotes', count: stageCount(2) },
     { value: 'with_super_admin', label: 'Final approval', count: stageCount(3) },
     { value: 'ordered', label: 'Ordered', count: stageCount(4) },
@@ -106,14 +119,15 @@ export default function PurchasesPage() {
     if (st === 'submitted') return (isSuperAdmin || canAccess('procurement', 'request_approve')) && req.requested_by !== profile?.id;
     if (st === 'with_super_admin') return isSuperAdmin;
     if (st === 'getting_quotes') return isSuperAdmin || canAccess('procurement', 'quotation_manage');
+    if (st === 'returned') return req.requested_by === profile?.id;
     return false;
   };
 
   return (
-    <ContentLayout title="Purchases">
-      <div className="mx-auto w-full max-w-3xl space-y-5">
+    <ContentLayout title="Requests">
+      <div className="w-full space-y-5">
         <header className="flex flex-wrap items-center justify-between gap-3">
-          <h1 className="text-2xl font-bold">Purchases</h1>
+          <h1 className="text-2xl font-bold">Requests</h1>
           {canCreate && (
             <Button
               className="h-10"
@@ -186,7 +200,7 @@ export default function PurchasesPage() {
               <AlertBox type="error" message="Failed to load purchases. Please try again." />
             </div>
           ) : requests.length === 0 ? (
-            <EmptyState title="No purchases found" description="Purchases you raise, or that are routed to you, appear here." />
+            <EmptyState title="No requests found" description="Requests you raise, or that are routed to you, appear here." />
           ) : (
             <ul>
               {requests.map((req) => {
@@ -198,7 +212,7 @@ export default function PurchasesPage() {
                       onClick={() => router.push(`/procurement/requests/${req.id}`)}
                       aria-label={`Open purchase ${[req.title, displayRequestNumber(req.request_number)].filter(Boolean).join(' ')}`}
                       className={`flex w-full flex-wrap items-center gap-x-4 gap-y-1 px-5 py-3.5 text-left transition-colors hover:bg-accent/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring ${
-                        mine ? 'bg-amber-50/60 dark:bg-amber-950/20' : ''
+                        mine ? 'bg-secondary/20' : ''
                       }`}
                     >
                       <span className="min-w-0 flex-1 basis-64">

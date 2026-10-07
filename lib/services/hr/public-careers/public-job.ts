@@ -4,14 +4,19 @@
  * mapper is the whole privacy boundary: add a field here deliberately or not at all.
  */
 
-export const PUBLIC_JOB_SELECT = [
+const JOB_COLUMNS = [
   'id', 'job_code', 'title', 'role_category', 'job_type', 'description', 'institution_id',
   'city', 'state', 'country', 'education_level', 'min_experience_years', 'max_experience_years',
   'requirements', 'positions_open', 'posted_at', 'closes_at', 'status', 'is_public',
   'display_salary', 'min_monthly_salary', 'max_monthly_salary', 'salary_currency', 'salary_duration',
-  'seo_title', 'seo_description', 'seo_keywords', 'seo_og_image', 'seo_noindex',
-  'institution:institutions(id, name)', 'department:departments(id, department_name)',
-].join(', ');
+];
+// Migration 20261006113500. Selected separately so the API keeps working on a
+// database where that migration is not applied yet (see public-careers-service).
+const SEO_COLUMNS = ['seo_title', 'seo_description', 'seo_keywords', 'seo_og_image', 'seo_noindex'];
+const RELATIONS = ['institution:institutions(id, name)', 'department:departments(id, department_name)'];
+
+export const PUBLIC_JOB_SELECT = [...JOB_COLUMNS, ...SEO_COLUMNS, ...RELATIONS].join(', ');
+export const PUBLIC_JOB_SELECT_WITHOUT_SEO = [...JOB_COLUMNS, ...RELATIONS].join(', ');
 
 export interface PublicJob {
   id: string;

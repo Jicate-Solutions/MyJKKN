@@ -32,6 +32,8 @@ import { ArrowLeft, Download, Upload, Sparkles, ChevronDown, Plus } from 'lucide
 import { BeatLoader } from 'react-spinners';
 import { toast } from 'sonner';
 import { errorMessage } from '@/lib/utils/supabase-error';
+import { extractItemOf } from '@/lib/procurement/read-quotation-pdf';
+import { packOrUnit } from '@/lib/procurement/pack-size';
 
 interface QuotedSpec {
   manufacturer: string;
@@ -54,6 +56,8 @@ interface ExtractedLine {
   quality_grade?: string | null;
   concentration?: string | null;
   other_specs?: string | null;
+  gst_percent?: number | null;
+  hsn?: string | null;
 }
 interface ExtractResult {
   from_scan?: boolean;
@@ -71,6 +75,7 @@ interface ExtractResult {
   quote_number?: string | null;
   delivery_days?: number | null;
   payment_terms?: string | null;
+  warranty?: string | null;
 }
 
 const MATCHED_BY: Record<VendorMatchKey, string> = { gstin: 'GSTIN', phone: 'phone number', name: 'name' };
@@ -140,6 +145,9 @@ export default function NewQuotationPage() {
   const [quoteNumber, setQuoteNumber] = useState('');
   const [deliveryDays, setDeliveryDays] = useState('');
   const [paymentTerms, setPaymentTerms] = useState('');
+  // Read off the PDF and carried to the PO, so nobody types them on the order page.
+  const [warranty, setWarranty] = useState('');
+  const [taxes, setTaxes] = useState<Record<string, { gst_percent: number | null; hsn: string | null }>>({});
   const [prices, setPrices] = useState<Record<string, string>>({});
   const [specs, setSpecs] = useState<Record<string, QuotedSpec>>({});
   const [openSpecs, setOpenSpecs] = useState<Record<string, boolean>>({});
@@ -199,6 +207,8 @@ export default function NewQuotationPage() {
         quality_grade: spec?.quality_grade.trim() || null,
         concentration: spec?.concentration.trim() || null,
         other_specs: spec?.other_specs.trim() || null,
+        gst_percent: taxes[it.id]?.gst_percent ?? null,
+        hsn: taxes[it.id]?.hsn ?? null,
       };
     });
     if (items.every((i) => i.unit_price === null)) {
@@ -262,6 +272,7 @@ export default function NewQuotationPage() {
           vendor_quote_number: quoteNumber || null,
           delivery_time_days: deliveryDays ? Number(deliveryDays) : null,
           payment_terms: paymentTerms || null,
+          warranty: warranty || null,
           document_url,
           document_file_id,
           items,
@@ -316,6 +327,7 @@ export default function NewQuotationPage() {
     setQuoteNumber(fill(result.quote_number));
     setDeliveryDays(fill(result.delivery_days ? String(result.delivery_days) : null));
     setPaymentTerms(fill(result.payment_terms));
+    setWarranty(fill(result.warranty));
 
     const v = result.vendor;
     if (!v) return;
@@ -361,6 +373,7 @@ export default function NewQuotationPage() {
       const numericPrices: Record<string, number> = {};
       const marks: Record<string, AiMark> = {};
       const filledSpecs: Record<string, QuotedSpec> = {};
+      const filledTaxes: Record<string, { gst_percent: number | null; hsn: string | null }> = {};
 
       let keptTyped = 0;
       // A set asked for as one item ("Computer × 5") comes back as its parts, all
@@ -397,6 +410,10 @@ export default function NewQuotationPage() {
           continue;
         }
         partsOf[id] = [part];
+        filledTaxes[id] = {
+          gst_percent: typeof line.gst_percent === 'number' ? line.gst_percent : null,
+          hsn: line.hsn || null,
+        };
         filledPrices[id] = String(price);
         numericPrices[id] = price;
         marks[id] = line.uncertain ? 'uncertain' : 'ai';
@@ -432,6 +449,7 @@ export default function NewQuotationPage() {
         return next;
       });
       setAiFilled(marks);
+      setTaxes((prev) => ({ ...prev, ...filledTaxes }));
       setAiFromScan(!!result?.from_scan);
       setAiOutliers(detectPriceOutliers(numericPrices));
 
@@ -459,7 +477,7 @@ export default function NewQuotationPage() {
       const fd = new FormData();
       fd.append('file', file);
       fd.append('rfq_id', rfq.id);
-      fd.append('items', JSON.stringify(rfq.items.map((it) => ({ id: it.id, item_name: it.item_name }))));
+      fd.append('items', JSON.stringify(rfq.items.map(extractItemOf)));
       const res = await fetch('/api/procurement/quotations/extract-pdf', { method: 'POST', body: fd });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || 'Extraction failed');
@@ -767,7 +785,7 @@ export default function NewQuotationPage() {
                 Reading prices from the PDF… <span className="tabular-nums">{extractElapsed}s</span>
               </span>
             )}
-            {aiFromScan && <span className="basis-full text-amber-800 dark:text-amber-300">Read from a scanned image — check every price.</span>}
+            {aiFromScan && <span className="basis-full text-foreground">Read from a scanned image — check every price.</span>}
           </div>
 
           {/* ── Prices: item | price / unit | total ────────────────────────── */}
@@ -794,22 +812,22 @@ export default function NewQuotationPage() {
               setSpecs((p) => ({ ...p, [it.id]: { ...(p[it.id] ?? EMPTY_SPEC), [field]: value } }));
             return (
               <Fragment key={it.id}>
-                <div className={cn(COLS, 'border-t px-5 py-3', aiMark === 'uncertain' && 'bg-amber-50/70 dark:bg-amber-950/20')}>
+                <div className={cn(COLS, 'border-t px-5 py-3', aiMark === 'uncertain' && 'bg-secondary/20')}>
                   <div className="min-w-0">
                     <p className="truncate text-sm font-semibold">
                       {it.item_name}{' '}
                       <span className="font-normal text-muted-foreground">
                         × {Number(it.quantity)}
-                        {it.unit_label ? ` ${it.unit_label}` : ''}
+                        {packOrUnit(it) ? ` ${packOrUnit(it)}` : ''}
                       </span>
                     </p>
                     <p className="truncate text-xs">
                       {isOutlier ? (
                         <span className="font-medium text-destructive">Unusual price — check it</span>
                       ) : aiMark === 'uncertain' ? (
-                        <span className="text-amber-800 dark:text-amber-300">AI not sure this is the right item — check</span>
+                        <span className="text-foreground">AI not sure this is the right item — check</span>
                       ) : aiMark ? (
-                        <span className="text-green-700 dark:text-green-400">✓ Read from the PDF</span>
+                        <span className="text-primary">✓ Read from the PDF</span>
                       ) : (
                         <button
                           type="button"
@@ -829,7 +847,7 @@ export default function NewQuotationPage() {
                     inputMode="decimal"
                     placeholder="Not quoted"
                     aria-label={`Price per unit for ${it.item_name}`}
-                    className={cn('h-9 text-right tabular-nums', aiMark && 'border-amber-400')}
+                    className={cn('h-9 text-right tabular-nums', aiMark && 'border-secondary')}
                     value={prices[it.id] ?? ''}
                     onChange={(e) => {
                       setPrices((p) => ({ ...p, [it.id]: e.target.value }));

@@ -13,70 +13,48 @@ import {
   useCancelPO,
   useUpdatePoDocumentFields,
   useUpdatePoItemExtraFields,
+  useMarkPoSent,
+  useApplyPoItemExtraToAll,
 } from '@/hooks/procurement/use-purchase-orders';
-import { usePoFormats } from '@/hooks/procurement/use-po-formats';
-import { useUpdateImsSupplier } from '@/hooks/ims/use-ims-settings';
-import { PO_STATUS_CONFIG, type ProcurementPoFormat } from '@/types/procurement';
+import { PO_STATUS_CONFIG } from '@/types/procurement';
 import { downloadPurchaseOrderPdf } from '@/lib/procurement/purchase-order-pdf';
 import { downloadPurchaseOrderDocx } from '@/lib/procurement/purchase-order-docx';
 import { StatusBadge } from '@/components/procurement/status-badge';
 import { type DocAction, type DocPrimaryAction } from '@/components/procurement/document-header';
 import { formatDateDMY } from '@/lib/utils/date-format';
 import { displayRequestNumber } from '@/lib/procurement/display-number';
-import { STANDARD_PO_FORMAT } from '@/lib/procurement/po-document-model';
+import {
+  STANDARD_PO_FORMAT,
+  suggestedHeaderValues,
+  catalogExtra,
+  resolvePoDocumentModel,
+  PO_REQUIRED_FIELDS,
+} from '@/lib/procurement/po-document-model';
+import { PoDocumentPreview, type PoPreviewEdit } from '@/components/procurement/po-document-preview';
 import { AlertBox } from '@/components/ui/alert-box';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
-import { Checkbox } from '@/components/ui/checkbox';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectSeparator,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
-import {
-  Dialog,
-  DialogContent,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { FileDown, FileText, Send, Check, X, Ban, ClipboardList, ChevronLeft, ChevronDown } from 'lucide-react';
+import { FileDown, FileText, Send, Check, X, ChevronLeft, ChevronDown } from 'lucide-react';
 import { BeatLoader } from 'react-spinners';
 import { toast } from 'sonner';
 import { errorMessage } from '@/lib/utils/supabase-error';
 
-/** Print-as option that opens the format builder instead of choosing a format. */
-const NEW_FORMAT = '__new_format';
+/** What the printed order can't go out without. Everything else may stay blank. */
+const REQUIRED_KEYS = new Set(Object.keys(PO_REQUIRED_FIELDS));
+/** Boxes printed in the footer group (the rest are header_values). */
+const FOOTER_KEYS = new Set(['special_note']);
 
 /** item_extra.<key> -> <key> */
-function extraFieldKey(source: string): string {
-  return source.startsWith('item_extra.') ? source.slice('item_extra.'.length) : source;
-}
-
-/** Free-entry header/footer field defs (source header_values.x or footer_values.x) an active format declares. */
-function freeEntryFields(format: ProcurementPoFormat | null | undefined) {
-  if (!format) return { header: [], footer: [] };
-  const header = format.header_fields.filter((f) => f.source.startsWith('header_values.'));
-  const footer = format.footer_columns.flatMap((group) =>
-    group.freeText
-      ? group.source && group.source.startsWith('footer_values.')
-        ? [{ key: group.source.slice('footer_values.'.length), label: group.title, source: group.source }]
-        : []
-      : (group.fields || []).filter((f) => f.source.startsWith('footer_values.'))
-  );
-  return { header, footer };
-}
+const extraFieldKey = (source: string) =>
+  source.startsWith('item_extra.') ? source.slice('item_extra.'.length) : source;
 
 export default function PurchaseOrderDetailPage() {
   const router = useRouter();
@@ -93,90 +71,44 @@ export default function PurchaseOrderDetailPage() {
   const rejectPO = useRejectPO();
   const cancelPO = useCancelPO();
   const updateDocFields = useUpdatePoDocumentFields();
+  const markSent = useMarkPoSent();
   const updateItemExtra = useUpdatePoItemExtraFields();
-  const updateSupplier = useUpdateImsSupplier();
-
-  const { data: formats } = usePoFormats(po?.institution_id, { activeOnly: true });
-  const [setAsVendorDefault, setSetAsVendorDefault] = useState(false);
+  const applyToAll = useApplyPoItemExtraToAll();
 
   const [rejectOpen, setRejectOpen] = useState(false);
   const [rejectReason, setRejectReason] = useState('');
 
-  // Document formatting (format/header/footer/T&C/item extras) is presentational only — it never
-  // touches quantities, prices, or totals — so unlike the workflow actions (approve/send/cancel),
-  // it's never status-gated; only permission-gated (canCreate), same as the rest of this page.
-  const hasSavedDocDetails =
-    Object.keys(po?.header_field_values || {}).length > 0 ||
-    Object.keys(po?.footer_field_values || {}).length > 0 ||
-    !!po?.terms_and_conditions;
-  const activeFormat = po?.po_format ?? null;
-  // No custom format = the standard paper-PO layout, whose fill-in fields are editable too.
-  const docFormat = activeFormat ?? STANDARD_PO_FORMAT;
-  const { header: headerFieldDefs, footer: footerFieldDefs } = freeEntryFields(docFormat);
-  const itemExtraColumns = docFormat.item_columns.filter((c) => c.source.startsWith('item_extra.'));
-
+  // The blanks on the order, typed straight into the preview. They start from the
+  // vendor's quotation (number, date, delivery, payment, warranty), then what the
+  // last order to this vendor printed. Saved values win.
   const [headerValues, setHeaderValues] = useState<Record<string, string>>({});
   const [footerValues, setFooterValues] = useState<Record<string, string>>({});
-  const [termsText, setTermsText] = useState('');
-
-  // Re-derive the editable document fields whenever the loaded PO or its
-  // selected format changes, without a useEffect (adjusting state during
-  // render, per https://react.dev/learn/you-might-not-need-an-effect).
-  const syncKey = po ? `${po.id}:${po.po_format_id ?? ''}` : undefined;
-  const [lastSyncKey, setLastSyncKey] = useState<string | undefined>(undefined);
-  if (po && syncKey !== lastSyncKey) {
-    setLastSyncKey(syncKey);
-    setHeaderValues(po.header_field_values || {});
+  // What was last written, so a blur with nothing changed doesn't save again.
+  const [lastSaved, setLastSaved] = useState('');
+  // HSN / GST typed on a line, kept here too so Download prints them even while the save is in flight.
+  const [itemEdits, setItemEdits] = useState<Record<string, Record<string, string>>>({});
+  const [syncedId, setSyncedId] = useState<string | undefined>(undefined);
+  if (po && po.id !== syncedId) {
+    setSyncedId(po.id);
+    const saved = Object.fromEntries(
+      Object.entries(po.header_field_values || {}).filter(([, v]) => String(v ?? '').trim())
+    );
+    const suggested = Object.fromEntries(Object.entries(suggestedHeaderValues(po)).map(([k, v]) => [k, v.value]));
+    setHeaderValues({ ...suggested, ...saved });
     setFooterValues(po.footer_field_values || {});
-    setTermsText(po.terms_and_conditions ?? po.po_format?.terms_and_conditions_default ?? '');
+    setLastSaved(JSON.stringify([po.header_field_values || {}, po.footer_field_values || {}]));
   }
 
-  const handleFormatChange = (formatId: string) => {
-    const resolvedId = formatId === 'none' ? null : formatId;
-    run(async () => {
-      await updateDocFields.mutateAsync({ id, patch: { po_format_id: resolvedId } });
-      if (setAsVendorDefault && po) {
-        await updateSupplier.mutateAsync({
-          id: po.supplier_id,
-          data: { default_po_format_id: resolvedId },
-        });
-      }
-    }, setAsVendorDefault ? 'Format applied and saved as vendor default' : 'Document format updated');
-  };
-
-  const handleToggleSetAsDefault = (checked: boolean) => {
-    setSetAsVendorDefault(checked);
-    if (checked && po?.po_format_id) {
-      run(
-        () =>
-          updateSupplier.mutateAsync({
-            id: po.supplier_id,
-            data: { default_po_format_id: po.po_format_id },
-          }),
-        'Saved as vendor default'
-      );
-    }
-  };
-
-  const handleSaveDocumentDetails = () => {
-    run(
-      () =>
-        updateDocFields.mutateAsync({
-          id,
-          patch: {
-            header_field_values: headerValues,
-            footer_field_values: footerValues,
-            terms_and_conditions: termsText.trim() || null,
-          },
-        }),
-      'Document details saved'
-    );
-  };
-
-  const handleItemExtraBlur = (itemId: string, key: string, value: string) => {
-    updateItemExtra.mutateAsync({ poId: id, itemId, extraFields: { [key]: value } }).catch((e) => {
-      toast.error(errorMessage(e, 'Failed to save field'));
+  /** Save the typed blanks, if anything changed since the last save. Quietly: it runs on every blur. */
+  const saveBlanks = async () => {
+    if (!canCreate) return;
+    const snapshot = JSON.stringify([headerValues, footerValues]);
+    if (snapshot === lastSaved) return;
+    await updateDocFields.mutateAsync({
+      id,
+      patch: { header_field_values: headerValues, footer_field_values: footerValues },
     });
+    setLastSaved(snapshot);
   };
 
   if (isLoading) {
@@ -207,8 +139,7 @@ export default function PurchaseOrderDetailPage() {
 
   // One workflow action at a time — a second click while the first is in
   // flight would try the same transition from a state the PO has already left.
-  const transitionBusy =
-    submitPO.isPending || approvePO.isPending || cancelPO.isPending || rejectPO.isPending;
+  const transitionBusy = submitPO.isPending || approvePO.isPending || cancelPO.isPending || rejectPO.isPending;
 
   const run = async (fn: () => Promise<unknown>, ok: string) => {
     try {
@@ -242,64 +173,138 @@ export default function PurchaseOrderDetailPage() {
 
   const reject: DocAction | null =
     po.status === 'pending_approval' && canApprove
-      ? { key: 'reject', label: 'Reject', icon: X, onClick: () => setRejectOpen(true) }
+      ? {
+          key: 'reject',
+          label: 'Reject',
+          icon: X,
+          onClick: () => setRejectOpen(true),
+        }
       : null;
 
-  const actions: DocAction[] = [];
   const purchase = po.purchase_request;
-  if (purchase) {
-    actions.push({
-      key: 'view-purchase',
-      label: 'View purchase',
-      icon: ClipboardList,
-      onClick: () => router.push(`/procurement/requests/${purchase.id}`),
-    });
-  }
-  if (canCancel) {
-    actions.push({
-      key: 'cancel',
-      label: 'Cancel PO',
-      disabled: transitionBusy,
-      icon: Ban,
-      destructive: true,
-      confirm: {
-        title: `Cancel ${po.po_number}?`,
-        description: 'The purchase order stops here and cannot be reopened.',
-        confirmLabel: 'Cancel PO',
-      },
-      onClick: () => run(() => cancelPO.mutateAsync({ id, userId: profile!.id }), 'Purchase order cancelled'),
-    });
-  }
 
-  const printedFilled =
-    Object.values(po.header_field_values || {}).filter(Boolean).length +
-    Object.values(po.footer_field_values || {}).filter(Boolean).length +
-    (po.terms_and_conditions ? 1 : 0);
-  const printedTotal = headerFieldDefs.length + footerFieldDefs.length + 1;
+  const docFormat = po.po_format ?? STANDARD_PO_FORMAT;
+  const extraCols = docFormat.item_columns.filter((c) => c.source.startsWith('item_extra.'));
+  // The order exactly as it will print, with what's typed here.
+  const livePo = {
+    ...po,
+    header_field_values: headerValues,
+    footer_field_values: footerValues,
+    items: po.items.map((it) =>
+      itemEdits[it.id] ? { ...it, extra_fields: { ...(it.extra_fields ?? {}), ...itemEdits[it.id] } } : it
+    ),
+  };
+  const liveModel = resolvePoDocumentModel(livePo);
+  const missing = [...REQUIRED_KEYS].filter((k) => !String(headerValues[k] ?? '').trim());
+
+  const extraOf = (i: number, key: string) => {
+    const col = extraCols.find((c) => c.key === key);
+    const it = livePo.items[i];
+    return col && it ? { it, k: extraFieldKey(col.source) } : null;
+  };
+  /** A line has no value of its own and none from the quotation / item master. */
+  const isBlank = (i: number, key: string) => {
+    const x = extraOf(i, key);
+    if (!x) return false;
+    const own = x.it.extra_fields?.[x.k];
+    return (own === undefined || own === '') && !catalogExtra(x.it, x.k);
+  };
+  const rememberItemEdit = (itemId: string, k: string, value: string) =>
+    setItemEdits((prev) => ({ ...prev, [itemId]: { ...(prev[itemId] ?? {}), [k]: value } }));
+
+  const edit: PoPreviewEdit | undefined = canCreate
+    ? {
+        value: (k) => (FOOTER_KEYS.has(k) ? footerValues[k] : headerValues[k]) ?? '',
+        onChange: (k, v) => (FOOTER_KEYS.has(k) ? setFooterValues : setHeaderValues)((prev) => ({ ...prev, [k]: v })),
+        onCommit: () => {
+          saveBlanks().catch((e) => toast.error(errorMessage(e, 'Could not save')));
+        },
+        required: REQUIRED_KEYS,
+        itemKeys: new Set(extraCols.map((c) => c.key)),
+        itemValue: (i, key) => {
+          const x = extraOf(i, key);
+          if (!x) return '';
+          const own = x.it.extra_fields?.[x.k];
+          return String(own !== undefined && own !== '' ? own : (catalogExtra(x.it, x.k) ?? ''));
+        },
+        // From the vendor's quotation (or item master): printed as is. Only a blank is typed.
+        itemEditable: (i, key) => {
+          const x = extraOf(i, key);
+          if (!x) return false;
+          const own = x.it.extra_fields?.[x.k];
+          return (own !== undefined && own !== '') || !catalogExtra(x.it, x.k);
+        },
+        onItemCommit: (i, key, value) => {
+          const x = extraOf(i, key);
+          if (!x) return;
+          rememberItemEdit(x.it.id, x.k, value);
+          updateItemExtra
+            .mutateAsync({ poId: id, itemId: x.it.id, extraFields: { [x.k]: value } })
+            .catch((e) => toast.error(errorMessage(e, 'Could not save')));
+        },
+        // Only the lines still blank: never over a value typed or taken from the quotation.
+        onApplyAll: (key, value) => {
+          const col = extraCols.find((c) => c.key === key);
+          if (!col) return;
+          const itemIds = livePo.items.filter((_, i) => isBlank(i, key)).map((it) => it.id);
+          if (!itemIds.length) {
+            toast.info(`Every line already has ${col.label}`);
+            return;
+          }
+          for (const itemId of itemIds) rememberItemEdit(itemId, extraFieldKey(col.source), value);
+          applyToAll
+            .mutateAsync({ poId: id, itemIds, extraFields: { [extraFieldKey(col.source)]: value } })
+            .then(() => toast.success(`${col.label} ${value} on ${itemIds.length} items`))
+            .catch((e) => toast.error(errorMessage(e, 'Could not save')));
+        },
+      }
+    : undefined;
+
+  // Download = what's on screen, saved first so a reprint matches.
+  const download = async (as: 'pdf' | 'word') => {
+    // Only someone who can fill the blanks is held back by them; a reader just downloads.
+    if (canCreate && missing.length > 0) {
+      toast.error(`Fill ${missing.map((k) => PO_REQUIRED_FIELDS[k]).join(', ')} first`);
+      return;
+    }
+    try {
+      await saveBlanks();
+      await (as === 'pdf' ? downloadPurchaseOrderPdf(livePo) : downloadPurchaseOrderDocx(livePo));
+      // Downloaded by the store to send to the vendor: the order is now "sent".
+      // A reader downloading to look leaves it as it is.
+      if (canCreate && po.status === 'approved') {
+        markSent.mutate(po.id, {
+          onError: (e) => toast.error(errorMessage(e, 'Could not mark the order as sent')),
+        });
+      }
+    } catch (e) {
+      toast.error(errorMessage(e, 'Could not prepare the order'));
+    }
+  };
 
   return (
     <ContentLayout title={purchase ? displayRequestNumber(purchase.request_number) : po.po_number}>
-      {/* The order page is about the printed document: a slim header, then the
-          details edge to edge. Items and vendor live on the purchase page. */}
       <div className="w-full space-y-4">
-        <Button
-          variant="link"
-          className="h-8 px-0"
-          onClick={() => router.push(purchase ? `/procurement/requests/${purchase.id}` : '/procurement/purchase-orders')}
-        >
-          <ChevronLeft className="mr-1 h-4 w-4" />
-          {purchase ? 'Back to the purchase' : 'Purchase orders'}
-        </Button>
-
-        <header className="flex flex-wrap items-start justify-between gap-3">
-          <div className="min-w-0 space-y-1">
-            <div className="flex flex-wrap items-center gap-2">
-              <h1 className="text-2xl font-bold">Order to {po.supplier?.name ?? 'vendor'}</h1>
-              <StatusBadge status={po.status} config={PO_STATUS_CONFIG} />
-            </div>
+        {/* One row: back, vendor, status, numbers, then the actions. Wraps on a phone. */}
+        <header className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-9 w-9 shrink-0"
+              aria-label={purchase ? 'Back to the purchase' : 'Purchase orders'}
+              title={purchase ? 'Back to the purchase' : 'Purchase orders'}
+              onClick={() =>
+                router.push(purchase ? `/procurement/requests/${purchase.id}` : '/procurement/purchase-orders')
+              }
+            >
+              <ChevronLeft className="h-5 w-5" />
+            </Button>
+            <h1 className="text-xl font-bold">Order to {po.supplier?.name ?? 'vendor'}</h1>
+            <StatusBadge status={po.status} config={PO_STATUS_CONFIG} />
             <p className="text-sm text-muted-foreground">
               {po.po_number}
-              {purchase ? ` · Purchase ${displayRequestNumber(purchase.request_number)}` : ''}
+              {purchase ? ` · ${displayRequestNumber(purchase.request_number)}` : ''}
               {` · ${po.items.length} item${po.items.length === 1 ? '' : 's'} · `}
               <b className="tabular-nums text-foreground">₹{Number(po.total_amount).toLocaleString('en-IN')}</b>
               {po.created_at ? ` · ${formatDateDMY(po.created_at)}` : ''}
@@ -307,7 +312,12 @@ export default function PurchaseOrderDetailPage() {
           </div>
           <div className="flex flex-wrap gap-2">
             {reject && (
-              <Button variant="outline" className="h-10 text-destructive" onClick={reject.onClick} disabled={transitionBusy}>
+              <Button
+                variant="outline"
+                className="h-10 text-destructive"
+                onClick={reject.onClick}
+                disabled={transitionBusy}
+              >
                 Reject
               </Button>
             )}
@@ -320,183 +330,37 @@ export default function PurchaseOrderDetailPage() {
           </div>
         </header>
 
-        {/* Deliveries are recorded on the purchase page; this page only prepares the order. */}
-        {['approved', 'sent', 'partially_received'].includes(po.status) && (
-          <p className="rounded-xl bg-blue-50 px-4 py-2.5 text-sm text-blue-800 dark:bg-blue-950/40 dark:text-blue-300">
-            When the goods arrive, record the delivery on{' '}
-            {purchase ? (
-              <button type="button" className="font-medium underline" onClick={() => router.push(`/procurement/requests/${purchase.id}`)}>
-                the purchase page
-              </button>
-            ) : (
-              'the purchase page'
-            )}
-            .
-          </p>
-        )}
-
         {po.status === 'rejected' && po.rejection_reason && (
-          <p className="rounded-xl bg-red-50 px-4 py-2.5 text-sm text-red-800 dark:bg-red-950/40 dark:text-red-300">
+          <p className="rounded-xl bg-destructive/10 px-4 py-2.5 text-sm text-destructive">
             Rejected: {po.rejection_reason}
           </p>
         )}
 
-        {/* ── Details printed on the order: edge to edge, 5 compact fields per row ── */}
-        <section className="overflow-hidden rounded-2xl border bg-card shadow-sm">
-          <div className="flex flex-wrap items-center gap-x-4 gap-y-2 border-b px-5 py-3">
-            <span className="mr-auto">
-              <span className="block text-[15px] font-semibold">Details printed on the order</span>
-              <span className="text-xs text-muted-foreground">
-                Optional — fill only what your format prints · {printedFilled} of {printedTotal} filled
-              </span>
-            </span>
-            {canCreate ? (
-              <>
-                <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                  Print as
-                  <Select
-                    value={po.po_format_id ?? 'none'}
-                    onValueChange={(v) =>
-                      v === NEW_FORMAT ? router.push('/procurement/purchase-orders/formats/new') : handleFormatChange(v)
-                    }
-                  >
-                    <SelectTrigger className="h-8 w-40 text-[13px] text-foreground">
-                      <SelectValue placeholder="Standard" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="none">Standard</SelectItem>
-                      {(formats ?? []).map((f) => (
-                        <SelectItem key={f.id} value={f.id}>
-                          {f.name}
-                        </SelectItem>
-                      ))}
-                      <SelectSeparator />
-                      <SelectItem value={NEW_FORMAT} className="text-primary">
-                        + New format
-                      </SelectItem>
-                    </SelectContent>
-                  </Select>
-                </label>
-                {(formats ?? []).length > 0 && (
-                  <label className="flex cursor-pointer items-center gap-1.5 text-xs text-muted-foreground">
-                    <Checkbox checked={setAsVendorDefault} onCheckedChange={(c) => handleToggleSetAsDefault(!!c)} />
-                    Always for this vendor
-                  </label>
-                )}
-              </>
-            ) : (
-              <span className="text-xs text-muted-foreground">
-                Prints as <span className="font-medium text-foreground">{activeFormat?.name ?? 'Standard'}</span>
-              </span>
-            )}
-            <span className="flex gap-1.5">
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button variant="outline" size="sm" className="h-8">
-                    <FileDown className="mr-1 h-3.5 w-3.5" />
-                    Download
-                    <ChevronDown className="ml-1 h-3.5 w-3.5" />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end">
-                  <DropdownMenuItem onClick={() => downloadPurchaseOrderPdf(po)}>
-                    <FileDown className="mr-2 h-4 w-4" />
-                    PDF
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => downloadPurchaseOrderDocx(po)}>
-                    <FileText className="mr-2 h-4 w-4" />
-                    Word
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-              {canCreate && (
-                <Button size="sm" className="h-8" onClick={handleSaveDocumentDetails} disabled={updateDocFields.isPending}>
-                  {updateDocFields.isPending ? 'Saving…' : 'Save details'}
-                </Button>
-              )}
-            </span>
-          </div>
+        {/* The order itself; blanks are typed in place and save on their own. */}
+        <PoDocumentPreview model={liveModel} edit={edit} />
 
-          <div className="space-y-4 px-5 py-4">
-            {canCreate ? (
-              <>
-                {(headerFieldDefs.length > 0 || footerFieldDefs.length > 0) && (
-                  <div className="grid grid-cols-2 gap-x-2.5 gap-y-3 md:grid-cols-3 xl:grid-cols-5">
-                    {headerFieldDefs.map((f) => {
-                      const key = f.source.slice('header_values.'.length);
-                      return (
-                        <label key={f.key} className="min-w-0 space-y-1">
-                          <span className="block truncate text-[11px] text-muted-foreground" title={f.label}>
-                            {f.label}
-                          </span>
-                          <Input
-                            className="h-8 text-[13px]"
-                            value={headerValues[key] ?? ''}
-                            onChange={(e) => setHeaderValues((prev) => ({ ...prev, [key]: e.target.value }))}
-                          />
-                        </label>
-                      );
-                    })}
-                    {footerFieldDefs.map((f) => (
-                      <label key={f.key} className="min-w-0 space-y-1">
-                        <span className="block truncate text-[11px] text-muted-foreground" title={f.label}>
-                          {f.label}
-                        </span>
-                        <Input
-                          className="h-8 text-[13px]"
-                          value={footerValues[f.key] ?? ''}
-                          onChange={(e) => setFooterValues((prev) => ({ ...prev, [f.key]: e.target.value }))}
-                        />
-                      </label>
-                    ))}
-                  </div>
-                )}
-                <label className="block space-y-1">
-                  <span className="text-[11px] text-muted-foreground">Terms &amp; conditions</span>
-                  <Textarea className="min-h-[60px] text-[13px]" value={termsText} onChange={(e) => setTermsText(e.target.value)} rows={2} />
-                </label>
-                {itemExtraColumns.length > 0 && (
-                  <div className="space-y-2">
-                    <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Per item</span>
-                    {po.items.map((it) => (
-                      <div key={it.id} className="grid grid-cols-2 items-center gap-2.5 text-sm md:grid-cols-3 xl:grid-cols-5">
-                        <span className="min-w-0 truncate">{it.item_name}</span>
-                        {itemExtraColumns.map((c) => {
-                          const key = extraFieldKey(c.source);
-                          return (
-                            <Input
-                              key={c.key}
-                              placeholder={c.label}
-                              aria-label={`${c.label} for ${it.item_name}`}
-                              defaultValue={String(it.extra_fields?.[key] ?? '')}
-                              onBlur={(e) => handleItemExtraBlur(it.id, key, e.target.value)}
-                              className="h-8 text-[13px]"
-                            />
-                          );
-                        })}
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </>
-            ) : (
-              <div className="grid grid-cols-2 gap-x-2.5 gap-y-2 text-sm md:grid-cols-3 xl:grid-cols-5">
-                {Object.entries({ ...(po.header_field_values || {}), ...(po.footer_field_values || {}) }).map(([k, v]) => (
-                  <p key={k} className="min-w-0">
-                    <span className="block truncate text-[11px] text-muted-foreground">{k}</span>
-                    {v || '—'}
-                  </p>
-                ))}
-                {po.terms_and_conditions && (
-                  <p className="col-span-full">
-                    <span className="block text-[11px] text-muted-foreground">Terms &amp; conditions</span>
-                    {po.terms_and_conditions}
-                  </p>
-                )}
-              </div>
-            )}
-          </div>
-        </section>
+        {/* Footer: send it out once it reads right. */}
+        <div className="flex justify-end">
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button className="h-10 px-5" variant={missing.length ? 'outline' : 'default'}>
+                  <FileDown className="mr-1.5 h-4 w-4" />
+                  Download
+                  <ChevronDown className="ml-1 h-4 w-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" side="top">
+                <DropdownMenuItem onClick={() => download('pdf')}>
+                  <FileDown className="mr-2 h-4 w-4" />
+                  PDF
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => download('word')}>
+                  <FileText className="mr-2 h-4 w-4" />
+                  Word
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+        </div>
 
         {canCancel && (
           <p className="text-center text-sm text-muted-foreground">
@@ -536,7 +400,12 @@ export default function PurchaseOrderDetailPage() {
               disabled={!rejectReason.trim()}
               onClick={async () => {
                 await run(
-                  () => rejectPO.mutateAsync({ id, userId: profile!.id, reason: rejectReason }),
+                  () =>
+                    rejectPO.mutateAsync({
+                      id,
+                      userId: profile!.id,
+                      reason: rejectReason,
+                    }),
                   'Purchase order rejected'
                 );
                 setRejectOpen(false);

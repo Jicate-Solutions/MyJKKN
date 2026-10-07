@@ -15,14 +15,14 @@ import { cn } from '@/lib/utils';
  * a bare `text-*-700` is unreadable on a dark surface.
  */
 export const STATUS_TONE: Record<string, string> = {
-  gray: 'border-gray-400 text-gray-700 dark:border-gray-500 dark:text-gray-300',
-  blue: 'border-blue-400 text-blue-700 dark:border-blue-500 dark:text-blue-300',
-  indigo: 'border-indigo-400 text-indigo-700 dark:border-indigo-400 dark:text-indigo-300',
-  purple: 'border-purple-400 text-purple-700 dark:border-purple-400 dark:text-purple-300',
-  green: 'border-green-500 text-green-700 dark:border-green-500 dark:text-green-300',
-  amber: 'border-amber-500 text-amber-700 dark:border-amber-500 dark:text-amber-300',
-  orange: 'border-orange-500 text-orange-700 dark:border-orange-500 dark:text-orange-300',
-  red: 'border-red-500 text-red-700 dark:border-red-500 dark:text-red-300',
+  gray: 'border-border text-muted-foreground',
+  blue: 'border-primary text-primary',
+  indigo: 'border-primary text-primary',
+  purple: 'border-primary text-primary',
+  green: 'border-primary text-primary',
+  amber: 'border-secondary bg-secondary/20 text-foreground',
+  orange: 'border-secondary bg-secondary/20 text-foreground',
+  red: 'border-destructive text-destructive',
 };
 
 export type StatusConfigEntry = { label: string; color: string };

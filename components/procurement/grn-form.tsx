@@ -561,7 +561,7 @@ export function GrnForm({ poId, onSaved, onCancel, compact, onDirtyChange }: Grn
                 aria-invalid={!invoiceDate}
               />
               {invoiceDateWarning && (
-                <p className="text-[11px] text-amber-600 dark:text-amber-500">
+                <p className="text-[11px] text-foreground">
                   {invoiceDateWarning}
                 </p>
               )}

@@ -10,8 +10,8 @@
 // carries the private-bucket upload machinery a survey has no use for, and its
 // FormFieldType has no 'rating' — the one type this whole feature exists for.
 
-import { Star } from 'lucide-react';
 import { Input } from '@/components/ui/input';
+import { StarRating } from '@/components/ui/star-rating';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -75,13 +75,14 @@ function RatingInput({
   onChange: (next: number) => void;
   disabled?: boolean;
 }) {
+  if (scale <= 5) {
+    return <StarRating value={value} scale={scale} onChange={onChange} disabled={disabled} size="lg" showValue />;
+  }
   const points = Array.from({ length: scale }, (_, i) => i + 1);
-  const useStars = scale <= 5;
 
   return (
     <div className="flex flex-wrap items-center gap-1.5" role="radiogroup">
       {points.map((point) => {
-        const active = value >= point;
         const exact = value === point;
         return (
           <button
@@ -93,30 +94,16 @@ function RatingInput({
             disabled={disabled}
             onClick={() => onChange(exact ? 0 : point)}
             className={cn(
-              'transition-colors disabled:cursor-not-allowed disabled:opacity-60',
-              useStars
-                ? 'rounded p-0.5 hover:scale-110'
-                : cn(
-                    'h-9 w-9 rounded-md border text-sm font-medium',
-                    // For a numbered scale only the CHOSEN point is filled.
-                    // Filling everything below it would read as "I picked 1
-                    // through 7", which is not what a 7/10 means.
-                    exact
-                      ? 'border-primary bg-primary text-primary-foreground'
-                      : 'hover:border-primary hover:bg-accent'
-                  )
+              'h-9 w-9 rounded-md border text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-60',
+              // For a numbered scale only the CHOSEN point is filled.
+              // Filling everything below it would read as "I picked 1
+              // through 7", which is not what a 7/10 means.
+              exact
+                ? 'border-primary bg-primary text-primary-foreground'
+                : 'hover:border-primary hover:bg-accent'
             )}
           >
-            {useStars ? (
-              <Star
-                className={cn(
-                  'h-7 w-7',
-                  active ? 'fill-amber-400 text-amber-400' : 'text-muted-foreground/40'
-                )}
-              />
-            ) : (
-              point
-            )}
+            {point}
           </button>
         );
       })}
