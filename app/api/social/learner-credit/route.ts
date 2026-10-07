@@ -127,6 +127,11 @@ async function resolvePostOrExplain(
 // ---------------------------------------------------------------------------
 // GET — the board
 // ---------------------------------------------------------------------------
+/** PostgREST returns at most 1,000 rows a read, so the board reads in pages of that size. */
+const CLAIM_PAGE_SIZE = 1000;
+/** Hard stop: past this many pages the board refuses rather than undercount. */
+const CLAIM_PAGE_LIMIT = 50;
+
 export async function GET(req: NextRequest) {
   // getAuthUser() returns { user, error }, never a bare user. Testing the
   // wrapper object for truthiness is always true, which silently disabled this
@@ -140,17 +145,45 @@ export async function GET(req: NextRequest) {
 
   // RLS decides which claims this person may see: their own, or their
   // institution's if they hold social.learner_credit.view.
-  let q = db
-    .from('ig_learner_post_claims')
-    .select('learner_id, ig_post_id, status, institution_id');
-  if (institutionId) q = q.eq('institution_id', institutionId);
-  const { data: claims, error } = await q;
+  //
+  // Read in pages. PostgREST caps one read at 1,000 rows and says nothing when
+  // it does, so a single select undercounts the board once there are more
+  // claims than that. A stable order by id keeps pages from overlapping or
+  // skipping rows. The hard stop answers 500 rather than show a partial board.
+  const claims: Array<Record<string, unknown>> = [];
+  let complete = false;
+  for (let page = 0; page < CLAIM_PAGE_LIMIT; page += 1) {
+    let q = db
+      .from('ig_learner_post_claims')
+      .select('learner_id, ig_post_id, status, institution_id');
+    if (institutionId) q = q.eq('institution_id', institutionId);
+    const from = page * CLAIM_PAGE_SIZE;
+    const { data, error } = await q
+      .order('id', { ascending: true })
+      .range(from, from + CLAIM_PAGE_SIZE - 1);
 
-  if (error) {
-    logger.error(MODULE, 'claim read failed', error);
-    return deny('Could not read the claims just now.', 500);
+    if (error) {
+      logger.error(MODULE, 'claim read failed', error);
+      return deny('Could not read the claims just now.', 500);
+    }
+    const pageRows = (data ?? []) as Array<Record<string, unknown>>;
+    claims.push(...pageRows);
+    if (pageRows.length < CLAIM_PAGE_SIZE) {
+      complete = true;
+      break;
+    }
   }
-  if (!claims || claims.length === 0) {
+  if (!complete) {
+    logger.error(MODULE, 'claim read stopped at the page limit', {
+      pages: CLAIM_PAGE_LIMIT,
+      rows: claims.length,
+    });
+    return deny(
+      `There are more than ${(CLAIM_PAGE_SIZE * CLAIM_PAGE_LIMIT).toLocaleString('en-IN')} claims to read, so the board cannot be shown in full. Choose one institution and try again.`,
+      500
+    );
+  }
+  if (claims.length === 0) {
     return NextResponse.json({
       success: true,
       rows: [],
