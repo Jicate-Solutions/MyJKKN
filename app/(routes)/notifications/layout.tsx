@@ -9,28 +9,37 @@
 // editorial × Bloomberg aesthetic — display serif headline numbers,
 // monospace tabular numerals for trajectory readability.
 
-import { Newsreader, IBM_Plex_Sans, IBM_Plex_Mono } from 'next/font/google';
+// Self-hosted from app/fonts/ (see app/layout.tsx) so the build never fetches
+// fonts.googleapis.com. Fallback faces live in app/fonts/fonts.css (imported
+// by the root layout).
+import localFont from 'next/font/local';
 
-const newsreader = Newsreader({
-  subsets: ['latin'],
+const newsreader = localFont({
+  src: [{ path: '../../fonts/newsreader/Newsreader-Variable.woff2', weight: '400 600', style: 'normal' }],
   variable: '--font-newsreader',
   display: 'swap',
-  weight: ['400', '500', '600'],
-  style: ['normal']
+  adjustFontFallback: false,
+  fallback: ['Newsreader Fallback']
 });
 
-const plexSans = IBM_Plex_Sans({
-  subsets: ['latin'],
+const plexSans = localFont({
+  src: [{ path: '../../fonts/ibm-plex-sans/IBMPlexSans-Variable.woff2', weight: '400 700', style: 'normal' }],
   variable: '--font-plex-sans',
   display: 'swap',
-  weight: ['400', '500', '600', '700']
+  adjustFontFallback: false,
+  fallback: ['IBM Plex Sans Fallback']
 });
 
-const plexMono = IBM_Plex_Mono({
-  subsets: ['latin'],
+const plexMono = localFont({
+  src: [
+    { path: '../../fonts/ibm-plex-mono/IBMPlexMono-Regular.woff2', weight: '400', style: 'normal' },
+    { path: '../../fonts/ibm-plex-mono/IBMPlexMono-Medium.woff2', weight: '500', style: 'normal' },
+    { path: '../../fonts/ibm-plex-mono/IBMPlexMono-SemiBold.woff2', weight: '600', style: 'normal' }
+  ],
   variable: '--font-plex-mono',
   display: 'swap',
-  weight: ['400', '500', '600']
+  adjustFontFallback: false,
+  fallback: ['IBM Plex Mono Fallback']
 });
 
 export default function NotificationsLayout({
