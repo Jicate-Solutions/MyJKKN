@@ -14,7 +14,8 @@ import { useDebounceValue } from '@/hooks/use-debounce-value';
 import { InstitutionFilter } from '@/components/procurement/institution-filter';
 import { StatusBadge } from '@/components/procurement/status-badge';
 import { ResponsiveList } from '@/components/procurement/responsive-list';
-import { PageHeader, FilterBar } from '@/components/procurement/page-header';
+import { FilterBar } from '@/components/procurement/page-header';
+import { useMyApprovals } from '@/hooks/procurement/use-approval-chains';
 import { EmptyState } from '@/components/empty-state';
 import { AlertBox } from '@/components/ui/alert-box';
 import { formatDateDMY } from '@/lib/utils/date-format';
@@ -94,6 +95,8 @@ export default function RfqsPage() {
   const [search, setSearch] = useState('');
   const debouncedSearch = useDebounceValue(search, 300);
   const searchParams = useSearchParams();
+  // Opens on "Waiting for you"; a link that names a status (Overview bars) opens on All instead.
+  const [waitingForMe, setWaitingForMe] = useState(() => !searchParams.get('status'));
   // The Overview status bars link here with ?institution=<id|all>&status=<status>.
   const [statusFilter, setStatusFilter] = useState<string>(() => searchParams.get('status') ?? 'all');
   const [institutionId, setInstitutionId] = useState<string | undefined>(
@@ -112,10 +115,19 @@ export default function RfqsPage() {
     status: statusFilter !== 'all' ? (statusFilter as RfqStatus) : undefined,
     institution_id: allColleges ? undefined : effectiveInstitution,
     all_institutions: allColleges,
+    // "Waiting for you" is worked out here, so load enough rows for the counts to be true.
+    limit: 200,
   };
 
   const { data: response, isLoading, isError } = useRfqs(filters);
-  const rfqs = response?.data ?? [];
+  // "Waiting for you" = quotations whose final approval is this viewer's turn (same source as
+  // My approvals, including the Super Admin's own final approvals).
+  const { data: myApprovals = [] } = useMyApprovals();
+  const finalIds = new Set(myApprovals.filter((a) => a.stage === 'final').map((a) => a.request_id));
+  const isMine = (rfq: ProcurementRfq) => !!rfq.source_request_id && finalIds.has(rfq.source_request_id);
+  const allRfqs = response?.data ?? [];
+  const waitingCount = allRfqs.filter(isMine).length;
+  const rfqs = waitingForMe ? allRfqs.filter(isMine) : allRfqs;
   const { data: approvedPRs = [] } = useApprovedRequestsForSelect(effectiveInstitution);
   const createRfq = useCreateRfqFromPR();
 
@@ -135,18 +147,37 @@ export default function RfqsPage() {
   return (
     <ContentLayout title="Quotations">
       <div className="space-y-4 sm:space-y-6">
-        <PageHeader
-          title="Quotations"
-          description="Turn requests into quotations, collect vendor quotes and send the choice to the Super Admin."
-          actions={
-            canManage && (
-              <Button onClick={() => setCreateOpen(true)}>
-                <Plus className="mr-2 h-4 w-4" />
-                Get quotations
-              </Button>
-            )
-          }
-        />
+        <header className="flex flex-wrap items-center justify-between gap-3">
+          {/* One switch: final approvals that are mine, or everything. */}
+          <div role="group" aria-label="Show" className="flex gap-1 rounded-xl border bg-card p-1">
+            {[
+              { value: true, label: 'Waiting for you', count: waitingCount },
+              { value: false, label: 'All', count: rfqs.length },
+            ].map((t) => {
+              const on = waitingForMe === t.value;
+              return (
+                <button
+                  key={t.label}
+                  type="button"
+                  aria-pressed={on}
+                  onClick={() => setWaitingForMe(t.value)}
+                  className={`inline-flex h-9 items-center justify-center gap-2 rounded-lg px-4 text-sm font-semibold transition-colors ${
+                    on ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground'
+                  }`}
+                >
+                  {t.label}
+                  <span className="min-w-6 rounded-full bg-current/15 px-2 text-xs tabular-nums">{t.count}</span>
+                </button>
+              );
+            })}
+          </div>
+          {canManage && (
+            <Button onClick={() => setCreateOpen(true)}>
+              <Plus className="mr-2 h-4 w-4" />
+              Get quotations
+            </Button>
+          )}
+        </header>
 
         <Card>
           <CardContent className="p-4 sm:p-6">
@@ -196,8 +227,12 @@ export default function RfqsPage() {
               </div>
             ) : rfqs.length === 0 ? (
               <EmptyState
-                title="No quotations found"
-                description="Get quotations for a request to get started."
+                title={waitingForMe ? 'Nothing is waiting for you' : 'No quotations found'}
+                description={
+                  waitingForMe
+                    ? 'Final approvals that need you appear here.'
+                    : 'Get quotations for a request to get started.'
+                }
               />
             ) : (
               <ResponsiveList
