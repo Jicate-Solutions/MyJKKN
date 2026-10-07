@@ -11362,3 +11362,76 @@ CREATE TABLE IF NOT EXISTS public.hostel_floors (
 ALTER TABLE public.hostel_floors ENABLE ROW LEVEL SECURITY;
 -- FK child index: the (block_id, floor) probe run on every floor delete.
 CREATE INDEX IF NOT EXISTS idx_hostel_rooms_block_floor ON public.hostel_rooms (block_id, floor);
+
+
+-- Mirrored from supabase/migrations/20271007150000_hr_salary_register_manual_days.sql
+CREATE TABLE IF NOT EXISTS public.hr_salary_register_manual_days (
+  id                     uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  hr_organization_id     uuid NOT NULL REFERENCES public.hr_organizations(id) ON DELETE CASCADE,
+  institution_id         uuid NOT NULL REFERENCES public.institutions(id),
+  period_year            integer NOT NULL CHECK (period_year BETWEEN 2020 AND 2100),
+  period_month           integer NOT NULL CHECK (period_month BETWEEN 1 AND 12),
+  staff_id               uuid NOT NULL REFERENCES public.staff(id) ON DELETE CASCADE,
+
+  business_working_days  numeric(5,2) NOT NULL,
+  casual_leave_days      numeric(5,2) NOT NULL DEFAULT 0,
+  comp_off_days          numeric(5,2) NOT NULL DEFAULT 0,
+  other_paid_leave_days  numeric(5,2) NOT NULL DEFAULT 0,
+  on_duty_days           numeric(5,2) NOT NULL DEFAULT 0,
+  -- LOP. Worked days are DERIVED (working − the five above), never stored, so a
+  -- row cannot be saved that fails to add up.
+  unpaid_leave_days      numeric(5,2) NOT NULL DEFAULT 0,
+
+  -- Only when the person has NO salary recorded; NULL means "use the salary in
+  -- force", which is the normal case.
+  monthly_gross          numeric(12,2),
+
+  reason                 text NOT NULL,
+
+  created_at             timestamptz NOT NULL DEFAULT now(),
+  updated_at             timestamptz NOT NULL DEFAULT now(),
+  created_by             uuid REFERENCES auth.users(id) ON DELETE SET NULL,
+  updated_by             uuid REFERENCES auth.users(id) ON DELETE SET NULL,
+
+  CONSTRAINT uq_hr_salary_register_manual_days_staff_month
+    UNIQUE (hr_organization_id, period_year, period_month, staff_id),
+  CONSTRAINT hr_srmd_working_days_chk
+    CHECK (business_working_days > 0 AND business_working_days <= 31),
+  CONSTRAINT hr_srmd_days_nonneg_chk
+    CHECK (casual_leave_days >= 0 AND comp_off_days >= 0 AND other_paid_leave_days >= 0
+           AND on_duty_days >= 0 AND unpaid_leave_days >= 0),
+  -- Half-days are real; quarter-days are a typo.
+  CONSTRAINT hr_srmd_half_day_steps_chk
+    CHECK (business_working_days * 2 = trunc(business_working_days * 2)
+           AND casual_leave_days * 2 = trunc(casual_leave_days * 2)
+           AND comp_off_days * 2 = trunc(comp_off_days * 2)
+           AND other_paid_leave_days * 2 = trunc(other_paid_leave_days * 2)
+           AND on_duty_days * 2 = trunc(on_duty_days * 2)
+           AND unpaid_leave_days * 2 = trunc(unpaid_leave_days * 2)),
+  CONSTRAINT hr_srmd_days_fit_month_chk
+    CHECK (casual_leave_days + comp_off_days + other_paid_leave_days + on_duty_days + unpaid_leave_days
+           <= business_working_days),
+  CONSTRAINT hr_srmd_monthly_gross_chk
+    CHECK (monthly_gross IS NULL OR (monthly_gross > 0 AND monthly_gross < 100000000)),
+  CONSTRAINT hr_srmd_reason_chk
+    CHECK (length(btrim(reason)) BETWEEN 3 AND 300)
+);
+CREATE INDEX IF NOT EXISTS idx_hr_srmd_institution ON public.hr_salary_register_manual_days (institution_id);
+CREATE INDEX IF NOT EXISTS idx_hr_srmd_staff       ON public.hr_salary_register_manual_days (staff_id);
+CREATE INDEX IF NOT EXISTS idx_hr_srmd_created_by  ON public.hr_salary_register_manual_days (created_by);
+CREATE INDEX IF NOT EXISTS idx_hr_srmd_updated_by  ON public.hr_salary_register_manual_days (updated_by);
+
+ALTER TABLE public.hr_salary_register_lines
+  ADD COLUMN IF NOT EXISTS entry_source text NOT NULL DEFAULT 'biometric',
+  ADD COLUMN IF NOT EXISTS manual_entry_id uuid
+    REFERENCES public.hr_salary_register_manual_days(id) ON DELETE SET NULL,
+  ADD COLUMN IF NOT EXISTS manual_reason text,
+  ADD COLUMN IF NOT EXISTS manual_entered_by uuid REFERENCES auth.users(id) ON DELETE SET NULL,
+  ADD COLUMN IF NOT EXISTS manual_entered_at timestamptz;
+ALTER TABLE public.hr_salary_register_lines
+  ADD CONSTRAINT ck_hr_salary_register_lines_entry_source
+  CHECK (entry_source IN ('biometric', 'manual'));
+CREATE INDEX IF NOT EXISTS idx_hr_salary_register_lines_manual_entry
+  ON public.hr_salary_register_lines (manual_entry_id);
+CREATE INDEX IF NOT EXISTS idx_hr_salary_register_lines_manual_entered_by
+  ON public.hr_salary_register_lines (manual_entered_by);
