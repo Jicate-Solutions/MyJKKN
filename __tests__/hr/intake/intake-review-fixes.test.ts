@@ -632,7 +632,10 @@ describe('ninth review (prepare judges certainty against every college)', () => 
     const { rows } = await runBatch([{ name: 'Asha_Kumar.pdf', bytes: PDF('a') }], tsv(`Asha_Kumar.pdf\tAsha\tasha@example.test\t9811111111\t${J.english.title}`));
     expect(rows[0].proposal.job_id).toBe(J.english.id);
     expect(rows[0].proposal.confidence).toBe('medium');
-    expect(rows[0].proposal.reasons[0]).toContain(`also open at ${J.english_eng.institution_name}`);
+    // ...and the card never names that college: this person cannot see it.
+    expect(rows[0].proposal.reasons[0]).toContain('also open at another college');
+    expect(rows[0].proposal.reasons.join(' ')).not.toContain(J.english_eng.institution_name as string);
+    expect(rawRow(rows[0].id).proposal_reasons.join(' ')).not.toContain(J.english_eng.institution_name as string);
   });
 });
 
