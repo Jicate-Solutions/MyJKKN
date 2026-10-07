@@ -40,9 +40,11 @@ import * as fixtures from './handlers/fixtures';
 import * as matches from './handlers/matches';
 import * as matchesMatch from './handlers/matches-match';
 import * as matchesMatchResult from './handlers/matches-match-result';
+import * as matchesMatchSide from './handlers/matches-match-side';
 import * as paymentCallback from './handlers/payment-callback';
 import * as publicRegister from './handlers/public-register';
 import * as qrGenerate from './handlers/qr-generate';
+import * as spotEntry from './handlers/spot-entry';
 
 /** Route params as Next.js hands them to a route handler: always strings. */
 export type TournamentParams = Record<string, string>;
@@ -86,6 +88,7 @@ export const TOURNAMENT_ROUTES: TournamentRoute[] = [
   { name: 'fixtures', path: 'fixtures', segments: ['fixtures'], methods: ['POST'], module: mod(fixtures) },
   { name: 'matches', path: 'matches', segments: ['matches'], methods: ['GET'], module: mod(matches) },
   { name: 'public-register', path: 'public-register', segments: ['public-register'], methods: ['POST'], module: mod(publicRegister) },
+  { name: 'spot-entry', path: 'spot-entry', segments: ['spot-entry'], methods: ['POST'], module: mod(spotEntry) },
 
   // Two segments — literals first, then the dynamic ids.
   { name: 'payment-callback', path: 'payment/callback', segments: ['payment', 'callback'], methods: ['POST'], module: mod(paymentCallback) },
@@ -96,6 +99,7 @@ export const TOURNAMENT_ROUTES: TournamentRoute[] = [
   // Three segments.
   { name: 'entries-entry-pay', path: 'entries/[entryId]/pay', segments: ['entries', ':entryId', 'pay'], methods: ['POST'], module: mod(entriesEntryPay) },
   { name: 'matches-match-result', path: 'matches/[matchId]/result', segments: ['matches', ':matchId', 'result'], methods: ['POST'], module: mod(matchesMatchResult) },
+  { name: 'matches-match-side', path: 'matches/[matchId]/side', segments: ['matches', ':matchId', 'side'], methods: ['POST'], module: mod(matchesMatchSide) },
 ];
 
 export interface TournamentMatch {

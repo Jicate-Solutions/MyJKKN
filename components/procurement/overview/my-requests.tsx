@@ -14,6 +14,7 @@ import { AlertBox } from '@/components/ui/alert-box';
 import type { ProcurementPurchaseRequest } from '@/types/procurement';
 import { Segmented } from './segmented';
 import { packOrUnit } from '@/lib/procurement/pack-size';
+import { useMyUnratedCounts } from '@/hooks/procurement/use-ratings';
 
 /**
  * "My requests" — the Overview for people who raise purchases. A short list on the
@@ -77,6 +78,8 @@ export function MyRequests() {
     return { req: r, stage, tab: tabOf(stage), age: daysSince(r.updated_at) };
   });
   const count = (t: Tab) => rows.filter((r) => r.tab === t).length;
+  const { data: unrated } = useMyUnratedCounts(!!profile?.id);
+  const toRate = [...(unrated?.values() ?? [])].reduce((s, n) => s + n, 0);
 
   const [tabChoice, setTab] = useState<Tab | null>(null);
   // Open on what needs the requester, else what is on the way.
@@ -101,6 +104,11 @@ export function MyRequests() {
         {drafts.length > 0 && (
           <b className="text-foreground">
             {drafts.length} draft{drafts.length === 1 ? '' : 's'} not submitted ·{' '}
+          </b>
+        )}
+        {toRate > 0 && (
+          <b className="text-foreground">
+            {toRate} item{toRate === 1 ? '' : 's'} to rate ·{' '}
           </b>
         )}
         {count('moving')} on the way · {count('finished')} finished
@@ -158,7 +166,14 @@ export function MyRequests() {
                       {req.created_at ? ` · ${formatDateDMY(req.created_at)}` : ''}
                     </span>
                     <span />
-                    <span className="min-w-0 text-xs text-foreground/80">{WHO[stage] ?? ''}</span>
+                    <span className="min-w-0 text-xs text-foreground/80">
+                      {WHO[stage] ?? ''}
+                      {unrated?.get(req.id) ? (
+                        <span className="ml-1.5 font-semibold text-amber-700 dark:text-amber-400">
+                          · {unrated.get(req.id)} to rate
+                        </span>
+                      ) : null}
+                    </span>
                     <span className={cn('text-right text-xs font-semibold', warn ? 'text-foreground' : 'text-muted-foreground')}>
                       {age === 0 ? 'today' : `${age}d`}
                     </span>
@@ -189,6 +204,8 @@ function RequestDetail({ id }: { id: string }) {
   const { data: pr } = usePurchaseRequest(id);
   const { data: journey } = useRequestJourney({ requestId: id }, pr?.status);
   const [section, setSection] = useState<'progress' | 'items' | 'notes'>('progress');
+  const { data: unrated } = useMyUnratedCounts();
+  const toRate = unrated?.get(id) ?? 0;
 
   if (!pr) return <p className="px-6 py-10 text-sm text-muted-foreground">Loading…</p>;
 
@@ -355,6 +372,14 @@ function RequestDetail({ id }: { id: string }) {
               ? 'Your move.'
               : 'Nothing for you to do.'}
         </span>
+        {toRate > 0 && (
+          <Link
+            href={`/procurement/requests/${pr.id}#rate`}
+            className="inline-flex min-h-10 items-center rounded-lg border border-amber-500/60 px-4 text-sm font-semibold text-amber-800 hover:bg-amber-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring dark:text-amber-300 dark:hover:bg-amber-950/40"
+          >
+            Rate {toRate} item{toRate === 1 ? '' : 's'}
+          </Link>
+        )}
         <Link
           href={`/procurement/requests/${pr.id}`}
           className={cn(

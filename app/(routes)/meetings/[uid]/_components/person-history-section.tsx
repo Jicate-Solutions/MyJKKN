@@ -37,6 +37,10 @@ const OUTCOME_CLASS: Record<MeetingOutcome, string> = {
     'border-orange-300/60 bg-orange-50 text-orange-800 dark:border-orange-800/50 dark:bg-orange-950/40 dark:text-orange-300',
   cancelled:
     'border-red-300/60 bg-red-50 text-red-800 dark:border-red-800/50 dark:bg-red-950/40 dark:text-red-300',
+  // Neutral, like not_recorded: notes being linked is a record, not a person
+  // saying the meeting happened, so it never borrows the green of 'happened'.
+  notes_linked:
+    'border-muted-foreground/25 bg-muted text-muted-foreground dark:border-muted-foreground/25',
   not_recorded:
     'border-muted-foreground/25 bg-muted text-muted-foreground dark:border-muted-foreground/25',
 };

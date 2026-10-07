@@ -1,7 +1,9 @@
 'use client';
 
 /**
- * Department owners — one accountable person per improvement board.
+ * Department owners — the accountable people for each improvement board. A
+ * department can have several: adding one ends nobody, and each is removed on
+ * their own.
  *
  * TWO TIERS, and they are not the same permission:
  *
@@ -72,6 +74,7 @@ import {
 import { usePermissions } from '@/hooks/use-permissions';
 import {
   DepartmentOwnerService,
+  type DepartmentOwner,
   type DepartmentOwnerRow
 } from '@/lib/services/improvement/department-owner-service';
 import {
@@ -141,6 +144,20 @@ export function DepartmentOwnersClient() {
 
 const EMPTY_PICK: PickedPerson = { name: '', staffId: null };
 
+/** Whether the pick is someone who already owns this department. */
+function isAlreadyOwner(row: DepartmentOwnerRow, pick: PickedPerson): boolean {
+  const typed = pick.name.trim().toLowerCase();
+  return row.owners.some((owner) => {
+    if (pick.staffId) return owner.staffId === pick.staffId;
+    if (pick.profileId) return owner.profileId === pick.profileId;
+    return (
+      !owner.staffId &&
+      !owner.profileId &&
+      (owner.name ?? '').trim().toLowerCase() === typed
+    );
+  });
+}
+
 function DepartmentOwners({ canAssign }: { canAssign: boolean }) {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -152,18 +169,9 @@ function DepartmentOwners({ canAssign }: { canAssign: boolean }) {
   const load = useCallback(async () => {
     const fresh = await DepartmentOwnerService.listDepartmentsWithOwners();
     setRows(fresh);
-    // Reset every draft to what the server just said, so a saved row stops
-    // looking edited and a failed save cannot leave a stale pick on screen.
-    setDrafts(
-      Object.fromEntries(
-        fresh.map((row) => [
-          row.areaId,
-          row.ownerName
-            ? { name: row.ownerName, staffId: row.ownerStaffId }
-            : EMPTY_PICK
-        ])
-      )
-    );
+    // Empty every "add" box: the person just added now shows in the Owner
+    // column, and a failed save cannot leave a stale pick on screen.
+    setDrafts({});
   }, []);
 
   const refresh = useCallback(async () => {
@@ -207,7 +215,7 @@ function DepartmentOwners({ canAssign }: { canAssign: boolean }) {
   }, [load]);
 
   const ownedCount = useMemo(
-    () => rows.filter((row) => row.ownerName).length,
+    () => rows.filter((row) => row.owners.length > 0).length,
     [rows]
   );
 
@@ -221,7 +229,7 @@ function DepartmentOwners({ canAssign }: { canAssign: boolean }) {
     () =>
       rows.reduce(
         (total, row) =>
-          !row.ownerName && typeof row.waitingIdeaCount === 'number'
+          row.owners.length === 0 && typeof row.waitingIdeaCount === 'number'
             ? total + row.waitingIdeaCount
             : total,
         0
@@ -231,23 +239,30 @@ function DepartmentOwners({ canAssign }: { canAssign: boolean }) {
 
   /* --- actions ----------------------------------------------------------- */
 
-  const saveOwner = async (row: DepartmentOwnerRow) => {
+  const addOwner = async (row: DepartmentOwnerRow) => {
     if (busyAreaId) return;
     const pick = drafts[row.areaId] ?? EMPTY_PICK;
     const typed = pick.name.trim();
-    if (!pick.staffId && !typed) {
-      toast.error(
-        `Pick someone for ${row.areaLabel} first, or use Remove to leave it unowned.`
-      );
+    if (!pick.staffId && !pick.profileId && !typed) {
+      toast.error(`Pick someone for ${row.areaLabel} first.`);
+      return;
+    }
+    if (isAlreadyOwner(row, pick)) {
+      toast.error(`${typed || 'That person'} already owns ${row.areaLabel}.`);
       return;
     }
 
     setBusyAreaId(row.areaId);
     try {
-      await DepartmentOwnerService.setOwner(row.areaId, pick.staffId, typed);
+      await DepartmentOwnerService.addOwner(
+        row.areaId,
+        pick.staffId,
+        typed,
+        pick.profileId ?? null
+      );
       toast.success(
-        row.ownerName
-          ? `${row.areaLabel} handed over to ${typed || 'the new owner'}.`
+        row.owners.length > 0
+          ? `${typed || 'An owner'} added as another owner of ${row.areaLabel}.`
           : `${typed || 'An owner'} now owns ${row.areaLabel}.`
       );
       await load();
@@ -262,15 +277,20 @@ function DepartmentOwners({ canAssign }: { canAssign: boolean }) {
     }
   };
 
-  const removeOwner = async (row: DepartmentOwnerRow) => {
+  const removeOwner = async (
+    row: DepartmentOwnerRow,
+    owner: DepartmentOwner
+  ) => {
     if (busyAreaId) return;
     setBusyAreaId(row.areaId);
     try {
-      const ended = await DepartmentOwnerService.clearOwner(row.areaId);
+      const ended = await DepartmentOwnerService.removeOwner(
+        owner.assignmentId
+      );
       toast.success(
         ended > 0
-          ? `${row.areaLabel} has no owner now — the previous assignment was end-dated, not deleted.`
-          : `${row.areaLabel} already had no owner.`
+          ? `${owner.name ?? 'The owner'} no longer owns ${row.areaLabel} — the assignment was end-dated, not deleted.`
+          : `${owner.name ?? 'That person'} was already not an owner of ${row.areaLabel}.`
       );
       await load();
     } catch (err) {
@@ -336,10 +356,10 @@ function DepartmentOwners({ canAssign }: { canAssign: boolean }) {
               owner
             </p>
             <p className="text-muted-foreground max-w-2xl text-sm">
-              An owner is the one person accountable for a department on the
-              Improvement Board. Naming one lets that person record a visit to
-              their own department, and lets the department see findings raised
-              about it.
+              An owner is a person accountable for a department on the
+              Improvement Board — a department can have more than one. Naming
+              one lets that person record a visit to their own department, and
+              lets the department see findings raised about it.
             </p>
           </div>
           <Badge variant={ownedCount === rows.length ? 'default' : 'secondary'}>
@@ -372,17 +392,16 @@ function DepartmentOwners({ canAssign }: { canAssign: boolean }) {
               <TableHeader>
                 <TableRow>
                   <TableHead className="w-[28%]">Department</TableHead>
-                  <TableHead className="w-[32%]">Owner</TableHead>
-                  {canAssign && <TableHead>Name an owner</TableHead>}
+                  <TableHead className="w-[32%]">Owners</TableHead>
+                  {canAssign && <TableHead>Add an owner</TableHead>}
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {rows.map((row) => {
                   const pick = drafts[row.areaId] ?? EMPTY_PICK;
                   const busy = busyAreaId === row.areaId;
-                  const unchanged =
-                    pick.name.trim() === (row.ownerName ?? '') &&
-                    (pick.staffId ?? null) === row.ownerStaffId;
+                  const nothingPicked =
+                    !pick.staffId && !pick.profileId && !pick.name.trim();
 
                   return (
                     <TableRow key={row.areaId}>
@@ -391,23 +410,46 @@ function DepartmentOwners({ canAssign }: { canAssign: boolean }) {
                       </TableCell>
 
                       <TableCell className="align-top">
-                        {row.ownerName ? (
-                          <span className="flex flex-col">
-                            <span className="flex items-center gap-1.5">
-                              <UserCheck className="h-3.5 w-3.5 shrink-0 text-emerald-600" />
-                              <span className="text-sm">{row.ownerName}</span>
-                            </span>
-                            {row.ownerEmail && (
-                              <span className="text-muted-foreground pl-5 text-xs">
-                                {row.ownerEmail}
-                              </span>
-                            )}
-                            {!row.ownerStaffId && (
-                              <span className="text-muted-foreground pl-5 text-xs">
-                                Typed in — not linked to a MyJKKN record.
-                              </span>
-                            )}
-                          </span>
+                        {row.owners.length > 0 ? (
+                          <ul className="flex flex-col gap-2">
+                            {row.owners.map((owner) => (
+                              <li
+                                key={owner.assignmentId}
+                                className="flex items-start justify-between gap-2"
+                              >
+                                <span className="flex flex-col">
+                                  <span className="flex items-center gap-1.5">
+                                    <UserCheck className="h-3.5 w-3.5 shrink-0 text-emerald-600" />
+                                    <span className="text-sm">
+                                      {owner.name ?? 'Unnamed'}
+                                    </span>
+                                  </span>
+                                  {owner.email && (
+                                    <span className="text-muted-foreground pl-5 text-xs">
+                                      {owner.email}
+                                    </span>
+                                  )}
+                                  {!owner.staffId && !owner.profileId && (
+                                    <span className="text-muted-foreground pl-5 text-xs">
+                                      Typed in — not linked to a MyJKKN record.
+                                    </span>
+                                  )}
+                                </span>
+                                {canAssign && (
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    className="h-7 shrink-0 px-2 text-xs"
+                                    disabled={busy}
+                                    aria-label={`Remove ${owner.name ?? 'this owner'} from ${row.areaLabel}`}
+                                    onClick={() => void removeOwner(row, owner)}
+                                  >
+                                    Remove
+                                  </Button>
+                                )}
+                              </li>
+                            ))}
+                          </ul>
                         ) : (
                           <div className="flex flex-col gap-1.5">
                             {/* A div, not a span: <Badge> renders a <div>   */}
@@ -443,30 +485,23 @@ function DepartmentOwners({ canAssign }: { canAssign: boolean }) {
                           <div className="flex flex-col gap-2">
                             <PersonPicker
                               areaId={row.areaId}
+                              includeAccounts
                               value={pick}
                               onChange={(next) => setDraft(row.areaId, next)}
                             />
                             <div className="flex items-center gap-2">
                               <Button
                                 size="sm"
-                                disabled={busy || unchanged}
-                                onClick={() => void saveOwner(row)}
+                                disabled={busy || nothingPicked}
+                                onClick={() => void addOwner(row)}
                               >
                                 {busy && (
                                   <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
                                 )}
-                                {row.ownerName ? 'Replace owner' : 'Save owner'}
+                                {row.owners.length > 0
+                                  ? 'Add another owner'
+                                  : 'Save owner'}
                               </Button>
-                              {row.ownerName && (
-                                <Button
-                                  size="sm"
-                                  variant="outline"
-                                  disabled={busy}
-                                  onClick={() => void removeOwner(row)}
-                                >
-                                  Remove
-                                </Button>
-                              )}
                             </div>
                           </div>
                         </TableCell>
@@ -483,8 +518,9 @@ function DepartmentOwners({ canAssign }: { canAssign: boolean }) {
       {canAssign && (
         <p className="text-muted-foreground text-xs">
           Saving writes a real, institution-wide assignment straight away —
-          there is no draft step. Replacing an owner records a handover: the
-          previous assignment is end-dated and kept, never deleted.
+          there is no draft step. Adding an owner leaves the existing owners in
+          place. Removing one end-dates that assignment and keeps it, never
+          deletes it.
         </p>
       )}
     </div>

@@ -19,10 +19,16 @@ import {
 import { useCreateRfqFromPR } from '@/hooks/procurement/use-rfqs';
 import { StatusBadge } from '@/components/procurement/status-badge';
 import { useRequestJourney } from '@/components/procurement/request-journey';
-import { ApprovalStepsPanel } from '@/components/procurement/approval-steps-panel';
-import { useApproveStep, useApproverNames, useDecideStep, useRequestApprovals } from '@/hooks/procurement/use-approval-chains';
+import {
+  useApproveStep,
+  useApproverNames,
+  useDecideStep,
+  useProcurementCategories,
+  useRequestApprovals,
+} from '@/hooks/procurement/use-approval-chains';
 import { currentStep, isMyTurn } from '@/lib/procurement/approval-chain';
 import { QuotesSection } from '@/components/procurement/quotes-section';
+import { RateItemsCard } from '@/components/procurement/rate-items-card';
 import { OrdersSection } from '@/components/procurement/orders-section';
 import { formatDateDMY } from '@/lib/utils/date-format';
 import { displayRequestNumber } from '@/lib/procurement/display-number';
@@ -122,6 +128,16 @@ export default function PurchasePage() {
   // A request with a category follows its steps: only the person whose turn it is
   // (or a Super Admin) decides. Without a category: the old single-approver rule.
   const chained = !!pr?.category_id && approvals.length > 0;
+  // The category's Final approval steps, named in the quotes bar before the
+  // request is sent (they are copied onto it only then). Inactive categories
+  // included: an old request keeps the category it was raised under.
+  const { data: categories = [] } = useProcurementCategories(true);
+  const finalApprover =
+    categories
+      .find((c) => c.id === pr?.category_id)
+      ?.steps?.filter((st) => st.stage === 'final')
+      .map((st) => st.label)
+      .join(' → ') || null;
   const waitingStep = currentStep(approvals);
   // Until a categorised request's steps are known, nobody gets the old single-approver
   // buttons — an empty list while loading (or after an error) must not skip the order.
@@ -513,6 +529,7 @@ export default function PurchasePage() {
         rfqId={rfqId}
         requestId={id}
         onApproved={() => void refreshJourney()}
+        finalApprover={finalApprover}
         itemApproval={
           journey?.request?.approved_by_name
             ? `${journey.request.approved_by_name}${journey.request.approved_at ? ` on ${formatDateDMY(journey.request.approved_at)}` : ''}`
@@ -553,7 +570,8 @@ export default function PurchasePage() {
           </p>
         </header>
 
-        <ApprovalStepsPanel approvals={approvals} approverNames={approverNames} />
+        {/* Requester rates what was delivered (hidden until something is). */}
+        {rfqId && (isOwner || isSuperAdmin) && <RateItemsCard requestId={id} />}
 
         {isOrdered && rfqId ? (
           <>

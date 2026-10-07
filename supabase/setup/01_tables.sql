@@ -10596,6 +10596,59 @@ CREATE TABLE IF NOT EXISTS public.hr_salary_revision_requests (
     CHECK ((status = 'applied') = (applied_salary_id IS NOT NULL AND applied_at IS NOT NULL))
 );
 
+-- Updated: 2026-09-30 - 20270524090000: the marker, the band snapshot, the cancelled state.
+ALTER TABLE public.hr_salary_revision_requests
+  ADD COLUMN IF NOT EXISTS asker_is_also_hod boolean NOT NULL DEFAULT false,
+  ADD COLUMN IF NOT EXISTS band_snapshot     jsonb,
+  ADD COLUMN IF NOT EXISTS cancelled_at      timestamptz,
+  ADD COLUMN IF NOT EXISTS cancel_note       text;
+
+COMMENT ON COLUMN public.hr_salary_revision_requests.asker_is_also_hod IS
+  '30 Sep: the asker is the principal AND the head of this department, so there was no separate check; the Director sees it marked.';
+COMMENT ON COLUMN public.hr_salary_revision_requests.band_snapshot IS
+  '30 Sep: the college''s pay band as it stood when asked, so the Director''s screen can say the band changed since. Never sent to a browser.';
+COMMENT ON COLUMN public.hr_salary_revision_requests.cancel_note IS
+  '30 Sep: why an approved raise was cancelled (the person left before its start date).';
+
+-- 'cancelled' joins the statuses. The inline CHECK of 20270519090000 carries
+-- PostgreSQL's default name.
+ALTER TABLE public.hr_salary_revision_requests
+  DROP CONSTRAINT IF EXISTS hr_salary_revision_requests_status_check;
+ALTER TABLE public.hr_salary_revision_requests
+  ADD CONSTRAINT hr_salary_revision_requests_status_check
+  CHECK (status IN ('waiting_principal', 'waiting_director',
+                    'approved', 'applied', 'stopped', 'refused', 'cancelled'));
+ALTER TABLE public.hr_salary_revision_requests
+  DROP CONSTRAINT IF EXISTS hr_srr_cancelled_has_note;
+ALTER TABLE public.hr_salary_revision_requests
+  ADD CONSTRAINT hr_srr_cancelled_has_note
+  CHECK ((status = 'cancelled') = (cancelled_at IS NOT NULL AND cancel_note IS NOT NULL));
+
+-- Updated: 2026-10-01 - 20271007150103: the account a request was about when it
+-- was asked, so "own" and "on the Director list" cannot be dodged by changing
+-- staff.profile_id afterwards (backfilled in the migration), and the stamp on
+-- a decision made under the rulings of 1 Oct 2026.
+ALTER TABLE public.hr_salary_revision_requests
+  ADD COLUMN IF NOT EXISTS subject_profile_id uuid,
+  ADD COLUMN IF NOT EXISTS decided_under_rules boolean NOT NULL DEFAULT false,
+  ADD COLUMN IF NOT EXISTS subject_was_list_member boolean;
+
+COMMENT ON COLUMN public.hr_salary_revision_requests.subject_was_list_member IS
+  '1 Oct 2026: whether the person was on the Director list when it was asked (backfilled for older requests '
+  'from the list as it stood when 20271007150103 was applied). "On the list" means then OR now, so taking '
+  'someone off the list does not open their raise. Migration 20271007150103.';
+
+COMMENT ON COLUMN public.hr_salary_revision_requests.decided_under_rules IS
+  '1 Oct 2026: true when the latest decision on it passed the rulings of 1 Oct 2026 (stamped by approve_one, '
+  'director_decide and college_decide). A stamped yes is always written; only an unstamped (older) yes is '
+  'judged by today''s rules and held back if it breaks them. Migration 20271007150103.';
+
+COMMENT ON COLUMN public.hr_salary_revision_requests.subject_profile_id IS
+  '1 Oct 2026: the account (staff.profile_id) the request was about when it was asked; never changed after. '
+  'Requests asked before 20271007150103 carry the link as it stood when that file was applied. "Own" and '
+  '"on the Director list" match this OR the link as it is now.';
+
+
 -- RULING 10: one open request per person. 'approved' counts as open: until the
 -- new pay is written, a second yes could be applied on top of the first.
 CREATE UNIQUE INDEX IF NOT EXISTS hr_salary_revision_requests_one_open

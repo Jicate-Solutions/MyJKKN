@@ -26,6 +26,8 @@ import { Plus, X, ChevronLeft } from 'lucide-react';
 import { toast } from 'sonner';
 import { errorMessage } from '@/lib/utils/supabase-error';
 import { displayRequestNumber } from '@/lib/procurement/display-number';
+import { PastRatingHint } from '@/components/procurement/past-rating-hint';
+import { useItemVendorRatings } from '@/hooks/procurement/use-ratings';
 
 // is_new is local UI state only — never sent to the server. domain_item_id
 // (null = new item) is what the service actually derives request_type from.
@@ -69,6 +71,10 @@ export default function NewPurchaseRequestPage() {
     () => domainOptions[0]?.value ?? 'ims'
   );
   const [items, setItems] = useState<ItemRow[]>([emptyRow()]);
+  // How each picked catalog item went last time (requester ratings).
+  const { data: itemRatings = [] } = useItemVendorRatings(
+    items.map((i) => i.domain_item_id).filter((x): x is string => !!x)
+  );
   // "What is it for?" — ONE field. It names the purchase on every list and is the
   // reason the approver reads; it also fills each new item's reason (the server
   // needs one per new line) unless an AI-read reason is already there.
@@ -309,6 +315,9 @@ export default function NewPurchaseRequestPage() {
                       {item.reorder_level != null ? ` · reorder at ${Number(item.reorder_level)}` : ''}
                     </p>
                   ) : null}
+                  {item.domain_item_id && (
+                    <PastRatingHint ratings={itemRatings.filter((r) => r.item_id === item.domain_item_id)} />
+                  )}
                 </div>
                 {/* Size / brand / grade: beside the item on wide screens, under it on a phone. */}
                 <Input

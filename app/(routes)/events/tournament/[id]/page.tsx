@@ -71,6 +71,7 @@ import { useTournamentMatches } from '@/hooks/events/use-tournament-fixtures';
 import type { TournamentDivision, TournamentEntry, TournamentMatch } from '@/types/tournament';
 import { InchargePanel } from './_components/incharge-panel';
 import { DivisionFixtures } from './_components/fixtures-section';
+import { DivisionPlacings } from './_components/division-placings';
 import { RegistrationFormCard } from './_components/registration-form-card';
 import { EventFeedbackLinkCard } from '@/components/events/feedback/event-feedback-link-card';
 // Reuses the list page's dialog — one editor, so the two entry points can't drift.
@@ -702,6 +703,14 @@ export default function TournamentManagePage() {
                     (entriesByDivision.get(d.id) ?? []).filter((e) => e.status !== 'withdrawn').length
                   }
                   divisionFormat={d.format}
+                  canManage={canManage}
+                  division={d}
+                  divisionLabel={divisionLabel(d)}
+                  entries={entriesByDivision.get(d.id) ?? []}
+                />
+                <DivisionPlacings
+                  eventId={id}
+                  entries={entriesByDivision.get(d.id) ?? []}
                   canManage={canManage}
                 />
               </div>

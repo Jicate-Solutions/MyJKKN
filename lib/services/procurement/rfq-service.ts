@@ -282,6 +282,15 @@ export class ProcurementRfqService {
     return data as ProcurementRfq;
   }
 
+  /** Reason for choosing a Watch-grade vendor (null clears it). Saved before submitAward. */
+  static async setAwardWatchReason(rfqId: string, reason: string | null): Promise<void> {
+    const { error } = await this.supabase
+      .from('procurement_rfqs')
+      .update({ award_watch_reason: reason })
+      .eq('id', rfqId);
+    if (error) throw error;
+  }
+
   /**
    * Super Admin approves the award. The RPC creates one APPROVED purchase order per
    * chosen vendor and marks the RFQ awarded, all in one transaction.

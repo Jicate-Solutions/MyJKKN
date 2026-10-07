@@ -11355,7 +11355,9 @@ CREATE POLICY hr_salary_revision_requests_select ON public.hr_salary_revision_re
 DROP POLICY IF EXISTS hr_salary_revision_comments_select ON public.hr_salary_revision_comments;
 CREATE POLICY hr_salary_revision_comments_select ON public.hr_salary_revision_comments
   FOR SELECT TO authenticated
-  USING (EXISTS (SELECT 1 FROM public.hr_salary_revision_requests r WHERE r.id = request_id));
+  USING (EXISTS (SELECT 1 FROM public.hr_salary_revision_requests r
+                  WHERE r.id = request_id
+                    AND public.fn_hr_salary_revision_can_see(r.staff_id, r.institution_id, r.department_id, r.asked_by)));
 
 -- RULING 14: the asker, the principal of an HOD's request, the Director.
 DROP POLICY IF EXISTS hr_salary_revision_decision_notes_select ON public.hr_salary_revision_decision_notes;

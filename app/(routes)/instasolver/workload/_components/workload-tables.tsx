@@ -36,7 +36,7 @@ const numCell = 'text-right';
 
 export function TeamsTable({ teams }: { teams: Workload['teams'] }) {
   return (
-    <div className="rounded-md border">
+    <div className="scrollbar-slim overflow-x-auto rounded-md border">
       <Table>
         <TableHeader>
           <TableRow>
@@ -78,7 +78,7 @@ export function TeamsTable({ teams }: { teams: Workload['teams'] }) {
 export function MembersTable({ members, teams }: { members: Workload['members']; teams: MaintenanceTeam[] | undefined }) {
   const teamName = new Map((teams ?? []).map((t) => [t.id, t.name]));
   return (
-    <div className="rounded-md border">
+    <div className="scrollbar-slim overflow-x-auto rounded-md border">
       <Table>
         <TableHeader>
           <TableRow>
