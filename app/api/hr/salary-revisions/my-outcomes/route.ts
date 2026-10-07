@@ -10,6 +10,9 @@ export const dynamic = 'force-dynamic';
  * what limits the answer to their own.
  */
 
+// 7 Oct 2026: `targets` carries, per request, the held part of the raise and
+// its monthly numbers (read-only; never the principal's flag notes).
+
 import { NextResponse, connection } from 'next/server';
 import { withAuth } from '@/lib/auth/with-auth';
 import { SalaryRevisionService } from '@/lib/services/hr/salary-revision/salary-revision-service';
@@ -19,7 +22,12 @@ export const GET = withAuth(
   async (_request, auth) => {
     await connection();
     try {
-      return NextResponse.json({ outcomes: await SalaryRevisionService.myOutcomes(auth.supabase) });
+      const outcomes = await SalaryRevisionService.myOutcomes(auth.supabase);
+      const targets = await SalaryRevisionService.myTargets(
+        auth.supabase,
+        outcomes.map((o) => o.request_id ?? ''),
+      );
+      return NextResponse.json({ outcomes, targets });
     } catch (err) {
       return errorResponse(err, 'my outcomes');
     }
