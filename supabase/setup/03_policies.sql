@@ -11814,3 +11814,78 @@ CREATE POLICY hostel_floors_delete_permission ON public.hostel_floors
     OR ((SELECT user_has_permission('campus_living.blocks.edit'))
         AND role_has_hostel_block_scope(block_id, NULL::uuid))
   );
+
+
+-- Updated: 2026-10-07 - HR duty tower and earned-trust reliability signal (migration 20271007161151_hr_duty_tower_and_reliability.sql)
+ALTER TABLE public.hr_duty_tower_duties       ENABLE ROW LEVEL SECURITY;
+
+ALTER TABLE public.hr_duty_tower_duties_audit ENABLE ROW LEVEL SECURITY;
+
+REVOKE ALL ON public.hr_duty_tower_duties       FROM anon, PUBLIC;
+
+REVOKE ALL ON public.hr_duty_tower_duties_audit FROM anon, PUBLIC;
+
+GRANT SELECT, INSERT, UPDATE ON public.hr_duty_tower_duties TO authenticated;
+
+GRANT SELECT ON public.hr_duty_tower_duties_audit TO authenticated;
+
+GRANT ALL ON public.hr_duty_tower_duties, public.hr_duty_tower_duties_audit TO service_role;
+
+DROP POLICY IF EXISTS hr_duty_tower_duties_read ON public.hr_duty_tower_duties;
+
+CREATE POLICY hr_duty_tower_duties_read ON public.hr_duty_tower_duties
+  FOR SELECT USING ((SELECT auth.uid()) IS NOT NULL);
+
+DROP POLICY IF EXISTS hr_duty_tower_duties_write ON public.hr_duty_tower_duties;
+
+CREATE POLICY hr_duty_tower_duties_write ON public.hr_duty_tower_duties
+  FOR ALL USING (public.is_super_admin())
+  WITH CHECK (public.is_super_admin());
+
+DROP POLICY IF EXISTS hr_duty_tower_duties_audit_read ON public.hr_duty_tower_duties_audit;
+
+CREATE POLICY hr_duty_tower_duties_audit_read ON public.hr_duty_tower_duties_audit
+  FOR SELECT USING (public.is_super_admin() OR public.is_admin());
+
+ALTER TABLE public.hr_duty_tower_readings ENABLE ROW LEVEL SECURITY;
+
+REVOKE ALL ON public.hr_duty_tower_readings FROM anon, PUBLIC, authenticated;
+
+GRANT SELECT ON public.hr_duty_tower_readings TO authenticated;
+
+GRANT ALL ON public.hr_duty_tower_readings TO service_role;
+
+DROP POLICY IF EXISTS hr_duty_tower_readings_select ON public.hr_duty_tower_readings;
+
+CREATE POLICY hr_duty_tower_readings_select ON public.hr_duty_tower_readings
+  FOR SELECT USING (
+    public.is_super_admin() OR public.is_admin()
+    OR (public.user_has_permission('hr.dashboard.manage')
+        AND (institution_id IS NULL OR public.role_has_institution_access(institution_id)))
+  );
+
+ALTER TABLE public.hr_trust_switch_log ENABLE ROW LEVEL SECURITY;
+
+REVOKE ALL ON public.hr_trust_switch_log FROM anon, PUBLIC, authenticated;
+
+GRANT SELECT ON public.hr_trust_switch_log TO authenticated;
+
+GRANT ALL ON public.hr_trust_switch_log TO service_role;
+
+DROP POLICY IF EXISTS hr_trust_switch_log_select ON public.hr_trust_switch_log;
+
+CREATE POLICY hr_trust_switch_log_select ON public.hr_trust_switch_log
+  FOR SELECT USING (public.fn_is_the_director() OR public.is_super_admin());
+
+ALTER TABLE public.hr_trust_suggestions ENABLE ROW LEVEL SECURITY;
+
+REVOKE ALL ON public.hr_trust_suggestions FROM anon, PUBLIC, authenticated;
+
+GRANT SELECT ON public.hr_trust_suggestions TO authenticated;
+
+GRANT ALL ON public.hr_trust_suggestions TO service_role;
+
+DROP POLICY IF EXISTS hr_trust_suggestions_select ON public.hr_trust_suggestions;
+
+CREATE POLICY hr_trust_suggestions_select ON public.hr_trust_suggestions
+  FOR SELECT USING (public.fn_is_the_director() IS TRUE);

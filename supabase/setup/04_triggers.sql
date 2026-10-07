@@ -2944,3 +2944,17 @@ DROP TRIGGER IF EXISTS trg_hostel_blocks_seed_floors ON public.hostel_blocks;
 CREATE TRIGGER trg_hostel_blocks_seed_floors
   AFTER INSERT ON public.hostel_blocks
   FOR EACH ROW EXECUTE FUNCTION public.fn_hostel_blocks_seed_floors();
+
+
+-- Updated: 2026-10-07 - HR duty tower and earned-trust reliability signal (migration 20271007161151_hr_duty_tower_and_reliability.sql)
+DROP TRIGGER IF EXISTS hr_duty_tower_duties_touch_trg ON public.hr_duty_tower_duties;
+
+CREATE TRIGGER hr_duty_tower_duties_touch_trg
+  BEFORE UPDATE ON public.hr_duty_tower_duties
+  FOR EACH ROW EXECUTE FUNCTION public.fn_hr_duty_tower_duties_touch();
+
+DROP TRIGGER IF EXISTS hr_duty_tower_duties_audit_trg ON public.hr_duty_tower_duties;
+
+CREATE TRIGGER hr_duty_tower_duties_audit_trg
+  AFTER UPDATE ON public.hr_duty_tower_duties
+  FOR EACH ROW EXECUTE FUNCTION public.fn_hr_duty_tower_duties_audit();

@@ -11362,3 +11362,110 @@ CREATE TABLE IF NOT EXISTS public.hostel_floors (
 ALTER TABLE public.hostel_floors ENABLE ROW LEVEL SECURITY;
 -- FK child index: the (block_id, floor) probe run on every floor delete.
 CREATE INDEX IF NOT EXISTS idx_hostel_rooms_block_floor ON public.hostel_rooms (block_id, floor);
+
+
+-- Updated: 2026-10-07 - HR duty tower and earned-trust reliability signal (migration 20271007161151_hr_duty_tower_and_reliability.sql)
+CREATE TABLE IF NOT EXISTS public.hr_duty_tower_duties (
+  -- shared config mixin (docs/architecture/config-table-pattern.md, verbatim)
+  id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  config_key    text NOT NULL,                  -- the duty code, e.g. 'L1'
+  display_name  text NOT NULL,
+  description   text,
+  is_active     boolean NOT NULL DEFAULT true,
+  created_at    timestamptz NOT NULL DEFAULT now(),
+  updated_at    timestamptz NOT NULL DEFAULT now(),
+  updated_by    uuid REFERENCES public.profiles(id),
+  change_reason text,
+
+  -- typed columns
+  duty_code                 text NOT NULL CHECK (duty_code ~ '^(R[1-9]|L[1-5]|A[1-6]|P[1-4]|S[1-4]|G([1-9]|10))$'),
+  loop_key                  text NOT NULL UNIQUE,
+  -- Due rule: hours, or working days (Sundays skipped), or N days before the
+  -- item's own deadline (comp-off expires_on). A chain step's stored
+  -- escalate_after_hours wins over due_hours for L1 and R5.
+  due_hours                 integer CHECK (due_hours IS NULL OR due_hours > 0),
+  due_working_days          integer CHECK (due_working_days IS NULL OR due_working_days > 0),
+  due_days_before_deadline  integer CHECK (due_days_before_deadline IS NULL OR due_days_before_deadline >= 0),
+  source                    text NOT NULL,
+  measured                  boolean NOT NULL DEFAULT true,
+
+  CONSTRAINT hr_duty_tower_duties_key_is_code CHECK (config_key = duty_code),
+  CONSTRAINT hr_duty_tower_duties_has_due_rule
+    CHECK (NOT measured OR due_hours IS NOT NULL OR due_working_days IS NOT NULL OR due_days_before_deadline IS NOT NULL)
+);
+
+COMMENT ON TABLE public.hr_duty_tower_duties IS
+  'HR staff harness (20271007161151): the seven measurable HR duties shown on the loops tower, with each duty''s due rule. Read by fn_hr_duty_item_facts. Config-table pattern; super admins write, every change audited in hr_duty_tower_duties_audit. Codes match #4152''s hr_duty_definitions.config_key; once that lands, due rules should be read from there.';
+
+CREATE UNIQUE INDEX IF NOT EXISTS hr_duty_tower_duties_active_unique
+  ON public.hr_duty_tower_duties (config_key)
+  WHERE is_active = true;
+
+CREATE TABLE IF NOT EXISTS public.hr_duty_tower_duties_audit (
+  id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  config_id     uuid NOT NULL REFERENCES public.hr_duty_tower_duties(id),
+  changed_at    timestamptz NOT NULL DEFAULT now(),
+  changed_by    uuid REFERENCES public.profiles(id),
+  old_value     jsonb,
+  new_value     jsonb,
+  change_reason text
+);
+
+CREATE INDEX IF NOT EXISTS idx_hr_duty_tower_duties_audit_config
+  ON public.hr_duty_tower_duties_audit (config_id, changed_at DESC);
+
+CREATE TABLE IF NOT EXISTS public.hr_duty_tower_readings (
+  id             uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  duty_code      text NOT NULL CHECK (duty_code ~ '^(R[1-9]|L[1-5]|A[1-6]|P[1-4]|S[1-4]|G([1-9]|10))$'),
+  institution_id uuid,            -- NULL = all colleges
+  week_start     date NOT NULL,
+  items          integer NOT NULL DEFAULT 0,
+  on_time        integer NOT NULL DEFAULT 0,
+  late           integer NOT NULL DEFAULT 0,
+  open_overdue   integer NOT NULL DEFAULT 0,
+  reversed       integer NOT NULL DEFAULT 0,
+  on_time_rate   numeric,         -- NULL when there were no items
+  reversal_rate  numeric,
+  computed_at    timestamptz NOT NULL DEFAULT now()
+);
+
+COMMENT ON TABLE public.hr_duty_tower_readings IS
+  'HR staff harness (20271007161151): one weekly reading per HR duty, per college (institution_id) and for all colleges (institution_id NULL). Desk numbers only — never per person. Written only by fn_hr_duty_tower_compute.';
+
+CREATE UNIQUE INDEX IF NOT EXISTS hr_duty_tower_readings_unique
+  ON public.hr_duty_tower_readings
+     (duty_code, COALESCE(institution_id, '00000000-0000-0000-0000-000000000000'::uuid), week_start);
+
+CREATE INDEX IF NOT EXISTS idx_hr_duty_tower_readings_week
+  ON public.hr_duty_tower_readings (week_start DESC, duty_code);
+
+CREATE TABLE IF NOT EXISTS public.hr_trust_switch_log (
+  id         uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  turned_on  boolean NOT NULL,
+  by_user    uuid NOT NULL REFERENCES public.profiles(id),
+  at         timestamptz NOT NULL DEFAULT now(),
+  note       text
+);
+
+COMMENT ON TABLE public.hr_trust_switch_log IS
+  'HR staff harness (20271007161151): every turn of the earned-trust suggestions switch, by whom. Written only by fn_hr_trust_switch (Director only). fn_hr_trust_suggestions_generate reads the latest row: a raw edit of the policy row without a Director entry here switches nothing on.';
+
+CREATE INDEX IF NOT EXISTS idx_hr_trust_switch_log_at ON public.hr_trust_switch_log (at DESC);
+
+CREATE TABLE IF NOT EXISTS public.hr_trust_suggestions (
+  id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id       uuid NOT NULL REFERENCES public.profiles(id),
+  duty_code     text NOT NULL CHECK (duty_code ~ '^(R[1-9]|L[1-5]|A[1-6]|P[1-4]|S[1-4]|G([1-9]|10))$'),
+  evidence      jsonb NOT NULL,   -- {items, on_time_rate, reversal_rate, weeks}
+  status        text NOT NULL DEFAULT 'proposed' CHECK (status IN ('proposed','noted','declined')),
+  decided_at    timestamptz,
+  decision_note text,
+  created_at    timestamptz NOT NULL DEFAULT now()
+);
+
+COMMENT ON TABLE public.hr_trust_suggestions IS
+  'HR staff harness (20271007161151): "this team member has been steady on this duty for 12 weeks" suggestions for the Director to note or decline. Noting one changes nothing in the system. Director-only read; written only by fn_hr_trust_suggestions_generate / fn_hr_trust_suggestion_decide.';
+
+CREATE UNIQUE INDEX IF NOT EXISTS hr_trust_suggestions_one_proposed
+  ON public.hr_trust_suggestions (user_id, duty_code)
+  WHERE status = 'proposed';

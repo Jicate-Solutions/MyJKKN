@@ -680,5 +680,21 @@ export const PLATFORM_OPS_ROUTINES: AIRoutine[] = [
     "sideEffects": "WRITES one notifications row (+ user_notifications link) per recipient per ISO week and SENDS one email per recipient via Resend when that row is freshly created. Moves no money and releases nothing.",
     "safeToManualTrigger": true,
     "notes": "Idempotent per ISO week (IST calendar): notifications.idempotency_key walkin-claims-weekly-note:<week>:<user>, and the email is gated on that row being new, so a re-run in the same week sends nothing. Auth: CRON_SECRET, Bearer ONLY (constant-time). Migration 20270610100000."
+  },
+  {
+    "id": "hr-duty-tower",
+    "name": "HR duty tower — weekly on-time readings for seven HR duties",
+    "category": "platform-ops",
+    "type": "cron",
+    "schedule": "Weekly · Monday 06:47 IST (editable via dispatcher)",
+    "triggerPath": "/api/cron/hr-duty-tower",
+    "callsClaude": false,
+    "featureKey": null,
+    "featureKeyNote": "Counts and rates computed in SQL (fn_hr_duty_tower_compute); no model involved.",
+    "whatItDoes": "For last week (Monday to Sunday, IST), records how many items of seven measurable HR duties were decided on time — leave steps (L1), comp-off claims (L2), attendance corrections (A3), document checks (S2), photo reviews (S3), HR form steps (G2) and recruitment steps (R5) — per college and for all colleges, in hr_duty_tower_readings. Each duty's all-college on-time rate goes onto its loops-tower row (hr-duty-<code>) through recordLoopMeasurement. Until the Director approves a numeric bar on /admin/loops/charters, that counts as neither a hit nor a miss. Then asks fn_hr_trust_suggestions_generate for earned-trust suggestions, which returns 0 unless the Director switched them on.",
+    "configKnobs": "hr_duty_tower_duties (due rule per duty; super admins edit, audited). platform_policies hr.harness.trust.min_items / steady_on_time / max_reversal (the 12-week signal) and hr.harness.trust.suggestions_enabled (ships false; only the Director's switch turns it on). Day/time editable at /admin/ai-routines.",
+    "sideEffects": "DB writes only: hr_duty_tower_readings (upsert per week), one loop_measurements row per duty per week, and — only when the Director's switch is on — hr_trust_suggestions rows. SENDS NOTHING. Changes no role, permission or approval chain.",
+    "safeToManualTrigger": true,
+    "notes": "Idempotent: the compute upserts per week and each measurement's run id is hr-duty-tower:<week_start>:<code>, skipped when already recorded. Auth: CRON_SECRET, Bearer ONLY (constant-time). Migration 20271007161151."
   }
 ];

@@ -135,6 +135,7 @@ import {
   type HandoverRow,
 } from './_lib/desk';
 import { HandedOutByMe, useHandedOutByMe } from './_components/handed-out';
+import { MyReliability } from './_components/my-reliability';
 import { Trail } from './_components/trail';
 import { WaitingOnYou } from './_components/waiting-on-you';
 
@@ -1007,6 +1008,7 @@ export default function MyDeskPage() {
           for why a failed read is never shown as an empty list.
         */}
         <WaitingOnYou userId={userId} />
+        <MyReliability />
 
         <Card className="border-indigo-200 bg-indigo-50/40 dark:border-indigo-900/40 dark:bg-indigo-950/20">
           <CardHeader>
