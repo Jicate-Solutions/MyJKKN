@@ -241,7 +241,10 @@ export class ImsInventoryService {
       const from = (page - 1) * limit;
       const to = from + limit - 1;
 
-      query = query.range(from, to).order('name', { ascending: true });
+      query = query
+        .range(from, to)
+        .order('sort_name', { ascending: true })
+        .order('name', { ascending: true });
 
       const { data, error, count } = await query;
 
