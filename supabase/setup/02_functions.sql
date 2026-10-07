@@ -82029,6 +82029,605 @@ END $$;
 REVOKE EXECUTE ON FUNCTION public.fn_hr_duty_proof_gaps(text, date) FROM anon, PUBLIC;
 GRANT  EXECUTE ON FUNCTION public.fn_hr_duty_proof_gaps(text, date) TO authenticated;
 
+-- ===========================================================================
+-- Source: 20271007161139_hr_duty_playbooks_and_lessons.sql (functions and their grants)
+-- HR staff harness — playbooks, the lessons log and credited authorship.
+-- Seeds (reason codes, two platform_policies rows, the ai_routine_schedules
+-- row) and the apply-time guards live only in the migration.
+-- ===========================================================================
+CREATE OR REPLACE FUNCTION public.fn_hr_duty_reason_codes_audit()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+  NEW.updated_at := now();
+  INSERT INTO public.hr_duty_reason_codes_audit (config_id, changed_by, old_value, new_value, change_reason)
+  VALUES (NEW.id, auth.uid(), to_jsonb(OLD), to_jsonb(NEW), NEW.change_reason);
+  RETURN NEW;
+END $$;
+
+REVOKE EXECUTE ON FUNCTION public.fn_hr_duty_reason_codes_audit() FROM anon, PUBLIC, authenticated;
+
+CREATE OR REPLACE FUNCTION public.fn_hr_playbook_can_read()
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  SELECT auth.uid() IS NOT NULL AND (
+    EXISTS (SELECT 1 FROM public.staff s WHERE s.profile_id = auth.uid())
+    OR COALESCE(public.is_super_admin(), false)
+    OR COALESCE(public.is_admin(), false)
+    OR COALESCE(public.user_has_permission('hr.harness.playbooks.manage'), false)
+  );
+$$;
+
+REVOKE EXECUTE ON FUNCTION public.fn_hr_playbook_can_read() FROM anon, PUBLIC;
+
+GRANT  EXECUTE ON FUNCTION public.fn_hr_playbook_can_read() TO authenticated;
+
+CREATE OR REPLACE FUNCTION public.fn_hr_duty_reason_match(p_duty text, p_text text)
+RETURNS text
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  SELECT COALESCE((
+    SELECT rc.code
+      FROM public.hr_duty_reason_codes rc
+     WHERE rc.duty_code = p_duty
+       AND rc.is_active = true
+       AND rc.code <> 'other'
+       AND EXISTS (
+         SELECT 1 FROM unnest(rc.match_terms) t(term)
+          WHERE lower(COALESCE(p_text, '')) ~ ('\m' || t.term)
+       )
+     ORDER BY rc.match_order, rc.code
+     LIMIT 1
+  ), 'other');
+$$;
+
+REVOKE EXECUTE ON FUNCTION public.fn_hr_duty_reason_match(text, text) FROM anon, PUBLIC, authenticated;
+
+GRANT  EXECUTE ON FUNCTION public.fn_hr_duty_reason_match(text, text) TO service_role;
+
+CREATE OR REPLACE FUNCTION public.fn_hr_playbook_policy_int(p_key text)
+RETURNS integer
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  SELECT CASE
+           WHEN jsonb_typeof(p.value) = 'number' AND (p.value #>> '{}') ~ '^[1-9][0-9]{0,4}$'
+             THEN (p.value #>> '{}')::integer
+         END
+    FROM public.platform_policies p
+   WHERE p.policy_key = p_key
+     AND p.scope_type = 'global'
+     AND p.scope_id IS NULL
+     AND p.is_active = true
+     -- a draft row is not a decision
+     AND COALESCE(p.publication_state, 'published') = 'published'
+   LIMIT 1;
+$$;
+
+REVOKE EXECUTE ON FUNCTION public.fn_hr_playbook_policy_int(text) FROM anon, PUBLIC, authenticated;
+
+GRANT  EXECUTE ON FUNCTION public.fn_hr_playbook_policy_int(text) TO service_role;
+
+CREATE OR REPLACE FUNCTION public.fn_hr_duty_reason_is_system(p_text text)
+RETURNS boolean
+LANGUAGE sql
+IMMUTABLE
+SET search_path = public
+AS $$
+  SELECT EXISTS (
+    SELECT 1
+      FROM unnest(ARRAY[
+        -- L1 leave
+        '^no leave balance available',                                    -- fn_hr_leave_reject_unfunded (20261005100000)
+        '^no .+ balance available for .+ day\(s\) available as of',       -- 20260930120000
+        '^payroll-verified per paid leave summary',                       -- 20260916080000, 20260916084500
+        '^jun-aug 2026 casual leave was corrected',                       -- 20260916091000
+        '^june-august 2026 casual leave is recorded as one day per month', -- 20260922130000
+        '^august 2026 allows one casual leave day',                       -- 20260907140000
+        '^casual leave outside june-august 2026 is reset',                -- 20260907140000
+        -- L2 comp-off
+        '^automatically rejected',                 -- fn_hr_comp_off_reject_expired_claims (20260911180000)
+        '^month closed over outstanding claims',   -- closing a month over pending claims (20260827200000)
+        -- S3 photographs
+        '^superseded by a newer photograph',       -- a newer photograph replaces a pending one (20261224164500)
+        '^refused automatically'                   -- the BUG-006144 backlog refusal (20261224164500)
+      ]) AS t(pattern)
+     WHERE lower(btrim(COALESCE(p_text, ''))) ~ t.pattern
+  );
+$$;
+
+REVOKE EXECUTE ON FUNCTION public.fn_hr_duty_reason_is_system(text) FROM anon, PUBLIC, authenticated;
+
+GRANT  EXECUTE ON FUNCTION public.fn_hr_duty_reason_is_system(text) TO service_role;
+
+CREATE OR REPLACE FUNCTION public.fn_hr_duty_lessons_harvest(p_since timestamptz)
+RETURNS jsonb
+LANGUAGE plpgsql
+VOLATILE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_out jsonb := '{}'::jsonb;
+  v_n   integer;
+BEGIN
+  IF p_since IS NULL THEN
+    RAISE EXCEPTION 'p_since is required' USING ERRCODE = '22004';
+  END IF;
+
+  -- L1 — leave: a rejection, or a reversal of an approved request (revoked_at set).
+  BEGIN
+    INSERT INTO public.hr_duty_lessons
+      (duty_code, institution_id, item_table, item_id, kind, reason_code, source, occurred_at)
+    SELECT 'L1', s.institution_id, 'hr_leave_applications', a.id, x.kind,
+           public.fn_hr_duty_reason_match('L1', x.txt), 'harvest', x.at
+      FROM public.hr_leave_applications a
+      LEFT JOIN public.staff s ON s.id = a.employee_id
+      CROSS JOIN LATERAL (SELECT
+        CASE WHEN a.revoked_at IS NOT NULL THEN 'reversal' ELSE 'reject' END AS kind,
+        CASE WHEN a.revoked_at IS NOT NULL THEN COALESCE(a.revoke_reason, a.rejection_reason)
+             ELSE a.rejection_reason END AS txt,
+        CASE WHEN a.revoked_at IS NOT NULL THEN a.revoked_by ELSE a.final_approver_id END AS decider,
+        COALESCE(a.revoked_at, a.final_decided_at) AS at) x
+     WHERE a.status = 'rejected'
+       AND x.at IS NOT NULL AND x.at >= p_since
+       AND x.decider IS NOT NULL
+       AND NOT public.fn_hr_duty_reason_is_system(x.txt)
+    ON CONFLICT (duty_code, item_table, item_id, kind, occurred_at) DO NOTHING;
+    GET DIAGNOSTICS v_n = ROW_COUNT;
+    v_out := v_out || jsonb_build_object('L1', v_n);
+  EXCEPTION WHEN undefined_table OR undefined_column OR data_exception THEN
+    v_out := v_out || jsonb_build_object('L1', jsonb_build_object('error', SQLERRM));
+  END;
+
+  -- L2 — comp-off claims. A claim decided before its decider was recorded
+  -- (approved_by NULL) is skipped: nothing tells it apart from the nightly
+  -- automatic rejection.
+  BEGIN
+    INSERT INTO public.hr_duty_lessons
+      (duty_code, institution_id, item_table, item_id, kind, reason_code, source, occurred_at)
+    SELECT 'L2', s.institution_id, 'hr_comp_off_credits', c.id, x.kind,
+           public.fn_hr_duty_reason_match('L2', x.txt), 'harvest', x.at
+      FROM public.hr_comp_off_credits c
+      LEFT JOIN public.staff s ON s.id = c.employee_id
+      CROSS JOIN LATERAL (SELECT
+        CASE WHEN c.revoked_at IS NOT NULL THEN 'reversal' ELSE 'reject' END AS kind,
+        CASE WHEN c.revoked_at IS NOT NULL THEN COALESCE(c.revoke_reason, c.rejection_reason)
+             ELSE c.rejection_reason END AS txt,
+        CASE WHEN c.revoked_at IS NOT NULL THEN c.revoked_by ELSE c.approved_by END AS decider,
+        COALESCE(c.revoked_at, c.approved_at) AS at) x
+     WHERE c.status = 'rejected'
+       AND x.at IS NOT NULL AND x.at >= p_since
+       AND x.decider IS NOT NULL
+       AND NOT public.fn_hr_duty_reason_is_system(x.txt)
+    ON CONFLICT (duty_code, item_table, item_id, kind, occurred_at) DO NOTHING;
+    GET DIAGNOSTICS v_n = ROW_COUNT;
+    v_out := v_out || jsonb_build_object('L2', v_n);
+  EXCEPTION WHEN undefined_table OR undefined_column OR data_exception THEN
+    v_out := v_out || jsonb_build_object('L2', jsonb_build_object('error', SQLERRM));
+  END;
+
+  -- A3 — attendance corrections.
+  BEGIN
+    INSERT INTO public.hr_duty_lessons
+      (duty_code, institution_id, item_table, item_id, kind, reason_code, source, occurred_at)
+    SELECT 'A3', s.institution_id, 'hr_attendance_regularizations', r.id, 'reject',
+           public.fn_hr_duty_reason_match('A3', r.rejection_reason), 'harvest', r.approved_at
+      FROM public.hr_attendance_regularizations r
+      LEFT JOIN public.staff s ON s.id = r.employee_id
+     WHERE r.status = 'rejected'
+       AND r.approved_at >= p_since
+       AND r.approver_id IS NOT NULL
+       AND NOT public.fn_hr_duty_reason_is_system(r.rejection_reason)
+    ON CONFLICT (duty_code, item_table, item_id, kind, occurred_at) DO NOTHING;
+    GET DIAGNOSTICS v_n = ROW_COUNT;
+    v_out := v_out || jsonb_build_object('A3', v_n);
+  EXCEPTION WHEN undefined_table OR undefined_column OR data_exception THEN
+    v_out := v_out || jsonb_build_object('A3', jsonb_build_object('error', SQLERRM));
+  END;
+
+  -- S2 — document verification.
+  BEGIN
+    INSERT INTO public.hr_duty_lessons
+      (duty_code, institution_id, item_table, item_id, kind, reason_code, source, occurred_at)
+    SELECT 'S2', d.institution_id, 'hr_employee_documents', d.id, 'reject',
+           public.fn_hr_duty_reason_match('S2', d.verification_notes), 'harvest', d.verified_at
+      FROM public.hr_employee_documents d
+     WHERE d.verification_status = 'rejected'
+       AND d.verified_at >= p_since
+       AND d.verified_by IS NOT NULL
+       AND NOT public.fn_hr_duty_reason_is_system(d.verification_notes)
+    ON CONFLICT (duty_code, item_table, item_id, kind, occurred_at) DO NOTHING;
+    GET DIAGNOSTICS v_n = ROW_COUNT;
+    v_out := v_out || jsonb_build_object('S2', v_n);
+  EXCEPTION WHEN undefined_table OR undefined_column OR data_exception THEN
+    v_out := v_out || jsonb_build_object('S2', jsonb_build_object('error', SQLERRM));
+  END;
+
+  -- S3 — team member photographs.
+  BEGIN
+    INSERT INTO public.hr_duty_lessons
+      (duty_code, institution_id, item_table, item_id, kind, reason_code, source, occurred_at)
+    SELECT 'S3', p.institution_id, 'hr_staff_photo_submissions', p.id, 'reject',
+           public.fn_hr_duty_reason_match('S3', p.review_note), 'harvest', p.reviewed_at
+      FROM public.hr_staff_photo_submissions p
+     WHERE p.status = 'rejected'
+       AND p.reviewed_at >= p_since
+       AND p.reviewed_by IS NOT NULL
+       AND NOT public.fn_hr_duty_reason_is_system(p.review_note)
+    ON CONFLICT (duty_code, item_table, item_id, kind, occurred_at) DO NOTHING;
+    GET DIAGNOSTICS v_n = ROW_COUNT;
+    v_out := v_out || jsonb_build_object('S3', v_n);
+  EXCEPTION WHEN undefined_table OR undefined_column OR data_exception THEN
+    v_out := v_out || jsonb_build_object('S3', jsonb_build_object('error', SQLERRM));
+  END;
+
+  -- G2 — HR forms: each 'reject' entry in approval_history made by a person
+  -- (actor_id set; the service writes the actor of every entry).
+  BEGIN
+    INSERT INTO public.hr_duty_lessons
+      (duty_code, institution_id, item_table, item_id, kind, reason_code, source, occurred_at)
+    SELECT 'G2', f.institution_id, 'hr_form_submissions', f.id, 'reject',
+           public.fn_hr_duty_reason_match('G2', e->>'reason'), 'harvest', (e->>'at')::timestamptz
+      FROM public.hr_form_submissions f
+      CROSS JOIN LATERAL jsonb_array_elements(
+        CASE WHEN jsonb_typeof(f.approval_history) = 'array' THEN f.approval_history ELSE '[]'::jsonb END
+      ) e
+     WHERE e->>'action' = 'reject'
+       AND NULLIF(btrim(e->>'actor_id'), '') IS NOT NULL
+       AND NOT public.fn_hr_duty_reason_is_system(e->>'reason')
+       -- only entries whose time reads as a date; one malformed entry must not
+       -- stop the whole source
+       AND (e->>'at') ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}[T ][0-9]{2}:[0-9]{2}'
+       AND (e->>'at')::timestamptz >= p_since
+    ON CONFLICT (duty_code, item_table, item_id, kind, occurred_at) DO NOTHING;
+    GET DIAGNOSTICS v_n = ROW_COUNT;
+    v_out := v_out || jsonb_build_object('G2', v_n);
+  EXCEPTION WHEN undefined_table OR undefined_column OR data_exception THEN
+    v_out := v_out || jsonb_build_object('G2', jsonb_build_object('error', SQLERRM));
+  END;
+
+  RETURN v_out;
+END $$;
+
+REVOKE EXECUTE ON FUNCTION public.fn_hr_duty_lessons_harvest(timestamptz) FROM anon, PUBLIC, authenticated;
+
+GRANT  EXECUTE ON FUNCTION public.fn_hr_duty_lessons_harvest(timestamptz) TO service_role;
+
+CREATE OR REPLACE FUNCTION public.fn_hr_playbook_propose_from_lessons()
+RETURNS integer
+LANGUAGE plpgsql
+VOLATILE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_threshold integer := public.fn_hr_playbook_policy_int('hr.harness.playbooks.pattern_threshold');
+  v_window    integer := public.fn_hr_playbook_policy_int('hr.harness.playbooks.pattern_window_days');
+  v_n         integer;
+BEGIN
+  IF v_threshold IS NULL OR v_window IS NULL THEN
+    RAISE WARNING 'hr playbooks: threshold or window policy unreadable; nothing proposed';
+    RETURN 0;
+  END IF;
+
+  WITH counts AS (
+    SELECT l.duty_code, l.reason_code,
+           count(*)::integer AS n,
+           min(l.occurred_at) AS first_at,
+           max(l.occurred_at) AS last_at
+      FROM public.hr_duty_lessons l
+     WHERE l.reason_code <> 'other'
+       AND l.occurred_at >= now() - make_interval(days => v_window)
+     GROUP BY l.duty_code, l.reason_code
+  )
+  INSERT INTO public.hr_playbook_line_proposals
+    (duty_code, proposed_text, source, reason_code, evidence, status)
+  SELECT c.duty_code, rc.suggested_line, 'lesson_pattern', c.reason_code,
+         jsonb_build_object('count', c.n, 'window_days', v_window,
+                            'first_at', c.first_at, 'last_at', c.last_at),
+         'proposed'
+    FROM counts c
+    JOIN public.hr_duty_reason_codes rc
+      ON rc.duty_code = c.duty_code AND rc.code = c.reason_code
+     AND rc.is_active = true AND rc.suggested_line IS NOT NULL
+   WHERE c.n >= v_threshold
+     -- no proposal from this reason is already waiting
+     AND NOT EXISTS (
+       SELECT 1 FROM public.hr_playbook_line_proposals p
+        WHERE p.duty_code = c.duty_code AND p.reason_code = c.reason_code
+          AND p.source = 'lesson_pattern' AND p.status = 'proposed')
+     -- no line was accepted from this reason in the last 90 days
+     AND NOT EXISTS (
+       SELECT 1 FROM public.hr_playbook_lines ln
+         JOIN public.hr_playbook_line_proposals p2 ON p2.id = ln.source_proposal_id
+        WHERE p2.duty_code = c.duty_code AND p2.reason_code = c.reason_code
+          AND ln.accepted_at >= now() - interval '90 days')
+     -- and none was declined in the last 90 days
+     AND NOT EXISTS (
+       SELECT 1 FROM public.hr_playbook_line_proposals p3
+        WHERE p3.duty_code = c.duty_code AND p3.reason_code = c.reason_code
+          AND p3.source = 'lesson_pattern' AND p3.status = 'declined'
+          AND p3.decided_at >= now() - interval '90 days');
+  GET DIAGNOSTICS v_n = ROW_COUNT;
+  RETURN v_n;
+END $$;
+
+REVOKE EXECUTE ON FUNCTION public.fn_hr_playbook_propose_from_lessons() FROM anon, PUBLIC, authenticated;
+
+GRANT  EXECUTE ON FUNCTION public.fn_hr_playbook_propose_from_lessons() TO service_role;
+
+CREATE OR REPLACE FUNCTION public.fn_hr_playbook_suggest(p_duty text, p_text text)
+RETURNS uuid
+LANGUAGE plpgsql
+VOLATILE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_uid  uuid := auth.uid();
+  v_text text := btrim(COALESCE(p_text, ''));
+  v_open integer;
+  v_id   uuid;
+BEGIN
+  IF v_uid IS NULL THEN
+    RAISE EXCEPTION 'Please sign in to suggest a playbook line.' USING ERRCODE = '42501';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM public.staff s WHERE s.profile_id = v_uid) THEN
+    RAISE EXCEPTION 'Only a team member can suggest a playbook line.' USING ERRCODE = '42501';
+  END IF;
+  IF p_duty IS NULL OR p_duty !~ '^(R[1-9]|L[1-5]|A[1-6]|P[1-4]|S[1-4]|G([1-9]|10))$' THEN
+    RAISE EXCEPTION 'Unknown duty.' USING ERRCODE = '22023';
+  END IF;
+  IF char_length(v_text) NOT BETWEEN 10 AND 240 THEN
+    RAISE EXCEPTION 'A playbook line is 10 to 240 characters.' USING ERRCODE = '22023';
+  END IF;
+
+  SELECT count(*) INTO v_open
+    FROM public.hr_playbook_line_proposals
+   WHERE suggested_by = v_uid AND status = 'proposed';
+  IF v_open >= 5 THEN
+    RAISE EXCEPTION 'You already have 5 suggestions waiting. Please wait for a decision on one first.'
+      USING ERRCODE = '54000';
+  END IF;
+
+  INSERT INTO public.hr_playbook_line_proposals (duty_code, proposed_text, source, suggested_by, status)
+  VALUES (p_duty, v_text, 'suggestion', v_uid, 'proposed')
+  RETURNING id INTO v_id;
+  RETURN v_id;
+END $$;
+
+REVOKE EXECUTE ON FUNCTION public.fn_hr_playbook_suggest(text, text) FROM anon, PUBLIC;
+
+GRANT  EXECUTE ON FUNCTION public.fn_hr_playbook_suggest(text, text) TO authenticated;
+
+CREATE OR REPLACE FUNCTION public.fn_hr_playbook_decide(
+  p_id uuid, p_decision text, p_edited_text text, p_note text)
+RETURNS uuid
+LANGUAGE plpgsql
+VOLATILE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_ok   boolean;
+  v_uid  uuid := auth.uid();
+  v_p    public.hr_playbook_line_proposals%ROWTYPE;
+  v_text text;
+  v_note text := NULLIF(btrim(COALESCE(p_note, '')), '');
+  v_pos  integer;
+  v_line uuid;
+BEGIN
+  -- 1. NULL from either check must refuse, so test IS NOT TRUE, never NOT (a OR b).
+  v_ok := public.is_super_admin() OR public.user_has_permission('hr.harness.playbooks.manage');
+  IF v_ok IS NOT TRUE OR v_uid IS NULL THEN
+    RAISE EXCEPTION 'Only the HR head can decide playbook lines.' USING ERRCODE = '42501';
+  END IF;
+
+  -- 2. Must still be waiting.
+  SELECT * INTO v_p FROM public.hr_playbook_line_proposals WHERE id = p_id FOR UPDATE;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Proposal not found.' USING ERRCODE = 'P0002';
+  END IF;
+  IF v_p.status <> 'proposed' THEN
+    RAISE EXCEPTION 'This proposal was already %.', v_p.status USING ERRCODE = '55000';
+  END IF;
+
+  -- 3. Nobody decides their own suggestion.
+  IF v_p.suggested_by = v_uid THEN
+    RAISE EXCEPTION 'You cannot decide your own suggestion. Another person with this duty must decide it.'
+      USING ERRCODE = '42501';
+  END IF;
+
+  IF p_decision = 'accept' THEN
+    v_text := COALESCE(NULLIF(btrim(COALESCE(p_edited_text, '')), ''), v_p.proposed_text);
+    IF char_length(v_text) NOT BETWEEN 10 AND 240 THEN
+      RAISE EXCEPTION 'A playbook line is 10 to 240 characters.' USING ERRCODE = '22023';
+    END IF;
+
+    SELECT COALESCE(max(position), 0) + 1 INTO v_pos
+      FROM public.hr_playbook_lines WHERE duty_code = v_p.duty_code AND status = 'active';
+
+    -- 4. Credit: the suggester for a suggestion; the decider for a drafted line.
+    --    If the decider changed the words, they are named too (edited_by), so a
+    --    rewritten line is never shown as the suggester's alone.
+    INSERT INTO public.hr_playbook_lines
+      (duty_code, line_text, position, status, authored_by, source, source_proposal_id,
+       lesson_count, accepted_by, accepted_at, edited_by)
+    VALUES
+      (v_p.duty_code, v_text, v_pos, 'active',
+       CASE WHEN v_p.source = 'suggestion' THEN v_p.suggested_by ELSE v_uid END,
+       v_p.source, v_p.id,
+       CASE WHEN v_p.source = 'lesson_pattern' THEN (v_p.evidence->>'count')::integer END,
+       v_uid, now(),
+       CASE WHEN v_text <> v_p.proposed_text THEN v_uid END)
+    RETURNING id INTO v_line;
+
+    UPDATE public.hr_playbook_line_proposals
+       SET status = 'accepted', decided_by = v_uid, decided_at = now(),
+           decision_note = v_note,
+           edited_text = CASE WHEN v_text <> v_p.proposed_text THEN v_text END
+     WHERE id = v_p.id;
+    RETURN v_line;
+
+  ELSIF p_decision = 'decline' THEN
+    -- 5. A decline says why.
+    IF v_note IS NULL THEN
+      RAISE EXCEPTION 'Please write a short note saying why this line is declined.' USING ERRCODE = '22023';
+    END IF;
+    UPDATE public.hr_playbook_line_proposals
+       SET status = 'declined', decided_by = v_uid, decided_at = now(), decision_note = left(v_note, 500)
+     WHERE id = v_p.id;
+    RETURN v_p.id;
+
+  ELSE
+    RAISE EXCEPTION 'Decision must be accept or decline.' USING ERRCODE = '22023';
+  END IF;
+END $$;
+
+REVOKE EXECUTE ON FUNCTION public.fn_hr_playbook_decide(uuid, text, text, text) FROM anon, PUBLIC;
+
+GRANT  EXECUTE ON FUNCTION public.fn_hr_playbook_decide(uuid, text, text, text) TO authenticated;
+
+CREATE OR REPLACE FUNCTION public.fn_hr_playbook_retire_line(p_id uuid, p_note text)
+RETURNS uuid
+LANGUAGE plpgsql
+VOLATILE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_ok   boolean;
+  v_uid  uuid := auth.uid();
+  v_note text := NULLIF(btrim(COALESCE(p_note, '')), '');
+BEGIN
+  v_ok := public.is_super_admin() OR public.user_has_permission('hr.harness.playbooks.manage');
+  IF v_ok IS NOT TRUE OR v_uid IS NULL THEN
+    RAISE EXCEPTION 'Only the HR head can retire playbook lines.' USING ERRCODE = '42501';
+  END IF;
+  IF v_note IS NULL THEN
+    RAISE EXCEPTION 'Please write a short note saying why this line is retired.' USING ERRCODE = '22023';
+  END IF;
+  UPDATE public.hr_playbook_lines
+     SET status = 'retired', retired_by = v_uid, retired_at = now(),
+         retire_note = left(v_note, 500), updated_at = now()
+   WHERE id = p_id AND status = 'active';
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'No active line with that id.' USING ERRCODE = 'P0002';
+  END IF;
+  RETURN p_id;
+END $$;
+
+REVOKE EXECUTE ON FUNCTION public.fn_hr_playbook_retire_line(uuid, text) FROM anon, PUBLIC;
+
+GRANT  EXECUTE ON FUNCTION public.fn_hr_playbook_retire_line(uuid, text) TO authenticated;
+
+CREATE OR REPLACE FUNCTION public.fn_hr_playbook_for_duty(p_duty text)
+RETURNS TABLE (
+  id uuid, duty_code text, line_text text, line_position integer, source text,
+  authored_by uuid, author_name text, lesson_count integer,
+  accepted_by uuid, accepted_by_name text, accepted_at timestamptz,
+  edited_by uuid, edited_by_name text)
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+#variable_conflict use_column
+BEGIN
+  IF public.fn_hr_playbook_can_read() IS NOT TRUE THEN
+    RAISE EXCEPTION 'Playbooks are open to team members only.' USING ERRCODE = '42501';
+  END IF;
+  RETURN QUERY
+  SELECT l.id, l.duty_code, l.line_text, l.position, l.source,
+         l.authored_by, pa.full_name, l.lesson_count,
+         l.accepted_by, pb.full_name, l.accepted_at,
+         l.edited_by, pe.full_name
+    FROM public.hr_playbook_lines l
+    LEFT JOIN public.profiles pa ON pa.id = l.authored_by
+    LEFT JOIN public.profiles pb ON pb.id = l.accepted_by
+    LEFT JOIN public.profiles pe ON pe.id = l.edited_by
+   WHERE l.duty_code = p_duty
+     AND l.status = 'active'
+   ORDER BY l.position, l.accepted_at, l.id;
+END $$;
+
+REVOKE EXECUTE ON FUNCTION public.fn_hr_playbook_for_duty(text) FROM anon, PUBLIC;
+
+GRANT  EXECUTE ON FUNCTION public.fn_hr_playbook_for_duty(text) TO authenticated;
+
+CREATE OR REPLACE FUNCTION public.fn_hr_playbook_contributors()
+RETURNS TABLE (authored_by uuid, author_name text, line_count integer)
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+#variable_conflict use_column
+BEGIN
+  IF public.fn_hr_playbook_can_read() IS NOT TRUE THEN
+    RAISE EXCEPTION 'Playbooks are open to team members only.' USING ERRCODE = '42501';
+  END IF;
+  RETURN QUERY
+  SELECT l.authored_by, p.full_name, count(*)::integer
+    FROM public.hr_playbook_lines l
+    LEFT JOIN public.profiles p ON p.id = l.authored_by
+   WHERE l.status = 'active'
+   GROUP BY l.authored_by, p.full_name
+   ORDER BY lower(p.full_name) NULLS LAST, l.authored_by;
+END $$;
+
+REVOKE EXECUTE ON FUNCTION public.fn_hr_playbook_contributors() FROM anon, PUBLIC;
+
+GRANT  EXECUTE ON FUNCTION public.fn_hr_playbook_contributors() TO authenticated;
+
+CREATE OR REPLACE FUNCTION public.fn_hr_playbook_open_proposals()
+RETURNS TABLE (
+  id uuid, duty_code text, proposed_text text, source text, reason_code text,
+  reason_label text, evidence jsonb, suggested_by uuid, suggested_by_name text,
+  created_at timestamptz)
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+#variable_conflict use_column
+BEGIN
+  IF public.fn_hr_playbook_can_read() IS NOT TRUE THEN
+    RAISE EXCEPTION 'Playbooks are open to team members only.' USING ERRCODE = '42501';
+  END IF;
+  RETURN QUERY
+  SELECT p.id, p.duty_code, p.proposed_text, p.source, p.reason_code,
+         rc.label, p.evidence, p.suggested_by, pr.full_name, p.created_at
+    FROM public.hr_playbook_line_proposals p
+    LEFT JOIN public.profiles pr ON pr.id = p.suggested_by
+    LEFT JOIN public.hr_duty_reason_codes rc
+      ON rc.duty_code = p.duty_code AND rc.code = p.reason_code AND rc.is_active = true
+   WHERE p.status = 'proposed'
+     AND (
+       (public.is_super_admin() OR public.is_admin()
+        OR public.user_has_permission('hr.harness.playbooks.manage')) IS TRUE
+       OR p.suggested_by = auth.uid()
+     )
+   ORDER BY p.duty_code, p.created_at;
+END $$;
+
+REVOKE EXECUTE ON FUNCTION public.fn_hr_playbook_open_proposals() FROM anon, PUBLIC;
+
+GRANT  EXECUTE ON FUNCTION public.fn_hr_playbook_open_proposals() TO authenticated;
+
 -- Updated: 2026-10-08 - Raise targets read the app's own schedule: the schedule record's
 -- helpers and the nightly job's two calls, and #4252's measure, teaches, classify and
 -- run_one re-created to read it (round 5 findings 1-6).

@@ -38,6 +38,23 @@ export const PLATFORM_OPS_ROUTINES: AIRoutine[] = [
     "notes": "DUAL-LANE ROUTE: only the daily rank+escalate lane moved to the dispatcher. The hourly '17,47 * * * *' ?mode=collect lane REMAINS a vercel.json cron — the dispatcher cannot express sub-daily schedules and triggerPath cannot carry a query string (registry-cron-wiring test checks the path exists on disk). Auth: Bearer or ?secret=. IST math: 04:43 UTC = 10:13 IST → slot 10:00 (minute_of_day 613)."
   },
   {
+    "id": "hr-playbook-lessons",
+    "name": "HR playbooks — gather rejection reasons + draft playbook lines",
+    "category": "platform-ops",
+    "type": "cron",
+    "schedule": "Weekly · Monday 07:13 IST (editable via dispatcher)",
+    "cronExpr": "43 1 * * 1 UTC equivalent (dispatcher only, never in vercel.json; minute_of_day 433 = 07:13 IST, the 07:00 slot)",
+    "triggerPath": "/api/cron/hr-playbook-lessons",
+    "callsClaude": false,
+    "featureKey": null,
+    "featureKeyNote": "Rules-based: two SECURITY DEFINER functions (fn_hr_duty_lessons_harvest, fn_hr_playbook_propose_from_lessons), keyword matching only; no model involved.",
+    "whatItDoes": "Gathers the reason text people already type when rejecting or reversing HR work (leave, comp-off, attendance corrections, documents, photographs, HR forms) from the last 35 days into hr_duty_lessons, sorted into a reason code by keyword ('other' when none match). Then, for any reason seen at least the threshold number of times inside the window, drafts one proposed playbook line for the HR head on /hr/playbooks.",
+    "configKnobs": "platform_policies hr.harness.playbooks.pattern_threshold (3) and hr.harness.playbooks.pattern_window_days (30) — unreadable or not a positive whole number = nothing proposed. Keywords and suggested lines: hr_duty_reason_codes rows. Day/time editable at /admin/ai-routines.",
+    "sideEffects": "writes lessons and proposals; sends nothing",
+    "safeToManualTrigger": true,
+    "notes": "Idempotent: the lessons log is unique on (duty_code, item_table, item_id, kind, occurred_at) and at most one lesson-pattern proposal per reason can wait at a time. Answers 500 when a harvest source cannot be read. Auth: Bearer CRON_SECRET only. Migration 20271007161139."
+  },
+  {
     "id": "teaching-cohort-sync",
     "name": "Teaching-enterprise cohort sync",
     "category": "platform-ops",
@@ -680,5 +697,21 @@ export const PLATFORM_OPS_ROUTINES: AIRoutine[] = [
     "sideEffects": "WRITES one notifications row (+ user_notifications link) per recipient per ISO week and SENDS one email per recipient via Resend when that row is freshly created. Moves no money and releases nothing.",
     "safeToManualTrigger": true,
     "notes": "Idempotent per ISO week (IST calendar): notifications.idempotency_key walkin-claims-weekly-note:<week>:<user>, and the email is gated on that row being new, so a re-run in the same week sends nothing. Auth: CRON_SECRET, Bearer ONLY (constant-time). Migration 20270610100000."
+  },
+  {
+    "id": "hr-recruitment-nudges",
+    "name": "HR recruitment nudges — approvals, scorecards, offers",
+    "category": "platform-ops",
+    "type": "cron",
+    "schedule": "Mon–Sat · 09:15 IST (editable via dispatcher)",
+    "triggerPath": "/api/cron/hr-recruitment-nudges",
+    "callsClaude": false,
+    "featureKey": null,
+    "featureKeyNote": "Rules-based deadline checks; no model involved.",
+    "whatItDoes": "HR harness, duty cards R5/R6/R8. Sends one in-app reminder when a candidate has waited at an approval step longer than that step's escalate_after_hours (seeded 72), then one notice to the HR Head 48 hours after that reminder if the step is still waiting; one nudge to each interviewer whose scorecard is missing 24 hours after the interview (interviews from the last 14 days only); one nudge when a candidate has sat at 'package_fixed' for 2 days with no offer, and one when an issued offer's joining date passed 2 days ago with no outcome recorded — both to the job's creator, or to everyone whose role grants hr.recruitment.edit for that college when the job has none.",
+    "configKnobs": "Thresholds are constants in lib/hr/recruitment/harness-selection.ts, except each approval step's own escalate_after_hours, which is frozen into the candidate's chain from the approval flow. Day/time editable at /admin/ai-routines.",
+    "sideEffects": "SENDS in-app notifications (notifications + user_notifications, category 'staff', kind 'work_item'); writes one hr_recruitment_nudges_sent row per nudge, which is what makes every nudge fire only once.",
+    "safeToManualTrigger": false,
+    "notes": "Rules-based, no LLM. Auth: Bearer or ?secret=. Idempotent: each nudge is claimed in hr_recruitment_nudges_sent (UNIQUE (kind, ref_key)) before sending and released if the send fails, so a re-run sends nothing twice. The step-ready notice (next approver told the moment a step is approved) is NOT this routine — it is sent by the approve route. Migration 20270613101125; IST slot 09:15 (minute_of_day 555, days {1..6})."
   }
 ];
