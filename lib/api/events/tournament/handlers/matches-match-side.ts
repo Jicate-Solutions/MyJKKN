@@ -1,7 +1,7 @@
 // POST /api/events/tournament/[eventId]/matches/[matchId]/side
 // Put a different entry into one side of an unplayed knockout match, or fill
 // the empty side of a bye, via fn_tournament_set_match_side (migration
-// 20271006100000). The function holds every rule — knockout only, slot not fed
+// 20271007120000). The function holds every rule — knockout only, slot not fed
 // by an earlier match, no result yet, entry active and not already placed — so
 // this route only checks access and that the match is in this tournament.
 // Called with the user's SESSION client so the RPC's own permission guard runs.

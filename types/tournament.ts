@@ -744,7 +744,7 @@ export interface GenerateFixturesResult {
 
 /**
  * Put an entry into one side of an unplayed knockout match, or into the empty
- * side of a bye (fn_tournament_set_match_side, migration 20271006100000).
+ * side of a bye (fn_tournament_set_match_side, migration 20271007120000).
  */
 export interface SetMatchSideDto {
   slot: 'a' | 'b';
