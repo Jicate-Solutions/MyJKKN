@@ -19,7 +19,8 @@ export const STATUS_TONE: Record<string, string> = {
   blue: 'border-primary text-primary',
   indigo: 'border-primary text-primary',
   purple: 'border-primary text-primary',
-  green: 'border-primary text-primary',
+  // Filled, so finished states (received, completed) read apart from in-flight ones.
+  green: 'border-primary bg-primary/10 text-primary',
   amber: 'border-secondary bg-secondary/20 text-foreground',
   orange: 'border-secondary bg-secondary/20 text-foreground',
   red: 'border-destructive text-destructive',

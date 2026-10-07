@@ -51,7 +51,7 @@ function Blank({
       placeholder={missing ? 'Required' : (placeholder ?? '—')}
       onChange={(e) => edit.onChange(k, e.target.value)}
       onBlur={edit.onCommit}
-      className={`w-full min-w-0 rounded border border-dashed bg-transparent px-1.5 py-0.5 font-semibold outline-none placeholder:font-normal focus:border-primary focus:bg-background ${
+      className={`w-full min-w-0 rounded border border-dashed bg-transparent px-1.5 py-0.5 font-semibold outline-none placeholder:font-normal focus:border-primary focus:bg-background max-sm:py-1.5 ${
         missing
           ? 'border-secondary bg-secondary/25 placeholder:text-foreground'
           : 'border-transparent hover:border-border'
@@ -66,7 +66,8 @@ export function PoDocumentPreview({ model, edit }: { model: PoDocumentModel; edi
     edit ? <Blank edit={edit} k={k} placeholder={placeholder} className={className} /> : printed;
 
   return (
-    <div className="overflow-x-auto rounded-xl border bg-background">
+    // Sits inside the order page's section card, which draws the border.
+    <div className="overflow-x-auto bg-background">
       <table className="w-full min-w-[640px] border-collapse text-[13px] [&_td]:border [&_td]:border-border [&_th]:border [&_th]:border-border">
         <tbody>
           <tr>

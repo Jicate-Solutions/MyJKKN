@@ -11816,6 +11816,152 @@ CREATE POLICY hostel_floors_delete_permission ON public.hostel_floors
   );
 
 
+-- Mirrored from supabase/migrations/20271007150000_hr_salary_register_manual_days.sql
+ALTER TABLE public.hr_salary_register_manual_days ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS hr_salary_register_manual_days_select ON public.hr_salary_register_manual_days;
+CREATE POLICY hr_salary_register_manual_days_select
+  ON public.hr_salary_register_manual_days
+  FOR SELECT TO authenticated
+  USING (
+    (SELECT public.is_super_admin())
+    OR (
+      (SELECT public.user_has_permission('hr.payroll.register.view'))
+      AND (SELECT public.role_has_institution_access(institution_id))
+    )
+  );
+
+-- institution_id is pinned to the organisation's own institution, so a manager
+-- of one college cannot file days against another college's register.
+DROP POLICY IF EXISTS hr_salary_register_manual_days_insert ON public.hr_salary_register_manual_days;
+CREATE POLICY hr_salary_register_manual_days_insert
+  ON public.hr_salary_register_manual_days
+  FOR INSERT TO authenticated
+  WITH CHECK (
+    EXISTS (
+      SELECT 1 FROM public.hr_organizations o
+       WHERE o.id = hr_salary_register_manual_days.hr_organization_id
+         AND o.institution_id = hr_salary_register_manual_days.institution_id
+    )
+    AND (
+      (SELECT public.is_super_admin())
+      OR (
+        (SELECT public.user_has_permission('hr.payroll.register.manage'))
+        AND (SELECT public.role_has_institution_access(institution_id))
+      )
+    )
+  );
+
+DROP POLICY IF EXISTS hr_salary_register_manual_days_update ON public.hr_salary_register_manual_days;
+CREATE POLICY hr_salary_register_manual_days_update
+  ON public.hr_salary_register_manual_days
+  FOR UPDATE TO authenticated
+  USING (
+    (SELECT public.is_super_admin())
+    OR (
+      (SELECT public.user_has_permission('hr.payroll.register.manage'))
+      AND (SELECT public.role_has_institution_access(institution_id))
+    )
+  )
+  WITH CHECK (
+    EXISTS (
+      SELECT 1 FROM public.hr_organizations o
+       WHERE o.id = hr_salary_register_manual_days.hr_organization_id
+         AND o.institution_id = hr_salary_register_manual_days.institution_id
+    )
+    AND (
+      (SELECT public.is_super_admin())
+      OR (
+        (SELECT public.user_has_permission('hr.payroll.register.manage'))
+        AND (SELECT public.role_has_institution_access(institution_id))
+      )
+    )
+  );
+
+-- No DELETE policy: an entry is corrected, never silently removed.
+
+DROP POLICY IF EXISTS hr_salary_register_manual_days_service_role ON public.hr_salary_register_manual_days;
+CREATE POLICY hr_salary_register_manual_days_service_role
+  ON public.hr_salary_register_manual_days
+  FOR ALL TO service_role
+  USING (true) WITH CHECK (true);
+
+REVOKE ALL ON public.hr_salary_register_manual_days FROM anon;
+GRANT SELECT, INSERT, UPDATE ON public.hr_salary_register_manual_days TO authenticated;
+
+-- Updated: 2026-10-07 - Target-gated raises: RLS on the first-mark record (each
+-- reads only their own, nobody signed in writes) and on the three plan tables,
+-- SELECT only, for those who may see the request (the person reads their own
+-- through fn_hr_salary_revision_my_targets()).
+-- Source: 20271007180207_hr_salary_revision_target_gated_raises.sql
+ALTER TABLE public.attendance_first_marks ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS attendance_first_marks_select_own ON public.attendance_first_marks;
+CREATE POLICY attendance_first_marks_select_own ON public.attendance_first_marks
+  FOR SELECT TO authenticated
+  USING (marker_profile_id = auth.uid());
+DROP POLICY IF EXISTS attendance_first_marks_service_role ON public.attendance_first_marks;
+CREATE POLICY attendance_first_marks_service_role ON public.attendance_first_marks
+  FOR SELECT TO service_role USING (true);
+REVOKE ALL ON public.attendance_first_marks FROM anon, PUBLIC, authenticated, service_role;
+GRANT SELECT ON public.attendance_first_marks TO authenticated, service_role;
+
+ALTER TABLE public.hr_salary_revision_target_plans  ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.hr_salary_revision_target_months ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.hr_salary_revision_target_flags  ENABLE ROW LEVEL SECURITY;
+
+-- Whoever may see the request (its own RLS decides), except the person whose
+-- raise it is, even when they asked for it themselves (round 7). The person
+-- reads their own numbers, state and dates through
+-- fn_hr_salary_revision_my_targets() (default cc), never the notes.
+DROP POLICY IF EXISTS hr_salary_revision_target_plans_select ON public.hr_salary_revision_target_plans;
+CREATE POLICY hr_salary_revision_target_plans_select ON public.hr_salary_revision_target_plans
+  FOR SELECT TO authenticated
+  USING (public.hr_salary_revision_target_can_read(request_id));
+
+DROP POLICY IF EXISTS hr_salary_revision_target_months_select ON public.hr_salary_revision_target_months;
+CREATE POLICY hr_salary_revision_target_months_select ON public.hr_salary_revision_target_months
+  FOR SELECT TO authenticated
+  USING (EXISTS (SELECT 1 FROM public.hr_salary_revision_target_plans p WHERE p.request_id = hr_salary_revision_target_months.request_id));
+
+-- The flag's note and the decision: whoever may see the request, except the
+-- person whose raise it is, even a self-asker (round 7).
+DROP POLICY IF EXISTS hr_salary_revision_target_flags_select ON public.hr_salary_revision_target_flags;
+CREATE POLICY hr_salary_revision_target_flags_select ON public.hr_salary_revision_target_flags
+  FOR SELECT TO authenticated
+  USING (public.hr_salary_revision_target_can_read(request_id));
+
+DROP POLICY IF EXISTS hr_salary_revision_target_plans_service_role ON public.hr_salary_revision_target_plans;
+CREATE POLICY hr_salary_revision_target_plans_service_role ON public.hr_salary_revision_target_plans
+  FOR ALL TO service_role USING (true) WITH CHECK (true);
+DROP POLICY IF EXISTS hr_salary_revision_target_months_service_role ON public.hr_salary_revision_target_months;
+CREATE POLICY hr_salary_revision_target_months_service_role ON public.hr_salary_revision_target_months
+  FOR ALL TO service_role USING (true) WITH CHECK (true);
+DROP POLICY IF EXISTS hr_salary_revision_target_flags_service_role ON public.hr_salary_revision_target_flags;
+CREATE POLICY hr_salary_revision_target_flags_service_role ON public.hr_salary_revision_target_flags
+  FOR ALL TO service_role USING (true) WITH CHECK (true);
+
+REVOKE ALL ON public.hr_salary_revision_target_plans, public.hr_salary_revision_target_months,
+              public.hr_salary_revision_target_flags FROM anon, PUBLIC;
+REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON public.hr_salary_revision_target_plans, public.hr_salary_revision_target_months,
+              public.hr_salary_revision_target_flags FROM authenticated;
+GRANT SELECT ON public.hr_salary_revision_target_plans, public.hr_salary_revision_target_months,
+                public.hr_salary_revision_target_flags TO authenticated;
+GRANT ALL ON public.hr_salary_revision_target_plans, public.hr_salary_revision_target_months,
+             public.hr_salary_revision_target_flags TO service_role;
+
+-- Updated: 2026-10-07 - Round 7: the setting log is read by the Director list and the server key; nobody writes it but the trigger.
+ALTER TABLE public.hr_salary_revision_target_setting_log ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS hr_salary_revision_target_setting_log_select ON public.hr_salary_revision_target_setting_log;
+CREATE POLICY hr_salary_revision_target_setting_log_select ON public.hr_salary_revision_target_setting_log
+  FOR SELECT TO authenticated
+  USING ((SELECT public.fn_is_the_director()) IS TRUE);
+DROP POLICY IF EXISTS hr_salary_revision_target_setting_log_service_role ON public.hr_salary_revision_target_setting_log;
+CREATE POLICY hr_salary_revision_target_setting_log_service_role ON public.hr_salary_revision_target_setting_log
+  FOR SELECT TO service_role USING (true);
+REVOKE ALL ON public.hr_salary_revision_target_setting_log FROM anon, PUBLIC, authenticated, service_role;
+GRANT SELECT ON public.hr_salary_revision_target_setting_log TO authenticated, service_role;
+
+
 -- Updated: 2026-10-07 - HR duty tower and earned-trust reliability signal (migration 20271007161151_hr_duty_tower_and_reliability.sql)
 ALTER TABLE public.hr_duty_tower_duties       ENABLE ROW LEVEL SECURITY;
 

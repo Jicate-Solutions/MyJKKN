@@ -15,6 +15,10 @@
  *   - the reason for a stop or a no: only the asker, the principal of an HOD's
  *     request and the Director (ruling 14) — the server leaves it out for anyone else.
  * The person whose pay it is never reaches this page's data.
+ *
+ * 7 Oct 2026: an approved raise shows its two parts and the monthly target
+ * numbers (TargetSection); the principal may flag a month, the Director may
+ * decide a flagged one.
  */
 
 import { useState } from 'react';
@@ -30,6 +34,8 @@ import { Textarea } from '@/components/ui/textarea';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useRevisionAction, useRevisionDetail } from '@/hooks/hr/use-salary-revisions';
 import { ASKED_AS_LABELS, changeText, decisionSummary, longDate, toAmount } from '@/lib/hr/salary-revision';
+import { todayIST } from '@/lib/hr/raise-effective-date';
+import { TargetSection } from '../_components/target-section';
 import {
   BandWarning,
   RevisionFlags,
@@ -73,7 +79,7 @@ export default function SalaryRevisionDetailPage() {
     );
   }
 
-  const { request: r, decisionNote, comments } = detail.data;
+  const { request: r, decisionNote, comments, targets } = detail.data;
   const current = toAmount(r.current_monthly_gross);
   const asked = toAmount(r.asked_monthly_gross);
   const typedFinal = finalFigure.trim() ? toAmount(finalFigure.replace(/[,\s₹]/g, '')) : null;
@@ -126,6 +132,28 @@ export default function SalaryRevisionDetailPage() {
               <p className='text-sm font-medium'>{decisionSummary(r)}</p>
             )}
             <RequestNote text={r.cancel_note ?? r.apply_note} />
+
+            {targets?.plan && (r.status === 'approved' || r.status === 'applied') && (
+              <TargetSection
+                targets={targets}
+                today={todayIST()}
+                canFlag={canCheck}
+                canDecide={canApprove}
+                busy={act.isPending}
+                onFlag={(month, text) => act.mutate({ action: 'target_flag', month, note: text }, {
+                  onSuccess: () => toast.success('Flagged. The month goes to the Director with the numbers.'),
+                  onError: failed,
+                })}
+                onDecide={(month, met) => act.mutate({ action: 'target_decide', month, met }, {
+                  onSuccess: () => toast.success(met ? 'Counted as met.' : 'Counted as missed.'),
+                  onError: failed,
+                })}
+                onLapse={(text) => act.mutate({ action: 'target_lapse', note: text }, {
+                  onSuccess: () => toast.success('The held part lapsed. A new raise can now be asked for.'),
+                  onError: failed,
+                })}
+              />
+            )}
 
             <div className='rounded-md bg-muted/50 p-3 text-sm'>
               <p className='text-xs text-muted-foreground'>
