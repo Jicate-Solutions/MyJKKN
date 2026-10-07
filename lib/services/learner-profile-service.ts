@@ -26,6 +26,21 @@ import type {
   LearnerStatsRow,
 } from '@/types/learner-profile-queries';
 
+/**
+ * URL for one of this app's API routes.
+ *
+ * In the browser this is the relative path, so the call stays same-origin and
+ * the sign-in cookie always travels: the routes called from this file read the
+ * caller's session from cookies, and a configured site URL that differs from
+ * the page origin (https://jkkn.ai vs https://www.jkkn.ai) would drop it and
+ * the route would answer 401. Outside the browser a relative URL cannot be
+ * fetched, so the configured site URL is used there.
+ */
+function apiUrl(path: string): string {
+  const baseUrl = typeof window !== 'undefined' ? '' : (process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000');
+  return `${baseUrl}${path}`;
+}
+
 // ============================================
 // LEARNER PROFILE SERVICE
 // ============================================
@@ -225,11 +240,9 @@ export class LearnerProfileService {
 
       // No existing profile - create a new user account
       console.log(`[learner-profile-service] Creating new user account for ${profile.college_email}`);
-      // Same-origin in the browser so the sign-in cookie always travels: the
-      // route refuses callers without a session, and a configured site URL that
-      // differs from the page origin (jkkn.ai vs www.jkkn.ai) would drop it.
-      const baseUrl = typeof window !== 'undefined' ? '' : (process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000');
-      const response = await fetch(`${baseUrl}/api/learners/complete-onboarding`, {
+      // The route refuses callers without a session; apiUrl keeps the call
+      // same-origin in the browser so the sign-in cookie travels.
+      const response = await fetch(apiUrl('/api/learners/complete-onboarding'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ learner_id: learnerId }),
@@ -1105,8 +1118,7 @@ export class LearnerProfileService {
 
           if (!profileError && profile) {
             // Delete the profile using the API endpoint (which handles auth table deletion too)
-            const baseUrl = process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000';
-            const response = await fetch(`${baseUrl}/api/users/${profile.id}`, {
+            const response = await fetch(apiUrl(`/api/users/${profile.id}`), {
               method: 'DELETE',
               headers: {
                 'Content-Type': 'application/json'
@@ -1622,8 +1634,7 @@ export class LearnerProfileService {
    */
   private static async disableUserAccount(email: string): Promise<void> {
     try {
-      const baseUrl = process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000';
-      const response = await fetch(`${baseUrl}/api/users/manage-auth`, {
+      const response = await fetch(apiUrl('/api/users/manage-auth'), {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -1646,8 +1657,7 @@ export class LearnerProfileService {
    */
   private static async enableUserAccount(email: string): Promise<void> {
     try {
-      const baseUrl = process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000';
-      const response = await fetch(`${baseUrl}/api/users/manage-auth`, {
+      const response = await fetch(apiUrl('/api/users/manage-auth'), {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
