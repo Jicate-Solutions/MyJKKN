@@ -7,7 +7,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import toast from 'react-hot-toast';
 import { TournamentRegistrationService } from '@/lib/services/events/tournament/tournament-registration-service';
-import type { UpdateEntryDto } from '@/types/tournament';
+import type { CreateSpotEntryDto, UpdateEntryDto } from '@/types/tournament';
 
 const KEYS = {
   entries: (eventId: string) => ['tournament-entries', eventId] as const,
@@ -35,6 +35,31 @@ export function useUpdateEntry(eventId: string) {
   });
 }
 
+/**
+ * Record a division's winner, runner-up and third place (BUG-006252, option b).
+ * Writes tournament_entries.final_rank (1/2/3, or null to clear) through the same
+ * entry PATCH the organiser already uses — the public results page, certificates
+ * and medals all read final_rank. One toast for the whole set.
+ */
+export function useRecordPlacings(eventId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (changes: { entryId: string; final_rank: number | null }[]) => {
+      for (const c of changes) {
+        await TournamentRegistrationService.updateEntry(eventId, c.entryId, {
+          final_rank: c.final_rank,
+        });
+      }
+    },
+    onSuccess: () => {
+      toast.success('Winners saved');
+    },
+    onError: (e: Error) => toast.error(e.message || 'Failed to save winners'),
+    // Refresh even after a partial failure, so the screen shows what was saved.
+    onSettled: () => qc.invalidateQueries({ queryKey: KEYS.entries(eventId) }),
+  });
+}
+
 export function useMarkEntryPaid(eventId: string) {
   const qc = useQueryClient();
   return useMutation({
@@ -45,6 +70,21 @@ export function useMarkEntryPaid(eventId: string) {
       toast.success('Marked as paid');
     },
     onError: (e: Error) => toast.error(e.message || 'Failed to mark paid'),
+  });
+}
+
+export function useAddSpotEntry(eventId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (dto: CreateSpotEntryDto) => TournamentRegistrationService.addSpotEntry(eventId, dto),
+    onSuccess: (res) => {
+      qc.invalidateQueries({ queryKey: KEYS.entries(eventId) });
+      // The same form was already saved (double click / lost response): nothing
+      // new was written, so any change made before resubmitting was not applied.
+      if (res.duplicate) toast('This entry was already saved. Check it in the list before adding it again.', { icon: 'ℹ️' });
+      else toast.success('Spot entry added');
+    },
+    onError: (e: Error) => toast.error(e.message || 'Failed to add the entry'),
   });
 }
 

@@ -13,7 +13,12 @@ import { describe, expect, it } from 'vitest';
 
 const ROOT = join(__dirname, '..', '..');
 const read = (p: string) => readFileSync(join(ROOT, p), 'utf8');
-const SQL = read('supabase/migrations/20270519090000_hr_salary_revision_requests.sql');
+// The workflow as applied to production on 30 Sep 2026, plus this PR's file on
+// top of it (the Director's rulings of 30 Sep). Read as one text: a later
+// CREATE OR REPLACE supersedes the earlier one, exactly as applying both does.
+const APPLIED = read('supabase/migrations/20270519090000_hr_salary_revision_requests.sql');
+const RULINGS = read('supabase/migrations/20270524090000_hr_salary_revision_director_list.sql');
+const SQL = APPLIED + '\n' + RULINGS;
 const REGISTER = read('lib/services/hr/payroll/salary-register-service.ts');
 const PAYSLIP = read('lib/services/hr/payroll/payslip-generator.ts');
 
@@ -32,6 +37,7 @@ describe('the migration', () => {
 
   it('keeps the internal functions away from signed-in users', () => {
     for (const fn of ['fn_hr_salary_revision_my_department_ids', 'hr_salary_revision_user_holds', 'hr_salary_revision_user_tier', 'hr_salary_revision_notify',
+      'hr_salary_revision_director_ids',
       'hr_salary_revision_start_date', 'hr_salary_revision_approve_one', 'hr_salary_revision_apply_due_on',
       'hr_salary_revision_suggestion_inputs', 'fn_hr_salary_revision_weekly_digest']) {
       expect(SQL).toMatch(new RegExp(`REVOKE EXECUTE ON FUNCTION public\\.${fn}\\([^)]*\\) FROM anon, PUBLIC, authenticated;`));
@@ -54,7 +60,10 @@ describe('the migration', () => {
   });
 
   it('gives the final yes to the Director only, and grants the approve key to nobody (ruling 3)', () => {
-    expect(SQL).toMatch(/SELECT public\.is_super_admin\(\) OR public\.user_has_permission\('hr\.payroll\.salary_revision\.approve'\)/);
+    // 30 Sep: the NAMED list (#4121), never is_super_admin() (15 accounts hold it).
+    // The applied file still carries the old line; this PR's file replaces the function.
+    expect(RULINGS).toMatch(/FUNCTION public\.fn_hr_salary_revision_can_approve\(\)[\s\S]*?SELECT public\.fn_is_the_director\(\)\n\$function\$;/);
+    expect(RULINGS).not.toMatch(/is_super_admin\(\) OR/);
     expect(SQL).not.toMatch(/'hr\.payroll\.salary_revision\.approve', true/);
   });
 

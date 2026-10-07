@@ -135,6 +135,16 @@ const STATUS_LABEL: Record<string, string> = {
   confirmed: 'Scheduled — outcome not recorded',
 };
 
+/** A meeting the daily sweep closed because its notes were linked
+ *  (outcome_marked_by = 'notes', 20271003091700). No person confirmed it, so
+ *  it must never print as "Held". Same words as the history badge. */
+export const CLOSED_WITH_NOTES_LABEL = 'Closed automatically — notes linked';
+
+function statusLabel(record: MeetingRecord): string {
+  if (record.status === 'completed' && record.outcomeMarkedBy === 'notes') return CLOSED_WITH_NOTES_LABEL;
+  return STATUS_LABEL[record.status] ?? record.status;
+}
+
 function minutesBetween(start: string, end: string): number {
   return Math.max(0, Math.round((new Date(end).getTime() - new Date(start).getTime()) / 60_000));
 }
@@ -185,7 +195,7 @@ export function buildMeetingRecordHtml(record: MeetingRecord, meta: MeetingRecor
   const recorded = record.note?.durationMinutes ?? null;
   const durationText =
     plural(scheduled, 'minute') + ' scheduled' + (recorded ? ` · ${plural(recorded, 'minute')} recorded` : '');
-  const statusText = STATUS_LABEL[record.status] ?? record.status;
+  const statusText = statusLabel(record);
 
   const people = peopleOf(record);
   const peopleHtml = people.length
