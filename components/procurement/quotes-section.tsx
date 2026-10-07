@@ -5,6 +5,8 @@ import { useRouter } from 'next/navigation';
 import { useQueryClient } from '@tanstack/react-query';
 import { buildComparisonRows } from '@/lib/services/procurement/quotation-service';
 import { usePermissions } from '@/hooks/use-permissions';
+import { useAuth } from '@/hooks/use-auth';
+import { useApproveStep, useDecideStep, useRequestApprovals } from '@/hooks/procurement/use-approval-chains';
 import { useRfq, useSubmitAward, useApproveAward, useSendBackAward } from '@/hooks/procurement/use-rfqs';
 import {
   useQuotationsForRfq,
@@ -39,6 +41,7 @@ import type { ComparisonRow } from '@/types/procurement';
 import {
   ArrowRight,
   Trash2,
+  FilePen,
   FileText,
   ExternalLink,
   Sparkles,
@@ -54,10 +57,14 @@ import {
 } from 'lucide-react';
 import { QuotationChatPanel } from '@/components/procurement/quotation-chat-panel';
 import { BulkQuotationUpload } from '@/components/procurement/bulk-quotation-upload';
+import { VendorScoreBadge } from '@/components/procurement/vendor-score-badge';
+import { useVendorScores } from '@/hooks/procurement/use-ratings';
+import { ProcurementRfqService } from '@/lib/services/procurement/rfq-service';
 import { BeatLoader } from 'react-spinners';
 import { toast } from 'sonner';
 import { errorMessage } from '@/lib/utils/supabase-error';
 import { cn } from '@/lib/utils';
+import { ReviseQuoteSheet } from '@/components/procurement/renegotiate-sheet';
 import { priceWarning, trustedLowest } from '@/lib/procurement/price-checks';
 
 /**
@@ -73,10 +80,13 @@ const rupees = (n: number) => `₹${n.toLocaleString('en-IN', { maximumFractionD
 
 export function QuotesSection({
   rfqId,
+  requestId,
   onApproved,
   itemApproval,
 }: {
   rfqId: string;
+  /** The purchase request — its category's Final approval list decides who approves here. */
+  requestId?: string;
   onApproved?: () => void;
   /** "name on date" of sign-off 1, shown among the final-approval checks. */
   itemApproval?: string | null;
@@ -84,6 +94,13 @@ export function QuotesSection({
   const router = useRouter();
   const queryClient = useQueryClient();
   const { canAccess, isSuperAdmin } = usePermissions();
+  const { profile } = useAuth();
+  // Final approval: the category's set approvers when it has them, else the Super Admin.
+  const { data: approvals = [] } = useRequestApprovals(requestId);
+  const finalStep = approvals.find((a) => a.stage === 'final' && a.status === 'pending') ?? null;
+  const canFinalApprove = finalStep ? isSuperAdmin || finalStep.approver_ids.includes(profile?.id ?? '') : isSuperAdmin;
+  const approveStep = useApproveStep();
+  const decideStep = useDecideStep();
   const canEditQuotes = isSuperAdmin || canAccess('procurement', 'quotation_manage');
 
   const { data: rfq, isLoading: rfqLoading, isError: rfqError } = useRfq(rfqId);
@@ -100,6 +117,8 @@ export function QuotesSection({
   const [sendBackReason, setSendBackReason] = useState('');
   const [pdfQuote, setPdfQuote] = useState<{ fileId: string; name: string } | null>(null);
   const [removeQuote, setRemoveQuote] = useState<{ id: string; name: string } | null>(null);
+  // A vendor's revised quotation (e.g. the Super Admin asked for the final discounted rate).
+  const [reviseQuote, setReviseQuote] = useState<{ id: string; name: string } | null>(null);
   const [choosingAll, setChoosingAll] = useState(false);
   const [chatOpen, setChatOpen] = useState(false);
   // Big comparisons (50 items × 5 vendors): narrow the rows, and fold the table away
@@ -121,6 +140,12 @@ export function QuotesSection({
     () => quotations.map((q) => ({ supplierId: q.supplier_id, name: q.supplier?.name ?? 'Vendor' })),
     [quotations]
   );
+  // Vendor score from past deliveries + ratings (the rating feedback loop).
+  const { data: vendorScores } = useVendorScores(vendorColumns.map((v) => v.supplierId));
+  // Choosing a Watch-grade vendor needs a reason the approver can read.
+  const [watchOpen, setWatchOpen] = useState(false);
+  const [watchReason, setWatchReason] = useState('');
+  const [savingWatch, setSavingWatch] = useState(false);
 
   const livePrices = useMemo(
     () =>
@@ -163,6 +188,16 @@ export function QuotesSection({
   };
 
   const handleApprove = async () => {
+    if (finalStep && requestId) {
+      try {
+        const result = await approveStep.mutateAsync({ requestId });
+        toast.success(result === 'next' ? 'Approved — sent to the next approver' : 'Approved — orders created');
+        if (result === 'approved') onApproved?.();
+      } catch (e) {
+        toast.error(errorMessage(e, 'Approval failed'));
+      }
+      return;
+    }
     try {
       const pos = await approveAward.mutateAsync(rfqId);
       toast.success(pos.length ? `Approved — ${pos.length} order${pos.length === 1 ? '' : 's'} created` : 'Approved');
@@ -307,12 +342,30 @@ export function QuotesSection({
       node
     );
 
-  const sendForApproval = () => run(() => submitAward.mutateAsync(rfqId), 'Sent to the Super Admin for final approval');
+  // Chosen vendors graded D (Watch). Their names go in the reason prompt.
+  const watchVendors = [...new Set(comparison.flatMap((r) => r.quotes.filter((q) => q.awarded).map((q) => q.supplier_id)))]
+    .filter((sid) => vendorScores?.get(sid)?.grade === 'D')
+    .map((sid) => vendorColumns.find((v) => v.supplierId === sid)?.name ?? 'Vendor');
+
+  const submitWithReason = async (reason: string | null) => {
+    setSavingWatch(true);
+    try {
+      // Clear a stale reason too, so the approver never reads one for a vendor no longer chosen.
+      if (reason !== null || rfq.award_watch_reason) await ProcurementRfqService.setAwardWatchReason(rfqId, reason);
+      await run(() => submitAward.mutateAsync(rfqId), 'Sent for final approval');
+      setWatchOpen(false);
+    } catch (e) {
+      toast.error(errorMessage(e, 'Could not save the reason'));
+    } finally {
+      setSavingWatch(false);
+    }
+  };
+  const sendForApproval = () => (watchVendors.length > 0 ? setWatchOpen(true) : void submitWithReason(null));
 
   return (
     <div className="space-y-3">
       {rfq.award_rejection_reason && !isLocked && (
-        <div className="rounded-md border border-red-300 bg-red-50 p-3 text-sm text-red-800 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300">
+        <div className="rounded-md border border-destructive bg-destructive/10 p-3 text-sm text-destructive">
           <p className="font-medium">The Super Admin sent this back.</p>
           <p className="mt-1">Reason: {rfq.award_rejection_reason}</p>
         </div>
@@ -323,7 +376,7 @@ export function QuotesSection({
           one place to decide. ── */}
       {awaitingApproval &&
         (() => {
-          type Line = { id: string; name: string; qty: number; each: number; above: number };
+          type Line = { id: string; name: string; qty: number; each: number; above: number; was: number | null };
           const groups = new Map<string, { name: string; total: number; lines: Line[] }>();
           const aboveLowest: Line[] = [];
           const noQuote: string[] = [];
@@ -336,7 +389,11 @@ export function QuotesSection({
             const best = bestFor(row);
             const each = Number(chosen.unit_price);
             const qty = Number(chosen.quantity ?? row.quantity);
-            const line = { id: row.rfq_item_id, name: row.item_name, qty, each, above: best ? each - best.price : 0 };
+            const was =
+              chosen.previous_unit_price != null && Number(chosen.previous_unit_price) !== each
+                ? Number(chosen.previous_unit_price)
+                : null;
+            const line = { id: row.rfq_item_id, name: row.item_name, qty, each, above: best ? each - best.price : 0, was };
             if (line.above > 0) aboveLowest.push(line);
             const g = groups.get(chosen.supplier_id) ?? { name: chosen.supplier_name, total: 0, lines: [] };
             g.total += each * qty;
@@ -353,9 +410,12 @@ export function QuotesSection({
               <span className="min-w-0 truncate">
                 {l.name}{' '}
                 <span className="text-muted-foreground">
-                  · {l.qty} × {rupees(l.each)}
+                  · {l.qty} ×{' '}
+                  {l.was != null && <s className="mr-1">{rupees(l.was)}</s>}
+                  {rupees(l.each)}
                 </span>
-                {l.above > 0 && <span className="text-amber-700"> +{rupees(l.above)}</span>}
+                {l.was != null && <span className="text-primary"> revised</span>}
+                {l.above > 0 && <span className="text-foreground"> +{rupees(l.above)}</span>}
               </span>
               <span className="text-right tabular-nums">{rupees(l.each * l.qty)}</span>
             </div>
@@ -372,7 +432,11 @@ export function QuotesSection({
             <section className="overflow-hidden rounded-2xl border bg-card shadow-sm">
               <div className="px-6 pb-3 pt-5">
                 <h2 className="text-lg font-semibold">
-                  {isSuperAdmin ? 'Approve this purchase?' : 'Waiting for the Super Admin’s final approval'}
+                  {canFinalApprove
+                    ? 'Approve this purchase?'
+                    : finalStep
+                      ? `Waiting for ${finalStep.label}’s final approval`
+                      : 'Waiting for the Super Admin’s final approval'}
                 </h2>
               </div>
 
@@ -386,7 +450,8 @@ export function QuotesSection({
                           {g.name}{' '}
                           <span className="font-normal normal-case tracking-normal text-muted-foreground">
                             · {g.lines.length} item{g.lines.length === 1 ? '' : 's'}
-                          </span>
+                          </span>{' '}
+                          <VendorScoreBadge score={vendorScores?.get(id)} vendorName={g.name} className="normal-case tracking-normal" />
                         </span>
                         <span className="text-right font-semibold tabular-nums">{rupees(g.total)}</span>
                       </summary>
@@ -398,7 +463,10 @@ export function QuotesSection({
                   ) : (
                     <div key={id} className="border-t">
                       <div className="flex items-baseline justify-between gap-3 pb-1.5 pt-3">
-                        <span className="truncate text-[13px] font-bold uppercase tracking-wide">{g.name}</span>
+                        <span className="flex min-w-0 items-center gap-2">
+                          <span className="truncate text-[13px] font-bold uppercase tracking-wide">{g.name}</span>
+                          <VendorScoreBadge score={vendorScores?.get(id)} vendorName={g.name} />
+                        </span>
                         {pdfLink(id, g.name)}
                       </div>
                       <div className="max-h-72 space-y-1.5 overflow-y-auto pb-3">{g.lines.map(lineRow)}</div>
@@ -416,8 +484,13 @@ export function QuotesSection({
               </div>
 
               {/* exceptions only — nothing here when everything is normal */}
+              {rfq.award_watch_reason && (
+                <div className="mx-6 mb-3 rounded-xl border border-red-600/40 bg-red-50 px-3 py-2.5 text-[13px] text-red-900 dark:bg-red-950/40 dark:text-red-200">
+                  <b>Vendor on Watch chosen</b> — {rfq.award_watch_reason}
+                </div>
+              )}
               {(vendorColumns.length === 1 || aboveLowest.length > 0 || noQuote.length > 0) && (
-                <div className="mx-6 mb-4 space-y-1 rounded-xl bg-amber-50 px-3 py-2.5 text-[13px] text-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
+                <div className="mx-6 mb-4 space-y-1 rounded-xl bg-secondary/20 px-3 py-2.5 text-[13px] text-foreground">
                   {vendorColumns.length === 1 && (
                     <p>
                       <b>Only 1 vendor quoted</b> — there was no other price to compare against.
@@ -442,21 +515,21 @@ export function QuotesSection({
                 </div>
               )}
 
-              {(isSuperAdmin || vendorColumns.length > 1) && (
+              {(canFinalApprove || vendorColumns.length > 1) && (
                 <div className="flex flex-wrap items-center justify-end gap-2 border-t bg-muted/40 px-6 py-3">
                   {vendorColumns.length > 1 && (
                     <button type="button" className="mr-auto text-sm text-primary hover:underline" onClick={() => setShowAllQuotes(true)}>
                       Compare all quotes
                     </button>
                   )}
-                  {isSuperAdmin && (
+                  {canFinalApprove && (
                     <>
                       <Button variant="outline" className="h-10 px-4" onClick={() => setSendBackOpen(true)}>
                         Send back
                       </Button>
-                      <Button className="h-10 px-5" onClick={handleApprove} disabled={approveAward.isPending}>
+                      <Button className="h-10 px-5" onClick={handleApprove} disabled={approveAward.isPending || approveStep.isPending}>
                         <Check className="mr-1.5 h-4 w-4" />
-                        {approveAward.isPending ? 'Approving…' : several ? `Approve ${vendors.length} orders` : 'Approve & order'}
+                        {approveAward.isPending || approveStep.isPending ? 'Approving…' : several ? `Approve ${vendors.length} orders` : 'Approve & order'}
                       </Button>
                     </>
                   )}
@@ -496,7 +569,7 @@ export function QuotesSection({
                   {vendorColumns.length > 1 && (
                     <>
                       {' · '}
-                      <span className="text-green-700 dark:text-green-400">green = chosen</span>
+                      <span className="text-primary">green = chosen</span>
                     </>
                   )}
                 </p>
@@ -586,7 +659,10 @@ export function QuotesSection({
                 <div>
                   <div className="flex items-start justify-between gap-3 px-5 py-4">
                     <div className="min-w-0">
-                      <p className="font-semibold">{v.name}</p>
+                      <p className="flex items-center gap-2 font-semibold">
+                        {v.name}
+                        <VendorScoreBadge score={vendorScores?.get(v.supplierId)} vendorName={v.name} />
+                      </p>
                       {terms.length > 0 && <p className="text-xs text-muted-foreground">{terms.join(' · ')}</p>}
                     </div>
                     {q.document_file_id ? (
@@ -693,6 +769,7 @@ export function QuotesSection({
                               <span className="min-w-0 truncate text-sm font-semibold" title={v.name}>
                                 {v.name}
                               </span>
+                              <VendorScoreBadge score={vendorScores?.get(v.supplierId)} vendorName={v.name} />
                               <span className="ml-auto flex shrink-0 items-center gap-1.5 text-muted-foreground">
                                 {q?.document_file_id ? (
                                   <button
@@ -732,6 +809,14 @@ export function QuotesSection({
                             <span className="block text-xs text-muted-foreground">
                               <b className="tabular-nums text-foreground">{t ? rupees(t.total) : '—'}</b> total
                               {terms.length ? ` · ${terms.join(' · ')}` : ''}
+                              {q?.revision_no ? (
+                                <span
+                                  className="ml-1.5 rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-bold text-primary"
+                                  title={q.revision_reason ?? undefined}
+                                >
+                                  REVISED{q.revision_no > 1 ? ` ×${q.revision_no}` : ''}
+                                </span>
+                              ) : null}
                             </span>
                           </th>
                         );
@@ -796,24 +881,29 @@ export function QuotesSection({
                                   title={offered || undefined}
                                   className={cn(
                                     'flex w-full items-center gap-2 px-4 py-2 text-left transition-colors',
-                                    qt.awarded ? 'bg-green-50 shadow-[inset_3px_0_0_#16a34a] dark:bg-green-950/40' : '',
+                                    qt.awarded ? 'bg-primary/10 shadow-[inset_3px_0_0_hsl(var(--primary))]' : '',
                                     canManage && !qt.awarded && 'hover:bg-muted/60',
                                     !canManage && 'cursor-default'
                                   )}
                                 >
                                   {qt.awarded ? (
-                                    <CheckCircle2 className="h-4 w-4 shrink-0 text-green-700" />
+                                    <CheckCircle2 className="h-4 w-4 shrink-0 text-primary" />
                                   ) : (
                                     canManage && <Circle className="h-4 w-4 shrink-0 text-muted-foreground/50" />
                                   )}
                                   <span className="min-w-0">
+                                    {qt.previous_unit_price != null && Number(qt.previous_unit_price) !== price && (
+                                      <span className="mr-1 text-xs tabular-nums text-muted-foreground line-through">
+                                        {rupees(Number(qt.previous_unit_price))}
+                                      </span>
+                                    )}
                                     <span className="font-semibold tabular-nums">{rupees(price)}</span>
                                     <span className="text-xs text-muted-foreground"> each</span>
                                     {isLowest && vendorColumns.length > 1 && (
-                                      <span className="ml-1.5 text-[10px] font-semibold text-green-700">LOWEST</span>
+                                      <span className="ml-1.5 text-[10px] font-semibold text-primary">LOWEST</span>
                                     )}
                                     {warning && (
-                                      <span className="block text-[11px] font-medium text-red-700" title={warning}>
+                                      <span className="block text-[11px] font-medium text-destructive" title={warning}>
                                         ⚠ Check price
                                       </span>
                                     )}
@@ -844,20 +934,55 @@ export function QuotesSection({
                   <b className="tabular-nums">{rupees(awardSummary.grandTotal)}</b>{' '}
                   <span className="text-muted-foreground">from {awardSummary.vendors.length} vendors</span>
                   {savingVsSingle > 0 && (
-                    <span className="text-green-700 dark:text-green-400"> · {rupees(savingVsSingle)} less than one vendor</span>
+                    <span className="text-primary"> · {rupees(savingVsSingle)} less than one vendor</span>
                   )}
                 </span>
               )}
               {unchosenCount > 0 && chosenCount > 0 && (
-                <span className="block text-xs text-amber-700 dark:text-amber-400">
+                <span className="block text-xs text-foreground">
                   {unchosenCount} item{unchosenCount === 1 ? '' : 's'} not chosen won&apos;t be ordered
                 </span>
               )}
             </div>
-            <Button className="h-11 px-6" disabled={chosenCount === 0 || submitAward.isPending} onClick={sendForApproval}>
-              {submitAward.isPending ? 'Sending…' : 'Send for final approval'}
-              <ArrowRight className="ml-1.5 h-4 w-4" />
-            </Button>
+            <div className="flex flex-wrap items-center gap-2">
+              {/* A vendor's revised quotation (e.g. the Super Admin asked for the final
+                  discounted rate). One chosen vendor: open it straight away; else pick. */}
+              {(() => {
+                const chosenIds = new Set(
+                  comparison.flatMap((row) => row.quotes.filter((qt) => qt.awarded).map((qt) => qt.supplier_id))
+                );
+                const chosenQuotes = quotations.filter((q) => chosenIds.has(q.supplier_id));
+                const direct = chosenQuotes.length === 1 ? chosenQuotes[0] : quotations.length === 1 ? quotations[0] : null;
+                const open = (q: (typeof quotations)[number]) => setReviseQuote({ id: q.id, name: q.supplier?.name ?? 'Vendor' });
+                return direct ? (
+                  <Button variant="outline" className="h-11" onClick={() => open(direct)}>
+                    <FilePen className="mr-1.5 h-4 w-4" />
+                    Revised quotation
+                  </Button>
+                ) : (
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button variant="outline" className="h-11">
+                        <FilePen className="mr-1.5 h-4 w-4" />
+                        Revised quotation
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                      {[...chosenQuotes, ...quotations.filter((q) => !chosenIds.has(q.supplier_id))].map((q) => (
+                        <DropdownMenuItem key={q.id} onClick={() => open(q)}>
+                          {q.supplier?.name ?? 'Vendor'}
+                          {chosenIds.has(q.supplier_id) && <span className="ml-2 text-xs text-primary">chosen</span>}
+                        </DropdownMenuItem>
+                      ))}
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                );
+              })()}
+              <Button className="h-11 px-6" disabled={chosenCount === 0 || submitAward.isPending} onClick={sendForApproval}>
+                {submitAward.isPending ? 'Sending…' : 'Send for final approval'}
+                <ArrowRight className="ml-1.5 h-4 w-4" />
+              </Button>
+            </div>
           </div>
         )}
       </section>
@@ -951,6 +1076,41 @@ export function QuotesSection({
         />
       )}
 
+      <Dialog open={watchOpen} onOpenChange={(o) => !savingWatch && setWatchOpen(o)}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Vendor on Watch</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">
+            {watchVendors.join(', ')} {watchVendors.length === 1 ? 'has' : 'have'} a poor record on past deliveries
+            (late, short or rejected items, or low ratings). Say why you are still choosing{' '}
+            {watchVendors.length === 1 ? 'this vendor' : 'these vendors'} — the approver will see it.
+          </p>
+          <div className="space-y-1.5">
+            <Label htmlFor="watch-reason">Reason</Label>
+            <Textarea
+              id="watch-reason"
+              value={watchReason}
+              onChange={(e) => setWatchReason(e.target.value)}
+              placeholder="e.g. Only vendor with this brand; delivery issues were resolved in August"
+              rows={3}
+              maxLength={500}
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setWatchOpen(false)} disabled={savingWatch}>
+              Back
+            </Button>
+            <Button
+              disabled={watchReason.trim().length < 5 || savingWatch}
+              onClick={() => void submitWithReason(watchReason.trim())}
+            >
+              {savingWatch ? 'Sending…' : 'Send for final approval'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <Dialog open={sendBackOpen} onOpenChange={setSendBackOpen}>
         <DialogContent>
           <DialogHeader>
@@ -975,7 +1135,11 @@ export function QuotesSection({
               disabled={!sendBackReason.trim() || sendBack.isPending}
               onClick={async () => {
                 try {
-                  await sendBack.mutateAsync({ rfqId, reason: sendBackReason });
+                  if (finalStep && requestId) {
+                    await decideStep.mutateAsync({ requestId, decision: 'return', reason: sendBackReason });
+                  } else {
+                    await sendBack.mutateAsync({ rfqId, reason: sendBackReason });
+                  }
                   toast.success('Sent back to the store keeper');
                   setSendBackOpen(false);
                   setSendBackReason('');
@@ -990,6 +1154,18 @@ export function QuotesSection({
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      {reviseQuote && (() => {
+        const q = quotations.find((x) => x.id === reviseQuote.id);
+        return q && rfq ? (
+          <ReviseQuoteSheet
+            quotation={q}
+            rfqItems={rfq.items}
+            vendorName={reviseQuote.name}
+            open
+            onOpenChange={(o) => !o && setReviseQuote(null)}
+          />
+        ) : null;
+      })()}
     </div>
   );
 }

@@ -34,6 +34,7 @@ const STATUS_TONE: Record<SalaryRevisionStatus, string> = {
   applied: 'border-emerald-500/50 text-emerald-700 dark:text-emerald-400',
   stopped: 'border-border text-muted-foreground',
   refused: 'border-border text-muted-foreground',
+  cancelled: 'border-border text-muted-foreground',
 };
 
 export function StatusBadge({ status }: { status: SalaryRevisionStatus }) {
@@ -45,7 +46,8 @@ export function StatusBadge({ status }: { status: SalaryRevisionStatus }) {
 }
 
 export function RevisionFlags({ row }: {
-  row: Pick<SalaryRevisionRow, 'is_cut' | 'final_is_cut' | 'final_monthly_gross' | 'is_self' | 'is_for_senior'>;
+  row: Pick<SalaryRevisionRow, 'is_cut' | 'final_is_cut' | 'final_monthly_gross' | 'is_self' | 'is_for_senior'>
+    & { asker_is_also_hod?: boolean };
 }) {
   const flags = flagsFor(row);
   if (flags.length === 0) return null;
@@ -68,6 +70,26 @@ export function RevisionFlags({ row }: {
         ),
       )}
     </span>
+  );
+}
+
+/** 30 Sep — the Director sees TODAY's band; this says it moved since the ask. Only ever true for him. */
+export function BandChangedNote({ changed }: { changed: boolean | null | undefined }) {
+  if (!changed) return null;
+  return (
+    <span className='block text-xs text-amber-700 dark:text-amber-400' data-testid='band-changed'>
+      The pay band changed since this was asked. The warning above is against today&apos;s band.
+    </span>
+  );
+}
+
+/** A note kept on the request: a missed start date, a cancellation, or why the pay could not be written. */
+export function RequestNote({ text }: { text: string | null | undefined }) {
+  if (!text) return null;
+  return (
+    <p className='rounded-md border border-amber-500/40 bg-amber-500/10 p-2 text-xs' data-testid='request-note'>
+      {text}
+    </p>
   );
 }
 

@@ -13,6 +13,8 @@ import type {
   PoWithItems,
   PurchaseOrderFilters,
   PurchaseRequestRef,
+  ProcurementPoRevision,
+  ProposePoRevisionDto,
 } from '@/types/procurement';
 
 /**
@@ -150,7 +152,8 @@ export class ProcurementPurchaseOrderService {
         .select(
           `*,
            source_quote:procurement_quotation_items(
-             quotation:procurement_quotations(vendor_quote_number, quote_date, delivery_time_days, payment_terms)
+             gst_percent, hsn,
+             quotation:procurement_quotations(vendor_quote_number, quote_date, delivery_time_days, payment_terms, warranty)
            )`
         )
         .eq('po_id', id)
@@ -160,9 +163,63 @@ export class ProcurementPurchaseOrderService {
       // Every line of a PO comes from the same vendor quotation; take the first one found.
       const source_quotation =
         (items || []).map((it: any) => it.source_quote?.quotation).find(Boolean) ?? null;
-      const plainItems = (items || []).map(({ source_quote: _sq, ...it }: any) => it);
 
-      return { ...withPurchaseRequest(header), items: plainItems, source_quotation } as PoWithItems;
+      // HSN / GST % from the item master, so nobody types them per order.
+      const itemIds = [...new Set((items || []).map((it: any) => it.domain_item_id).filter(Boolean))];
+      const catalogById = new Map<string, { hsn: string | null; gst_percent: number | null }>();
+      if (itemIds.length) {
+        const { data: master } = await this.supabase
+          .from('ims_items')
+          .select('id, hsn_code, gst_rate')
+          .in('id', itemIds);
+        for (const m of master || []) {
+          catalogById.set(m.id, {
+            hsn: m.hsn_code ? String(m.hsn_code) : null,
+            gst_percent: m.gst_rate != null ? Number(m.gst_rate) : null,
+          });
+        }
+      }
+      // What the vendor's quotation printed comes first, the item master second.
+      const plainItems = (items || []).map(({ source_quote: sq, ...it }: any) => {
+        const master = it.domain_item_id ? catalogById.get(it.domain_item_id) ?? null : null;
+        const quotedGst = sq?.gst_percent != null ? Number(sq.gst_percent) : null;
+        const hsn = sq?.hsn || master?.hsn || null;
+        const gst_percent = quotedGst ?? master?.gst_percent ?? null;
+        return { ...it, catalog: hsn || gst_percent != null ? { hsn, gst_percent } : null };
+      });
+
+      // The last order to this vendor: what it printed carries over (minus per-order keys).
+      let vendor_defaults: Record<string, string> | null = null;
+      let vendor_default_terms: string | null = null;
+      if (header?.supplier_id) {
+        const { data: last } = await this.supabase
+          .from('procurement_purchase_orders')
+          .select('header_field_values, terms_and_conditions')
+          .eq('supplier_id', header.supplier_id)
+          .neq('id', id)
+          .order('created_at', { ascending: false })
+          .limit(5);
+        const prev = (last || []).find(
+          (p: any) => Object.keys(p.header_field_values || {}).length > 0 || p.terms_and_conditions
+        );
+        if (prev) {
+          const PER_ORDER = ['quotation_no', 'quotation_date', 'call_dated', 'payment_mode', 'paid_on', 'bank', 'amount_paid'];
+          vendor_defaults = Object.fromEntries(
+            Object.entries((prev.header_field_values || {}) as Record<string, string>).filter(
+              ([k, v]) => !PER_ORDER.includes(k) && String(v ?? '').trim()
+            )
+          );
+          vendor_default_terms = prev.terms_and_conditions ?? null;
+        }
+      }
+
+      return {
+        ...withPurchaseRequest(header),
+        items: plainItems,
+        source_quotation,
+        vendor_defaults,
+        vendor_default_terms,
+      } as PoWithItems;
     } catch (error) {
       console.error('[ProcurementPurchaseOrderService] getPurchaseOrder:', error);
       throw error;
@@ -312,6 +369,62 @@ export class ProcurementPurchaseOrderService {
    * the PO moved on (another tab, a double click, someone else's approval) —
    * say where it is now instead of surfacing PostgREST's "0 rows" error.
    */
+  /**
+   * The order document was downloaded to send to the vendor: approved -> sent. Only
+   * from approved (a later download changes nothing), and quietly a no-op if the order
+   * already moved on. "Record delivery" appears once an order is sent.
+   */
+  static async markSent(id: string): Promise<boolean> {
+    const { data, error } = await this.supabase
+      .from('procurement_purchase_orders')
+      .update({ status: 'sent', updated_at: new Date().toISOString() })
+      .eq('id', id)
+      .eq('status', 'approved')
+      .select('id');
+    if (error) throw error;
+    return (data?.length ?? 0) > 0;
+  }
+
+  // ── Renegotiation: the vendor's revised prices on an order ──────────────────
+  // Proposed by the store (procurement_propose_po_revision), signed by the Super Admin
+  // (procurement_decide_po_revision); the order keeps its number and becomes "Rev N".
+
+  /** Every renegotiation of one order, newest first. */
+  static async getRevisions(poId: string): Promise<ProcurementPoRevision[]> {
+    const { data, error } = await this.supabase
+      .from('procurement_po_revisions')
+      .select('*, requester:profiles!requested_by(full_name), decider:profiles!decided_by(full_name)')
+      .eq('po_id', poId)
+      .order('revision_no', { ascending: false });
+    if (error) throw error;
+    return (data ?? []) as ProcurementPoRevision[];
+  }
+
+  static async proposeRevision(dto: ProposePoRevisionDto): Promise<string> {
+    const { data, error } = await this.supabase.rpc('procurement_propose_po_revision', {
+      p_po_id: dto.poId,
+      p_lines: dto.lines,
+      p_reason: dto.reason,
+      p_quote: dto.quote,
+    });
+    if (error) throw error;
+    return data as string;
+  }
+
+  static async decideRevision(revisionId: string, approve: boolean, note?: string): Promise<void> {
+    const { error } = await this.supabase.rpc('procurement_decide_po_revision', {
+      p_revision_id: revisionId,
+      p_approve: approve,
+      p_note: note ?? null,
+    });
+    if (error) throw error;
+  }
+
+  static async withdrawRevision(revisionId: string): Promise<void> {
+    const { error } = await this.supabase.rpc('procurement_withdraw_po_revision', { p_revision_id: revisionId });
+    if (error) throw error;
+  }
+
   private static async transition(
     id: string,
     fromStatus: string | string[],

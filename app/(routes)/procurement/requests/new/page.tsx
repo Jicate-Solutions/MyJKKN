@@ -8,6 +8,7 @@ import { useCreatePurchaseRequest } from '@/hooks/procurement/use-purchase-reque
 import { CatalogItemPicker } from '@/components/procurement/catalog-item-picker';
 import { RequestFileImport } from '@/components/procurement/request-file-import';
 import { InstitutionFilter } from '@/components/procurement/institution-filter';
+import { ApprovalRoutePicker, useApprovalRouteReady } from '@/components/procurement/approval-route-picker';
 import { registeredDomainOptions } from '@/lib/services/procurement/domain-adapters/registry';
 import type { DomainCtx, ProcurementDomain } from '@/lib/services/procurement/domain-adapters/types';
 import type { CreatePurchaseRequestItemDto } from '@/types/procurement';
@@ -25,6 +26,8 @@ import { Plus, X, ChevronLeft } from 'lucide-react';
 import { toast } from 'sonner';
 import { errorMessage } from '@/lib/utils/supabase-error';
 import { displayRequestNumber } from '@/lib/procurement/display-number';
+import { PastRatingHint } from '@/components/procurement/past-rating-hint';
+import { useItemVendorRatings } from '@/hooks/procurement/use-ratings';
 
 // is_new is local UI state only — never sent to the server. domain_item_id
 // (null = new item) is what the service actually derives request_type from.
@@ -68,6 +71,10 @@ export default function NewPurchaseRequestPage() {
     () => domainOptions[0]?.value ?? 'ims'
   );
   const [items, setItems] = useState<ItemRow[]>([emptyRow()]);
+  // How each picked catalog item went last time (requester ratings).
+  const { data: itemRatings = [] } = useItemVendorRatings(
+    items.map((i) => i.domain_item_id).filter((x): x is string => !!x)
+  );
   // "What is it for?" — ONE field. It names the purchase on every list and is the
   // reason the approver reads; it also fills each new item's reason (the server
   // needs one per new line) unless an AI-read reason is already there.
@@ -82,6 +89,14 @@ export default function NewPurchaseRequestPage() {
     () => searchParams.get('institution') ?? undefined
   );
   const effectiveInstitution = institutionId ?? profile?.institution_id ?? '';
+
+  // Category decides the approval steps (set by the Super Admin); the department is
+  // whose HOD approves when a step is "HOD".
+  const [route, setRoute] = useState<{ categoryId: string | null; departmentId: string | null }>({
+    categoryId: null,
+    departmentId: null,
+  });
+  const routeReady = useApprovalRouteReady(effectiveInstitution || undefined, route.categoryId, route.departmentId);
 
   // Ambient context handed to the domain adapter's catalog search.
   const ctx: DomainCtx = useMemo(
@@ -111,6 +126,10 @@ export default function NewPurchaseRequestPage() {
     }
     if (!title.trim()) {
       toast.error('Say what it is for (e.g. Microbiology practicals).');
+      return;
+    }
+    if (!routeReady.ready) {
+      toast.error(routeReady.problem ?? 'Wait a moment — checking who approves this request.');
       return;
     }
     if (cleaned.some((i) => !i.is_new && !i.domain_item_id)) {
@@ -155,6 +174,8 @@ export default function NewPurchaseRequestPage() {
           domain,
           title: title.trim(),
           notes: null,
+          category_id: routeReady.required ? route.categoryId : null,
+          department_id: routeReady.required ? route.departmentId : null,
           items: cleanedItems.map(({ is_new, ...i }) => ({
             ...i,
             required_quantity: Number(i.required_quantity) || 0,
@@ -163,7 +184,7 @@ export default function NewPurchaseRequestPage() {
         },
         userId: profile.id,
       });
-      toast.success(`Purchase ${displayRequestNumber(created.request_number)} submitted for item approval`);
+      toast.success(`Purchase ${displayRequestNumber(created.request_number)} submitted for approval`);
       // Straight to the purchase page — its progress line shows who acts next.
       router.push(created.id ? `/procurement/requests/${created.id}` : '/procurement/requests');
     } catch (e) {
@@ -173,8 +194,9 @@ export default function NewPurchaseRequestPage() {
 
   return (
     <ContentLayout title="New Request">
-      {/* A paper-form column: one card, top to bottom, each field as wide as its content. */}
-      <div className="mx-auto w-full max-w-xl space-y-5">
+      {/* Full width, several fields to a row: the header fields share one line, each
+          item is one line (what · size/brand · qty), so a long list stays short. */}
+      <div className="w-full space-y-5">
         <Button variant="link" className="h-8 px-0" onClick={() => router.back()}>
           <ChevronLeft className="mr-1 h-4 w-4" />
           Back
@@ -182,18 +204,20 @@ export default function NewPurchaseRequestPage() {
         <h1 className="text-2xl font-bold">What do you need?</h1>
 
         <section className="space-y-5 rounded-2xl border bg-card p-5 shadow-sm">
-          <div className="flex flex-wrap gap-3">
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
             <InstitutionFilter
-              className="w-full space-y-1 sm:w-72 [&_button]:h-10 [&_label]:text-xs [&_label]:font-semibold"
+              className="w-full space-y-1 [&_button]:h-10 [&_label]:text-xs [&_label]:font-semibold"
               value={effectiveInstitution || undefined}
               onChange={(id) => {
                 setInstitutionId(id);
                 // Different institution = different inventory catalog; clear picks.
                 setItems([emptyRow()]);
+                // …and different departments.
+                setRoute((r) => ({ ...r, departmentId: null }));
               }}
             />
             {domainOptions.length > 1 && (
-              <div className="w-full space-y-1 sm:w-56">
+              <div className="w-full space-y-1">
                 <Label className="text-xs font-semibold">Type</Label>
                 <Select
                   value={domain}
@@ -216,23 +240,29 @@ export default function NewPurchaseRequestPage() {
                 </Select>
               </div>
             )}
+            <div className={`space-y-1 sm:col-span-2 ${domainOptions.length > 1 ? '' : 'lg:col-span-3'}`}>
+              <Label htmlFor="request-title" className="text-xs font-semibold">
+                What is it for?
+              </Label>
+              <Input
+                id="request-title"
+                className="h-10"
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                maxLength={80}
+                autoComplete="off"
+                placeholder="e.g. Microbiology practicals, 2026-27 batch"
+              />
+            </div>
           </div>
-
-          <div className="space-y-1">
-            <Label htmlFor="request-title" className="text-xs font-semibold">
-              What is it for?
-            </Label>
-            <Input
-              id="request-title"
-              className="h-10"
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              maxLength={80}
-              placeholder="e.g. Microbiology practicals, 2026-27 batch"
-            />
-          </div>
+          <ApprovalRoutePicker
+            institutionId={effectiveInstitution || undefined}
+            categoryId={route.categoryId}
+            departmentId={route.departmentId}
+            onChange={setRoute}
+          />
           {domain === 'resource_mgmt' && requestTypeSummary !== 'Restock' && (
-            <p className="text-xs text-amber-800 dark:text-amber-300">
+            <p className="text-xs text-foreground">
               Buying things that get used up or expire (reagents, gloves)? Request them under
               <b> Consumables &amp; chemicals</b> instead.
             </p>
@@ -242,8 +272,11 @@ export default function NewPurchaseRequestPage() {
           <fieldset className="space-y-2">
             <legend className="mb-1 text-xs font-semibold">Items</legend>
             {items.map((item, idx) => (
-              <div key={idx} className="flex items-start gap-2 rounded-xl bg-muted/50 p-2.5">
-                <div className="min-w-0 flex-1 space-y-1.5 [&_button]:h-9">
+              <div
+                key={idx}
+                className="grid grid-cols-[minmax(0,1fr)_4.5rem_2rem] items-start gap-2 rounded-xl bg-muted/50 p-2.5 md:grid-cols-[minmax(0,3fr)_minmax(0,2fr)_5rem_2rem]"
+              >
+                <div className="min-w-0 space-y-1.5 [&_button]:h-9">
                   <CatalogItemPicker
                     domain={domain}
                     ctx={ctx}
@@ -274,26 +307,28 @@ export default function NewPurchaseRequestPage() {
                       })
                     }
                   />
-                  {item.item_name && (
-                    <Input
-                      className="h-8 bg-background text-xs"
-                      value={item.item_spec ?? ''}
-                      onChange={(e) => updateItem(idx, { item_spec: e.target.value })}
-                      placeholder="Size, brand, grade (optional)"
-                      aria-label={`Specification for ${item.item_name}`}
-                    />
-                  )}
                   {item.is_new ? (
-                    <p className="text-xs text-blue-700 dark:text-blue-300">New item — not in the store yet</p>
+                    <p className="text-xs text-primary">New item — not in the store yet</p>
                   ) : item.current_stock != null ? (
-                    <p className="text-xs text-amber-700 dark:text-amber-400">
+                    <p className="text-xs text-foreground">
                       {Number(item.current_stock)} already in stock
                       {item.reorder_level != null ? ` · reorder at ${Number(item.reorder_level)}` : ''}
                     </p>
                   ) : null}
+                  {item.domain_item_id && (
+                    <PastRatingHint ratings={itemRatings.filter((r) => r.item_id === item.domain_item_id)} />
+                  )}
                 </div>
+                {/* Size / brand / grade: beside the item on wide screens, under it on a phone. */}
                 <Input
-                  className="h-9 w-16 shrink-0 bg-background text-center tabular-nums"
+                  className="order-last col-span-3 h-9 bg-background text-sm md:order-none md:col-span-1"
+                  value={item.item_spec ?? ''}
+                  onChange={(e) => updateItem(idx, { item_spec: e.target.value })}
+                  placeholder="Size, brand, grade (optional)"
+                  aria-label={`Specification${item.item_name ? ` for ${item.item_name}` : ''}`}
+                />
+                <Input
+                  className="h-9 w-full bg-background text-center tabular-nums"
                   type="number"
                   min={1}
                   aria-label={`Quantity${item.item_name ? ` for ${item.item_name}` : ''}`}
@@ -303,7 +338,7 @@ export default function NewPurchaseRequestPage() {
                 <Button
                   variant="ghost"
                   size="icon"
-                  className="h-9 w-8 shrink-0 text-muted-foreground"
+                  className="h-9 w-8 text-muted-foreground"
                   aria-label="Remove item"
                   onClick={() => removeRow(idx)}
                   disabled={items.length === 1}

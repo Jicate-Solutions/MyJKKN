@@ -51,6 +51,33 @@ export function invalidateAllowanceViews(qc: QueryClient) {
 }
 
 /**
+ * Refresh every view that carries a COPY of a leave type's configuration.
+ *
+ * The admin list is not the only reader. v_hr_leave_balance joins hr_leave_types,
+ * and the Apply Leave / Short Time Off drawers take requires_documents,
+ * document_required_after_days, notice, max-days and the STO limits from THAT
+ * (['hr-leave-balance']), not from ['hr-leave-types']. Invalidating only the
+ * latter left the drawer quoting the old rule for the whole 5-minute staleTime
+ * while LeaveService.createApplication, which reads the type fresh, enforced the
+ * new one: the form said "no document needed", Submit said "attach a document".
+ *
+ * Applications embed the type's name and colour, so the lists that render them
+ * go too. Keys are matched by prefix — the mutation knows neither the staff id
+ * nor the year a viewer has open.
+ */
+export function invalidateLeaveTypeConsumers(qc: QueryClient) {
+  for (const key of [
+    KEY,
+    'hr-leave-balance',
+    STAFF_BALANCES_KEY,
+    ANALYTICS_KEY,
+    'hr-leave-applications',
+  ]) {
+    qc.invalidateQueries({ queryKey: [key] });
+  }
+}
+
+/**
  * Whether the Approvals tab should render. Mirrors the hla_update RLS policy
  * server-side rather than checking a permission key on the client.
  */
@@ -60,37 +87,6 @@ export function useCanApproveLeave() {
     queryKey: [CAN_APPROVE_KEY],
     queryFn: () => HRLeaveTypeService.canApproveLeave(supabase),
     // Capability is role-derived and does not change mid-session.
-    staleTime: 5 * 60 * 1000,
-  });
-}
-
-/**
- * Which leave types are eligibility-gated.
- *
- * Just the ids — the Apply Leave drawer needs to know that the type the user
- * picked is one whose supporting document was already given at eligibility, so
- * it stops asking for the same certificate on every application.
- *
- * SAFE TO READ THIS WAY because the balance view only shows a gated type to
- * somebody who already holds an approved grant. A type reaching the drawer is
- * therefore one this person may use, so "gated" and "covered" are the same
- * answer here; the server checks the grant itself before writing anything.
- *
- * Tiny and near-static — one row per gated type, of which there are none until
- * somebody turns the flag on — so it is cached for the session.
- */
-export function useEligibilityGatedTypeIds() {
-  const supabase = createClientSupabaseClient();
-  return useQuery({
-    queryKey: [KEY, 'eligibility-gated'],
-    queryFn: async (): Promise<Set<string>> => {
-      const { data, error } = await supabase
-        .from('hr_leave_types')
-        .select('id')
-        .eq('requires_eligibility', true);
-      if (error) throw error;
-      return new Set((data ?? []).map((r) => (r as { id: string }).id));
-    },
     staleTime: 5 * 60 * 1000,
   });
 }
@@ -224,7 +220,7 @@ export function useCreateHRLeaveType() {
   return useMutation({
     mutationFn: (payload: HRLeaveTypeInsert) =>
       HRLeaveTypeService.create(supabase, payload),
-    onSuccess: () => qc.invalidateQueries({ queryKey: [KEY] }),
+    onSuccess: () => invalidateLeaveTypeConsumers(qc),
   });
 }
 
@@ -234,7 +230,7 @@ export function useUpdateHRLeaveType() {
   return useMutation({
     mutationFn: ({ id, patch }: { id: string; patch: HRLeaveTypeUpdate }) =>
       HRLeaveTypeService.update(supabase, id, patch),
-    onSuccess: () => qc.invalidateQueries({ queryKey: [KEY] }),
+    onSuccess: () => invalidateLeaveTypeConsumers(qc),
   });
 }
 
@@ -244,7 +240,7 @@ export function useDeleteHRLeaveType() {
   const supabase = createClientSupabaseClient();
   return useMutation({
     mutationFn: (id: string) => HRLeaveTypeService.remove(supabase, id),
-    onSuccess: () => qc.invalidateQueries({ queryKey: [KEY] }),
+    onSuccess: () => invalidateLeaveTypeConsumers(qc),
   });
 }
 
@@ -254,7 +250,7 @@ export function useRestoreHRLeaveType() {
   const supabase = createClientSupabaseClient();
   return useMutation({
     mutationFn: (id: string) => HRLeaveTypeService.restore(supabase, id),
-    onSuccess: () => qc.invalidateQueries({ queryKey: [KEY] }),
+    onSuccess: () => invalidateLeaveTypeConsumers(qc),
   });
 }
 
@@ -292,9 +288,35 @@ export function useHardDeleteHRLeaveType() {
       // nothing either, so there is nothing to invalidate. Same shape as
       // useGenerateBalances below.
       if (variables.dryRun || !result?.ok) return;
-      qc.invalidateQueries({ queryKey: [KEY] });
-      qc.invalidateQueries({ queryKey: [ANALYTICS_KEY] });
-      qc.invalidateQueries({ queryKey: [STAFF_BALANCES_KEY] });
+      invalidateLeaveTypeConsumers(qc);
+    },
+  });
+}
+
+/**
+ * Super-admin hard delete (migration 20261006120000), including balances and
+ * adjustments. `dryRun` fills the confirmation dialog and writes nothing.
+ *
+ * Guarded on what was REQUESTED and on `result.ok`, exactly like
+ * useHardDeleteHRLeaveType above: a refusal (permission_denied, in_use) returns
+ * { ok: false } with no marker, and invalidating on it would make merely OPENING
+ * the dialog refetch the table underneath it.
+ *
+ * Reaches further than a normal type edit: the delete also removes eligibility
+ * grants and month entries, which the Eligibility page and the monthly ledger
+ * read, so those keys go with the usual leave-type consumers.
+ */
+export function useSuperAdminDeleteHRLeaveType() {
+  const qc = useQueryClient();
+  const supabase = createClientSupabaseClient();
+  return useMutation({
+    mutationFn: ({ id, dryRun }: { id: string; dryRun: boolean }) =>
+      HRLeaveTypeService.superAdminDelete(supabase, id, dryRun),
+    onSuccess: (result, variables) => {
+      if (variables.dryRun || !result?.ok) return;
+      invalidateLeaveTypeConsumers(qc);
+      qc.invalidateQueries({ queryKey: ['hr-leave-eligibility'] });
+      qc.invalidateQueries({ queryKey: [MONTHLY_LEDGER_KEY] });
     },
   });
 }

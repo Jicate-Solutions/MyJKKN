@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { EDITABLE_INDENT_STATUSES } from '@/types/ims/indents';
 import { useParams, useRouter } from 'next/navigation';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { useAuth } from '@/hooks/use-auth';
@@ -44,7 +45,7 @@ interface IndentItemRow {
   notes: string;
 }
 
-const EDITABLE_STATUSES = ['draft', 'pending_approval'];
+const EDITABLE_STATUSES: readonly string[] = EDITABLE_INDENT_STATUSES;
 
 export default function EditIndentPage() {
   return (

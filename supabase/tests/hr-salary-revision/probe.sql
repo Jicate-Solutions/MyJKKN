@@ -22,6 +22,9 @@
 \set sF5 '00000000-0000-0000-0000-000000020015'
 \set sF6 '00000000-0000-0000-0000-000000020016'
 \set sX  '00000000-0000-0000-0000-000000020017'
+\set S   '00000000-0000-0000-0000-000000010006'
+\set F7  '00000000-0000-0000-0000-000000010018'
+\set sF7 '00000000-0000-0000-0000-000000020018'
 \set OB  '00000000-0000-0000-0000-000000000eb2'
 
 -- ── 0. The data grant (ruling 1), read as postgres ──────────────────────────
@@ -58,9 +61,9 @@ SELECT t.check('signed-in users cannot call the internal functions',
 -- ── 2. HOD of department A1 ─────────────────────────────────────────────────
 SET ROLE authenticated;
 SELECT t.login(:'HA');
-SELECT t.check('HOD sees only own department people (F1, F4, PA, self)',
+SELECT t.check('HOD sees only own department people (F1, F4, F7, PA, self)',
   (SELECT array_agg(staff_code ORDER BY staff_code) FROM public.fn_hr_salary_revision_people())
-    = ARRAY['F11', 'F14', 'H05', 'P03']);
+    = ARRAY['F11', 'F14', 'F18', 'H05', 'P03']);
 SELECT public.fn_hr_salary_revision_propose(:'sF1', 50000, 'Strong results this year') AS req_f1 \gset
 SELECT t.check('HOD request goes to the principal first',
   (SELECT route = 'via_principal' AND status = 'waiting_principal' AND asked_as = 'hod'
@@ -93,7 +96,7 @@ SELECT t.check('HOD sees the four requests they asked', (SELECT count(*) FROM pu
 -- ── 3. Principal of college A ───────────────────────────────────────────────
 SELECT t.login(:'PA');
 SELECT t.check('principal sees own college people only',
-  (SELECT bool_and(institution_name = 'College A') AND count(*) = 8 FROM public.fn_hr_salary_revision_people()));
+  (SELECT bool_and(institution_name = 'College A') AND count(*) = 9 FROM public.fn_hr_salary_revision_people()));
 SELECT t.check('a second request for a person is refused while one is open',
   t.try(format('SELECT public.fn_hr_salary_revision_propose(%L, 51000, %L)', :'sF1', 'x')) = '23505');
 SELECT t.check('principal cannot ask for another college',
@@ -103,10 +106,17 @@ SELECT t.check('the second asker can comment on the waiting request',
 SELECT public.fn_hr_salary_revision_propose(:'sF2', 45000, 'Covers the evening batch') AS req_f2 \gset
 SELECT t.check('principal request goes straight to the Director',
   (SELECT route = 'direct' AND status = 'waiting_director' AND asked_as = 'principal' FROM public.hr_salary_revision_requests WHERE id = :'req_f2'));
+-- 30 Sep: PA sits in department A1, so for an A1 person PA is principal AND
+-- the head of the department: no separate check, straight to the Director, marked.
+SELECT public.fn_hr_salary_revision_propose(:'sF7', 24000, 'Joined last year and already runs the lab') AS req_f7 \gset
+SELECT t.check('a principal who is also the head of the department goes straight to the Director, marked',
+  (SELECT asker_is_also_hod AND route = 'direct' AND status = 'waiting_director'
+     FROM public.hr_salary_revision_requests WHERE id = :'req_f7')
+  AND (SELECT NOT asker_is_also_hod FROM public.hr_salary_revision_requests WHERE id = :'req_f2'));
 SELECT t.check('principal cannot see a request about their own pay',
   NOT EXISTS (SELECT 1 FROM public.hr_salary_revision_requests WHERE id = :'req_senior')
   AND (SELECT public.fn_hr_salary_revision_get(:'req_senior')) IS NULL);
-SELECT t.check('principal sees the college''s other requests', (SELECT count(*) FROM public.hr_salary_revision_requests) = 4);
+SELECT t.check('principal sees the college''s other requests', (SELECT count(*) FROM public.hr_salary_revision_requests) = 5);
 SELECT t.check('principal''s check list has the three HOD requests',
   (SELECT count(*) FROM public.fn_hr_salary_revision_list('college')) = 3);
 SELECT t.login(:'PB');
@@ -157,8 +167,15 @@ INSERT INTO public.hr_salary_register_runs (hr_organization_id, period_year, per
 VALUES (:'OB', EXTRACT(YEAR FROM (date_trunc('month', public.hr_salary_revision_ist_today()) + interval '1 month'))::int,
                EXTRACT(MONTH FROM (date_trunc('month', public.hr_salary_revision_ist_today()) + interval '1 month'))::int);
 SET ROLE authenticated;
+-- 30 Sep: a super admin who is NOT on the Director list is not the Director.
+SELECT t.login(:'S');
+SELECT t.check('a super admin who is not on the list cannot give the final yes',
+  t.try(format('SELECT public.fn_hr_salary_revision_director_decide(%L, true)', :'req_f2')) = '42501'
+  AND t.try(format('SELECT public.fn_hr_salary_revision_director_decide(%L, false, NULL, %L)', :'req_f2', 'no')) = '42501'
+  AND t.try('SELECT * FROM public.fn_hr_salary_revision_list(''director'')') = '42501'
+  AND (SELECT status FROM public.hr_salary_revision_requests WHERE id = :'req_f2') = 'waiting_director');
 SELECT t.login(:'D');
-SELECT t.check('the Director''s list shows everything', (SELECT count(*) FROM public.fn_hr_salary_revision_list('director')) = 8);
+SELECT t.check('the Director''s list shows everything', (SELECT count(*) FROM public.fn_hr_salary_revision_list('director')) = 9);
 SELECT t.check('saying no needs a reason',
   t.try(format('SELECT public.fn_hr_salary_revision_director_decide(%L, false)', :'req_f4')) = '22023');
 SELECT t.check('the Director says no with a reason',
@@ -182,6 +199,21 @@ SELECT t.check('the approved pay cut stays marked as a cut',
   (SELECT final_is_cut AND is_cut FROM public.hr_salary_revision_requests WHERE id = :'req_cut'));
 SELECT t.check('a decided request takes no more comments',
   t.try(format('SELECT public.fn_hr_salary_revision_comment(%L, %L)', :'req_f1', 'late')) = '55000');
+-- 30 Sep: the Director sees TODAY's band, with a note when it changed since the ask.
+SELECT t.check('no band change yet: no note',
+  (SELECT bool_and(NOT band_changed) FROM public.fn_hr_salary_revision_list('director')));
+RESET ROLE;
+INSERT INTO public.platform_policies (policy_key, scope_type, scope_id, value)
+VALUES ('hr.pay_scales', 'institution', '00000000-0000-0000-0000-0000000000a1', '{"pay_matrix": [{"designation": "Assistant Professor", "basic_pay": 60000}]}');
+SET ROLE authenticated;
+SELECT t.login(:'D');
+SELECT t.check('the Director is told the band changed since the request, college A only',
+  (SELECT band_changed FROM public.fn_hr_salary_revision_list('director') WHERE id = :'req_f2')
+  AND (SELECT NOT band_changed FROM public.fn_hr_salary_revision_list('director') WHERE id = :'req_f3'));
+SELECT t.login(:'PA');
+SELECT t.check('nobody but the Director gets the band-changed note',
+  (SELECT bool_and(NOT band_changed) FROM public.fn_hr_salary_revision_list('mine')));
+SELECT t.login(:'D');
 
 -- ── 8. Who sees the reason for a no (ruling 14) ─────────────────────────────
 SELECT t.login(:'HA');
@@ -240,6 +272,11 @@ SELECT t.check('an approved raise still counts as open (no second request)',
   t.try(format('SELECT public.fn_hr_salary_revision_propose(%L, 60000, %L)', :'sF1', 'x')) = '23505');
 SELECT t.login(:'F1');
 SELECT t.check('a team member cannot run the apply step', t.try('SELECT public.fn_hr_salary_revision_apply_due()') = '42501');
+SELECT t.check('a team member cannot read comments on a request they may not see',
+  (SELECT count(*) FROM public.hr_salary_revision_comments) = 0);
+SELECT t.login(:'HA');
+SELECT t.check('the asker reads the comments on their own request',
+  (SELECT count(*) FROM public.hr_salary_revision_comments WHERE request_id = :'req_f1') >= 1);
 SELECT t.login(:'D');
 SELECT t.check('nothing is written before the start date', public.fn_hr_salary_revision_apply_due() = 0);
 RESET ROLE;
@@ -279,8 +316,45 @@ SELECT t.login(:'HA');
 SELECT t.check('the in-force read keeps the caller''s own RLS (HOD reads only their own pay)',
   (SELECT count(*) FROM public.hr_staff_salaries_in_force(ARRAY[:'sF1', :'sHA']::uuid[], :'month_end')) = 1);
 RESET ROLE;
+-- 30 Sep: F5 leaves before the start date. The raise is cancelled, both told, nothing written.
+UPDATE public.staff SET is_active = false WHERE id = :'sF5';
 SELECT t.check('the college B raises wait for the month after',
-  public.hr_salary_revision_apply_due_on(:'start2') = 2);
+  public.hr_salary_revision_apply_due_on(:'start2') = 1);
+SELECT t.check('a raise for someone who left is cancelled, not written',
+  (SELECT status = 'cancelled' AND cancelled_at IS NOT NULL AND cancel_note LIKE 'Cancelled:%' AND applied_salary_id IS NULL
+     FROM public.hr_salary_revision_requests WHERE id = :'req_f5b')
+  AND (SELECT monthly_gross FROM public.hr_staff_salaries WHERE staff_id = :'sF5' AND superseded_by IS NULL) = 60000);
+SELECT t.check('the Director and the asker are told about the cancellation',
+  (SELECT count(DISTINCT u.user_id) FROM public.user_notifications u JOIN public.notifications n ON n.id = u.notification_id
+    WHERE n.title = 'A salary revision was cancelled'
+      AND u.user_id IN (:'D', (SELECT asked_by FROM public.hr_salary_revision_requests WHERE id = :'req_f5b'))) = 2
+  AND NOT EXISTS (SELECT 1 FROM public.user_notifications u JOIN public.notifications n ON n.id = u.notification_id
+                   WHERE n.title = 'A salary revision was cancelled' AND u.user_id = :'S'));
+-- 30 Sep: a start date that passed unapplied is never written late. F7's raise
+-- is approved for start1; the job is (pretend) run a day late.
+SET ROLE authenticated;
+SELECT t.login(:'D');
+SELECT t.check('the Director approves F7', public.fn_hr_salary_revision_director_decide(:'req_f7', true) = 'approved');
+RESET ROLE;
+SELECT t.check('a day-late run writes nothing', public.hr_salary_revision_apply_due_on((:'start1'::date + 1)) = 0);
+SELECT t.check('a missed start goes back to the Director instead of being written late',
+  (SELECT status = 'waiting_director' AND starts_on IS NULL AND final_monthly_gross IS NULL AND apply_note LIKE 'The start date%'
+     FROM public.hr_salary_revision_requests WHERE id = :'req_f7')
+  AND (SELECT monthly_gross FROM public.hr_staff_salaries WHERE staff_id = :'sF7' AND superseded_by IS NULL) = 20000,
+  (SELECT status || ' | ' || COALESCE(starts_on::text, 'no start') || ' | ' || COALESCE(apply_note, 'no note') FROM public.hr_salary_revision_requests WHERE id = :'req_f7'));
+SELECT t.check('the Director and the asker are told about the missed start',
+  (SELECT count(DISTINCT u.user_id) FROM public.user_notifications u JOIN public.notifications n ON n.id = u.notification_id
+    WHERE n.title = 'A salary revision missed its start date' AND u.user_id IN (:'D', :'PA')) = 2);
+SET ROLE authenticated;
+SELECT t.login(:'D');
+SELECT t.check('the Director gives F7 a fresh yes', public.fn_hr_salary_revision_director_decide(:'req_f7', true) = 'approved');
+SELECT t.check('the fresh yes carries a fresh start date',
+  (SELECT starts_on = :'start1'::date AND final_monthly_gross = 24000 FROM public.hr_salary_revision_requests WHERE id = :'req_f7'));
+RESET ROLE;
+SELECT t.check('the fresh yes is written on its own start date', public.hr_salary_revision_apply_due_on(:'start1') = 1);
+SELECT t.check('the fresh yes is the pay in force',
+  (SELECT monthly_gross FROM public.hr_staff_salaries WHERE staff_id = :'sF7' AND superseded_by IS NULL) = 24000
+  AND (SELECT status = 'applied' FROM public.hr_salary_revision_requests WHERE id = :'req_f7'));
 
 -- ── 11. The database enforces one open request ──────────────────────────────
 SELECT t.check('the unique index refuses a second open request even without the function',
@@ -296,6 +370,9 @@ SELECT t.check('it reaches the Director once, even when run twice',
   public.fn_hr_salary_revision_weekly_digest() = 2
   AND (SELECT count(*) FROM public.user_notifications u JOIN public.notifications n ON n.id = u.notification_id
         WHERE u.user_id = :'D' AND n.title = 'Salary revisions waiting for you') = 1);
+SELECT t.check('the reminder does not reach a super admin who is not on the list',
+  NOT EXISTS (SELECT 1 FROM public.user_notifications u JOIN public.notifications n ON n.id = u.notification_id
+               WHERE u.user_id = :'S' AND n.title = 'Salary revisions waiting for you'));
 SELECT t.check('nothing was approved by the reminder',
   (SELECT count(*) FROM public.hr_salary_revision_requests WHERE status = 'waiting_director') = 2);
 SET ROLE authenticated;

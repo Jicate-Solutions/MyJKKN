@@ -35,6 +35,31 @@ export function useUpdateEntry(eventId: string) {
   });
 }
 
+/**
+ * Record a division's winner, runner-up and third place (BUG-006252, option b).
+ * Writes tournament_entries.final_rank (1/2/3, or null to clear) through the same
+ * entry PATCH the organiser already uses — the public results page, certificates
+ * and medals all read final_rank. One toast for the whole set.
+ */
+export function useRecordPlacings(eventId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (changes: { entryId: string; final_rank: number | null }[]) => {
+      for (const c of changes) {
+        await TournamentRegistrationService.updateEntry(eventId, c.entryId, {
+          final_rank: c.final_rank,
+        });
+      }
+    },
+    onSuccess: () => {
+      toast.success('Winners saved');
+    },
+    onError: (e: Error) => toast.error(e.message || 'Failed to save winners'),
+    // Refresh even after a partial failure, so the screen shows what was saved.
+    onSettled: () => qc.invalidateQueries({ queryKey: KEYS.entries(eventId) }),
+  });
+}
+
 export function useMarkEntryPaid(eventId: string) {
   const qc = useQueryClient();
   return useMutation({

@@ -21,6 +21,7 @@ import type {
   PoFieldFormat,
   PoItemColumnDef,
 } from '@/types/procurement';
+import { qtyWithPack } from './pack-size';
 
 export interface ResolvedField {
   key: string;
@@ -88,7 +89,7 @@ export const STANDARD_PO_FORMAT: ProcurementPoFormat = {
   ],
   item_columns: [
     { key: 'row_index', label: 'S. No', source: 'row_index', align: 'center' },
-    { key: 'item_name', label: 'Description of Goods', source: 'item.item_name', align: 'left' },
+    { key: 'item_name', label: 'Description of Goods', source: 'calc.item_description', align: 'left' },
     { key: 'hsn', label: 'HSN/ SAC', source: 'item_extra.hsn', align: 'left' },
     { key: 'qty', label: 'Qty', source: 'calc.qty_with_unit', align: 'left' },
     { key: 'unit_price', label: 'Rate', source: 'item.unit_price', align: 'right', format: 'currency' },
@@ -130,10 +131,35 @@ function formatValue(raw: unknown, format?: PoFieldFormat): string {
   }
 }
 
-function gstPercentOf(item: ProcurementPurchaseOrderItem): number | null {
-  const raw = item.extra_fields?.gst_percent;
+const gstOn = (amount: number, pct: number) => Math.round(amount * pct) / 100;
+
+/** GST on every line that has a rate, summed (0 when no line has one). */
+export function poGstTotal(po: PoWithItems): number {
+  return po.items.reduce((sum, it) => {
+    const g = gstPercentOf(it);
+    return g === null ? sum : sum + gstOn(Number(it.line_total), g);
+  }, 0);
+}
+
+/** A line's GST %: typed on the order, else the vendor's quotation, else the item master. */
+export function gstPercentOf(item: ProcurementPurchaseOrderItem): number | null {
+  const own = item.extra_fields?.gst_percent;
+  const raw = own !== undefined && own !== '' ? own : catalogExtra(item, 'gst_percent');
   const n = raw === undefined || raw === '' ? NaN : Number(String(raw).replace('%', ''));
   return Number.isFinite(n) ? n : null;
+}
+
+/**
+ * "2 × 500 ml", not "2 ml". Chemicals are requested as "2" with unit "ml" and
+ * the pack ("500 ml") in the specification — the quantity counts packs, so the
+ * unit alone would tell the vendor to send 2 millilitres.
+ */
+const qtyWithUnit = (item: ProcurementPurchaseOrderItem) => qtyWithPack(item.ordered_quantity, item);
+
+/** Name plus the specification the requester asked for ("4N Conc., 500 ml"). */
+function itemDescription(item: ProcurementPurchaseOrderItem): string {
+  const spec = item.item_spec?.trim();
+  return spec ? `${item.item_name} (${spec})` : item.item_name;
 }
 
 function resolveValue(
@@ -152,21 +178,29 @@ function resolveValue(
       return (po as unknown as Record<string, unknown>)[key];
     case 'supplier':
       return po.supplier ? (po.supplier as unknown as Record<string, unknown>)[key] : undefined;
-    case 'header_values':
-      return po.header_field_values?.[key];
+    case 'header_values': {
+      const own = po.header_field_values?.[key];
+      return own !== undefined && String(own).trim() ? own : suggestedHeaderValues(po)[key]?.value;
+    }
     case 'footer_values':
       return po.footer_field_values?.[key];
     case 'item':
       return item ? (item as unknown as Record<string, unknown>)[key] : undefined;
-    case 'item_extra':
-      return item ? item.extra_fields?.[key] : undefined;
+    case 'item_extra': {
+      if (!item) return undefined;
+      const own = item.extra_fields?.[key];
+      return own !== undefined && own !== '' ? own : catalogExtra(item, key);
+    }
     case 'calc': {
       if (!item) return undefined;
       const gst = gstPercentOf(item);
       const amount = Number(item.line_total);
-      if (key === 'qty_with_unit') return `${item.ordered_quantity}${item.unit_label ? ` ${item.unit_label}` : ''}`;
-      if (key === 'gst_amount') return gst === null ? undefined : (amount * gst) / 100;
-      if (key === 'amount_with_gst') return gst === null ? amount : amount + (amount * gst) / 100;
+      if (key === 'qty_with_unit') return qtyWithUnit(item);
+      if (key === 'item_description') return itemDescription(item);
+      // A quoted rate is before GST (the vendor's "Total" column is rate + GST),
+      // so GST is added on top of the amount.
+      if (key === 'gst_amount') return gst === null ? undefined : gstOn(amount, gst);
+      if (key === 'amount_with_gst') return gst === null ? amount : amount + gstOn(amount, gst);
       return undefined;
     }
     default:
@@ -183,9 +217,59 @@ function resolveItemCell(col: PoItemColumnDef, po: PoWithItems, item: Procuremen
   };
 }
 
+/** DD-MM-YYYY, as typed on the order. */
+const dmy = (iso: string | null | undefined) => {
+  if (!iso) return '';
+  const [y, m, d] = iso.slice(0, 10).split('-');
+  return y && m && d ? `${d}-${m}-${y}` : '';
+};
+
+/**
+ * What each empty "printed on the order" box defaults to, and where it came from:
+ * the vendor's quotation first, then what the last order to this vendor printed.
+ * The page shows these filled in; the PDF prints them even before anyone saves.
+ */
+export function suggestedHeaderValues(po: PoWithItems): Record<string, { value: string; from: 'quotation' | 'last order' }> {
+  const out: Record<string, { value: string; from: 'quotation' | 'last order' }> = {};
+  for (const [k, v] of Object.entries(po.vendor_defaults ?? {})) {
+    if (String(v ?? '').trim()) out[k] = { value: String(v), from: 'last order' };
+  }
+  const q = po.source_quotation;
+  if (q?.vendor_quote_number) out.quotation_no = { value: q.vendor_quote_number, from: 'quotation' };
+  if (q?.quote_date) out.quotation_date = { value: dmy(q.quote_date), from: 'quotation' };
+  if (q?.delivery_time_days) out.delivery = { value: `${q.delivery_time_days} days`, from: 'quotation' };
+  if (q?.payment_terms) out.payment = { value: q.payment_terms, from: 'quotation' };
+  if (q?.warranty) out.warranty = { value: q.warranty, from: 'quotation' };
+  return out;
+}
+
+/** What a printed order can't go out without; everything else may stay blank. */
+export const PO_REQUIRED_FIELDS: Record<string, string> = {
+  quotation_no: 'Quotation no.',
+  quotation_date: 'Quotation date',
+  delivery: 'Delivery',
+  payment: 'Payment',
+};
+
+/** Required boxes still empty after the quotation / last order filled what they could. */
+export function missingPoFields(po: PoWithItems): string[] {
+  const suggested = suggestedHeaderValues(po);
+  return Object.keys(PO_REQUIRED_FIELDS).filter(
+    (k) => !String(po.header_field_values?.[k] ?? '').trim() && !suggested[k]?.value?.trim()
+  );
+}
+
+/** An item's HSN / GST % when the order has none of its own: the item master. */
+export function catalogExtra(item: ProcurementPurchaseOrderItem, key: string): string | undefined {
+  if (key === 'hsn' && item.catalog?.hsn) return item.catalog.hsn;
+  if (key === 'gst_percent' && item.catalog?.gst_percent != null) return String(item.catalog.gst_percent);
+  return undefined;
+}
+
 export function resolvePoDocumentModel(po: PoWithItems): PoDocumentModel {
   const format = po.po_format ?? STANDARD_PO_FORMAT;
-  const hv = (k: string) => (po.header_field_values?.[k] ?? '').trim();
+  const suggested = suggestedHeaderValues(po);
+  const hv = (k: string) => (po.header_field_values?.[k] ?? '').trim() || suggested[k]?.value || '';
   const quote = po.source_quotation ?? null;
 
   // Vendor block: "M/s. NAME.," then the address lines, then the phone.
@@ -212,23 +296,27 @@ export function resolvePoDocumentModel(po: PoWithItems): PoDocumentModel {
     ...extraHeader.map((f) => ({ ...f, label: f.label.toUpperCase() })),
   ];
 
-  const itemColumns = format.item_columns.map((c) => ({ key: c.key, label: c.label, align: c.align }));
+  // Every column of the format prints, HSN / GST included — the institution's paper PO has them.
+  const printedColumns = format.item_columns;
+  const itemColumns = printedColumns.map((c) => ({ key: c.key, label: c.label, align: c.align }));
   const itemRows: ResolvedItemRow[] = po.items.map((item, i) => ({
-    cells: format.item_columns.map((c) => resolveItemCell(c, po, item, i)),
+    cells: printedColumns.map((c) => resolveItemCell(c, po, item, i)),
   }));
 
-  // Total -> Round off -> Grand Total, rounded to the rupee as on the paper PO.
+  // Total -> GST -> Round off -> Grand Total, rounded to the rupee as on the paper PO.
   const total = Number(po.total_amount);
-  const grand = Math.round(total);
-  const roundOff = +(grand - total).toFixed(2);
-  const totals: ResolvedField[] =
-    roundOff === 0
-      ? [{ key: 'grand_total', label: 'Grand Total', value: rupees(grand) }]
-      : [
-          { key: 'total', label: 'Total', value: rupees(total) },
-          { key: 'round_off', label: `Round off (${roundOff > 0 ? '+' : '-'})`, value: Math.abs(roundOff).toFixed(2) },
-          { key: 'grand_total', label: 'Grand Total', value: rupees(grand) },
-        ];
+  const gstTotal = Math.round(poGstTotal(po) * 100) / 100;
+  const payable = total + gstTotal;
+  const grand = Math.round(payable);
+  const roundOff = +(grand - payable).toFixed(2);
+  const totals: ResolvedField[] = [
+    ...(gstTotal > 0 || roundOff !== 0 ? [{ key: 'total', label: 'Total', value: rupees(total) }] : []),
+    ...(gstTotal > 0 ? [{ key: 'gst', label: 'GST', value: rupees(gstTotal) }] : []),
+    ...(roundOff !== 0
+      ? [{ key: 'round_off', label: `Round off (${roundOff > 0 ? '+' : '-'})`, value: Math.abs(roundOff).toFixed(2) }]
+      : []),
+    { key: 'grand_total', label: 'Grand Total', value: rupees(grand) },
+  ];
 
   const delivery =
     hv('delivery') ||
@@ -239,17 +327,18 @@ export function resolvePoDocumentModel(po: PoWithItems): PoDocumentModel {
     { key: 'delivery', label: 'Delivery', value: delivery },
     { key: 'warranty', label: 'Warranty', value: hv('warranty') || '--' },
     { key: 'payment', label: 'Payment', value: hv('payment') || po.payment_terms || quote?.payment_terms || '--' },
-    { key: 'others', label: 'Others', value: hv('others') || po.terms_and_conditions || format.terms_and_conditions_default || '--' },
+    { key: 'others', label: 'Others', value: hv('others') || po.terms_and_conditions || po.vendor_default_terms || format.terms_and_conditions_default || '--' },
   ];
 
   const noteGroup = format.footer_columns.find((g) => g.freeText);
   const specialNote =
     (noteGroup?.source ? formatValue(resolveValue(noteGroup.source, po)) : '') ||
     (po.footer_field_values?.special_note ?? '') ||
-    'Prices including Tax & Delivery';
+    (gstTotal > 0 ? 'Prices including Delivery; GST as shown' : 'Prices including Tax & Delivery');
 
   return {
-    refNo: po.po_number,
+    // A renegotiated order keeps its number; the vendor sees which revision this is.
+    refNo: po.revision_no ? `${po.po_number} (Rev ${po.revision_no})` : po.po_number,
     refDate: dotDate(po.approved_at ?? po.created_at),
     vendor,
     quoteFields,

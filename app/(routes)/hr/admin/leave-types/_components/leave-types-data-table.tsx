@@ -23,7 +23,7 @@ import { Plus } from 'lucide-react';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { HRLeaveTypeService } from '@/lib/services/hr/leave-type-service';
 import { useDataTableRefreshOnInvalidate } from '@/hooks/use-data-table-refresh';
-import { useHrOrgMappings } from '@/hooks/hr/use-hr-org-mappings';
+import { useAllHrOrgNames, useHrOrgMappings } from '@/hooks/hr/use-hr-org-mappings';
 import { useLeaveApprovalFlowCoverage } from '@/hooks/hr/use-leave-approval-flows';
 import { LEAVE_DURATION_LABELS } from '@/types/hr';
 import {
@@ -52,6 +52,10 @@ interface LeaveTypesDataTableProps {
   onActivate: (t: HRLeaveType) => Promise<void> | void;
   /** Asks the page to open its delete confirmation. */
   onDelete: (t: HRLeaveType) => void;
+  /** profiles.is_super_admin — unlocks the super-admin delete on every row. */
+  isSuperAdmin: boolean;
+  /** Asks the page to open the super-admin delete confirmation. */
+  onSuperDelete: (t: HRLeaveType) => void;
   /**
    * Bumped by the page after a save or archive. Needed in addition to the
    * invalidate bridge below: that bridge listens for cache events, which only
@@ -80,6 +84,8 @@ export function LeaveTypesDataTable({
   onArchive,
   onActivate,
   onDelete,
+  isSuperAdmin,
+  onSuperDelete,
   refreshToken,
 }: LeaveTypesDataTableProps) {
   // Both counters only ever increase, so their sum is a valid monotonic key.
@@ -92,11 +98,23 @@ export function LeaveTypesDataTable({
 
   // Shares the ['hr-org-mappings'] query the page and filters already hold —
   // React Query dedupes it, so the Institution column costs no extra request.
-  const { orgNameById } = useHrOrgMappings();
+  const { orgNameById: mappedOrgNames } = useHrOrgMappings();
+
+  // The mapping above is HR-scoped (fn_hr_orgs_for_institutions drops an
+  // organization with included_in_hr = false), so a leave type belonging to one
+  // — Arts & Science (Aided), Testing Institution, Nattraja Incubation Forum —
+  // had NO name and a blank Institution cell, and nobody could tell which rows
+  // they were looking at. This fills exactly those gaps; the HR-scoped name wins
+  // wherever both exist. RLS decides how many organizations the caller can name.
+  const { labelById: allOrgLabels } = useAllHrOrgNames();
+  const orgNameById = useMemo(
+    () => new Map([...allOrgLabels, ...mappedOrgNames]),
+    [allOrgLabels, mappedOrgNames]
+  );
 
   const columns = useMemo(
-    () => getLeaveTypeColumns({ canManage, onView, onAssign, onEdit, onApprovalFlow, onEligibilityFlow, onArchive, onActivate, onDelete, orgNameById, flowCoverage }),
-    [canManage, onView, onAssign, onEdit, onApprovalFlow, onEligibilityFlow, onArchive, onActivate, onDelete, orgNameById, flowCoverage]
+    () => getLeaveTypeColumns({ canManage, onView, onAssign, onEdit, onApprovalFlow, onEligibilityFlow, onArchive, onActivate, onDelete, isSuperAdmin, onSuperDelete, orgNameById, flowCoverage }),
+    [canManage, onView, onAssign, onEdit, onApprovalFlow, onEligibilityFlow, onArchive, onActivate, onDelete, isSuperAdmin, onSuperDelete, orgNameById, flowCoverage]
   );
 
   const fetchData = useCallback(
@@ -218,6 +236,8 @@ export function LeaveTypesDataTable({
                 onArchive={onArchive}
                 onActivate={onActivate}
                 onDelete={onDelete}
+                isSuperAdmin={isSuperAdmin}
+                onSuperDelete={onSuperDelete}
               />
             )}
           </div>
@@ -248,7 +268,7 @@ export function LeaveTypesDataTable({
         </div>
       </div>
     ),
-    [canManage, onView, onAssign, onEdit, onArchive, onActivate, onDelete, orgNameById, flowCoverage]
+    [canManage, onView, onAssign, onEdit, onArchive, onActivate, onDelete, isSuperAdmin, onSuperDelete, orgNameById, flowCoverage]
   );
 
   const renderToolbarContent = useCallback(

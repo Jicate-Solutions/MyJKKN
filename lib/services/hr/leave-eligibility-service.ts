@@ -86,10 +86,20 @@ export class LeaveEligibilityService {
     return (data ?? []) as unknown as LeaveEligibility[];
   }
 
-  /** The admin list for one organisation, newest first. */
+  /**
+   * The admin list, newest first.
+   *
+   * `hrOrgId` null = EVERY organisation the caller's RLS lets them read, not just
+   * their own. hr_leave_eligibilities_select admits a super admin to all of them
+   * and a hr.leave.types.manage holder to each organisation they have access to
+   * (fn_my_hr_organization_ids), so no organisation filter is needed here — the
+   * database already decides. The page used to pass the viewer's OWN organisation,
+   * so a super admin or HR Head saw only the decisions made at their home
+   * institution instead of every staff record they are entitled to.
+   */
   static async listForOrg(
     supabase: SupabaseClient,
-    hrOrgId: string,
+    hrOrgId: string | null,
     status?: LeaveEligibilityStatus
   ): Promise<LeaveEligibilityRow[]> {
     let q = supabase
@@ -98,9 +108,9 @@ export class LeaveEligibilityService {
         `${SELECT}, member:employee_id ( first_name, last_name, staff_id ), ` +
           'hr_leave_types:leave_type_id ( leave_type_name )'
       )
-      .eq('hr_organization_id', hrOrgId)
       .order('created_at', { ascending: false })
       .limit(1000);
+    if (hrOrgId) q = q.eq('hr_organization_id', hrOrgId);
     if (status) q = q.eq('status', status);
 
     const { data, error } = await q;

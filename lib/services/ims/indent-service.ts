@@ -1,6 +1,7 @@
 // lib/services/ims/indent-service.ts
 
 import { createClientSupabaseClient } from '@/lib/supabase/client';
+import { EDITABLE_INDENT_STATUSES } from '@/types/ims/indents';
 import { ImsActivityLogService } from './activity-log-service';
 import { issueStockToDepartment } from './issue-stock';
 import type {
@@ -180,9 +181,14 @@ export class ImsIndentService {
 
       if (itemsError) throw itemsError;
 
+      // Items A–Z by name, so a long chemical list reads like the store's shelf list.
+      const sorted = [...(items || [])].sort((a: any, b: any) =>
+        (a.item?.name ?? '').trim().localeCompare((b.item?.name ?? '').trim(), 'en', { sensitivity: 'base', numeric: true })
+      );
+
       return {
         ...indent,
-        items: items || [],
+        items: sorted,
       } as ImsIndentWithItems;
     } catch (error) {
       const errDetail = (error as any)?.message ?? (error as any)?.details ?? JSON.stringify(error);
@@ -295,14 +301,15 @@ export class ImsIndentService {
     userId: string
   ): Promise<ImsIndentRequest> {
     try {
-      // Guard: only draft / pending_approval indents are editable.
+      // Guard: only indents not yet approved (draft / waiting for HOD / waiting for
+      // the store) are editable.
       const { data: existing, error: fetchError } = await this.supabase
         .from('ims_indent_requests')
         .select('status')
         .eq('id', id)
         .single();
       if (fetchError) throw fetchError;
-      if (!existing || !['draft', 'pending_approval'].includes(existing.status)) {
+      if (!existing || !(EDITABLE_INDENT_STATUSES as readonly string[]).includes(existing.status)) {
         throw new Error('This indent can no longer be edited (already processed).');
       }
 
@@ -323,7 +330,7 @@ export class ImsIndentService {
         .single();
       if (headerError) throw headerError;
 
-      // Replace items (none issued yet at draft/pending_approval)
+      // Replace items (nothing is issued before approval)
       const { error: delError } = await this.supabase
         .from('ims_indent_request_items')
         .delete()
@@ -678,6 +685,28 @@ export class ImsIndentService {
       const errDetail = (error as any)?.message ?? (error as any)?.details ?? JSON.stringify(error);
       console.error('[ImsIndentService] Error in confirmDelivery:', errDetail, error);
       throw error;
+    }
+  }
+
+  /**
+   * Delete an indent that is not approved yet (its items go with it). Nothing has been
+   * issued, reserved or shipped against it at that point, so removing it loses nothing;
+   * an approved indent can only be cancelled. The status filter in the DELETE itself is
+   * the guard, so a stale page cannot delete an indent that was approved meanwhile.
+   */
+  static async deleteIndent(id: string): Promise<void> {
+    const { data, error } = await this.supabase
+      .from('ims_indent_requests')
+      .delete()
+      .eq('id', id)
+      .in('status', EDITABLE_INDENT_STATUSES as readonly string[])
+      .select('id');
+    if (error) {
+      console.error('[ImsIndentService] Error in deleteIndent:', error?.message ?? error);
+      throw error;
+    }
+    if (!data?.length) {
+      throw new Error('This indent can no longer be deleted — it has already been approved or processed.');
     }
   }
 

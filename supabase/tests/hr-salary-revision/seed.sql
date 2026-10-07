@@ -34,7 +34,10 @@ INSERT INTO public.profiles (id, full_name, role, is_super_admin, institution_id
   ('00000000-0000-0000-0000-000000010014', 'Member F4',     'faculty',     false, '00000000-0000-0000-0000-0000000000a1'),
   ('00000000-0000-0000-0000-000000010015', 'Member F5',     'faculty',     false, '00000000-0000-0000-0000-0000000000b2'),
   ('00000000-0000-0000-0000-000000010016', 'Member F6',     'faculty',     false, '00000000-0000-0000-0000-0000000000a1'),
-  ('00000000-0000-0000-0000-000000010017', 'Outside HR X',  'faculty',     false, '00000000-0000-0000-0000-0000000000a1');
+  ('00000000-0000-0000-0000-000000010017', 'Outside HR X',  'faculty',     false, '00000000-0000-0000-0000-0000000000a1'),
+  -- 30 Sep: a super admin who is NOT on the Director list, and one more A1 member.
+  ('00000000-0000-0000-0000-000000010006', 'Super admin S', 'super_admin', true,  '00000000-0000-0000-0000-0000000000a1'),
+  ('00000000-0000-0000-0000-000000010018', 'Member F7',     'faculty',     false, '00000000-0000-0000-0000-0000000000a1');
 
 -- Multi-role lane too: every user also has their role through user_roles.
 INSERT INTO public.user_roles (user_id, role_id)
@@ -54,7 +57,17 @@ INSERT INTO public.staff (id, profile_id, institution_id, department_id, categor
   ('00000000-0000-0000-0000-000000020014', '00000000-0000-0000-0000-000000010014', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-00000000d0a1', '00000000-0000-0000-0000-000000000c01', 'Member', 'F4', 'F14', 'Assistant Professor', '2022-06-01'),
   ('00000000-0000-0000-0000-000000020015', '00000000-0000-0000-0000-000000010015', '00000000-0000-0000-0000-0000000000b2', '00000000-0000-0000-0000-00000000d0b1', '00000000-0000-0000-0000-000000000c01', 'Member', 'F5', 'F15', 'Assistant Professor', '2018-06-01'),
   ('00000000-0000-0000-0000-000000020016', '00000000-0000-0000-0000-000000010016', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-00000000d0a2', '00000000-0000-0000-0000-000000000c01', 'Member', 'F6', 'F16', 'Assistant Professor', '2017-06-01'),
-  ('00000000-0000-0000-0000-000000020017', '00000000-0000-0000-0000-000000010017', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-00000000d0a1', '00000000-0000-0000-0000-000000000c02', 'Outside', 'X', 'X17', 'Driver', '2017-06-01');
+  ('00000000-0000-0000-0000-000000020017', '00000000-0000-0000-0000-000000010017', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-00000000d0a1', '00000000-0000-0000-0000-000000000c02', 'Outside', 'X', 'X17', 'Driver', '2017-06-01'),
+  ('00000000-0000-0000-0000-000000020018', '00000000-0000-0000-0000-000000010018', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-00000000d0a1', '00000000-0000-0000-0000-000000000c01', 'Member', 'F7', 'F18', 'Assistant Professor', '2023-06-01');
+
+-- 30 Sep: the Director list (#4121) holds D only. Written with no JWT, as the
+-- SQL console would; #4121's own seed found no Director account here.
+UPDATE public.platform_policies
+   SET value = jsonb_build_array('00000000-0000-0000-0000-000000010001'), is_active = true
+ WHERE policy_key = 'platform.the_director_profile_ids' AND scope_type = 'global' AND scope_id IS NULL;
+INSERT INTO public.platform_policies (policy_key, scope_type, scope_id, value, is_active)
+SELECT 'platform.the_director_profile_ids', 'global', NULL, jsonb_build_array('00000000-0000-0000-0000-000000010001'), true
+ WHERE NOT EXISTS (SELECT 1 FROM public.platform_policies WHERE policy_key = 'platform.the_director_profile_ids');
 
 -- Everybody's pay in force from 1 April 2026. F1 also has an older row it
 -- replaced, so the in-force read walks a real chain.

@@ -10,11 +10,15 @@ export interface ExtractedLine {
   rfq_item_id: string | null;
   item_name?: string | null;
   unit_price?: number | null;
+  /** The pack the price is for, as printed ("100 ml"). Absent from older reads. */
+  pack?: string | null;
   uncertain?: boolean;
   manufacturer?: string | null;
   quality_grade?: string | null;
   concentration?: string | null;
   other_specs?: string | null;
+  gst_percent?: number | null;
+  hsn?: string | null;
 }
 
 export interface ExtractResult {
@@ -30,8 +34,11 @@ export interface ExtractResult {
     contact_person?: string | null;
   } | null;
   quote_number?: string | null;
+  quote_date?: string | null;
+  validity_date?: string | null;
   delivery_days?: number | null;
   payment_terms?: string | null;
+  warranty?: string | null;
 }
 
 const POLL_MS = 2_000;
@@ -40,14 +47,32 @@ const GIVE_UP_MS = 180_000;
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+/** What the reader is told about one requested item — the name alone can't tell 500 g from 500 ml. */
+export const extractItemOf = (it: {
+  id: string;
+  item_name: string;
+  item_spec?: string | null;
+  quantity?: number;
+  unit_label?: string | null;
+}) => ({
+  id: it.id,
+  item_name: it.item_name,
+  item_spec: it.item_spec ?? null,
+  quantity: it.quantity ?? null,
+  unit_label: it.unit_label ?? null,
+});
+
 export async function readQuotationPdf(
   file: File,
-  rfq: { id: string; items: Array<{ id: string; item_name: string }> }
+  rfq: {
+    id: string;
+    items: Array<{ id: string; item_name: string; item_spec?: string | null; quantity?: number; unit_label?: string | null }>;
+  }
 ): Promise<ExtractResult> {
   const fd = new FormData();
   fd.append('file', file);
   fd.append('rfq_id', rfq.id);
-  fd.append('items', JSON.stringify(rfq.items.map((it) => ({ id: it.id, item_name: it.item_name }))));
+  fd.append('items', JSON.stringify(rfq.items.map(extractItemOf)));
 
   const res = await fetch('/api/procurement/quotations/extract-pdf', { method: 'POST', body: fd });
   const json = await res.json().catch(() => ({}));

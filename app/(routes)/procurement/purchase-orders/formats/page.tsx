@@ -111,7 +111,7 @@ export default function PoFormatsPage() {
           <>
             <DropdownMenuSeparator />
             <DropdownMenuItem
-              className="text-red-600 focus:text-red-600"
+              className="text-destructive focus:text-destructive"
               onClick={() => handleDelete(format.id, format.name)}
             >
               <Trash2 className="h-4 w-4 mr-2" />

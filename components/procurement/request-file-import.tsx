@@ -24,6 +24,7 @@ import {
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { FileUp, Loader2, Sparkles } from 'lucide-react';
 import { toast } from 'sonner';
+import { parsePack } from '@/lib/procurement/pack-size';
 
 export type ImportedRow = CreatePurchaseRequestItemDto & { is_new: boolean };
 
@@ -223,7 +224,7 @@ export function RequestFileImport({
                       <th className="w-8 px-2 py-2" />
                       <th className="px-2 py-2 font-medium">In your file</th>
                       <th className="px-2 py-2 font-medium">Add as</th>
-                      <th className="w-20 px-2 py-2 font-medium">Qty</th>
+                      <th className="w-24 px-2 py-2 font-medium">Qty × pack</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y">
@@ -270,13 +271,19 @@ export function RequestFileImport({
                             value={l.quantity}
                             onChange={(e) => update(i, { quantity: Number(e.target.value) })}
                           />
+                          {/* "1" alone reads as 1 gram when the unit is g — say what one unit is. */}
+                          {parsePack(l.spec) && (
+                            <span className="mt-1 block whitespace-nowrap text-xs font-medium text-primary">
+                              × {parsePack(l.spec)?.label}
+                            </span>
+                          )}
                         </td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
               </div>
-              {note && <p className="text-xs text-amber-700 dark:text-amber-400">{note}</p>}
+              {note && <p className="text-xs text-foreground">{note}</p>}
             </div>
           )}
 
