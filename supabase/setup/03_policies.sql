@@ -11766,3 +11766,49 @@ CREATE POLICY hr_payroll_document_settings_service_role
 
 REVOKE ALL ON public.hr_payroll_document_settings FROM anon;
 GRANT SELECT, INSERT, UPDATE ON public.hr_payroll_document_settings TO authenticated;
+
+
+-- Mirrored from supabase/migrations/20271007130000_hostel_floors.sql
+REVOKE ALL ON public.hostel_floors FROM anon;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.hostel_floors TO authenticated, service_role;
+
+DROP POLICY IF EXISTS hostel_floors_select_permission ON public.hostel_floors;
+CREATE POLICY hostel_floors_select_permission ON public.hostel_floors
+  FOR SELECT TO authenticated
+  USING (
+    (SELECT is_super_admin()) OR (SELECT is_admin())
+    OR ((SELECT user_has_permission('campus_living.blocks.view'))
+        AND role_has_hostel_block_scope(block_id, NULL::uuid))
+  );
+
+DROP POLICY IF EXISTS hostel_floors_select_own_allocation ON public.hostel_floors;
+CREATE POLICY hostel_floors_select_own_allocation ON public.hostel_floors
+  FOR SELECT TO authenticated
+  USING (fn_user_allocated_block(block_id));
+
+DROP POLICY IF EXISTS hostel_floors_insert_permission ON public.hostel_floors;
+CREATE POLICY hostel_floors_insert_permission ON public.hostel_floors
+  FOR INSERT TO authenticated
+  WITH CHECK (
+    (SELECT is_super_admin()) OR (SELECT is_admin())
+    OR ((SELECT user_has_permission('campus_living.blocks.edit'))
+        AND role_has_hostel_block_scope(block_id, NULL::uuid))
+  );
+
+DROP POLICY IF EXISTS hostel_floors_update_permission ON public.hostel_floors;
+CREATE POLICY hostel_floors_update_permission ON public.hostel_floors
+  FOR UPDATE TO authenticated
+  USING (
+    (SELECT is_super_admin()) OR (SELECT is_admin())
+    OR ((SELECT user_has_permission('campus_living.blocks.edit'))
+        AND role_has_hostel_block_scope(block_id, NULL::uuid))
+  );
+
+DROP POLICY IF EXISTS hostel_floors_delete_permission ON public.hostel_floors;
+CREATE POLICY hostel_floors_delete_permission ON public.hostel_floors
+  FOR DELETE TO authenticated
+  USING (
+    (SELECT is_super_admin()) OR (SELECT is_admin())
+    OR ((SELECT user_has_permission('campus_living.blocks.edit'))
+        AND role_has_hostel_block_scope(block_id, NULL::uuid))
+  );

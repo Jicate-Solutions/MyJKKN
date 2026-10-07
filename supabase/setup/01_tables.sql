@@ -11293,3 +11293,19 @@ CREATE TABLE IF NOT EXISTS public.hr_payroll_document_settings (
 CREATE INDEX IF NOT EXISTS idx_hr_payroll_doc_settings_institution ON public.hr_payroll_document_settings (institution_id);
 CREATE INDEX IF NOT EXISTS idx_hr_payroll_doc_settings_created_by  ON public.hr_payroll_document_settings (created_by);
 CREATE INDEX IF NOT EXISTS idx_hr_payroll_doc_settings_updated_by  ON public.hr_payroll_document_settings (updated_by);
+
+
+-- Mirrored from supabase/migrations/20271007130000_hostel_floors.sql
+CREATE TABLE IF NOT EXISTS public.hostel_floors (
+  id           uuid        PRIMARY KEY DEFAULT gen_random_uuid(),
+  block_id     uuid        NOT NULL REFERENCES public.hostel_blocks(id) ON DELETE CASCADE,
+  floor_number integer     NOT NULL CHECK (floor_number BETWEEN 0 AND 50),
+  name         text        CHECK (name IS NULL OR char_length(btrim(name)) BETWEEN 1 AND 60),
+  is_active    boolean     NOT NULL DEFAULT true,
+  created_at   timestamptz NOT NULL DEFAULT now(),
+  updated_at   timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT hostel_floors_block_floor_key UNIQUE (block_id, floor_number)
+);
+ALTER TABLE public.hostel_floors ENABLE ROW LEVEL SECURITY;
+-- FK child index: the (block_id, floor) probe run on every floor delete.
+CREATE INDEX IF NOT EXISTS idx_hostel_rooms_block_floor ON public.hostel_rooms (block_id, floor);

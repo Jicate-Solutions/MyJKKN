@@ -2873,3 +2873,25 @@ DROP TRIGGER IF EXISTS trg_hr_payroll_document_settings_touch ON public.hr_payro
 CREATE TRIGGER trg_hr_payroll_document_settings_touch
   BEFORE UPDATE ON public.hr_payroll_document_settings
   FOR EACH ROW EXECUTE FUNCTION public.fn_touch_updated_at();
+
+
+-- Mirrored from supabase/migrations/20271007130000_hostel_floors.sql
+DROP TRIGGER IF EXISTS trg_hostel_floors_updated_at ON public.hostel_floors;
+CREATE TRIGGER trg_hostel_floors_updated_at
+  BEFORE UPDATE ON public.hostel_floors
+  FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
+
+DROP TRIGGER IF EXISTS trg_hostel_floors_identity_guard ON public.hostel_floors;
+CREATE TRIGGER trg_hostel_floors_identity_guard
+  BEFORE UPDATE ON public.hostel_floors
+  FOR EACH ROW EXECUTE FUNCTION public.fn_hostel_floors_identity_guard();
+
+DROP TRIGGER IF EXISTS trg_hostel_floors_sync_total ON public.hostel_floors;
+CREATE TRIGGER trg_hostel_floors_sync_total
+  AFTER INSERT OR DELETE ON public.hostel_floors
+  FOR EACH ROW EXECUTE FUNCTION public.fn_hostel_floors_sync_total();
+
+DROP TRIGGER IF EXISTS trg_hostel_blocks_seed_floors ON public.hostel_blocks;
+CREATE TRIGGER trg_hostel_blocks_seed_floors
+  AFTER INSERT ON public.hostel_blocks
+  FOR EACH ROW EXECUTE FUNCTION public.fn_hostel_blocks_seed_floors();

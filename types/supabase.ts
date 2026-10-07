@@ -74480,6 +74480,44 @@ export type Database = {
           },
         ]
       }
+      hostel_floors: {
+        Row: {
+          block_id: string
+          created_at: string
+          floor_number: number
+          id: string
+          is_active: boolean
+          name: string | null
+          updated_at: string
+        }
+        Insert: {
+          block_id: string
+          created_at?: string
+          floor_number: number
+          id?: string
+          is_active?: boolean
+          name?: string | null
+          updated_at?: string
+        }
+        Update: {
+          block_id?: string
+          created_at?: string
+          floor_number?: number
+          id?: string
+          is_active?: boolean
+          name?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "hostel_floors_block_id_fkey"
+            columns: ["block_id"]
+            isOneToOne: false
+            referencedRelation: "hostel_blocks"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       hostel_gate_passes: {
         Row: {
           accompanying_person: string | null

@@ -77756,3 +77756,54 @@ BEGIN
             i.name;
 END;
 $function$;
+
+
+-- Mirrored from supabase/migrations/20271007130000_hostel_floors.sql
+CREATE OR REPLACE FUNCTION public.fn_hostel_floors_identity_guard()
+RETURNS trigger
+LANGUAGE plpgsql
+SET search_path = ''
+AS $function$
+BEGIN
+  IF NEW.block_id IS DISTINCT FROM OLD.block_id
+     OR NEW.floor_number IS DISTINCT FROM OLD.floor_number THEN
+    RAISE EXCEPTION 'A floor''s block and floor number cannot be changed. Delete the empty floor and add a new one instead.'
+      USING ERRCODE = '23514';
+  END IF;
+  RETURN NEW;
+END;
+$function$;
+
+CREATE OR REPLACE FUNCTION public.fn_hostel_floors_sync_total()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = ''
+AS $function$
+DECLARE
+  v_block uuid := COALESCE(NEW.block_id, OLD.block_id);
+BEGIN
+  UPDATE public.hostel_blocks b
+     SET total_floors = (SELECT count(*) FROM public.hostel_floors f WHERE f.block_id = v_block)
+   WHERE b.id = v_block;
+  RETURN NULL;
+END;
+$function$;
+
+CREATE OR REPLACE FUNCTION public.fn_hostel_blocks_seed_floors()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = ''
+AS $function$
+BEGIN
+  INSERT INTO public.hostel_floors (block_id, floor_number)
+  SELECT NEW.id, g
+    FROM generate_series(0, least(COALESCE(NEW.total_floors, 0), 51) - 1) AS g
+  ON CONFLICT (block_id, floor_number) DO NOTHING;
+  RETURN NULL;
+END;
+$function$;
+
+REVOKE ALL ON FUNCTION public.fn_hostel_floors_sync_total()  FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.fn_hostel_blocks_seed_floors() FROM PUBLIC, anon, authenticated;
