@@ -154,7 +154,7 @@ export function istDate(iso: string): string {
 
 /** Why an event that names no team member record is set aside instead of left pending. */
 export const UNRESOLVABLE_EVENT_REASON =
-  'auto-dismissed: staff_id matches no staff row, so no memo can ever be issued for it';
+  'auto-dismissed: this id matches no team member record, so no memo can ever be issued for it';
 
 const OPEN_MEMO_PAGE = 1000;
 const OPEN_MEMO_MAX_PAGES = 50;
