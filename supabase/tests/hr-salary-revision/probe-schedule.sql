@@ -268,9 +268,30 @@ SELECT t.check('R6-3 a college holiday approved later on a cycle timetable''s da
     WHERE n.staff_id = :'sF8' AND n.day BETWEEN (:'today'::date - 15) AND (:'today'::date - 1) AND n.reason = 'holidays_changed'));
 
 -- ── Round 6, finding 9: listing the days is time-boxed ─────────────────────
-SELECT t.check('R6-9 listing the days stops at its time box: with none left only today''s days are listed, given time the rest are',
-  EXISTS (SELECT 1 FROM public.hr_target_schedule_needs(:'today', 100000, 60000) n WHERE n.reason <> 'live')
-  AND NOT EXISTS (SELECT 1 FROM public.hr_target_schedule_needs(:'today', 100000, 0) n WHERE n.reason <> 'live'));
+-- Round 8 (U5): with no time left, today's days and ONE person's missing days
+-- (the missing-day pass always lists its first person's), never a stale day
+-- (that pass stops at half the time box). F8's 15 stale days above are still
+-- stale here. The mirror records every day, so two people in play lose
+-- yesterday's row for these two checks (put back right after).
+CREATE TEMP TABLE r8_gone AS SELECT * FROM public.hr_target_scheduled_periods WITH NO DATA;
+WITH gone AS (
+  DELETE FROM public.hr_target_scheduled_periods sp
+   USING (SELECT r.staff_id FROM public.hr_target_schedule_ranges(:'today') r
+           WHERE r.from_day < (:'today'::date - 1) ORDER BY r.staff_id LIMIT 2) r
+   WHERE sp.staff_id = r.staff_id AND sp.day = (:'today'::date - 1)
+  RETURNING sp.*)
+INSERT INTO r8_gone SELECT * FROM gone;
+SELECT t.check('R6-9 listing the days stops at its time box: with none left no stale day and only one person''s missing days are listed, given time the rest are',
+  EXISTS (SELECT 1 FROM public.hr_target_schedule_needs(:'today', 100000, 60000) n WHERE n.reason = 'holidays_changed')
+  AND (SELECT count(DISTINCT n.staff_id) FROM public.hr_target_schedule_needs(:'today', 100000, 60000) n WHERE n.reason = 'missing') > 1
+  AND NOT EXISTS (SELECT 1 FROM public.hr_target_schedule_needs(:'today', 100000, 0) n WHERE n.reason = 'holidays_changed')
+  AND (SELECT count(DISTINCT n.staff_id) FROM public.hr_target_schedule_needs(:'today', 100000, 0) n WHERE n.reason = 'missing') <= 1,
+  (SELECT string_agg(reason || '=' || c, ' ') FROM (SELECT n.reason, count(*) || '/' || count(DISTINCT n.staff_id) AS c
+     FROM public.hr_target_schedule_needs(:'today', 100000, 0) n GROUP BY n.reason) x));
+SELECT t.check('R8-U5 with no time left the missing-day pass still lists one person''s missing days: a night is never spent on stale days alone',
+  (SELECT count(DISTINCT n.staff_id) FROM public.hr_target_schedule_needs(:'today', 100000, 0) n WHERE n.reason = 'missing') = 1);
+INSERT INTO public.hr_target_scheduled_periods SELECT * FROM r8_gone;
+DROP TABLE r8_gone;
 
 -- ── F6 and the coverage wait: F4's raise, measured from M1 ──────────────────
 SET ROLE authenticated;

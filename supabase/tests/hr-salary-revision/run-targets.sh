@@ -20,7 +20,9 @@
 #   5. 20271008093015 BEFORE #4252 stops, changing nothing; a re-created
 #      function hand-edited live stops it (the drift check); it re-applies;
 #   6. probe-schedule.sql (findings 1-6, the coverage wait, the record's rules),
-#      every line PASS, and one mutation control per finding.
+#      every line PASS, and one mutation control per finding;
+#   7. (rounds 7-8) probe-order.sql, probe-stale.sql and probe-settled-*.sql,
+#      each after probe-schedule.sql on its own database, each with its controls.
 # Run: bash supabase/tests/hr-salary-revision/run-targets.sh   (PORT= to move it)
 # FINGERPRINTS=1 prints the drift check's fingerprints (main's and this file's)
 # and stops: paste them into 20271008093015 section 0 after any body edit.
@@ -197,10 +199,11 @@ build "$MIG" targets || exit 1
 probe_sched | tee "$WORK/sched.txt" | sed 's/^/   /'
 echo "   total: $(grep -c '^PASS' "$WORK/sched.txt") PASS, $(grep -c '^FAIL' "$WORK/sched.txt") FAIL, $(grep -c 'ERROR' "$WORK/sched.txt") ERROR"
 
-# 8 Oct 2026, review round 7: the money review's probes (B1-B4), each on its
-# own database, after probe-schedule.sql.
-for pf in probe-order.sql probe-stale.sql; do
-  echo "== PROBE (round 7: $pf, after probe-schedule.sql)"
+# 8 Oct 2026, review round 7: the money review's probes (B1-B4), and round 8:
+# the round-3 reviews' probes (probe-settled-*.sql: one rule for calendar
+# order, U1-U4), each on its own database, after probe-schedule.sql.
+for pf in probe-order.sql probe-stale.sql probe-settled-stale.sql probe-settled-off.sql probe-settled-window.sql probe-settled-flag.sql probe-settled-cap.sql probe-settled-race.sql; do
+  echo "== PROBE (rounds 7-8: $pf, after probe-schedule.sql)"
   build "$MIG" targets || exit 1
   probe_after_sched "$pf" | tee "$WORK/$pf.txt" | sed 's/^/   /'
   echo "   total: $(grep -c '^PASS' "$WORK/$pf.txt") PASS, $(grep -c 'FAIL' "$WORK/$pf.txt") FAIL, $(grep -c 'ERROR' "$WORK/$pf.txt") ERROR"
@@ -603,8 +606,8 @@ mutate_off "O10 the Director's list shows parts waiting for measurement" \
   "s/^   WHERE p\.state IN \('back_to_director', 'held_listed', 'lapsed', 'awaiting_measurement'\)$/   WHERE p.state IN ('back_to_director', 'held_listed', 'lapsed')/" \
   "the Director's list shows each held part waiting for measurement"
 mutate_off "O11 switched OFF again: nothing changes a paid part" \
-  "s/^     WHERE request_id = p_request_id AND status = 'in_progress';$/     WHERE false;/" \
-  'switched OFF again: the month in progress is closed as not measured and the pay is untouched'
+  "s/^     WHERE request_id = p_request_id AND month = v_cur_m AND status = 'in_progress';$/     WHERE false;/" \
+  'switched OFF again: this month is closed as not measured, a finished month not counted yet stays waiting, and the pay is untouched'
 # Round 7 (review of round 6).
 mutate_off "O12 the record reads students with CASE, not AND" \
   's/^         AND CASE WHEN jsonb_typeof\(e\.value->'"'"'students'"'"'\) = '"'"'array'"'"'$/         AND jsonb_typeof(e.value->'"'"'students'"'"') = '"'"'array'"'"' AND (true/; s/^                  THEN jsonb_array_length\(e\.value->'"'"'students'"'"'\) END > 0$/                  AND jsonb_array_length(e.value->'"'"'students'"'"') > 0)/' \
@@ -670,7 +673,7 @@ mutate_sched "S2 finding 2: cycle and batch timetables are read the app's way" \
   "s/^     AND jsonb_typeof\(e\) = 'object'$/     AND jsonb_typeof(e) = 'object' AND COALESCE(t.timetable_format, 'regular') NOT IN ('cycle', 'batch')/" \
   "F2 the periods of a cycle timetable and a batch timetable, as the app's resolver recorded them, count"
 mutate_sched "S3 finding 3: a day whose holidays changed is recorded again" \
-  's/^                       sp\.holiday_key IS DISTINCT FROM k\.key_now AS changed$/                       false AS changed/' \
+  's/^           WHERE j\.holiday_key IS DISTINCT FROM j\.key_now$/           WHERE false/' \
   'F3 a department holiday approved after the day was recorded: the day is asked for again'
 mutate_sched "S4 finding 4: a day recorded on the day itself shows they teach" \
   's/^            OR sp\.recorded_live\)\)$/            ))/' \
@@ -685,10 +688,10 @@ mutate_sched "S5 finding 5: a week counts in the month its Sunday falls in" \
   "s/^   WHERE date_trunc\('week', d\)::date \+ 6 <= \(date_trunc\('month', p_month\) \+ interval '1 month' - interval '1 day'\)::date$/   WHERE true/" \
   'F5 a week counts in the month its Sunday falls in: the last week, which ends next month, is not judged yet'
 mutate_sched "S6 finding 6: leave approved after a month was counted is taken into account" \
-  's/^           AND \(mo\.leave_key IS DISTINCT FROM public\.hr_salary_revision_target_leave_key\($/           AND (false AND mo.leave_key IS DISTINCT FROM public.hr_salary_revision_target_leave_key(/' \
+  's/^  RETURN v_lkey IS NOT DISTINCT FROM COALESCE\(p_leave_key, public\.hr_salary_revision_target_leave_key\(p_staff_id, v_d0, v_d1\)\)$/  RETURN true/' \
   'F6 leave approved after the month was counted: measured again, met, the held part released from the next 1st (never backdated)'
 mutate_sched "S7 a finished month waits for every day it reads" \
-  "s/^        IF v_m < v_cur_m AND public\.hr_target_schedule_missing_days\(v_p\.staff_id, date_trunc\('week', v_m\)::date,$/        IF false AND public.hr_target_schedule_missing_days(v_p.staff_id, date_trunc('week', v_m)::date,/" \
+  "s/^          IF public\.hr_target_schedule_missing_days\(v_p\.staff_id, date_trunc\('week', v_m\)::date,$/          IF false AND public.hr_target_schedule_missing_days(v_p.staff_id, date_trunc('week', v_m)::date,/" \
   'a finished month with a day not in the schedule record is not counted yet, and the run note says so'
 mutate_sched "S8 the record refuses a day not yet begun" \
   's/^  IF p_day > p_today THEN$/  IF false THEN/' \
@@ -701,16 +704,16 @@ mutate_sched "S10 a recording on the day itself stays one" \
   'F3 recorded again: not asked for any more, and still a day recorded on the day itself'
 # 8 Oct 2026, review round 6: one control per finding fixed.
 mutate_sched "S11 round 6 finding 2: nothing after a month waiting for its days is counted" \
-  's/^          EXIT;$/          CONTINUE;/; s/^        EXIT WHEN v_stop IS NOT NULL AND v_m >= v_stop;$/        NULL;/' \
+  's/^            v_stop := v_m;  -- waiting for its days$/            CONTINUE;/' \
   'R6-2 while M2 waits for a day, M3 after it is not counted: no pause, nothing written, the note says so'
 mutate_sched "S11b round 6 finding 2: nothing after a waiting month is acted on" \
   's/^           AND \(v_stop IS NULL OR month < v_stop\)$/           AND true/' \
   'R6-2 a later month already counted is not acted on while an earlier one waits (no pause on it)'
 mutate_sched "S12 round 6 finding 1: leave over the whole month makes it not counted" \
-  "s/^               status = CASE WHEN COALESCE\(v_t1_den, 0\) = 0 THEN 'not_counted'$/               status = CASE WHEN false THEN 'not_counted'/" \
+  "s/^                 status = CASE WHEN COALESCE\(v_t1_den, 0\) = 0 THEN 'not_counted'$/                 status = CASE WHEN false THEN 'not_counted'/" \
   'R6-1 leave approved later for the whole of a missed month: not counted (no periods left), the misses in a row worked out again'
 mutate_sched "S12b round 6 finding 1: the misses in a row are worked out again" \
-  "s/^        IF COALESCE\(v_t1_den, 0\) = 0 OR v_all_met THEN$/        IF COALESCE(v_t1_den, 0) > 0 AND v_all_met THEN/" \
+  "s/^          IF COALESCE\(v_t1_den, 0\) = 0 OR v_all_met THEN$/          IF COALESCE(v_t1_den, 0) > 0 AND v_all_met THEN/" \
   'R6-1 leave approved later for the whole of a missed month: not counted (no periods left), the misses in a row worked out again'
 mutate_sched "S13 round 6 finding 3: a cycle timetable's later days are recorded again" \
   "s/^                    AND l\.end_date >= c\.anchor AND l\.start_date < p_day\), ''\)\)$/                    AND false), ''))/" \
@@ -719,23 +722,29 @@ mutate_sched "S14 round 6 finding 5: the leave key covers the days before the 1s
   "s/date_trunc\('week', (mo\.month|v_row\.month|v_m)\)::date, \(/\1, (/g" \
   'R6-5 leave approved later on a day before the 1st in the week holding the 1st: the missed month is measured again'
 mutate_sched "S15 round 6 finding 9: listing the days stops at its time box" \
-  's/^      EXIT WHEN p_budget_ms IS NOT NULL AND clock_timestamp\(\) - v_started > make_interval\(secs => p_budget_ms \/ 1000\.0\);$/      NULL;/' \
-  "R6-9 listing the days stops at its time box: with none left only today's days are listed, given time the rest are"
+  's/^      EXIT WHEN v_pass = 1 AND p_budget_ms IS NOT NULL AND clock_timestamp\(\) - v_started > make_interval\(secs => p_budget_ms \/ 2000\.0\);$/      NULL;/' \
+  "R6-9 listing the days stops at its time box: with none left no stale day and only one person's missing days are listed, given time the rest are"
+mutate_sched "S16 round 8 (U5): the missing-day pass stops at the time box after its first person" \
+  's/^                AND p_budget_ms IS NOT NULL AND clock_timestamp\(\) - v_started > make_interval\(secs => p_budget_ms \/ 1000\.0\);$/                AND false;/' \
+  "R6-9 listing the days stops at its time box: with none left no stale day and only one person's missing days are listed, given time the rest are"
+mutate_sched "S17 round 8 (U5): the missing-day pass always lists one person's days" \
+  's/^      EXIT WHEN v_pass = 2 AND NOT v_first$/      EXIT WHEN v_pass = 2 AND true/' \
+  "R8-U5 with no time left the missing-day pass still lists one person's missing days: a night is never spent on stale days alone"
 # 8 Oct 2026, review round 7 (the money review's B1-B4): one control per fix.
 mutate_file probe-stale.sql "B1 a stale day counts as not recorded (the month waits)" \
   's/^                                            AND sp\.holiday_key = public\.hr_target_schedule_holiday_key\(i\.ids, sp\.day\)\), 0\)$/                                            ), 0)/' \
   'B1-S2a a finished month whose recorded days are stale (holiday approved since) is not counted yet (default oo), so no pause'
 mutate_file probe-stale.sql "B1b every person's stale days come before anyone's missing days" \
-  's/^  FOR v_pass IN 1\.\.2 LOOP$/  FOR v_pass IN 1..1 LOOP/; s/^         WHERE CASE WHEN v_pass = 1 THEN NOT j\.missing AND j\.changed$/         WHERE CASE WHEN true THEN (NOT j.missing AND j.changed) OR (j.missing AND j.d <> p_today)/' \
+  's/^  FOR v_pass IN 1\.\.2 LOOP$/  FOR v_pass IN REVERSE 2..1 LOOP/' \
   "B1 every person's days whose holidays changed are listed before anyone's missing days"
 mutate_file probe-stale.sql "B1c the key stored is the listing's, from before the read" \
   's/^     COALESCE\(p_holiday_key,$/     COALESCE(NULL,/' \
   'B1 a holiday approved while the day was read: the row keeps the key from before the read, so the day is stale and asked for again'
 mutate_file probe-stale.sql "B2 a holiday approved after a missed month was counted measures it again" \
-  's/^                OR mo\.holiday_key IS DISTINCT FROM public\.hr_salary_revision_target_holiday_key\($/                OR false AND mo.holiday_key IS DISTINCT FROM public.hr_salary_revision_target_holiday_key(/' \
+  's/^     AND v_hkey IS NOT DISTINCT FROM COALESCE\(p_holiday_key, public\.hr_salary_revision_target_holiday_key\(p_staff_id, v_d0, v_d1\)\)$/     AND true/' \
   'B2 once recorded again, M5 is measured again: met on what was scheduled, the miss out of the count, still paid, nothing written'
 mutate_file probe-stale.sql "B2b never measured again on the old (stale) record" \
-  's/^           AND public\.hr_target_schedule_missing_days\($/           AND 0 * public.hr_target_schedule_missing_days(/' \
+  "s/^          IF public\.hr_target_schedule_missing_days\(v_p\.staff_id, date_trunc\('week', v_m\)::date,$/          IF false AND public.hr_target_schedule_missing_days(v_p.staff_id, date_trunc('week', v_m)::date,/" \
   'B2 before those days are recorded again, M5 is not measured again on the old record: still missed, its holiday key still the old one'
 mutate_file probe-order.sql "B3 a flagged month the Director has not decided stops every later month" \
   's/^        IF v_flagged AND v_m < v_cur_m THEN$/        IF false THEN/' \
@@ -744,6 +753,31 @@ mutate_file probe-order.sql "B4 the misses in a row worked out again after a lat
   "s/^        IF v_rescored AND v_action IN \('released', 'resumed'\) THEN$/        IF false THEN/" \
   'B4-S4 after M4 turns met, the misses since the last met month (M5; M6 not counted) are counted: missed_in_row = 1, not 0'
 mutate_file probe-order.sql "B4b a paused part's late met month counts too (any state)" \
-  "s/^        IF COALESCE\(v_t1_den, 0\) = 0 OR v_all_met THEN$/        IF v_p.state = 'released' AND (COALESCE(v_t1_den, 0) = 0 OR v_all_met) THEN/" \
+  "s/^          IF COALESCE\(v_t1_den, 0\) = 0 OR v_all_met THEN$/          IF v_p.state = 'released' AND (COALESCE(v_t1_den, 0) = 0 OR v_all_met) THEN/" \
   'B4-S4 after M4 turns met, the misses since the last met month (M5; M6 not counted) are counted: missed_in_row = 1, not 0'
+# 8 Oct 2026, review round 8 (the round-3 money and safety reviews): one control per fix.
+mutate_file probe-settled-stale.sql "R1 U1: a counted missed month is never settled by its status alone" \
+  "s/^  IF v_status IN \('met', 'decided_met', 'decided_missed', 'not_measured', 'not_counted'\) THEN$/  IF v_status IN ('met', 'decided_met', 'decided_missed', 'not_measured', 'not_counted', 'missed') THEN/" \
+  'RV3-P1 while an earlier counted missed month waits to be measured again on its new holidays, a later month must not pause (calendar order: M4 met, M5+M6 = 2 misses)'
+mutate_file probe-settled-stale.sql "R2 U1: a missed month with a day not in the record is not settled" \
+  's/^     AND public\.hr_target_schedule_missing_days\(p_staff_id, v_d0, v_d1\) = 0;$/     AND true;/' \
+  'R8-U1 a counted missed month with a day no longer in the schedule record is not settled: the month after it is not counted (still "so far")'
+mutate_file probe-settled-window.sql "R3 U1: the window waits for its unsettled month (the stop)" \
+  's/^            v_stop := v_m;  -- waiting for its days$/            CONTINUE;/' \
+  'RV3-P4 the window must not go back to the Director while a missed month in it waits to be measured again (re-recorded it would release)'
+mutate_file probe-settled-off.sql "R4 U2: OFF closes only this month" \
+  "s/^     WHERE request_id = p_request_id AND month = v_cur_m AND status = 'in_progress';$/     WHERE request_id = p_request_id AND status = 'in_progress';/" \
+  'RV3-P3 a one-night OFF must not throw away a finished, met month that was only waiting for a day (calendar: M4 met resets, M5 not measured (OFF night), M6 = 1 miss, no pause)'
+mutate_file probe-settled-race.sql "R5 U3: the keys stored are the ones from before the days were checked" \
+  "s/^        VALUES \(v_p\.request_id, v_m, v_status, COALESCE\(v_res, '\[\]'::jsonb\), now\(\), v_lkey, v_hkey\)$/        VALUES (v_p.request_id, v_m, v_status, COALESCE(v_res, '[]'::jsonb), now(), public.hr_salary_revision_target_leave_key(v_p.staff_id, date_trunc('week', v_m)::date, (v_m + interval '1 month' - interval '1 day')::date), public.hr_salary_revision_target_holiday_key(v_p.staff_id, date_trunc('week', v_m)::date, (v_m + interval '1 month' - interval '1 day')::date))/" \
+  'R8-U3 a holiday approved between the keys and the measure: the month keeps the keys from before, so it is not settled and is measured again once its days are recorded again'
+mutate_file probe-settled-flag.sql "R6 U4: an older flagged month stops every later month" \
+  "s/AND mo\.status = 'flagged' AND mo\.month < LEAST\(v_from, v_cur_m\);$/AND false;/" \
+  'R8-U4a a flagged month older than the months measured once paid, not yet decided, stops every later month: M6-M8 not counted, no pause, and the note says so'
+mutate_file probe-settled-cap.sql "R7 U4: the per-call month cap" \
+  's/^          IF v_measured >= p_max_months THEN$/          IF false THEN/' \
+  'R8-U4b with a cap of one month per call only M4 is counted (met, the misses in a row reset); M5 after it is left for the next call'
+mutate_file probe-settled-cap.sql "R8 U4: nothing at or after the month the cap left is acted on" \
+  's/^            v_stop := v_m;  -- the cap$/            NULL;/' \
+  'R8-U4b nothing at or after the month the cap left is acted on: M6, already counted, is not acted on'
 echo "== mutation controls: $CAUGHT caught, $MISSED not caught"

@@ -311,9 +311,13 @@ SELECT set_config('request.jwt.claims', json_build_object('sub', :'D', 'role', '
 SELECT t.try(format('UPDATE public.platform_policies SET value = %L WHERE policy_key = %L', 'false', :'SW')) AS sw_off \gset
 SELECT t.login(NULL);
 SELECT public.hr_salary_revision_targets_run_on(:'m7') AS r7 \gset
-SELECT t.check('switched OFF again: the month in progress is closed as not measured and the pay is untouched',
+-- Round 8 (U2, 8 Oct 2026): only THIS month (M7) is closed as not measured;
+-- M6, finished but not counted yet ("so far"), stays waiting and is counted
+-- once measurement is ON again.
+SELECT t.check('switched OFF again: this month is closed as not measured, a finished month not counted yet stays waiting, and the pay is untouched',
   :'sw_off' = 'ok'
-  AND (SELECT status = 'not_measured' FROM public.hr_salary_revision_target_months WHERE request_id = :'req_f1' AND month = :'m6')
+  AND (SELECT status = 'not_measured' FROM public.hr_salary_revision_target_months WHERE request_id = :'req_f1' AND month = :'m7')
+  AND (SELECT status = 'in_progress' AND NOT acted FROM public.hr_salary_revision_target_months WHERE request_id = :'req_f1' AND month = :'m6')
   AND (SELECT state = 'released' FROM public.hr_salary_revision_target_plans WHERE request_id = :'req_f1')
   AND (SELECT monthly_gross = 52500 FROM public.hr_staff_salaries WHERE staff_id = :'sF1' AND superseded_by IS NULL));
 

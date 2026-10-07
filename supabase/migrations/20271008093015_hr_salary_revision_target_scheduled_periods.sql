@@ -85,6 +85,33 @@
 --                                             release or resume the re-measure caused (and
 --                                             before acting, for a part already paid)
 --
+-- REVIEW ROUND 8 (8 Oct 2026, round-3 money and safety reviews), fixed here;
+-- probes probe-settled-*.sql (RV3-*, R8-*) and R6-9 / R8-U5 in probe-schedule.sql:
+--   U1 calendar order kept per case (waiting,  ONE rule: a finished month is SETTLED       RV3-P1, RV3-P4,
+--      flagged, capped) missed a counted       when nothing can change its count any more  R8-U1
+--      missed month waiting to be measured     (met, Director-decided, not measured, not
+--      again on new holidays: later months     counted; or missed and measured on a
+--      paused ahead of it (rv3-p1), and the    complete schedule whose leave and holiday
+--      window closed on it (rv3-p4)            keys are still the keys now). One loop
+--                                              counts and acts in calendar order and stops
+--                                              at the first finished month that is not
+--                                              settled, whatever the reason; a waiting
+--                                              part's window cannot close past one
+--                                              (hr_salary_revision_target_month_settled)
+--   U2 measurement OFF for one night closed    OFF closes only THIS month as not measured;   RV3-P3
+--      every month left "so far", throwing     a finished month still waiting stays
+--      away a finished met month               waiting (default ll: still nothing else
+--                                              happens while OFF)
+--   U3 the keys stored with a measure were     each month's leave and holiday keys are      R8-U3
+--      worked out after it (a holiday          worked out ONCE, before its days are checked,
+--      approved in between left it "current")  and exactly those are stored
+--   U4 the older-flagged-month stop and the    probes and mutation controls for both        R8-U4a, R8-U4b
+--      month-cap stop had no probe
+--   U5 the stale-day pass could use the whole  that pass works out keys only for days       R6-9, R8-U5
+--      time box, leaving missing days unlisted already recorded and stops at HALF the
+--                                              time box; the missing-day pass always lists
+--                                              one person's days
+--
 -- THE CONTRACT between the nightly job and the measure
 --   lib/services/hr/salary-revision/scheduled-periods-recorder.ts, run by
 --   /api/cron/hr-salary-revisions?mode=targets BEFORE the measure, asks
@@ -120,7 +147,12 @@
 --       in the schedule record. Until then it stays "so far" and the plan's
 --       run note says which month waits. Round 6: strictly in calendar order:
 --       no later month is counted or acted on (not even measured "so far")
---       until it is.
+--       until it is. Round 8: one rule for every such stop (settled, U1); a
+--       missed month waiting to be measured again stops later months the
+--       same way. Bound: a stop is only kept for months the run still
+--       measures (default aa: once paid, the last pause_after_missed_months
+--       months); a missed month whose days are not recorded again before it
+--       ages out of them stops nothing any more.
 --   pp. (finding 3) A recorded day is recorded again when the approved holidays
 --       covering it, in the institutions the person teaches in (own college and
 --       staff-plan colleges, as fn_staff_teaching_institutions), changed since.
@@ -155,6 +187,9 @@
 --       covering every period of the month makes it 'not_counted' (default d)
 --       and the count is worked out again; a part already PAUSED by that month
 --       stays paused (paid again after a month on target, as before).
+--       Round 8: a month 'not_counted' is final, like a met one: it is not
+--       measured again if the leave that emptied it is withdrawn (noted for
+--       the Director in the PR).
 --   tt. Only periods where the person is the slot's MAIN teacher
 --       (primary_staff_id) count, as in #4252. The resolver also lists periods
 --       where they are a co-teacher (staff_ids), in a sub-slot group or a
@@ -183,7 +218,8 @@
 --   b. hr_target_schedule_institutions, hr_target_schedule_holiday_key,
 --      hr_target_schedule_missing_days, hr_salary_revision_target_leave_key,
 --      (round 7) hr_salary_revision_target_holiday_key,
---      hr_salary_revision_target_missed_in_row,
+--      hr_salary_revision_target_missed_in_row, (round 8)
+--      hr_salary_revision_target_month_settled,
 --      hr_target_schedule_ranges, hr_target_schedule_needs,
 --      hr_target_schedule_record (all internal) and
 --      fn_hr_target_schedule_needs(), fn_hr_target_schedule_record() (service
@@ -257,7 +293,7 @@ BEGIN
       ('public.hr_salary_revision_target_classify(uuid, jsonb, date)',
        ARRAY['0eac67dcaecb3d25f5f397ed3a3c10a4|true|search_path=public', 'e4679c8456521dc0096c9b7bdd21627c|true|search_path=public']),
       ('public.hr_salary_revision_targets_run_one(uuid, date, integer)',
-       ARRAY['7cbbb8dbe04a7deb5c80414700d2e0d3|true|search_path=public', '846082e07870442ca20e8fdce4b04a88|true|search_path=public'])) x(fn, ok)
+       ARRAY['7cbbb8dbe04a7deb5c80414700d2e0d3|true|search_path=public', 'fd6a408aade31b0d7c1d8d17a3722c11|true|search_path=public'])) x(fn, ok)
   LOOP
     SELECT md5(btrim(replace(p.prosrc, E'\r', ''), E' \t\n')) || '|' || p.prosecdef::text || '|'
            || COALESCE(array_to_string(p.proconfig, ','), '')
@@ -500,6 +536,61 @@ COMMENT ON FUNCTION public.hr_salary_revision_target_leave_key(uuid, date, date)
   'Internal (default ss, 8 Oct 2026). A key of the person''s approved leave (hr_leave_applications) overlapping the '
   'range. Migration 20271008093015.';
 
+-- Round 8 (U1, 8 Oct 2026): ONE rule for calendar order. A finished month is
+-- SETTLED when nothing can change its count any more:
+--   met, decided_met, decided_missed, not_measured: final by their status (a
+--     met month is never measured again, default ss; a Director's decision
+--     stands; a month not measured stays so);
+--   not_counted: final as well (it neither adds nor resets, and no rule
+--     measures it again; noted for the Director in the PR);
+--   missed: only while it was measured on a complete, CURRENT schedule: every
+--     day it reads recorded with today's holiday key (missing_days = 0) and
+--     its stored leave and holiday keys equal to the keys now;
+--   anything else (no row, "so far", flagged and not yet decided) is not.
+-- The monthly run counts and acts on months in calendar order and stops at
+-- the first finished month that is not settled, whatever the reason; a window
+-- goes back to the Director only once every one of its months is settled.
+-- The keys "now" are passed in when the caller worked them out already (run_one
+-- works them out ONCE per month, before the days are checked, and stores
+-- exactly those with the measure: U3); otherwise they are worked out here.
+CREATE OR REPLACE FUNCTION public.hr_salary_revision_target_month_settled(
+  p_request_id uuid, p_staff_id uuid, p_month date, p_leave_key text DEFAULT NULL, p_holiday_key text DEFAULT NULL)
+RETURNS boolean
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_status text;
+  v_lkey   text;
+  v_hkey   text;
+  v_d0     date := date_trunc('week', p_month)::date;
+  v_d1     date := (p_month + interval '1 month' - interval '1 day')::date;
+BEGIN
+  SELECT mo.status, mo.leave_key, mo.holiday_key INTO v_status, v_lkey, v_hkey
+    FROM public.hr_salary_revision_target_months mo
+   WHERE mo.request_id = p_request_id AND mo.month = p_month;
+  IF v_status IN ('met', 'decided_met', 'decided_missed', 'not_measured', 'not_counted') THEN
+    RETURN true;
+  END IF;
+  IF v_status IS DISTINCT FROM 'missed' THEN
+    RETURN false;
+  END IF;
+  RETURN v_lkey IS NOT DISTINCT FROM COALESCE(p_leave_key, public.hr_salary_revision_target_leave_key(p_staff_id, v_d0, v_d1))
+     AND v_hkey IS NOT DISTINCT FROM COALESCE(p_holiday_key, public.hr_salary_revision_target_holiday_key(p_staff_id, v_d0, v_d1))
+     AND public.hr_target_schedule_missing_days(p_staff_id, v_d0, v_d1) = 0;
+END;
+$function$;
+
+REVOKE EXECUTE ON FUNCTION public.hr_salary_revision_target_month_settled(uuid, uuid, date, text, text) FROM anon, PUBLIC, authenticated;
+
+COMMENT ON FUNCTION public.hr_salary_revision_target_month_settled(uuid, uuid, date, text, text) IS
+  'Internal (round 8, 8 Oct 2026). True when a finished month of a raise can no longer change its count: met, '
+  'Director-decided, not measured or not counted; or missed and measured on a complete schedule whose leave and '
+  'holiday keys are still the keys now. The monthly run stops at the first finished month that is not settled. '
+  'Migration 20271008093015.';
+
 -- Default vv: who the nightly job records, and from which day to which.
 CREATE OR REPLACE FUNCTION public.hr_target_schedule_ranges(p_today date)
 RETURNS TABLE(staff_id uuid, from_day date, to_day date)
@@ -557,6 +648,9 @@ COMMENT ON FUNCTION public.hr_target_schedule_ranges(date) IS
 -- the job hands it back to hr_target_schedule_record, so a holiday approved
 -- while the day is being read leaves the row stale (recorded again), never
 -- fresh on an old reading.
+-- Round 8 (U5, 8 Oct 2026): the stale-day pass may use only half the time box
+-- (and works out keys only for days already recorded); the missing-day pass
+-- always lists at least one person's days.
 CREATE OR REPLACE FUNCTION public.hr_target_schedule_needs(p_today date, p_limit integer, p_budget_ms integer DEFAULT NULL)
 RETURNS TABLE(staff_id uuid, day date, institution_ids uuid[], reason text, holiday_key text)
 LANGUAGE plpgsql
@@ -570,6 +664,7 @@ DECLARE
   v_got     integer;
   v_r       record;
   v_pass    integer;
+  v_first   boolean;  -- round 8 (U5): the first person of a pass
 BEGIN
   IF v_left = 0 THEN
     RETURN;
@@ -587,30 +682,48 @@ BEGIN
   v_left := v_left - v_got;
   -- Round 7 (B1): pass 1 lists the days whose holidays changed, for everyone;
   -- pass 2 the missing days, newest first.
+  -- Round 8 (U5): pass 1 works out keys only for days that have a row, and
+  -- stops at HALF the time box, so pass 2 always has the other half; pass 2
+  -- always goes on until it has listed one person's missing days, whatever
+  -- time is left, so a night is never spent on stale days alone.
   FOR v_pass IN 1..2 LOOP
+    v_first := true;
     FOR v_r IN
       SELECT r.staff_id, r.from_day, r.to_day, public.hr_target_schedule_institutions(r.staff_id) AS ids
         FROM public.hr_target_schedule_ranges(p_today) r
        ORDER BY md5(r.staff_id::text || p_today::text), r.staff_id
     LOOP
       EXIT WHEN v_left <= 0;
-      EXIT WHEN p_budget_ms IS NOT NULL AND clock_timestamp() - v_started > make_interval(secs => p_budget_ms / 1000.0);
-      RETURN QUERY
-        SELECT v_r.staff_id, j.d, v_r.ids, CASE WHEN j.missing THEN 'missing' ELSE 'holidays_changed' END, j.key_now
-          FROM (SELECT g.d, sp.staff_id IS NULL AS missing, k.key_now,
-                       sp.holiday_key IS DISTINCT FROM k.key_now AS changed
-                  FROM (SELECT x::date AS d FROM generate_series(v_r.from_day, v_r.to_day, interval '1 day') x
-                        UNION
-                        SELECT p_today) g
-                  CROSS JOIN LATERAL (SELECT public.hr_target_schedule_holiday_key(v_r.ids, g.d) AS key_now) k
-                  LEFT JOIN public.hr_target_scheduled_periods sp ON sp.staff_id = v_r.staff_id AND sp.day = g.d) j
-         -- Today not yet recorded is listed above, as 'live'.
-         WHERE CASE WHEN v_pass = 1 THEN NOT j.missing AND j.changed
-                    ELSE j.missing AND j.d <> p_today END
-         ORDER BY j.d DESC
-         LIMIT v_left;
+      EXIT WHEN v_pass = 1 AND p_budget_ms IS NOT NULL AND clock_timestamp() - v_started > make_interval(secs => p_budget_ms / 2000.0);
+      EXIT WHEN v_pass = 2 AND NOT v_first
+                AND p_budget_ms IS NOT NULL AND clock_timestamp() - v_started > make_interval(secs => p_budget_ms / 1000.0);
+      IF v_pass = 1 THEN
+        RETURN QUERY
+          SELECT v_r.staff_id, j.day, v_r.ids, 'holidays_changed'::text, j.key_now
+            FROM (SELECT sp.day, sp.holiday_key, public.hr_target_schedule_holiday_key(v_r.ids, sp.day) AS key_now
+                    FROM public.hr_target_scheduled_periods sp
+                   WHERE sp.staff_id = v_r.staff_id
+                     AND (sp.day BETWEEN v_r.from_day AND v_r.to_day OR sp.day = p_today)) j
+           WHERE j.holiday_key IS DISTINCT FROM j.key_now
+           ORDER BY j.day DESC
+           LIMIT v_left;
+      ELSE
+        -- Today not yet recorded is listed above, as 'live'.
+        RETURN QUERY
+          SELECT v_r.staff_id, g.d, v_r.ids, 'missing'::text, public.hr_target_schedule_holiday_key(v_r.ids, g.d)
+            FROM (SELECT x::date AS d FROM generate_series(v_r.from_day, v_r.to_day, interval '1 day') x
+                   WHERE x::date <> p_today
+                     AND NOT EXISTS (SELECT 1 FROM public.hr_target_scheduled_periods sp
+                                      WHERE sp.staff_id = v_r.staff_id AND sp.day = x::date)
+                   ORDER BY x DESC
+                   LIMIT v_left) g
+           ORDER BY g.d DESC;
+      END IF;
       GET DIAGNOSTICS v_got = ROW_COUNT;
       v_left := v_left - v_got;
+      IF v_got > 0 THEN
+        v_first := false;  -- round 8 (U5): pass 2 has listed its first person's days
+      END IF;
     END LOOP;
   END LOOP;
 END;
@@ -622,7 +735,8 @@ COMMENT ON FUNCTION public.hr_target_schedule_needs(date, integer, integer) IS
   'Internal (default vv, 8 Oct 2026). The (team member, day) pairs the nightly job should record in '
   'hr_target_scheduled_periods, each with the day''s holiday key worked out now: today for everyone, then every '
   'person''s days whose approved holidays changed, then missing days newest first (round 7, B1). Stops working out '
-  'further people once p_budget_ms has passed. Migration 20271008093015.';
+  'further people once p_budget_ms has passed: the stale-day pass at half of it, the missing-day pass once it has '
+  'listed one person''s days (round 8, U5). Migration 20271008093015.';
 
 -- Default ww: one day's periods for one person, as the resolver gave them,
 -- kept in the exact shape of the contract (anything else is refused).
@@ -1158,6 +1272,10 @@ DECLARE
   v_waiting  date[] := ARRAY[]::date[];  -- 8 Oct 2026 (default oo): the finished month waiting for its days (round 6: at most one)
   v_rescored boolean := false;           -- 8 Oct 2026 (default ss): a missed month now met or not counted (round 7: any state)
   v_stop     date;                       -- 8 Oct 2026 (round 7, B3): the first finished month that cannot be acted on yet
+  v_lkey     text;                       -- 8 Oct 2026 (round 8, U3): the month's leave key, worked out once
+  v_hkey     text;                       -- 8 Oct 2026 (round 8, U3): the month's holiday key, worked out once
+  v_found    boolean;                    -- 8 Oct 2026 (round 8): the month has a row
+  v_again    boolean;                    -- 8 Oct 2026 (round 8): a missed month measured again
 BEGIN
   -- Default hh: a second call for the same raise on the same day (two runs
   -- overlapping) finds it locked or already run, and skips it.
@@ -1173,10 +1291,13 @@ BEGIN
   -- measured and NOTHING else happens: no release, pause, resume, expiry,
   -- lapse, back-to-Director or classification.
   IF NOT public.hr_salary_revision_target_measurement_on() THEN
-    -- Any month left "so far" from a time it was ON is closed unmeasured too.
+    -- This month, if measured "so far" while it was ON, is closed unmeasured
+    -- too. 8 Oct 2026 (round 8, U2): only THIS month. A finished month left
+    -- "so far" (waiting for its days) stays waiting: it is counted, in
+    -- calendar order, once measurement is ON again.
     UPDATE public.hr_salary_revision_target_months
        SET status = 'not_measured', results = '[]'::jsonb, measured_at = now(), acted = true, action = 'none'
-     WHERE request_id = p_request_id AND status = 'in_progress';
+     WHERE request_id = p_request_id AND month = v_cur_m AND status = 'in_progress';
     INSERT INTO public.hr_salary_revision_target_months (request_id, month, status, results, measured_at, acted, action)
     VALUES (p_request_id, v_cur_m, 'not_measured', '[]'::jsonb, now(), true, 'none')
     ON CONFLICT (request_id, month) DO NOTHING;
@@ -1291,58 +1412,119 @@ BEGIN
          SET status = 'not_counted', results = '[]'::jsonb, measured_at = now()
        WHERE request_id = v_p.request_id AND month < v_from AND status = 'in_progress';
 
-      -- 8 Oct 2026 (finding 6, default ss): a MISSED month whose approved leave
-      -- changed since it was counted is measured again, within the months the
-      -- run still measures and the per-call month cap. Met now: a waiting or
-      -- paused part is released or resumed from the next 1st (the step below);
-      -- a paid part's month counts as met and its missed-in-a-row count is
-      -- worked out again. Never backdated, nothing paid taken back, and a met
-      -- month is never measured again.
-      -- Round 7 (B2): the same when the approved holidays covering the days
-      -- the month's measure reads changed since; it is measured again only
-      -- once every one of those days is recorded again (B1), so never on the
-      -- old schedule (the key then still differs, and it is tried again).
-      FOR v_row IN
-        SELECT * FROM public.hr_salary_revision_target_months mo
-         WHERE mo.request_id = v_p.request_id AND mo.status = 'missed' AND mo.acted
-           AND mo.month >= v_from AND mo.month < v_cur_m AND mo.month <= v_last
-           AND (mo.leave_key IS DISTINCT FROM public.hr_salary_revision_target_leave_key(
-                 v_p.staff_id, date_trunc('week', mo.month)::date, (mo.month + interval '1 month' - interval '1 day')::date)
-                OR mo.holiday_key IS DISTINCT FROM public.hr_salary_revision_target_holiday_key(
-                 v_p.staff_id, date_trunc('week', mo.month)::date, (mo.month + interval '1 month' - interval '1 day')::date))
-           AND public.hr_target_schedule_missing_days(
-                 v_p.staff_id, date_trunc('week', mo.month)::date, (mo.month + interval '1 month' - interval '1 day')::date) = 0
-         ORDER BY mo.month
+      -- Round 7 (B3): a flagged finished month the Director has not decided,
+      -- older than the months measured below, stops everything after it too.
+      SELECT min(mo.month) INTO v_stop
+        FROM public.hr_salary_revision_target_months mo
+       WHERE mo.request_id = v_p.request_id AND mo.status = 'flagged' AND mo.month < LEAST(v_from, v_cur_m);
+
+      -- Round 8 (U1, 8 Oct 2026): ONE loop, in calendar order, under ONE rule.
+      -- A finished month that is settled (hr_salary_revision_target_month_settled)
+      -- is passed over. The first finished month that is not is dealt with if it
+      -- can be: counted for the first time; a MISSED month measured again
+      -- because the approved leave (default ss, finding 6) or the approved
+      -- holidays (round 7, B2) covering the days it reads changed since; a
+      -- flagged month measured again for the Director. Nothing at or after it
+      -- is counted or acted on while it is not settled: waiting for its days
+      -- (default oo; a stale day counts as not recorded, B1), flagged and not
+      -- yet decided (B3), or past the per-call month cap. The month in progress
+      -- is measured "so far" only once every finished month before it is
+      -- settled. Re-measured: met now, a waiting or paused part is released or
+      -- resumed from the next 1st (the step below); a paid part's month counts
+      -- as met and its missed-in-a-row count is worked out again. Never
+      -- backdated, nothing paid taken back, and a met month is never measured
+      -- again.
+      FOR v_m IN
+        SELECT g::date FROM generate_series(v_from, LEAST(v_cur_m, v_last), interval '1 month') g
       LOOP
-        EXIT WHEN v_measured >= p_max_months;
+        EXIT WHEN v_stop IS NOT NULL AND v_m >= v_stop;
+        -- 8 Oct 2026 (round 8, U3): the keys of the days this month's measure
+        -- reads (from the Monday of the week that holds the 1st, default rr,
+        -- round 6 finding 5), worked out ONCE, before the days are checked.
+        -- Exactly these are stored with the measure, so a holiday or leave
+        -- approved after this line leaves the month unsettled: measured again.
+        v_lkey := public.hr_salary_revision_target_leave_key(
+                    v_p.staff_id, date_trunc('week', v_m)::date, (v_m + interval '1 month' - interval '1 day')::date);
+        v_hkey := public.hr_salary_revision_target_holiday_key(
+                    v_p.staff_id, date_trunc('week', v_m)::date, (v_m + interval '1 month' - interval '1 day')::date);
+        SELECT * INTO v_row FROM public.hr_salary_revision_target_months
+         WHERE request_id = v_p.request_id AND month = v_m;
+        v_found := FOUND;
+        v_flagged := v_found AND v_row.status = 'flagged';
+        v_again := v_found AND v_row.status = 'missed';
+        IF v_m < v_cur_m THEN
+          CONTINUE WHEN public.hr_salary_revision_target_month_settled(v_p.request_id, v_p.staff_id, v_m, v_lkey, v_hkey);
+          -- 8 Oct 2026 (default oo): not settled, so every day it reads (the
+          -- month, and the days before the 1st in the week that holds the 1st)
+          -- must be in the schedule record, on today's holidays, first. Until
+          -- then it waits, and every month after it waits with it.
+          IF public.hr_target_schedule_missing_days(v_p.staff_id, date_trunc('week', v_m)::date,
+                                                    (v_m + interval '1 month' - interval '1 day')::date) > 0 THEN
+            v_waiting := v_waiting || v_m;
+            v_stop := v_m;  -- waiting for its days
+            EXIT;
+          END IF;
+          -- Round 8: the per-call month cap stops it here too; this month is
+          -- dealt with first on the next run.
+          IF v_measured >= p_max_months THEN
+            v_stop := v_m;  -- the cap
+            EXIT;
+          END IF;
+        ELSE
+          -- The month in progress, "so far" (a month closed unmeasured stays so).
+          IF v_found AND v_row.status NOT IN ('in_progress', 'flagged') THEN
+            CONTINUE;
+          END IF;
+          EXIT WHEN v_measured >= p_max_months;
+        END IF;
         v_measured := v_measured + 1;
         SELECT jsonb_agg(jsonb_build_object('target', m.target, 'numerator', m.numerator,
                                             'denominator', m.denominator, 'met', m.met) ORDER BY m.target),
                max(m.denominator) FILTER (WHERE m.target = 't1'),
                bool_and(m.met)
           INTO v_res, v_t1_den, v_all_met
-          FROM public.hr_salary_revision_target_measure(v_p.staff_id, v_row.month, v_p.rules->'targets') m;
-        UPDATE public.hr_salary_revision_target_months
-           SET results = COALESCE(v_res, '[]'::jsonb), measured_at = now(),
-               leave_key = public.hr_salary_revision_target_leave_key(
-                 v_p.staff_id, date_trunc('week', v_row.month)::date, (v_row.month + interval '1 month' - interval '1 day')::date),
-               holiday_key = public.hr_salary_revision_target_holiday_key(
-                 v_p.staff_id, date_trunc('week', v_row.month)::date, (v_row.month + interval '1 month' - interval '1 day')::date),
-               -- 8 Oct 2026 (review round 6, finding 1): leave now covering every
-               -- scheduled period of the month: not counted (default d), not missed.
-               status = CASE WHEN COALESCE(v_t1_den, 0) = 0 THEN 'not_counted'
-                             WHEN v_all_met THEN 'met' ELSE status END,
-               acted = CASE WHEN COALESCE(v_t1_den, 0) > 0 AND v_all_met AND v_p.state IN ('waiting', 'paused')
-                            THEN false ELSE acted END,
-               action = CASE WHEN COALESCE(v_t1_den, 0) > 0 AND v_all_met AND v_p.state IN ('waiting', 'paused')
-                             THEN NULL ELSE action END,
-               action_effective_from = CASE WHEN COALESCE(v_t1_den, 0) > 0 AND v_all_met AND v_p.state IN ('waiting', 'paused')
-                                            THEN NULL ELSE action_effective_from END
-         WHERE request_id = v_row.request_id AND month = v_row.month;
-        -- Round 7 (B4): in any state (a waiting or paused part's month now met
-        -- is released or resumed below, and the count is worked out again there).
-        IF COALESCE(v_t1_den, 0) = 0 OR v_all_met THEN
-          v_rescored := true;
+          FROM public.hr_salary_revision_target_measure(v_p.staff_id, v_m, v_p.rules->'targets') m;
+        IF v_again THEN
+          -- A missed month measured again (default ss; round 7, B2).
+          UPDATE public.hr_salary_revision_target_months
+             SET results = COALESCE(v_res, '[]'::jsonb), measured_at = now(),
+                 leave_key = v_lkey, holiday_key = v_hkey,
+                 -- 8 Oct 2026 (review round 6, finding 1): leave now covering every
+                 -- scheduled period of the month: not counted (default d), not missed.
+                 status = CASE WHEN COALESCE(v_t1_den, 0) = 0 THEN 'not_counted'
+                               WHEN v_all_met THEN 'met' ELSE status END,
+                 acted = CASE WHEN COALESCE(v_t1_den, 0) > 0 AND v_all_met AND v_p.state IN ('waiting', 'paused')
+                              THEN false ELSE acted END,
+                 action = CASE WHEN COALESCE(v_t1_den, 0) > 0 AND v_all_met AND v_p.state IN ('waiting', 'paused')
+                               THEN NULL ELSE action END,
+                 action_effective_from = CASE WHEN COALESCE(v_t1_den, 0) > 0 AND v_all_met AND v_p.state IN ('waiting', 'paused')
+                                              THEN NULL ELSE action_effective_from END
+           WHERE request_id = v_p.request_id AND month = v_m;
+          -- Round 7 (B4): in any state (a waiting or paused part's month now met
+          -- is released or resumed below, and the count is worked out again there).
+          IF COALESCE(v_t1_den, 0) = 0 OR v_all_met THEN
+            v_rescored := true;
+          END IF;
+          CONTINUE;
+        END IF;
+        -- RULING 5: a flagged month stays flagged until the Director decides it.
+        v_status := CASE WHEN v_flagged THEN 'flagged'
+                         WHEN v_m >= v_cur_m THEN 'in_progress'
+                         WHEN COALESCE(v_t1_den, 0) = 0 THEN 'not_counted'  -- default d
+                         WHEN v_all_met THEN 'met'
+                         ELSE 'missed' END;
+        -- 8 Oct 2026 (default ss; round 7, B2; round 8, U3): with the approved
+        -- leave and holidays it was measured with, as worked out above.
+        INSERT INTO public.hr_salary_revision_target_months (request_id, month, status, results, measured_at, leave_key, holiday_key)
+        VALUES (v_p.request_id, v_m, v_status, COALESCE(v_res, '[]'::jsonb), now(), v_lkey, v_hkey)
+        ON CONFLICT (request_id, month) DO UPDATE
+           SET status = EXCLUDED.status, results = EXCLUDED.results, measured_at = EXCLUDED.measured_at,
+               leave_key = EXCLUDED.leave_key, holiday_key = EXCLUDED.holiday_key;
+        -- Round 7 (B3): a flagged finished month waits for the Director's
+        -- decision, and every month after it waits with it (calendar order).
+        IF v_flagged AND v_m < v_cur_m THEN
+          v_stop := v_m;
+          EXIT;
         END IF;
       END LOOP;
       IF v_rescored AND v_p.state = 'released' THEN
@@ -1354,78 +1536,6 @@ BEGIN
                updated_at = now()
          WHERE pl.request_id = v_p.request_id;
       END IF;
-
-      -- Round 7 (B3): a flagged finished month the Director has not decided,
-      -- older than the months measured below, stops everything after it too.
-      -- (One the loop below reaches is measured again first, then stops it.)
-      SELECT min(mo.month) INTO v_stop
-        FROM public.hr_salary_revision_target_months mo
-       WHERE mo.request_id = v_p.request_id AND mo.status = 'flagged' AND mo.month < LEAST(v_from, v_cur_m);
-
-      -- Measure every month not yet counted (the current one as "so far"),
-      -- at most p_max_months in one call; the rest waits for the next run.
-      FOR v_m IN
-        SELECT g::date FROM generate_series(v_from, LEAST(v_cur_m, v_last), interval '1 month') g
-      LOOP
-        -- Round 7 (B3): nothing at or after a finished month that cannot be acted on yet.
-        EXIT WHEN v_stop IS NOT NULL AND v_m >= v_stop;
-        SELECT * INTO v_row FROM public.hr_salary_revision_target_months
-         WHERE request_id = v_p.request_id AND month = v_m;
-        IF FOUND AND v_row.status NOT IN ('in_progress', 'flagged') THEN
-          CONTINUE;
-        END IF;
-        -- 8 Oct 2026 (default oo): a finished month is counted only once every
-        -- day it reads (the month, and the days before the 1st in the week that
-        -- holds the 1st) is in the schedule record. Until then it waits.
-        IF v_m < v_cur_m AND public.hr_target_schedule_missing_days(v_p.staff_id, date_trunc('week', v_m)::date,
-                               (v_m + interval '1 month' - interval '1 day')::date) > 0 THEN
-          v_waiting := v_waiting || v_m;
-          v_stop := v_m;
-          -- 8 Oct 2026 (review round 6, finding 2): strictly in calendar order.
-          -- Nothing after a month waiting for its days is counted or acted on
-          -- until it is (a later month first would pause before a release, or
-          -- count a miss before the met month that resets the count).
-          EXIT;
-        END IF;
-        -- Round 7 (B3): a finished month left "so far" by the month cap stops
-        -- the acting too; it is counted first on the next run.
-        IF v_measured >= p_max_months AND v_m < v_cur_m THEN
-          v_stop := v_m;
-        END IF;
-        EXIT WHEN v_measured >= p_max_months;
-        v_measured := v_measured + 1;
-        v_flagged := FOUND AND v_row.status = 'flagged';
-        SELECT jsonb_agg(jsonb_build_object('target', m.target, 'numerator', m.numerator,
-                                            'denominator', m.denominator, 'met', m.met) ORDER BY m.target),
-               max(m.denominator) FILTER (WHERE m.target = 't1'),
-               bool_and(m.met)
-          INTO v_res, v_t1_den, v_all_met
-          FROM public.hr_salary_revision_target_measure(v_p.staff_id, v_m, v_p.rules->'targets') m;
-        -- RULING 5: a flagged month stays flagged until the Director decides it.
-        v_status := CASE WHEN v_flagged THEN 'flagged'
-                         WHEN v_m >= v_cur_m THEN 'in_progress'
-                         WHEN COALESCE(v_t1_den, 0) = 0 THEN 'not_counted'  -- default d
-                         WHEN v_all_met THEN 'met'
-                         ELSE 'missed' END;
-        INSERT INTO public.hr_salary_revision_target_months (request_id, month, status, results, measured_at)
-        VALUES (v_p.request_id, v_m, v_status, COALESCE(v_res, '[]'::jsonb), now())
-        ON CONFLICT (request_id, month) DO UPDATE
-           SET status = EXCLUDED.status, results = EXCLUDED.results, measured_at = EXCLUDED.measured_at;
-        -- 8 Oct 2026 (default ss): the approved leave the month was measured with.
-        UPDATE public.hr_salary_revision_target_months
-           SET leave_key = public.hr_salary_revision_target_leave_key(
-                 v_p.staff_id, date_trunc('week', v_m)::date, (v_m + interval '1 month' - interval '1 day')::date),
-               -- Round 7 (B2): and the approved holidays covering those days.
-               holiday_key = public.hr_salary_revision_target_holiday_key(
-                 v_p.staff_id, date_trunc('week', v_m)::date, (v_m + interval '1 month' - interval '1 day')::date)
-         WHERE request_id = v_p.request_id AND month = v_m;
-        -- Round 7 (B3): a flagged finished month waits for the Director's
-        -- decision, and every month after it waits with it (calendar order).
-        IF v_flagged AND v_m < v_cur_m THEN
-          v_stop := v_m;
-        END IF;
-        EXIT WHEN v_stop IS NOT NULL;
-      END LOOP;
 
       -- Act on each counted month not yet acted on, oldest first.
       FOR v_row IN
@@ -1482,6 +1592,13 @@ BEGIN
       -- RULING 3: the window is over, every month of it counted and acted on,
       -- and nothing released: back to the Director with the numbers.
       SELECT * INTO v_p FROM public.hr_salary_revision_target_plans WHERE request_id = v_p.request_id;
+      -- 8 Oct 2026 (round 8, U1): the same rule holds here. The window's last
+      -- month is first counted by the run that closes the window, and that run
+      -- stops at any window month that is not settled before it (a missed
+      -- month waiting to be measured again on new holidays or leave, a flagged
+      -- one, one left by the cap): the last month is then not counted, so the
+      -- count below falls short and the part stays waiting. Waiting, it stays
+      -- in hr_target_schedule_ranges, so its days are recorded again (RV3-P4).
       IF v_p.state = 'waiting' AND v_cur_m > v_last
          AND (SELECT count(*) FROM public.hr_salary_revision_target_months mo
                WHERE mo.request_id = v_p.request_id AND mo.month <= v_last AND mo.acted) = v_p.window_months THEN
@@ -1494,8 +1611,13 @@ BEGIN
        WHERE request_id = v_p.request_id AND run_note IS NOT NULL;
       -- 8 Oct 2026 (default oo): listed while a finished month waits for its days.
       IF cardinality(v_waiting) > 0 THEN
+        -- Round 8: a counted missed month waiting to be measured again says so.
         UPDATE public.hr_salary_revision_target_plans
-           SET run_note = 'Not counted yet, some days not in the schedule record: '
+           SET run_note = CASE WHEN EXISTS (SELECT 1 FROM public.hr_salary_revision_target_months mo
+                                             WHERE mo.request_id = v_p.request_id AND mo.month = v_waiting[1]
+                                               AND mo.status = 'missed')
+                               THEN 'Counted missed, measured again once every day it reads is in the schedule record again: '
+                               ELSE 'Not counted yet, some days not in the schedule record: ' END
                           || to_char(v_waiting[1], 'FMMonth YYYY')
                           || '. The months after it are counted after it, in calendar order.',
                updated_at = now()
@@ -1526,11 +1648,12 @@ $function$;
 REVOKE EXECUTE ON FUNCTION public.hr_salary_revision_targets_run_one(uuid, date, integer) FROM anon, PUBLIC, authenticated;
 
 COMMENT ON FUNCTION public.hr_salary_revision_targets_run_one(uuid, date, integer) IS
-  'Internal. The monthly targets run for ONE raise on one day: measures its months (at most p_max_months per '
-  'call; once paid, only the months the pause rule can use; a finished month only once every day it reads is in '
-  'the schedule record; a missed month again when its approved leave changed), then releases, pauses or resumes '
-  'the held part, sends a window that ran out back to the Director, lapses a plan whose person left or moved. '
-  'Marks the plan as run that day. Migrations 20271007180207, 20271008093015.';
+  'Internal. The monthly targets run for ONE raise on one day: measures its months in calendar order (at most '
+  'p_max_months per call; once paid, only the months the pause rule can use; a finished month only once every day it '
+  'reads is in the schedule record; a missed month again when its approved leave or holidays changed), stopping at '
+  'the first finished month that is not settled (hr_salary_revision_target_month_settled, round 8), then releases, '
+  'pauses or resumes the held part, sends a window that ran out back to the Director, lapses a plan whose person '
+  'left or moved. Marks the plan as run that day. Migrations 20271007180207, 20271008093015.';
 
 -- ----------------------------------------------------------------------------
 -- f. Self-check: the re-created bodies read the record and keep #4252's rules.
@@ -1563,6 +1686,7 @@ NOTIFY pgrst, 'reload schema';
 -- fn_hr_target_schedule_needs, hr_target_schedule_record,
 -- hr_target_schedule_needs, hr_target_schedule_ranges, hr_salary_revision_target_leave_key,
 -- hr_salary_revision_target_holiday_key, hr_salary_revision_target_missed_in_row,
+-- hr_salary_revision_target_month_settled,
 -- hr_target_schedule_missing_days, hr_target_schedule_holiday_key and
 -- hr_target_schedule_institutions (DROP FUNCTION IF EXISTS), and the table
 -- hr_target_scheduled_periods with the columns
