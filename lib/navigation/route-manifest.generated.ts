@@ -6814,6 +6814,18 @@ export const ROUTE_MANIFEST: RouteNode[] = [
     "iconName": "FileText",
     "children": [
       {
+        "path": "/procurement/approval-flows",
+        "label": "Approval Flows",
+        "iconName": "FileText",
+        "children": []
+      },
+      {
+        "path": "/procurement/approvals",
+        "label": "Approvals",
+        "iconName": "FileText",
+        "children": []
+      },
+      {
         "path": "/procurement/grn",
         "label": "Grn",
         "iconName": "FileText",

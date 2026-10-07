@@ -21,13 +21,14 @@ export const maxDuration = 300;
 //      (real columns: reach, impressions, profile_views, website_clicks,
 //       accounts_engaged, total_interactions [metric_type=total_value],
 //       online_followers hourly map, follower_demographics [once per UTC day])
-//   2. Fetch recent media since last_polled_at → upsert ig_posts
+//   2. Fetch the latest page of media (NO time filter — see
+//      lib/instagram/media-discovery.ts) → upsert only media we do not hold
 //   3. Fetch per-post insights → write ig_post_metrics rows
 //      (real columns incl. likes for all media; plays / avg_watch_time_ms /
 //       total_watch_time_ms for reels, with v22+ plays→views fallback)
 //   3.5 Re-poll recent posts' metrics (ContentStudio parity, added 2026-06-11):
-//      media older than last_polled_at never re-enter steps 2-3, so their
-//      metrics froze at discovery time. Append fresh ig_post_metrics snapshots
+//      media we already hold are never re-measured by steps 2-3, so their
+//      metrics would freeze at discovery time. Append fresh ig_post_metrics snapshots
 //      for posts within ig.post_repoll_window_days (default 7), capped at
 //      ig.post_repoll_limit per account (default 10), skipping media already
 //      snapshotted in the current tick.
@@ -57,6 +58,7 @@ import type { IgCallConfig } from '@/lib/instagram/api-client';
 // ig_reels_* watch-time, views). Route-local helpers below call the base Graph
 // client directly for those.
 import { graphRequestData, normalizeMetaToken } from '@/lib/meta/graph-api-client';
+import { partitionFetchedMedia } from '@/lib/instagram/media-discovery';
 import { MetaGraphError } from '@/lib/meta/types';
 import type {
   IgAccountMetric,
@@ -600,15 +602,23 @@ function normalizeMediaType(media: IgApiMedia): string {
   return media.media_type ?? 'IMAGE';
 }
 
+/**
+ * The latest page of media, with NO `since` filter.
+ *
+ * It used to pass `since: last_polled_at`. A collaboration post keeps its
+ * AUTHOR's timestamp, so when another account posts and a JKKN handle accepts
+ * the invite after one of our hourly visits, the post arrives already older
+ * than that visit and a since-filtered fetch never returns it. Do not
+ * reintroduce the filter: lib/instagram/media-discovery.ts decides what is new.
+ */
 async function fetchRecentMedia(
   accessToken: string,
-  igUserId: string,
-  since: string | null
+  igUserId: string
 ): Promise<IgMedia[]> {
   const envelope = await getMedia(
     igUserId,
     { accessToken, apiVersion: GRAPH_VERSION },
-    { since: since ?? undefined, limit: 25 }
+    { limit: 25 }
   );
   return (envelope.data ?? [])
     .filter((m) => Boolean(m.id && m.timestamp))
@@ -1486,22 +1496,12 @@ export async function GET(request: Request): Promise<Response> {
         // ----------------------------------------------------------------
         // 2. Fetch recent media since last poll
         // ----------------------------------------------------------------
-        let mediaList: IgMedia[] = [];
+        let fetchedMedia: IgMedia[] = [];
         try {
-          mediaList = await fetchRecentMedia(
+          fetchedMedia = await fetchRecentMedia(
             account.access_token,
-            account.ig_user_id,
-            account.last_polled_at
+            account.ig_user_id
           );
-          await logApiCall(supabase, {
-            account_id: account.id,
-            event_type: 'media_fetch',
-            status: 'success',
-            payload: {
-              ig_user_id: account.ig_user_id,
-              media_fetched: mediaList.length,
-            },
-          });
         } catch (e) {
           const msg = e instanceof Error ? e.message : 'unknown';
           await logApiCall(supabase, {
@@ -1514,7 +1514,44 @@ export async function GET(request: Request): Promise<Response> {
           throw e;
         }
 
-        // Upsert each media item into ig_posts
+        // Which of the fetched media do we already hold? Only the rest are
+        // upserted and measured. See lib/instagram/media-discovery.ts for why
+        // both halves of that rule matter.
+        const fetchedIds = fetchedMedia.map((m) => m.id);
+        const knownIds = new Set<string>();
+        if (fetchedIds.length > 0) {
+          const { data: heldRows, error: heldErr } = await supabase
+            .from('ig_posts')
+            .select('ig_media_id')
+            .in('ig_media_id', fetchedIds);
+          if (heldErr) throw heldErr;
+          for (const r of heldRows ?? []) knownIds.add(r.ig_media_id as string);
+        }
+        const {
+          newMedia: mediaList,
+          lateDiscovered,
+          skipForRepoll,
+        } = partitionFetchedMedia(fetchedMedia, knownIds, account.last_polled_at);
+
+        await logApiCall(supabase, {
+          account_id: account.id,
+          event_type: 'media_fetch',
+          status: 'success',
+          payload: {
+            ig_user_id: account.ig_user_id,
+            media_fetched: fetchedMedia.length,
+            media_new: mediaList.length,
+            // Non-zero = a post the old since-filter would have dropped for
+            // ever (typically a collaboration accepted after our last visit).
+            late_discovered: lateDiscovered.length,
+            late_discovered_ids: lateDiscovered.map((m) => m.id),
+          },
+        });
+
+        // Upsert each NEW media item into ig_posts. Media we already hold are
+        // deliberately not rewritten: a collaboration between two JKKN handles
+        // is returned on both feeds, and re-upserting would move its
+        // account_id back and forth every hour.
         let latestPostAt: string | null = account.last_post_at;
         for (const media of mediaList) {
           const { data: postRow, error: postErr } = await supabase
@@ -1600,7 +1637,10 @@ export async function GET(request: Request): Promise<Response> {
         //     in this tick (avoids double rows for brand-new media).
         //     Internally error-tolerant — never throws.
         // ----------------------------------------------------------------
-        const processedMediaIds = new Set(mediaList.map((m) => m.id));
+        // ONLY what step 3 measured. Handing it the whole fetched page would
+        // make the re-poll pass skip media we deliberately did not measure,
+        // freezing every recent post's numbers.
+        const processedMediaIds = skipForRepoll;
         const repollResult = await repollRecentPostMetrics(
           supabase,
           account,

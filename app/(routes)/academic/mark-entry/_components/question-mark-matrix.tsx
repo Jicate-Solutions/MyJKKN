@@ -12,6 +12,7 @@ import {
   type EntryPart,
   type EntryQuestion,
   type LearnerEntry,
+  type OtherComponent,
 } from '@/types/mark-entry';
 
 interface Props {
@@ -25,6 +26,15 @@ interface Props {
   onToggleFullScreen: () => void;
   onChange: (studentId: string, questionId: string, value: number | null) => void;
   onToggleAbsent: (studentId: string, absent: boolean) => void;
+  /**
+   * The round's components the paper does NOT feed (e.g. Assignment). Each gets
+   * one plain input column after the questions; the Total then becomes the round
+   * total. Empty/omitted = the grid is exactly the question paper, as before.
+   */
+  otherComponents?: OtherComponent[];
+  /** Ceiling for question total + other components. Only read when there are any. */
+  roundMax?: number;
+  onChangeOther?: (studentId: string, code: string, value: number | null) => void;
 }
 
 /** Question column: never narrower than COL_W, never stretched past COL_MAX_W. */
@@ -32,6 +42,9 @@ const COL_W = 62;
 const COL_MAX_W = 132;
 const ABS_W = 46;
 const TOTAL_W = 84;
+/** Question-paper subtotal column, shown only when other components follow it. */
+const SUB_W = 72;
+const OTHER_W = 92;
 const FIXED_W = FROZEN_W.sno + FROZEN_W.register + FROZEN_W.name + ABS_W + TOTAL_W;
 /** Height of the part band (header row 1) — row 2 sticks directly beneath it. */
 const GROUP_H = 28;
@@ -66,9 +79,15 @@ export function QuestionMarkMatrix({
   onToggleFullScreen,
   onChange,
   onToggleAbsent,
+  otherComponents = [],
+  roundMax = 0,
+  onChangeOther,
 }: Props) {
   const inputRefs = useRef<Map<string, HTMLInputElement>>(new Map());
-  const cellKey = (studentId: string, questionId: string) => `${studentId}:${questionId}`;
+  /** `columnKey` is a question id, or `c:<code>` for an other-component column. */
+  const cellKey = (studentId: string, columnKey: string) => `${studentId}:${columnKey}`;
+  const hasOthers = otherComponents.length > 0;
+  const extraW = hasOthers ? SUB_W + otherComponents.length * OTHER_W : 0;
 
   const partIndex = useMemo(() => {
     const map = new Map<string, number>();
@@ -96,14 +115,14 @@ export function QuestionMarkMatrix({
     return groups;
   }, [questions, parts, partIndex]);
 
-  /** Enter moves DOWN the same question — the way a stack of scripts is graded. */
+  /** Enter moves DOWN the same column — the way a stack of scripts is graded. */
   const handleKeyDown = useCallback(
-    (e: React.KeyboardEvent<HTMLInputElement>, rowIndex: number, question: EntryQuestion) => {
+    (e: React.KeyboardEvent<HTMLInputElement>, rowIndex: number, columnKey: string) => {
       if (e.key !== 'Enter' && e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
       e.preventDefault();
       const step = e.key === 'ArrowUp' ? -1 : 1;
       for (let i = rowIndex + step; i >= 0 && i < learners.length; i += step) {
-        const next = inputRefs.current.get(cellKey(learners[i].student_id, question.id));
+        const next = inputRefs.current.get(cellKey(learners[i].student_id, columnKey));
         // Skip locked cells — they cannot receive a value, so stopping there
         // would strand the user mid-column.
         if (next && !next.disabled) {
@@ -185,8 +204,8 @@ export function QuestionMarkMatrix({
           className='w-full border-separate border-spacing-0 text-sm'
           style={{
             tableLayout: 'fixed',
-            minWidth: FIXED_W + questions.length * COL_W,
-            maxWidth: FIXED_W + questions.length * COL_MAX_W,
+            minWidth: FIXED_W + extraW + questions.length * COL_W,
+            maxWidth: FIXED_W + extraW + questions.length * COL_MAX_W,
           }}
         >
           <colgroup>
@@ -197,6 +216,10 @@ export function QuestionMarkMatrix({
               <col key={q.id} />
             ))}
             <col style={{ width: ABS_W }} />
+            {hasOthers && <col style={{ width: SUB_W }} />}
+            {otherComponents.map((c) => (
+              <col key={c.code} style={{ width: OTHER_W }} />
+            ))}
             <col style={{ width: TOTAL_W }} />
           </colgroup>
           <thead>
@@ -248,14 +271,37 @@ export function QuestionMarkMatrix({
                 AB
               </th>
 
+              {hasOthers && (
+                <>
+                  {/* What the question paper adds up to, before the other components. */}
+                  <th
+                    rowSpan={2}
+                    className='sticky top-0 z-30 border-b border-l bg-slate-50 px-1 py-1.5 text-center align-middle text-slate-700 dark:bg-slate-900 dark:text-slate-200'
+                  >
+                    <div className='truncate text-xs font-semibold'>{componentLabel}</div>
+                    <div className='text-[10px] font-normal opacity-70'>out of {componentMax}</div>
+                  </th>
+                  <th
+                    colSpan={otherComponents.length}
+                    className='sticky top-0 z-30 border-l bg-slate-200 px-2 py-0 text-left font-semibold text-slate-800 dark:bg-slate-800 dark:text-slate-100'
+                    style={{ height: GROUP_H }}
+                    title='Components of this round that are not part of the question paper — one total per learner'
+                  >
+                    <div className='overflow-hidden whitespace-nowrap text-[11px] uppercase tracking-wide'>
+                      <span className='truncate'>Other components</span>
+                    </div>
+                  </th>
+                </>
+              )}
+
               <th
                 rowSpan={2}
                 className='sticky right-0 top-0 z-40 border-b border-l bg-indigo-50 px-2 py-1.5 text-center align-middle text-indigo-950 dark:bg-indigo-950 dark:text-indigo-100'
                 style={{ width: TOTAL_W, minWidth: TOTAL_W, maxWidth: TOTAL_W }}
               >
                 <div className='text-[10px] font-semibold uppercase tracking-wide opacity-70'>Total</div>
-                <div className='truncate text-xs font-semibold'>{componentLabel}</div>
-                <div className='text-[10px] opacity-70'>out of {componentMax}</div>
+                <div className='truncate text-xs font-semibold'>{hasOthers ? 'Round' : componentLabel}</div>
+                <div className='text-[10px] opacity-70'>out of {hasOthers ? roundMax : componentMax}</div>
               </th>
             </tr>
 
@@ -293,13 +339,35 @@ export function QuestionMarkMatrix({
                   </th>
                 );
               })}
+              {otherComponents.map((c) => (
+                <th
+                  key={c.code}
+                  className='sticky z-30 border-b border-l bg-slate-50 px-1 py-1.5 align-top text-center font-medium text-slate-700 dark:bg-slate-900 dark:text-slate-200'
+                  style={{ top: GROUP_H - 1 }}
+                >
+                  <div className='truncate text-xs font-semibold' title={c.name}>
+                    {c.name}
+                  </div>
+                  <div className='text-[10px] opacity-70'>out of {c.max_marks}</div>
+                </th>
+              ))}
             </tr>
           </thead>
 
           <tbody>
             {learners.map((learner, rowIndex) => {
-              const total = sumMarks(learner.marks);
-              const over = componentMax > 0 && total > componentMax;
+              const paperTotal = sumMarks(learner.marks);
+              const paperOver = componentMax > 0 && paperTotal > componentMax;
+              const othersTotal = hasOthers
+                ? otherComponents.reduce((s, c) => s + (learner.other_marks?.[c.code] ?? 0), 0)
+                : 0;
+              const hasOtherMark =
+                hasOthers && otherComponents.some((c) => learner.other_marks?.[c.code] != null);
+              // With other components the Total is the ROUND total; an absent
+              // learner's paper counts as zero but their assignment still counts.
+              const total = hasOthers ? (learner.is_absent ? 0 : paperTotal) + othersTotal : paperTotal;
+              const over = hasOthers ? roundMax > 0 && total > roundMax : paperOver;
+              const showAbsent = learner.is_absent && !hasOtherMark;
               return (
                 <tr key={learner.student_id} className='group'>
                   <Td
@@ -350,7 +418,7 @@ export function QuestionMarkMatrix({
                           placeholder={learner.is_absent ? 'AB' : lock ? '—' : ''}
                           title={learner.is_absent ? 'Marked absent' : lockTitle(lock, q)}
                           aria-label={`${learner.register_number} Q${q.label}`}
-                          onKeyDown={(e) => handleKeyDown(e, rowIndex, q)}
+                          onKeyDown={(e) => handleKeyDown(e, rowIndex, q.id)}
                           onChange={(e) => {
                             const raw = e.target.value;
                             if (raw === '') return onChange(learner.student_id, q.id, null);
@@ -390,6 +458,64 @@ export function QuestionMarkMatrix({
                     />
                   </td>
 
+                  {hasOthers && (
+                    <td className='border-b border-l bg-slate-50/60 px-1 py-1 text-center dark:bg-slate-900/40'>
+                      <span
+                        className={cn(
+                          'font-mono text-xs font-semibold tabular-nums',
+                          learner.is_absent
+                            ? 'text-muted-foreground'
+                            : paperOver
+                              ? 'text-red-600'
+                              : 'text-slate-700 dark:text-slate-200'
+                        )}
+                      >
+                        {learner.is_absent ? 'AB' : Object.keys(learner.marks).length ? paperTotal : '—'}
+                      </span>
+                    </td>
+                  )}
+
+                  {otherComponents.map((c) => {
+                    const value = learner.other_marks?.[c.code];
+                    const invalid = value != null && (value > c.max_marks || value < 0);
+                    const columnKey = `c:${c.code}`;
+                    return (
+                      <td key={c.code} className='border-b border-l px-1 py-1 text-center group-hover:bg-muted/60'>
+                        <input
+                          ref={(el) => {
+                            const key = cellKey(learner.student_id, columnKey);
+                            if (el) inputRefs.current.set(key, el);
+                            else inputRefs.current.delete(key);
+                          }}
+                          type='number'
+                          inputMode='numeric'
+                          step={1}
+                          min={0}
+                          max={c.max_marks}
+                          // Not tied to AB: a learner who missed the test can
+                          // still have handed in the assignment.
+                          disabled={readOnly}
+                          value={value ?? ''}
+                          aria-label={`${learner.register_number} ${c.name}`}
+                          onKeyDown={(e) => handleKeyDown(e, rowIndex, columnKey)}
+                          onChange={(e) => {
+                            const raw = e.target.value;
+                            if (raw === '') return onChangeOther?.(learner.student_id, c.code, null);
+                            const n = parseInt(raw, 10);
+                            onChangeOther?.(learner.student_id, c.code, Number.isFinite(n) ? n : null);
+                          }}
+                          className={cn(
+                            'h-7 w-16 rounded-md border border-slate-300 bg-background text-center text-xs font-medium tabular-nums shadow-sm transition-colors dark:border-slate-700',
+                            'focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/25',
+                            '[appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none',
+                            readOnly && 'cursor-not-allowed bg-muted text-muted-foreground shadow-none',
+                            invalid && 'border-red-500 text-red-600 ring-1 ring-red-500'
+                          )}
+                        />
+                      </td>
+                    );
+                  })}
+
                   {/* Frozen on the right so the running total stays in view on a wide paper. */}
                   <td
                     className='sticky right-0 z-20 border-b border-l bg-indigo-50 px-2 py-1 text-center dark:bg-indigo-950'
@@ -398,14 +524,14 @@ export function QuestionMarkMatrix({
                     <span
                       className={cn(
                         'inline-flex min-w-[2.5rem] justify-center rounded-md px-1.5 py-0.5 font-mono text-sm font-semibold tabular-nums',
-                        learner.is_absent
+                        showAbsent
                           ? 'bg-slate-200 text-slate-600 dark:bg-slate-800 dark:text-slate-300'
                           : over
                             ? 'bg-red-100 text-red-700 ring-1 ring-red-300 dark:bg-red-950 dark:text-red-300'
                             : 'text-indigo-700 dark:text-indigo-300'
                       )}
                     >
-                      {learner.is_absent ? 'AB' : total}
+                      {showAbsent ? 'AB' : total}
                     </span>
                   </td>
                 </tr>

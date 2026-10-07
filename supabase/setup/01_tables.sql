@@ -10596,6 +10596,59 @@ CREATE TABLE IF NOT EXISTS public.hr_salary_revision_requests (
     CHECK ((status = 'applied') = (applied_salary_id IS NOT NULL AND applied_at IS NOT NULL))
 );
 
+-- Updated: 2026-09-30 - 20270524090000: the marker, the band snapshot, the cancelled state.
+ALTER TABLE public.hr_salary_revision_requests
+  ADD COLUMN IF NOT EXISTS asker_is_also_hod boolean NOT NULL DEFAULT false,
+  ADD COLUMN IF NOT EXISTS band_snapshot     jsonb,
+  ADD COLUMN IF NOT EXISTS cancelled_at      timestamptz,
+  ADD COLUMN IF NOT EXISTS cancel_note       text;
+
+COMMENT ON COLUMN public.hr_salary_revision_requests.asker_is_also_hod IS
+  '30 Sep: the asker is the principal AND the head of this department, so there was no separate check; the Director sees it marked.';
+COMMENT ON COLUMN public.hr_salary_revision_requests.band_snapshot IS
+  '30 Sep: the college''s pay band as it stood when asked, so the Director''s screen can say the band changed since. Never sent to a browser.';
+COMMENT ON COLUMN public.hr_salary_revision_requests.cancel_note IS
+  '30 Sep: why an approved raise was cancelled (the person left before its start date).';
+
+-- 'cancelled' joins the statuses. The inline CHECK of 20270519090000 carries
+-- PostgreSQL's default name.
+ALTER TABLE public.hr_salary_revision_requests
+  DROP CONSTRAINT IF EXISTS hr_salary_revision_requests_status_check;
+ALTER TABLE public.hr_salary_revision_requests
+  ADD CONSTRAINT hr_salary_revision_requests_status_check
+  CHECK (status IN ('waiting_principal', 'waiting_director',
+                    'approved', 'applied', 'stopped', 'refused', 'cancelled'));
+ALTER TABLE public.hr_salary_revision_requests
+  DROP CONSTRAINT IF EXISTS hr_srr_cancelled_has_note;
+ALTER TABLE public.hr_salary_revision_requests
+  ADD CONSTRAINT hr_srr_cancelled_has_note
+  CHECK ((status = 'cancelled') = (cancelled_at IS NOT NULL AND cancel_note IS NOT NULL));
+
+-- Updated: 2026-10-01 - 20271007150103: the account a request was about when it
+-- was asked, so "own" and "on the Director list" cannot be dodged by changing
+-- staff.profile_id afterwards (backfilled in the migration), and the stamp on
+-- a decision made under the rulings of 1 Oct 2026.
+ALTER TABLE public.hr_salary_revision_requests
+  ADD COLUMN IF NOT EXISTS subject_profile_id uuid,
+  ADD COLUMN IF NOT EXISTS decided_under_rules boolean NOT NULL DEFAULT false,
+  ADD COLUMN IF NOT EXISTS subject_was_list_member boolean;
+
+COMMENT ON COLUMN public.hr_salary_revision_requests.subject_was_list_member IS
+  '1 Oct 2026: whether the person was on the Director list when it was asked (backfilled for older requests '
+  'from the list as it stood when 20271007150103 was applied). "On the list" means then OR now, so taking '
+  'someone off the list does not open their raise. Migration 20271007150103.';
+
+COMMENT ON COLUMN public.hr_salary_revision_requests.decided_under_rules IS
+  '1 Oct 2026: true when the latest decision on it passed the rulings of 1 Oct 2026 (stamped by approve_one, '
+  'director_decide and college_decide). A stamped yes is always written; only an unstamped (older) yes is '
+  'judged by today''s rules and held back if it breaks them. Migration 20271007150103.';
+
+COMMENT ON COLUMN public.hr_salary_revision_requests.subject_profile_id IS
+  '1 Oct 2026: the account (staff.profile_id) the request was about when it was asked; never changed after. '
+  'Requests asked before 20271007150103 carry the link as it stood when that file was applied. "Own" and '
+  '"on the Director list" match this OR the link as it is now.';
+
+
 -- RULING 10: one open request per person. 'approved' counts as open: until the
 -- new pay is written, a second yes could be applied on top of the first.
 CREATE UNIQUE INDEX IF NOT EXISTS hr_salary_revision_requests_one_open
@@ -11253,6 +11306,62 @@ CREATE INDEX IF NOT EXISTS hr_leave_type_deletions_deleted_at_idx
   ON public.hr_leave_type_deletions (deleted_at DESC);
 COMMENT ON TABLE public.hr_leave_type_deletions IS
   'Tombstone of every hr_leave_type_delete_super_admin() commit: who, when, how many rows of each kind went with the type, and the type row itself as jsonb. No foreign keys on purpose. Balances and adjustments are NOT recoverable from it.';
+
+-- ════════════════════════════════════════════════════════════════════════════
+-- Salary Register — category snapshot + payroll document settings
+-- Mirrored from supabase/migrations/20271007120000_hr_payroll_documents.sql
+-- ════════════════════════════════════════════════════════════════════════════
+ALTER TABLE public.hr_salary_register_lines
+  ADD COLUMN IF NOT EXISTS staff_category_name text,
+  ADD COLUMN IF NOT EXISTS is_teaching boolean NOT NULL;
+
+CREATE TABLE IF NOT EXISTS public.hr_payroll_document_settings (
+  id                      uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  hr_organization_id      uuid NOT NULL UNIQUE
+                            REFERENCES public.hr_organizations(id) ON DELETE CASCADE,
+  institution_id          uuid NOT NULL REFERENCES public.institutions(id),
+  reference_code          text NOT NULL,
+  non_teaching_suffix     text NOT NULL DEFAULT 'NT',
+  bank_name               text NOT NULL,
+  bank_branch             text NOT NULL,
+  college_account_number  text NOT NULL,
+  addressee_title         text NOT NULL DEFAULT 'The Manager',
+  approval_salutation     text NOT NULL DEFAULT 'Respected Madam',
+  submitter_title         text NOT NULL DEFAULT 'CAO',
+  approver_title          text NOT NULL DEFAULT 'CHAIRPERSON',
+  created_at              timestamptz NOT NULL DEFAULT now(),
+  updated_at              timestamptz NOT NULL DEFAULT now(),
+  created_by              uuid REFERENCES auth.users(id) ON DELETE SET NULL,
+  updated_by              uuid REFERENCES auth.users(id) ON DELETE SET NULL,
+  CONSTRAINT hr_payroll_doc_settings_reference_code_chk CHECK (length(btrim(reference_code)) BETWEEN 1 AND 40),
+  CONSTRAINT hr_payroll_doc_settings_nt_suffix_chk      CHECK (length(non_teaching_suffix) <= 10),
+  CONSTRAINT hr_payroll_doc_settings_bank_name_chk      CHECK (length(btrim(bank_name)) BETWEEN 1 AND 120),
+  CONSTRAINT hr_payroll_doc_settings_bank_branch_chk    CHECK (length(btrim(bank_branch)) BETWEEN 1 AND 120),
+  CONSTRAINT hr_payroll_doc_settings_account_chk        CHECK (length(btrim(college_account_number)) BETWEEN 1 AND 40),
+  CONSTRAINT hr_payroll_doc_settings_addressee_chk      CHECK (length(btrim(addressee_title)) BETWEEN 1 AND 80),
+  CONSTRAINT hr_payroll_doc_settings_salutation_chk     CHECK (length(btrim(approval_salutation)) BETWEEN 1 AND 80),
+  CONSTRAINT hr_payroll_doc_settings_submitter_chk      CHECK (length(btrim(submitter_title)) BETWEEN 1 AND 60),
+  CONSTRAINT hr_payroll_doc_settings_approver_chk       CHECK (length(btrim(approver_title)) BETWEEN 1 AND 60)
+);
+CREATE INDEX IF NOT EXISTS idx_hr_payroll_doc_settings_institution ON public.hr_payroll_document_settings (institution_id);
+CREATE INDEX IF NOT EXISTS idx_hr_payroll_doc_settings_created_by  ON public.hr_payroll_document_settings (created_by);
+CREATE INDEX IF NOT EXISTS idx_hr_payroll_doc_settings_updated_by  ON public.hr_payroll_document_settings (updated_by);
+
+
+-- Mirrored from supabase/migrations/20271007130000_hostel_floors.sql
+CREATE TABLE IF NOT EXISTS public.hostel_floors (
+  id           uuid        PRIMARY KEY DEFAULT gen_random_uuid(),
+  block_id     uuid        NOT NULL REFERENCES public.hostel_blocks(id) ON DELETE CASCADE,
+  floor_number integer     NOT NULL CHECK (floor_number BETWEEN 0 AND 50),
+  name         text        CHECK (name IS NULL OR char_length(btrim(name)) BETWEEN 1 AND 60),
+  is_active    boolean     NOT NULL DEFAULT true,
+  created_at   timestamptz NOT NULL DEFAULT now(),
+  updated_at   timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT hostel_floors_block_floor_key UNIQUE (block_id, floor_number)
+);
+ALTER TABLE public.hostel_floors ENABLE ROW LEVEL SECURITY;
+-- FK child index: the (block_id, floor) probe run on every floor delete.
+CREATE INDEX IF NOT EXISTS idx_hostel_rooms_block_floor ON public.hostel_rooms (block_id, floor);
 
 -- ============================================================================
 -- Updated: 2026-10-01 - HR intake helper (source: migrations/20270613101241_hr_intake_helper.sql)

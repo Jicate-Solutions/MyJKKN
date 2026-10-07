@@ -368,13 +368,13 @@ export function DeptPlaybookPanel({ areaId, areaLabel, canManage }: Props) {
               </Badge>
             </div>
             <ul className="grid gap-1 sm:grid-cols-2">
-              {holders.map((h) => {
+              {holders.map((h, i) => {
                 // A role whose "holder" is still the AI's bracketed placeholder has
                 // nobody in it. Saying so plainly is the difference between an
                 // organogram that is honest and one that looks fully staffed.
                 const unfilled = !h.staff_id && isUnfilledHolder(h.holder_name);
                 return (
-                  <li key={h.role_type} className="text-[11px] leading-tight">
+                  <li key={`${h.role_type}-${i}`} className="text-[11px] leading-tight">
                     <span className="text-muted-foreground">{h.role_type}: </span>
                     {unfilled ? (
                       <span className="text-muted-foreground italic">Not assigned yet</span>
