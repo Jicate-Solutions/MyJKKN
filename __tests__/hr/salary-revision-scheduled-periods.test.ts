@@ -124,9 +124,12 @@ import {
   recordScheduledPeriods, toRecordedPeriods, toTime24, SCHEDULE_RESOLVER,
 } from '@/lib/services/hr/salary-revision/scheduled-periods-recorder';
 
+// 8 Oct 2026 (review round 7, B1): the day's holiday key, as the listing worked it out.
+const LISTED_KEY = '0123456789abcdef0123456789abcdef';
+
 beforeEach(() => {
   records = [];
-  needs = [{ staff_id: MEMBER, day: DAY, institution_ids: ['inst'], reason: 'live' }];
+  needs = [{ staff_id: MEMBER, day: DAY, institution_ids: ['inst'], reason: 'live', holiday_key: LISTED_KEY }];
   recordError = null;
 });
 
@@ -159,6 +162,17 @@ describe('the app\'s resolver, read by the nightly job', () => {
     expect(byTimetable['tt-bat:Clinic']).toMatchObject({ is_primary: true, start_time: '11:00', end_time: '13:00' });
     // The cycle is resolved by the database's own function, with this client.
     expect(db.log.filter((e) => e.fn === 'get_cycle_for_date').map((e) => e.args)).toEqual([{ p_timetable_id: 'tt-cyc', p_date: DAY }]);
+  });
+
+  it('hands back the holiday key the listing gave (worked out before the day was read), not one worked out after', async () => {
+    const db = client();
+    await recordScheduledPeriods(db, { deadline: Date.now() + 10_000 });
+    expect(records).toHaveLength(1);
+    expect(records[0].p_holiday_key).toBe(LISTED_KEY);
+    // The listing comes before the read, and the record after it.
+    const order = db.log.map((e) => e.fn ?? e.table);
+    expect(order.indexOf('fn_hr_target_schedule_needs')).toBeLessThan(order.indexOf('timetables'));
+    expect(order.lastIndexOf('timetables')).toBeLessThan(order.indexOf('fn_hr_target_schedule_record'));
   });
 
   it('reads with the job\'s client, timetables switched off since included, the colleges the database gave', async () => {

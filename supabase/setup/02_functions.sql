@@ -83010,7 +83010,8 @@ GRANT  EXECUTE ON FUNCTION public.fn_hr_playbook_open_proposals() TO authenticat
 
 -- Updated: 2026-10-08 - Raise targets read the app's own schedule: the schedule record's
 -- helpers and the nightly job's two calls, and #4252's measure, teaches, classify and
--- run_one re-created to read it (round 5 findings 1-6; round 6 findings 1-3, 5, 9).
+-- run_one re-created to read it (round 5 findings 1-6; round 6 findings 1-3, 5, 9;
+-- round 7 B1-B4: stale days, holiday re-measure, calendar order with flags, recount).
 -- Source: 20271008093015_hr_salary_revision_target_scheduled_periods.sql
 -- ----------------------------------------------------------------------------
 -- b. The helpers
@@ -83093,6 +83094,10 @@ COMMENT ON FUNCTION public.hr_target_schedule_holiday_key(uuid[], date) IS
   'Migration 20271008093015.';
 
 -- Default oo: how many days of a range have no row in the schedule record.
+-- 8 Oct 2026 (review round 7, B1): a row whose holiday key is not the day's
+-- key now (a holiday approved, changed or withdrawn since it was recorded) is
+-- stale: it counts as NOT recorded until the job records the day again, so a
+-- month is never counted, nor anyone found not to teach, on the old schedule.
 CREATE OR REPLACE FUNCTION public.hr_target_schedule_missing_days(p_staff_id uuid, p_from date, p_to date)
 RETURNS integer
 LANGUAGE sql
@@ -83101,14 +83106,61 @@ SECURITY DEFINER
 SET search_path TO 'public'
 AS $function$
   SELECT GREATEST((p_to - p_from + 1) - (SELECT count(*)::int FROM public.hr_target_scheduled_periods sp
-                                          WHERE sp.staff_id = p_staff_id AND sp.day BETWEEN p_from AND p_to), 0)
+                                          CROSS JOIN (SELECT public.hr_target_schedule_institutions(p_staff_id) AS ids) i
+                                          WHERE sp.staff_id = p_staff_id AND sp.day BETWEEN p_from AND p_to
+                                            AND sp.holiday_key = public.hr_target_schedule_holiday_key(i.ids, sp.day)), 0)
 $function$;
 
 REVOKE EXECUTE ON FUNCTION public.hr_target_schedule_missing_days(uuid, date, date) FROM anon, PUBLIC, authenticated;
 
 COMMENT ON FUNCTION public.hr_target_schedule_missing_days(uuid, date, date) IS
-  'Internal (default oo, 8 Oct 2026). The days of the range with no row in hr_target_scheduled_periods for the '
-  'person. Migration 20271008093015.';
+  'Internal (default oo, 8 Oct 2026). The days of the range with no up-to-date row in hr_target_scheduled_periods '
+  'for the person: no row, or a row whose holiday key is not the day''s key now (round 7, B1). '
+  'Migration 20271008093015.';
+
+-- Round 7 (B2): the approved holidays covering a range of days, as one key:
+-- each day's own key (default pp) in the person's colleges, in order.
+CREATE OR REPLACE FUNCTION public.hr_salary_revision_target_holiday_key(p_staff_id uuid, p_from date, p_to date)
+RETURNS text
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+  SELECT md5(COALESCE(string_agg(public.hr_target_schedule_holiday_key(i.ids, g::date), ';' ORDER BY g), ''))
+    FROM generate_series(p_from, p_to, interval '1 day') g
+   CROSS JOIN (SELECT public.hr_target_schedule_institutions(p_staff_id) AS ids) i
+$function$;
+
+REVOKE EXECUTE ON FUNCTION public.hr_salary_revision_target_holiday_key(uuid, date, date) FROM anon, PUBLIC, authenticated;
+
+COMMENT ON FUNCTION public.hr_salary_revision_target_holiday_key(uuid, date, date) IS
+  'Internal (round 7, B2, 8 Oct 2026). A key of the approved holidays covering each day of the range in the '
+  'colleges the person teaches in (hr_target_schedule_holiday_key, day by day). Migration 20271008093015.';
+
+-- Round 7 (B4): the missed months in a row of a raise, worked out from its
+-- months in calendar order: the missed months acted on after the last month
+-- acted on as met. A month not counted (or not measured) neither adds nor resets.
+CREATE OR REPLACE FUNCTION public.hr_salary_revision_target_missed_in_row(p_request_id uuid)
+RETURNS integer
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+  SELECT count(*)::int FROM public.hr_salary_revision_target_months mo
+   WHERE mo.request_id = p_request_id AND mo.acted
+     AND mo.status IN ('missed', 'decided_missed')
+     AND mo.month > COALESCE((SELECT max(m2.month) FROM public.hr_salary_revision_target_months m2
+                               WHERE m2.request_id = p_request_id AND m2.acted
+                                 AND m2.status IN ('met', 'decided_met')), '-infinity'::date)
+$function$;
+
+REVOKE EXECUTE ON FUNCTION public.hr_salary_revision_target_missed_in_row(uuid) FROM anon, PUBLIC, authenticated;
+
+COMMENT ON FUNCTION public.hr_salary_revision_target_missed_in_row(uuid) IS
+  'Internal (round 7, B4, 8 Oct 2026). The missed months in a row of a raise, from its months in calendar order: '
+  'missed months acted on after the last met month acted on. Migration 20271008093015.';
 
 -- Default ss: the person's approved leave overlapping a range, as one key.
 -- 8 Oct 2026 (review round 6, finding 5): run_one asks it for the days the
@@ -83184,8 +83236,15 @@ COMMENT ON FUNCTION public.hr_target_schedule_ranges(date) IS
 -- 8 Oct 2026 (review round 6, finding 9): time-boxed. Once p_budget_ms has
 -- passed no further person is worked out; what is found so far is returned
 -- and the rest are asked for on a later night.
+-- 8 Oct 2026 (review round 7, B1): every person's days whose holidays changed
+-- come before anyone's missing days (a stale day can hold a counted month on
+-- the old schedule; a missing one only makes it wait), and each pair carries
+-- the day's holiday key as worked out NOW, before the resolver reads the day:
+-- the job hands it back to hr_target_schedule_record, so a holiday approved
+-- while the day is being read leaves the row stale (recorded again), never
+-- fresh on an old reading.
 CREATE OR REPLACE FUNCTION public.hr_target_schedule_needs(p_today date, p_limit integer, p_budget_ms integer DEFAULT NULL)
-RETURNS TABLE(staff_id uuid, day date, institution_ids uuid[], reason text)
+RETURNS TABLE(staff_id uuid, day date, institution_ids uuid[], reason text, holiday_key text)
 LANGUAGE plpgsql
 VOLATILE
 SECURITY DEFINER
@@ -83196,41 +83255,49 @@ DECLARE
   v_left    integer := GREATEST(COALESCE(p_limit, 0), 0);
   v_got     integer;
   v_r       record;
+  v_pass    integer;
 BEGIN
   IF v_left = 0 THEN
     RETURN;
   END IF;
   -- Today, for everyone not yet recorded today (recorded on the day itself).
   RETURN QUERY
-    SELECT r.staff_id, p_today, public.hr_target_schedule_institutions(r.staff_id), 'live'::text
+    SELECT r.staff_id, p_today, x.ids, 'live'::text, public.hr_target_schedule_holiday_key(x.ids, p_today)
       FROM public.hr_target_schedule_ranges(p_today) r
+     CROSS JOIN LATERAL (SELECT public.hr_target_schedule_institutions(r.staff_id) AS ids) x
      WHERE NOT EXISTS (SELECT 1 FROM public.hr_target_scheduled_periods sp
                         WHERE sp.staff_id = r.staff_id AND sp.day = p_today)
      ORDER BY r.staff_id
      LIMIT v_left;
   GET DIAGNOSTICS v_got = ROW_COUNT;
   v_left := v_left - v_got;
-  FOR v_r IN
-    SELECT r.staff_id, r.from_day, r.to_day, public.hr_target_schedule_institutions(r.staff_id) AS ids
-      FROM public.hr_target_schedule_ranges(p_today) r
-     ORDER BY md5(r.staff_id::text || p_today::text), r.staff_id
-  LOOP
-    EXIT WHEN v_left <= 0;
-    EXIT WHEN p_budget_ms IS NOT NULL AND clock_timestamp() - v_started > make_interval(secs => p_budget_ms / 1000.0);
-    RETURN QUERY
-      SELECT v_r.staff_id, j.d, v_r.ids, CASE WHEN j.missing THEN 'missing' ELSE 'holidays_changed' END
-        FROM (SELECT g.d, sp.staff_id IS NULL AS missing,
-                     sp.holiday_key IS DISTINCT FROM public.hr_target_schedule_holiday_key(v_r.ids, g.d) AS changed
-                FROM (SELECT x::date AS d FROM generate_series(v_r.from_day, v_r.to_day, interval '1 day') x
-                      UNION
-                      SELECT p_today) g
-                LEFT JOIN public.hr_target_scheduled_periods sp ON sp.staff_id = v_r.staff_id AND sp.day = g.d) j
-       -- Today not yet recorded is listed above, as 'live'.
-       WHERE (j.missing AND j.d <> p_today) OR (NOT j.missing AND j.changed)
-       ORDER BY j.missing, j.d DESC
-       LIMIT v_left;
-    GET DIAGNOSTICS v_got = ROW_COUNT;
-    v_left := v_left - v_got;
+  -- Round 7 (B1): pass 1 lists the days whose holidays changed, for everyone;
+  -- pass 2 the missing days, newest first.
+  FOR v_pass IN 1..2 LOOP
+    FOR v_r IN
+      SELECT r.staff_id, r.from_day, r.to_day, public.hr_target_schedule_institutions(r.staff_id) AS ids
+        FROM public.hr_target_schedule_ranges(p_today) r
+       ORDER BY md5(r.staff_id::text || p_today::text), r.staff_id
+    LOOP
+      EXIT WHEN v_left <= 0;
+      EXIT WHEN p_budget_ms IS NOT NULL AND clock_timestamp() - v_started > make_interval(secs => p_budget_ms / 1000.0);
+      RETURN QUERY
+        SELECT v_r.staff_id, j.d, v_r.ids, CASE WHEN j.missing THEN 'missing' ELSE 'holidays_changed' END, j.key_now
+          FROM (SELECT g.d, sp.staff_id IS NULL AS missing, k.key_now,
+                       sp.holiday_key IS DISTINCT FROM k.key_now AS changed
+                  FROM (SELECT x::date AS d FROM generate_series(v_r.from_day, v_r.to_day, interval '1 day') x
+                        UNION
+                        SELECT p_today) g
+                  CROSS JOIN LATERAL (SELECT public.hr_target_schedule_holiday_key(v_r.ids, g.d) AS key_now) k
+                  LEFT JOIN public.hr_target_scheduled_periods sp ON sp.staff_id = v_r.staff_id AND sp.day = g.d) j
+         -- Today not yet recorded is listed above, as 'live'.
+         WHERE CASE WHEN v_pass = 1 THEN NOT j.missing AND j.changed
+                    ELSE j.missing AND j.d <> p_today END
+         ORDER BY j.d DESC
+         LIMIT v_left;
+      GET DIAGNOSTICS v_got = ROW_COUNT;
+      v_left := v_left - v_got;
+    END LOOP;
   END LOOP;
 END;
 $function$;
@@ -83239,13 +83306,19 @@ REVOKE EXECUTE ON FUNCTION public.hr_target_schedule_needs(date, integer, intege
 
 COMMENT ON FUNCTION public.hr_target_schedule_needs(date, integer, integer) IS
   'Internal (default vv, 8 Oct 2026). The (team member, day) pairs the nightly job should record in '
-  'hr_target_scheduled_periods: today for everyone, then per person days whose approved holidays changed and '
-  'missing days newest first. Stops working out further people once p_budget_ms has passed. Migration 20271008093015.';
+  'hr_target_scheduled_periods, each with the day''s holiday key worked out now: today for everyone, then every '
+  'person''s days whose approved holidays changed, then missing days newest first (round 7, B1). Stops working out '
+  'further people once p_budget_ms has passed. Migration 20271008093015.';
 
 -- Default ww: one day's periods for one person, as the resolver gave them,
 -- kept in the exact shape of the contract (anything else is refused).
+-- 8 Oct 2026 (review round 7, B1): the holiday key stored is p_holiday_key,
+-- the day's key as hr_target_schedule_needs worked it out BEFORE the resolver
+-- read the day. A holiday approved in between then leaves the row stale, so
+-- the day is recorded again. Only when no key is passed (the SQL console) is
+-- it worked out here.
 CREATE OR REPLACE FUNCTION public.hr_target_schedule_record(
-  p_staff_id uuid, p_day date, p_periods jsonb, p_resolver text, p_today date)
+  p_staff_id uuid, p_day date, p_periods jsonb, p_resolver text, p_today date, p_holiday_key text DEFAULT NULL)
 RETURNS integer
 LANGUAGE plpgsql
 VOLATILE
@@ -83260,6 +83333,9 @@ BEGIN
   END IF;
   IF p_day > p_today THEN
     RAISE EXCEPTION 'A day not yet begun cannot be recorded.' USING ERRCODE = '22023';
+  END IF;
+  IF p_holiday_key IS NOT NULL AND p_holiday_key !~ '^[0-9a-f]{32}$' THEN
+    RAISE EXCEPTION 'The holiday key must be the one the listing gave.' USING ERRCODE = '22023';
   END IF;
   IF jsonb_typeof(p_periods) IS DISTINCT FROM 'array'
      OR EXISTS (SELECT 1 FROM jsonb_array_elements(p_periods) e WHERE jsonb_typeof(e) IS DISTINCT FROM 'object') THEN
@@ -83291,7 +83367,8 @@ BEGIN
     (staff_id, day, periods, recorded_live, holiday_key, resolver, first_recorded_at, recorded_at)
   VALUES
     (p_staff_id, p_day, v_clean, p_day = p_today,
-     public.hr_target_schedule_holiday_key(public.hr_target_schedule_institutions(p_staff_id), p_day),
+     COALESCE(p_holiday_key,
+              public.hr_target_schedule_holiday_key(public.hr_target_schedule_institutions(p_staff_id), p_day)),
      left(COALESCE(NULLIF(btrim(p_resolver), ''), 'unknown'), 200), now(), now())
   ON CONFLICT (staff_id, day) DO UPDATE
      SET periods = EXCLUDED.periods,
@@ -83303,15 +83380,16 @@ BEGIN
 END;
 $function$;
 
-REVOKE EXECUTE ON FUNCTION public.hr_target_schedule_record(uuid, date, jsonb, text, date) FROM anon, PUBLIC, authenticated;
+REVOKE EXECUTE ON FUNCTION public.hr_target_schedule_record(uuid, date, jsonb, text, date, text) FROM anon, PUBLIC, authenticated;
 
-COMMENT ON FUNCTION public.hr_target_schedule_record(uuid, date, jsonb, text, date) IS
+COMMENT ON FUNCTION public.hr_target_schedule_record(uuid, date, jsonb, text, date, text) IS
   'Internal (default ww, 8 Oct 2026). Records one day''s scheduled periods for one person in '
-  'hr_target_scheduled_periods, replacing that day''s list; live when the day is today. Migration 20271008093015.';
+  'hr_target_scheduled_periods, replacing that day''s list; live when the day is today. The holiday key stored is '
+  'the one the listing worked out before the day was read (round 7, B1). Migration 20271008093015.';
 
 -- The cron route's two calls: service role (or the SQL console) only.
 CREATE OR REPLACE FUNCTION public.fn_hr_target_schedule_needs(p_limit integer, p_budget_ms integer DEFAULT 8000)
-RETURNS TABLE(staff_id uuid, day date, institution_ids uuid[], reason text)
+RETURNS TABLE(staff_id uuid, day date, institution_ids uuid[], reason text, holiday_key text)
 LANGUAGE plpgsql
 VOLATILE
 SECURITY DEFINER
@@ -83333,11 +83411,12 @@ GRANT  EXECUTE ON FUNCTION public.fn_hr_target_schedule_needs(integer, integer) 
 
 COMMENT ON FUNCTION public.fn_hr_target_schedule_needs(integer, integer) IS
   'The cron route (/api/cron/hr-salary-revisions?mode=targets, service role) only: the days to record in the '
-  'schedule record tonight, worked out within p_budget_ms (at most 20 s). Refuses any signed-in caller (42501). '
+  'schedule record tonight, each with the day''s holiday key, worked out within p_budget_ms (at most 20 s). '
+  'Refuses any signed-in caller (42501). '
   'Migration 20271008093015.';
 
 CREATE OR REPLACE FUNCTION public.fn_hr_target_schedule_record(
-  p_staff_id uuid, p_day date, p_periods jsonb, p_resolver text)
+  p_staff_id uuid, p_day date, p_periods jsonb, p_resolver text, p_holiday_key text DEFAULT NULL)
 RETURNS integer
 LANGUAGE plpgsql
 VOLATILE
@@ -83349,16 +83428,19 @@ BEGIN
     RAISE EXCEPTION 'Only the scheduled job can record the schedule.'
       USING ERRCODE = 'insufficient_privilege';
   END IF;
-  RETURN public.hr_target_schedule_record(p_staff_id, p_day, p_periods, p_resolver, public.hr_salary_revision_ist_today());
+  -- Round 7 (B1): the key the listing gave, worked out before the day was read.
+  RETURN public.hr_target_schedule_record(p_staff_id, p_day, p_periods, p_resolver, public.hr_salary_revision_ist_today(),
+                                          p_holiday_key);
 END;
 $function$;
 
-REVOKE EXECUTE ON FUNCTION public.fn_hr_target_schedule_record(uuid, date, jsonb, text) FROM anon, PUBLIC, authenticated;
-GRANT  EXECUTE ON FUNCTION public.fn_hr_target_schedule_record(uuid, date, jsonb, text) TO service_role;
+REVOKE EXECUTE ON FUNCTION public.fn_hr_target_schedule_record(uuid, date, jsonb, text, text) FROM anon, PUBLIC, authenticated;
+GRANT  EXECUTE ON FUNCTION public.fn_hr_target_schedule_record(uuid, date, jsonb, text, text) TO service_role;
 
-COMMENT ON FUNCTION public.fn_hr_target_schedule_record(uuid, date, jsonb, text) IS
+COMMENT ON FUNCTION public.fn_hr_target_schedule_record(uuid, date, jsonb, text, text) IS
   'The cron route (service role) only: records one day''s scheduled periods for one person, as the app''s resolver '
-  'gave them. Refuses any signed-in caller (42501). Migration 20271008093015.';
+  'gave them, with the holiday key the listing gave for that day. Refuses any signed-in caller (42501). '
+  'Migration 20271008093015.';
 
 -- ----------------------------------------------------------------------------
 -- c. Measuring one person's month: #4252's body (20271007180207 section c),
@@ -83760,7 +83842,8 @@ DECLARE
   v_role     text;
   v_reason   text;
   v_waiting  date[] := ARRAY[]::date[];  -- 8 Oct 2026 (default oo): the finished month waiting for its days (round 6: at most one)
-  v_rescored boolean := false;           -- 8 Oct 2026 (default ss): a paid part's missed month now met
+  v_rescored boolean := false;           -- 8 Oct 2026 (default ss): a missed month now met or not counted (round 7: any state)
+  v_stop     date;                       -- 8 Oct 2026 (round 7, B3): the first finished month that cannot be acted on yet
 BEGIN
   -- Default hh: a second call for the same raise on the same day (two runs
   -- overlapping) finds it locked or already run, and skips it.
@@ -83901,12 +83984,20 @@ BEGIN
       -- a paid part's month counts as met and its missed-in-a-row count is
       -- worked out again. Never backdated, nothing paid taken back, and a met
       -- month is never measured again.
+      -- Round 7 (B2): the same when the approved holidays covering the days
+      -- the month's measure reads changed since; it is measured again only
+      -- once every one of those days is recorded again (B1), so never on the
+      -- old schedule (the key then still differs, and it is tried again).
       FOR v_row IN
         SELECT * FROM public.hr_salary_revision_target_months mo
          WHERE mo.request_id = v_p.request_id AND mo.status = 'missed' AND mo.acted
            AND mo.month >= v_from AND mo.month < v_cur_m AND mo.month <= v_last
-           AND mo.leave_key IS DISTINCT FROM public.hr_salary_revision_target_leave_key(
+           AND (mo.leave_key IS DISTINCT FROM public.hr_salary_revision_target_leave_key(
                  v_p.staff_id, date_trunc('week', mo.month)::date, (mo.month + interval '1 month' - interval '1 day')::date)
+                OR mo.holiday_key IS DISTINCT FROM public.hr_salary_revision_target_holiday_key(
+                 v_p.staff_id, date_trunc('week', mo.month)::date, (mo.month + interval '1 month' - interval '1 day')::date))
+           AND public.hr_target_schedule_missing_days(
+                 v_p.staff_id, date_trunc('week', mo.month)::date, (mo.month + interval '1 month' - interval '1 day')::date) = 0
          ORDER BY mo.month
       LOOP
         EXIT WHEN v_measured >= p_max_months;
@@ -83921,6 +84012,8 @@ BEGIN
            SET results = COALESCE(v_res, '[]'::jsonb), measured_at = now(),
                leave_key = public.hr_salary_revision_target_leave_key(
                  v_p.staff_id, date_trunc('week', v_row.month)::date, (v_row.month + interval '1 month' - interval '1 day')::date),
+               holiday_key = public.hr_salary_revision_target_holiday_key(
+                 v_p.staff_id, date_trunc('week', v_row.month)::date, (v_row.month + interval '1 month' - interval '1 day')::date),
                -- 8 Oct 2026 (review round 6, finding 1): leave now covering every
                -- scheduled period of the month: not counted (default d), not missed.
                status = CASE WHEN COALESCE(v_t1_den, 0) = 0 THEN 'not_counted'
@@ -83932,30 +84025,36 @@ BEGIN
                action_effective_from = CASE WHEN COALESCE(v_t1_den, 0) > 0 AND v_all_met AND v_p.state IN ('waiting', 'paused')
                                             THEN NULL ELSE action_effective_from END
          WHERE request_id = v_row.request_id AND month = v_row.month;
-        IF v_p.state = 'released' AND (COALESCE(v_t1_den, 0) = 0 OR v_all_met) THEN
+        -- Round 7 (B4): in any state (a waiting or paused part's month now met
+        -- is released or resumed below, and the count is worked out again there).
+        IF COALESCE(v_t1_den, 0) = 0 OR v_all_met THEN
           v_rescored := true;
         END IF;
       END LOOP;
-      IF v_rescored THEN
+      IF v_rescored AND v_p.state = 'released' THEN
         -- The missed months in a row since the last met one (the release or
         -- resume month is a met one); a month not counted neither adds nor resets.
+        -- Before acting, so a month acted on below counts from the right number.
         UPDATE public.hr_salary_revision_target_plans pl
-           SET missed_in_row = (
-                 SELECT count(*)::int FROM public.hr_salary_revision_target_months mo
-                  WHERE mo.request_id = pl.request_id AND mo.acted
-                    AND mo.status IN ('missed', 'decided_missed')
-                    AND mo.month > COALESCE((SELECT max(m2.month) FROM public.hr_salary_revision_target_months m2
-                                              WHERE m2.request_id = pl.request_id AND m2.acted
-                                                AND m2.status IN ('met', 'decided_met')), '-infinity'::date)),
+           SET missed_in_row = public.hr_salary_revision_target_missed_in_row(pl.request_id),
                updated_at = now()
          WHERE pl.request_id = v_p.request_id;
       END IF;
+
+      -- Round 7 (B3): a flagged finished month the Director has not decided,
+      -- older than the months measured below, stops everything after it too.
+      -- (One the loop below reaches is measured again first, then stops it.)
+      SELECT min(mo.month) INTO v_stop
+        FROM public.hr_salary_revision_target_months mo
+       WHERE mo.request_id = v_p.request_id AND mo.status = 'flagged' AND mo.month < LEAST(v_from, v_cur_m);
 
       -- Measure every month not yet counted (the current one as "so far"),
       -- at most p_max_months in one call; the rest waits for the next run.
       FOR v_m IN
         SELECT g::date FROM generate_series(v_from, LEAST(v_cur_m, v_last), interval '1 month') g
       LOOP
+        -- Round 7 (B3): nothing at or after a finished month that cannot be acted on yet.
+        EXIT WHEN v_stop IS NOT NULL AND v_m >= v_stop;
         SELECT * INTO v_row FROM public.hr_salary_revision_target_months
          WHERE request_id = v_p.request_id AND month = v_m;
         IF FOUND AND v_row.status NOT IN ('in_progress', 'flagged') THEN
@@ -83967,11 +84066,17 @@ BEGIN
         IF v_m < v_cur_m AND public.hr_target_schedule_missing_days(v_p.staff_id, date_trunc('week', v_m)::date,
                                (v_m + interval '1 month' - interval '1 day')::date) > 0 THEN
           v_waiting := v_waiting || v_m;
+          v_stop := v_m;
           -- 8 Oct 2026 (review round 6, finding 2): strictly in calendar order.
           -- Nothing after a month waiting for its days is counted or acted on
           -- until it is (a later month first would pause before a release, or
           -- count a miss before the met month that resets the count).
           EXIT;
+        END IF;
+        -- Round 7 (B3): a finished month left "so far" by the month cap stops
+        -- the acting too; it is counted first on the next run.
+        IF v_measured >= p_max_months AND v_m < v_cur_m THEN
+          v_stop := v_m;
         END IF;
         EXIT WHEN v_measured >= p_max_months;
         v_measured := v_measured + 1;
@@ -83995,8 +84100,17 @@ BEGIN
         -- 8 Oct 2026 (default ss): the approved leave the month was measured with.
         UPDATE public.hr_salary_revision_target_months
            SET leave_key = public.hr_salary_revision_target_leave_key(
+                 v_p.staff_id, date_trunc('week', v_m)::date, (v_m + interval '1 month' - interval '1 day')::date),
+               -- Round 7 (B2): and the approved holidays covering those days.
+               holiday_key = public.hr_salary_revision_target_holiday_key(
                  v_p.staff_id, date_trunc('week', v_m)::date, (v_m + interval '1 month' - interval '1 day')::date)
          WHERE request_id = v_p.request_id AND month = v_m;
+        -- Round 7 (B3): a flagged finished month waits for the Director's
+        -- decision, and every month after it waits with it (calendar order).
+        IF v_flagged AND v_m < v_cur_m THEN
+          v_stop := v_m;
+        END IF;
+        EXIT WHEN v_stop IS NOT NULL;
       END LOOP;
 
       -- Act on each counted month not yet acted on, oldest first.
@@ -84004,8 +84118,9 @@ BEGIN
         SELECT * FROM public.hr_salary_revision_target_months
          WHERE request_id = v_p.request_id AND NOT acted
            AND status IN ('met', 'missed', 'not_counted', 'decided_met', 'decided_missed')
-           -- 8 Oct 2026 (finding 2): never past a month still waiting for its days.
-           AND (cardinality(v_waiting) = 0 OR month < v_waiting[1])
+           -- 8 Oct 2026 (finding 2; round 7, B3): never at or past the first finished
+           -- month that cannot be acted on yet (waiting for its days, flagged, capped).
+           AND (v_stop IS NULL OR month < v_stop)
          ORDER BY month
       LOOP
         SELECT * INTO v_p FROM public.hr_salary_revision_target_plans WHERE request_id = v_row.request_id;
@@ -84039,6 +84154,15 @@ BEGIN
         UPDATE public.hr_salary_revision_target_months
            SET acted = true, action = v_action, action_effective_from = v_eff
          WHERE request_id = v_row.request_id AND month = v_row.month;
+        -- Round 7 (B4): a release or resume caused by a month measured again
+        -- late: the pay step set the misses in a row to 0, but missed months
+        -- after it may already be counted. Worked out again from the months,
+        -- in calendar order, before the next month is acted on.
+        IF v_rescored AND v_action IN ('released', 'resumed') THEN
+          UPDATE public.hr_salary_revision_target_plans
+             SET missed_in_row = public.hr_salary_revision_target_missed_in_row(request_id), updated_at = now()
+           WHERE request_id = v_row.request_id;
+        END IF;
       END LOOP;
 
       -- RULING 3: the window is over, every month of it counted and acted on,
@@ -84059,6 +84183,16 @@ BEGIN
         UPDATE public.hr_salary_revision_target_plans
            SET run_note = 'Not counted yet, some days not in the schedule record: '
                           || to_char(v_waiting[1], 'FMMonth YYYY')
+                          || '. The months after it are counted after it, in calendar order.',
+               updated_at = now()
+         WHERE request_id = v_p.request_id;
+      -- Round 7 (B3): listed while a flagged month waits for the Director.
+      ELSIF v_stop IS NOT NULL AND EXISTS (SELECT 1 FROM public.hr_salary_revision_target_months mo
+                                            WHERE mo.request_id = v_p.request_id AND mo.month = v_stop
+                                              AND mo.status = 'flagged') THEN
+        UPDATE public.hr_salary_revision_target_plans
+           SET run_note = 'Flagged, waiting for the Director''s decision: '
+                          || to_char(v_stop, 'FMMonth YYYY')
                           || '. The months after it are counted after it, in calendar order.',
                updated_at = now()
          WHERE request_id = v_p.request_id;

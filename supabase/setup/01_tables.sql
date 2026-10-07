@@ -11922,7 +11922,7 @@ REVOKE ALL ON public.hr_recruitment_nudges_sent FROM anon, authenticated;
 
 -- Updated: 2026-10-08 - Raise targets: the schedule record (the periods each team member
 -- was scheduled to teach, as the app's own resolver gave them to the nightly job), and
--- the approved-leave key on each counted month.
+-- the approved-leave and (round 7) holiday keys on each counted month.
 -- Source: 20271008093015_hr_salary_revision_target_scheduled_periods.sql
 CREATE TABLE IF NOT EXISTS public.hr_target_scheduled_periods (
   staff_id          uuid NOT NULL REFERENCES public.staff(id) ON DELETE CASCADE,
@@ -11950,3 +11950,12 @@ ALTER TABLE public.hr_salary_revision_target_months ADD COLUMN IF NOT EXISTS lea
 COMMENT ON COLUMN public.hr_salary_revision_target_months.leave_key IS
   'Default ss (8 Oct 2026): a key of the person''s approved leave overlapping the month when it was measured. A missed '
   'month whose key changes is measured again. Migration 20271008093015.';
+
+-- Round 7 (B2): the approved holidays covering the days a counted month's
+-- measure reads, as they stood when the month was measured.
+ALTER TABLE public.hr_salary_revision_target_months ADD COLUMN IF NOT EXISTS holiday_key text;
+
+COMMENT ON COLUMN public.hr_salary_revision_target_months.holiday_key IS
+  'Round 7 (8 Oct 2026): a key of the approved holidays covering the days the month''s measure read, when it was '
+  'measured. A missed month whose key changes is measured again once those days are recorded again. '
+  'Migration 20271008093015.';

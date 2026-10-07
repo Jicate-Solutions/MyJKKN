@@ -34,6 +34,13 @@ export interface ScheduleNeed {
   day: string;
   institution_ids: string[] | null;
   reason: string;
+  /**
+   * 8 Oct 2026 (review round 7, B1): the day's holiday key as the database
+   * worked it out when listing the day, BEFORE the resolver reads it. Handed
+   * back with the periods, so a holiday approved while the day is being read
+   * leaves the row stale (recorded again), never fresh on an old reading.
+   */
+  holiday_key: string | null;
 }
 
 /** One scheduled period, as stored in hr_target_scheduled_periods.periods. */
@@ -157,6 +164,7 @@ export async function recordScheduledPeriods(
       p_day: need.day,
       p_periods: toRecordedPeriods(periods as unknown[]),
       p_resolver: SCHEDULE_RESOLVER,
+      p_holiday_key: need.holiday_key ?? null,
     });
     if (error) throw error;
   };

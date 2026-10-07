@@ -55,7 +55,7 @@ vi.mock('@/components/layout/content-layout', async () => {
   return { ContentLayout: (p: React.PropsWithChildren) => React.createElement(React.Fragment, null, p.children) };
 });
 
-import { TargetSection } from '@/app/(routes)/hr/salary-revisions/_components/target-section';
+import { TargetSection, stateLabel } from '@/app/(routes)/hr/salary-revisions/_components/target-section';
 import DetailPage from '@/app/(routes)/hr/salary-revisions/[id]/page';
 import MyPayChangesPage from '@/app/(routes)/hr/my-pay-changes/page';
 import ApprovePage from '@/app/(routes)/hr/salary-revisions/approve/page';
@@ -164,6 +164,18 @@ describe('the section', () => {
     // The Director can still lapse it, so a new raise can be asked for.
     expect(screen.getByRole('button', { name: 'Lapse the held part…' })).toBeInTheDocument();
     expect(MONTH_STATUS_LABELS.not_measured).toBe('Not measured: targets being set up');
+  });
+
+  it('a held part waiting for the class schedule to be recorded says so on its badge, not "being set up"', () => {
+    const waiting = plan({
+      state: 'awaiting_measurement', state_reason: 'schedule_not_recorded', target_role: null,
+      rules: { annual_increment_percent: 5, window_months: 6, pause_after_missed_months: 3, role: null, targets: null },
+    });
+    render(<TargetSection targets={targets({ plan: waiting, months: [] })} today='2026-12-10' />);
+    expect(screen.getByTestId('target-state')).toHaveTextContent('Held: class schedule being recorded');
+    expect(screen.getByTestId('target-state')).not.toHaveTextContent('schedule_not_recorded');
+    expect(stateLabel('awaiting_measurement', null)).toBe('Held: targets being set up');
+    expect(stateLabel('waiting', 'schedule_not_recorded')).toBe('Held: waiting for targets');
   });
 
   it('shows nothing when there is no plan', () => {
