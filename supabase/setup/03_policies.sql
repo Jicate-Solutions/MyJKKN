@@ -12203,3 +12203,95 @@ CREATE POLICY hr_duty_chase_runs_select ON public.hr_duty_chase_runs
   FOR SELECT USING (public.is_super_admin() OR public.is_admin());
 
 
+
+
+-- ============================================================================
+-- Updated: 2026-10-01 - HR intake helper (source: migrations/20270613101241_hr_intake_helper.sql)
+-- Review fixes: read-only for signed-in people (the server writes with the service role),
+-- "institution_id IS NOT NULL AND" before every role_has_institution_access() call.
+-- ============================================================================
+-- Names, emails and phone numbers of people applying for jobs: the anonymous
+-- key never reaches any of these tables.
+--
+-- READ-ONLY for signed-in people. A signed-in client may SELECT what its
+-- policies allow, and nothing else: no INSERT, UPDATE or DELETE grant at all,
+-- so no column (a resume path, a decision, who decided it, a rule's college)
+-- can be written straight through PostgREST. Every write is made by the server
+-- with the service role, inside lib/services/hr/intake/intake-service.ts, and
+-- only AFTER the person's own session has shown it can see the batch, the row
+-- or the job (the SELECT policies below are that check). Names written beside
+-- a decision or an upload come from profiles on the server, never from the
+-- browser.
+ALTER TABLE public.hr_intake_batches ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.hr_intake_rows ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.hr_intake_match_rules ENABLE ROW LEVEL SECURITY;
+
+REVOKE ALL ON public.hr_intake_batches FROM anon, PUBLIC, authenticated;
+REVOKE ALL ON public.hr_intake_rows FROM anon, PUBLIC, authenticated;
+REVOKE ALL ON public.hr_intake_match_rules FROM anon, PUBLIC, authenticated;
+
+GRANT SELECT ON public.hr_intake_batches TO authenticated;
+GRANT SELECT ON public.hr_intake_rows TO authenticated;
+GRANT SELECT ON public.hr_intake_match_rules TO authenticated;
+
+GRANT ALL ON public.hr_intake_batches TO service_role;
+GRANT ALL ON public.hr_intake_rows TO service_role;
+GRANT ALL ON public.hr_intake_match_rules TO service_role;
+
+-- Write policies from an earlier draft of this file, if any were created: the
+-- grants above already refuse the writes; dropping them keeps the catalog honest.
+DROP POLICY IF EXISTS hr_intake_batches_insert ON public.hr_intake_batches;
+DROP POLICY IF EXISTS hr_intake_batches_update ON public.hr_intake_batches;
+DROP POLICY IF EXISTS hr_intake_batches_delete ON public.hr_intake_batches;
+DROP POLICY IF EXISTS hr_intake_rows_insert ON public.hr_intake_rows;
+DROP POLICY IF EXISTS hr_intake_rows_update ON public.hr_intake_rows;
+DROP POLICY IF EXISTS hr_intake_rows_delete ON public.hr_intake_rows;
+DROP POLICY IF EXISTS hr_intake_match_rules_insert ON public.hr_intake_match_rules;
+DROP POLICY IF EXISTS hr_intake_match_rules_update ON public.hr_intake_match_rules;
+DROP POLICY IF EXISTS hr_intake_match_rules_delete ON public.hr_intake_match_rules;
+
+-- The gate is hr.recruitment.create (the people who bring candidates in),
+-- scoped like the recruitment screens: institution access through
+-- role_has_institution_access(), super admins and admins first. No role name
+-- is written anywhere; Role Management decides who holds the key.
+--
+-- "institution_id IS NOT NULL AND" comes before every role_has_institution_access()
+-- call: that function answers TRUE for NULL, so without the guard a row with no
+-- college would be visible to HR in every college. The columns are NOT NULL as
+-- well; the guard is the second wall, not the only one.
+
+-- 6a. Batches: the uploader, or anyone holding the key for the batch's college.
+DROP POLICY IF EXISTS hr_intake_batches_select ON public.hr_intake_batches;
+CREATE POLICY hr_intake_batches_select ON public.hr_intake_batches
+  FOR SELECT TO authenticated
+  USING (
+    (SELECT public.is_super_admin())
+    OR (SELECT public.is_admin())
+    OR ((SELECT public.user_has_permission('hr.recruitment.create'))
+        AND (created_by = (SELECT auth.uid())
+             OR (institution_id IS NOT NULL
+                 AND public.role_has_institution_access(institution_id))))
+  );
+
+-- 6b. Rows follow their batch: whoever can see the batch can see its rows. The
+-- EXISTS runs under the caller's own batch policy above.
+DROP POLICY IF EXISTS hr_intake_rows_select ON public.hr_intake_rows;
+CREATE POLICY hr_intake_rows_select ON public.hr_intake_rows
+  FOR SELECT TO authenticated
+  USING (EXISTS (
+    SELECT 1 FROM public.hr_intake_batches b
+     WHERE b.id = hr_intake_rows.batch_id
+       AND b.institution_id IS NOT NULL
+  ));
+
+-- 6c. Rules: visible within the college of the job they point at.
+DROP POLICY IF EXISTS hr_intake_match_rules_select ON public.hr_intake_match_rules;
+CREATE POLICY hr_intake_match_rules_select ON public.hr_intake_match_rules
+  FOR SELECT TO authenticated
+  USING (
+    (SELECT public.is_super_admin())
+    OR (SELECT public.is_admin())
+    OR ((SELECT public.user_has_permission('hr.recruitment.create'))
+        AND institution_id IS NOT NULL
+        AND public.role_has_institution_access(institution_id))
+  );

@@ -66,6 +66,19 @@ const config: ModuleNavConfig = {
           matchPaths: ['/hr/recruitment/candidates'],
         },
         {
+          label: 'Bring in Candidates',
+          icon: 'FileUp',
+          href: '/hr/recruitment/intake',
+          matchPaths: ['/hr/recruitment/intake'],
+        },
+        {
+          // What the intake helper learned from people's corrections, and from whom.
+          label: 'Learned Rules',
+          icon: 'ListChecks',
+          href: '/hr/recruitment/intake/rules',
+          matchPaths: ['/hr/recruitment/intake/rules'],
+        },
+        {
           label: 'My Submissions',
           icon: 'ClipboardList',
           href: '/hr/recruitment/my',
