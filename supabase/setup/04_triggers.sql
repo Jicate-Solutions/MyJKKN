@@ -3029,3 +3029,9 @@ CREATE TRIGGER trg_hr_memo_nudges_updated_at
   BEFORE UPDATE ON public.hr_memo_nudges
   FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
 
+
+-- Updated: 2026-10-01 - HR staff harness (migration 20270613101125_hr_recruitment_nudges.sql)
+DROP TRIGGER IF EXISTS hr_recruitment_nudges_sent_updated_at ON public.hr_recruitment_nudges_sent;
+CREATE TRIGGER hr_recruitment_nudges_sent_updated_at
+  BEFORE UPDATE ON public.hr_recruitment_nudges_sent
+  FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
