@@ -33,7 +33,7 @@ function fakeClient(client: 'session' | 'service') {
       const key = () => `${client}:${table}:${call.ops.some((o) => o[0] === 'update') ? 'update' : 'read'}`;
       const settle = () => Promise.resolve(results[key()] ?? { data: [], error: null });
       const b: Record<string, unknown> = {};
-      for (const m of ['select', 'eq', 'in', 'like', 'ilike', 'limit', 'update', 'insert', 'delete', 'order']) {
+      for (const m of ['select', 'eq', 'in', 'like', 'ilike', 'limit', 'update', 'insert', 'delete', 'order', 'range']) {
         b[m] = (...args: unknown[]) => {
           call.ops.push([m, ...args]);
           return b;
