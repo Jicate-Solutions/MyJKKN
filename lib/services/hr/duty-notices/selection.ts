@@ -44,6 +44,34 @@ export function ledgerKey(subjectId: string, subjectKey: string, kind: string): 
 }
 
 // ---------------------------------------------------------------------------
+// Go-live cutoff (Director, 7 Oct 2026: reminders stay on, no backlog flood)
+// ---------------------------------------------------------------------------
+// The daily run never chases anything whose wait started before the moment
+// migration 20270613101133 applied (the platform_policies row below). The
+// event notices — "your turn" when a step is ticked, "submitted"/"decided" when
+// a request is filed or decided — are about something happening now, so they
+// are not cut off. A missing or unreadable row answers the run's own `now`: the
+// cutoff fails toward silence, never toward a flood.
+
+/** Global platform_policies row the migration seeds with now(). */
+export const GO_LIVE_POLICY_KEY = 'hr.duty_notices.go_live_at';
+
+/** The go-live moment from the stored policy value, else `now` (fail closed). */
+export function goLiveFromPolicy(value: unknown, now: Date): Date {
+  if (typeof value === 'string') {
+    const t = Date.parse(value);
+    if (!Number.isNaN(t)) return new Date(t);
+  }
+  return now;
+}
+
+/** True when the wait began before go-live, or its start cannot be read. */
+export function startedBeforeGoLive(startIso: string | null | undefined, goLiveAt: Date): boolean {
+  const t = Date.parse(startIso ?? '');
+  return Number.isNaN(t) || t < goLiveAt.getTime();
+}
+
+// ---------------------------------------------------------------------------
 // Dates (Asia/Kolkata, the calendar the institutions work to)
 // ---------------------------------------------------------------------------
 
@@ -198,14 +226,21 @@ export interface PlannedOnboardingNotice {
  * The scheduled nudges due for one candidate today. `alreadySent` holds
  * ledgerKey(candidateId, subjectKey, kind) for every notice ever recorded, so
  * each rule fires at most once per step (or once per candidate).
+ *
+ * Go-live cutoff: an onboarding started before `goLiveAt` gets no joining-date
+ * notice, and a step whose turn began before it gets no "held too long"
+ * reminder. A step of an old onboarding that becomes someone's turn AFTER
+ * go-live is a new wait and is reminded as usual.
  */
 export function planOnboardingNotices(
   c: OnboardingCandidateState,
   now: Date,
   alreadySent: ReadonlySet<string>,
+  goLiveAt: Date,
   t: OnboardingThresholds = DEFAULT_ONBOARDING_THRESHOLDS,
 ): PlannedOnboardingNotice[] {
   if (!c.onboardingStartedAt || c.steps.length === 0) return [];
+  const startedOld = startedBeforeGoLive(c.onboardingStartedAt, goLiveAt);
   const open = c.steps.map((s, i) => (s.completed ? -1 : i)).filter((i) => i >= 0);
   if (open.length === 0) return [];
 
@@ -215,7 +250,7 @@ export function planOnboardingNotices(
   if (toJoin !== null && toJoin < 0) {
     // Past the joining date: the step owners have had their chance; this is
     // now the HR head's to sort out. One notice, per candidate, ever.
-    if (!alreadySent.has(ledgerKey(c.id, '', 'joining_passed'))) {
+    if (!startedOld && !alreadySent.has(ledgerKey(c.id, '', 'joining_passed'))) {
       out.push({ kind: 'joining_passed', position: null, reason: 'joining_passed' });
     }
     return out;
@@ -227,6 +262,7 @@ export function planOnboardingNotices(
   for (const pos of open) {
     if (alreadySent.has(ledgerKey(c.id, String(pos), 'step_reminder'))) continue;
     if (joiningSoon) {
+      if (startedOld) continue;
       // Days from joining: every open step's owner can still prepare, and the
       // candidate page lets them tick a step out of order.
       out.push({ kind: 'step_reminder', position: pos, reason: 'joining_soon' });
@@ -234,6 +270,7 @@ export function planOnboardingNotices(
     }
     if (!active.has(pos)) continue;
     const since = stepTurnStartedAt(c.steps, pos, c.onboardingStartedAt);
+    if (startedBeforeGoLive(since, goLiveAt)) continue;
     if (workingDaysElapsed(since, now) > t.reminderAfterWorkingDays) {
       out.push({ kind: 'step_reminder', position: pos, reason: 'held_too_long' });
     }
@@ -281,15 +318,20 @@ export interface PlannedRegularizationNotice {
  * is what keeps a HR Head's direct day correction (written straight as
  * 'approved' by fn_hr_regularize_attendance_day — nobody asked for it) from
  * reading as "your request was approved".
+ *
+ * Go-live cutoff: a request filed before `goLiveAt` gets nothing from the
+ * daily run — no late "submitted", no reminder, no HR-head notice.
  */
 export function planRegularizationNotices(
   row: RegularizationRowState,
   now: Date,
   alreadySent: ReadonlySet<string>,
+  goLiveAt: Date,
   t: RegularizationThresholds = DEFAULT_REGULARIZATION_THRESHOLDS,
 ): PlannedRegularizationNotice[] {
   const sent = (k: RegularizationNoticeKind) => alreadySent.has(ledgerKey(row.id, '', k));
   const out: PlannedRegularizationNotice[] = [];
+  if (startedBeforeGoLive(row.created_at, goLiveAt)) return out;
 
   if (row.status === 'pending') {
     if (!row.created_at) return out;

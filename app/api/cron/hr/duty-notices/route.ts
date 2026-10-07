@@ -50,7 +50,7 @@ export async function GET(request: NextRequest) {
   const errors: string[] = [];
 
   try {
-    const thresholds = await loadThresholds(supabase);
+    const thresholds = await loadThresholds(supabase, now);
     const onLeave = await profilesOnLeave(supabase, todayIst(now));
     // When the HR chase ladder is on and owns A3, it sends the regularisation
     // chases; this run still sends the submitted/decided notices.
@@ -58,11 +58,11 @@ export async function GET(request: NextRequest) {
 
     // Independent duties: one failing must not stop the other.
     const [onboarding, regularization] = await Promise.all([
-      runOnboardingSweep(supabase, now, thresholds.onboarding, onLeave).catch((err) => {
+      runOnboardingSweep(supabase, now, thresholds.onboarding, onLeave, thresholds.goLiveAt).catch((err) => {
         errors.push(`onboarding: ${err instanceof Error ? err.message : String(err)}`);
         return null;
       }),
-      runRegularizationSweep(supabase, now, thresholds.regularization, onLeave, ladderOwnsA3).catch((err) => {
+      runRegularizationSweep(supabase, now, thresholds.regularization, onLeave, thresholds.goLiveAt, ladderOwnsA3).catch((err) => {
         errors.push(`regularization: ${err instanceof Error ? err.message : String(err)}`);
         return null;
       }),

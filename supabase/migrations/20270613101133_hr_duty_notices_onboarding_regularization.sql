@@ -28,6 +28,14 @@
 --      institution-scoped, so every holder sees every request — the notice
 --      goes to exactly that set.
 --   4. Four config rows (config-table pattern) for the reminder windows.
+--   5. The go-live cutoff (Director, 7 Oct 2026: reminders stay ON, but only
+--      about items that arrive from go-live onward). A fifth config row,
+--      'hr.duty_notices.go_live_at', holds the moment this migration applied.
+--      The daily run never chases an onboarding or a regularisation request
+--      whose wait started before it, so the first run does not flood people
+--      with old items. Seeded only when absent (a re-run keeps the original
+--      moment). If the row is missing or unreadable, the run uses its own
+--      time instead — nothing old is ever chased.
 --
 -- BOTH FUNCTIONS ARE SERVICE-ROLE ONLY. They enumerate people by role; nothing
 -- in the browser needs that. EXECUTE revoked from anon, PUBLIC AND
@@ -207,6 +215,18 @@ WHERE NOT EXISTS (
      AND pp.scope_type = 'global' AND pp.scope_id IS NULL
 );
 
+-- The go-live cutoff (see header, item 5). A JSON timestamp string.
+INSERT INTO public.platform_policies
+  (policy_key, scope_type, scope_id, value, description, data_type, is_system, is_active)
+SELECT 'hr.duty_notices.go_live_at', 'global', NULL, to_jsonb(now()),
+       'HR duty notices (onboarding checklist, attendance regularisation): the moment the daily reminders went live. Nothing whose wait started before this is ever chased, so switching the reminders on does not send notices about old items. Set once by migration 20270613101133.',
+       'string', true, true
+WHERE NOT EXISTS (
+  SELECT 1 FROM public.platform_policies pp
+   WHERE pp.policy_key = 'hr.duty_notices.go_live_at'
+     AND pp.scope_type = 'global' AND pp.scope_id IS NULL
+);
+
 -- ---------------------------------------------------------------------------
 -- 5) The schedule — daily 10:07 IST, Monday to Saturday
 -- ---------------------------------------------------------------------------
@@ -238,5 +258,13 @@ BEGIN
                         'hr.regularization.hr_head_notice_after_days');
   IF v_policy <> 4 THEN
     RAISE EXCEPTION 'expected 4 HR duty-notice policy rows, found %', v_policy;
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM public.platform_policies
+     WHERE policy_key = 'hr.duty_notices.go_live_at'
+       AND scope_type = 'global' AND scope_id IS NULL
+       AND jsonb_typeof(value) = 'string'
+  ) THEN
+    RAISE EXCEPTION 'platform_policies row hr.duty_notices.go_live_at is missing';
   END IF;
 END $$;

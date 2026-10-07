@@ -31,6 +31,8 @@ import {
   DUTY_REGULARIZATION,
   istDate,
   ledgerKey,
+  goLiveFromPolicy,
+  GO_LIVE_POLICY_KEY,
   planOnboardingNotices,
   planRegularizationNotices,
   positiveNumberOr,
@@ -265,11 +267,13 @@ export async function profilesOnLeave(
  */
 export const CHASE_LADDER_SWITCH_KEY = 'hr.harness.chase.enabled';
 
-export async function loadThresholds(supabase: SupabaseClient): Promise<{
+export async function loadThresholds(supabase: SupabaseClient, now: Date): Promise<{
   onboarding: OnboardingThresholds;
   regularization: RegularizationThresholds;
   /** Raw value of CHASE_LADDER_SWITCH_KEY; only `true` means on. */
   chaseLadderSwitch: unknown;
+  /** Go-live cutoff: waits that started before it are never chased. `now` when the row is missing. */
+  goLiveAt: Date;
 }> {
   const { data } = await supabase
     .from('platform_policies')
@@ -283,6 +287,7 @@ export async function loadThresholds(supabase: SupabaseClient): Promise<{
       'hr.regularization.reminder_after_hours',
       'hr.regularization.hr_head_notice_after_days',
       CHASE_LADDER_SWITCH_KEY,
+      GO_LIVE_POLICY_KEY,
     ]);
   const v = new Map(
     ((data ?? []) as Array<{ policy_key: string; value: unknown }>).map((r) => [r.policy_key, r.value]),
@@ -310,6 +315,8 @@ export async function loadThresholds(supabase: SupabaseClient): Promise<{
       ),
     },
     chaseLadderSwitch: v.get(CHASE_LADDER_SWITCH_KEY),
+    // A failed read leaves `data` null, so this too falls back to `now`.
+    goLiveAt: goLiveFromPolicy(v.get(GO_LIVE_POLICY_KEY), now),
   };
 }
 
@@ -439,6 +446,7 @@ export async function runOnboardingSweep(
   now: Date,
   thresholds: OnboardingThresholds,
   onLeave: ReadonlySet<string>,
+  goLiveAt: Date,
 ): Promise<SweepCounts> {
   const counts = emptyCounts();
   const { data, error } = await supabase
@@ -464,6 +472,7 @@ export async function runOnboardingSweep(
         { id: c.id, onboardingStartedAt: details.onboarding_started_at ?? null, joiningDate, steps },
         now,
         sent,
+        goLiveAt,
         thresholds,
       );
       const candidateName = c.name ?? 'The new joiner';
@@ -683,6 +692,7 @@ export async function runRegularizationSweep(
   now: Date,
   thresholds: RegularizationThresholds,
   onLeave: ReadonlySet<string>,
+  goLiveAt: Date,
   /** True when the chase ladder owns A3: skip the reminder and hr_head chases. */
   ladderOwnsChases = false,
 ): Promise<SweepCounts> {
@@ -739,6 +749,7 @@ export async function runRegularizationSweep(
         { id: r.id, status: r.status ?? '', created_at: r.created_at, approved_at: r.approved_at },
         now,
         sent,
+        goLiveAt,
         thresholds,
       );
       const monthClosed = closed.has(

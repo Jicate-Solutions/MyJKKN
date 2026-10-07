@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   activeStepPositions,
   daysUntil,
+  goLiveFromPolicy,
   ledgerKey,
   nextStepAfterCompletion,
   planOnboardingNotices,
@@ -18,6 +19,8 @@ import {
 
 /** 09:00 IST on the given date. */
 const ist9 = (ymd: string) => new Date(`${ymd}T03:30:00.000Z`);
+/** Go-live well before every fixture, so the older tests see the cutoff as open. */
+const LONG_AGO = new Date('2020-01-01T00:00:00Z');
 
 function steps(done: Array<string | null>): OnboardingStepState[] {
   return done.map((completedAt, i) => ({
@@ -114,6 +117,7 @@ describe('planOnboardingNotices', () => {
       { id: 'c1', onboardingStartedAt: started, joiningDate: null, steps: steps([null, null]) },
       ist9('2026-10-07'),
       none,
+      LONG_AGO,
     );
     expect(plan).toEqual([]);
   });
@@ -123,6 +127,7 @@ describe('planOnboardingNotices', () => {
       { id: 'c1', onboardingStartedAt: started, joiningDate: null, steps: steps([null, null]) },
       ist9('2026-10-08'),
       none,
+      LONG_AGO,
     );
     expect(plan).toEqual([{ kind: 'step_reminder', position: 0, reason: 'held_too_long' }]);
   });
@@ -132,6 +137,7 @@ describe('planOnboardingNotices', () => {
       { id: 'c1', onboardingStartedAt: started, joiningDate: null, steps: steps([null, null]) },
       ist9('2026-10-20'),
       new Set([ledgerKey('c1', '0', 'step_reminder')]),
+      LONG_AGO,
     );
     expect(plan).toEqual([]);
   });
@@ -141,16 +147,17 @@ describe('planOnboardingNotices', () => {
       { id: 'c1', onboardingStartedAt: started, joiningDate: '2026-10-08', steps: steps([null, null, '2026-10-05T06:00:00Z']) },
       ist9('2026-10-05'),
       new Set([ledgerKey('c1', '1', 'step_reminder')]),
+      LONG_AGO,
     );
     expect(plan).toEqual([{ kind: 'step_reminder', position: 0, reason: 'joining_soon' }]);
   });
 
   it('once the joining date has passed: one HR-head notice, no more step reminders', () => {
     const c = { id: 'c1', onboardingStartedAt: started, joiningDate: '2026-10-06', steps: steps([null]) };
-    expect(planOnboardingNotices(c, ist9('2026-10-07'), none)).toEqual([
+    expect(planOnboardingNotices(c, ist9('2026-10-07'), none, LONG_AGO)).toEqual([
       { kind: 'joining_passed', position: null, reason: 'joining_passed' },
     ]);
-    expect(planOnboardingNotices(c, ist9('2026-10-09'), new Set([ledgerKey('c1', '', 'joining_passed')]))).toEqual([]);
+    expect(planOnboardingNotices(c, ist9('2026-10-09'), new Set([ledgerKey('c1', '', 'joining_passed')]), LONG_AGO)).toEqual([]);
   });
 
   it('a finished or never-started checklist gets nothing', () => {
@@ -159,10 +166,11 @@ describe('planOnboardingNotices', () => {
         { id: 'c1', onboardingStartedAt: started, joiningDate: '2026-10-01', steps: steps(['2026-10-05T06:00:00Z']) },
         ist9('2026-10-09'),
         none,
+        LONG_AGO,
       ),
     ).toEqual([]);
     expect(
-      planOnboardingNotices({ id: 'c1', onboardingStartedAt: null, joiningDate: null, steps: steps([null]) }, ist9('2026-10-20'), none),
+      planOnboardingNotices({ id: 'c1', onboardingStartedAt: null, joiningDate: null, steps: steps([null]) }, ist9('2026-10-20'), none, LONG_AGO),
     ).toEqual([]);
   });
 
@@ -171,6 +179,7 @@ describe('planOnboardingNotices', () => {
       { id: 'c1', onboardingStartedAt: started, joiningDate: null, steps: steps([null]) },
       ist9('2026-10-06'),
       none,
+      LONG_AGO,
       { reminderAfterWorkingDays: 0, joiningSoonDays: 3 },
     );
     expect(plan).toHaveLength(1);
@@ -183,41 +192,41 @@ describe('planRegularizationNotices', () => {
   const pending = { id: 'r1', status: 'pending', created_at: created, approved_at: null };
 
   it('a new request that never had its notice gets "submitted" first', () => {
-    expect(planRegularizationNotices(pending, hoursLater(1), new Set())).toEqual([{ kind: 'submitted' }]);
+    expect(planRegularizationNotices(pending, hoursLater(1), new Set(), LONG_AGO)).toEqual([{ kind: 'submitted' }]);
   });
 
   it('backlog: submitted now, the reminder no earlier than the next run', () => {
-    expect(planRegularizationNotices(pending, hoursLater(60), new Set())).toEqual([{ kind: 'submitted' }]);
+    expect(planRegularizationNotices(pending, hoursLater(60), new Set(), LONG_AGO)).toEqual([{ kind: 'submitted' }]);
   });
 
   it('one reminder after 48 hours, never two', () => {
     const sent = new Set([ledgerKey('r1', '', 'submitted')]);
-    expect(planRegularizationNotices(pending, hoursLater(47), sent)).toEqual([]);
-    expect(planRegularizationNotices(pending, hoursLater(49), sent)).toEqual([{ kind: 'reminder' }]);
+    expect(planRegularizationNotices(pending, hoursLater(47), sent, LONG_AGO)).toEqual([]);
+    expect(planRegularizationNotices(pending, hoursLater(49), sent, LONG_AGO)).toEqual([{ kind: 'reminder' }]);
     sent.add(ledgerKey('r1', '', 'reminder'));
-    expect(planRegularizationNotices(pending, hoursLater(80), sent)).toEqual([]);
+    expect(planRegularizationNotices(pending, hoursLater(80), sent, LONG_AGO)).toEqual([]);
   });
 
   it('HR head once after 4 days pending', () => {
     const sent = new Set([ledgerKey('r1', '', 'submitted'), ledgerKey('r1', '', 'reminder')]);
-    expect(planRegularizationNotices(pending, hoursLater(97), sent)).toEqual([{ kind: 'hr_head' }]);
+    expect(planRegularizationNotices(pending, hoursLater(97), sent, LONG_AGO)).toEqual([{ kind: 'hr_head' }]);
     sent.add(ledgerKey('r1', '', 'hr_head'));
-    expect(planRegularizationNotices(pending, hoursLater(200), sent)).toEqual([]);
+    expect(planRegularizationNotices(pending, hoursLater(200), sent, LONG_AGO)).toEqual([]);
   });
 
   it('a decision is told to the requester only for a request that was announced', () => {
     const decided = { id: 'r1', status: 'rejected', created_at: created, approved_at: hoursLater(5).toISOString() };
-    expect(planRegularizationNotices(decided, hoursLater(6), new Set())).toEqual([]);
+    expect(planRegularizationNotices(decided, hoursLater(6), new Set(), LONG_AGO)).toEqual([]);
     const sent = new Set([ledgerKey('r1', '', 'submitted')]);
-    expect(planRegularizationNotices(decided, hoursLater(6), sent)).toEqual([{ kind: 'decided' }]);
+    expect(planRegularizationNotices(decided, hoursLater(6), sent, LONG_AGO)).toEqual([{ kind: 'decided' }]);
     sent.add(ledgerKey('r1', '', 'decided'));
-    expect(planRegularizationNotices(decided, hoursLater(6), sent)).toEqual([]);
+    expect(planRegularizationNotices(decided, hoursLater(6), sent, LONG_AGO)).toEqual([]);
   });
 
   it('an old decision past the backstop window is left alone', () => {
     const decided = { id: 'r1', status: 'approved', created_at: created, approved_at: hoursLater(5).toISOString() };
     const sent = new Set([ledgerKey('r1', '', 'submitted')]);
-    expect(planRegularizationNotices(decided, hoursLater(24 * 20), sent)).toEqual([]);
+    expect(planRegularizationNotices(decided, hoursLater(24 * 20), sent, LONG_AGO)).toEqual([]);
   });
 });
 
@@ -228,5 +237,92 @@ describe('positiveNumberOr', () => {
     expect(positiveNumberOr(0, 2)).toBe(2);
     expect(positiveNumberOr(null, 2)).toBe(2);
     expect(positiveNumberOr('x', 2)).toBe(2);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Go-live cutoff (Director, 7 Oct 2026): no reminders about items from before go-live
+// ---------------------------------------------------------------------------
+
+describe('go-live cutoff', () => {
+  const GO_LIVE = new Date('2026-10-07T06:00:00.000Z');
+  const before = '2026-10-05T04:00:00.000Z'; // Monday, before go-live
+  const after = '2026-10-08T04:00:00.000Z'; // Thursday, after go-live
+  const none = new Set<string>();
+
+  /** Every scheduled notice an item would get, overdue by every rule. */
+  function everyNotice(startedAt: string, goLiveAt: Date) {
+    const reg = planRegularizationNotices(
+      { id: 'r1', status: 'pending', created_at: startedAt, approved_at: null },
+      ist9('2026-10-20'),
+      new Set([ledgerKey('r1', '', 'submitted')]),
+      goLiveAt,
+    ).map((p) => `reg:${p.kind}`);
+    const lateSubmitted = planRegularizationNotices(
+      { id: 'r2', status: 'pending', created_at: startedAt, approved_at: null },
+      ist9('2026-10-20'),
+      none,
+      goLiveAt,
+    ).map((p) => `reg2:${p.kind}`);
+    const held = planOnboardingNotices(
+      { id: 'c1', onboardingStartedAt: startedAt, joiningDate: null, steps: steps([null, null]) },
+      ist9('2026-10-20'),
+      none,
+      goLiveAt,
+    ).map((p) => `onb:${p.reason}`);
+    const soon = planOnboardingNotices(
+      { id: 'c2', onboardingStartedAt: startedAt, joiningDate: '2026-10-21', steps: steps([null]) },
+      ist9('2026-10-20'),
+      none,
+      goLiveAt,
+    ).map((p) => `onb:${p.reason}`);
+    const passed = planOnboardingNotices(
+      { id: 'c3', onboardingStartedAt: startedAt, joiningDate: '2026-10-19', steps: steps([null]) },
+      ist9('2026-10-20'),
+      none,
+      goLiveAt,
+    ).map((p) => `onb:${p.reason}`);
+    return [...reg, ...lateSubmitted, ...held, ...soon, ...passed].sort();
+  }
+
+  const EVERY = [
+    'onb:held_too_long',
+    'onb:joining_passed',
+    'onb:joining_soon',
+    'reg2:hr_head',
+    'reg2:submitted',
+    'reg:hr_head',
+    'reg:reminder',
+  ];
+
+  it('(a) an item that arrived BEFORE go-live gets no reminder', () => {
+    expect(everyNotice(before, GO_LIVE)).toEqual([]);
+  });
+
+  it('(b) an item that arrived AFTER go-live is reminded as before', () => {
+    expect(everyNotice(after, GO_LIVE)).toEqual(EVERY);
+  });
+
+  it('(b) a step of an old onboarding that became someone\'s turn after go-live is a new wait', () => {
+    const plan = planOnboardingNotices(
+      { id: 'c1', onboardingStartedAt: before, joiningDate: null, steps: steps([after, null]) },
+      ist9('2026-10-20'),
+      none,
+      GO_LIVE,
+    );
+    expect(plan).toEqual([{ kind: 'step_reminder', position: 1, reason: 'held_too_long' }]);
+  });
+
+  it('(c) with the cutoff row missing or unreadable, go-live is NOW and old items get none', () => {
+    const now = ist9('2026-10-20');
+    for (const stored of [undefined, null, 'not a date', 42, {}]) {
+      expect(goLiveFromPolicy(stored, now)).toEqual(now);
+      expect(everyNotice(before, goLiveFromPolicy(stored, now))).toEqual([]);
+      expect(everyNotice(after, goLiveFromPolicy(stored, now))).toEqual([]);
+    }
+  });
+
+  it('reads the timestamp Postgres stores with to_jsonb(now())', () => {
+    expect(goLiveFromPolicy('2026-10-07T10:55:12.123456+00:00', new Date()).toISOString()).toBe('2026-10-07T10:55:12.123Z');
   });
 });

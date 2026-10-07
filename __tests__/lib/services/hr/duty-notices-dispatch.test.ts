@@ -205,6 +205,8 @@ type Built = { table: string; calls: Array<{ name: string; args: unknown[] }>; o
 function ladderClient(opts: {
   /** undefined = no switch row at all. */
   switchValue?: unknown;
+  /** Go-live cutoff row value; null = no row. Defaults to before every fixture. */
+  goLiveAt?: string | null;
   a3Definition?: { enabled: unknown } | null;
   definitionsError?: boolean;
 }) {
@@ -237,13 +239,16 @@ function ladderClient(opts: {
     }
     if (x.op !== 'select') return { data: null, error: null };
     switch (x.table) {
-      case 'platform_policies':
+      case 'platform_policies': {
+        const goLive = opts.goLiveAt === undefined ? '2026-10-01T00:00:00+00:00' : opts.goLiveAt;
         return {
-          data: opts.switchValue === undefined
-            ? []
-            : [{ policy_key: 'hr.harness.chase.enabled', value: opts.switchValue }],
+          data: [
+            ...(opts.switchValue === undefined ? [] : [{ policy_key: 'hr.harness.chase.enabled', value: opts.switchValue }]),
+            ...(goLive === null ? [] : [{ policy_key: 'hr.duty_notices.go_live_at', value: goLive }]),
+          ],
           error: null,
         };
+      }
       case 'hr_duty_definitions':
         if (opts.definitionsError) return { data: null, error: { message: 'relation does not exist' } };
         return {
@@ -349,5 +354,39 @@ describe('daily run vs the HR chase ladder (A3)', () => {
     expect(status).toBe(200);
     expect(sentKinds()).toEqual(ALL_FOUR);
     expect(warn).toHaveBeenCalledWith(expect.stringContaining('[hr/duty-notices]'), 'A3', 'relation does not exist');
+  });
+});
+
+describe('daily run vs the go-live cutoff (Director, 7 Oct 2026)', () => {
+  // Fixtures: r-old filed 4 Oct, r-done filed 5 Oct, r-new filed 10 Oct 04:00.
+  // The run is 10 Oct 05:00.
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-10-10T05:00:00Z'));
+    dispatchSpy.mockResolvedValue(1);
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  it('(a)+(b) requests filed before go-live get nothing; the one filed after is announced', async () => {
+    const { client } = ladderClient({ goLiveAt: '2026-10-06T00:00:00+00:00' });
+    const { status } = await runCron(client);
+    expect(status).toBe(200);
+    expect(sentKinds()).toEqual(['notifyRegularizationSubmitted']);
+  });
+
+  it('(c) cutoff row missing → go-live is the run time, so nothing older is chased', async () => {
+    const { client } = ladderClient({ goLiveAt: null });
+    const { status } = await runCron(client);
+    expect(status).toBe(200);
+    expect(sentKinds()).toEqual([]);
+  });
+
+  it('(c) cutoff row unreadable → same as missing', async () => {
+    const { client } = ladderClient({ goLiveAt: 'soon' });
+    await runCron(client);
+    expect(sentKinds()).toEqual([]);
   });
 });
