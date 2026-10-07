@@ -11839,6 +11839,179 @@ CREATE INDEX IF NOT EXISTS hr_playbook_lines_duty_idx
 COMMENT ON TABLE public.hr_playbook_lines IS
   'The short playbook shown on each HR duty screen. authored_by is the person credited, edited_by the decider who changed the words (if any); names are read from profiles at read time, never copied. Readable by team members (a staff row), super admins, admins and holders of hr.harness.playbooks.manage (fn_hr_playbook_can_read). 20271007161139.';
 
+-- ============================================================================
+-- HR staff harness — chase ladder: tables
+-- Migration: 20270613101207_hr_duty_chase_ladder.sql
+-- Added: 2026-10-01 - duty register (config table), chase ledger, blocked marks,
+-- run log. Seed rows (38 duties, policies, schedule, loop row) live in the
+-- migration only.
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS public.hr_duty_definitions (
+  -- shared config mixin (config-table-pattern.md, verbatim)
+  id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  config_key    text NOT NULL,                  -- the duty code, e.g. 'L1'
+  display_name  text NOT NULL,
+  description   text,
+  is_active     boolean NOT NULL DEFAULT true,
+  created_at    timestamptz NOT NULL DEFAULT now(),
+  updated_at    timestamptz NOT NULL DEFAULT now(),
+  updated_by    uuid REFERENCES public.profiles(id),
+  change_reason text,
+
+  -- typed columns
+  area                 text NOT NULL
+                         CHECK (area IN ('recruitment','leave','attendance','payroll','staff_records','governance')),
+  owning_queue         text NOT NULL,
+  -- How the engine finds who an item is waiting on:
+  --   chain_step = the approver pinned or named by the item's current step;
+  --   permission = holders of owner_permission_key in the item's college;
+  --   none       = no per-item owner (monthly / yearly duties).
+  owner_rule           text NOT NULL DEFAULT 'permission'
+                         CHECK (owner_rule IN ('chain_step','permission','none')),
+  owner_permission_key text,
+  -- Due rule. Hours are counted as ceil(hours/24) WORKING days (the clock
+  -- pauses on weekly offs and holidays). A calendar rule combines with an
+  -- hours/days rule as the EARLIER of the two. Supported calendar rule:
+  -- 'before_item_deadline:<days>'. Anything else is stored for the record and
+  -- keeps the duty out of the run.
+  due_hours            integer CHECK (due_hours IS NULL OR due_hours > 0),
+  due_working_days     integer CHECK (due_working_days IS NULL OR due_working_days > 0),
+  due_calendar_rule    text,
+  ladder               jsonb NOT NULL,
+  enabled              boolean NOT NULL DEFAULT false,
+  href                 text,
+  note                 text,
+
+  CONSTRAINT hr_duty_definitions_ladder_is_array CHECK (jsonb_typeof(ladder) = 'array'),
+  CONSTRAINT hr_duty_definitions_permission_named
+    CHECK (owner_rule <> 'permission' OR owner_permission_key IS NOT NULL),
+  CONSTRAINT hr_duty_definitions_enabled_needs_due
+    CHECK (NOT enabled OR due_hours IS NOT NULL OR due_working_days IS NOT NULL OR due_calendar_rule IS NOT NULL)
+);
+
+COMMENT ON TABLE public.hr_duty_definitions IS
+  'HR staff harness duty register (20270613101207): one row per HR duty with its owning queue, owner rule, due rule, chase-ladder rungs and enabled flag. Read by the hr-duty-chase cron. Config-table pattern; super admins write, every change audited in hr_duty_definitions_audit.';
+COMMENT ON COLUMN public.hr_duty_definitions.ladder IS
+  'Array of rungs {key, after_working_days, audience owner|supervisor|hr_head, channel in_app|whatsapp|weekly_list, enabled}. The whatsapp channel is not wired in this build and is skipped.';
+
+-- One active row per duty; history rows stay with is_active = false.
+CREATE UNIQUE INDEX IF NOT EXISTS hr_duty_definitions_active_unique
+  ON public.hr_duty_definitions (config_key)
+  WHERE is_active = true;
+
+CREATE TABLE IF NOT EXISTS public.hr_duty_definitions_audit (
+  id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  config_id     uuid NOT NULL REFERENCES public.hr_duty_definitions(id),
+  changed_at    timestamptz NOT NULL DEFAULT now(),
+  changed_by    uuid REFERENCES public.profiles(id),
+  old_value     jsonb,
+  new_value     jsonb,
+  change_reason text
+);
+
+CREATE INDEX IF NOT EXISTS idx_hr_duty_definitions_audit_config
+  ON public.hr_duty_definitions_audit (config_id, changed_at DESC);
+
+CREATE TABLE IF NOT EXISTS public.hr_duty_chase_ledger (
+  id                     uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  duty_code              text NOT NULL,
+  item_id                uuid NOT NULL,
+  -- '' for single-step items; the chain step index for leave / recruitment /
+  -- forms, so step 2 of a request is a new wait for a new person.
+  stage_key              text NOT NULL DEFAULT '',
+  step_key               text NOT NULL,
+  audience               text NOT NULL CHECK (audience IN ('owner','supervisor','hr_head')),
+  item_label             text,
+  institution_id         uuid,
+  owner_profile_ids      uuid[] NOT NULL DEFAULT '{}',
+  supervisor_profile_ids uuid[] NOT NULL DEFAULT '{}',
+  notified_profile_ids   uuid[] NOT NULL DEFAULT '{}',
+  notification_id        uuid,
+  reroute_reason         text CHECK (reroute_reason IS NULL OR reroute_reason IN
+                           ('owner_on_leave','no_owner','owners_over_cap','no_supervisor','supervisor_on_leave','blocked')),
+  blocked                boolean NOT NULL DEFAULT false,
+  due_at                 timestamptz NOT NULL,
+  late_working_days      integer NOT NULL DEFAULT 0,
+  reached_at             timestamptz NOT NULL DEFAULT now(),
+  -- Stamped by the run when the item has left its queue (decided, withdrawn…).
+  resolved_at            timestamptz,
+  created_at             timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT hr_duty_chase_ledger_one_per_rung UNIQUE (duty_code, item_id, stage_key, step_key)
+);
+
+COMMENT ON TABLE public.hr_duty_chase_ledger IS
+  'HR chase ladder: one row per item per rung reached (the UNIQUE key is the dedupe — a rung is messaged once). The per-person record: readable only by the item''s owners and their supervisors. Written by the hr-duty-chase cron (service role) only.';
+
+CREATE INDEX IF NOT EXISTS idx_hr_duty_chase_ledger_item
+  ON public.hr_duty_chase_ledger (item_id);
+CREATE INDEX IF NOT EXISTS idx_hr_duty_chase_ledger_open
+  ON public.hr_duty_chase_ledger (duty_code)
+  WHERE resolved_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_hr_duty_chase_ledger_owners
+  ON public.hr_duty_chase_ledger USING gin (owner_profile_ids);
+CREATE INDEX IF NOT EXISTS idx_hr_duty_chase_ledger_supervisors
+  ON public.hr_duty_chase_ledger USING gin (supervisor_profile_ids);
+
+
+CREATE TABLE IF NOT EXISTS public.hr_duty_blocked_marks (
+  id           uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  duty_code    text NOT NULL,
+  item_id      uuid NOT NULL,
+  stage_key    text NOT NULL DEFAULT '',
+  -- The rung the item stood on when it was marked; the engine lifts it one above.
+  at_step_key  text,
+  reason       text NOT NULL CHECK (length(btrim(reason)) >= 10),
+  marked_by    uuid NOT NULL REFERENCES public.profiles(id),
+  marked_at    timestamptz NOT NULL DEFAULT now(),
+  cleared_at   timestamptz,
+  cleared_by   uuid REFERENCES public.profiles(id),
+  created_at   timestamptz NOT NULL DEFAULT now()
+);
+
+COMMENT ON TABLE public.hr_duty_blocked_marks IS
+  'An owner''s "blocked, because…" answer on a chased HR item. An open mark parks the item (no more nudges to the owner) and lifts it one rung at once; it never counts against the owner. Written through fn_hr_duty_mark_blocked / fn_hr_duty_clear_blocked only.';
+
+CREATE UNIQUE INDEX IF NOT EXISTS hr_duty_blocked_marks_one_open
+  ON public.hr_duty_blocked_marks (duty_code, item_id, stage_key)
+  WHERE cleared_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_hr_duty_blocked_marks_item
+  ON public.hr_duty_blocked_marks (item_id);
+
+
+CREATE TABLE IF NOT EXISTS public.hr_duty_chase_runs (
+  id                  uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  run_date            date NOT NULL,
+  iso_week            text NOT NULL,
+  started_at          timestamptz NOT NULL DEFAULT now(),
+  finished_at         timestamptz,
+  outcome             text NOT NULL CHECK (outcome IN
+                        ('sent','nothing_due','switched_off','outside_hours','weekly_off','halted_volume_fuse','failed')),
+  master_switch       boolean NOT NULL DEFAULT false,
+  fuse_limit          integer NOT NULL DEFAULT 0,
+  fuse_blown          boolean NOT NULL DEFAULT false,
+  items_seen          integer NOT NULL DEFAULT 0,
+  items_due           integer NOT NULL DEFAULT 0,
+  planned_deliveries  integer NOT NULL DEFAULT 0,
+  sent_deliveries     integer NOT NULL DEFAULT 0,
+  weekly_lists_due    boolean NOT NULL DEFAULT false,
+  weekly_lists_sent   boolean NOT NULL DEFAULT false,
+  -- Counts per duty and per reroute reason, and the switch-off preview.
+  -- Never a profile id.
+  detail              jsonb NOT NULL DEFAULT '{}'::jsonb,
+  errors              text[] NOT NULL DEFAULT '{}',
+  created_at          timestamptz NOT NULL DEFAULT now()
+);
+
+COMMENT ON TABLE public.hr_duty_chase_runs IS
+  'One row per hr-duty-chase run, whatever it decided (sent, switched off, outside hours, weekly off, fuse blown, failed). While the master switch is off, detail.preview holds what the run WOULD have sent per duty.';
+
+CREATE INDEX IF NOT EXISTS idx_hr_duty_chase_runs_date
+  ON public.hr_duty_chase_runs (run_date DESC, started_at DESC);
+CREATE INDEX IF NOT EXISTS idx_hr_duty_chase_runs_week_sent
+  ON public.hr_duty_chase_runs (iso_week)
+  WHERE weekly_lists_sent;
+
+
 -- =====================================================================
 -- Updated: 2026-10-01 - HR memo detector run log + acknowledgement nudges
 -- Migration: 20270613101223_hr_memo_detector_schedule_disabled_with_dry_run.sql
