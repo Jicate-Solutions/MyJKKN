@@ -24,7 +24,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Loader2, GitBranch, CalendarClock, RefreshCw, Swords, Trophy, Medal, Network, UserPen, UserPlus } from 'lucide-react';
+import {
+  Loader2, GitBranch, CalendarClock, RefreshCw, Swords, Trophy, Medal, Network, UserPen, UserPlus,
+  Pencil, Plus, Trash2, Hand,
+} from 'lucide-react';
 import { formatIstDate, formatIstTime } from '@/lib/utils/date-format';
 import type { TournamentMatch, RecordResultDto, TournamentDivision, TournamentEntry } from '@/types/tournament';
 import {
@@ -43,6 +46,13 @@ import {
   editableSlots,
   unplacedEntries,
 } from './fixture-edit-dialogs';
+import {
+  DeleteManualMatchDialog,
+  FixtureModeDialog,
+  ManualMatchDialog,
+  isManualEditable,
+} from './manual-fixture-dialogs';
+import { divisionFixtureMode, type FixtureMode } from '@/types/tournament';
 
 function MatchStatusBadge({ status }: { status: string }) {
   const map: Record<string, string> = {
@@ -252,8 +262,15 @@ export function DivisionFixtures({
   const [recording, setRecording] = useState<TournamentMatch | null>(null);
   const [editing, setEditing] = useState<TournamentMatch | null>(null);
   const [spotOpen, setSpotOpen] = useState(false);
-  // Changing sides is knockout-only (fn_tournament_set_match_side).
-  const canEditSides = canManage && divisionFormat === 'knockout';
+  // Manual fixtures: the in-charge adds / edits / deletes every match.
+  const isManual = divisionFixtureMode(division?.config) === 'manual';
+  const [manualEditing, setManualEditing] = useState<TournamentMatch | 'new' | null>(null);
+  const [deleting, setDeleting] = useState<TournamentMatch | null>(null);
+  const [modeTo, setModeTo] = useState<FixtureMode | null>(null);
+  const hasResult = matches.some((m) => ['completed', 'walkover', 'disqualified'].includes(m.status));
+  // Changing sides of a generated draw is knockout-only (fn_tournament_set_match_side);
+  // a manual division edits whole matches instead.
+  const canEditSides = canManage && divisionFormat === 'knockout' && !isManual;
   const unplaced = useMemo(() => unplacedEntries(entries, matches), [entries, matches]);
   // Phones get the one-handed courtside score sheet; wider screens keep the dialog.
   // Only read after a tap (recording != null), which is always post-hydration.
@@ -293,7 +310,66 @@ export function DivisionFixtures({
     />
   );
 
+  const manualDialogs = (
+    <>
+      {manualEditing && (
+        <ManualMatchDialog
+          eventId={eventId}
+          divisionId={divisionId}
+          match={manualEditing === 'new' ? null : manualEditing}
+          matches={matches}
+          entries={entries}
+          open={!!manualEditing}
+          onOpenChange={(v) => !v && setManualEditing(null)}
+        />
+      )}
+      {deleting && (
+        <DeleteManualMatchDialog
+          eventId={eventId}
+          match={deleting}
+          open={!!deleting}
+          onOpenChange={(v) => !v && setDeleting(null)}
+        />
+      )}
+      {modeTo && (
+        <FixtureModeDialog
+          eventId={eventId}
+          divisionId={divisionId}
+          to={modeTo}
+          matchCount={matches.length}
+          open={!!modeTo}
+          onOpenChange={(v) => !v && setModeTo(null)}
+        />
+      )}
+    </>
+  );
+  const addMatchButton = canManage && isManual && (
+    <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => setManualEditing('new')}>
+      <Plus className="mr-1 h-3 w-3" /> Add match
+    </Button>
+  );
+
   if (matches.length === 0) {
+    if (isManual) {
+      return (
+        <div className="mt-3 rounded-lg border border-dashed p-3 text-center">
+          <p className="mb-2 text-xs text-muted-foreground">
+            Manual fixtures — no matches yet ({entryCount} {entryCount === 1 ? 'entry' : 'entries'}).
+          </p>
+          {canManage && (
+            <div className="flex flex-wrap justify-center gap-2">
+              {addMatchButton}
+              {spotEntryButton}
+              <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => setModeTo('auto')}>
+                <GitBranch className="mr-1 h-3 w-3" /> Auto-generate instead
+              </Button>
+            </div>
+          )}
+          {spotEntryDialog}
+          {manualDialogs}
+        </div>
+      );
+    }
     return (
       <div className="mt-3 rounded-lg border border-dashed p-3 text-center">
         <p className="mb-2 text-xs text-muted-foreground">
@@ -314,6 +390,9 @@ export function DivisionFixtures({
               )}
               Generate Fixtures
             </Button>
+            <Button size="sm" variant="ghost" className="ml-1" onClick={() => setModeTo('manual')}>
+              <Hand className="mr-1 h-3.5 w-3.5" /> Set fixtures manually
+            </Button>
             {entryCount < 2 && (
               <p className="mt-1 text-[11px] text-muted-foreground">Need at least 2 entries.</p>
             )}
@@ -321,6 +400,7 @@ export function DivisionFixtures({
           </>
         )}
         {spotEntryDialog}
+        {manualDialogs}
       </div>
     );
   }
@@ -330,10 +410,12 @@ export function DivisionFixtures({
       <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
         <span className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
           <Swords className="h-3.5 w-3.5" /> Fixtures
+          {isManual && <Badge className="bg-sky-50 text-[10px] text-sky-700">Manual</Badge>}
         </span>
         <div className="flex flex-wrap items-center justify-end gap-1">
+          {addMatchButton}
           {spotEntryButton}
-          {canManage && poolsDone && (
+          {canManage && poolsDone && !isManual && (
             <Button
               size="sm"
               variant="outline"
@@ -371,7 +453,31 @@ export function DivisionFixtures({
               Finalize &amp; Award
             </Button>
           )}
-          {canManage && (
+          {canManage && !isManual && (
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-7 text-xs"
+              disabled={hasResult}
+              onClick={() => setModeTo('manual')}
+              title={hasResult ? 'Results are already recorded in this division' : 'Add and edit every match yourself'}
+            >
+              <Hand className="mr-1 h-3 w-3" /> Manual fixtures
+            </Button>
+          )}
+          {canManage && isManual && (
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-7 text-xs"
+              disabled={hasResult}
+              onClick={() => setModeTo('auto')}
+              title={hasResult ? 'Results are already recorded in this division' : 'Delete these matches and draw a bracket'}
+            >
+              <GitBranch className="mr-1 h-3 w-3" /> Auto-generate instead
+            </Button>
+          )}
+          {canManage && !isManual && (
             <Button
               size="sm"
               variant="ghost"
@@ -398,6 +504,11 @@ export function DivisionFixtures({
         </div>
       </div>
 
+      {isManual && canManage && unplaced.length > 0 && (
+        <p className="mb-2 rounded-md bg-amber-50 p-2 text-xs text-amber-800 dark:bg-amber-950/40 dark:text-amber-300">
+          Not in any match yet: {unplaced.map((e) => e.entry_name).join(', ')}.
+        </p>
+      )}
       {canEditSides && unplaced.length > 0 && (
         <p className="mb-2 rounded-md bg-amber-50 p-2 text-xs text-amber-800 dark:bg-amber-950/40 dark:text-amber-300">
           Not in the bracket yet: {unplaced.map((e) => e.entry_name).join(', ')}. Use{' '}
@@ -432,6 +543,30 @@ export function DivisionFixtures({
                     </span>
                   )}
                   <MatchStatusBadge status={m.status} />
+                  {isManual && canManage && isManualEditable(m) && (
+                    <>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-7"
+                        onClick={() => setManualEditing(m)}
+                        title="Edit match"
+                        aria-label="Edit match"
+                      >
+                        <Pencil className="h-3.5 w-3.5" />
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-7"
+                        onClick={() => setDeleting(m)}
+                        title="Delete match"
+                        aria-label="Delete match"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </Button>
+                    </>
+                  )}
                   {canEditSides && editableSlots(m, matches).length > 0 && (
                     <Button
                       size="sm"
@@ -489,6 +624,7 @@ export function DivisionFixtures({
         />
       )}
       {spotEntryDialog}
+      {manualDialogs}
       {scheduling && (
         <ScheduleDialog
           eventId={eventId}
