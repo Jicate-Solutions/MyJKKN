@@ -81630,6 +81630,406 @@ REVOKE EXECUTE ON FUNCTION public.hr_salary_revision_approve_one(uuid, numeric, 
 REVOKE EXECUTE ON FUNCTION public.hr_salary_revision_apply_due_on(date) FROM anon, PUBLIC, authenticated;
 
 -- ============================================================================
+-- Updated: 2026-10-07 - HR duty proofs: a file or a second-person check on the
+-- duties that move money or end a job (migration 20271007161123). Functions.
+-- ============================================================================
+CREATE OR REPLACE FUNCTION public.fn_hr_duty_proof_rules_touch()
+RETURNS trigger
+LANGUAGE plpgsql
+SET search_path = public
+AS $$
+BEGIN
+  NEW.updated_at := now();
+  NEW.updated_by := COALESCE(auth.uid(), NEW.updated_by);
+  RETURN NEW;
+END $$;
+
+CREATE OR REPLACE FUNCTION public.fn_hr_duty_proof_rules_audit()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+  INSERT INTO public.hr_duty_proof_rules_audit (config_id, changed_by, old_value, new_value, change_reason)
+  VALUES (NEW.id, auth.uid(), to_jsonb(OLD), to_jsonb(NEW), NEW.change_reason);
+  RETURN NEW;
+END $$;
+
+REVOKE EXECUTE ON FUNCTION public.fn_hr_duty_proof_rules_audit() FROM anon, PUBLIC, authenticated;
+REVOKE EXECUTE ON FUNCTION public.fn_hr_duty_proof_rules_touch() FROM anon, PUBLIC, authenticated;
+
+-- A SECURITY DEFINER helper so the hr_duty_proofs policy reads the rule row
+-- without the policy querying a table of its own. Fails CLOSED: no active rule,
+-- no key, or a NULL from either permission helper all mean "not visible".
+CREATE OR REPLACE FUNCTION public.fn_hr_duty_proof_can_view(p_duty text, p_institution_id uuid)
+RETURNS boolean
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_key text;
+BEGIN
+  IF COALESCE(public.is_super_admin(), false) OR COALESCE(public.is_admin(), false) THEN
+    RETURN true;
+  END IF;
+
+  SELECT r.checker_permission_key INTO v_key
+  FROM public.hr_duty_proof_rules r
+  WHERE r.config_key = p_duty AND r.is_active;
+
+  IF v_key IS NULL THEN
+    RETURN false;
+  END IF;
+
+  RETURN COALESCE(public.user_has_permission(v_key)
+                  AND public.role_has_institution_access(p_institution_id), false);
+END $$;
+
+REVOKE EXECUTE ON FUNCTION public.fn_hr_duty_proof_can_view(text, uuid) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_hr_duty_proof_can_view(text, uuid) TO authenticated;
+
+-- ----------------------------------------------------------------------------
+-- 4. The one definition of "done" per duty (internal)
+-- ----------------------------------------------------------------------------
+-- SECURITY INVOKER and granted to nobody: it is only ever called from inside
+-- the SECURITY DEFINER functions below, so it reads as their owner.
+CREATE OR REPLACE FUNCTION public.fn_hr_duty_proof_done_items(p_duty text, p_item_id uuid DEFAULT NULL)
+RETURNS TABLE (item_id uuid, done_at timestamptz, institution_id uuid, doer_ids uuid[], amount numeric,
+               decider_id uuid)
+LANGUAGE plpgsql
+STABLE
+SET search_path = public
+AS $$
+#variable_conflict use_column
+BEGIN
+  IF p_duty = 'L4' THEN
+    RETURN QUERY
+    SELECT e.id,
+           COALESCE(e.approved_at, e.updated_at),
+           o.institution_id,
+           array_remove(ARRAY[e.approved_by, s.profile_id], NULL),
+           e.total_amount::numeric,
+           e.approved_by
+    FROM public.hr_leave_encashments e
+    LEFT JOIN public.hr_organizations o ON o.id = e.hr_organization_id
+    LEFT JOIN public.staff s ON s.id = e.employee_id
+    WHERE e.status IN ('approved', 'paid')
+      AND (p_item_id IS NULL OR e.id = p_item_id);
+
+  ELSIF p_duty = 'G5' THEN
+    RETURN QUERY
+    SELECT c.id,
+           CASE WHEN (d.entry->>'acted_at') ~ '^\d{4}-\d{2}-\d{2}'
+                THEN (d.entry->>'acted_at')::timestamptz
+                ELSE c.updated_at END,
+           c.institution_id,
+           ARRAY[]::uuid[],
+           NULL::numeric,
+           NULL::uuid
+    FROM public.hr_offboarding_cases c
+    CROSS JOIN LATERAL (
+      SELECT x.entry
+      FROM jsonb_array_elements(
+             CASE WHEN jsonb_typeof(c.termination_approval_chain) = 'array'
+                  THEN c.termination_approval_chain ELSE '[]'::jsonb END) AS x(entry)
+      WHERE x.entry->>'step' = 'director' AND x.entry->>'status' = 'approved'
+      LIMIT 1
+    ) d
+    WHERE c.separation_type = 'termination'
+      AND (p_item_id IS NULL OR c.id = p_item_id);
+
+  ELSIF p_duty = 'G6' THEN
+    RETURN QUERY
+    SELECT c.id,
+           sc.completed_at,
+           c.institution_id,
+           array_remove(
+             ARRAY[sc.completed_by, s.profile_id]
+             || ARRAY(SELECT f.approved_by FROM public.hr_fnf_calculations f
+                      WHERE f.case_id = c.id AND f.approved_by IS NOT NULL),
+             NULL),
+           (SELECT f.net_payable::numeric FROM public.hr_fnf_calculations f
+            WHERE f.case_id = c.id AND f.approved_at IS NOT NULL
+            ORDER BY f.approved_at DESC LIMIT 1),
+           sc.completed_by
+    FROM public.hr_offboarding_cases c
+    JOIN public.hr_offboarding_step_completions sc
+      ON sc.case_id = c.id AND sc.step_key = 'final_settlement'
+    LEFT JOIN public.staff s ON s.id = c.staff_id
+    WHERE c.separation_type = 'termination'
+      AND (p_item_id IS NULL OR c.id = p_item_id);
+  END IF;
+  -- Any other duty code: no adapter yet, so nothing is listed as done.
+END $$;
+
+REVOKE EXECUTE ON FUNCTION public.fn_hr_duty_proof_done_items(text, uuid) FROM anon, PUBLIC, authenticated;
+
+-- Path: <duty>/<item_id>/<uuid>-<file name>. The object is readable and
+-- writable only by a signed-in user who can see that duty in the item's
+-- college, and only for a done item of a 'file' rule.
+CREATE OR REPLACE FUNCTION public.fn_hr_duty_proof_can_view_object(p_name text)
+RETURNS boolean
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_parts text[] := string_to_array(COALESCE(p_name, ''), '/');
+  v_item  uuid;
+  v_inst  uuid;
+  v_key   text;
+BEGIN
+  IF array_length(v_parts, 1) IS DISTINCT FROM 3
+     OR v_parts[2] !~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+     OR COALESCE(v_parts[3], '') = '' THEN
+    RETURN false;
+  END IF;
+
+  SELECT r.checker_permission_key INTO v_key
+  FROM public.hr_duty_proof_rules r
+  WHERE r.config_key = v_parts[1] AND r.is_active AND r.proof_kind = 'file';
+  IF NOT FOUND THEN
+    RETURN false;
+  END IF;
+
+  v_item := v_parts[2]::uuid;
+  SELECT d.institution_id INTO v_inst
+  FROM public.fn_hr_duty_proof_done_items(v_parts[1], v_item) d
+  LIMIT 1;
+  IF NOT FOUND THEN
+    RETURN false;
+  END IF;
+
+  IF COALESCE(public.is_super_admin(), false) OR COALESCE(public.is_admin(), false) THEN
+    RETURN true;
+  END IF;
+
+  -- The caller holds the rule's key in the item's college. A NULL from either
+  -- helper is "no".
+  RETURN COALESCE(public.user_has_permission(v_key)
+                  AND public.role_has_institution_access(v_inst), false);
+END $$;
+
+REVOKE EXECUTE ON FUNCTION public.fn_hr_duty_proof_can_view_object(text) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_hr_duty_proof_can_view_object(text) TO authenticated;
+
+-- ----------------------------------------------------------------------------
+-- 6. Record a second check
+-- ----------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.fn_hr_duty_proof_second_check(
+  p_duty text,
+  p_item_id uuid,
+  p_result text,
+  p_corrected_amount numeric DEFAULT NULL,
+  p_note text DEFAULT NULL
+)
+RETURNS uuid
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_uid  uuid := auth.uid();
+  v_rule public.hr_duty_proof_rules%ROWTYPE;
+  v_item record;
+  v_id   uuid;
+BEGIN
+  IF v_uid IS NULL THEN
+    RAISE EXCEPTION 'Sign in to record a second check' USING ERRCODE = '42501';
+  END IF;
+
+  -- 1. The rule, and it must be a second-check rule.
+  SELECT * INTO v_rule FROM public.hr_duty_proof_rules r
+  WHERE r.config_key = p_duty AND r.is_active;
+  IF NOT FOUND OR v_rule.proof_kind <> 'second_check' THEN
+    RAISE EXCEPTION 'Duty % does not take a second check', p_duty USING ERRCODE = '22023';
+  END IF;
+
+  IF p_result IS NULL OR p_result NOT IN ('confirmed', 'corrected') THEN
+    RAISE EXCEPTION 'A second check is either confirmed or corrected' USING ERRCODE = '22023';
+  END IF;
+
+  -- 6. A correction needs the right amount and a note of at least 10 characters.
+  IF p_result = 'corrected'
+     AND (p_corrected_amount IS NULL OR char_length(btrim(COALESCE(p_note, ''))) < 10) THEN
+    RAISE EXCEPTION 'A correction needs the right amount and a note of at least 10 characters'
+      USING ERRCODE = '22023';
+  END IF;
+
+  -- 2 + 3. The item, from its own table, and it must be done.
+  SELECT * INTO v_item FROM public.fn_hr_duty_proof_done_items(p_duty, p_item_id) d LIMIT 1;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'This item is not decided yet, so there is nothing to check' USING ERRCODE = '22023';
+  END IF;
+
+  -- 4. The checker holds the rule's key AND has access to the item's college.
+  --    IS NOT TRUE, so a NULL from either helper is refused.
+  IF (public.is_super_admin()
+      OR (public.user_has_permission(v_rule.checker_permission_key)
+          AND public.role_has_institution_access(v_item.institution_id))) IS NOT TRUE THEN
+    RAISE EXCEPTION 'You do not have the permission to check this duty in this college'
+      USING ERRCODE = '42501';
+  END IF;
+
+  -- 5a. Fail closed when the decider is not recorded (L4 approved_by, G6
+  --     completed_by): the "not the person who decided it" rule below cannot
+  --     be enforced without it, so a 'Checked by' badge would be false comfort.
+  IF v_item.decider_id IS NULL THEN
+    RAISE EXCEPTION 'The approver of this item is not recorded, so an independent check cannot be confirmed'
+      USING ERRCODE = '22023';
+  END IF;
+
+  -- 5. Not the person who decided it, nor the team member it pays.
+  IF v_uid = ANY (v_item.doer_ids) THEN
+    RAISE EXCEPTION 'You decided this item or it pays you; another team member must check it'
+      USING ERRCODE = '42501';
+  END IF;
+
+  -- 7. Insert. The source item is never updated.
+  BEGIN
+    INSERT INTO public.hr_duty_proofs
+      (duty_code, item_table, item_id, institution_id, kind, recorded_by,
+       check_result, corrected_amount, check_note)
+    VALUES
+      (p_duty, v_rule.item_table, p_item_id, v_item.institution_id, 'second_check', v_uid,
+       p_result,
+       CASE WHEN p_result = 'corrected' THEN p_corrected_amount END,
+       NULLIF(btrim(COALESCE(p_note, '')), ''))
+    RETURNING id INTO v_id;
+  EXCEPTION WHEN unique_violation THEN
+    RAISE EXCEPTION 'This item already has a second check' USING ERRCODE = '23505';
+  END;
+
+  RETURN v_id;
+END $$;
+
+REVOKE EXECUTE ON FUNCTION public.fn_hr_duty_proof_second_check(text, uuid, text, numeric, text) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_hr_duty_proof_second_check(text, uuid, text, numeric, text) TO authenticated;
+
+-- ----------------------------------------------------------------------------
+-- 7. Record a file proof
+-- ----------------------------------------------------------------------------
+-- The browser uploads the file to the bucket first (the bucket's own policy
+-- checks the caller), then calls this with the path.
+CREATE OR REPLACE FUNCTION public.fn_hr_duty_proof_attach_file(
+  p_duty text,
+  p_item_id uuid,
+  p_storage_path text,
+  p_file_name text
+)
+RETURNS uuid
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_uid  uuid := auth.uid();
+  v_rule public.hr_duty_proof_rules%ROWTYPE;
+  v_item record;
+  v_id   uuid;
+BEGIN
+  IF v_uid IS NULL THEN
+    RAISE EXCEPTION 'Sign in to attach a file' USING ERRCODE = '42501';
+  END IF;
+
+  SELECT * INTO v_rule FROM public.hr_duty_proof_rules r
+  WHERE r.config_key = p_duty AND r.is_active;
+  IF NOT FOUND OR v_rule.proof_kind <> 'file' THEN
+    RAISE EXCEPTION 'Duty % does not take a file', p_duty USING ERRCODE = '22023';
+  END IF;
+
+  SELECT * INTO v_item FROM public.fn_hr_duty_proof_done_items(p_duty, p_item_id) d LIMIT 1;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'This item is not at the step that needs a file yet' USING ERRCODE = '22023';
+  END IF;
+
+  IF public.fn_hr_duty_proof_can_view(p_duty, v_item.institution_id) IS NOT TRUE THEN
+    RAISE EXCEPTION 'You do not have the permission to attach a file to this duty in this college'
+      USING ERRCODE = '42501';
+  END IF;
+
+  IF p_storage_path IS NULL
+     OR position(p_duty || '/' || p_item_id::text || '/' IN p_storage_path) <> 1
+     OR p_storage_path LIKE '%..%'
+     OR char_length(btrim(COALESCE(p_file_name, ''))) = 0 THEN
+    RAISE EXCEPTION 'The file path must be %/%/<file>', p_duty, p_item_id USING ERRCODE = '22023';
+  END IF;
+
+  IF NOT EXISTS (SELECT 1 FROM storage.objects o
+                 WHERE o.bucket_id = 'hr-duty-proofs' AND o.name = p_storage_path) THEN
+    RAISE EXCEPTION 'The file has not been uploaded' USING ERRCODE = '22023';
+  END IF;
+
+  BEGIN
+    INSERT INTO public.hr_duty_proofs
+      (duty_code, item_table, item_id, institution_id, kind, storage_path, file_name, recorded_by)
+    VALUES
+      (p_duty, v_rule.item_table, p_item_id, v_item.institution_id, 'file',
+       p_storage_path, btrim(p_file_name), v_uid)
+    RETURNING id INTO v_id;
+  EXCEPTION WHEN unique_violation THEN
+    RAISE EXCEPTION 'This item already has a file attached' USING ERRCODE = '23505';
+  END;
+
+  RETURN v_id;
+END $$;
+
+REVOKE EXECUTE ON FUNCTION public.fn_hr_duty_proof_attach_file(text, uuid, text, text) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_hr_duty_proof_attach_file(text, uuid, text, text) TO authenticated;
+
+-- ----------------------------------------------------------------------------
+-- 8. Done items still missing their proof
+-- ----------------------------------------------------------------------------
+-- Limited to the caller's colleges. Also returns the amount (so the checker
+-- can confirm it) and whether the caller is one of the item's doers (so the
+-- screen hides the check button for them; the check function refuses anyway).
+CREATE OR REPLACE FUNCTION public.fn_hr_duty_proof_gaps(p_duty text, p_since date DEFAULT NULL)
+RETURNS TABLE (item_id uuid, done_at timestamptz, institution_id uuid, amount numeric, caller_is_doer boolean)
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+#variable_conflict use_column
+DECLARE
+  v_rule public.hr_duty_proof_rules%ROWTYPE;
+  v_uid  uuid := auth.uid();
+BEGIN
+  SELECT * INTO v_rule FROM public.hr_duty_proof_rules r
+  WHERE r.config_key = p_duty AND r.is_active;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Duty % has no proof rule', p_duty USING ERRCODE = '22023';
+  END IF;
+
+  IF (public.is_super_admin() OR public.is_admin()
+      OR public.user_has_permission(v_rule.checker_permission_key)) IS NOT TRUE THEN
+    RAISE EXCEPTION 'You do not have the permission to see proof for this duty' USING ERRCODE = '42501';
+  END IF;
+
+  RETURN QUERY
+  SELECT d.item_id, d.done_at, d.institution_id, d.amount,
+         COALESCE(v_uid = ANY (d.doer_ids), false)
+  FROM public.fn_hr_duty_proof_done_items(p_duty) d
+  WHERE (p_since IS NULL OR d.done_at >= p_since)
+    AND public.fn_hr_duty_proof_can_view(p_duty, d.institution_id)
+    AND NOT EXISTS (
+      SELECT 1 FROM public.hr_duty_proofs p
+      WHERE p.duty_code = p_duty
+        AND p.item_id = d.item_id
+        AND p.kind = v_rule.proof_kind
+        AND p.revoked_at IS NULL
+    )
+  ORDER BY d.done_at DESC;
+END $$;
+
+REVOKE EXECUTE ON FUNCTION public.fn_hr_duty_proof_gaps(text, date) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_hr_duty_proof_gaps(text, date) TO authenticated;
+
+-- ============================================================================
 -- HR staff harness — chase ladder: functions
 -- Migration: 20270613101207_hr_duty_chase_ladder.sql
 -- Added: 2026-10-01 - duty register (config table), chase ledger, blocked marks,
