@@ -462,6 +462,22 @@ export const PLATFORM_OPS_ROUTINES: AIRoutine[] = [
     "notes": "Auth: Bearer only. Seeded by 20270613101133 (minute_of_day 607, days {1..6} — never Sunday, never at night). Marked not-safe because it messages people; a repeat run itself sends nothing new, since the ledger refuses repeats."
   },
   {
+    "id": "hr-memo-auto-detector",
+    "name": "HR memo detector + acknowledgement nudges",
+    "category": "platform-ops",
+    "type": "cron",
+    "schedule": "Daily · 07:30 IST (seeded OFF — enable at /admin/ai-routines)",
+    "triggerPath": "/api/cron/hr-memo-auto-detector",
+    "callsClaude": false,
+    "featureKey": null,
+    "featureKeyNote": "Rules-based detector and reminder windows; no model involved.",
+    "whatItDoes": "Finds memo-worthy events (leave taken before approval, too many loss-of-pay days in a month), issues the memo, and chases memos nobody has answered: one reminder to the team member after 3 days, then one notice to their reporting head 3 days later.",
+    "configKnobs": "platform_policies 'hr.memo_auto_detector' = { mode: off | dry_run | live, staff_reminder_after_days: 3, hod_notice_after_days: 3, nudge_max_age_days: 30 }. Seeded dry_run. Trigger thresholds come from fn_get_hr_memo_triggers. Day/time editable at /admin/ai-routines.",
+    "sideEffects": "mode live: writes hr_memo_eligibility_events, hr_memos, hr_memo_state_transitions and hr_memo_nudges, and SENDS in-app notices (bell + web push; no WhatsApp). mode dry_run: writes ONE hr_memo_detector_runs row describing what it would do, and nothing else. mode off: nothing.",
+    "safeToManualTrigger": false,
+    "notes": "Schedule row seeded DISABLED by migration 20270613101223; the header of that migration has the exact statements to enable it. Auth: Bearer ONLY. ?dry_run=1 forces a preview of a live detector. IST math: 02:00 UTC = 07:30 IST (minute_of_day 450)."
+  },
+  {
     "id": "hr-policy-promote-detector",
     "name": "HR policy promotion detector (weekly)",
     "category": "platform-ops",
@@ -713,6 +729,22 @@ export const PLATFORM_OPS_ROUTINES: AIRoutine[] = [
     "sideEffects": "WRITES one notifications row (+ user_notifications link) per recipient per ISO week and SENDS one email per recipient via Resend when that row is freshly created. Moves no money and releases nothing.",
     "safeToManualTrigger": true,
     "notes": "Idempotent per ISO week (IST calendar): notifications.idempotency_key walkin-claims-weekly-note:<week>:<user>, and the email is gated on that row being new, so a re-run in the same week sends nothing. Auth: CRON_SECRET, Bearer ONLY (constant-time). Migration 20270610100000."
+  },
+  {
+    "id": "hr-duty-chase",
+    "name": "HR harness — duty chase ladder + weekly late lists",
+    "category": "platform-ops",
+    "type": "cron",
+    "schedule": "Daily · 10:15 IST (editable via dispatcher)",
+    "triggerPath": "/api/cron/hr-duty-chase",
+    "callsClaude": false,
+    "featureKey": null,
+    "featureKeyNote": "Rules-based ladder over HR queues (lib/services/hr/duty-harness); no model involved.",
+    "whatItDoes": "Walks the chase ladder for every enabled HR duty in hr_duty_definitions: a due item nudges its owner in-app, two working days late its owner's supervisor, four working days late it joins the HR head's weekly late list; on the digest weekday the Director gets one digest of late items per desk (never per person). Nobody on approved leave, no night run, no holiday; a 'blocked, because…' mark parks the item and moves it up one step. SHIPS SWITCHED OFF — until the Director flips platform_policies 'hr.harness.chase.enabled' every run is a recorded preview that sends nothing.",
+    "configKnobs": "platform_policies hr.harness.chase.enabled (master switch, default false), hr.harness.chase.max_messages_per_run (volume fuse, default 50), max_owners_per_item (5), working_hours (09:00-18:00 IST), weekly_off_days ([0] = Sunday), digest_weekday (1 = Monday), hr_head_role_keys (['hr_head']). Per duty: due rule, ladder rungs and enabled flag in hr_duty_definitions. Day/time editable at /admin/ai-routines.",
+    "sideEffects": "Switched off: one hr_duty_chase_runs row per run, nothing else. Switched on: hr_duty_chase_ledger rows (one per item per rung reached), in-app notifications to owners/supervisors, and once a week the HR head list and the Director digest. A run over the fuse sends nothing and alerts the Director alone.",
+    "safeToManualTrigger": false,
+    "notes": "Migration 20270613101207. Idempotent per rung (ledger UNIQUE + notification idempotency key) and per ISO week for the weekly lists, but it messages people once switched on, so manual runs are marked unsafe. Auth: CRON_SECRET Bearer only. Slot 10:15 IST (minute_of_day 615), every day; the route itself skips weekly-off days and runs outside working hours."
   },
   {
     "id": "hr-recruitment-nudges",
