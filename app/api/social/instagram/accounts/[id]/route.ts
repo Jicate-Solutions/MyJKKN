@@ -18,6 +18,7 @@ export const dynamic = 'force-dynamic';
 import { NextRequest, NextResponse } from 'next/server';
 import { connection } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
+import { fetchLatestPostMetrics } from '@/lib/services/social/ig-post-lookup';
 
 const SNAPSHOT_LIMIT = 30;
 const POSTS_LIMIT = 10;
@@ -90,28 +91,42 @@ export async function GET(
       string,
       { reach: number; impressions: number; engagement: number; comments: number; likes: number | null }
     >();
+    // Read per post: one .in() read over ~627 snapshots a post overflows the
+    // 1,000-row cap and silently drops posts.
     if (postIds.length > 0) {
-      const { data: pmRows } = await supabase
-        .from('ig_post_metrics')
-        .select('post_id, reach, impressions, engagement, comments, likes, snapshot_at')
-        .in('post_id', postIds)
-        .order('snapshot_at', { ascending: false });
-      for (const pm of pmRows ?? []) {
-        const existing = latestPostMetrics.get(pm.post_id);
-        if (!existing) {
-          latestPostMetrics.set(pm.post_id, {
-            reach: pm.reach ?? 0,
-            impressions: pm.impressions ?? 0,
-            engagement: pm.engagement ?? 0,
-            comments: pm.comments ?? 0,
-            likes: pm.likes ?? null,
-          });
-        } else if (existing.likes === null && pm.likes !== null && pm.likes !== undefined) {
-          // Newest snapshot had likes NULL — backfill from the newest
-          // older snapshot that recorded likes.
-          existing.likes = pm.likes;
-        }
+      const { latest } = await fetchLatestPostMetrics<{
+        post_id: string;
+        reach: number | null;
+        impressions: number | null;
+        engagement: number | null;
+        comments: number | null;
+        likes: number | null;
+      }>(supabase, postIds, 'post_id, reach, impressions, engagement, comments, likes, snapshot_at');
+      for (const pm of latest.values()) {
+        latestPostMetrics.set(pm.post_id, {
+          reach: pm.reach ?? 0,
+          impressions: pm.impressions ?? 0,
+          engagement: pm.engagement ?? 0,
+          comments: pm.comments ?? 0,
+          likes: pm.likes ?? null,
+        });
       }
+      // Newest snapshot had likes NULL — backfill from the newest older
+      // snapshot that recorded likes (one more single-row read per such post).
+      const missingLikes = [...latestPostMetrics.entries()].filter(([, m]) => m.likes === null);
+      await Promise.all(
+        missingLikes.map(async ([postId, m]) => {
+          const { data } = await supabase
+            .from('ig_post_metrics')
+            .select('likes')
+            .eq('post_id', postId)
+            .not('likes', 'is', null)
+            .order('snapshot_at', { ascending: false, nullsFirst: false })
+            .limit(1);
+          const likes = (data ?? [])[0]?.likes;
+          if (likes !== null && likes !== undefined) m.likes = likes;
+        })
+      );
     }
 
     const latest = (snapshots ?? [])[0];
