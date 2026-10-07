@@ -64734,6 +64734,9 @@ DECLARE
   v_has_emp_edit       boolean;
   v_staff_inst_ids     uuid[];
   v_all_role_keys      text[];
+  -- Raises for people on the Director list (see the salary_revision branch).
+  v_list_raise_decider uuid;
+  v_director_list      jsonb;
 BEGIN
   -- No identity, no answer. Every branch below is keyed on v_uid, so a NULL
   -- would match nothing anyway — but returning here keeps the helper calls
@@ -64777,6 +64780,28 @@ BEGIN
   v_has_photo_review   := COALESCE(public.user_has_permission('hr.staff_photo.review'), false);
   v_has_emp_edit       := COALESCE(public.user_has_permission('hr.employees.edit'), false);
   v_staff_inst_ids     := COALESCE(public.fn_my_staff_institution_ids(), ARRAY[]::uuid[]);
+  -- The one profile that decides a raise for someone on the Director list
+  -- (platform_policies 'hr.salary_revision.list_member_raise_decider_profile_id',
+  -- added by #4190): NULL when the row is missing, switched off or not one
+  -- profile id. And the Director list itself ('platform.the_director_profile_ids',
+  -- 20270520090000): NULL when missing, off or not an array.
+  SELECT (pp.value #>> '{}')::uuid
+    INTO v_list_raise_decider
+    FROM public.platform_policies pp
+   WHERE pp.policy_key = 'hr.salary_revision.list_member_raise_decider_profile_id'
+     AND pp.scope_type = 'global' AND pp.scope_id IS NULL
+     AND pp.is_active = true
+     AND jsonb_typeof(pp.value) = 'string'
+     AND (pp.value #>> '{}') ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+   LIMIT 1;
+  SELECT pp.value
+    INTO v_director_list
+    FROM public.platform_policies pp
+   WHERE pp.policy_key = 'platform.the_director_profile_ids'
+     AND pp.scope_type = 'global' AND pp.scope_id IS NULL
+     AND pp.is_active = true
+     AND jsonb_typeof(pp.value) = 'array'
+   LIMIT 1;
   -- The role keys the onboarding complete-step route reads: profiles.role
   -- plus every user_roles -> custom_roles.role_key, as stored (no
   -- is_active filter and no lower(): the route applies neither).
@@ -65366,14 +65391,19 @@ BEGIN
          AND v_has_rev_college
          AND q.institution_id = ANY (v_staff_inst_ids))
         OR
-        -- Raises for people on the Director list: PR #4190 (draft) adds
-        -- platform_policies 'hr.salary_revision.list_member_raise_decider_profile_id',
-        -- the one profile allowed to decide such a raise. That key is not on
-        -- main, so this half still shows every waiting_director row to every
-        -- holder of fn_hr_salary_revision_can_approve(). When #4190 lands, show
-        -- a Director-list member's raise only to the profile that row names.
         (q.status = 'waiting_director'
          AND v_can_rev_approve)
+      )
+      -- A raise for someone on the Director list may be decided only by the
+      -- profile the decider row names (#4190, ruling of 1 Oct 2026), so while
+      -- that row is on it shows on that person's desk alone. Row missing, off
+      -- or malformed: unchanged, every holder of the approve test sees it.
+      -- COALESCE: a staff record linked to no account is not on the list.
+      AND NOT (
+        q.status = 'waiting_director'
+        AND v_list_raise_decider IS NOT NULL
+        AND v_uid IS DISTINCT FROM v_list_raise_decider
+        AND COALESCE(v_director_list ? st.profile_id::text, false)
       )
   ),
 
