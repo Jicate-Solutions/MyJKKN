@@ -138,3 +138,8 @@ BEGIN
   ORDER BY a.created_at DESC;
 END;
 $function$;
+
+-- Lock from anon. Live ACL already matched this when applied
+-- ({postgres, authenticated, service_role}); stated here so a replay keeps it.
+REVOKE EXECUTE ON FUNCTION public.hr_leave_approval_queue() FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.hr_leave_approval_queue() TO authenticated;

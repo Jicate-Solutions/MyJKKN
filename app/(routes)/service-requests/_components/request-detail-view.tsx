@@ -424,7 +424,9 @@ export function RequestDetailView({
                         <p className="text-xs text-muted-foreground mt-0.5">
                           {roleKeyToLabel(step.approver_role)} · Step {step.step_order}
                           {isCurrent && (isFeeStep(step) ? ' — Awaiting fee payment' : ' — Awaiting approval')}
-                          {isDone && (isFeeStep(step) ? ' — Fee paid' : ' — Approved')}
+                          {/* Only a raised bill makes it "Fee paid": a step approved by hand
+                              before it became a fee step has no bill. */}
+                          {isDone && (isFeeStep(step) && request.fee_bill_id ? ' — Fee paid' : ' — Approved')}
                           {isRej && ' — Rejected'}
                         </p>
 
