@@ -28,7 +28,10 @@ import {
   pickCompOffApprovers,
   pickCompOffClaimant,
   pickEscalationRecipients,
+  goLiveFromPolicy,
+  GO_LIVE_POLICY_KEY,
   selectOverdue,
+  startedBeforeGoLive,
   type CompOffRecipientRow,
   type EscalationCandidate,
   type EscalationNotice,
@@ -62,6 +65,31 @@ export function formatDayIN(iso: string): string {
     year: 'numeric',
     timeZone: 'UTC',
   }).format(new Date(t));
+}
+
+/**
+ * The go-live moment (the policy row the migration seeds). A read error, a
+ * missing row or an unreadable value all answer `now` — fail closed, so nothing
+ * that began waiting before this run is escalated or nudged.
+ */
+export async function readGoLiveAt(db: SupabaseClient, now: Date): Promise<Date> {
+  try {
+    const { data, error } = await db
+      .from('platform_policies')
+      .select('value')
+      .eq('policy_key', GO_LIVE_POLICY_KEY)
+      .eq('scope_type', 'global')
+      .is('scope_id', null)
+      .eq('is_active', true)
+      .maybeSingle();
+    if (error) throw error;
+    return goLiveFromPolicy((data as { value?: unknown } | null)?.value, now);
+  } catch (err) {
+    console.warn('[hr/leave-deadlines] could not read the go-live cutoff; using now', {
+      error: String((err as { message?: unknown } | null)?.message ?? err),
+    });
+    return now;
+  }
 }
 
 async function staffNames(db: SupabaseClient, ids: string[]): Promise<Map<string, string>> {
@@ -165,7 +193,9 @@ export async function runLeaveEscalations(
 
   const byId = new Map(candidates.map((c) => [c.id, c]));
   const done = await loadEscalatedSteps(db, candidates.map((c) => c.id));
-  const overdue = selectOverdue(candidates, now, done);
+  // Steps that began waiting before go-live are never escalated (no backlog flood).
+  const goLiveAt = await readGoLiveAt(db, now);
+  const overdue = selectOverdue(candidates, now, done, goLiveAt);
   result.overdue = overdue.length;
   if (overdue.length === 0) return result;
 
@@ -310,6 +340,7 @@ interface ClaimRow {
   employee_id: string;
   worked_date: string;
   expires_on: string;
+  created_at: string;
 }
 
 function addDaysISO(iso: string, days: number): string {
@@ -353,7 +384,7 @@ export async function runCompOffExpiryNudges(
   // Undecided claims whose credit expires within the next 7 days.
   const { data: pendingData, error: pendingErr } = await db
     .from('hr_comp_off_credits')
-    .select('id, employee_id, worked_date, expires_on')
+    .select('id, employee_id, worked_date, expires_on, created_at')
     .eq('status', 'pending')
     .eq('source', 'claim')
     .gte('expires_on', today)
@@ -367,7 +398,7 @@ export async function runCompOffExpiryNudges(
   const since = new Date(now.getTime() - LAPSE_LOOKBACK_DAYS * 24 * 60 * 60 * 1000).toISOString();
   const { data: lapsedData, error: lapsedErr } = await db
     .from('hr_comp_off_credits')
-    .select('id, employee_id, worked_date, expires_on')
+    .select('id, employee_id, worked_date, expires_on, created_at')
     .eq('status', 'rejected')
     .eq('source', 'claim')
     .is('approved_by', null)
@@ -383,10 +414,14 @@ export async function runCompOffExpiryNudges(
   const names = await staffNames(db, [...pending, ...lapsed].map((c) => c.employee_id));
   // When the ladder chases L2, it nudges the approvers; the lapse notice to the claimant below is unchanged.
   const ladderHasL2 = pending.length > 0 && (await ladderCoversDuty(db, 'L2'));
+  // Claims filed before go-live are never nudged (no backlog flood). The lapse
+  // notice below is news of tonight's auto-reject, not a reminder, so it stays.
+  const goLiveAt = pending.length > 0 ? await readGoLiveAt(db, now) : now;
 
   for (const c of pending) {
     const kind = compOffNudgeKind(c.expires_on, today);
     if (!kind) continue;
+    if (startedBeforeGoLive(c.created_at, goLiveAt)) continue;
     if (ladderHasL2 && (kind === 'comp_off_expiry_7d' || kind === 'comp_off_expiry_2d')) {
       result.ladder_covered++;
       continue;

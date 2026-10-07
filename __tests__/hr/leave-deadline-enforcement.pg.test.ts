@@ -86,6 +86,11 @@ CREATE TABLE public.hr_leave_applications (
 CREATE TABLE public.hr_comp_off_credits (
   id uuid PRIMARY KEY, employee_id uuid, hr_organization_id uuid, status text, source text,
   worked_date date, expires_on date, approved_by uuid, approved_at timestamptz, rejection_reason text);
+CREATE TABLE public.platform_policies (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), policy_key text NOT NULL,
+  scope_type text NOT NULL, scope_id uuid, value jsonb NOT NULL, description text, data_type text NOT NULL,
+  is_system boolean DEFAULT false, is_active boolean DEFAULT true);
+CREATE UNIQUE INDEX ON public.platform_policies
+  (policy_key, scope_type, COALESCE(scope_id, '00000000-0000-0000-0000-000000000000'::uuid));
 CREATE TABLE public.ai_routine_schedules (routine_id text PRIMARY KEY, enabled boolean, managed boolean,
   days_of_week smallint[], minute_of_day int, max_only boolean);
 
@@ -157,6 +162,8 @@ async function insertApp(over: Record<string, unknown> = {}) {
   );
 }
 
+let goLiveAfterFirstApply = '';
+
 const record = async (step = 0, notified: string[] = [P.hod]) =>
   (await q(`SELECT public.fn_hr_leave_record_escalation($1, $2, now(), $3::uuid[]) AS o`, [APP, step, notified]))[0].o;
 
@@ -168,6 +175,8 @@ beforeAll(async () => {
   }
   psql(['-d', DBNAME, '-c', PRELUDE]);
   psql(['-d', DBNAME, '-f', MIGRATION]);
+  goLiveAfterFirstApply = psql(['-d', DBNAME, '-tAc',
+    `SELECT value #>> '{}' FROM public.platform_policies WHERE policy_key = 'hr.leave_deadlines.go_live_at'`]).trim();
   // Re-runnable: a second apply must neither fail nor double-widen.
   psql(['-d', DBNAME, '-f', MIGRATION]);
   client = new Client({ host: PGHOST, port: Number(PGPORT), user: PGUSER, database: DBNAME });
@@ -429,6 +438,18 @@ describe('migration housekeeping', () => {
     await insertApp({ status: 'escalated' });
     await q(`UPDATE public.hr_leave_applications SET created_at = now() - interval '3 days'`);
     expect(await q(`SELECT public.fn_generate_super_admin_daily_digest() AS n`)).toEqual([{ n: 1 }]);
+  });
+
+  it('seeds the go-live cutoff once, as a timestamp string, and a re-apply keeps the original moment', async () => {
+    const rows = await q(
+      `SELECT scope_type, scope_id, data_type, is_active, jsonb_typeof(value) AS t, value #>> '{}' AS at
+         FROM public.platform_policies WHERE policy_key = 'hr.leave_deadlines.go_live_at'`
+    );
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ scope_type: 'global', scope_id: null, data_type: 'string', is_active: true, t: 'string' });
+    expect(Number.isNaN(Date.parse(rows[0].at))).toBe(false);
+    expect(Math.abs(Date.now() - Date.parse(rows[0].at))).toBeLessThan(10 * 60 * 1000);
+    expect(rows[0].at).toBe(goLiveAfterFirstApply);
   });
 
   it('seeds the daily comp-off routine', async () => {

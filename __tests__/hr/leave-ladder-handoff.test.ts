@@ -22,6 +22,7 @@ vi.mock('@/lib/services/staff/notification-service', () => ({ StaffNotificationS
 
 import { runCompOffExpiryNudges, runLeaveEscalations } from '@/lib/hr/leave/deadline-runner';
 import { ladderCoversDuty, LADDER_SWITCH_POLICY_KEY } from '@/lib/hr/leave/ladder-handoff';
+import { GO_LIVE_POLICY_KEY } from '@/lib/hr/leave/deadline-harness';
 
 // ---------------------------------------------------------------------------
 // A small fake of the Supabase query builder: every filter is recorded, the
@@ -41,7 +42,11 @@ interface Ladder {
   /** undefined = no live row; 'error' = the read fails. */
   dutyEnabled?: unknown;
   dutyError?: boolean;
+  /** Go-live cutoff row: undefined = before every fixture; null = no row. */
+  goLive?: string | null;
 }
+
+const BEFORE_EVERY_FIXTURE = '2026-09-01T00:00:00+00:00';
 
 function fakeDb(tables: Record<string, Handler>, rpcs: Record<string, (args: any) => Answer>) {
   const reads: Array<{ table: string; filters: Filters }> = [];
@@ -80,6 +85,13 @@ function fakeDb(tables: Record<string, Handler>, rpcs: Record<string, (args: any
 function ladderTables(l: Ladder, code: string): Record<string, Handler> {
   return {
     platform_policies: (f) => {
+      if (f.some(([m, c, v]) => m === 'eq' && c === 'policy_key' && v === GO_LIVE_POLICY_KEY)) {
+        expect(f).toContainEqual(['eq', 'scope_type', 'global']);
+        expect(f).toContainEqual(['is', 'scope_id', null]);
+        expect(f).toContainEqual(['eq', 'is_active', true]);
+        const v = l.goLive === undefined ? BEFORE_EVERY_FIXTURE : l.goLive;
+        return { data: v === null ? null : { value: v }, error: null };
+      }
       expect(f).toContainEqual(['eq', 'policy_key', LADDER_SWITCH_POLICY_KEY]);
       expect(f).toContainEqual(['eq', 'scope_type', 'global']);
       expect(f).toContainEqual(['eq', 'is_active', true]);
@@ -229,8 +241,8 @@ function compOffWorld(l: Ladder) {
         if (status === 'pending') {
           return {
             data: [
-              { id: 'c7', employee_id: 'emp-1', worked_date: '2026-09-12', expires_on: '2026-10-10' },
-              { id: 'c2', employee_id: 'emp-2', worked_date: '2026-09-06', expires_on: '2026-10-06' },
+              { id: 'c7', employee_id: 'emp-1', worked_date: '2026-09-12', expires_on: '2026-10-10', created_at: '2026-09-13T04:00:00Z' },
+              { id: 'c2', employee_id: 'emp-2', worked_date: '2026-09-06', expires_on: '2026-10-06', created_at: '2026-09-07T04:00:00Z' },
             ],
             error: null,
           };
@@ -310,5 +322,54 @@ describe('ladderCoversDuty', () => {
       expect.stringContaining('[hr/leave-ladder-handoff]'),
       expect.objectContaining({ duty: 'L2', error: 'network down' })
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Go-live cutoff (Director, 7 Oct 2026): the first run must not flood the backlog
+// ---------------------------------------------------------------------------
+
+describe('go-live cutoff through the real runners', () => {
+  it('(a) a request filed before go-live is not escalated: no status flip, no ledger row, no notice', async () => {
+    const { db, rpcCalls } = leaveWorld({ goLive: '2026-10-02T00:00:00+00:00' }); // filed 1 Oct
+    const r = await runLeaveEscalations(db, NOW);
+    expect(r.overdue).toBe(0);
+    expect(rpcCalls.filter((c) => c.name === 'fn_hr_leave_record_escalation')).toHaveLength(0);
+    expect(notify.notifyLeaveEscalated).not.toHaveBeenCalled();
+  });
+
+  it('(b) a request filed after go-live is escalated and announced', async () => {
+    const { db, rpcCalls } = leaveWorld({ goLive: '2026-09-30T00:00:00+00:00' });
+    const r = await runLeaveEscalations(db, NOW);
+    expect(r.escalated).toBe(1);
+    expect(rpcCalls.filter((c) => c.name === 'fn_hr_leave_record_escalation')).toHaveLength(1);
+    expect(notify.notifyLeaveEscalated).toHaveBeenCalledTimes(2);
+  });
+
+  it('(c) cutoff row missing or unreadable: go-live is the run time, nothing old escalates', async () => {
+    for (const goLive of [null, 'tomorrow-ish']) {
+      vi.clearAllMocks();
+      const { db, rpcCalls } = leaveWorld({ goLive });
+      const r = await runLeaveEscalations(db, NOW);
+      expect(r.overdue).toBe(0);
+      expect(rpcCalls.filter((c) => c.name === 'fn_hr_leave_record_escalation')).toHaveLength(0);
+      expect(notify.notifyLeaveEscalated).not.toHaveBeenCalled();
+    }
+  });
+
+  it('comp-off: claims filed before go-live get no expiry nudge; the lapse notice still goes', async () => {
+    const { db, rpcCalls } = compOffWorld({ goLive: '2026-10-01T00:00:00+00:00' });
+    const r = await runCompOffExpiryNudges(db, CO_NOW);
+    expect(notify.notifyCompOffExpiryNudge).not.toHaveBeenCalled();
+    expect(r.nudged_7d + r.nudged_2d).toBe(0);
+    expect(rpcCalls.filter((c) => c.name === 'fn_hr_comp_off_record_nudge').map((c) => c.args.p_kind)).toEqual(['comp_off_lapsed']);
+    expect(notify.notifyCompOffLapsed).toHaveBeenCalledTimes(1);
+  });
+
+  it('comp-off: with the cutoff row missing, no claim is nudged', async () => {
+    const { db } = compOffWorld({ goLive: null });
+    const r = await runCompOffExpiryNudges(db, CO_NOW);
+    expect(r.nudged_7d + r.nudged_2d).toBe(0);
+    expect(notify.notifyCompOffExpiryNudge).not.toHaveBeenCalled();
   });
 });

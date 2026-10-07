@@ -33,6 +33,34 @@ export const MAX_ITEM_NOTICES_PER_RECIPIENT = 10;
 /** Upper bound of escalations recorded in one hourly run; the rest wait for the next. */
 export const MAX_ESCALATIONS_PER_RUN = 200;
 
+// ---------------------------------------------------------------------------
+// Go-live cutoff (Director, 7 Oct 2026: reminders stay on, no backlog flood)
+// ---------------------------------------------------------------------------
+// Nothing whose wait began before the moment migration 20270613101117 applied
+// is ever escalated or nudged: a leave step that started waiting before it,
+// or a comp-off claim filed before it. The moment is the global
+// platform_policies row GO_LIVE_POLICY_KEY. A missing or unreadable row
+// answers the run's own `now`, so the cutoff fails toward silence, never
+// toward a flood of old items.
+
+/** Global platform_policies row the migration seeds with now(). */
+export const GO_LIVE_POLICY_KEY = 'hr.leave_deadlines.go_live_at';
+
+/** The go-live moment from the stored policy value, else `now` (fail closed). */
+export function goLiveFromPolicy(value: unknown, now: Date): Date {
+  if (typeof value === 'string') {
+    const t = Date.parse(value);
+    if (!Number.isNaN(t)) return new Date(t);
+  }
+  return now;
+}
+
+/** True when the wait began before go-live, or its start cannot be read. */
+export function startedBeforeGoLive(startIso: string | null | undefined, goLiveAt: Date): boolean {
+  const t = Date.parse(startIso ?? '');
+  return Number.isNaN(t) || t < goLiveAt.getTime();
+}
+
 const HOUR_MS = 60 * 60 * 1000;
 
 /** The columns of hr_leave_applications the escalation decision reads. */
@@ -156,16 +184,21 @@ export function escalationKey(applicationId: string, stepIndex: number): string 
   return `${applicationId}:${stepIndex}`;
 }
 
-/** Oldest due first, capped — the order a backlog is worked through across runs. */
+/**
+ * Oldest due first, capped — the order a backlog is worked through across runs.
+ * A step that began waiting before `goLiveAt` is left out: it is never escalated.
+ */
 export function selectOverdue(
   apps: readonly EscalationCandidate[],
   now: Date,
   alreadyEscalated: ReadonlySet<string>,
+  goLiveAt: Date,
   limit: number = MAX_ESCALATIONS_PER_RUN
 ): OverdueStep[] {
   return apps
     .map((a) => findOverdueStep(a, now, alreadyEscalated))
     .filter((o): o is OverdueStep => o !== null)
+    .filter((o) => !startedBeforeGoLive(o.waitingSince, goLiveAt))
     .sort((a, b) => Date.parse(a.dueAt) - Date.parse(b.dueAt))
     .slice(0, Math.max(0, limit));
 }

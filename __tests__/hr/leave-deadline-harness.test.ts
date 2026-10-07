@@ -16,6 +16,7 @@ import {
   DEFAULT_ESCALATE_AFTER_HOURS,
   escalationKey,
   findOverdueStep,
+  goLiveFromPolicy,
   isAutoLapsed,
   pickCompOffApprovers,
   pickCompOffClaimant,
@@ -31,6 +32,8 @@ import type { LeaveApprovalStep } from '@/types/hr';
 const H = 60 * 60 * 1000;
 const FILED = '2026-10-01T04:00:00.000Z';
 const at = (hoursAfterFiling: number) => new Date(Date.parse(FILED) + hoursAfterFiling * H);
+/** Go-live well before every fixture, so the older tests see the cutoff as open. */
+const LONG_AGO = new Date('2020-01-01T00:00:00Z');
 
 function step(over: Partial<LeaveApprovalStep> = {}): LeaveApprovalStep {
   return {
@@ -171,8 +174,8 @@ describe('selectOverdue', () => {
       app({ id: 'not-yet', created_at: at(0).toISOString() }),
     ];
     const now = at(40);
-    expect(selectOverdue(apps, now, new Set()).map((o) => o.applicationId)).toEqual(['late', 'later']);
-    expect(selectOverdue(apps, now, new Set(), 1).map((o) => o.applicationId)).toEqual(['late']);
+    expect(selectOverdue(apps, now, new Set(), LONG_AGO).map((o) => o.applicationId)).toEqual(['late', 'later']);
+    expect(selectOverdue(apps, now, new Set(), LONG_AGO, 1).map((o) => o.applicationId)).toEqual(['late']);
   });
 });
 
@@ -340,5 +343,41 @@ describe('comp-off recipients and lapses', () => {
     expect(pickCompOffApprovers(rows)).toEqual(['hr1']);
     expect(pickCompOffClaimant(rows)).toBe('me');
     expect(pickCompOffClaimant([])).toBeNull();
+  });
+});
+
+describe('go-live cutoff (Director, 7 Oct 2026): no escalation of the backlog', () => {
+  // Go-live 10 hours after FILED. Every request below is far past its 48-hour limit.
+  const GO_LIVE = at(10);
+  const NOW = at(500);
+
+  it('(a) a request whose step began waiting BEFORE go-live is never escalated', () => {
+    expect(selectOverdue([app({ id: 'old', created_at: at(0).toISOString() })], NOW, new Set(), GO_LIVE)).toEqual([]);
+  });
+
+  it('(b) a request filed AFTER go-live is escalated as before', () => {
+    const out = selectOverdue([app({ id: 'new', created_at: at(20).toISOString() })], NOW, new Set(), GO_LIVE);
+    expect(out.map((o) => o.applicationId)).toEqual(['new']);
+  });
+
+  it('(b) an old request whose NEXT step began waiting after go-live is a new wait', () => {
+    const a = app({
+      id: 'old-step-2',
+      current_step: 1,
+      approval_chain: [step({ status: 'approved', decided_at: at(30).toISOString() }), step()],
+    });
+    expect(selectOverdue([a], NOW, new Set(), GO_LIVE).map((o) => o.stepIndex)).toEqual([1]);
+  });
+
+  it('(c) with the cutoff row missing or unreadable, go-live is NOW and nothing old escalates', () => {
+    for (const stored of [undefined, null, 'not a date', 42, {}]) {
+      expect(goLiveFromPolicy(stored, NOW)).toEqual(NOW);
+      const apps = [app({ id: 'old' }), app({ id: 'new', created_at: at(20).toISOString() })];
+      expect(selectOverdue(apps, NOW, new Set(), goLiveFromPolicy(stored, NOW))).toEqual([]);
+    }
+  });
+
+  it('reads the timestamp Postgres stores with to_jsonb(now())', () => {
+    expect(goLiveFromPolicy('2026-10-07T10:55:12.123456+00:00', new Date()).toISOString()).toBe('2026-10-07T10:55:12.123Z');
   });
 });

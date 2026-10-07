@@ -34,6 +34,16 @@
 --    ai_routine_schedules cannot express (one minute_of_day), so it is a
 --    vercel.json cron like every other sub-daily job.
 --
+-- 4. GO-LIVE CUTOFF (Director, 7 Oct 2026: reminders stay ON, but only about
+--    items that arrive from go-live onward). A global platform_policies row,
+--    'hr.leave_deadlines.go_live_at', holds the moment this migration applied
+--    (section 10). Both jobs skip anything whose wait began before it — a leave
+--    step that started waiting earlier is never escalated, and a comp-off claim
+--    filed earlier is never nudged — so the first hourly run does not mark and
+--    announce the whole backlog. Seeded only when absent (a re-run keeps the
+--    original moment). If the row is missing or unreadable the jobs use their
+--    own run time instead, so nothing old is ever escalated.
+--
 -- Every new SECURITY DEFINER function is service_role only: the cron routes
 -- call them with the service key; no signed-in user needs them.
 --
@@ -626,6 +636,20 @@ VALUES
   ('hr-comp-off-expiry-nudges', true, true, ARRAY[0,1,2,3,4,5,6]::smallint[], 557, false)
 ON CONFLICT (routine_id) DO NOTHING;
 
+-- ---------------------------------------------------------------------------
+-- 10. The go-live cutoff (see header, item 4). A JSON timestamp string.
+-- ---------------------------------------------------------------------------
+INSERT INTO public.platform_policies
+  (policy_key, scope_type, scope_id, value, description, data_type, is_system, is_active)
+SELECT 'hr.leave_deadlines.go_live_at', 'global', NULL, to_jsonb(now()),
+       'Leave deadlines (escalations and comp-off expiry nudges): the moment they went live. A leave step that began waiting, or a comp-off claim filed, before this is never escalated or nudged, so switching the jobs on does not mark and announce old requests. Set once by migration 20270613101117.',
+       'string', true, true
+WHERE NOT EXISTS (
+  SELECT 1 FROM public.platform_policies pp
+   WHERE pp.policy_key = 'hr.leave_deadlines.go_live_at'
+     AND pp.scope_type = 'global' AND pp.scope_id IS NULL
+);
+
 -- Guard: RAISE EXCEPTION, never RAISE NOTICE.
 DO $$
 DECLARE
@@ -636,5 +660,13 @@ BEGIN
    WHERE routine_id = 'hr-comp-off-expiry-nudges';
   IF v_count <> 1 THEN
     RAISE EXCEPTION 'hr-comp-off-expiry-nudges schedule row missing after seed (count=%)', v_count;
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM public.platform_policies
+     WHERE policy_key = 'hr.leave_deadlines.go_live_at'
+       AND scope_type = 'global' AND scope_id IS NULL
+       AND jsonb_typeof(value) = 'string'
+  ) THEN
+    RAISE EXCEPTION 'platform_policies row hr.leave_deadlines.go_live_at is missing';
   END IF;
 END $$;
