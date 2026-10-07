@@ -11684,135 +11684,6 @@ VALUES (
 )
 ON CONFLICT (id) DO NOTHING;
 
--- ============================================================================
--- Updated: 2026-10-01 - HR intake helper (source: migrations/20270613101241_hr_intake_helper.sql)
--- ============================================================================
--- hr_job_applications: source CHECK widened to ('internal','external_website','cvviz_import')
--- (constraint hr_job_applications_source_check) and a nullable cvviz_profile_url.
-ALTER TABLE public.hr_job_applications
-  ADD COLUMN IF NOT EXISTS cvviz_profile_url text;
-
--- One CVViZ import per person per job (review fix M2).
-CREATE UNIQUE INDEX IF NOT EXISTS uq_hr_job_applications_cvviz_job_email
-  ON public.hr_job_applications (job_id, lower(email))
-  WHERE source = 'cvviz_import' AND email IS NOT NULL;
-
-CREATE TABLE IF NOT EXISTS public.hr_intake_batches (
-  id               uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  source           text NOT NULL DEFAULT 'cvviz_export' CHECK (source IN ('cvviz_export')),
-  file_name        text NOT NULL CHECK (length(btrim(file_name)) > 0),
-  -- NOT NULL: role_has_institution_access(NULL) is TRUE, so a college-less batch
-  -- would be visible to HR in every college (review fix B1).
-  institution_id   uuid NOT NULL REFERENCES public.institutions(id),
-  created_by       uuid NOT NULL REFERENCES public.profiles(id),
-  created_by_name  text,
-  status           text NOT NULL DEFAULT 'preparing' CHECK (status IN ('preparing', 'ready', 'closed')),
-  row_count        integer NOT NULL DEFAULT 0 CHECK (row_count >= 0),
-  -- Uploaded files that were not used, with the plain-English reason:
-  -- [{ "file_name": "...", "reason": "..." }]
-  skipped_files    jsonb NOT NULL DEFAULT '[]'::jsonb,
-  -- The cleaned export rows, held between upload and "prepare" (the resumes
-  -- arrive in between, straight to storage). Emptied once the rows are written.
-  parsed_rows      jsonb,
-  -- Set while one request prepares the batch, so two cannot do it at once.
-  prepare_claimed_at timestamptz,
-  created_at       timestamptz NOT NULL DEFAULT now(),
-  updated_at       timestamptz NOT NULL DEFAULT now()
-);
-
-COMMENT ON TABLE public.hr_intake_batches IS
-  'HR intake helper: one CVViZ export upload. preparing (export parsed, resumes uploading) -> ready (rows proposed) -> closed (every row decided and every filing done; resume copies removed).';
-
-CREATE INDEX IF NOT EXISTS idx_hr_intake_batches_created_at
-  ON public.hr_intake_batches (created_at DESC);
-CREATE INDEX IF NOT EXISTS idx_hr_intake_batches_created_by
-  ON public.hr_intake_batches (created_by);
-CREATE INDEX IF NOT EXISTS idx_hr_intake_batches_institution
-  ON public.hr_intake_batches (institution_id);
-
-CREATE TABLE IF NOT EXISTS public.hr_intake_rows (
-  id                         uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  batch_id                   uuid NOT NULL REFERENCES public.hr_intake_batches(id) ON DELETE CASCADE,
-  row_index                  integer NOT NULL CHECK (row_index >= 1),
-  candidate                  jsonb NOT NULL,
-  cvviz_job_title_norm       text,
-
-  resume_file_name           text,
-  resume_matched_upload      boolean NOT NULL DEFAULT false,
-  resume_storage_path        text,
-  resume_extract             jsonb,
-
-  duplicate_kind             text NOT NULL DEFAULT 'none'
-                               CHECK (duplicate_kind IN ('none', 'same_file', 'existing_application', 'existing_candidate')),
-  duplicate_ref_id           uuid,
-  duplicate_note             text,
-
-  proposal_action            text NOT NULL
-                               CHECK (proposal_action IN ('file_under_job', 'merge_existing', 'needs_new_job', 'skip')),
-  proposal_job_id            uuid REFERENCES public.hr_recruitment_jobs(id) ON DELETE SET NULL,
-  proposal_job_title         text,
-  proposal_institution_id    uuid,
-  proposal_confidence        text NOT NULL CHECK (proposal_confidence IN ('high', 'medium', 'low')),
-  proposal_reasons           text[] NOT NULL DEFAULT '{}',
-  proposal_rule_id           uuid,
-  proposal_rule_author_name  text,
-
-  decision_action            text
-                               CHECK (decision_action IN ('file_under_job', 'merge_existing', 'needs_new_job', 'skip')),
-  decision_job_id            uuid REFERENCES public.hr_recruitment_jobs(id) ON DELETE SET NULL,
-  decided_by                 uuid REFERENCES public.profiles(id) ON DELETE SET NULL,
-  decided_by_name            text,
-  decided_at                 timestamptz,
-  decision_corrected         boolean NOT NULL DEFAULT false,
-
-  -- Filing. apply_claimed_at is set atomically before the Drive upload so two
-  -- concurrent "apply" calls can never file the same row twice.
-  apply_claimed_at           timestamptz,
-  application_id             uuid REFERENCES public.hr_job_applications(id) ON DELETE SET NULL,
-  applied_at                 timestamptz,
-  apply_error                text,
-
-  created_at                 timestamptz NOT NULL DEFAULT now(),
-  updated_at                 timestamptz NOT NULL DEFAULT now(),
-
-  CONSTRAINT hr_intake_rows_batch_row_unique UNIQUE (batch_id, row_index)
-  -- No CHECK tying "file_under_job" to a job: decision_job_id is SET NULL when
-  -- a job is deleted, and such a CHECK would then refuse the job's deletion for
-  -- ever. Filing refuses a row whose job is gone instead.
-);
--- A database that ran an earlier draft of this migration carries the CHECK.
-ALTER TABLE public.hr_intake_rows DROP CONSTRAINT IF EXISTS hr_intake_rows_file_needs_job;
-
-COMMENT ON TABLE public.hr_intake_rows IS
-  'HR intake helper: one export row. proposal_* is what the helper suggests; decision_* is what a person chose; application_id is the hr_job_applications row it was filed as.';
-
-CREATE INDEX IF NOT EXISTS idx_hr_intake_rows_batch
-  ON public.hr_intake_rows (batch_id, row_index);
-CREATE INDEX IF NOT EXISTS idx_hr_intake_rows_application
-  ON public.hr_intake_rows (application_id) WHERE application_id IS NOT NULL;
-
-CREATE TABLE IF NOT EXISTS public.hr_intake_match_rules (
-  id                    uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  cvviz_job_title_norm  text NOT NULL CHECK (length(btrim(cvviz_job_title_norm)) > 0),
-  job_id                uuid NOT NULL REFERENCES public.hr_recruitment_jobs(id) ON DELETE CASCADE,
-  -- The job's college; NOT NULL, no shared "every college" rules (review fix M3).
-  institution_id        uuid NOT NULL REFERENCES public.institutions(id) ON DELETE CASCADE,
-  created_by            uuid NOT NULL REFERENCES public.profiles(id),
-  created_by_name       text,
-  times_used            integer NOT NULL DEFAULT 0 CHECK (times_used >= 0),
-  last_used_at          timestamptz,
-  created_at            timestamptz NOT NULL DEFAULT now(),
-  updated_at            timestamptz NOT NULL DEFAULT now()
-);
-
-COMMENT ON TABLE public.hr_intake_match_rules IS
-  'HR intake helper: learned routing from a normalised CVViZ job title to a MyJKKN job, credited to the person whose correction created it. One per (title, institution).';
-
-CREATE UNIQUE INDEX IF NOT EXISTS uq_hr_intake_match_rules_title_institution
-  ON public.hr_intake_match_rules (cvviz_job_title_norm, institution_id);
-CREATE INDEX IF NOT EXISTS idx_hr_intake_match_rules_job
-  ON public.hr_intake_match_rules (job_id);
-
 -- ===========================================================================
 -- Source: 20271007161139_hr_duty_playbooks_and_lessons.sql (tables, indexes)
 -- HR staff harness — playbooks, the lessons log and credited authorship.
@@ -11967,3 +11838,132 @@ CREATE INDEX IF NOT EXISTS hr_playbook_lines_duty_idx
 
 COMMENT ON TABLE public.hr_playbook_lines IS
   'The short playbook shown on each HR duty screen. authored_by is the person credited, edited_by the decider who changed the words (if any); names are read from profiles at read time, never copied. Readable by team members (a staff row), super admins, admins and holders of hr.harness.playbooks.manage (fn_hr_playbook_can_read). 20271007161139.';
+
+-- ============================================================================
+-- Updated: 2026-10-01 - HR intake helper (source: migrations/20270613101241_hr_intake_helper.sql)
+-- ============================================================================
+-- hr_job_applications: source CHECK widened to ('internal','external_website','cvviz_import')
+-- (constraint hr_job_applications_source_check) and a nullable cvviz_profile_url.
+ALTER TABLE public.hr_job_applications
+  ADD COLUMN IF NOT EXISTS cvviz_profile_url text;
+
+-- One CVViZ import per person per job (review fix M2).
+CREATE UNIQUE INDEX IF NOT EXISTS uq_hr_job_applications_cvviz_job_email
+  ON public.hr_job_applications (job_id, lower(email))
+  WHERE source = 'cvviz_import' AND email IS NOT NULL;
+
+CREATE TABLE IF NOT EXISTS public.hr_intake_batches (
+  id               uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  source           text NOT NULL DEFAULT 'cvviz_export' CHECK (source IN ('cvviz_export')),
+  file_name        text NOT NULL CHECK (length(btrim(file_name)) > 0),
+  -- NOT NULL: role_has_institution_access(NULL) is TRUE, so a college-less batch
+  -- would be visible to HR in every college (review fix B1).
+  institution_id   uuid NOT NULL REFERENCES public.institutions(id),
+  created_by       uuid NOT NULL REFERENCES public.profiles(id),
+  created_by_name  text,
+  status           text NOT NULL DEFAULT 'preparing' CHECK (status IN ('preparing', 'ready', 'closed')),
+  row_count        integer NOT NULL DEFAULT 0 CHECK (row_count >= 0),
+  -- Uploaded files that were not used, with the plain-English reason:
+  -- [{ "file_name": "...", "reason": "..." }]
+  skipped_files    jsonb NOT NULL DEFAULT '[]'::jsonb,
+  -- The cleaned export rows, held between upload and "prepare" (the resumes
+  -- arrive in between, straight to storage). Emptied once the rows are written.
+  parsed_rows      jsonb,
+  -- Set while one request prepares the batch, so two cannot do it at once.
+  prepare_claimed_at timestamptz,
+  created_at       timestamptz NOT NULL DEFAULT now(),
+  updated_at       timestamptz NOT NULL DEFAULT now()
+);
+
+COMMENT ON TABLE public.hr_intake_batches IS
+  'HR intake helper: one CVViZ export upload. preparing (export parsed, resumes uploading) -> ready (rows proposed) -> closed (every row decided and every filing done; resume copies removed).';
+
+CREATE INDEX IF NOT EXISTS idx_hr_intake_batches_created_at
+  ON public.hr_intake_batches (created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_hr_intake_batches_created_by
+  ON public.hr_intake_batches (created_by);
+CREATE INDEX IF NOT EXISTS idx_hr_intake_batches_institution
+  ON public.hr_intake_batches (institution_id);
+
+CREATE TABLE IF NOT EXISTS public.hr_intake_rows (
+  id                         uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  batch_id                   uuid NOT NULL REFERENCES public.hr_intake_batches(id) ON DELETE CASCADE,
+  row_index                  integer NOT NULL CHECK (row_index >= 1),
+  candidate                  jsonb NOT NULL,
+  cvviz_job_title_norm       text,
+
+  resume_file_name           text,
+  resume_matched_upload      boolean NOT NULL DEFAULT false,
+  resume_storage_path        text,
+  resume_extract             jsonb,
+
+  duplicate_kind             text NOT NULL DEFAULT 'none'
+                               CHECK (duplicate_kind IN ('none', 'same_file', 'existing_application', 'existing_candidate')),
+  duplicate_ref_id           uuid,
+  duplicate_note             text,
+
+  proposal_action            text NOT NULL
+                               CHECK (proposal_action IN ('file_under_job', 'merge_existing', 'needs_new_job', 'skip')),
+  proposal_job_id            uuid REFERENCES public.hr_recruitment_jobs(id) ON DELETE SET NULL,
+  proposal_job_title         text,
+  proposal_institution_id    uuid,
+  proposal_confidence        text NOT NULL CHECK (proposal_confidence IN ('high', 'medium', 'low')),
+  proposal_reasons           text[] NOT NULL DEFAULT '{}',
+  proposal_rule_id           uuid,
+  proposal_rule_author_name  text,
+
+  decision_action            text
+                               CHECK (decision_action IN ('file_under_job', 'merge_existing', 'needs_new_job', 'skip')),
+  decision_job_id            uuid REFERENCES public.hr_recruitment_jobs(id) ON DELETE SET NULL,
+  decided_by                 uuid REFERENCES public.profiles(id) ON DELETE SET NULL,
+  decided_by_name            text,
+  decided_at                 timestamptz,
+  decision_corrected         boolean NOT NULL DEFAULT false,
+
+  -- Filing. apply_claimed_at is set atomically before the Drive upload so two
+  -- concurrent "apply" calls can never file the same row twice.
+  apply_claimed_at           timestamptz,
+  application_id             uuid REFERENCES public.hr_job_applications(id) ON DELETE SET NULL,
+  applied_at                 timestamptz,
+  apply_error                text,
+
+  created_at                 timestamptz NOT NULL DEFAULT now(),
+  updated_at                 timestamptz NOT NULL DEFAULT now(),
+
+  CONSTRAINT hr_intake_rows_batch_row_unique UNIQUE (batch_id, row_index)
+  -- No CHECK tying "file_under_job" to a job: decision_job_id is SET NULL when
+  -- a job is deleted, and such a CHECK would then refuse the job's deletion for
+  -- ever. Filing refuses a row whose job is gone instead.
+);
+-- A database that ran an earlier draft of this migration carries the CHECK.
+ALTER TABLE public.hr_intake_rows DROP CONSTRAINT IF EXISTS hr_intake_rows_file_needs_job;
+
+COMMENT ON TABLE public.hr_intake_rows IS
+  'HR intake helper: one export row. proposal_* is what the helper suggests; decision_* is what a person chose; application_id is the hr_job_applications row it was filed as.';
+
+CREATE INDEX IF NOT EXISTS idx_hr_intake_rows_batch
+  ON public.hr_intake_rows (batch_id, row_index);
+CREATE INDEX IF NOT EXISTS idx_hr_intake_rows_application
+  ON public.hr_intake_rows (application_id) WHERE application_id IS NOT NULL;
+
+CREATE TABLE IF NOT EXISTS public.hr_intake_match_rules (
+  id                    uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  cvviz_job_title_norm  text NOT NULL CHECK (length(btrim(cvviz_job_title_norm)) > 0),
+  job_id                uuid NOT NULL REFERENCES public.hr_recruitment_jobs(id) ON DELETE CASCADE,
+  -- The job's college; NOT NULL, no shared "every college" rules (review fix M3).
+  institution_id        uuid NOT NULL REFERENCES public.institutions(id) ON DELETE CASCADE,
+  created_by            uuid NOT NULL REFERENCES public.profiles(id),
+  created_by_name       text,
+  times_used            integer NOT NULL DEFAULT 0 CHECK (times_used >= 0),
+  last_used_at          timestamptz,
+  created_at            timestamptz NOT NULL DEFAULT now(),
+  updated_at            timestamptz NOT NULL DEFAULT now()
+);
+
+COMMENT ON TABLE public.hr_intake_match_rules IS
+  'HR intake helper: learned routing from a normalised CVViZ job title to a MyJKKN job, credited to the person whose correction created it. One per (title, institution).';
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_hr_intake_match_rules_title_institution
+  ON public.hr_intake_match_rules (cvviz_job_title_norm, institution_id);
+CREATE INDEX IF NOT EXISTS idx_hr_intake_match_rules_job
+  ON public.hr_intake_match_rules (job_id);
