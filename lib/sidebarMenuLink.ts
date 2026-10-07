@@ -548,6 +548,12 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // Its counterpart /my-photo has NO entry here on purpose — see the sidebar
   // row below and the page header.
   '/hr/staff-photos': 'hr.staff_photo.review',
+  // HR duty playbooks (20271007161139). Reached from the "How this is done" card
+  // on each HR duty screen; no sidebar row. Written out so the tier-2 coverage
+  // gate sees it, with the SAME key it already resolved to by longest prefix
+  // ('/hr' -> 'hr.view'), so who can open it does not change. The Proposals tab
+  // inside checks hr.harness.playbooks.manage itself.
+  '/hr/playbooks': 'hr.view',
   '/hr/employees': 'hr.employees.view',
   '/hr/employees/[id]': 'hr.employees.view',
   // WHO PAYS each team member. This entry is load-bearing, not decorative:
