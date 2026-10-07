@@ -40,6 +40,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { getErrorMessage } from '@/lib/utils';
 import { resolveTds } from '@/lib/hr/payroll/tds-slabs';
+import { compareStaffByName } from '@/lib/hr/payroll/staff-name-order';
 import { TdsSlabService } from '@/lib/services/hr/payroll/tds-slab-service';
 import type {
   HRSalaryRegisterDeletedRun,
@@ -826,7 +827,10 @@ export class SalaryRegisterService {
       });
     }
 
-    roster.sort((a, b) => (a.employee_code ?? '￿').localeCompare(b.employee_code ?? '￿'));
+    // Alphabetical by name, titles ignored (2026-10-07) — serial_no is assigned
+    // in this order at generate, so it is the S.No every register surface
+    // prints. Employee-code order was not how HR reads the register.
+    roster.sort(compareStaffByName);
 
     const staffIds = roster.map((r) => r.staff_id);
 
