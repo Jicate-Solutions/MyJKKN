@@ -109,13 +109,14 @@ describe('<WaitingOnYou/> — an offline phone is not an empty desk', () => {
     expect(screen.queryByText(/Nothing waiting/i)).toBeNull();
   });
 
-  it('SUCCESS, EMPTY: the six-queue all-clear with a time', async () => {
+  it('SUCCESS, EMPTY: the seventeen-queue all-clear with a time', async () => {
     rpcAnswer = async () => ({ data: [], error: null });
     mount();
 
-    // Six since 2026-09-03 (migration 20261018030000 added 'offer').
-    const p = await screen.findByText(/Nothing waiting across 6 queues/i);
-    expect(p.textContent).toMatch(/hires, refunds, leave, triggers, grievances, onboarding/);
+    // Six since 2026-09-03 (migration 20261018030000 added 'offer'); seventeen
+    // since 20270613101149 added eleven HR queues, named by area.
+    const p = await screen.findByText(/Nothing waiting across 17 queues/i);
+    expect(p.textContent).toMatch(/recruitment, leave, attendance, payroll, team member records, governance, other/);
     expect(p.textContent).toMatch(/checked \d\d:\d\d$/);
   });
 
@@ -179,5 +180,61 @@ describe('<WaitingOnYou/> — an offline phone is not an empty desk', () => {
     await screen.findByText(/Nothing waiting/i);
     await waitFor(() => expect(rpc).toHaveBeenCalledTimes(1));
     expect(rpc).toHaveBeenCalledWith('fn_my_desk_waiting');
+  });
+});
+
+describe('<WaitingOnYou/> — area headings and the stored deadline (20270613101149)', () => {
+  it("groups HR queues under their area, names each row's queue, and shows due next to age", async () => {
+    rpcAnswer = async () => ({
+      data: [
+        row({
+          item_id: 'c1',
+          source: 'comp_off',
+          title: 'Devi K — worked 20 Sep 2026',
+          detail: 'comp-off claim for 1 day — you approve leave here',
+          amount: null,
+          waiting_since: new Date(Date.now() - 10 * DAY).toISOString(),
+          href: '/hr/leave/approvals?tab=comp-off',
+          due_at: new Date(Date.now() - 2 * DAY - 3_600_000).toISOString(),
+        }),
+        row({
+          item_id: 'd1',
+          source: 'employee_document',
+          title: 'Degree certificate — Devi K',
+          detail: 'uploaded document to verify',
+          amount: null,
+          waiting_since: new Date(Date.now() - 3 * DAY).toISOString(),
+          href: '/hr/documents/verify',
+          due_at: new Date(Date.now() + 5 * DAY + 3_600_000).toISOString(),
+        }),
+        row({
+          item_id: 'p1',
+          source: 'staff_photo',
+          title: 'Bala S',
+          detail: 'new photo to review',
+          amount: null,
+          waiting_since: new Date(Date.now() - 1 * DAY).toISOString(),
+          href: '/hr/staff-photos',
+          due_at: null,
+        }),
+      ],
+      error: null,
+    });
+    mount();
+
+    await screen.findByText('Devi K — worked 20 Sep 2026');
+    // Area headings, not one heading per queue.
+    expect(screen.getByRole('region', { name: 'Leave' })).toBeInTheDocument();
+    expect(screen.getByRole('region', { name: 'Team member records' })).toBeInTheDocument();
+    // Each row still says which queue it came from.
+    expect(screen.getByText('Comp-off claims to decide')).toBeInTheDocument();
+    expect(screen.getByText('Documents to verify')).toBeInTheDocument();
+    expect(screen.getByText('Photos to review')).toBeInTheDocument();
+    // Due chips: overdue, a future one in days, and none where nothing is stored.
+    expect(screen.getByText('overdue 2 days')).toBeInTheDocument();
+    expect(screen.getByText('due in 5 days')).toBeInTheDocument();
+    expect(screen.getAllByText(/^(overdue|due in)/)).toHaveLength(2);
+    // The age chip is still there beside it.
+    expect(screen.getByText('10 days')).toBeInTheDocument();
   });
 });
