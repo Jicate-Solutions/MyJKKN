@@ -27,6 +27,11 @@ let rpcError: { code: string; message: string; details?: string } | null = null;
 const calls: Array<{ fn: string; args?: Record<string, unknown> }> = [];
 const adminCalls: Array<{ fn: string; args?: Record<string, unknown> }> = [];
 const tablesRead: string[] = [];
+// 7 Oct 2026: what the target tables answer (RLS-shaped stand-ins).
+let tableRows: Record<string, unknown[]> = {};
+// 7 Oct 2026, W12 review: errors per table / per function (e.g. not installed yet).
+let tableErrors: Record<string, { code: string; message: string }> = {};
+let rpcErrorFor: Record<string, { code: string; message: string }> = {};
 
 const ROW = (over: Record<string, unknown> = {}) => ({
   id: REQ, staff_id: A1, person_name: 'Member One', staff_code: 'F1', designation: 'Office Assistant',
@@ -42,7 +47,10 @@ function chain(table: string) {
   const c: Record<string, unknown> = {};
   c.select = () => c;
   c.eq = () => c;
-  c.order = async () => ({ data: [{ id: 'o1', new_monthly_gross: '52500.00' }], error: null });
+  c.in = () => c;
+  c.order = async () => (tableErrors[table]
+    ? { data: null, error: tableErrors[table] }
+    : { data: tableRows[table] ?? [{ id: 'o1', new_monthly_gross: '52500.00' }], error: null });
   c.single = async () => ({
     data: { id: 'user-1', email: 'someone@jkkn.ac.in', role: 'not-consulted', institution_id: 'inst-a', full_name: 'Someone' },
     error: null,
@@ -59,6 +67,7 @@ const fakeClient = {
     if (fn === 'is_super_admin') return { data: superAdmin, error: null };
     if (fn === 'is_admin') return { data: false, error: null };
     if (fn === 'user_has_permission') return { data: heldKeys.includes(String(args?.permission_name)), error: null };
+    if (rpcErrorFor[fn]) return { data: null, error: rpcErrorFor[fn] };
     if (rpcError && fn.startsWith('fn_hr_salary_revision_') && fn !== 'fn_hr_salary_revision_can_approve') {
       return { data: null, error: rpcError };
     }
@@ -79,6 +88,15 @@ const fakeClient = {
       case 'fn_hr_salary_revision_director_decide': return { data: args?.p_approve ? 'approved' : 'refused', error: null };
       case 'fn_hr_salary_revision_director_approve_many': return { data: (args?.p_request_ids as string[]).length, error: null };
       case 'fn_hr_salary_revision_comment': return { data: 'c1', error: null };
+      case 'fn_hr_salary_revision_target_flag': return { data: null, error: null };
+      case 'fn_hr_salary_revision_target_decide': return { data: args?.p_counts_as_met ? 'decided_met' : 'decided_missed', error: null };
+      case 'fn_hr_salary_revision_target_lapse': return { data: 'lapsed', error: null };
+      case 'fn_hr_salary_revision_my_targets':
+        return { data: [{ request_id: REQ, held_amount: '2100.00', state: 'waiting', rules: { role: 'faculty' },
+                          months: [{ request_id: REQ, month: '2026-11-01', status: 'missed' }] }], error: null };
+      case 'fn_hr_salary_revision_targets_listed':
+        return approver ? { data: [{ request_id: REQ, why: 'window_over' }], error: null }
+          : { data: null, error: { code: '42501', message: 'Only the Director can see this list.' } };
       default: return { data: null, error: null };
     }
   },
@@ -102,6 +120,14 @@ const fakeAdmin = {
       };
     }
     if (fn === 'fn_hr_salary_revision_apply_due' || fn === 'fn_hr_salary_revision_weekly_digest') return { data: 2, error: null };
+    // 7 Oct 2026: the raises due today, then one call each (the second one times out).
+    if (fn === 'fn_hr_salary_revision_targets_due') return { data: ['raise-1', 'raise-2', 'raise-3'], error: null };
+    if (fn === 'fn_hr_salary_revision_targets_attempt') return { data: 1, error: null };
+    if (fn === 'fn_hr_salary_revision_targets_run_one') {
+      return args?.p_request_id === 'raise-2'
+        ? { data: null, error: { code: '57014', message: 'canceling statement due to statement timeout' } }
+        : { data: 1, error: null };
+    }
     return { data: null, error: null };
   },
 };
@@ -142,9 +168,12 @@ beforeEach(() => {
   approver = false;
   openFor = {};
   rpcError = null;
+  tableErrors = {};
+  rpcErrorFor = {};
   calls.length = 0;
   adminCalls.length = 0;
   tablesRead.length = 0;
+  tableRows = {};
   process.env.CRON_SECRET = 'cron-secret';
 });
 
@@ -352,5 +381,160 @@ describe('GET /api/cron/hr-salary-revisions', () => {
     const res = await cronRoute.GET(cron('/api/cron/hr-salary-revisions?mode=approve', 'cron-secret'));
     expect(res.status).toBe(400);
     expect(adminCalls).toHaveLength(0);
+  });
+  it('targets mode (7 Oct 2026) runs the monthly targets check with the service role, Bearer only', async () => {
+    expect((await cronRoute.GET(cron('/api/cron/hr-salary-revisions?mode=targets'))).status).toBe(401);
+    expect((await cronRoute.GET(cron('/api/cron/hr-salary-revisions?mode=targets&secret=cron-secret'))).status).toBe(401);
+    expect(adminCalls).toHaveLength(0);
+    const res = await cronRoute.GET(cron('/api/cron/hr-salary-revisions?mode=targets', 'cron-secret'));
+    expect(res.status).toBe(200);
+    // One call per raise: the one that timed out is reported; the others are still done.
+    expect(await res.json()).toEqual({ ok: false, mode: 'targets', count: 2, done: 3, remaining: 0, failed: ['raise-2'] });
+    // Each raise: the attempt is recorded first (its own call), then the run.
+    expect(adminCalls.map((c) => c.fn)).toEqual([
+      'fn_hr_salary_revision_targets_due',
+      'fn_hr_salary_revision_targets_attempt', 'fn_hr_salary_revision_targets_run_one',
+      'fn_hr_salary_revision_targets_attempt', 'fn_hr_salary_revision_targets_run_one',
+      'fn_hr_salary_revision_targets_attempt', 'fn_hr_salary_revision_targets_run_one',
+    ]);
+    expect(adminCalls.filter((c) => c.fn === 'fn_hr_salary_revision_targets_run_one').map((c) => c.args?.p_request_id))
+      .toEqual(['raise-1', 'raise-2', 'raise-3']);
+    expect(fnCalls('fn_hr_salary_revision_targets_run_one')).toHaveLength(0);  // never the caller's session
+  });
+  it('targets mode starts no raise once fewer than 15 s of the 60 s remain; the rest wait for the next night', async () => {
+    const t0 = 1_000_000;
+    // Started at 0 s; raise-1 checked at 10 s (50 s left: go); raise-2 at 46 s (14 s left): stop.
+    const times = [t0, t0 + 10_000, t0 + 46_000];
+    const spy = vi.spyOn(Date, 'now').mockImplementation(() => times.shift() ?? t0 + 59_000);
+    try {
+      const res = await cronRoute.GET(cron('/api/cron/hr-salary-revisions?mode=targets', 'cron-secret'));
+      expect(await res.json()).toMatchObject({ mode: 'targets', done: 1, remaining: 2 });
+    } finally {
+      spy.mockRestore();
+    }
+  });
+  it('is scheduled daily in vercel.json', async () => {
+    const { readFileSync } = await import('node:fs');
+    const crons = JSON.parse(readFileSync('vercel.json', 'utf8')).crons as Array<{ path: string; schedule: string }>;
+    expect(crons).toContainEqual({ path: '/api/cron/hr-salary-revisions?mode=targets', schedule: '37 17 * * *' });
+  });
+});
+
+describe('target-gated raises on the request routes (7 Oct 2026)', () => {
+  // W12 review of #4252: production deploys on merge, possibly before migration
+  // 20271007180207 is applied. The old pages must keep working until then.
+  it('before the migration is applied, the request page shows its old view (no held part), not an error', async () => {
+    tableErrors = {
+      hr_salary_revision_target_plans: { code: 'PGRST205', message: "Could not find the table 'public.hr_salary_revision_target_plans' in the schema cache" },
+      hr_salary_revision_target_months: { code: 'PGRST205', message: 'missing' },
+      hr_salary_revision_target_flags: { code: '42P01', message: 'relation does not exist' },
+    };
+    const res = await oneRoute.GET(req(`/api/hr/salary-revisions/${REQ}`), ctx(REQ) as never);
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.request).toMatchObject({ id: REQ });
+    expect(body.targets).toEqual({ plan: null, months: [], flags: [] });
+  });
+
+  it('before the migration is applied, My Pay Changes and the held-parts list still load (function missing)', async () => {
+    rpcErrorFor = {
+      fn_hr_salary_revision_my_targets: { code: 'PGRST202', message: 'Could not find the function public.fn_hr_salary_revision_my_targets' },
+      fn_hr_salary_revision_targets_listed: { code: '42883', message: 'function does not exist' },
+    };
+    const mine = await outcomesRoute.GET(req('/api/hr/salary-revisions/my-outcomes'), {} as never);
+    expect(mine.status).toBe(200);
+    expect((await mine.json()).targets).toEqual({});
+    approver = true;
+    const listed = await listRoute.GET(req('/api/hr/salary-revisions?view=targets'), {} as never);
+    expect(listed.status).toBe(200);
+    expect(await listed.json()).toEqual({ listed: [] });
+  });
+
+  it('any OTHER error on the target tables is still an error (only "not installed" is forgiven)', async () => {
+    tableErrors = { hr_salary_revision_target_plans: { code: '42501', message: 'permission denied' } };
+    const res = await oneRoute.GET(req(`/api/hr/salary-revisions/${REQ}`), ctx(REQ) as never);
+    expect(res.status).toBe(403);
+  });
+
+  it('the single view carries the held part, its months and the flags the caller may see', async () => {
+    tableRows = {
+      hr_salary_revision_target_plans: [{ request_id: REQ, held_amount: '2100.00', state: 'waiting' }],
+      hr_salary_revision_target_months: [{ request_id: REQ, month: '2026-11-01', status: 'missed', results: [] }],
+      hr_salary_revision_target_flags: [],
+    };
+    const body = await (await oneRoute.GET(req(`/api/hr/salary-revisions/${REQ}`), ctx(REQ) as never)).json();
+    expect(body.targets.plan).toMatchObject({ request_id: REQ, state: 'waiting' });
+    expect(body.targets.months).toHaveLength(1);
+    expect(body.targets.flags).toEqual([]);
+    expect(tablesRead).toEqual(expect.arrayContaining(['hr_salary_revision_target_plans', 'hr_salary_revision_target_months', 'hr_salary_revision_target_flags']));
+    expect(fnCalls('fn_hr_salary_revision_my_targets')).toHaveLength(0);
+  });
+
+  it('a self-asker opening their own raise gets numbers, state and dates only: no notes, no flags (round 7)', async () => {
+    // The tables' RLS never returns the person's own held part, even to a self-asker.
+    tableRows = {
+      hr_salary_revision_target_plans: [],
+      hr_salary_revision_target_months: [],
+      hr_salary_revision_target_flags: [],
+    };
+    const body = await (await oneRoute.GET(req(`/api/hr/salary-revisions/${REQ}`), ctx(REQ) as never)).json();
+    expect(body.targets.plan).toMatchObject({ request_id: REQ, state: 'waiting', state_reason: null, run_note: null });
+    expect(body.targets.plan).not.toHaveProperty('lapse_note');
+    expect(body.targets.months).toHaveLength(1);
+    expect(body.targets.flags).toEqual([]);
+    expect(fnCalls('fn_hr_salary_revision_my_targets')).toHaveLength(1);
+  });
+
+  it('a flag needs a month and a note, and reaches the database with the 1st of that month', async () => {
+    const post = (b: unknown) => oneRoute.POST(req(`/api/hr/salary-revisions/${REQ}`, b), ctx(REQ) as never);
+    expect((await post({ action: 'target_flag', note: 'Exams' })).status).toBe(400);
+    expect((await post({ action: 'target_flag', month: '2026-12-01', note: '  ' })).status).toBe(400);
+    expect(fnCalls('fn_hr_salary_revision_target_flag')).toHaveLength(0);
+    expect((await post({ action: 'target_flag', month: '2026-12-17', note: ' Exams ' })).status).toBe(200);
+    expect(fnCalls('fn_hr_salary_revision_target_flag')[0].args).toEqual({ p_request_id: REQ, p_month: '2026-12-01', p_note: 'Exams' });
+  });
+
+  it('a decision needs met or missed, said plainly', async () => {
+    const post = (b: unknown) => oneRoute.POST(req(`/api/hr/salary-revisions/${REQ}`, b), ctx(REQ) as never);
+    expect((await post({ action: 'target_decide', month: '2026-11-01', met: 'yes' })).status).toBe(400);
+    const res = await post({ action: 'target_decide', month: '2026-11-01', met: false });
+    expect(await res.json()).toEqual({ status: 'decided_missed' });
+    expect(fnCalls('fn_hr_salary_revision_target_decide')[0].args).toEqual({
+      p_request_id: REQ, p_month: '2026-11-01', p_counts_as_met: false, p_note: null,
+    });
+  });
+
+  it("the Director's list of held parts: the Director list gets it, anyone else 403", async () => {
+    approver = true;
+    const ok = await listRoute.GET(req('/api/hr/salary-revisions?view=targets'), {} as never);
+    expect(await ok.json()).toEqual({ listed: [{ request_id: REQ, why: 'window_over' }] });
+    approver = false;
+    expect((await listRoute.GET(req('/api/hr/salary-revisions?view=targets'), {} as never)).status).toBe(403);
+  });
+
+  it('a lapse needs a note, and reaches the database', async () => {
+    const post = (b: unknown) => oneRoute.POST(req(`/api/hr/salary-revisions/${REQ}`, b), ctx(REQ) as never);
+    expect((await post({ action: 'target_lapse' })).status).toBe(400);
+    expect(fnCalls('fn_hr_salary_revision_target_lapse')).toHaveLength(0);
+    expect(await (await post({ action: 'target_lapse', note: ' New scale ' })).json()).toEqual({ status: 'lapsed' });
+    expect(fnCalls('fn_hr_salary_revision_target_lapse')[0].args).toEqual({ p_request_id: REQ, p_note: 'New scale' });
+  });
+
+  it('a refusal from the database keeps its HTTP meaning (not the principal: 403)', async () => {
+    rpcError = { code: '42501', message: 'Only the principal of this college can flag a month, and never on their own raise.' };
+    const res = await oneRoute.POST(req(`/api/hr/salary-revisions/${REQ}`, { action: 'target_flag', month: '2026-12-01', note: 'x' }), ctx(REQ) as never);
+    expect(res.status).toBe(403);
+  });
+
+  it('My Pay Changes gets the person\'s own held parts through their own view: numbers, state and dates, no notes', async () => {
+    tableRows = { hr_salary_revision_outcomes: [{ id: 'o1', request_id: REQ, new_monthly_gross: '50400.00' }] };
+    heldKeys = [];
+    const body = await (await outcomesRoute.GET(req('/api/hr/salary-revisions/my-outcomes'), {} as never)).json();
+    expect(body.targets[REQ].plan).toMatchObject({ state: 'waiting', state_reason: null, run_note: null });
+    expect(body.targets[REQ].plan).not.toHaveProperty('lapse_note');
+    expect(body.targets[REQ].months).toHaveLength(1);
+    expect(fnCalls('fn_hr_salary_revision_my_targets')).toHaveLength(1);
+    expect(tablesRead).not.toContain('hr_salary_revision_target_plans');
+    expect(tablesRead).not.toContain('hr_salary_revision_target_flags');
   });
 });
