@@ -55,6 +55,44 @@
 --   actor: it counts on the desk numbers as late and open once past due, never
 --   against a person.
 --
+-- WHICH ITEMS COUNT AT ALL (fn_hr_duty_item_facts, the final SELECT)
+--   Three kinds of item are left out of every number — the desk readings, a
+--   team member's own record and the earned-trust suggestions:
+--   1. CLOSED WITH NO DECISION. An item is decided only when a PERSON is named
+--      as its decider. A closed item with no decider is neither on time nor
+--      late, and it is not open either: it is simply not counted. The two
+--      system closures on main are S3 (a team member's new photo marks their
+--      older pending one 'rejected' with reviewed_at and no reviewed_by) and
+--      L2 (the nightly fn_hr_comp_off_reject_expired_claims stamps approved_at
+--      and leaves approved_by NULL). Note: every L2 decision made before
+--      20270602090000 (trg_hcoc_stamp_decider) also has approved_by NULL, so L2
+--      has no countable history from before that trigger.
+--   2. NEVER WAITED. A decided item whose decision is not later than the moment
+--      it started waiting (done_at <= arrived_at) was never a waiting duty. The
+--      case on main: fn_hr_regularize_attendance_day writes an attendance
+--      correction that is already 'approved', with approved_at = created_at.
+--   3. ABOUT YOURSELF. An item whose decider is its own subject or the person
+--      who filed it: the team member's own profile (staff.profile_id of the
+--      row's employee / staff) for L1, L2, A3, S2 and S3, plus the filer —
+--      created_by (L2), uploaded_by (S2), submitted_by (S3, G2, R5). Nobody
+--      earns 'steady' by verifying their own document or approving their own
+--      form.
+--
+-- HOW FAR THE NUMBERS CAN BE TRUSTED (read before relying on S2 or G2)
+--   S2's verified_by / verified_at and G2's approval_history are written by the
+--   browser, not by the database. RLS lets anyone with hr.employees.edit at
+--   that college update a document's verified_by / verified_at, and lets any
+--   staff member at that college update a form's approval_history (the person
+--   filing a form also writes its first history). So the S2 and G2 numbers are
+--   only as trustworthy as those columns: someone with that write access could
+--   record a verification or an approval at any time and under any name. The
+--   rule above drops an item decided by its own subject or filer; it cannot
+--   catch a decider name written by someone else. Who can write the decider
+--   columns of the other five duties was not audited here beyond two facts:
+--   L2's approved_by is stamped by trg_hcoc_stamp_decider (20270602090000),
+--   and an applicant can still edit the chain JSON of their own pending leave
+--   (L1).
+--
 -- REVERSED
 --   revoked_at is set (leave, comp-off). On a leave it marks only the last
 --   decided step (the decision the revocation took back), never the steps
@@ -69,15 +107,32 @@
 --   fn_loop_bar_proposals_generate will therefore file each one as
 --   'insufficient' ("no metric on record"), and every weekly measurement records
 --   met = NULL ("no numeric bar yet"), which is neither a hit nor a miss. Only
---   when the Director approves a numeric on-time bar through fn_loop_bar_decide
---   on /admin/loops/charters does the existing 4-miss bar-review arm
+--   when a numeric on-time bar is approved through fn_loop_bar_decide on
+--   /admin/loops/charters does the existing 4-miss bar-review arm
 --   (fn_loop_record_measurement raises ONE 'bar-review' card: "the bar may be
 --   wrong"). This file adds no bar of its own and no loop_edges rows — in
 --   particular nothing points at #4152's hr-duty-chase.
 --
+--   THE REAL PATH TO A BAR (nothing new is built for it):
+--   1. Charter first. The existing metaloop-charter-drafts job drafts charter
+--      legs for active loops that have a routine and no charter (up to 3 a
+--      run), and files them as kind 'charter' proposals. A super admin approves
+--      one on /admin/loops/charters (fn_loop_apply_charter_proposal).
+--   2. Then a bar. With outcome_metric and baseline_window on record, the next
+--      fn_loop_bar_proposals_generate run closes the 'insufficient' row as
+--      superseded and files a kind 'bar', status 'proposed' row.
+--   3. Approve it with fn_loop_bar_decide, typing a plain number from 0 to 100
+--      in the bar box: the tower records each week's on-time rate as a
+--      percentage (0-100), and a non-'threshold' bar is a floor (at or above
+--      clears it). fn_loop_bar_decide refuses any row that is not 'proposed'
+--      and checks is_super_admin(), not the Director list.
+--   Until step 1 is done, the Director cannot approve a bar for these seven
+--   rows: the generator files them 'insufficient' and the decide function
+--   refuses that status.
+--
 -- Default taken, overrule here: each of the seven measurable HR duties gets its own row on the loops tower (7 new cards on /admin/loops), as the design describes. The alternative is a single 'HR duties' row with the average.
 -- Default taken, overrule here: the seven tower rows are owned by director@jkkn.ac.in, the address existing seeds use. They can be reassigned on /admin/loops with no deploy.
--- Default taken, overrule here: no bar is set by the machine. The Director approves each duty's on-time bar on the existing charters page; until he does, readings are recorded but count as neither hit nor miss.
+-- Default taken, overrule here: no bar is set by the machine. Each row needs its charter approved first on the existing charters page, then a plain 0-100 on-time percentage bar (THE REAL PATH TO A BAR, above); until then readings are recorded but count as neither hit nor miss, and the Director cannot approve a bar.
 -- Default taken, overrule here: v1 working days skip Sundays only. College holidays are not paused, unlike the chase ladder in #4152.
 -- Default taken, overrule here: the reliability signal ('steady' means at least 10 items, at least 90% on time and at most 5% reversed over 12 weeks) is shown only to the person it is about, on their own My Desk. The Director and HR see per-duty, per-college numbers, never per person.
 -- Default taken, overrule here: the earned-trust suggestions switch ships OFF and only the Director can turn it on. When on, it lists people who have been steady for 12 weeks. Noting a suggestion changes nothing in the system; any lighter check would be a separate change the Director makes by hand.
@@ -85,12 +140,17 @@
 -- Default taken, overrule here: the leave and recruitment chain keys read are decided_at / decided_by (what main writes), not the acted_at / acted_by the section spec named.
 -- Default taken, overrule here: a week's reading counts the items whose due time fell in that week (Monday to Sunday, IST). An item still open is counted only once it is past due.
 -- Default taken, overrule here: "steady for 12 consecutive weeks" means the 12-week signal was 'steady' at each of the last 12 weekly checkpoints.
+-- Default taken, overrule here: an item closed with no person named as its decider, an item decided no later than it started waiting, and an item decided by its own subject or filer are left out of every number (desk readings included), not counted as late or on time.
+-- Default taken, overrule here: the three 'steady' thresholds and the suggestions switch can be changed only by the Director list (a guard trigger on platform_policies), and My Desk reads the thresholds from those rows rather than printing 10 / 90% / 5%.
+-- Default taken, overrule here: a suggestion carries only "steady for 12 weeks" and the person's name; the Director never sees that person's item count, on-time rate or reversed rate.
 -- Default taken, overrule here: when an approved leave is revoked, the reversal counts against the step that settled it (the last decided step), not the earlier steps in the chain. A leave the applicant cancels is not a reversal.
 --
 -- SECURITY
 --   Every SECURITY DEFINER function sets search_path and is REVOKEd from anon
 --   and PUBLIC. The facts, compute and suggestion-generate functions are also
---   REVOKEd from authenticated (service role only).
+--   REVOKEd from authenticated (service role only). The four hr.harness.trust.*
+--   policy rows are guarded by trg_guard_hr_trust_policy_writes: only the
+--   Director list (or service_role / a migration) may change them.
 -- ci:allow-secdef-authenticated fn_hr_my_reliability is callable by every signed-in team member by design: it takes no user parameter and filters to actor_id = auth.uid(), so a caller can only ever read their own numbers. fn_hr_trust_switch and fn_hr_trust_suggestion_decide refuse anyone for whom public.fn_is_the_director() IS NOT TRUE (the named Director list, which a non-Director super admin is not on).
 --
 -- No BEGIN/COMMIT (rollback-rehearsal safe). NOT applied by merging.
@@ -346,7 +406,7 @@ BEGIN
   ),
   -- L1: leave approval-chain steps -----------------------------------------
   l1_steps AS (
-    SELECT a.id, st.institution_id, a.revoked_at, a.status AS app_status,
+    SELECT a.id, st.institution_id, st.profile_id AS subject_id, a.revoked_at, a.status AS app_status,
            a.final_decided_at, a.superseded_by, a.current_step, a.created_at,
            a.approval_chain AS chain, (e.ord - 1)::int AS idx, e.step,
            max((e.ord - 1)::int) FILTER (WHERE e.step ->> 'status' IN ('approved','rejected','revoked'))
@@ -377,7 +437,8 @@ BEGIN
                 THEN public.fn_hr_duty_tower_ts(s.step ->> 'decided_at') END AS done_at,
            -- the revocation reverses the decision that settled the leave (the
            -- last decided step), not the recommendations below it
-           (s.revoked_at IS NOT NULL AND s.idx = s.last_decided_idx) AS reversed
+           (s.revoked_at IS NOT NULL AND s.idx = s.last_decided_idx) AS reversed,
+           ARRAY[s.subject_id] AS subject_ids
       FROM l1_steps s
       JOIN cfg c ON c.duty_code = 'L1'
       CROSS JOIN LATERAL (SELECT public.fn_hr_duty_tower_step_arrived(s.chain, s.idx, s.created_at) AS arrived) w
@@ -396,7 +457,8 @@ BEGIN
            k.created_at,
            ((k.expires_on - c.due_days_before_deadline + 1)::timestamp AT TIME ZONE 'Asia/Kolkata'),
            k.approved_at,
-           (k.revoked_at IS NOT NULL)
+           (k.revoked_at IS NOT NULL),
+           ARRAY[st.profile_id, k.created_by]
       FROM public.hr_comp_off_credits k
       JOIN cfg c ON c.duty_code = 'L2'
       LEFT JOIN public.staff st ON st.id = k.employee_id
@@ -411,7 +473,8 @@ BEGIN
            r.created_at + make_interval(hours => c.due_hours),
            CASE WHEN r.status IN ('approved','rejected')
                 THEN COALESCE(r.approved_at, r.updated_at) END,
-           false
+           false,
+           ARRAY[st.profile_id]
       FROM public.hr_attendance_regularizations r
       JOIN cfg c ON c.duty_code = 'A3'
       LEFT JOIN public.staff st ON st.id = r.employee_id
@@ -424,9 +487,11 @@ BEGIN
            d.uploaded_at,
            public.fn_hr_duty_tower_add_working_days(d.uploaded_at, c.due_working_days),
            CASE WHEN d.verification_status <> 'pending' THEN d.verified_at END,
-           false
+           false,
+           ARRAY[st.profile_id, d.uploaded_by]
       FROM public.hr_employee_documents d
       JOIN cfg c ON c.duty_code = 'S2'
+      LEFT JOIN public.staff st ON st.id = d.staff_id
      WHERE d.verification_status = 'pending'
         OR (d.verification_status <> 'pending' AND d.verified_at IS NOT NULL)
   ),
@@ -437,17 +502,18 @@ BEGIN
            p.submitted_at,
            public.fn_hr_duty_tower_add_working_days(p.submitted_at, c.due_working_days),
            CASE WHEN p.status <> 'pending' THEN p.reviewed_at END,
-           false
+           false,
+           ARRAY[st.profile_id, p.submitted_by]
       FROM public.hr_staff_photo_submissions p
       JOIN cfg c ON c.duty_code = 'S3'
+      LEFT JOIN public.staff st ON st.id = p.staff_id
      WHERE p.status = 'pending'
         OR (p.status <> 'pending' AND p.reviewed_at IS NOT NULL)
   ),
   -- G2: HR form steps ------------------------------------------------------
   g2_hist AS (
-    SELECT f.id, f.institution_id, f.status, f.created_at, h.entry, h.ord,
-           lag(public.fn_hr_duty_tower_ts(h.entry ->> 'at')) OVER (PARTITION BY f.id ORDER BY h.ord) AS prev_at,
-           count(*) OVER (PARTITION BY f.id) AS n
+    SELECT f.id, f.institution_id, f.submitted_by, f.status, f.created_at, h.entry, h.ord,
+           lag(public.fn_hr_duty_tower_ts(h.entry ->> 'at')) OVER (PARTITION BY f.id ORDER BY h.ord) AS prev_at
       FROM public.hr_form_submissions f
       CROSS JOIN LATERAL jsonb_array_elements(
              CASE WHEN jsonb_typeof(f.approval_history) = 'array' THEN f.approval_history ELSE '[]'::jsonb END)
@@ -461,7 +527,8 @@ BEGIN
            COALESCE(g.prev_at, g.created_at),
            public.fn_hr_duty_tower_add_working_days(COALESCE(g.prev_at, g.created_at), c.due_working_days),
            public.fn_hr_duty_tower_ts(g.entry ->> 'at'),
-           false
+           false,
+           ARRAY[g.submitted_by]
       FROM g2_hist g
       JOIN cfg c ON c.duty_code = 'G2'
      WHERE g.entry ->> 'action' IN ('approve','reject')
@@ -473,7 +540,8 @@ BEGIN
            w.since,
            public.fn_hr_duty_tower_add_working_days(w.since, c.due_working_days),
            NULL::timestamptz,
-           false
+           false,
+           ARRAY[f.submitted_by]
       FROM public.hr_form_submissions f
       JOIN cfg c ON c.duty_code = 'G2'
       CROSS JOIN LATERAL (
@@ -486,7 +554,7 @@ BEGIN
   ),
   -- R5: recruitment approval-chain steps ------------------------------------
   r5_steps AS (
-    SELECT rc.id, rc.institution_id, rc.status AS app_status, rc.final_decided_at,
+    SELECT rc.id, rc.institution_id, rc.submitted_by, rc.status AS app_status, rc.final_decided_at,
            rc.current_step, rc.submitted_at, rc.approval_chain AS chain,
            (e.ord - 1)::int AS idx, e.step
       FROM public.hr_recruitment_candidates rc
@@ -506,7 +574,8 @@ BEGIN
              c.due_hours)),
            CASE WHEN s.step ->> 'status' IN ('approved','rejected')
                 THEN public.fn_hr_duty_tower_ts(s.step ->> 'decided_at') END,
-           false
+           false,
+           ARRAY[s.submitted_by]
       FROM r5_steps s
       JOIN cfg c ON c.duty_code = 'R5'
       CROSS JOIN LATERAL (SELECT public.fn_hr_duty_tower_step_arrived(s.chain, s.idx, s.submitted_at) AS arrived) w
@@ -536,12 +605,20 @@ BEGIN
    WHERE f.due_at IS NOT NULL
      AND f.due_at >= p_from
      AND f.due_at <  p_to
-     AND (f.done_at IS NOT NULL OR f.due_at < now());
+     AND (f.done_at IS NOT NULL OR f.due_at < now())
+     -- closed with no decision: a closed item with no person named as its
+     -- decider (S3 resubmission, L2 nightly auto-reject) is not counted
+     AND NOT (f.done_at IS NOT NULL AND f.actor_id IS NULL)
+     -- never waited: decided no later than it started waiting (A3 direct
+     -- corrections are written already approved)
+     AND NOT (f.done_at IS NOT NULL AND f.done_at <= f.arrived_at)
+     -- about yourself: the decider is the item's own subject or its filer
+     AND NOT COALESCE(f.actor_id = ANY (f.subject_ids), false);
 END;
 $$;
 
 COMMENT ON FUNCTION public.fn_hr_duty_item_facts(timestamptz, timestamptz) IS
-  'HR staff harness (20271007161151): one row per HR duty item whose due time falls in [p_from, p_to) — decided items, plus open items already past due (late and open). actor_id = the person who decided it (NULL while open). Service role only; fn_hr_duty_tower_compute and fn_hr_my_reliability read it.';
+  'HR staff harness (20271007161151): one row per HR duty item whose due time falls in [p_from, p_to) — items a person decided, plus open items already past due (late and open). Left out: items closed with no person named as decider, items decided no later than they started waiting, and items whose decider is their own subject or filer. actor_id = the person who decided it (NULL while open). Service role only; fn_hr_duty_tower_compute and fn_hr_my_reliability read it.';
 
 REVOKE EXECUTE ON FUNCTION public.fn_hr_duty_item_facts(timestamptz, timestamptz) FROM anon, PUBLIC, authenticated;
 GRANT  EXECUTE ON FUNCTION public.fn_hr_duty_item_facts(timestamptz, timestamptz) TO service_role;
@@ -684,32 +761,33 @@ GRANT  EXECUTE ON FUNCTION public.fn_hr_duty_tower_compute(date) TO service_role
 -- Charter legs (outcome_metric, baseline_window, intervention, verdict_owner,
 -- remeasure_window, counter_metric) and bar are deliberately NULL — the
 -- receipts rule. fn_loop_bar_proposals_generate will file 'insufficient' for
--- each, so every measurement records met = NULL until the Director approves a
--- numeric bar through fn_loop_bar_decide on /admin/loops/charters. Only then
+-- each, and fn_loop_bar_decide refuses an 'insufficient' row, so every
+-- measurement records met = NULL until the charter is approved first and a
+-- plain 0-100 bar after it (THE REAL PATH TO A BAR, in the header). Only then
 -- does the existing 4-miss bar-review arm. No loop_edges rows are written.
 INSERT INTO public.loop_registry
   (loop_key, name, stack_tier, loop_class, domain, description, gates, routine_id, owner_email)
 VALUES
   ('hr-duty-l1', 'HR duty L1: Approve or reject a team member''s leave at your step', 3, 'accountability', 'hr',
-   'Weekly on-time rate of leave approval steps (due: the step''s escalate_after_hours, else 48 hours). Measures only; nothing is sent or changed.',
+   'Weekly on-time rate of leave approval steps (due: the step''s escalate_after_hours, else 48 hours). Measures only; nothing is sent or changed. No bar yet: the charter is drafted and approved first on /admin/loops/charters, then a plain 0-100 on-time percentage bar can be proposed and approved; until then the Director cannot approve a bar for this row.',
    '{"g":"off","a":"off","m":"off","f":"off"}'::jsonb, 'hr-duty-tower', 'director@jkkn.ac.in'),
   ('hr-duty-l2', 'HR duty L2: Decide a team member''s comp-off claim before it expires', 3, 'accountability', 'hr',
-   'Weekly on-time rate of comp-off claim decisions (due: 7 days before the credit expires). Measures only; nothing is sent or changed.',
+   'Weekly on-time rate of comp-off claim decisions (due: 7 days before the credit expires). Measures only; nothing is sent or changed. No bar yet: the charter is drafted and approved first on /admin/loops/charters, then a plain 0-100 on-time percentage bar can be proposed and approved; until then the Director cannot approve a bar for this row.',
    '{"g":"off","a":"off","m":"off","f":"off"}'::jsonb, 'hr-duty-tower', 'director@jkkn.ac.in'),
   ('hr-duty-a3', 'HR duty A3: Decide a team member''s attendance correction', 3, 'accountability', 'hr',
-   'Weekly on-time rate of attendance correction decisions (due: 48 hours). Measures only; nothing is sent or changed.',
+   'Weekly on-time rate of attendance correction decisions (due: 48 hours). Measures only; nothing is sent or changed. No bar yet: the charter is drafted and approved first on /admin/loops/charters, then a plain 0-100 on-time percentage bar can be proposed and approved; until then the Director cannot approve a bar for this row.',
    '{"g":"off","a":"off","m":"off","f":"off"}'::jsonb, 'hr-duty-tower', 'director@jkkn.ac.in'),
   ('hr-duty-s2', 'HR duty S2: Verify a document a team member uploaded', 3, 'accountability', 'hr',
-   'Weekly on-time rate of document verification (due: 3 working days, Sundays skipped). Measures only; nothing is sent or changed.',
+   'Weekly on-time rate of document verification (due: 3 working days, Sundays skipped). Measures only; nothing is sent or changed. No bar yet: the charter is drafted and approved first on /admin/loops/charters, then a plain 0-100 on-time percentage bar can be proposed and approved; until then the Director cannot approve a bar for this row.',
    '{"g":"off","a":"off","m":"off","f":"off"}'::jsonb, 'hr-duty-tower', 'director@jkkn.ac.in'),
   ('hr-duty-s3', 'HR duty S3: Review a photo a team member submitted', 3, 'accountability', 'hr',
-   'Weekly on-time rate of photo reviews (due: 2 working days, Sundays skipped). Measures only; nothing is sent or changed.',
+   'Weekly on-time rate of photo reviews (due: 2 working days, Sundays skipped). Measures only; nothing is sent or changed. No bar yet: the charter is drafted and approved first on /admin/loops/charters, then a plain 0-100 on-time percentage bar can be proposed and approved; until then the Director cannot approve a bar for this row.',
    '{"g":"off","a":"off","m":"off","f":"off"}'::jsonb, 'hr-duty-tower', 'director@jkkn.ac.in'),
   ('hr-duty-g2', 'HR duty G2: Act on an HR form at your step', 3, 'accountability', 'hr',
-   'Weekly on-time rate of HR form steps (due: 3 working days, Sundays skipped). Measures only; nothing is sent or changed.',
+   'Weekly on-time rate of HR form steps (due: 3 working days, Sundays skipped). Measures only; nothing is sent or changed. No bar yet: the charter is drafted and approved first on /admin/loops/charters, then a plain 0-100 on-time percentage bar can be proposed and approved; until then the Director cannot approve a bar for this row.',
    '{"g":"off","a":"off","m":"off","f":"off"}'::jsonb, 'hr-duty-tower', 'director@jkkn.ac.in'),
   ('hr-duty-r5', 'HR duty R5: Approve a candidate at your step', 3, 'accountability', 'hr',
-   'Weekly on-time rate of recruitment approval steps (due: the step''s escalate_after_hours, else 72 hours). Measures only; nothing is sent or changed.',
+   'Weekly on-time rate of recruitment approval steps (due: the step''s escalate_after_hours, else 72 hours). Measures only; nothing is sent or changed. No bar yet: the charter is drafted and approved first on /admin/loops/charters, then a plain 0-100 on-time percentage bar can be proposed and approved; until then the Director cannot approve a bar for this row.',
    '{"g":"off","a":"off","m":"off","f":"off"}'::jsonb, 'hr-duty-tower', 'director@jkkn.ac.in')
 ON CONFLICT (loop_key) DO NOTHING;
 
@@ -729,6 +807,55 @@ VALUES
   ('hr.harness.trust.suggestions_enabled', 'global', 'false'::jsonb, 'boolean', 'major', 'published', true,
    'HR staff harness: earned-trust suggestions for the Director. Ships OFF. Only the Director can turn it on, through fn_hr_trust_switch (a raw edit of this row is not enough: the switch log must agree). Suggestions change nothing in the system.')
 ON CONFLICT (policy_key, scope_type, COALESCE(scope_id, '00000000-0000-0000-0000-000000000000'::uuid)) DO NOTHING;
+
+-- Who may change the four hr.harness.trust.* rows (the three thresholds and the
+-- suggestions switch): the Director list only. The same shape as
+-- fn_guard_salary_suggestion_rule_writes (20270512090000): allowed are a
+-- signed-in caller on the Director list (fn_is_the_director()), service_role,
+-- and a database session with no JWT (a migration, the SQL console). Refused
+-- with 42501: anon, and every other signed-in account, super admins included.
+-- Fails closed: if fn_is_the_director() is NULL or raises, the write is refused.
+-- fn_hr_trust_switch passes because the Director's JWT is still the caller
+-- inside that SECURITY DEFINER function.
+CREATE OR REPLACE FUNCTION public.fn_guard_hr_trust_policy_writes()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY INVOKER
+SET search_path = public
+AS $function$
+DECLARE
+  v_role text := auth.role();
+BEGIN
+  IF NOT ((TG_OP IN ('INSERT', 'UPDATE') AND NEW.policy_key LIKE 'hr.harness.trust.%')
+       OR (TG_OP IN ('UPDATE', 'DELETE') AND OLD.policy_key LIKE 'hr.harness.trust.%')) THEN
+    RETURN CASE WHEN TG_OP = 'DELETE' THEN OLD ELSE NEW END;
+  END IF;
+
+  IF v_role IS NOT NULL AND v_role IS DISTINCT FROM 'service_role' THEN
+    IF v_role IS DISTINCT FROM 'authenticated' THEN
+      RAISE EXCEPTION 'Only the Director can change the earned-trust settings.'
+        USING ERRCODE = '42501';
+    END IF;
+    IF public.fn_is_the_director() IS NOT TRUE THEN
+      RAISE EXCEPTION 'Only the Director can change the earned-trust settings.'
+        USING ERRCODE = '42501';
+    END IF;
+  END IF;
+
+  RETURN CASE WHEN TG_OP = 'DELETE' THEN OLD ELSE NEW END;
+END;
+$function$;
+
+REVOKE EXECUTE ON FUNCTION public.fn_guard_hr_trust_policy_writes() FROM anon, PUBLIC;
+
+COMMENT ON FUNCTION public.fn_guard_hr_trust_policy_writes() IS
+  'BEFORE trigger on platform_policies (20271007161151). Refuses any insert/update/delete touching an hr.harness.trust.* row unless the caller is on the Director list (fn_is_the_director()), is service_role, or is a direct DB session with no JWT. Fails closed.';
+
+DROP TRIGGER IF EXISTS trg_guard_hr_trust_policy_writes ON public.platform_policies;
+CREATE TRIGGER trg_guard_hr_trust_policy_writes
+  BEFORE INSERT OR UPDATE OR DELETE ON public.platform_policies
+  FOR EACH ROW
+  EXECUTE FUNCTION public.fn_guard_hr_trust_policy_writes();
 
 -- The three thresholds, or NULL for every one of them when any is missing,
 -- inactive or not a number (fail closed: never 'steady' by default).
@@ -788,7 +915,8 @@ $$;
 REVOKE EXECUTE ON FUNCTION public.fn_hr_trust_signal(integer, numeric, numeric, numeric, numeric, numeric) FROM anon, PUBLIC, authenticated;
 
 CREATE OR REPLACE FUNCTION public.fn_hr_my_reliability()
-RETURNS TABLE (duty_code text, items integer, on_time_rate numeric, reversal_rate numeric, signal text)
+RETURNS TABLE (duty_code text, items integer, on_time_rate numeric, reversal_rate numeric, signal text,
+               min_items numeric, steady_on_time numeric, max_reversal numeric)
 LANGUAGE plpgsql
 STABLE
 SECURITY DEFINER
@@ -810,7 +938,10 @@ BEGIN
 
   RETURN QUERY
     SELECT g.duty_code, g.items, g.on_time_rate, g.reversal_rate,
-           public.fn_hr_trust_signal(g.items, g.on_time_rate, g.reversal_rate, v_min, v_on, v_rev)
+           public.fn_hr_trust_signal(g.items, g.on_time_rate, g.reversal_rate, v_min, v_on, v_rev),
+           -- the bar 'steady' is read against, so My Desk never hardcodes it
+           -- (all three NULL when any is unreadable: nothing reads 'steady')
+           v_min, v_on, v_rev
       FROM (
         SELECT f.duty_code,
                count(*)::int AS items,
@@ -825,7 +956,7 @@ END;
 $$;
 
 COMMENT ON FUNCTION public.fn_hr_my_reliability() IS
-  'HR staff harness (20271007161151): the signed-in team member''s OWN record over the trailing 12 weeks, per duty they decided: items, on-time rate, reversed rate and a signal (steady / building / too few items). No user parameter: a person can only ever read their own numbers. Read-only.';
+  'HR staff harness (20271007161151): the signed-in team member''s OWN record over the trailing 12 weeks, per duty they decided: items, on-time rate, reversed rate and a signal (steady / building / too few items), plus the three thresholds the signal was read against (NULL when unreadable). No user parameter: a person can only ever read their own numbers. Read-only.';
 
 REVOKE EXECUTE ON FUNCTION public.fn_hr_my_reliability() FROM anon, PUBLIC;
 GRANT  EXECUTE ON FUNCTION public.fn_hr_my_reliability() TO authenticated;
@@ -860,7 +991,7 @@ CREATE TABLE IF NOT EXISTS public.hr_trust_suggestions (
   id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id       uuid NOT NULL REFERENCES public.profiles(id),
   duty_code     text NOT NULL CHECK (duty_code ~ '^(R[1-9]|L[1-5]|A[1-6]|P[1-4]|S[1-4]|G([1-9]|10))$'),
-  evidence      jsonb NOT NULL,   -- {items, on_time_rate, reversal_rate, weeks}
+  evidence      jsonb NOT NULL,   -- {steady_weeks: 12} only — never the person's own rates
   status        text NOT NULL DEFAULT 'proposed' CHECK (status IN ('proposed','noted','declined')),
   decided_at    timestamptz,
   decision_note text,
@@ -906,8 +1037,10 @@ BEGIN
     RAISE EXCEPTION 'The earned-trust switch row is missing (hr.harness.trust.suggestions_enabled).' USING ERRCODE = 'P0002';
   END IF;
 
-  INSERT INTO public.hr_trust_switch_log (turned_on, by_user, note)
-  VALUES (p_on, auth.uid(), NULLIF(btrim(COALESCE(p_note, '')), ''));
+  -- clock_timestamp(), not now(): two turns in one transaction must still
+  -- order, because the latest row is the switch's state.
+  INSERT INTO public.hr_trust_switch_log (turned_on, by_user, at, note)
+  VALUES (p_on, auth.uid(), clock_timestamp(), NULLIF(btrim(COALESCE(p_note, '')), ''));
 
   RETURN p_on;
 END;
@@ -992,15 +1125,14 @@ BEGIN
     HAVING count(DISTINCT p.k) = 12
   ),
   ins AS (
+    -- The evidence says only "steady for 12 weeks". The person's item count,
+    -- on-time rate and reversed rate stay theirs alone: the Director reads this
+    -- table, and "only you can see these numbers" must stay true.
     INSERT INTO public.hr_trust_suggestions (user_id, duty_code, evidence, status)
     SELECT s.actor_id, s.duty_code,
-           jsonb_build_object('items', c.items,
-                              'on_time_rate', round(c.on_time_rate, 4),
-                              'reversal_rate', round(c.reversal_rate, 4),
-                              'weeks', 12),
+           jsonb_build_object('steady_weeks', 12),
            'proposed'
       FROM steady s
-      JOIN per_cp c ON c.actor_id = s.actor_id AND c.duty_code = s.duty_code AND c.k = 0
       JOIN public.profiles pr ON pr.id = s.actor_id
      -- a suggestion the Director decided in the last 12 weeks is not asked again
      WHERE NOT EXISTS (SELECT 1 FROM public.hr_trust_suggestions x

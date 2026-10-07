@@ -2958,3 +2958,10 @@ DROP TRIGGER IF EXISTS hr_duty_tower_duties_audit_trg ON public.hr_duty_tower_du
 CREATE TRIGGER hr_duty_tower_duties_audit_trg
   AFTER UPDATE ON public.hr_duty_tower_duties
   FOR EACH ROW EXECUTE FUNCTION public.fn_hr_duty_tower_duties_audit();
+
+DROP TRIGGER IF EXISTS trg_guard_hr_trust_policy_writes ON public.platform_policies;
+
+CREATE TRIGGER trg_guard_hr_trust_policy_writes
+  BEFORE INSERT OR UPDATE OR DELETE ON public.platform_policies
+  FOR EACH ROW
+  EXECUTE FUNCTION public.fn_guard_hr_trust_policy_writes();

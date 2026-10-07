@@ -12,7 +12,11 @@
 //     card is hidden when the person decided no items.
 //   * The Director block: only when fn_is_the_director() is true. It holds the
 //     earned-trust switch (ships OFF), the suggestion list (Note / Decline) and
-//     a per-duty, per-college on-time table that has no people in it.
+//     a per-duty, per-college on-time table that has no people in it. A
+//     suggestion shows a name and "steady for 12 weeks" only: never that
+//     person's item count, on-time rate or reversed rate.
+//   * The 'steady' bar in the footnote is read from the thresholds that come
+//     back with the person's own rows, never typed in here.
 //
 // NOTHING HERE CHANGES WHAT ANYONE MAY DO. Noting a suggestion records that the
 // Director saw it; no role, permission or approval chain is touched.
@@ -36,7 +40,9 @@ import {
 import {
   HR_TOWER_DUTY_NAMES,
   formatRate,
+  toRate,
   type HrTowerDutyCode,
+  type MyReliabilityRow,
   type ReliabilitySignal,
 } from '@/types/hr-reliability';
 
@@ -49,6 +55,17 @@ const SIGNAL_STYLE: Record<ReliabilitySignal, string> = {
   building: 'border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-900/50 dark:bg-amber-950/40 dark:text-amber-300',
   'too few items': 'border-border bg-muted text-muted-foreground',
 };
+
+/** "at least 10 items, at least 90% on time and at most 5% reversed", from the rows' own thresholds. */
+function steadyBarSentence(row: MyReliabilityRow | undefined): string {
+  const min = toRate(row?.min_items);
+  const onTime = toRate(row?.steady_on_time);
+  const maxRev = toRate(row?.max_reversal);
+  if (min === null || onTime === null || maxRev === null) {
+    return "The bar for 'steady' could not be read just now, so nothing reads steady.";
+  }
+  return `'Steady' needs at least ${min} items, at least ${formatRate(onTime)} on time and at most ${formatRate(maxRev)} reversed.`;
+}
 
 function SignalBadge({ signal }: { signal: ReliabilitySignal }) {
   return (
@@ -92,9 +109,8 @@ export function MyReliability() {
                 </li>
               ))}
             </ul>
-            <p className="mt-3 text-xs text-muted-foreground">
-              &lsquo;Steady&rsquo; needs at least 10 items, at least 90% on time and at most 5% reversed. This record
-              changes nothing about what you can do.
+            <p className="mt-3 text-xs text-muted-foreground" data-testid="steady-bar">
+              {steadyBarSentence(rows[0])} This record changes nothing about what you can do.
             </p>
           </CardContent>
         </Card>
@@ -171,12 +187,15 @@ function DirectorTrustBlock() {
                 <h3 className="font-medium">Suggestions waiting</h3>
                 <ul className="divide-y divide-border rounded-md border">
                   {data.suggestions.map((s) => (
-                    <li key={s.id} className="flex flex-wrap items-center justify-between gap-2 p-2">
+                    <li
+                      key={s.id}
+                      data-testid="trust-suggestion"
+                      className="flex flex-wrap items-center justify-between gap-2 p-2"
+                    >
                       <span className="min-w-0 flex-1">
                         <span className="font-medium">{s.person_name ?? 'A team member'}</span>
                         <span className="text-muted-foreground">
-                          {' '}· {dutyName(s.duty_code)} · {s.evidence.items ?? 0} items,{' '}
-                          {formatRate(s.evidence.on_time_rate ?? null)} on time
+                          {' '}· {dutyName(s.duty_code)} · steady for {s.evidence.steady_weeks ?? 12} weeks
                         </span>
                       </span>
                       <span className="flex gap-2">

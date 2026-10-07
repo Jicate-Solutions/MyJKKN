@@ -34,6 +34,10 @@ GRANT USAGE ON SCHEMA auth TO anon, authenticated, service_role;
 GRANT USAGE ON SCHEMA public TO anon, authenticated, service_role;
 CREATE FUNCTION auth.uid() RETURNS uuid LANGUAGE sql STABLE AS $$
   SELECT nullif(current_setting('test.uid', true), '')::uuid $$;
+-- The JWT role claim: set by a test to the role it acts as. Read from a setting,
+-- not current_user, which is the owner inside a SECURITY DEFINER function.
+CREATE FUNCTION auth.role() RETURNS text LANGUAGE sql STABLE AS $$
+  SELECT nullif(current_setting('test.role', true), '') $$;
 CREATE FUNCTION public.is_super_admin() RETURNS boolean LANGUAGE sql STABLE AS $$
   SELECT coalesce(current_setting('test.super', true), '') = 'on' $$;
 CREATE FUNCTION public.is_admin() RETURNS boolean LANGUAGE sql STABLE AS $$ SELECT false $$;
@@ -41,7 +45,7 @@ CREATE FUNCTION public.user_has_permission(p text) RETURNS boolean LANGUAGE sql 
   SELECT p = ANY (string_to_array(coalesce(current_setting('test.perms', true), ''), ',')) $$;
 CREATE FUNCTION public.role_has_institution_access(p uuid) RETURNS boolean LANGUAGE sql STABLE AS $$
   SELECT p::text = ANY (string_to_array(coalesce(current_setting('test.insts', true), ''), ',')) $$;
-GRANT EXECUTE ON FUNCTION auth.uid(), public.is_super_admin(), public.is_admin(),
+GRANT EXECUTE ON FUNCTION auth.uid(), auth.role(), public.is_super_admin(), public.is_admin(),
   public.user_has_permission(text), public.role_has_institution_access(uuid) TO authenticated, service_role;
 
 CREATE TABLE public.profiles (id uuid PRIMARY KEY, full_name text);
@@ -79,22 +83,22 @@ CREATE TABLE public.hr_leave_applications (
 CREATE TABLE public.hr_comp_off_credits (
   id uuid PRIMARY KEY, employee_id uuid NOT NULL, worked_date date, expires_on date NOT NULL,
   source text NOT NULL DEFAULT 'claim', status text NOT NULL, approved_by uuid, approved_at timestamptz,
-  revoked_at timestamptz, created_at timestamptz NOT NULL DEFAULT now());
+  revoked_at timestamptz, created_by uuid, created_at timestamptz NOT NULL DEFAULT now());
 CREATE TABLE public.hr_attendance_regularizations (
   id uuid PRIMARY KEY, employee_id uuid NOT NULL, status text, approver_id uuid, approved_at timestamptz,
   created_at timestamptz DEFAULT now(), updated_at timestamptz DEFAULT now());
 CREATE TABLE public.hr_employee_documents (
   id uuid PRIMARY KEY, institution_id uuid NOT NULL, staff_id uuid, verification_status text NOT NULL,
-  verified_by uuid, verified_at timestamptz, uploaded_at timestamptz NOT NULL DEFAULT now());
+  verified_by uuid, verified_at timestamptz, uploaded_by uuid, uploaded_at timestamptz NOT NULL DEFAULT now());
 CREATE TABLE public.hr_staff_photo_submissions (
   id uuid PRIMARY KEY, institution_id uuid NOT NULL, staff_id uuid, status text NOT NULL,
-  reviewed_by uuid, reviewed_at timestamptz, submitted_at timestamptz NOT NULL DEFAULT now());
+  reviewed_by uuid, reviewed_at timestamptz, submitted_by uuid, submitted_at timestamptz NOT NULL DEFAULT now());
 CREATE TABLE public.hr_form_submissions (
   id uuid PRIMARY KEY, institution_id uuid, status text NOT NULL, current_step integer NOT NULL DEFAULT 1,
-  approval_history jsonb NOT NULL DEFAULT '[]', created_at timestamptz NOT NULL DEFAULT now());
+  approval_history jsonb NOT NULL DEFAULT '[]', submitted_by uuid, created_at timestamptz NOT NULL DEFAULT now());
 CREATE TABLE public.hr_recruitment_candidates (
   id uuid PRIMARY KEY, institution_id uuid, status text NOT NULL, current_step integer NOT NULL DEFAULT 0,
-  approval_chain jsonb, final_decided_at timestamptz, submitted_at timestamptz NOT NULL DEFAULT now());
+  approval_chain jsonb, final_decided_at timestamptz, submitted_by uuid, submitted_at timestamptz NOT NULL DEFAULT now());
 -- The permission and chain tables no function here may write.
 CREATE TABLE public.user_roles (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), user_id uuid, role_id uuid);
 CREATE TABLE public.custom_roles (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), role_key text, permissions jsonb);
@@ -123,6 +127,9 @@ const INST = '00000000-0000-4000-8000-0000000000a1';
 const ME = '00000000-0000-4000-8000-0000000000c1';         // steady: 12 documents, all on time
 const OTHER = '00000000-0000-4000-8000-0000000000c2';      // 3 documents, all late
 const SLOW = '00000000-0000-4000-8000-0000000000c3';       // 10 documents, all late
+const SELF = '00000000-0000-4000-8000-0000000000c4';       // verified 12 of their OWN documents
+const DIRECT = '00000000-0000-4000-8000-0000000000c6';     // 12 attendance corrections written already approved
+const SELF_ROW = '00000000-0000-4000-8000-0000000000b4';
 
 let client: Client;
 
@@ -166,6 +173,17 @@ beforeAll(async () => {
   await documents(ME, 12, 1);
   await documents(OTHER, 3, 24 * 6);
   await documents(SLOW, 10, 24 * 6);
+  await client.query(`INSERT INTO public.profiles VALUES ($1, 'Self'), ($2, 'Direct')`, [SELF, DIRECT]);
+  await client.query(`INSERT INTO public.staff VALUES ($1, $2, $3)`, [SELF_ROW, INST, SELF]);
+  await client.query(
+    `INSERT INTO public.hr_employee_documents (id, institution_id, staff_id, verification_status, verified_by, verified_at, uploaded_at)
+     SELECT gen_random_uuid(), $1, $2, 'verified', $3, now() - make_interval(days => 5 * g) + interval '1 hour',
+            now() - make_interval(days => 5 * g)
+       FROM generate_series(1, 12) g`, [INST, SELF_ROW, SELF]);
+  await client.query(
+    `INSERT INTO public.hr_attendance_regularizations (id, employee_id, status, approver_id, approved_at, created_at)
+     SELECT gen_random_uuid(), $1, 'approved', $2, now() - make_interval(days => 5 * g), now() - make_interval(days => 5 * g)
+       FROM generate_series(1, 12) g`, [SELF_ROW, DIRECT]);
 });
 
 afterAll(async () => {
@@ -227,5 +245,37 @@ describe("the thresholds fail closed: never 'steady' by default", () => {
     const r = await mine(ME,
       `UPDATE public.platform_policies SET is_active = false WHERE policy_key = 'hr.harness.trust.max_reversal'`);
     expect(r.rows[0]).toMatchObject({ signal: 'too few items' });
+  });
+});
+
+describe("nobody makes their own 'steady'", () => {
+  it('a team member who verified twelve of their own documents has no record', async () => {
+    const r = await mine(SELF);
+    expect(r.error).toBeNull();
+    expect(r.rows).toHaveLength(0);
+  });
+
+  it('twelve attendance corrections written already approved (they never waited) give no record', async () => {
+    const r = await mine(DIRECT);
+    expect(r.error).toBeNull();
+    expect(r.rows).toHaveLength(0);
+  });
+});
+
+describe('the bar for steady travels with the rows, read from the policy rows', () => {
+  it('each row carries the three thresholds as stored', async () => {
+    const r = await mine(ME);
+    expect(r.rows[0]).toMatchObject({ min_items: '10', steady_on_time: '0.9', max_reversal: '0.05' });
+  });
+
+  it('a changed threshold changes both the signal and the bar shown', async () => {
+    const r = await mine(ME, `UPDATE public.platform_policies SET value = '13'::jsonb WHERE policy_key = 'hr.harness.trust.min_items'`);
+    expect(r.rows[0]).toMatchObject({ items: 12, signal: 'too few items', min_items: '13' });
+  });
+
+  it('an unreadable threshold sends all three back empty, so the page cannot print a bar', async () => {
+    const r = await mine(ME,
+      `UPDATE public.platform_policies SET value = '"ninety"'::jsonb WHERE policy_key = 'hr.harness.trust.steady_on_time'`);
+    expect(r.rows[0]).toMatchObject({ min_items: null, steady_on_time: null, max_reversal: null });
   });
 });

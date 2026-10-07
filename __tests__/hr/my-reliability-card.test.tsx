@@ -5,7 +5,7 @@
 // ============================================================================
 
 import '@testing-library/jest-dom';
-import { cleanup, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, render, screen, waitFor, within } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import React from 'react';
@@ -22,7 +22,7 @@ function table(name: string) {
     hr_trust_switch_log: [{ turned_on: false, at: '2026-10-05T01:17:00Z' }],
     hr_trust_suggestions: [{
       id: 's1', user_id: 'u-9', duty_code: 'S2', status: 'proposed', created_at: '2026-10-05T01:17:00Z',
-      evidence: { items: 28, on_time_rate: 1 }, person: { full_name: 'Kavya Suggested' },
+      evidence: { steady_weeks: 12 }, person: { full_name: 'Kavya Suggested' },
     }],
     hr_duty_tower_readings: [{
       duty_code: 'S2', institution_id: null, week_start: '2026-09-28', items: 4, on_time: 3, late: 1,
@@ -55,9 +55,11 @@ function mount() {
   );
 }
 
+// Thresholds deliberately NOT 10 / 90% / 5%: the footnote must print what the database sends.
+const BAR = { min_items: '7', steady_on_time: '0.8', max_reversal: '0.1' };
 const MY_ROWS = [
-  { duty_code: 'S2', items: 12, on_time_rate: '1.0000', reversal_rate: '0.0000', signal: 'steady' },
-  { duty_code: 'L1', items: 3, on_time_rate: '0.6667', reversal_rate: '0.0000', signal: 'too few items' },
+  { duty_code: 'S2', items: 12, on_time_rate: '1.0000', reversal_rate: '0.0000', signal: 'steady', ...BAR },
+  { duty_code: 'L1', items: 3, on_time_rate: '0.6667', reversal_rate: '0.0000', signal: 'too few items', ...BAR },
 ];
 
 beforeEach(() => {
@@ -78,6 +80,22 @@ describe('<MyReliability/> — a team member sees only their own record', () => 
     expect(screen.getByText('Verify a document a team member uploaded')).toBeInTheDocument();
     expect(screen.getByText('steady')).toBeInTheDocument();
     expect(screen.getByText(/12 items · 100% on time/)).toBeInTheDocument();
+  });
+
+  it("prints the bar for 'steady' from the thresholds the database sent, not a fixed 10 / 90% / 5%", async () => {
+    mount();
+    const bar = await screen.findByTestId('steady-bar');
+    expect(bar).toHaveTextContent("'Steady' needs at least 7 items, at least 80% on time and at most 10% reversed.");
+    expect(bar.textContent).not.toMatch(/10 items|90%|5% reversed/);
+  });
+
+  it('says so plainly when the thresholds could not be read', async () => {
+    answers.fn_hr_my_reliability = {
+      data: MY_ROWS.map((r) => ({ ...r, min_items: null, steady_on_time: null, max_reversal: null })),
+      error: null,
+    };
+    mount();
+    expect(await screen.findByTestId('steady-bar')).toHaveTextContent(/could not be read just now, so nothing reads steady/);
   });
 
   it('is hidden when the team member decided no items', async () => {
@@ -126,5 +144,14 @@ describe('<MyReliability/> — the Director block', () => {
     expect(screen.getByRole('button', { name: 'Decline' })).toBeInTheDocument();
     expect(screen.getByText('All colleges')).toBeInTheDocument();
     expect(screen.getByText('75%')).toBeInTheDocument();
+  });
+
+  it("a suggestion shows the person's name and 'steady for 12 weeks', never their counts or rates", async () => {
+    answers.fn_is_the_director = { data: true, error: null };
+    mount();
+    const row = await screen.findByTestId('trust-suggestion');
+    expect(within(row).getByText('Kavya Suggested')).toBeInTheDocument();
+    expect(row).toHaveTextContent(/steady for 12 weeks/);
+    expect(row.textContent).not.toMatch(/%|\bitems?\b|on time|reversed/);
   });
 });

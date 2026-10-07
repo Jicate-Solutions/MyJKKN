@@ -11456,7 +11456,7 @@ CREATE TABLE IF NOT EXISTS public.hr_trust_suggestions (
   id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id       uuid NOT NULL REFERENCES public.profiles(id),
   duty_code     text NOT NULL CHECK (duty_code ~ '^(R[1-9]|L[1-5]|A[1-6]|P[1-4]|S[1-4]|G([1-9]|10))$'),
-  evidence      jsonb NOT NULL,   -- {items, on_time_rate, reversal_rate, weeks}
+  evidence      jsonb NOT NULL,   -- {steady_weeks: 12} only — never the person's own rates
   status        text NOT NULL DEFAULT 'proposed' CHECK (status IN ('proposed','noted','declined')),
   decided_at    timestamptz,
   decision_note text,

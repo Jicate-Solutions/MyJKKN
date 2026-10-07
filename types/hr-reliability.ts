@@ -33,6 +33,10 @@ export interface MyReliabilityRow {
   on_time_rate: number | string | null;
   reversal_rate: number | string | null;
   signal: ReliabilitySignal;
+  /** The bar the signal was read against (platform_policies hr.harness.trust.*), NULL when unreadable. */
+  min_items: number | string | null;
+  steady_on_time: number | string | null;
+  max_reversal: number | string | null;
 }
 
 /** One row of hr_duty_tower_readings (desk numbers, never per person). */
@@ -55,7 +59,8 @@ export interface TrustSuggestion {
   id: string;
   user_id: string;
   duty_code: string;
-  evidence: { items?: number; on_time_rate?: number; reversal_rate?: number; weeks?: number };
+  /** Only "steady for N weeks": the person's own counts and rates are never stored here. */
+  evidence: { steady_weeks?: number };
   status: TrustSuggestionStatus;
   created_at: string;
   person_name: string | null;

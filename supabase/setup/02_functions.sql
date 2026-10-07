@@ -79628,7 +79628,7 @@ BEGIN
   ),
   -- L1: leave approval-chain steps -----------------------------------------
   l1_steps AS (
-    SELECT a.id, st.institution_id, a.revoked_at, a.status AS app_status,
+    SELECT a.id, st.institution_id, st.profile_id AS subject_id, a.revoked_at, a.status AS app_status,
            a.final_decided_at, a.superseded_by, a.current_step, a.created_at,
            a.approval_chain AS chain, (e.ord - 1)::int AS idx, e.step,
            max((e.ord - 1)::int) FILTER (WHERE e.step ->> 'status' IN ('approved','rejected','revoked'))
@@ -79659,7 +79659,8 @@ BEGIN
                 THEN public.fn_hr_duty_tower_ts(s.step ->> 'decided_at') END AS done_at,
            -- the revocation reverses the decision that settled the leave (the
            -- last decided step), not the recommendations below it
-           (s.revoked_at IS NOT NULL AND s.idx = s.last_decided_idx) AS reversed
+           (s.revoked_at IS NOT NULL AND s.idx = s.last_decided_idx) AS reversed,
+           ARRAY[s.subject_id] AS subject_ids
       FROM l1_steps s
       JOIN cfg c ON c.duty_code = 'L1'
       CROSS JOIN LATERAL (SELECT public.fn_hr_duty_tower_step_arrived(s.chain, s.idx, s.created_at) AS arrived) w
@@ -79678,7 +79679,8 @@ BEGIN
            k.created_at,
            ((k.expires_on - c.due_days_before_deadline + 1)::timestamp AT TIME ZONE 'Asia/Kolkata'),
            k.approved_at,
-           (k.revoked_at IS NOT NULL)
+           (k.revoked_at IS NOT NULL),
+           ARRAY[st.profile_id, k.created_by]
       FROM public.hr_comp_off_credits k
       JOIN cfg c ON c.duty_code = 'L2'
       LEFT JOIN public.staff st ON st.id = k.employee_id
@@ -79693,7 +79695,8 @@ BEGIN
            r.created_at + make_interval(hours => c.due_hours),
            CASE WHEN r.status IN ('approved','rejected')
                 THEN COALESCE(r.approved_at, r.updated_at) END,
-           false
+           false,
+           ARRAY[st.profile_id]
       FROM public.hr_attendance_regularizations r
       JOIN cfg c ON c.duty_code = 'A3'
       LEFT JOIN public.staff st ON st.id = r.employee_id
@@ -79706,9 +79709,11 @@ BEGIN
            d.uploaded_at,
            public.fn_hr_duty_tower_add_working_days(d.uploaded_at, c.due_working_days),
            CASE WHEN d.verification_status <> 'pending' THEN d.verified_at END,
-           false
+           false,
+           ARRAY[st.profile_id, d.uploaded_by]
       FROM public.hr_employee_documents d
       JOIN cfg c ON c.duty_code = 'S2'
+      LEFT JOIN public.staff st ON st.id = d.staff_id
      WHERE d.verification_status = 'pending'
         OR (d.verification_status <> 'pending' AND d.verified_at IS NOT NULL)
   ),
@@ -79719,17 +79724,18 @@ BEGIN
            p.submitted_at,
            public.fn_hr_duty_tower_add_working_days(p.submitted_at, c.due_working_days),
            CASE WHEN p.status <> 'pending' THEN p.reviewed_at END,
-           false
+           false,
+           ARRAY[st.profile_id, p.submitted_by]
       FROM public.hr_staff_photo_submissions p
       JOIN cfg c ON c.duty_code = 'S3'
+      LEFT JOIN public.staff st ON st.id = p.staff_id
      WHERE p.status = 'pending'
         OR (p.status <> 'pending' AND p.reviewed_at IS NOT NULL)
   ),
   -- G2: HR form steps ------------------------------------------------------
   g2_hist AS (
-    SELECT f.id, f.institution_id, f.status, f.created_at, h.entry, h.ord,
-           lag(public.fn_hr_duty_tower_ts(h.entry ->> 'at')) OVER (PARTITION BY f.id ORDER BY h.ord) AS prev_at,
-           count(*) OVER (PARTITION BY f.id) AS n
+    SELECT f.id, f.institution_id, f.submitted_by, f.status, f.created_at, h.entry, h.ord,
+           lag(public.fn_hr_duty_tower_ts(h.entry ->> 'at')) OVER (PARTITION BY f.id ORDER BY h.ord) AS prev_at
       FROM public.hr_form_submissions f
       CROSS JOIN LATERAL jsonb_array_elements(
              CASE WHEN jsonb_typeof(f.approval_history) = 'array' THEN f.approval_history ELSE '[]'::jsonb END)
@@ -79743,7 +79749,8 @@ BEGIN
            COALESCE(g.prev_at, g.created_at),
            public.fn_hr_duty_tower_add_working_days(COALESCE(g.prev_at, g.created_at), c.due_working_days),
            public.fn_hr_duty_tower_ts(g.entry ->> 'at'),
-           false
+           false,
+           ARRAY[g.submitted_by]
       FROM g2_hist g
       JOIN cfg c ON c.duty_code = 'G2'
      WHERE g.entry ->> 'action' IN ('approve','reject')
@@ -79755,7 +79762,8 @@ BEGIN
            w.since,
            public.fn_hr_duty_tower_add_working_days(w.since, c.due_working_days),
            NULL::timestamptz,
-           false
+           false,
+           ARRAY[f.submitted_by]
       FROM public.hr_form_submissions f
       JOIN cfg c ON c.duty_code = 'G2'
       CROSS JOIN LATERAL (
@@ -79768,7 +79776,7 @@ BEGIN
   ),
   -- R5: recruitment approval-chain steps ------------------------------------
   r5_steps AS (
-    SELECT rc.id, rc.institution_id, rc.status AS app_status, rc.final_decided_at,
+    SELECT rc.id, rc.institution_id, rc.submitted_by, rc.status AS app_status, rc.final_decided_at,
            rc.current_step, rc.submitted_at, rc.approval_chain AS chain,
            (e.ord - 1)::int AS idx, e.step
       FROM public.hr_recruitment_candidates rc
@@ -79788,7 +79796,8 @@ BEGIN
              c.due_hours)),
            CASE WHEN s.step ->> 'status' IN ('approved','rejected')
                 THEN public.fn_hr_duty_tower_ts(s.step ->> 'decided_at') END,
-           false
+           false,
+           ARRAY[s.submitted_by]
       FROM r5_steps s
       JOIN cfg c ON c.duty_code = 'R5'
       CROSS JOIN LATERAL (SELECT public.fn_hr_duty_tower_step_arrived(s.chain, s.idx, s.submitted_at) AS arrived) w
@@ -79818,12 +79827,20 @@ BEGIN
    WHERE f.due_at IS NOT NULL
      AND f.due_at >= p_from
      AND f.due_at <  p_to
-     AND (f.done_at IS NOT NULL OR f.due_at < now());
+     AND (f.done_at IS NOT NULL OR f.due_at < now())
+     -- closed with no decision: a closed item with no person named as its
+     -- decider (S3 resubmission, L2 nightly auto-reject) is not counted
+     AND NOT (f.done_at IS NOT NULL AND f.actor_id IS NULL)
+     -- never waited: decided no later than it started waiting (A3 direct
+     -- corrections are written already approved)
+     AND NOT (f.done_at IS NOT NULL AND f.done_at <= f.arrived_at)
+     -- about yourself: the decider is the item's own subject or its filer
+     AND NOT COALESCE(f.actor_id = ANY (f.subject_ids), false);
 END;
 $$;
 
 COMMENT ON FUNCTION public.fn_hr_duty_item_facts(timestamptz, timestamptz) IS
-  'HR staff harness (20271007161151): one row per HR duty item whose due time falls in [p_from, p_to) — decided items, plus open items already past due (late and open). actor_id = the person who decided it (NULL while open). Service role only; fn_hr_duty_tower_compute and fn_hr_my_reliability read it.';
+  'HR staff harness (20271007161151): one row per HR duty item whose due time falls in [p_from, p_to) — items a person decided, plus open items already past due (late and open). Left out: items closed with no person named as decider, items decided no later than they started waiting, and items whose decider is their own subject or filer. actor_id = the person who decided it (NULL while open). Service role only; fn_hr_duty_tower_compute and fn_hr_my_reliability read it.';
 
 REVOKE EXECUTE ON FUNCTION public.fn_hr_duty_item_facts(timestamptz, timestamptz) FROM anon, PUBLIC, authenticated;
 
@@ -79915,6 +79932,40 @@ REVOKE EXECUTE ON FUNCTION public.fn_hr_duty_tower_compute(date) FROM anon, PUBL
 
 GRANT  EXECUTE ON FUNCTION public.fn_hr_duty_tower_compute(date) TO service_role;
 
+CREATE OR REPLACE FUNCTION public.fn_guard_hr_trust_policy_writes()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY INVOKER
+SET search_path = public
+AS $function$
+DECLARE
+  v_role text := auth.role();
+BEGIN
+  IF NOT ((TG_OP IN ('INSERT', 'UPDATE') AND NEW.policy_key LIKE 'hr.harness.trust.%')
+       OR (TG_OP IN ('UPDATE', 'DELETE') AND OLD.policy_key LIKE 'hr.harness.trust.%')) THEN
+    RETURN CASE WHEN TG_OP = 'DELETE' THEN OLD ELSE NEW END;
+  END IF;
+
+  IF v_role IS NOT NULL AND v_role IS DISTINCT FROM 'service_role' THEN
+    IF v_role IS DISTINCT FROM 'authenticated' THEN
+      RAISE EXCEPTION 'Only the Director can change the earned-trust settings.'
+        USING ERRCODE = '42501';
+    END IF;
+    IF public.fn_is_the_director() IS NOT TRUE THEN
+      RAISE EXCEPTION 'Only the Director can change the earned-trust settings.'
+        USING ERRCODE = '42501';
+    END IF;
+  END IF;
+
+  RETURN CASE WHEN TG_OP = 'DELETE' THEN OLD ELSE NEW END;
+END;
+$function$;
+
+REVOKE EXECUTE ON FUNCTION public.fn_guard_hr_trust_policy_writes() FROM anon, PUBLIC;
+
+COMMENT ON FUNCTION public.fn_guard_hr_trust_policy_writes() IS
+  'BEFORE trigger on platform_policies (20271007161151). Refuses any insert/update/delete touching an hr.harness.trust.* row unless the caller is on the Director list (fn_is_the_director()), is service_role, or is a direct DB session with no JWT. Fails closed.';
+
 CREATE OR REPLACE FUNCTION public.fn_hr_trust_thresholds()
 RETURNS TABLE (min_items numeric, steady_on_time numeric, max_reversal numeric)
 LANGUAGE plpgsql
@@ -79971,7 +80022,8 @@ $$;
 REVOKE EXECUTE ON FUNCTION public.fn_hr_trust_signal(integer, numeric, numeric, numeric, numeric, numeric) FROM anon, PUBLIC, authenticated;
 
 CREATE OR REPLACE FUNCTION public.fn_hr_my_reliability()
-RETURNS TABLE (duty_code text, items integer, on_time_rate numeric, reversal_rate numeric, signal text)
+RETURNS TABLE (duty_code text, items integer, on_time_rate numeric, reversal_rate numeric, signal text,
+               min_items numeric, steady_on_time numeric, max_reversal numeric)
 LANGUAGE plpgsql
 STABLE
 SECURITY DEFINER
@@ -79993,7 +80045,10 @@ BEGIN
 
   RETURN QUERY
     SELECT g.duty_code, g.items, g.on_time_rate, g.reversal_rate,
-           public.fn_hr_trust_signal(g.items, g.on_time_rate, g.reversal_rate, v_min, v_on, v_rev)
+           public.fn_hr_trust_signal(g.items, g.on_time_rate, g.reversal_rate, v_min, v_on, v_rev),
+           -- the bar 'steady' is read against, so My Desk never hardcodes it
+           -- (all three NULL when any is unreadable: nothing reads 'steady')
+           v_min, v_on, v_rev
       FROM (
         SELECT f.duty_code,
                count(*)::int AS items,
@@ -80008,7 +80063,7 @@ END;
 $$;
 
 COMMENT ON FUNCTION public.fn_hr_my_reliability() IS
-  'HR staff harness (20271007161151): the signed-in team member''s OWN record over the trailing 12 weeks, per duty they decided: items, on-time rate, reversed rate and a signal (steady / building / too few items). No user parameter: a person can only ever read their own numbers. Read-only.';
+  'HR staff harness (20271007161151): the signed-in team member''s OWN record over the trailing 12 weeks, per duty they decided: items, on-time rate, reversed rate and a signal (steady / building / too few items), plus the three thresholds the signal was read against (NULL when unreadable). No user parameter: a person can only ever read their own numbers. Read-only.';
 
 REVOKE EXECUTE ON FUNCTION public.fn_hr_my_reliability() FROM anon, PUBLIC;
 
@@ -80036,8 +80091,10 @@ BEGIN
     RAISE EXCEPTION 'The earned-trust switch row is missing (hr.harness.trust.suggestions_enabled).' USING ERRCODE = 'P0002';
   END IF;
 
-  INSERT INTO public.hr_trust_switch_log (turned_on, by_user, note)
-  VALUES (p_on, auth.uid(), NULLIF(btrim(COALESCE(p_note, '')), ''));
+  -- clock_timestamp(), not now(): two turns in one transaction must still
+  -- order, because the latest row is the switch's state.
+  INSERT INTO public.hr_trust_switch_log (turned_on, by_user, at, note)
+  VALUES (p_on, auth.uid(), clock_timestamp(), NULLIF(btrim(COALESCE(p_note, '')), ''));
 
   RETURN p_on;
 END;
@@ -80123,15 +80180,14 @@ BEGIN
     HAVING count(DISTINCT p.k) = 12
   ),
   ins AS (
+    -- The evidence says only "steady for 12 weeks". The person's item count,
+    -- on-time rate and reversed rate stay theirs alone: the Director reads this
+    -- table, and "only you can see these numbers" must stay true.
     INSERT INTO public.hr_trust_suggestions (user_id, duty_code, evidence, status)
     SELECT s.actor_id, s.duty_code,
-           jsonb_build_object('items', c.items,
-                              'on_time_rate', round(c.on_time_rate, 4),
-                              'reversal_rate', round(c.reversal_rate, 4),
-                              'weeks', 12),
+           jsonb_build_object('steady_weeks', 12),
            'proposed'
       FROM steady s
-      JOIN per_cp c ON c.actor_id = s.actor_id AND c.duty_code = s.duty_code AND c.k = 0
       JOIN public.profiles pr ON pr.id = s.actor_id
      -- a suggestion the Director decided in the last 12 weeks is not asked again
      WHERE NOT EXISTS (SELECT 1 FROM public.hr_trust_suggestions x
