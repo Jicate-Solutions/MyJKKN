@@ -25,6 +25,13 @@
  *     the matching assertions around (proves they are not vacuous).
  *
  * REQUIRES a local PostgreSQL 16 (see "THE POSTGRES SERVICE" in .github/workflows/test-suite.yml).
+ *
+ * WHEN IT SKIPS: this file lives under __tests__/lib/, so the lib unit job
+ * (lib-unit-suite.yml, no Postgres) collects it too. There, and on a laptop
+ * with no server, an unreachable Postgres SKIPS the whole file. It never skips
+ * in the Postgres-service job: that job sets the *_TEST_PGUSER overrides, and
+ * whenever any is set (or this file's own MYDESK_HR_TEST_PGUSER) the server is
+ * required and a missing one fails loudly, as before.
  */
 import { execFileSync } from 'child_process';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs';
@@ -230,6 +237,26 @@ function psql(args: string[]) {
   });
 }
 
+/** The Postgres-service job (test-suite.yml) sets *_TEST_PGUSER overrides; there a server is required. */
+const POSTGRES_REQUIRED = Object.keys(process.env).some((k) => k.endsWith('_TEST_PGUSER'));
+
+function postgresReachable(): boolean {
+  try {
+    execFileSync('psql', ['-h', PGHOST, '-p', PGPORT, '-U', PGUSER, '-d', 'postgres', '-tAc', 'SELECT 1'], {
+      stdio: ['pipe', 'pipe', 'pipe'],
+      env: { ...process.env, PGCONNECT_TIMEOUT: '5' },
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+const PG_READY = POSTGRES_REQUIRED || postgresReachable();
+if (!PG_READY) {
+  console.warn(`[my-desk-hr-queues.pg] no PostgreSQL at ${PGHOST}:${PGPORT} (or no psql) — skipping this file`);
+}
+
 let client: Client;
 let scratch: string;
 
@@ -260,6 +287,7 @@ function applyMutant(from: string, to: string) {
 }
 
 beforeAll(async () => {
+  if (!PG_READY) return;
   try { psql(['-d', 'postgres', '-c', `CREATE DATABASE ${DBNAME}`]); }
   catch (e) { throw new Error(`Local PostgreSQL 16 is required (${String(e).slice(0, 200)})`); }
   scratch = mkdtempSync(path.join(tmpdir(), 'mydesk-hrq-'));
@@ -269,12 +297,13 @@ beforeAll(async () => {
   await client.connect();
 });
 afterAll(async () => {
+  if (!PG_READY) return;
   await client?.end();
   try { psql(['-d', 'postgres', '-c', `DROP DATABASE IF EXISTS ${DBNAME}`]); } catch { /* best effort */ }
   if (scratch) rmSync(scratch, { recursive: true, force: true });
 });
 
-describe('20270613101149 applies, and applies again', () => {
+describe.skipIf(!PG_READY)('20270613101149 applies, and applies again', () => {
   it('first apply succeeds (its preflight finds everything it reads)', () => {
     expect(() => psql(['-d', DBNAME, '-f', MIGRATION])).not.toThrow();
   });
@@ -285,7 +314,7 @@ describe('20270613101149 applies, and applies again', () => {
   });
 });
 
-describe('each new HR queue: a row for a person it admits, none for an outsider', () => {
+describe.skipIf(!PG_READY)('each new HR queue: a row for a person it admits, none for an outsider', () => {
   const admittedBy: Record<(typeof NEW_QUEUES)[number], string> = {
     comp_off: OPS, leave_eligibility: OPS, regularisation: OPS, attendance_close: OPS,
     salary_revision: OPS, staff_photo: OPS, employee_document: OPS, onboarding_step: OPS,
@@ -300,7 +329,7 @@ describe('each new HR queue: a row for a person it admits, none for an outsider'
   });
 });
 
-describe('leave_eligibility — a step pinned by name to the Director', () => {
+describe.skipIf(!PG_READY)('leave_eligibility — a step pinned by name to the Director', () => {
   it("is on the Director's desk, marked as pinned to them", async () => {
     expect((await desk(DIRECTOR)).filter((r) => r.source === 'leave_eligibility'))
       .toEqual([{ source: 'leave_eligibility', item_id: ELIG_PINNED, detail: 'pinned to you by name' }]);
@@ -313,7 +342,7 @@ describe('leave_eligibility — a step pinned by name to the Director', () => {
   });
 });
 
-describe('salary_revision — the decider row for raises of people on the Director list (#4190)', () => {
+describe.skipIf(!PG_READY)('salary_revision — the decider row for raises of people on the Director list (#4190)', () => {
   const approvers = [OPS, SUPER, DIRECTOR, HR_HEAD];
 
   it('row missing: every approve holder sees both raises; nobody sees their own', async () => {
@@ -339,7 +368,7 @@ describe('salary_revision — the decider row for raises of people on the Direct
   });
 });
 
-describe('mutation controls (each mutant applied over the real one, then the real one restored)', () => {
+describe.skipIf(!PG_READY)('mutation controls (each mutant applied over the real one, then the real one restored)', () => {
   it('without the regularisation admission rule, the outsider would see the queue', async () => {
     applyMutant('    WHERE v_has_regularise\n', '    WHERE true\n');
     try {
