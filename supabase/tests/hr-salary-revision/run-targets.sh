@@ -517,7 +517,7 @@ mutate "T71 one person per call: marked as run, the next night starts with whoev
   's/^  UPDATE public\.hr_salary_revision_target_plans SET last_run_on = p_today, failed_nights = 0$/  UPDATE public.hr_salary_revision_target_plans SET failed_nights = 0/' \
   "a time-out on one person leaves the others' results written, and that person first in line"
 mutate "T72 at most the set number of months per call" \
-  's/^        EXIT WHEN v_measured >= p_max_months;$/        NULL;/' \
+  's/^          EXIT WHEN v_measured >= p_max_months;$/          NULL;/' \
   'one call measures at most the set number of months; the rest wait for the next run'
 mutate "T73 a paid held part: only the months the pause rule can use" \
   "s/^      v_from := CASE WHEN v_p\.state IN \('released', 'paused'\)$/      v_from := CASE WHEN false/" \
@@ -607,7 +607,7 @@ mutate_off "O10 the Director's list shows parts waiting for measurement" \
   "the Director's list shows each held part waiting for measurement"
 mutate_off "O11 switched OFF again: nothing changes a paid part" \
   "s/^     WHERE request_id = p_request_id AND month = v_cur_m AND status = 'in_progress';$/     WHERE false;/" \
-  'switched OFF again: this month is closed as not measured, a finished month not counted yet stays waiting, and the pay is untouched'
+  'switched OFF again: the month in progress is closed as not measured and the pay is untouched'
 # Round 7 (review of round 6).
 mutate_off "O12 the record reads students with CASE, not AND" \
   's/^         AND CASE WHEN jsonb_typeof\(e\.value->'"'"'students'"'"'\) = '"'"'array'"'"'$/         AND jsonb_typeof(e.value->'"'"'students'"'"') = '"'"'array'"'"' AND (true/; s/^                  THEN jsonb_array_length\(e\.value->'"'"'students'"'"'\) END > 0$/                  AND jsonb_array_length(e.value->'"'"'students'"'"') > 0)/' \
