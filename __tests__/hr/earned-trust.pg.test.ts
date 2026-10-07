@@ -135,7 +135,9 @@ function psql(args: string[]) {
 const INST = '00000000-0000-4000-8000-0000000000a1';
 const DIRECTOR = '00000000-0000-4000-8000-0000000000d1';
 const SUPER = '00000000-0000-4000-8000-0000000000d2';     // a super admin who is not the Director
-const STEADY = '00000000-0000-4000-8000-0000000000c1';    // on time on every document for 25 weeks
+const STEADY = '00000000-0000-4000-8000-0000000000c1';    // on time on every photo review (S3) for 25 weeks
+const DOCS_STEADY = '00000000-0000-4000-8000-0000000000c8';  // the same, on document checks (S2)
+const FORMS_STEADY = '00000000-0000-4000-8000-0000000000c9'; // the same, on HR form steps (G2) — one forged history edit
 const RECENT = '00000000-0000-4000-8000-0000000000c5';    // on time, but only for the last 13 weeks
 const PROTECTED = ['user_roles', 'custom_roles', 'profiles', 'user_institution_access', 'leave_approval_chains', 'hr_approval_flows'];
 
@@ -210,10 +212,10 @@ beforeAll(async () => {
     `INSERT INTO public.platform_policies (policy_key, scope_type, value, data_type, classification)
      VALUES ('platform.the_director_profile_ids', 'global', $1::jsonb, 'array', 'major')`,
     [JSON.stringify([DIRECTOR])]);
-  // A document verified one hour after upload, every 3 days for 25 weeks.
+  // A photo reviewed one hour after it was submitted, every 3 days for 25 weeks.
   await client.query(
-    `INSERT INTO public.hr_employee_documents (id, institution_id, verification_status, verified_by, verified_at, uploaded_at)
-     SELECT gen_random_uuid(), $1, 'verified', $2, now() - make_interval(days => 3 * g) + interval '1 hour',
+    `INSERT INTO public.hr_staff_photo_submissions (id, institution_id, status, reviewed_by, reviewed_at, submitted_at)
+     SELECT gen_random_uuid(), $1, 'approved', $2, now() - make_interval(days => 3 * g) + interval '1 hour',
             now() - make_interval(days => 3 * g)
        FROM generate_series(2, 58) g`, [INST, STEADY]);
   // One row in each protected table, so the fingerprint is not of empty tables.
@@ -261,7 +263,7 @@ describe('the switch ships OFF', () => {
     expect(r.log).toEqual([{ turned_on: true, by_user: DIRECTOR }]);
     expect(r.results[1].rows[0].n).toBe(1);
     expect(r.suggestions).toEqual([
-      expect.objectContaining({ user_id: STEADY, duty_code: 'S2', status: 'proposed' }),
+      expect.objectContaining({ user_id: STEADY, duty_code: 'S3', status: 'proposed' }),
     ]);
     expect(r.suggestions[0].evidence).toEqual({ steady_weeks: 12 });
   });
@@ -312,13 +314,13 @@ describe('a generate and decide cycle changes no role, permission or approval ch
 describe('steady at EVERY one of the last 12 weekly checkpoints, not just some', () => {
   it('a team member steady only lately (too few items at the oldest checkpoints) is not suggested', async () => {
     const recent = `INSERT INTO public.profiles VALUES ('${RECENT}', 'Recent Team Member');
-      INSERT INTO public.hr_employee_documents (id, institution_id, verification_status, verified_by, verified_at, uploaded_at)
-      SELECT gen_random_uuid(), '${INST}', 'verified', '${RECENT}',
+      INSERT INTO public.hr_staff_photo_submissions (id, institution_id, status, reviewed_by, reviewed_at, submitted_at)
+      SELECT gen_random_uuid(), '${INST}', 'approved', '${RECENT}',
              now() - make_interval(days => 3 * g) + interval '1 hour', now() - make_interval(days => 3 * g)
         FROM generate_series(1, 30) g;
       INSERT INTO public.staff VALUES (gen_random_uuid(), '${INST}', '${RECENT}');
       SELECT public.fn_hr_duty_tower_compute((date_trunc('week', now() AT TIME ZONE 'Asia/Kolkata'))::date)`;
-    const mineNow = { uid: RECENT, sql: `SELECT signal FROM public.fn_hr_my_reliability() WHERE duty_code = 'S2'` };
+    const mineNow = { uid: RECENT, sql: `SELECT signal FROM public.fn_hr_my_reliability() WHERE duty_code = 'S3'` };
     const r = await run(recent, [mineNow, switchOn(DIRECTOR), generate]);
     // steady today...
     expect(r.results[0].rows[0].signal).toBe('steady');
@@ -387,5 +389,32 @@ describe('only the Director list may change the hr.harness.trust.* rows', () => 
     const r = await run(`DELETE FROM public.platform_policies WHERE policy_key = 'platform.the_director_profile_ids'`,
       [{ uid: DIRECTOR, sql: setMin(1) }]);
     expect(r.results[0].error).toMatch(/Only the Director/);
+  });
+});
+
+describe('S2 and G2 never produce a suggestion (their decider columns can be written from the browser)', () => {
+  it('25 weeks of steady document checks and of steady form steps suggest nobody; they still show in the own record', async () => {
+    const setup = `INSERT INTO public.profiles VALUES ('${DOCS_STEADY}', 'Docs Steady'), ('${FORMS_STEADY}', 'Forms Steady');
+      INSERT INTO public.staff VALUES (gen_random_uuid(), '${INST}', '${DOCS_STEADY}'), (gen_random_uuid(), '${INST}', '${FORMS_STEADY}');
+      INSERT INTO public.hr_employee_documents (id, institution_id, verification_status, verified_by, verified_at, uploaded_at)
+      SELECT gen_random_uuid(), '${INST}', 'verified', '${DOCS_STEADY}',
+             now() - make_interval(days => 3 * g) + interval '1 hour', now() - make_interval(days => 3 * g)
+        FROM generate_series(2, 58) g;
+      INSERT INTO public.hr_form_submissions (id, institution_id, status, approval_history, created_at)
+      SELECT gen_random_uuid(), '${INST}', 'approved',
+             jsonb_build_array(jsonb_build_object('action', 'approve', 'actor_id', '${FORMS_STEADY}',
+               'at', (now() - make_interval(days => 3 * g) + interval '1 hour')::text)),
+             now() - make_interval(days => 3 * g)
+        FROM generate_series(2, 58) g;
+      SELECT public.fn_hr_duty_tower_compute((date_trunc('week', now() AT TIME ZONE 'Asia/Kolkata'))::date)`;
+    const r = await run(setup, [
+      { uid: DOCS_STEADY, sql: `SELECT duty_code, signal FROM public.fn_hr_my_reliability()` },
+      { uid: FORMS_STEADY, sql: `SELECT duty_code, signal FROM public.fn_hr_my_reliability()` },
+      switchOn(DIRECTOR), generate,
+    ]);
+    expect(r.results[0].rows).toEqual([{ duty_code: 'S2', signal: 'steady' }]);
+    expect(r.results[1].rows).toEqual([{ duty_code: 'G2', signal: 'steady' }]);
+    expect(r.results[3].rows[0].n).toBe(1);
+    expect(r.suggestions.map((x) => [x.user_id, x.duty_code])).toEqual([[STEADY, 'S3']]);
   });
 });

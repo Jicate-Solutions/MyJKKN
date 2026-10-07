@@ -11429,6 +11429,9 @@ CREATE TABLE IF NOT EXISTS public.hr_duty_tower_readings (
   -- how many different people decided this reading's items; under 3, the
   -- reading is close to one person's number (see SMALL COLLEGES)
   deciders       integer NOT NULL DEFAULT 0,
+  -- on the all-colleges row: some college's reading for this duty and week
+  -- has fewer than 3 deciders (see SMALL COLLEGES, subtraction)
+  has_small_college boolean NOT NULL DEFAULT false,
   computed_at    timestamptz NOT NULL DEFAULT now()
 );
 

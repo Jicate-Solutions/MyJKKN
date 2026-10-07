@@ -171,6 +171,13 @@ const R5_SELF = '00000000-0000-4000-8000-000000000701';
 const APPROVER3 = '00000000-0000-4000-8000-0000000000c4';
 const L2_BACKDATED = '00000000-0000-4000-8000-000000000504';
 const DIRECTOR = '00000000-0000-4000-8000-0000000000d1';
+// A second, small college: one L1 leave decided by one person.
+const INST2 = '00000000-0000-4000-8000-0000000000a2';
+const MEMBER2_ROW = '00000000-0000-4000-8000-0000000000b3';
+const LV_SMALL = '00000000-0000-4000-8000-00000000010c';
+const L2_REVOKED = '00000000-0000-4000-8000-000000000505';
+const L2_FILER = '00000000-0000-4000-8000-000000000506';
+const S3_FILER = '00000000-0000-4000-8000-000000000403';
 const SUPER = '00000000-0000-4000-8000-0000000000d2';
 
 /** One approval-chain step with the keys main writes (types/hr.ts LeaveApprovalStep). */
@@ -250,6 +257,8 @@ beforeAll(async () => {
      VALUES ('platform.the_director_profile_ids', 'global', $1::jsonb, 'array', 'major')`,
     [JSON.stringify([DIRECTOR])]);
   await client.query(`INSERT INTO public.staff VALUES ($1, $2, $3)`, [SELF_ROW, INST, SELF_PROFILE]);
+  await client.query(`INSERT INTO public.staff VALUES ($1, $2, NULL)`, [MEMBER2_ROW, INST2]);
+  await insertLeave(LV_SMALL, [step({ decided_at: at(2), decided_by: APPROVER })], { employee_id: MEMBER2_ROW });
   // A leave its own applicant decided.
   await insertLeave(LV_SELF, [step({ decided_at: at(3), decided_by: SELF_PROFILE })], { employee_id: SELF_ROW });
 
@@ -289,6 +298,19 @@ beforeAll(async () => {
   await client.query(
     `INSERT INTO public.hr_decision_emails (comp_off_credit_id, employee_id, decision, created_at) VALUES ($1, $2, 'approved', $3)`,
     [L2_BACKDATED, MEMBER_ROW, at(100)]);
+  // L2: approved on time, later revoked (reversed); and a claim decided by the
+  // person who filed it (created_by), which is left out.
+  await client.query(
+    `INSERT INTO public.hr_comp_off_credits
+       (id, employee_id, expires_on, source, status, approved_by, approved_at, revoked_at, created_by, created_at)
+     VALUES ($1, $3, '2026-09-10', 'claim', 'rejected', $4, $6, $7, NULL, $8),
+            ($2, $3, '2026-09-10', 'claim', 'approved', $5, $6, NULL, $5, $8)`,
+    [L2_REVOKED, L2_FILER, MEMBER_ROW, APPROVER, APPROVER2, at(5), at(50), T0]);
+  // S3: a photo reviewed by the person who submitted it (submitted_by), left out.
+  await client.query(
+    `INSERT INTO public.hr_staff_photo_submissions (id, institution_id, staff_id, status, reviewed_by, reviewed_at, submitted_by, submitted_at)
+     VALUES ($1, $2, $3, 'approved', $4, $5, $4, $6)`,
+    [S3_FILER, INST, MEMBER_ROW, UPLOADER, at(5), T0]);
   // G2: two steps — the second starts waiting at the first's decision (10 h);
   // and a form approved by the person who filed it.
   await client.query(
@@ -371,11 +393,13 @@ describe('fn_hr_duty_tower_compute — the weekly reading', () => {
     try {
       const first = await client.query(`SELECT * FROM public.fn_hr_duty_tower_compute($1::date)`, [WEEK]);
       const snap1 = await client.query(
-        `SELECT duty_code, institution_id, items, on_time, late, open_overdue, reversed, on_time_rate, reversal_rate, deciders
+        `SELECT duty_code, institution_id, items, on_time, late, open_overdue, reversed, on_time_rate, reversal_rate, deciders,
+                has_small_college
            FROM public.hr_duty_tower_readings ORDER BY duty_code, institution_id NULLS FIRST`);
       const second = await client.query(`SELECT * FROM public.fn_hr_duty_tower_compute($1::date)`, [WEEK]);
       const snap2 = await client.query(
-        `SELECT duty_code, institution_id, items, on_time, late, open_overdue, reversed, on_time_rate, reversal_rate, deciders
+        `SELECT duty_code, institution_id, items, on_time, late, open_overdue, reversed, on_time_rate, reversal_rate, deciders,
+                has_small_college
            FROM public.hr_duty_tower_readings ORDER BY duty_code, institution_id NULLS FIRST`);
       expect(second.rows).toEqual(first.rows);
       expect(snap2.rows).toEqual(snap1.rows);
@@ -386,13 +410,14 @@ describe('fn_hr_duty_tower_compute — the weekly reading', () => {
       // of the two-step leave, the original and both revoked-two steps = 7. The
       // superseded, not-yet-due and self-decided leaves add nothing.
       const l1All = snap1.rows.find((r) => r.duty_code === 'L1' && r.institution_id === null);
-      expect(l1All).toMatchObject({ items: 9, late: 1, open_overdue: 1, reversed: 2 });
-      expect(l1All!.on_time).toBe(7);
+      // + the small college's one leave (on time)
+      expect(l1All).toMatchObject({ items: 10, late: 1, open_overdue: 1, reversed: 2, has_small_college: true });
+      expect(l1All!.on_time).toBe(8);
       const l1College = snap1.rows.find((r) => r.duty_code === 'L1' && r.institution_id === INST);
       expect(l1College).toMatchObject({ items: 9, on_time: 7 });
       // three different people decided L1 items, so the tower gets the rate
       expect(l1All!.deciders).toBe(3);
-      expect(first.rows.find((r) => r.duty_code === 'L1').on_time_rate).toBe(String(Number((7 / 9).toFixed(4))));
+      expect(first.rows.find((r) => r.duty_code === 'L1').on_time_rate).toBe('0.8000');
       // one person decided every S3 item: the tower gets no rate from it
       expect(first.rows.find((r) => r.duty_code === 'S3').on_time_rate).toBeNull();
 
@@ -401,7 +426,8 @@ describe('fn_hr_duty_tower_compute — the weekly reading', () => {
       expect(s3All).toMatchObject({ items: 1, on_time: 1, late: 0, open_overdue: 0 });
       // L2: the night's auto-reject and the HR grant are not counted.
       const l2All = snap1.rows.find((r) => r.duty_code === 'L2' && r.institution_id === null);
-      expect(l2All).toMatchObject({ items: 2, on_time: 1, late: 1, open_overdue: 0 });
+      // ok + back-dated (late) + revoked (on time, reversed); the filer's own claim is left out
+      expect(l2All).toMatchObject({ items: 3, on_time: 2, late: 1, open_overdue: 0, reversed: 1 });
     } finally {
       await client.query('ROLLBACK');
     }
@@ -639,5 +665,39 @@ describe('the duty due rules: every insert audited, Director list only', () => {
     const r = await client.query(
       `SELECT count(*)::int AS n FROM public.hr_duty_tower_duties_audit a WHERE a.old_value IS NULL`);
     expect(r.rows[0].n).toBe(7);
+  });
+});
+
+describe('the filer rule covers comp-off created_by and photo submitted_by; a revoked claim is reversed', () => {
+  it('a claim decided by its filer, and a photo reviewed by its submitter, are left out', async () => {
+    const ids = (await facts()).map((r) => r.item_id);
+    expect(ids).not.toContain(L2_FILER);
+    expect(ids).not.toContain(S3_FILER);
+  });
+
+  it('a revoked comp-off claim counts as reversed', async () => {
+    expect((await facts()).find((r) => r.item_id === L2_REVOKED)).toMatchObject({ reversed: true, actor_id: APPROVER });
+  });
+});
+
+describe('no subtraction: a plain admin cannot rebuild a hidden small college from the all-colleges row', () => {
+  const compute = `SELECT public.fn_hr_duty_tower_compute('${WEEK}'::date)`;
+  const l1 = `SELECT institution_id, deciders FROM public.hr_duty_tower_readings WHERE duty_code = 'L1'`;
+
+  it('with one small and one large college, an admin sees the large college only, not the all-colleges row', async () => {
+    const r = await as({ uid: SUPER, admin: true }, l1, compute);
+    expect(r.error).toBeNull();
+    expect(r.rows).toEqual([{ institution_id: INST, deciders: 3 }]);
+  });
+
+  it('the Director sees all three L1 rows', async () => {
+    const r = await as({ uid: DIRECTOR }, l1, compute);
+    expect(r.rows.map((x) => x.institution_id).sort()).toEqual([INST, INST2, null].sort());
+  });
+
+  it('positive control: with no small college under it, the admin does see the all-colleges row', async () => {
+    const r = await as({ uid: SUPER, admin: true }, l1,
+      `DELETE FROM public.hr_leave_applications WHERE id = '${LV_SMALL}'; ${compute}`);
+    expect(r.rows.map((x) => x.institution_id)).toContain(null);
   });
 });

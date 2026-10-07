@@ -334,3 +334,25 @@ describe('load: My Desk reads a weekly snapshot, and nothing at all for someone 
     }
   });
 });
+
+describe('My Desk reads only the latest weekly snapshot', () => {
+  it('with two weekly snapshots on record, each duty appears once, from the latest', async () => {
+    await client.query('BEGIN');
+    try {
+      // last week's run, then this week's
+      await client.query(`SELECT public.fn_hr_duty_tower_compute(
+        (date_trunc('week', now() AT TIME ZONE 'Asia/Kolkata') - interval '7 days')::date)`);
+      await client.query(COMPUTE);
+      const latest = await client.query(
+        `SELECT items FROM public.hr_duty_person_records
+          WHERE user_id = $1 AND duty_code = 'S2'
+            AND week_start = (SELECT max(week_start) FROM public.hr_duty_person_records)`, [ME]);
+      await client.query(`SELECT set_config('test.uid', $1, true)`, [ME]);
+      await client.query('SET LOCAL ROLE authenticated');
+      const r = await client.query(`SELECT duty_code, items FROM public.fn_hr_my_reliability()`);
+      expect(r.rows).toEqual([{ duty_code: 'S2', items: latest.rows[0].items }]);
+    } finally {
+      await client.query('ROLLBACK');
+    }
+  });
+});

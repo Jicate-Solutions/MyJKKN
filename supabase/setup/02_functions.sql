@@ -79952,6 +79952,13 @@ BEGIN
                 deciders      = EXCLUDED.deciders,
                 computed_at   = EXCLUDED.computed_at;
 
+  UPDATE public.hr_duty_tower_readings a
+     SET has_small_college = EXISTS (
+           SELECT 1 FROM public.hr_duty_tower_readings c
+            WHERE c.week_start = a.week_start AND c.duty_code = a.duty_code
+              AND c.institution_id IS NOT NULL AND c.deciders < 3)
+   WHERE a.week_start = p_week_start AND a.institution_id IS NULL;
+
   -- Each person's own 12 weeks, ending with the week just measured, for My
   -- Desk to read without scanning the sources (LOAD, in the header). Private:
   -- no policy on the table, read only through fn_hr_my_reliability.
@@ -80217,6 +80224,9 @@ BEGIN
   WITH facts AS (
     SELECT f.* FROM public.fn_hr_duty_item_facts(now() - interval '168 days', now()) f
      WHERE f.actor_id IS NOT NULL
+       -- never S2 or G2: their decider columns can be written from the browser
+       -- (EARNED-TRUST SUGGESTIONS LEAVE OUT S2 AND G2, in the header)
+       AND f.duty_code NOT IN ('S2', 'G2')
   ),
   checkpoints AS (
     SELECT k, now() - make_interval(days => 7 * k) AS t FROM generate_series(0, 11) k

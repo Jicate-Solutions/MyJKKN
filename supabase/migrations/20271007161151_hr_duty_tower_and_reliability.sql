@@ -108,6 +108,22 @@
 --   number, so it is readable only by the Director list and hr.dashboard.manage
 --   holders with access to that college — not by every admin — and the weekly
 --   tower measurement records NULL ("no reading") instead of its rate.
+--   Subtraction: if an admin could still read the all-colleges row and every
+--   larger college's row, all-colleges minus the visible colleges would give
+--   the hidden small one back. So the all-colleges row of a duty and week
+--   carries has_small_college, and an admin who is neither on the Director list
+--   nor an hr.dashboard.manage holder cannot read it while that flag is set.
+--   LIMIT: the Director list and hr.dashboard.manage holders still see small
+--   readings, and the Director also sees named earned-trust suggestions; put
+--   together, those approach one person's own rate. An hr.dashboard.manage
+--   holder limited to some colleges can likewise subtract their colleges from
+--   the all-colleges row.
+--
+-- EARNED-TRUST SUGGESTIONS LEAVE OUT S2 AND G2
+--   S2's verified_by and G2's approval_history can be written from the browser
+--   by staff at that college (HOW FAR THE NUMBERS CAN BE TRUSTED), so 12 weeks
+--   of 'steady' on either can be forged in one edit. Both stay on the tower and
+--   in a person's own record; neither can ever produce a suggestion.
 --
 -- LOAD: MY DESK READS A WEEKLY SNAPSHOT
 --   fn_hr_my_reliability runs on every My Desk load, learners included. It
@@ -711,6 +727,9 @@ CREATE TABLE IF NOT EXISTS public.hr_duty_tower_readings (
   -- how many different people decided this reading's items; under 3, the
   -- reading is close to one person's number (see SMALL COLLEGES)
   deciders       integer NOT NULL DEFAULT 0,
+  -- on the all-colleges row: some college's reading for this duty and week
+  -- has fewer than 3 deciders (see SMALL COLLEGES, subtraction)
+  has_small_college boolean NOT NULL DEFAULT false,
   computed_at    timestamptz NOT NULL DEFAULT now()
 );
 
@@ -735,8 +754,12 @@ CREATE POLICY hr_duty_tower_readings_select ON public.hr_duty_tower_readings
     public.fn_is_the_director() IS TRUE
     OR (public.user_has_permission('hr.dashboard.manage')
         AND (institution_id IS NULL OR public.role_has_institution_access(institution_id)))
-    -- every other admin sees only readings with at least 3 deciders
-    OR (deciders >= 3 AND (public.is_super_admin() OR public.is_admin()))
+    -- every other admin sees only readings with at least 3 deciders, and not
+    -- the all-colleges row while any college row under it is small (else
+    -- all-colleges minus the visible colleges = the hidden one)
+    OR (deciders >= 3
+        AND (institution_id IS NOT NULL OR NOT has_small_college)
+        AND (public.is_super_admin() OR public.is_admin()))
   );
 
 
@@ -842,6 +865,13 @@ BEGIN
                 reversal_rate = EXCLUDED.reversal_rate,
                 deciders      = EXCLUDED.deciders,
                 computed_at   = EXCLUDED.computed_at;
+
+  UPDATE public.hr_duty_tower_readings a
+     SET has_small_college = EXISTS (
+           SELECT 1 FROM public.hr_duty_tower_readings c
+            WHERE c.week_start = a.week_start AND c.duty_code = a.duty_code
+              AND c.institution_id IS NOT NULL AND c.deciders < 3)
+   WHERE a.week_start = p_week_start AND a.institution_id IS NULL;
 
   -- Each person's own 12 weeks, ending with the week just measured, for My
   -- Desk to read without scanning the sources (LOAD, in the header). Private:
@@ -1230,6 +1260,9 @@ BEGIN
   WITH facts AS (
     SELECT f.* FROM public.fn_hr_duty_item_facts(now() - interval '168 days', now()) f
      WHERE f.actor_id IS NOT NULL
+       -- never S2 or G2: their decider columns can be written from the browser
+       -- (EARNED-TRUST SUGGESTIONS LEAVE OUT S2 AND G2, in the header)
+       AND f.duty_code NOT IN ('S2', 'G2')
   ),
   checkpoints AS (
     SELECT k, now() - make_interval(days => 7 * k) AS t FROM generate_series(0, 11) k
