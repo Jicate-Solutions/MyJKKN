@@ -22,6 +22,13 @@ import { QuestionWiseTab } from './_components/question-wise-tab';
 import { DirectEntryTab } from './_components/direct-entry-tab';
 
 /**
+ * Registration statuses whose learners are listed for entry. Pending is included
+ * on purpose: CIA marks are keyed in while COE is still approving exam
+ * registrations, so waiting for approval would leave the grid empty.
+ */
+const MARKABLE_STATUSES = ['Approved', 'Pending'] as const;
+
+/**
  * /academic/mark-entry — CIA mark entry, question-wise or direct.
  *
  * Separate from /academic/internal-marks by design: that page keeps its existing
@@ -88,7 +95,11 @@ export default function MarkEntryPage() {
   const learners = useMemo(
     () =>
       registrations && filters.course_code
-        ? CiaMarksService.getLearnersFromRegistrations(registrations, filters.course_code)
+        ? CiaMarksService.getLearnersFromRegistrations(
+            registrations,
+            filters.course_code,
+            MARKABLE_STATUSES
+          )
         : [],
     [registrations, filters.course_code]
   );
@@ -97,12 +108,12 @@ export default function MarkEntryPage() {
    * Every registration for the chosen course, whatever its status.
    *
    * The course dropdown lists anything with `is_regular`, but
-   * getLearnersFromRegistrations ALSO requires registration_status ===
-   * 'Approved'. A course whose registrations are all Pending therefore appears
-   * in the dropdown and then produces an empty grid. Keeping the unfiltered set
-   * lets the empty state say WHICH of those two situations it is — "nobody is
-   * registered" and "nobody's registration is approved yet" need different
-   * people to do different things.
+   * getLearnersFromRegistrations ALSO requires a MARKABLE_STATUSES status. A
+   * course whose registrations are all Rejected therefore appears in the
+   * dropdown and then produces an empty grid. Keeping the unfiltered set lets
+   * the empty state say WHICH of those two situations it is — "nobody is
+   * registered" and "nobody's registration is markable" need different people
+   * to do different things.
    */
   const courseRegistrations = useMemo(
     () =>
@@ -115,7 +126,7 @@ export default function MarkEntryPage() {
   const blockedStatuses = useMemo(() => {
     const counts = new Map<string, number>();
     for (const r of courseRegistrations) {
-      if (r.registration_status === 'Approved' && r.is_regular) continue;
+      if ((MARKABLE_STATUSES as readonly string[]).includes(r.registration_status) && r.is_regular) continue;
       const label = !r.is_regular
         ? 'not regular (arrear/repeat)'
         : (r.registration_status ?? 'unknown status');
@@ -220,11 +231,12 @@ export default function MarkEntryPage() {
                   </p>
                   <p className='text-xs text-muted-foreground'>
                     Mark entry needs registrations that are{' '}
-                    <strong>Approved</strong> and <strong>regular</strong>. Currently:{' '}
+                    <strong>Approved</strong> or <strong>Pending</strong>, and{' '}
+                    <strong>regular</strong>. Currently:{' '}
                     {blockedStatuses.map((s) => `${s.count} ${s.label}`).join(', ')}.
                   </p>
                   <p className='text-xs text-muted-foreground'>
-                    Approve them in COE exam registrations, then reload this page.
+                    Correct them in COE exam registrations, then reload this page.
                   </p>
                 </>
               )}

@@ -35,7 +35,24 @@ import {
   SelectTrigger,
   SelectValue
 } from '@/components/ui/select';
-import { Zap, Lock, Clock, ArrowRight, Wrench, ExternalLink } from 'lucide-react';
+import {
+  Zap,
+  Lock,
+  Clock,
+  ArrowRight,
+  Wrench,
+  ExternalLink,
+  AlertCircle,
+  Lightbulb,
+  TrendingUp,
+  BarChart3,
+  Users,
+  UserCheck,
+  CalendarDays,
+  User,
+  XCircle,
+  type LucideIcon
+} from 'lucide-react';
 import {
   ImprovementService,
   type ImprovementIdeaEnriched,
@@ -64,6 +81,16 @@ interface IdeaDetailDialogProps {
   canManage: boolean;
   currentUserId: string;
   onChanged: () => void;
+  /** Who the idea is with — its assignee and its department's owners. */
+  assignedTo?: string[];
+}
+
+/** "6 Aug 2026, 2:47 pm" — one readable format for every timestamp here. */
+function formatWhen(iso: string): string {
+  return new Date(iso).toLocaleString('en-IN', {
+    dateStyle: 'medium',
+    timeStyle: 'short'
+  });
 }
 
 export function IdeaDetailDialog({
@@ -72,7 +99,8 @@ export function IdeaDetailDialog({
   onOpenChange,
   canManage,
   currentUserId,
-  onChanged
+  onChanged,
+  assignedTo = []
 }: IdeaDetailDialogProps) {
   const [activity, setActivity] = useState<ImprovementIdeaActivityEnriched[]>([]);
   const [loadingActivity, setLoadingActivity] = useState(false);
@@ -237,15 +265,21 @@ export function IdeaDetailDialog({
 
   return (
     <Dialog open={open} onOpenChange={(o) => { if (!busy) onOpenChange(o); }}>
-      <DialogContent className="max-h-[90vh] max-w-2xl overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle className="flex items-start gap-2 pr-6">
-            <span className="leading-snug">{idea.title}</span>
-          </DialogTitle>
+      {/* Header stays put; only the body scrolls. */}
+      <DialogContent className="flex max-h-[92dvh] w-[calc(100vw-1.5rem)] max-w-3xl flex-col gap-0 overflow-hidden rounded-2xl border-0 p-0 [&>button]:text-white [&>button]:opacity-90">
+        <DialogHeader className="space-y-0 bg-gradient-to-br from-emerald-600 via-teal-600 to-sky-600 px-4 py-5 text-left text-white sm:px-6">
+          <div className="flex items-start gap-3 pr-8">
+            <span className="hidden h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-white/20 ring-1 ring-white/30 sm:flex">
+              <Lightbulb className="h-5 w-5" aria-hidden="true" />
+            </span>
+            <DialogTitle className="text-lg leading-snug text-white sm:text-xl">
+              {idea.title}
+            </DialogTitle>
+          </div>
         </DialogHeader>
 
-        <div className="space-y-5 py-2">
-          {/* Badges */}
+        {/* Status and who-has-it sit just under the title and never scroll away. */}
+        <div className="bg-muted/40 space-y-2.5 border-b px-4 py-3 sm:px-6">
           <div className="flex flex-wrap items-center gap-2">
             <Badge className={STATUS_BADGE_CLASS[idea.status]}>
               {STATUS_LABEL[idea.status]}
@@ -266,11 +300,31 @@ export function IdeaDetailDialog({
             )}
           </div>
 
-          <p className="text-muted-foreground text-xs">
-            Filed by {idea.author_name || 'Unknown'} ·{' '}
-            {new Date(idea.created_at).toLocaleString()}
-          </p>
+          <div className="text-muted-foreground flex flex-wrap items-center gap-x-4 gap-y-1 text-xs">
+            <span className="flex items-center gap-1.5">
+              <User className="h-3.5 w-3.5 shrink-0" />
+              Filed by{' '}
+              <span className="text-foreground font-medium">
+                {idea.author_name || 'Unknown'}
+              </span>
+            </span>
+            <span className="flex items-center gap-1.5">
+              <CalendarDays className="h-3.5 w-3.5 shrink-0" />
+              {formatWhen(idea.created_at)}
+            </span>
+            {assignedTo.length > 0 && (
+              <span className="flex items-center gap-1.5">
+                <UserCheck className="h-3.5 w-3.5 shrink-0 text-emerald-600" />
+                Assigned to{' '}
+                <span className="text-foreground font-medium">
+                  {assignedTo.join(', ')}
+                </span>
+              </span>
+            )}
+          </div>
+        </div>
 
+        <div className="flex-1 space-y-4 overflow-y-auto px-4 py-5 sm:px-6">
           {editing ? (
             /* ---- Author inline edit (logged only) ---- */
             <div className="space-y-3 rounded-md border p-3">
@@ -309,23 +363,55 @@ export function IdeaDetailDialog({
             </div>
           ) : (
             /* ---- Read view ---- */
-            <div className="space-y-3 text-sm">
-              <Field label="The problem" value={idea.problem} />
-              <Field label="Proposed fix" value={idea.proposed_fix} />
-              <Field label="Expected impact" value={idea.expected_impact} />
-              <Field label="Evidence — which data shows it" value={idea.evidence} />
+            <div className="space-y-3">
+              <Field
+                icon={AlertCircle}
+                tone="rose"
+                label="The problem"
+                value={idea.problem}
+              />
+              <Field
+                icon={Lightbulb}
+                tone="amber"
+                label="Proposed fix"
+                value={idea.proposed_fix}
+              />
+              <div className="grid gap-3 md:grid-cols-2">
+                <Field
+                  icon={TrendingUp}
+                  tone="emerald"
+                  label="Expected impact"
+                  value={idea.expected_impact}
+                />
+                <Field
+                  icon={BarChart3}
+                  tone="sky"
+                  label="Evidence — which data shows it"
+                  value={idea.evidence}
+                />
+              </div>
               {Array.isArray(idea.contributors) && idea.contributors.length > 0 && (
-                <div>
-                  <Label className="text-muted-foreground text-xs">Contributors</Label>
-                  <ul className="mt-1 list-inside list-disc">
+                <div className="rounded-xl border p-4">
+                  <div className="mb-2 flex items-center gap-2">
+                    <Users className="text-muted-foreground h-4 w-4 shrink-0" />
+                    <span className="text-sm font-semibold">Contributors</span>
+                  </div>
+                  <div className="flex flex-wrap gap-1.5">
                     {idea.contributors.map((c, i) => (
-                      <li key={i}>{c.note || c.learner_id || 'Contributor'}</li>
+                      <Badge key={i} variant="secondary" className="font-normal">
+                        {c.note || c.learner_id || 'Contributor'}
+                      </Badge>
                     ))}
-                  </ul>
+                  </div>
                 </div>
               )}
               {idea.rejection_reason && (
-                <Field label="Reason not pursued" value={idea.rejection_reason} />
+                <Field
+                  icon={XCircle}
+                  tone="red"
+                  label="Reason not pursued"
+                  value={idea.rejection_reason}
+                />
               )}
             </div>
           )}
@@ -349,7 +435,7 @@ export function IdeaDetailDialog({
               <p className="mt-1 text-xs text-emerald-900/80">
                 Fixed by {idea.resolver_name || 'a learner'}
                 {idea.resolved_at
-                  ? ` · ${new Date(idea.resolved_at).toLocaleString()}`
+                  ? ` · ${formatWhen(idea.resolved_at)}`
                   : ''}
                 {' · found by '}
                 {idea.author_name || 'a learner'}
@@ -358,31 +444,39 @@ export function IdeaDetailDialog({
           )}
 
           {/* Activity timeline */}
-          <div className="border-t pt-3">
-            <div className="text-muted-foreground mb-2 flex items-center gap-1.5 text-xs font-medium">
-              <Clock className="h-3.5 w-3.5" /> Activity
+          <div className="rounded-xl border p-4">
+            <div className="mb-3 flex items-center gap-2">
+              <Clock className="text-muted-foreground h-4 w-4 shrink-0" />
+              <span className="text-sm font-semibold">Activity</span>
+              {activity.length > 0 && (
+                <Badge variant="secondary" className="text-xs">
+                  {activity.length}
+                </Badge>
+              )}
             </div>
             {loadingActivity ? (
               <p className="text-muted-foreground text-xs">Loading…</p>
             ) : activity.length === 0 ? (
               <p className="text-muted-foreground text-xs">No activity yet.</p>
             ) : (
-              <ol className="space-y-2">
+              <ol className="border-border ml-1.5 space-y-4 border-l pl-5">
                 {activity.map((a) => (
-                  <li key={a.id} className="flex gap-2 text-xs">
-                    <span className="bg-primary/60 mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full" />
-                    <div>
+                  <li key={a.id} className="relative text-sm">
+                    <span className="bg-primary ring-background absolute top-1.5 -left-[25px] h-2.5 w-2.5 rounded-full ring-4" />
+                    <p className="leading-snug">
                       <span className="font-medium">{a.actor_name || 'System'}</span>{' '}
                       <span className="text-muted-foreground">
                         {formatAction(a)}
                       </span>
-                      {a.note && (
-                        <p className="text-muted-foreground italic">“{a.note}”</p>
-                      )}
-                      <p className="text-muted-foreground/70">
-                        {new Date(a.created_at).toLocaleString()}
+                    </p>
+                    {a.note && (
+                      <p className="bg-muted/50 text-muted-foreground mt-1.5 rounded-md px-3 py-2 text-xs whitespace-pre-wrap">
+                        {a.note}
                       </p>
-                    </div>
+                    )}
+                    <p className="text-muted-foreground/70 mt-1 text-xs">
+                      {formatWhen(a.created_at)}
+                    </p>
                   </li>
                 ))}
               </ol>
@@ -391,43 +485,69 @@ export function IdeaDetailDialog({
 
           {/* Manager actions */}
           {canManage && targets.length > 0 && (
-            <div className="space-y-3 rounded-md border bg-muted/30 p-3">
-              <p className="text-sm font-medium">Review actions</p>
-              <div className="flex flex-col gap-2 sm:flex-row">
-                <Select value={moveTarget} onValueChange={setMoveTarget}>
-                  <SelectTrigger className="sm:w-56">
-                    <SelectValue placeholder="Move to…" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {targets.map((t) => (
-                      <SelectItem key={t} value={t}>
-                        {STATUS_LABEL[t]}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <Input
-                  placeholder="Note (optional)"
-                  value={moveNote}
-                  onChange={(e) => setMoveNote(e.target.value)}
-                  className="flex-1"
-                />
-                <Button onClick={handleMove} disabled={!moveTarget || busy}>
-                  Apply <ArrowRight className="ml-1 h-3.5 w-3.5" />
-                </Button>
+            <div className="space-y-4 rounded-xl border border-emerald-200 bg-gradient-to-br from-emerald-50 to-sky-50 p-4 dark:border-emerald-900 dark:from-emerald-950/40 dark:to-sky-950/40">
+              <p className="text-sm font-semibold">Review actions</p>
+              <div className="grid gap-3 sm:grid-cols-[14rem_1fr]">
+                <div className="space-y-1.5">
+                  <Label htmlFor="idea-move-target" className="text-xs">
+                    Move to
+                  </Label>
+                  <Select value={moveTarget} onValueChange={setMoveTarget}>
+                    <SelectTrigger id="idea-move-target" className="bg-background">
+                      <SelectValue placeholder="Choose a stage…" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {targets.map((t) => (
+                        <SelectItem key={t} value={t}>
+                          {STATUS_LABEL[t]}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="idea-move-note" className="text-xs">
+                    Note{' '}
+                    <span className="text-muted-foreground font-normal">
+                      (optional)
+                    </span>
+                  </Label>
+                  <Textarea
+                    id="idea-move-note"
+                    placeholder="Why this move? The person who filed the idea sees this on the timeline."
+                    value={moveNote}
+                    onChange={(e) => setMoveNote(e.target.value)}
+                    rows={3}
+                    maxLength={1000}
+                    className="bg-background resize-y"
+                  />
+                  <p className="text-muted-foreground text-right text-[11px]">
+                    {moveNote.length}/1000
+                  </p>
+                </div>
               </div>
-              <div className="flex items-center gap-2">
-                <Label className="text-xs">Score</Label>
-                <Input
-                  type="number"
-                  step="0.1"
-                  value={scoreInput}
-                  onChange={(e) => setScoreInput(e.target.value)}
-                  className="w-28"
-                  placeholder="0-100"
-                />
-                <Button variant="outline" size="sm" onClick={handleScore} disabled={busy || scoreInput === ''}>
-                  Save score
+              <div className="flex flex-wrap items-end justify-between gap-3 border-t pt-3">
+                <div className="flex items-end gap-2">
+                  <div className="space-y-1.5">
+                    <Label htmlFor="idea-score" className="text-xs">
+                      Score
+                    </Label>
+                    <Input
+                      id="idea-score"
+                      type="number"
+                      step="0.1"
+                      value={scoreInput}
+                      onChange={(e) => setScoreInput(e.target.value)}
+                      className="bg-background w-28"
+                      placeholder="0-100"
+                    />
+                  </div>
+                  <Button variant="outline" onClick={handleScore} disabled={busy || scoreInput === ''}>
+                    Save score
+                  </Button>
+                </div>
+                <Button onClick={handleMove} disabled={!moveTarget || busy} className="h-10 w-full bg-gradient-to-r from-emerald-600 to-teal-600 text-white hover:from-emerald-700 hover:to-teal-700 sm:w-auto">
+                  Apply move <ArrowRight className="ml-1 h-3.5 w-3.5" />
                 </Button>
               </div>
             </div>
@@ -497,12 +617,86 @@ export function IdeaDetailDialog({
   );
 }
 
-function Field({ label, value }: { label: string; value: string | null }) {
+/** One colour per section, so the business case can be scanned by colour. */
+const TONES = {
+  rose: {
+    card: 'border-l-rose-500',
+    chip: 'bg-rose-100 text-rose-700 dark:bg-rose-950 dark:text-rose-300'
+  },
+  amber: {
+    card: 'border-l-amber-500',
+    chip: 'bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300'
+  },
+  emerald: {
+    card: 'border-l-emerald-500',
+    chip: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300'
+  },
+  sky: {
+    card: 'border-l-sky-500',
+    chip: 'bg-sky-100 text-sky-700 dark:bg-sky-950 dark:text-sky-300'
+  },
+  red: {
+    card: 'border-l-red-500',
+    chip: 'bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-300'
+  }
+} as const;
+
+function Field({
+  label,
+  value,
+  icon: Icon,
+  tone
+}: {
+  label: string;
+  value: string | null;
+  icon: LucideIcon;
+  tone: keyof typeof TONES;
+}) {
   if (!value) return null;
   return (
-    <div>
-      <Label className="text-muted-foreground text-xs">{label}</Label>
-      <p className="mt-0.5 whitespace-pre-wrap">{value}</p>
+    <div className={`bg-card rounded-xl border border-l-4 p-4 shadow-sm ${TONES[tone].card}`}>
+      <div className="mb-2 flex items-center gap-2">
+        <span
+          className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-lg ${TONES[tone].chip}`}
+        >
+          <Icon className="h-4 w-4" aria-hidden="true" />
+        </span>
+        <span className="text-sm font-semibold">{label}</span>
+      </div>
+      <FieldText value={value} />
+    </div>
+  );
+}
+
+/** A leading "* ", "- " or "• " marks a bullet, as filers type them. */
+const BULLET = /^\s*[*\-•]\s+/;
+
+/**
+ * Filers write plain text, and often type a list as lines starting with "* ".
+ * Runs of such lines render as a real list; everything else stays a paragraph.
+ */
+function FieldText({ value }: { value: string }) {
+  const blocks: { bullets: boolean; lines: string[] }[] = [];
+  for (const line of value.split(/\r?\n/)) {
+    if (!line.trim()) continue;
+    const bullets = BULLET.test(line);
+    const last = blocks[blocks.length - 1];
+    if (last && last.bullets === bullets && bullets) last.lines.push(line);
+    else blocks.push({ bullets, lines: [line] });
+  }
+  return (
+    <div className="text-foreground/90 space-y-2 text-sm leading-relaxed">
+      {blocks.map((block, i) =>
+        block.bullets ? (
+          <ul key={i} className="list-disc space-y-1 pl-5">
+            {block.lines.map((line, j) => (
+              <li key={j}>{line.replace(BULLET, '')}</li>
+            ))}
+          </ul>
+        ) : (
+          <p key={i}>{block.lines[0]}</p>
+        )
+      )}
     </div>
   );
 }

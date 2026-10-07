@@ -161,13 +161,17 @@ export class CiaMarksService {
 
   /**
    * Derives student list from registrations for a specific course.
+   *
+   * `statuses` defaults to Approved-only; /academic/mark-entry widens it to
+   * include Pending so marks can be keyed in before COE approves registrations.
    */
   static getLearnersFromRegistrations(
     registrations: ExamRegistration[],
-    courseCode: string
+    courseCode: string,
+    statuses: readonly string[] = ['Approved']
   ): LearnerForMarkEntry[] {
     return registrations
-      .filter((r) => r.course_code === courseCode && r.registration_status === 'Approved' && r.is_regular)
+      .filter((r) => r.course_code === courseCode && statuses.includes(r.registration_status) && r.is_regular)
       .map((r) => ({
         id: r.student_id,
         register_number: r.stu_register_no,

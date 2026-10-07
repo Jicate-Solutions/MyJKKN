@@ -113,7 +113,8 @@ export default async function ImprovementBoardPage() {
     new Set(
       [
         ...ideaRows.map((i) => i.author_id),
-        ...ideaRows.map((i) => i.resolved_by)
+        ...ideaRows.map((i) => i.resolved_by),
+        ...ideaRows.map((i) => i.assignee_id)
       ].filter(Boolean)
     )
   ) as string[];
@@ -136,9 +137,31 @@ export default async function ImprovementBoardPage() {
       area_label: area?.label ?? null,
       area_key: area?.key ?? null,
       author_name: i.author_id ? nameById.get(i.author_id) ?? null : null,
-      resolver_name: i.resolved_by ? nameById.get(i.resolved_by) ?? null : null
+      resolver_name: i.resolved_by ? nameById.get(i.resolved_by) ?? null : null,
+      assignee_name: i.assignee_id ? nameById.get(i.assignee_id) ?? null : null
     };
   });
+
+  // Who owns each department, and which ones the viewer owns. Both come from
+  // SECURITY DEFINER RPCs (20271006110000): hr_additional_roles is not readable
+  // by an ordinary board reader, so a direct read would return nothing for the
+  // very people this is for. A failed call leaves the board without "Assigned
+  // to" lines rather than taking the page down.
+  const [{ data: ownerRows }, { data: ownedRows }] = await Promise.all([
+    (supabase as any).rpc('fn_improvement_area_owner_names'),
+    (supabase as any).rpc('fn_improvement_my_owned_area_ids')
+  ]);
+
+  const ownerNamesByArea: Record<string, string[]> = {};
+  for (const row of (ownerRows || []) as {
+    area_id: string;
+    owner_names: string[] | null;
+  }[]) {
+    ownerNamesByArea[row.area_id] = row.owner_names || [];
+  }
+  const ownedAreaIds = ((ownedRows || []) as unknown[]).filter(
+    (id): id is string => typeof id === 'string'
+  );
 
   return (
     <ContentLayout title="Improvement Board">
@@ -149,6 +172,8 @@ export default async function ImprovementBoardPage() {
         initialAreas={areaList}
         initialDepartments={departments}
         initialIdeas={ideas}
+        ownerNamesByArea={ownerNamesByArea}
+        ownedAreaIds={ownedAreaIds}
       />
     </ContentLayout>
   );

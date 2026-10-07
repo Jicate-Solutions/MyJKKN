@@ -101,6 +101,8 @@ export interface ImprovementIdea {
    *  (the FINDER) and from `applied_by` (whoever moved the status). */
   resolved_by: string | null;
   resolved_at: string | null;
+  /** The one named person accountable. Written only by fn_improvement_assign_idea. */
+  assignee_id?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -124,6 +126,8 @@ export interface ImprovementIdeaEnriched extends ImprovementIdea {
   author_name: string | null;
   /** Display name of the fixer (`resolved_by`), null until a fix is recorded. */
   resolver_name: string | null;
+  /** Display name of `assignee_id`, null when nobody is assigned. */
+  assignee_name?: string | null;
   // Latest AI ranking (PR-2) — null until a ranking run has scored the idea.
   ai_rank: number | null;
   ai_rank_reason: string | null;
@@ -265,7 +269,8 @@ export class ImprovementService {
         this.areaLabelMap(ideas.map((i) => i.area_id)),
         this.fetchProfileNames([
           ...ideas.map((i) => i.author_id),
-          ...ideas.map((i) => i.resolved_by)
+          ...ideas.map((i) => i.resolved_by),
+          ...ideas.map((i) => i.assignee_id ?? null)
         ]),
         this.fetchLatestRankings(ideas.map((i) => i.id))
       ]);
@@ -666,6 +671,9 @@ export class ImprovementService {
       author_name: idea.author_id ? personMap.get(idea.author_id) ?? null : null,
       resolver_name: idea.resolved_by
         ? personMap.get(idea.resolved_by) ?? null
+        : null,
+      assignee_name: idea.assignee_id
+        ? personMap.get(idea.assignee_id) ?? null
         : null,
       ai_rank: ranking?.rank ?? null,
       ai_rank_reason: ranking?.reason ?? null,
