@@ -57,7 +57,7 @@ import { CompOffClaimsQueue } from '../_components/comp-off-claims-queue';
 import { ApprovalDetailSheet } from '../_components/approval-detail-sheet';
 import { LeaveDocumentViewer } from '../_components/leave-document-viewer';
 import {
-  ApprovalsDataTable, approvalFiltersActive, emptyApprovalFilters, leaveTypeFilterKey,
+  ApprovalHistoryToggle, ApprovalsDataTable, approvalFiltersActive, emptyApprovalFilters, leaveTypeFilterKey,
   type ApprovalFilterState, type ToolbarSelection,
 } from '../_components/approvals-data-table';
 import type { ApprovalColumnActions } from '../_components/approval-queue-columns';
@@ -548,6 +548,7 @@ export default function LeaveApprovalsPage() {
           <SelectItem value="rejected">Rejected</SelectItem>
           <SelectItem value="withdrawn">Withdrawn</SelectItem>
           <SelectItem value="cancelled">Cancelled</SelectItem>
+          <SelectItem value="decided">All past decisions</SelectItem>
           <SelectItem value="any">Any status</SelectItem>
         </SelectContent>
       </Select>
@@ -634,6 +635,11 @@ export default function LeaveApprovalsPage() {
               </AlertDescription>
             </Alert>
           )}
+
+          <ApprovalHistoryToggle
+            status={filters.status}
+            onChange={(v) => set('status', v)}
+          />
 
           {isLoading ? (
             <Skeleton className="h-96" />
