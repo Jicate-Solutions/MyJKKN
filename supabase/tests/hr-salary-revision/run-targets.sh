@@ -517,8 +517,13 @@ mutate "T81 T5: opened in that week (poll)" \
 mutate "T82 3 unfinished nights: listed" \
   's/^   WHERE p\.state IN \(.waiting., .released., .paused.\) AND p\.failed_nights >= 3$/   WHERE false/' \
   "the Director's list shows the raise that kept timing out, with the reason"
+# 8 Oct 2026 (review round 6): the control inverts the rule rather than dropping
+# it. Dropped, the order fell back to last_run_on NULLS FIRST, request_id, and
+# whether the stuck raise still sorted last depended on random request ids
+# (and on which others had never run): caught only by luck. Inverted, the
+# stuck raise (the only one with 3 unfinished nights) always sorts FIRST.
 mutate "T83 3 unfinished nights: last in line" \
-  's/^   ORDER BY \(p\.failed_nights >= 3\), p\.last_run_on NULLS FIRST, p\.request_id$/   ORDER BY p.last_run_on NULLS FIRST, p.request_id/' \
+  's/^   ORDER BY \(p\.failed_nights >= 3\), p\.last_run_on NULLS FIRST, p\.request_id$/   ORDER BY (p.failed_nights < 3), p.last_run_on NULLS FIRST, p.request_id/' \
   'a raise that did not finish on 3 nights in a row goes last and is listed for the Director'
 mutate "T84 a finished run resets the count" \
   's/^  UPDATE public\.hr_salary_revision_target_plans SET last_run_on = p_today, failed_nights = 0$/  UPDATE public.hr_salary_revision_target_plans SET last_run_on = p_today/' \
@@ -636,7 +641,7 @@ mutate_sched "S2 finding 2: cycle and batch timetables are read the app's way" \
   "s/^     AND jsonb_typeof\(e\) = 'object'$/     AND jsonb_typeof(e) = 'object' AND COALESCE(t.timetable_format, 'regular') NOT IN ('cycle', 'batch')/" \
   "F2 the periods of a cycle timetable and a batch timetable, as the app's resolver recorded them, count"
 mutate_sched "S3 finding 3: a day whose holidays changed is recorded again" \
-  's/^         sp\.holiday_key IS DISTINCT FROM public\.hr_target_schedule_holiday_key\(i\.ids, w\.day\) AS holidays_changed$/         false AS holidays_changed/' \
+  's/^                     sp\.holiday_key IS DISTINCT FROM public\.hr_target_schedule_holiday_key\(v_r\.ids, g\.d\) AS changed$/                     false AS changed/' \
   'F3 a department holiday approved after the day was recorded: the day is asked for again'
 mutate_sched "S4 finding 4: a day recorded on the day itself shows they teach" \
   's/^            OR sp\.recorded_live\)\)$/            ))/' \
@@ -665,4 +670,26 @@ mutate_sched "S9 only the nightly job records" \
 mutate_sched "S10 a recording on the day itself stays one" \
   's/^         recorded_live = public\.hr_target_scheduled_periods\.recorded_live OR EXCLUDED\.recorded_live,$/         recorded_live = EXCLUDED.recorded_live,/' \
   'F3 recorded again: not asked for any more, and still a day recorded on the day itself'
+# 8 Oct 2026, review round 6: one control per finding fixed.
+mutate_sched "S11 round 6 finding 2: nothing after a month waiting for its days is counted" \
+  's/^          EXIT;$/          CONTINUE;/' \
+  'R6-2 while M2 waits for a day, M3 after it is not counted: no pause, nothing written, the note says so'
+mutate_sched "S11b round 6 finding 2: nothing after a waiting month is acted on" \
+  's/^           AND \(cardinality\(v_waiting\) = 0 OR month < v_waiting\[1\]\)$/           AND true/' \
+  'R6-2 a later month already counted is not acted on while an earlier one waits (no pause on it)'
+mutate_sched "S12 round 6 finding 1: leave over the whole month makes it not counted" \
+  "s/^               status = CASE WHEN COALESCE\(v_t1_den, 0\) = 0 THEN 'not_counted'$/               status = CASE WHEN false THEN 'not_counted'/" \
+  'R6-1 leave approved later for the whole of a missed month: not counted (no periods left), the misses in a row worked out again'
+mutate_sched "S12b round 6 finding 1: the misses in a row are worked out again" \
+  "s/^        IF v_p\.state = 'released' AND \(COALESCE\(v_t1_den, 0\) = 0 OR v_all_met\) THEN$/        IF v_p.state = 'released' AND COALESCE(v_t1_den, 0) > 0 AND v_all_met THEN/" \
+  'R6-1 leave approved later for the whole of a missed month: not counted (no periods left), the misses in a row worked out again'
+mutate_sched "S13 round 6 finding 3: a cycle timetable's later days are recorded again" \
+  "s/^                    AND l\.end_date >= c\.anchor AND l\.start_date < p_day\), ''\)\)$/                    AND false), ''))/" \
+  "R6-3 a college holiday approved later on a cycle timetable's day: that day AND every later recorded day is asked for again (their cycle moved)"
+mutate_sched "S14 round 6 finding 5: the leave key covers the days before the 1st T5 reads" \
+  "s/date_trunc\('week', (mo\.month|v_row\.month|v_m)\)::date, \(/\1, (/g" \
+  'R6-5 leave approved later on a day before the 1st in the week holding the 1st: the missed month is measured again'
+mutate_sched "S15 round 6 finding 9: listing the days stops at its time box" \
+  's/^    EXIT WHEN p_budget_ms IS NOT NULL AND clock_timestamp\(\) - v_started > make_interval\(secs => p_budget_ms \/ 1000\.0\);$/    NULL;/' \
+  "R6-9 listing the days stops at its time box: with none left only today's days are listed, given time the rest are"
 echo "== mutation controls: $CAUGHT caught, $MISSED not caught"

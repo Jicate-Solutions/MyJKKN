@@ -39,7 +39,8 @@ SELECT set_config('t.today', '', false);
 SELECT public.hr_salary_revision_ist_today() AS today,
        (date_trunc('month', public.hr_salary_revision_ist_today()) + interval '1 month')::date AS m1,
        (date_trunc('month', public.hr_salary_revision_ist_today()) + interval '2 month')::date AS m2,
-       (date_trunc('month', public.hr_salary_revision_ist_today()) + interval '3 month')::date AS m3 \gset
+       (date_trunc('month', public.hr_salary_revision_ist_today()) + interval '3 month')::date AS m3,
+       (date_trunc('month', public.hr_salary_revision_ist_today()) + interval '4 month')::date AS m4 \gset
 UPDATE public.platform_policies SET value = 'true'::jsonb WHERE policy_key = 'hr.salary_revision.target_measurement_on';
 SELECT t.login(NULL);
 
@@ -237,6 +238,40 @@ SELECT t.check('F5 that week is judged with the next month, and its pulse there 
   AND EXISTS (SELECT 1 FROM public.hr_target_scheduled_periods sp WHERE sp.staff_id = :'sF10' AND sp.day = :'wcross'::date
                  AND jsonb_array_length(sp.periods) > 0));
 
+-- ── Round 6, finding 3: a cycle timetable after a college holiday approved later ──
+-- F8 (a raise asked for: the job records F8's last 90 days) teaches in a cycle
+-- timetable of college A that began 30 days ago. Its last 20 days were recorded
+-- (not live). get_cycle_for_date numbers a day by the working days since the
+-- start, so a college holiday approved now for the 15th day back moves the
+-- cycle of EVERY later day: each must be recorded again, not only that day.
+INSERT INTO public.timetables (id, institution_id, timetable_name, timetable_format, start_date, end_date, periods, created_at)
+VALUES ('00000000-0000-0000-0000-0000000aa601', :'A', 'F8 cycle', 'cycle', (:'today'::date - 30), (:'today'::date + 30),
+        '[{"id": "p1", "period_name": "Cycle 1", "start_time": "11:00", "end_time": "12:00"}]', now() - interval '1 year');
+SELECT count(public.hr_target_schedule_record(:'sF8', d::date, jsonb_build_array(jsonb_build_object(
+         'timetable_id', '00000000-0000-0000-0000-0000000aa601', 'slot_id', 'y1', 'period_name', 'Cycle 1',
+         'course_id', :'C8', 'start_time', '11:00', 'end_time', '12:00', 'is_primary', true)), 'probe', :'today'))
+  FROM generate_series((:'today'::date - 20), (:'today'::date - 1), interval '1 day') d \gset
+SELECT count(*) AS r6_before FROM public.hr_target_schedule_needs(:'today', 100000) n
+ WHERE n.staff_id = :'sF8' AND n.day BETWEEN (:'today'::date - 15) AND (:'today'::date - 1) \gset
+INSERT INTO public.institution_leaves (institution_id, leave_type_id, leave_name, start_date, end_date, status, requested_by, scope_level)
+VALUES (:'A', '00000000-0000-0000-0000-0000000001e1', 'College day', (:'today'::date - 15), (:'today'::date - 15), 'approved', :'D',
+        'institution');
+SELECT t.check('R6-3 a college holiday approved later on a cycle timetable''s day: that day AND every later recorded day is asked for again (their cycle moved)',
+  :'r6_before'::int = 0
+  AND (SELECT count(*) FROM public.hr_target_schedule_needs(:'today', 100000) n
+        WHERE n.staff_id = :'sF8' AND n.day BETWEEN (:'today'::date - 15) AND (:'today'::date - 1)
+          AND n.reason = 'holidays_changed') = 15
+  AND NOT EXISTS (SELECT 1 FROM public.hr_target_schedule_needs(:'today', 100000) n
+                   WHERE n.staff_id = :'sF8' AND n.day BETWEEN (:'today'::date - 20) AND (:'today'::date - 16)),
+  (SELECT :'r6_before' || ' before; after: ' || count(*) || ' of 15 asked for again'
+     FROM public.hr_target_schedule_needs(:'today', 100000) n
+    WHERE n.staff_id = :'sF8' AND n.day BETWEEN (:'today'::date - 15) AND (:'today'::date - 1) AND n.reason = 'holidays_changed'));
+
+-- ── Round 6, finding 9: listing the days is time-boxed ─────────────────────
+SELECT t.check('R6-9 listing the days stops at its time box: with none left only today''s days are listed, given time the rest are',
+  EXISTS (SELECT 1 FROM public.hr_target_schedule_needs(:'today', 100000, 60000) n WHERE n.reason <> 'live')
+  AND NOT EXISTS (SELECT 1 FROM public.hr_target_schedule_needs(:'today', 100000, 0) n WHERE n.reason <> 'live'));
+
 -- ── F6 and the coverage wait: F4's raise, measured from M1 ──────────────────
 SET ROLE authenticated;
 SELECT t.login(:'H');
@@ -292,8 +327,87 @@ SELECT t.check('F6 leave approved after the month was counted: measured again, m
   (SELECT status || ' ' || COALESCE(action, '-') || ' ' || COALESCE(action_effective_from::text, '-')
      FROM public.hr_salary_revision_target_months WHERE request_id = :'req_f4' AND month = :'m1'));
 SELECT t.check('F6 a month measured again is not measured a third time while its leave stays the same',
-  (SELECT leave_key = public.hr_salary_revision_target_leave_key(:'sF4', :'m1', (:'m2'::date - 1))
+  (SELECT leave_key = public.hr_salary_revision_target_leave_key(:'sF4', date_trunc('week', :'m1'::date)::date, (:'m2'::date - 1))
      FROM public.hr_salary_revision_target_months WHERE request_id = :'req_f4' AND month = :'m1'));
+
+-- ── Round 6, finding 2: months are counted and acted on in calendar order ──
+-- F4's held part is paid from M3 (F6). Say two months below target in a row
+-- are already counted. M2 is on target, but one of its days is not in the
+-- schedule record yet; M3 is missed. Counting M3 first (the old order) paused
+-- the part on a third miss and then resumed it when M2 came in (two pay rows,
+-- missed_in_row 0). In calendar order nothing moves until M2's day is
+-- recorded; then M2 (met) resets the count and M3 makes it 1.
+SELECT t.tt(:'sF4', :'A', :'C4', :'m3', (:'m4'::date - 1)) AS tt4b \gset
+SELECT t.good_month(:'tt4', :'F4', :'C4', :'m2');
+SELECT t.bad_month(:'tt4b', :'F4', :'C4', :'m3');
+UPDATE public.hr_salary_revision_target_plans SET missed_in_row = 2 WHERE request_id = :'req_f4';
+SELECT count(*) AS f4_pay_rows FROM public.hr_staff_salaries WHERE staff_id = :'sF4' \gset
+DELETE FROM public.hr_target_scheduled_periods WHERE staff_id = :'sF4' AND day = (:'m2'::date + 9);
+SELECT public.hr_salary_revision_targets_run_on(:'m4') AS o1 \gset
+SELECT t.check('R6-2 while M2 waits for a day, M3 after it is not counted: no pause, nothing written, the note says so',
+  NOT EXISTS (SELECT 1 FROM public.hr_salary_revision_target_months
+               WHERE request_id = :'req_f4' AND month IN (:'m2', :'m3') AND status NOT IN ('in_progress'))
+  AND (SELECT state = 'released' AND missed_in_row = 2
+              AND run_note LIKE 'Not counted yet, some days not in the schedule record: %. The months after it are counted after it, in calendar order.'
+         FROM public.hr_salary_revision_target_plans WHERE request_id = :'req_f4')
+  AND (SELECT count(*) FROM public.hr_staff_salaries WHERE staff_id = :'sF4') = :'f4_pay_rows'::int,
+  (SELECT string_agg(to_char(month, 'YYYY-MM') || ' ' || status || CASE WHEN acted THEN ' acted' ELSE '' END, ', ' ORDER BY month)
+     FROM public.hr_salary_revision_target_months WHERE request_id = :'req_f4')
+  || ' / ' || (SELECT state || ' ' || missed_in_row FROM public.hr_salary_revision_target_plans WHERE request_id = :'req_f4'));
+-- A later month counted ahead (as a run before this file could leave it) is not acted on either.
+INSERT INTO public.hr_salary_revision_target_months (request_id, month, status, results, measured_at)
+VALUES (:'req_f4', :'m3', 'missed', '[]'::jsonb, now())
+ON CONFLICT (request_id, month) DO UPDATE SET status = 'missed', acted = false;
+SELECT public.hr_salary_revision_targets_run_on((:'m4'::date + 1)) AS o2 \gset
+SELECT t.check('R6-2 a later month already counted is not acted on while an earlier one waits (no pause on it)',
+  (SELECT NOT acted FROM public.hr_salary_revision_target_months WHERE request_id = :'req_f4' AND month = :'m3')
+  AND (SELECT state = 'released' AND missed_in_row = 2 FROM public.hr_salary_revision_target_plans WHERE request_id = :'req_f4')
+  AND (SELECT count(*) FROM public.hr_staff_salaries WHERE staff_id = :'sF4') = :'f4_pay_rows'::int,
+  (SELECT state || ' ' || missed_in_row FROM public.hr_salary_revision_target_plans WHERE request_id = :'req_f4'));
+SELECT t.mirror_staff(:'sF4');
+SELECT public.hr_salary_revision_targets_run_on((:'m4'::date + 2)) AS o3 \gset
+SELECT t.check('R6-2 once M2''s day is recorded: M2 met, then M3 missed, in that order: still paid, one miss in a row, no pay row written',
+  (SELECT status = 'met' AND acted FROM public.hr_salary_revision_target_months WHERE request_id = :'req_f4' AND month = :'m2')
+  AND (SELECT status = 'missed' AND acted FROM public.hr_salary_revision_target_months WHERE request_id = :'req_f4' AND month = :'m3')
+  AND (SELECT state = 'released' AND missed_in_row = 1 AND run_note IS NULL
+         FROM public.hr_salary_revision_target_plans WHERE request_id = :'req_f4')
+  AND (SELECT count(*) FROM public.hr_staff_salaries WHERE staff_id = :'sF4') = :'f4_pay_rows'::int,
+  (SELECT string_agg(to_char(month, 'YYYY-MM') || ' ' || status || CASE WHEN acted THEN ' acted' ELSE '' END, ', ' ORDER BY month)
+     FROM public.hr_salary_revision_target_months WHERE request_id = :'req_f4')
+  || ' / ' || (SELECT state || ' ' || missed_in_row FROM public.hr_salary_revision_target_plans WHERE request_id = :'req_f4'));
+
+-- ── Round 6, finding 5: leave on the days before the 1st that T5 reads ─────
+-- M3's measure reads the days before its 1st in the week holding the 1st
+-- (default rr). Leave approved later on such a day changes what M3's T5
+-- reads, so the missed M3 is measured again. (Needs M3's 1st not to be a
+-- Monday, or there is no such day: the check says so rather than pass.)
+-- First a night with no new leave: the run keeps M3's key its own way
+-- (the row above was written without one, so it is measured once more now).
+SELECT public.hr_salary_revision_targets_run_on((:'m4'::date + 3)) AS o4a \gset
+SELECT date_trunc('week', :'m3'::date)::date AS m3_lead,
+       (SELECT measured_at FROM public.hr_salary_revision_target_months WHERE request_id = :'req_f4' AND month = :'m3') AS m3_measured \gset
+INSERT INTO public.hr_leave_applications (employee_id, start_date, end_date, status)
+VALUES (:'sF4', :'m3_lead', :'m3_lead', 'approved');
+SELECT public.hr_salary_revision_targets_run_on((:'m4'::date + 4)) AS o4 \gset
+SELECT t.check('R6-5 leave approved later on a day before the 1st in the week holding the 1st: the missed month is measured again',
+  extract(isodow FROM :'m3'::date) <> 1
+  AND (SELECT measured_at > :'m3_measured'::timestamptz
+              AND leave_key = public.hr_salary_revision_target_leave_key(:'sF4', :'m3_lead'::date, (:'m4'::date - 1))
+         FROM public.hr_salary_revision_target_months WHERE request_id = :'req_f4' AND month = :'m3'),
+  CASE WHEN extract(isodow FROM :'m3'::date) = 1 THEN 'INCONCLUSIVE: M3 starts on a Monday this month; run again next month'
+       ELSE (SELECT status || ' measured ' || measured_at FROM public.hr_salary_revision_target_months
+              WHERE request_id = :'req_f4' AND month = :'m3') END);
+
+-- ── Round 6, finding 1: leave now covering the whole of a missed month ─────
+INSERT INTO public.hr_leave_applications (employee_id, start_date, end_date, status)
+VALUES (:'sF4', :'m3', (:'m4'::date - 1), 'approved');
+SELECT public.hr_salary_revision_targets_run_on((:'m4'::date + 5)) AS o5 \gset
+SELECT t.check('R6-1 leave approved later for the whole of a missed month: not counted (no periods left), the misses in a row worked out again',
+  (SELECT status = 'not_counted' FROM public.hr_salary_revision_target_months WHERE request_id = :'req_f4' AND month = :'m3')
+  AND (SELECT state = 'released' AND missed_in_row = 0 FROM public.hr_salary_revision_target_plans WHERE request_id = :'req_f4')
+  AND (SELECT count(*) FROM public.hr_staff_salaries WHERE staff_id = :'sF4') = :'f4_pay_rows'::int,
+  (SELECT status FROM public.hr_salary_revision_target_months WHERE request_id = :'req_f4' AND month = :'m3')
+  || ' / ' || (SELECT state || ' ' || missed_in_row FROM public.hr_salary_revision_target_plans WHERE request_id = :'req_f4'));
 
 -- ── Switch-on safety: OFF records nothing about money ───────────────────────
 SELECT t.check('measurement stays as the probe set it; the switch row was not touched by 20271008093015',
