@@ -2994,6 +2994,20 @@ CREATE TRIGGER trg_zz_student_attendance_first_marks
   EXECUTE FUNCTION public.fn_record_attendance_first_marks();
 
 
+-- ============================================================================
+-- Updated: 2026-10-07 - HR duty proofs: a file or a second-person check on the
+-- duties that move money or end a job (migration 20271007161123). Rule touch + audit triggers.
+-- ============================================================================
+DROP TRIGGER IF EXISTS hr_duty_proof_rules_touch_trg ON public.hr_duty_proof_rules;
+CREATE TRIGGER hr_duty_proof_rules_touch_trg
+  BEFORE UPDATE ON public.hr_duty_proof_rules
+  FOR EACH ROW EXECUTE FUNCTION public.fn_hr_duty_proof_rules_touch();
+
+DROP TRIGGER IF EXISTS hr_duty_proof_rules_audit_trg ON public.hr_duty_proof_rules;
+CREATE TRIGGER hr_duty_proof_rules_audit_trg
+  AFTER UPDATE ON public.hr_duty_proof_rules
+  FOR EACH ROW EXECUTE FUNCTION public.fn_hr_duty_proof_rules_audit();
+
 
 -- ============================================================================
 -- Updated: 2026-10-01 - HR intake helper (source: migrations/20270613101241_hr_intake_helper.sql)

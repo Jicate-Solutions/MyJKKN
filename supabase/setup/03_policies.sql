@@ -11961,6 +11961,57 @@ CREATE POLICY hr_salary_revision_target_setting_log_service_role ON public.hr_sa
 REVOKE ALL ON public.hr_salary_revision_target_setting_log FROM anon, PUBLIC, authenticated, service_role;
 GRANT SELECT ON public.hr_salary_revision_target_setting_log TO authenticated, service_role;
 
+-- ============================================================================
+-- Updated: 2026-10-07 - HR duty proofs: a file or a second-person check on the
+-- duties that move money or end a job (migration 20271007161123). RLS, grants, policies.
+-- ============================================================================
+ALTER TABLE public.hr_duty_proof_rules       ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.hr_duty_proof_rules_audit ENABLE ROW LEVEL SECURITY;
+
+REVOKE ALL ON public.hr_duty_proof_rules       FROM anon, PUBLIC;
+REVOKE ALL ON public.hr_duty_proof_rules_audit FROM anon, PUBLIC;
+GRANT SELECT, INSERT, UPDATE ON public.hr_duty_proof_rules TO authenticated;
+GRANT SELECT ON public.hr_duty_proof_rules_audit TO authenticated;
+GRANT ALL ON public.hr_duty_proof_rules, public.hr_duty_proof_rules_audit TO service_role;
+
+DROP POLICY IF EXISTS hr_duty_proof_rules_read ON public.hr_duty_proof_rules;
+CREATE POLICY hr_duty_proof_rules_read ON public.hr_duty_proof_rules
+  FOR SELECT USING ((SELECT auth.uid()) IS NOT NULL);
+
+DROP POLICY IF EXISTS hr_duty_proof_rules_write ON public.hr_duty_proof_rules;
+CREATE POLICY hr_duty_proof_rules_write ON public.hr_duty_proof_rules
+  FOR ALL USING (public.is_super_admin())
+  WITH CHECK (public.is_super_admin());
+
+DROP POLICY IF EXISTS hr_duty_proof_rules_audit_read ON public.hr_duty_proof_rules_audit;
+CREATE POLICY hr_duty_proof_rules_audit_read ON public.hr_duty_proof_rules_audit
+  FOR SELECT USING (public.is_super_admin() OR public.is_admin());
+
+ALTER TABLE public.hr_duty_proofs ENABLE ROW LEVEL SECURITY;
+
+-- No write policies: rows are written only through the SECURITY DEFINER
+-- functions below. Signed-in users may SELECT, RLS decides which rows.
+REVOKE ALL ON public.hr_duty_proofs FROM anon, PUBLIC;
+GRANT SELECT ON public.hr_duty_proofs TO authenticated;
+GRANT ALL ON public.hr_duty_proofs TO service_role;
+
+DROP POLICY IF EXISTS hr_duty_proofs_select ON public.hr_duty_proofs;
+CREATE POLICY hr_duty_proofs_select ON public.hr_duty_proofs
+  FOR SELECT USING (
+    public.is_super_admin() OR public.is_admin()
+    OR public.fn_hr_duty_proof_can_view(duty_code, institution_id)
+  );
+
+DROP POLICY IF EXISTS hr_duty_proofs_objects_insert ON storage.objects;
+CREATE POLICY hr_duty_proofs_objects_insert ON storage.objects
+  FOR INSERT TO authenticated
+  WITH CHECK (bucket_id = 'hr-duty-proofs' AND public.fn_hr_duty_proof_can_view_object(name));
+
+DROP POLICY IF EXISTS hr_duty_proofs_objects_select ON storage.objects;
+CREATE POLICY hr_duty_proofs_objects_select ON storage.objects
+  FOR SELECT TO authenticated
+  USING (bucket_id = 'hr-duty-proofs' AND public.fn_hr_duty_proof_can_view_object(name));
+
 
 -- ============================================================================
 -- Updated: 2026-10-01 - HR intake helper (source: migrations/20270613101241_hr_intake_helper.sql)
