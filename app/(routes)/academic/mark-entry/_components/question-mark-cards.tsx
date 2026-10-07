@@ -6,7 +6,13 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { ChevronLeft, ChevronRight, Check } from 'lucide-react';
 import { lockReasonFor, sumMarks } from '@/lib/utils/mark-entry/entry-rules';
-import { partColor, type EntryPart, type EntryQuestion, type LearnerEntry } from '@/types/mark-entry';
+import {
+  partColor,
+  type EntryPart,
+  type EntryQuestion,
+  type LearnerEntry,
+  type OtherComponent,
+} from '@/types/mark-entry';
 
 interface Props {
   questions: EntryQuestion[];
@@ -17,6 +23,10 @@ interface Props {
   readOnly: boolean;
   onChange: (studentId: string, questionId: string, value: number | null) => void;
   onToggleAbsent: (studentId: string, absent: boolean) => void;
+  /** The round's components the paper does not feed (e.g. Assignment). See the matrix. */
+  otherComponents?: OtherComponent[];
+  roundMax?: number;
+  onChangeOther?: (studentId: string, code: string, value: number | null) => void;
 }
 
 /**
@@ -36,8 +46,12 @@ export function QuestionMarkCards({
   readOnly,
   onChange,
   onToggleAbsent,
+  otherComponents = [],
+  roundMax = 0,
+  onChangeOther,
 }: Props) {
   const [index, setIndex] = useState(0);
+  const hasOthers = otherComponents.length > 0;
   const learner = learners[Math.min(index, learners.length - 1)];
 
   const partIndex = useMemo(() => {
@@ -55,8 +69,16 @@ export function QuestionMarkCards({
 
   if (!learner) return null;
 
-  const total = sumMarks(learner.marks);
-  const over = componentMax > 0 && total > componentMax;
+  const paperTotal = sumMarks(learner.marks);
+  const othersTotal = otherComponents.reduce((s, c) => s + (learner.other_marks?.[c.code] ?? 0), 0);
+  const hasOtherMark = otherComponents.some((c) => learner.other_marks?.[c.code] != null);
+  // With other components the footer shows the ROUND total; an absent learner's
+  // paper counts as zero but their assignment still counts.
+  const total = hasOthers ? (learner.is_absent ? 0 : paperTotal) + othersTotal : paperTotal;
+  const over = hasOthers
+    ? roundMax > 0 && total > roundMax
+    : componentMax > 0 && total > componentMax;
+  const showAbsent = learner.is_absent && !hasOtherMark;
 
   return (
     <div className='rounded-lg border bg-background'>
@@ -196,6 +218,51 @@ export function QuestionMarkCards({
         })}
       </div>
 
+      {hasOthers && (
+        <div className='border-t'>
+          <p className='bg-muted/50 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground'>
+            Other components
+          </p>
+          <div className='divide-y'>
+            {otherComponents.map((c) => {
+              const value = learner.other_marks?.[c.code];
+              const invalid = value != null && (value > c.max_marks || value < 0);
+              return (
+                <div key={c.code} className='flex items-center gap-3 p-3'>
+                  <div className='min-w-0 flex-1'>
+                    <p className='text-sm font-semibold'>{c.name}</p>
+                    <p className='mt-0.5 text-[11px] text-muted-foreground'>out of {c.max_marks}</p>
+                  </div>
+                  <input
+                    type='number'
+                    inputMode='numeric'
+                    step={1}
+                    min={0}
+                    max={c.max_marks}
+                    disabled={readOnly}
+                    value={value ?? ''}
+                    placeholder='0'
+                    aria-label={`${c.name} mark for ${learner.register_number}`}
+                    onChange={(e) => {
+                      const raw = e.target.value;
+                      if (raw === '') return onChangeOther?.(learner.student_id, c.code, null);
+                      const n = parseInt(raw, 10);
+                      onChangeOther?.(learner.student_id, c.code, Number.isFinite(n) ? n : null);
+                    }}
+                    className={cn(
+                      'h-11 w-16 shrink-0 rounded-md border bg-background text-center text-base font-medium',
+                      'focus:outline-none focus:ring-2 focus:ring-primary/40',
+                      readOnly && 'cursor-not-allowed bg-muted',
+                      invalid && 'border-red-500 text-red-600 ring-1 ring-red-500'
+                    )}
+                  />
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       {/* Pinned footer: running total + learner stepper */}
       <div className='sticky bottom-0 flex items-center gap-2 border-t bg-background/95 p-3 backdrop-blur'>
         <Button
@@ -210,17 +277,21 @@ export function QuestionMarkCards({
           <span
             className={cn(
               'font-mono text-lg font-bold',
-              learner.is_absent
+              showAbsent
                 ? 'text-muted-foreground'
                 : over
                   ? 'text-red-600'
                   : 'text-indigo-700 dark:text-indigo-300'
             )}
           >
-            {learner.is_absent ? 'AB' : total}
+            {showAbsent ? 'AB' : total}
           </span>
           <span className='text-xs text-muted-foreground'>
-            {learner.is_absent ? ' · absent' : ` / ${componentMax} · ${componentLabel}`}
+            {showAbsent
+              ? ' · absent'
+              : hasOthers
+                ? ` / ${roundMax} · round total`
+                : ` / ${componentMax} · ${componentLabel}`}
           </span>
         </div>
         {index === learners.length - 1 ? (

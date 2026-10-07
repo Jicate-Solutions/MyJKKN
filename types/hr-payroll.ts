@@ -357,6 +357,12 @@ export interface HRSalaryRegisterLine {
   // lines generated before 2026-09-23.
   work_institution_id: string | null;
   work_institution_name: string | null;
+  // TEACHING OR NOT, snapshotted from employment_categories at generation
+  // (2026-10-07). Splits the register into Teaching / Non-Teaching sheets,
+  // tabs and documents. Lines generated before then were backfilled from the
+  // person's CURRENT category.
+  staff_category_name: string | null;
+  is_teaching: boolean;
 
   business_working_days: number;
   /**
@@ -457,3 +463,48 @@ export interface SalaryRegisterRunDetail {
   organisation_name: string;
   institution_name: string;
 }
+
+/** The two halves a register is split into for the per-category sheets and documents. */
+export type StaffCategoryKey = 'teaching' | 'non_teaching';
+
+/** The two Word documents generated per register, per category. */
+export type PayrollDocumentKind = 'bank_letter' | 'chairperson_approval';
+
+/**
+ * The constants the Bank Letter and Chairperson Approval need that exist
+ * nowhere else in the schema — one row per paying institution
+ * (hr_payroll_document_settings, 2026-10-07).
+ */
+export interface HRPayrollDocumentSettings {
+  hr_organization_id: string;
+  institution_id: string;
+  /** "JKKNCOP" in "JKKNCOP/ AUGUST SALARY/ 2026". */
+  reference_code: string;
+  /** Appended for non-teaching: "JKKNCOP" + "NT" = "JKKNCOPNT". */
+  non_teaching_suffix: string;
+  /** The COLLEGE's bank — the letter's addressee and the cheque's source account. */
+  bank_name: string;
+  bank_branch: string;
+  college_account_number: string;
+  addressee_title: string;
+  approval_salutation: string;
+  submitter_title: string;
+  approver_title: string;
+  updated_at: string | null;
+}
+
+/**
+ * What the settings endpoint answers. `saved: false` means nobody has filled
+ * the form for this institution yet — `settings` then carries SUGGESTED values
+ * (ref code from the staff-code prefix, bank from the staff accounts) so the
+ * form opens pre-filled, but no document may be generated from them.
+ */
+export interface PayrollDocumentSettingsResponse {
+  saved: boolean;
+  settings: HRPayrollDocumentSettings;
+}
+
+export type PayrollDocumentSettingsInput = Omit<
+  HRPayrollDocumentSettings,
+  'hr_organization_id' | 'institution_id' | 'updated_at'
+>;

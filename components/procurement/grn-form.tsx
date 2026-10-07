@@ -6,9 +6,9 @@ import { usePurchaseOrder } from '@/hooks/procurement/use-purchase-orders';
 import { useCreateGrn } from '@/hooks/procurement/use-grns';
 import { matchLine } from '@/lib/services/procurement/three-way-match';
 import { GRN_MATCH_CONFIG, type GrnLineInput } from '@/types/procurement';
-import { PageHeader } from '@/components/procurement/page-header';
+import { DetailHeader } from '@/components/procurement/detail-header';
+import { FormActionBar } from '@/components/procurement/form-action-bar';
 import { StatusBadge } from '@/components/procurement/status-badge';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -26,7 +26,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
-import { ArrowLeft, ChevronDown, ChevronRight, Sparkles } from 'lucide-react';
+import { ChevronDown, ChevronRight, Sparkles } from 'lucide-react';
 import { BeatLoader } from 'react-spinners';
 import { toast } from 'sonner';
 import { errorMessage } from '@/lib/utils/supabase-error';
@@ -63,6 +63,8 @@ export function GrnForm({ poId, onSaved, onCancel, compact, onDirtyChange }: Grn
   const createGrn = useCreateGrn();
 
   const [invoiceNumber, setInvoiceNumber] = useState('');
+  // Required fields turn red only after a first Record, not on an untouched form.
+  const [triedSubmit, setTriedSubmit] = useState(false);
   const [invoiceDate, setInvoiceDate] = useState('');
   const [invoiceAmount, setInvoiceAmount] = useState('');
   const [notes, setNotes] = useState('');
@@ -285,6 +287,7 @@ export function GrnForm({ poId, onSaved, onCancel, compact, onDirtyChange }: Grn
   };
 
   const submit = async () => {
+    setTriedSubmit(true);
     const payload = drafts
       .filter((l) => Number(l.received_quantity) > 0)
       .map((l) => ({
@@ -388,38 +391,25 @@ export function GrnForm({ poId, onSaved, onCancel, compact, onDirtyChange }: Grn
   };
 
   return (
-    <div className={compact ? 'space-y-4' : 'space-y-4 sm:space-y-6 max-w-5xl'}>
+    <div className={compact ? 'space-y-4' : 'w-full space-y-5'}>
       {compact ? (
         <div className="pr-8">
           <p className="font-semibold">Record delivery · Order {po.po_number}</p>
           <p className="text-sm text-muted-foreground">{po.supplier?.name ?? po.supplier_id}</p>
         </div>
       ) : (
-        <PageHeader
-          title={`Receive against order ${po.po_number}`}
-          description={po.supplier?.name ?? po.supplier_id}
-          back={
-            onCancel && (
-              <button
-                type="button"
-                aria-label="Back to purchase order"
-                className="-ml-2 inline-flex h-10 items-center gap-1 px-2 text-sm text-muted-foreground hover:text-foreground sm:h-auto sm:px-0"
-                onClick={onCancel}
-              >
-                <ArrowLeft className="h-4 w-4" />
-                Back
-              </button>
-            )
-          }
+        <DetailHeader
+          backLabel="Back to the order"
+          onBack={() => onCancel?.()}
+          title="Record delivery"
+          meta={`Order ${po.po_number} · ${po.supplier?.name ?? po.supplier_id}`}
         />
       )}
 
       {/* Invoice header + AI reading */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Supplier invoice</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
+      <section className="overflow-hidden rounded-xl border bg-background shadow">
+        <h2 className="border-b px-5 py-3 text-base font-semibold">Supplier invoice</h2>
+        <div className="space-y-4 p-5">
           {/* Upload the invoice PDF and let AI pre-fill the receiving details. */}
           <div className="rounded-lg border bg-muted/30 p-3 space-y-2">
             <Label className="text-xs">Invoice document (PDF)</Label>
@@ -435,7 +425,7 @@ export function GrnForm({ poId, onSaved, onCancel, compact, onDirtyChange }: Grn
                   type="button"
                   variant="secondary"
                   size="sm"
-                  className="h-10 sm:h-8"
+                  className="h-9"
                   onClick={handleReadInvoice}
                   disabled={reading}
                 >
@@ -444,10 +434,6 @@ export function GrnForm({ poId, onSaved, onCancel, compact, onDirtyChange }: Grn
                 </Button>
               )}
             </div>
-            <p className="hidden text-[11px] text-muted-foreground sm:block">
-              AI reads the invoice and fills quantity, unit cost, batch no. &amp; expiry below —
-              review and adjust before confirming. The file is stored with the delivery record.
-            </p>
           </div>
 
           {/*
@@ -543,23 +529,33 @@ export function GrnForm({ poId, onSaved, onCancel, compact, onDirtyChange }: Grn
 
           <div className="grid gap-4 sm:grid-cols-3">
             <div className="space-y-1">
-              <Label>Invoice number <span className="text-destructive">*</span></Label>
+              <Label htmlFor="grn-invoice-no" className="text-xs font-semibold">
+                Invoice number <span className="text-destructive">*</span>
+              </Label>
               <Input
+                id="grn-invoice-no"
                 required
+                className="h-9"
                 value={invoiceNumber}
                 onChange={(e) => setInvoiceNumber(e.target.value)}
-                aria-invalid={!invoiceNumber.trim()}
+                aria-invalid={triedSubmit && !invoiceNumber.trim()}
               />
+              {triedSubmit && !invoiceNumber.trim() && <p className="text-xs text-destructive">Required.</p>}
             </div>
             <div className="space-y-1">
-              <Label>Invoice date <span className="text-destructive">*</span></Label>
+              <Label htmlFor="grn-invoice-date" className="text-xs font-semibold">
+                Invoice date <span className="text-destructive">*</span>
+              </Label>
               <Input
+                id="grn-invoice-date"
                 type="date"
                 required
+                className="h-9"
                 value={invoiceDate}
                 onChange={(e) => setInvoiceDate(e.target.value)}
-                aria-invalid={!invoiceDate}
+                aria-invalid={triedSubmit && !invoiceDate}
               />
+              {triedSubmit && !invoiceDate && <p className="text-xs text-destructive">Required.</p>}
               {invoiceDateWarning && (
                 <p className="text-[11px] text-foreground">
                   {invoiceDateWarning}
@@ -567,29 +563,27 @@ export function GrnForm({ poId, onSaved, onCancel, compact, onDirtyChange }: Grn
               )}
             </div>
             <div className="space-y-1">
-              <Label>Invoice amount (₹)</Label>
+              <Label htmlFor="grn-invoice-amount" className="text-xs font-semibold">Invoice amount (₹)</Label>
               <Input
+                id="grn-invoice-amount"
+                className="h-9"
                 type="number"
                 value={invoiceAmount}
                 onChange={(e) => setInvoiceAmount(e.target.value)}
               />
             </div>
           </div>
-        </CardContent>
-      </Card>
+          <div className="space-y-1">
+            <Label htmlFor="grn-notes" className="text-xs font-semibold">Notes</Label>
+            <Textarea id="grn-notes" value={notes} onChange={(e) => setNotes(e.target.value)} rows={2} />
+          </div>
+        </div>
+      </section>
 
       {/* Line-by-line receiving */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Items received</CardTitle>
-          <p className="hidden text-sm text-muted-foreground sm:block">
-            For each line: <b>Invoice qty</b> is what the supplier billed, <b>Received</b> is what
-            you physically counted. Split what arrived into <b>Accepted</b> (goes into stock) and
-            <b> Rejected</b> (does not, and can be replaced later) — together these must not exceed
-            Received. A gap between Invoice qty and Received is flagged as a mismatch.
-          </p>
-        </CardHeader>
-        <CardContent className="space-y-4">
+      <section className="overflow-hidden rounded-xl border bg-background shadow">
+        <h2 className="border-b px-5 py-3 text-base font-semibold">Items received</h2>
+        <div className="space-y-4 p-5">
           {drafts.map((l, idx) => {
             const match = matchLine({
               orderedRemaining: l.ordered_remaining,
@@ -802,24 +796,13 @@ export function GrnForm({ poId, onSaved, onCancel, compact, onDirtyChange }: Grn
               )}
             </div>
           )}
-        </CardContent>
-      </Card>
+        </div>
+      </section>
 
-      <Card>
-        <CardContent className="pt-6 space-y-2">
-          <Label>Notes</Label>
-          <Textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={2} />
-        </CardContent>
-      </Card>
-
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <p className="hidden text-sm text-muted-foreground sm:block">
-          Nothing reaches inventory yet. The receipt is saved for verification — a Super Admin
-          checks it against the order and the invoice, and only then does accepted stock get added.
-        </p>
-        <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end sm:gap-3">
+      {compact ? (
+        <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
           {onCancel && (
-            <Button variant="outline" className="w-full sm:w-auto" onClick={onCancel}>
+            <Button variant="ghost" className="w-full sm:w-auto" onClick={onCancel}>
               Cancel
             </Button>
           )}
@@ -827,7 +810,18 @@ export function GrnForm({ poId, onSaved, onCancel, compact, onDirtyChange }: Grn
             {uploading ? 'Uploading invoice…' : createGrn.isPending ? 'Creating…' : 'Record delivery'}
           </Button>
         </div>
-      </div>
+      ) : (
+        <FormActionBar status="Stock is added only after the delivery is checked.">
+          {onCancel && (
+            <Button variant="ghost" className="h-11 sm:h-9" onClick={onCancel}>
+              Cancel
+            </Button>
+          )}
+          <Button className="h-11 px-5 sm:h-9" onClick={submit} disabled={createGrn.isPending || uploading}>
+            {uploading ? 'Uploading invoice…' : createGrn.isPending ? 'Creating…' : 'Record delivery'}
+          </Button>
+        </FormActionBar>
+      )}
     </div>
   );
 }

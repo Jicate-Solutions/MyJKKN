@@ -29,6 +29,7 @@ function record(overrides: Partial<MeetingRecord> = {}): MeetingRecord {
     startTime: '2026-09-25T05:30:00Z',
     endTime: '2026-09-25T06:00:00Z',
     status: 'completed',
+    outcomeMarkedBy: null,
     attendeeName: 'Kavya R',
     attendeeEmail: 'kavya@jkkn.ac.in',
     hostName: 'Host Person',
@@ -111,6 +112,38 @@ describe('Tamil', () => {
   it('keeps the running footer ASCII — it is drawn without the Tamil face', () => {
     expect(meetingRecordFooterText(record())).toBe('MyJKKN meeting record - booking abc123');
     expect(meetingRecordFooterText(record({ meetingTypeTitle: 'கூட்டம்' }))).toMatch(/^[\x20-\x7E]+$/);
+  });
+});
+
+describe('how the meeting was closed (3 Oct 2026)', () => {
+  // The daily sweep closes a past meeting whose notes are linked, stamped
+  // outcome_marked_by = 'notes' (20271003091700). Nobody confirmed it took
+  // place, so a forwarded PDF must not say "Held".
+  it('a notes-closed meeting prints "Closed automatically — notes linked", never "Held"', () => {
+    const doc = printed(buildMeetingRecordHtml(record({ status: 'completed', outcomeMarkedBy: 'notes' }), meta));
+    expect(doc).toContain('Closed automatically — notes linked');
+    expect(doc).not.toMatch(/Held/);
+  });
+
+  it('a meeting a person confirmed still prints "Held"', () => {
+    for (const outcomeMarkedBy of ['host', 'admin', null]) {
+      const doc = printed(buildMeetingRecordHtml(record({ status: 'completed', outcomeMarkedBy }), meta));
+      expect(doc).toContain('· Held</p>');
+      expect(doc).not.toContain('notes linked');
+    }
+  });
+
+  it('every other status prints as before, whatever the stamp', () => {
+    const cases: Array<[string, string]> = [
+      ['no_show', 'No-show'],
+      ['cancelled', 'Cancelled'],
+      ['confirmed', 'Scheduled — outcome not recorded'],
+    ];
+    for (const [status, label] of cases) {
+      const doc = printed(buildMeetingRecordHtml(record({ status, outcomeMarkedBy: 'notes' }), meta));
+      expect(doc).toContain(`· ${label}</p>`);
+      expect(doc).not.toContain('notes linked');
+    }
   });
 });
 

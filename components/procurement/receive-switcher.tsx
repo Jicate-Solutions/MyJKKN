@@ -16,7 +16,8 @@ const VIEWS = [
 
 export function ReceiveSwitcher({ active }: { active: (typeof VIEWS)[number]['key'] }) {
   return (
-    <div role="tablist" aria-label="Deliveries" className="inline-flex rounded-md border bg-muted/40 p-1">
+    // Same size and look as the List | Table toggle, so it can sit in a toolbar row.
+    <div role="tablist" aria-label="Deliveries" className="inline-flex h-9 gap-0.5 rounded-lg bg-muted p-[3px]">
       {VIEWS.map((v) => (
         <Link
           key={v.key}
@@ -24,9 +25,9 @@ export function ReceiveSwitcher({ active }: { active: (typeof VIEWS)[number]['ke
           role="tab"
           aria-selected={v.key === active}
           className={cn(
-            'rounded px-3 py-1.5 text-sm transition-colors',
+            'inline-flex h-[30px] items-center whitespace-nowrap rounded-md px-3 text-[13px] font-medium transition-colors',
             v.key === active
-              ? 'bg-background font-medium shadow-sm'
+              ? 'bg-background text-foreground shadow-sm'
               : 'text-muted-foreground hover:text-foreground'
           )}
         >

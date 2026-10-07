@@ -21,15 +21,22 @@ const SEARCH_LIMIT = 25;
 const MAX_RESULTS = 30;
 
 export interface AreaPerson {
-  /** public.staff id — the value stored against the role. */
-  staff_id: string;
+  /**
+   * public.staff id — the value stored against the role. Null ONLY for an
+   * `account` result: a user account with no team member record, which the
+   * department owners screen links by `user_id` instead.
+   */
+  staff_id: string | null;
   /** Linked login account, when the team member has one. */
   user_id: string | null;
   name: string | null;
   email: string | null;
   designation: string | null;
-  source: 'posted_associate' | 'me' | 'directory';
+  source: 'posted_associate' | 'me' | 'directory' | 'account';
 }
+
+/** Account roles that are never offered as a role holder. */
+const NON_TEAM_ROLES = ['student', 'learner', 'parent'];
 
 interface TeamMemberRow {
   id: string;
@@ -65,12 +72,19 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    // Manager-only: the edit form this feeds is a manager surface, and the
-    // response is personal data.
-    const { data: canManage } = await supabase.rpc('user_has_permission', {
-      permission_name: 'improvement.board.manage',
-    });
-    if (canManage !== true) {
+    // The response is personal data. A board manager reaches it from the
+    // playbook edit form; an officer (improvement.area_role.assign) reaches it
+    // from the department owners screen, where they are the ONLY people who may
+    // name an owner — a manager-only gate here left their picker silently empty.
+    const [{ data: canManage }, { data: canAssign }] = await Promise.all([
+      supabase.rpc('user_has_permission', {
+        permission_name: 'improvement.board.manage',
+      }),
+      supabase.rpc('user_has_permission', {
+        permission_name: 'improvement.area_role.assign',
+      }),
+    ]);
+    if (canManage !== true && canAssign !== true) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 
@@ -79,6 +93,10 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'area_id is required' }, { status: 400 });
     }
     const q = sanitize(request.nextUrl.searchParams.get('q') ?? '');
+    // Opt-in: also return user accounts that have no team member record. Only
+    // the department owners screen asks for it — an organogram role is stored
+    // as a team member id and cannot hold an account.
+    const includeAccounts = request.nextUrl.searchParams.get('accounts') === '1';
 
     const admin = createServiceRoleClient();
     const people: AreaPerson[] = [];
@@ -150,6 +168,52 @@ export async function GET(request: NextRequest) {
           .ilike('last_name', `%${tokens[tokens.length - 1]}%`)
           .limit(SEARCH_LIMIT);
         for (const row of (pairs ?? []) as TeamMemberRow[]) push(row, 'directory');
+      }
+
+      // 3) User accounts with NO team member record. 70 active non-learner
+      //    accounts had none on 2026-10-06, so a search over the team member
+      //    table alone could never find them.
+      if (includeAccounts && people.length < MAX_RESULTS) {
+        const { data: accounts, error: accountError } = await admin
+          .from('profiles')
+          .select('id, full_name, email, role, is_active')
+          .or(`full_name.ilike.${like},email.ilike.${like}`)
+          .not('role', 'in', `(${NON_TEAM_ROLES.join(',')})`)
+          .order('full_name', { ascending: true })
+          .limit(SEARCH_LIMIT);
+        if (accountError) {
+          console.error('[GET /api/mba/dept-artifacts/people] Account search:', accountError);
+        }
+        const rows = ((accounts ?? []) as Array<{
+          id: string;
+          full_name: string | null;
+          email: string | null;
+          role: string | null;
+          is_active: boolean | null;
+        }>).filter((a) => a.is_active !== false);
+
+        if (rows.length > 0) {
+          // Anyone who has a team member record is found by the searches above
+          // (or was deliberately left out as inactive) — never offer them twice.
+          const { data: withRecord } = await admin
+            .from('staff')
+            .select('profile_id')
+            .in('profile_id', rows.map((a) => a.id));
+          const hasRecord = new Set(
+            ((withRecord ?? []) as Array<{ profile_id: string | null }>).map((s) => s.profile_id),
+          );
+          for (const a of rows) {
+            if (hasRecord.has(a.id) || people.length >= MAX_RESULTS) continue;
+            people.push({
+              staff_id: null,
+              user_id: a.id,
+              name: a.full_name?.trim() || null,
+              email: a.email,
+              designation: a.role ? a.role.replace(/_/g, ' ') : null,
+              source: 'account',
+            });
+          }
+        }
       }
     }
 

@@ -3530,6 +3530,8 @@ export const PERMISSION_CATEGORIES = [
       { key: 'social.insights.view', label: 'View Social Insights' },
       { key: 'social.instagram.view', label: 'View Instagram Analytics' },
       { key: 'social.instagram.manage', label: 'Manage Instagram Accounts (connect / discover / sync)' },
+      { key: 'social.learner_credit.view', label: 'View Learner Instagram Credit (claims + the award board)' },
+      { key: 'social.learner_credit.review', label: 'Confirm or Reject a Learner Instagram Claim' },
       { key: 'social.facebook.view', label: 'View Facebook Analytics' },
       { key: 'social.facebook.manage', label: 'Manage Facebook Pages (discover / sync)' },
       { key: 'social.lead_ads.view', label: 'View Lead Ads' },

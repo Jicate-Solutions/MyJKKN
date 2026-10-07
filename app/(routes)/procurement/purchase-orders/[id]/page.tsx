@@ -16,10 +16,11 @@ import {
   useMarkPoSent,
   useApplyPoItemExtraToAll,
 } from '@/hooks/procurement/use-purchase-orders';
-import { PO_STATUS_CONFIG } from '@/types/procurement';
 import { downloadPurchaseOrderPdf } from '@/lib/procurement/purchase-order-pdf';
 import { downloadPurchaseOrderDocx } from '@/lib/procurement/purchase-order-docx';
 import { StatusBadge } from '@/components/procurement/status-badge';
+import { DetailHeader } from '@/components/procurement/detail-header';
+import { ORDER_STATUS_CONFIG } from '@/components/procurement/orders-section';
 import { type DocAction, type DocPrimaryAction } from '@/components/procurement/document-header';
 import { formatDateDMY } from '@/lib/utils/date-format';
 import { displayRequestNumber } from '@/lib/procurement/display-number';
@@ -37,12 +38,23 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
+import { poGstTotal } from '@/lib/procurement/po-document-model';
+import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { FileDown, FileText, Send, Check, X, ChevronLeft, ChevronDown } from 'lucide-react';
+import { FileDown, FileText, Send, Check, X, ChevronDown } from 'lucide-react';
 import { BeatLoader } from 'react-spinners';
 import { toast } from 'sonner';
 import { errorMessage } from '@/lib/utils/supabase-error';
@@ -70,6 +82,8 @@ export default function PurchaseOrderDetailPage() {
   const approvePO = useApprovePO();
   const rejectPO = useRejectPO();
   const cancelPO = useCancelPO();
+  // Cancelling an order cannot be undone, so it asks first (as cancelling a request does).
+  const [cancelOpen, setCancelOpen] = useState(false);
   const updateDocFields = useUpdatePoDocumentFields();
   const markSent = useMarkPoSent();
   const updateItemExtra = useUpdatePoItemExtraFields();
@@ -284,66 +298,75 @@ export default function PurchaseOrderDetailPage() {
 
   return (
     <ContentLayout title={purchase ? displayRequestNumber(purchase.request_number) : po.po_number}>
-      <div className="w-full space-y-4">
-        {/* One row: back, vendor, status, numbers, then the actions. Wraps on a phone. */}
-        <header className="flex flex-wrap items-center justify-between gap-3">
-          <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-9 w-9 shrink-0"
-              aria-label={purchase ? 'Back to the purchase' : 'Purchase orders'}
-              title={purchase ? 'Back to the purchase' : 'Purchase orders'}
-              onClick={() =>
-                router.push(purchase ? `/procurement/requests/${purchase.id}` : '/procurement/purchase-orders')
-              }
-            >
-              <ChevronLeft className="h-5 w-5" />
-            </Button>
-            <h1 className="text-xl font-bold">Order to {po.supplier?.name ?? 'vendor'}</h1>
-            <StatusBadge status={po.status} config={PO_STATUS_CONFIG} />
-            <p className="text-sm text-muted-foreground">
+      <div className="w-full space-y-5">
+        <DetailHeader
+          backLabel={purchase ? 'Back to the purchase' : 'Purchase orders'}
+          onBack={() => router.push(purchase ? `/procurement/requests/${purchase.id}` : '/procurement/purchase-orders')}
+          title={`Order to ${po.supplier?.name ?? 'vendor'}`}
+          badge={<StatusBadge status={po.status} config={ORDER_STATUS_CONFIG} />}
+          meta={
+            <>
               {po.po_number}
               {purchase ? ` · ${displayRequestNumber(purchase.request_number)}` : ''}
               {` · ${po.items.length} item${po.items.length === 1 ? '' : 's'} · `}
-              <b className="tabular-nums text-foreground">₹{Number(po.total_amount).toLocaleString('en-IN')}</b>
+              {/* Same figure as this order's card on the purchase page: amount + GST. */}
+              <b className="tabular-nums text-foreground">
+                ₹{(Math.round((Number(po.total_amount ?? 0) + poGstTotal(po)) * 100) / 100).toLocaleString('en-IN')}
+              </b>
+              {poGstTotal(po) > 0 ? ' incl. GST' : ''}
               {po.created_at ? ` · ${formatDateDMY(po.created_at)}` : ''}
-            </p>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            {reject && (
-              <Button
-                variant="outline"
-                className="h-10 text-destructive"
-                onClick={reject.onClick}
-                disabled={transitionBusy}
-              >
-                Reject
-              </Button>
-            )}
-            {primary && (
-              <Button className="h-10 px-5" onClick={primary.onClick} disabled={primary.disabled}>
-                {primary.icon && <primary.icon className="mr-1.5 h-4 w-4" />}
-                {primary.label}
-              </Button>
-            )}
-          </div>
-        </header>
+            </>
+          }
+          actions={
+            (reject || primary) && (
+              <>
+                {reject && (
+                  <Button
+                    variant="outline"
+                    className="h-11 border-destructive/30 text-destructive hover:bg-destructive/10 hover:text-destructive sm:h-9"
+                    onClick={reject.onClick}
+                    disabled={transitionBusy}
+                  >
+                    Reject
+                  </Button>
+                )}
+                {primary && (
+                  <Button className="h-11 px-5 sm:h-9" onClick={primary.onClick} disabled={primary.disabled}>
+                    {primary.icon && <primary.icon className="mr-1.5 h-4 w-4" />}
+                    {primary.label}
+                  </Button>
+                )}
+              </>
+            )
+          }
+        />
 
         {po.status === 'rejected' && po.rejection_reason && (
-          <p className="rounded-xl bg-destructive/10 px-4 py-2.5 text-sm text-destructive">
+          <p className="rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">
             Rejected: {po.rejection_reason}
           </p>
         )}
 
-        {/* The order itself; blanks are typed in place and save on their own. */}
-        <PoDocumentPreview model={liveModel} edit={edit} />
-
-        {/* Footer: send it out once it reads right. */}
-        <div className="flex justify-end">
+        {/* The order itself (blanks are typed in place and save on their own), with
+            its Download bar underneath, like every other section's footer. */}
+        <section className="overflow-hidden rounded-xl border bg-background shadow">
+          <PoDocumentPreview model={liveModel} edit={edit} />
+          <div className="flex flex-wrap items-center justify-end gap-2 border-t bg-muted/30 px-5 py-3">
+            <span className="mr-auto text-sm text-muted-foreground">
+              {canCreate && missing.length > 0
+                ? `Fill ${missing.map((k) => PO_REQUIRED_FIELDS[k]).join(', ')} before downloading.`
+                : canCreate && po.status === 'approved'
+                  ? 'Downloading marks the order as sent to the vendor.'
+                  : null}
+            </span>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button className="h-10 px-5" variant={missing.length ? 'outline' : 'default'}>
+                {/* Filled only when sending it is the next step; otherwise the header's
+                    action is the one main button on the screen. */}
+                <Button
+                  className="h-11 w-full px-5 sm:h-9 sm:w-auto"
+                  variant={po.status === 'approved' && missing.length === 0 ? 'default' : 'outline'}
+                >
                   <FileDown className="mr-1.5 h-4 w-4" />
                   Download
                   <ChevronDown className="ml-1 h-4 w-4" />
@@ -360,7 +383,8 @@ export default function PurchaseOrderDetailPage() {
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
-        </div>
+          </div>
+        </section>
 
         {canCancel && (
           <p className="text-center text-sm text-muted-foreground">
@@ -368,13 +392,31 @@ export default function PurchaseOrderDetailPage() {
               type="button"
               className="hover:underline"
               disabled={transitionBusy}
-              onClick={() => run(() => cancelPO.mutateAsync({ id, userId: profile!.id }), 'Purchase order cancelled')}
+              onClick={() => setCancelOpen(true)}
             >
               Cancel this order
             </button>
           </p>
         )}
       </div>
+
+      <AlertDialog open={cancelOpen} onOpenChange={setCancelOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Cancel {po.po_number}?</AlertDialogTitle>
+            <AlertDialogDescription>The order to {po.supplier?.name ?? 'the vendor'} stops here and cannot be reopened.</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Keep it</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => void run(() => cancelPO.mutateAsync({ id, userId: profile!.id }), 'Purchase order cancelled')}
+            >
+              Cancel order
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* Reject dialog */}
       <Dialog open={rejectOpen} onOpenChange={setRejectOpen}>
@@ -397,7 +439,7 @@ export default function PurchaseOrderDetailPage() {
             <Button
               variant="destructive"
               className="w-full sm:w-auto"
-              disabled={!rejectReason.trim()}
+              disabled={!rejectReason.trim() || rejectPO.isPending}
               onClick={async () => {
                 await run(
                   () =>

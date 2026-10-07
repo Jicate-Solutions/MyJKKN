@@ -4,6 +4,10 @@
 //
 // Option lists are derived from the loaded rows, so a reviewer can never pick a
 // value that matches nothing — the same rule as the Approvals filter panel.
+// EXCEPT Department once a college is chosen: it lists every active department
+// of that college (from `departments`), merged with any department the rows
+// carry. Row-derived alone hid every department with no applicant yet (JKKN
+// CET showed 5 of 8 — no EEE, IT or Mechanical), which read as "missing".
 // Department and Job options narrow to the chosen college, and picking a
 // different college clears a department/job that no longer belongs to it.
 
@@ -14,6 +18,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { SearchableSelect } from '@/components/ui/searchable-select';
+import { useDepartments } from '@/hooks/organization/use-departments';
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
@@ -77,6 +82,24 @@ function FilterCell({
   );
 }
 
+/** Every active department of one college; [] until a college is chosen. */
+function useCollegeDepartments(institutionId: string | null): Option[] {
+  const { data } = useDepartments({
+    institution_id: institutionId ?? undefined,
+    isActive: true,
+    limit: 1000,
+  }, { enabled: Boolean(institutionId) });
+  return useMemo(
+    () =>
+      institutionId
+        ? (data?.data ?? [])
+            .filter((d) => d.institution_id === institutionId)
+            .map((d) => ({ value: d.id, label: d.display_name || d.department_name }))
+        : [],
+    [data, institutionId],
+  );
+}
+
 function ToggleCell({
   id, label, checked, onChange,
 }: { id: string; label: string; checked: boolean; onChange: (v: boolean) => void }) {
@@ -106,11 +129,24 @@ export function CandidatesFiltersPanel({
     () => distinct(rows, (r) => r.institutionId, (r) => r.institutionName ?? 'Unknown college'),
     [rows],
   );
-  const departmentOptions = useMemo(
-    () => distinct(inCollege, (r) => r.job?.department_id, (r) =>
-      value.institution ? r.job?.department_name ?? '—' : `${r.job?.department_name ?? '—'} · ${r.institutionName ?? ''}`),
-    [inCollege, value.institution],
-  );
+  const collegeDepartments = useCollegeDepartments(value.institution);
+  const departmentOptions = useMemo(() => {
+    const fromRows = distinct(inCollege, (r) => r.job?.department_id, (r) =>
+      value.institution ? r.job?.department_name ?? '—' : `${r.job?.department_name ?? '—'} · ${r.institutionName ?? ''}`);
+    if (!value.institution) return fromRows;
+    const merged = new Map(collegeDepartments.map((o) => [o.value, o.label]));
+    for (const o of fromRows) if (!merged.has(o.value)) merged.set(o.value, o.label);
+    // Candidate count per department, so a department nobody has applied to
+    // yet reads "Cardiac Technology (0)" rather than looking broken when picked.
+    const counts = new Map<string, number>();
+    for (const r of inCollege) {
+      const d = r.job?.department_id;
+      if (d) counts.set(d, (counts.get(d) ?? 0) + 1);
+    }
+    return Array.from(merged, ([v, l]) => ({ value: v, label: l }))
+      .sort((a, b) => a.label.localeCompare(b.label))
+      .map((o) => ({ ...o, label: `${o.label} (${counts.get(o.value) ?? 0})` }));
+  }, [inCollege, value.institution, collegeDepartments]);
   const jobOptions = useMemo(
     () => distinct(inCollege, (r) => r.job?.id, (r) =>
       [r.job?.title, r.job?.job_code, value.institution ? null : r.institutionName].filter(Boolean).join(' · ')),
@@ -291,6 +327,7 @@ export function ActiveFilterChips({
   value: PipelineFilters;
   onChange: (patch: Partial<PipelineFilters>) => void;
 }) {
+  const collegeDepartments = useCollegeDepartments(value.institution);
   const chips: { label: string; clear: Partial<PipelineFilters> }[] = [];
   const any = (pick: (r: PipelineRow) => boolean) => rows.find(pick);
 
@@ -302,7 +339,10 @@ export function ActiveFilterChips({
   }
   if (value.department) {
     chips.push({
-      label: any((r) => r.job?.department_id === value.department)?.job?.department_name ?? 'Department',
+      label:
+        any((r) => r.job?.department_id === value.department)?.job?.department_name ??
+        collegeDepartments.find((o) => o.value === value.department)?.label ??
+        'Department',
       clear: { department: null },
     });
   }

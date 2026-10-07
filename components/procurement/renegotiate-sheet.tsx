@@ -12,6 +12,7 @@ import { cn } from '@/lib/utils';
 import { errorMessage } from '@/lib/utils/supabase-error';
 import { formatDateDMY } from '@/lib/utils/date-format';
 import { readQuotationPdf } from '@/lib/procurement/read-quotation-pdf';
+import { checkQuotationMath } from '@/lib/procurement/quotation-math';
 import { comparePacks, isMeasuredUnit, parsePack, requestedPack } from '@/lib/procurement/pack-size';
 import { useProposePoRevision } from '@/hooks/procurement/use-purchase-orders';
 import { useReviseQuotation } from '@/hooks/procurement/use-quotations';
@@ -86,6 +87,8 @@ function RevisedPricesSheet({
   const [dragging, setDragging] = useState(false);
   const [prices, setPrices] = useState<Record<string, string>>({});
   const [notes, setNotes] = useState<Record<string, string>>({});
+  // Where the reading does not add up to the quotation's own printed numbers.
+  const [readIssues, setReadIssues] = useState<string[]>([]);
   const [quoteNo, setQuoteNo] = useState('');
   const [quoteDate, setQuoteDate] = useState('');
   const [validity, setValidity] = useState('');
@@ -138,11 +141,24 @@ function RevisedPricesSheet({
       const nextNotes: Record<string, string> = {};
       let matched = 0;
       for (const it of items) {
-        const line = result.lines?.find((l) => l.rfq_item_id && l.rfq_item_id === it.rfqItemId);
-        if (line?.unit_price == null) {
+        const found = (result.lines ?? []).filter(
+          (l) => l.rfq_item_id && l.rfq_item_id === it.rfqItemId && l.unit_price != null
+        );
+        if (!found.length) {
           nextNotes[it.id] = 'Not found in the PDF — enter the price, or leave it unchanged';
           continue;
         }
+        // Several lines for one item = the parts of a set (a computer quoted as processor, RAM,
+        // monitor…). Their prices add up to the unit price. The same item could also be two
+        // alternative offers, so a person always checks the sum.
+        if (found.length > 1) {
+          const sum = found.reduce((n, l) => n + Number(l.unit_price), 0);
+          nextPrices[it.id] = String(Math.round(sum * 100) / 100);
+          nextNotes[it.id] = `${found.length} parts of a set added up — check this price`;
+          matched++;
+          continue;
+        }
+        const line = found[0];
         // Same pack-size rule as the quotes section: a 100 ml price for a 500 ml ask is scaled.
         const check = comparePacks(requestedPack({ item_name: it.name, item_spec: it.spec }), parsePack(line.pack), {
           soldByMeasure: isMeasuredUnit(it.unitLabel),
@@ -160,6 +176,7 @@ function RevisedPricesSheet({
       }
       setPrices(nextPrices);
       setNotes(nextNotes);
+      setReadIssues([...(result.read_notes ?? []), ...checkQuotationMath(result).issues]);
       setQuoteNo(result.quote_number ?? '');
       setQuoteDate(result.quote_date ?? '');
       setValidity(result.validity_date ?? '');
@@ -178,6 +195,7 @@ function RevisedPricesSheet({
     setFileName(null);
     setPrices({});
     setNotes({});
+    setReadIssues([]);
     setQuoteNo('');
     setQuoteDate('');
     setValidity('');
@@ -221,13 +239,14 @@ function RevisedPricesSheet({
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent className="flex w-full flex-col gap-0 overflow-y-auto p-0 sm:max-w-xl">
-        <SheetHeader className="border-b px-6 py-4 text-left">
+      {/* Only the body scrolls, so the save bar stays in view. */}
+      <SheetContent className="flex w-full flex-col gap-0 overflow-hidden p-0 sm:max-w-xl">
+        <SheetHeader className="shrink-0 border-b px-6 py-4 text-left">
           <SheetTitle>{title}</SheetTitle>
           <SheetDescription>{description}</SheetDescription>
         </SheetHeader>
 
-        <div className="flex-1 space-y-5 px-6 py-5">
+        <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-6 py-5">
           {stage === 'upload' && (
             <>
               <label
@@ -323,6 +342,20 @@ function RevisedPricesSheet({
                   )}
                 </p>
               </div>
+
+              {readIssues.length > 0 && (
+                <div className="flex items-start gap-2 rounded-xl bg-secondary/20 px-3 py-2 text-sm">
+                  <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
+                  <div>
+                    <p className="font-medium">The reading does not match the quotation&apos;s own numbers</p>
+                    <ul className="list-disc pl-4 text-xs text-muted-foreground">
+                      {readIssues.map((m) => (
+                        <li key={m}>{m}</li>
+                      ))}
+                    </ul>
+                  </div>
+                </div>
+              )}
 
               {flagged.length > 0 && (
                 <p className="flex items-start gap-2 rounded-xl bg-secondary/20 px-3 py-2 text-sm">
@@ -456,8 +489,8 @@ function RevisedPricesSheet({
         </div>
 
         {stage === 'review' && (
-          <div className="flex flex-wrap items-center justify-between gap-2 border-t bg-muted/40 px-6 py-3">
-            <span className="text-xs text-muted-foreground">
+          <div className="flex shrink-0 flex-wrap items-center gap-2 border-t bg-muted/30 px-6 py-3">
+            <span className="w-full text-xs text-muted-foreground sm:mr-auto sm:w-auto">
               {bad
                 ? 'Every price must be more than 0.'
                 : changed.length
@@ -466,8 +499,11 @@ function RevisedPricesSheet({
                     ? 'Prices unchanged · terms updated'
                     : 'Nothing changed yet.'}
             </span>
+            <Button variant="ghost" className="h-11 flex-1 sm:h-9 sm:flex-none" onClick={() => onOpenChange(false)} disabled={saving}>
+              Cancel
+            </Button>
             <Button
-              className="h-10 px-5"
+              className="h-11 flex-1 px-5 sm:h-9 sm:flex-none"
               disabled={bad || !(changed.length || termsChanged) || saving}
               onClick={() => void submit()}
             >
