@@ -3054,3 +3054,22 @@ DROP TRIGGER IF EXISTS hr_recruitment_nudges_sent_updated_at ON public.hr_recrui
 CREATE TRIGGER hr_recruitment_nudges_sent_updated_at
   BEFORE UPDATE ON public.hr_recruitment_nudges_sent
   FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+
+
+-- ============================================================================
+-- Updated: 2026-10-01 - HR intake helper (source: migrations/20270613101241_hr_intake_helper.sql)
+-- ============================================================================
+DROP TRIGGER IF EXISTS hr_intake_batches_updated_at ON public.hr_intake_batches;
+CREATE TRIGGER hr_intake_batches_updated_at
+  BEFORE UPDATE ON public.hr_intake_batches
+  FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+
+DROP TRIGGER IF EXISTS hr_intake_rows_updated_at ON public.hr_intake_rows;
+CREATE TRIGGER hr_intake_rows_updated_at
+  BEFORE UPDATE ON public.hr_intake_rows
+  FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+
+DROP TRIGGER IF EXISTS hr_intake_match_rules_updated_at ON public.hr_intake_match_rules;
+CREATE TRIGGER hr_intake_match_rules_updated_at
+  BEFORE UPDATE ON public.hr_intake_match_rules
+  FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();

@@ -4892,6 +4892,19 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "children": []
           },
           {
+            "path": "/hr/recruitment/intake",
+            "label": "Bring in Candidates",
+            "iconName": "FileUp",
+            "children": [
+              {
+                "path": "/hr/recruitment/intake/rules",
+                "label": "Learned Rules",
+                "iconName": "ListChecks",
+                "children": []
+              }
+            ]
+          },
+          {
             "path": "/hr/recruitment/interviews",
             "label": "Interviews",
             "iconName": "UserSearch",
