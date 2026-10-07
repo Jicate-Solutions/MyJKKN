@@ -11717,3 +11717,52 @@ CREATE POLICY hr_leave_type_deletions_select ON public.hr_leave_type_deletions
 
 REVOKE ALL ON public.hr_leave_type_deletions FROM anon, authenticated;
 GRANT SELECT ON public.hr_leave_type_deletions TO authenticated;
+
+-- ════════════════════════════════════════════════════════════════════════════
+-- hr_payroll_document_settings — view / manage the register's document constants
+-- Mirrored from supabase/migrations/20271007120000_hr_payroll_documents.sql
+-- ════════════════════════════════════════════════════════════════════════════
+ALTER TABLE public.hr_payroll_document_settings ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY hr_payroll_document_settings_select
+  ON public.hr_payroll_document_settings FOR SELECT TO authenticated
+  USING (
+    (SELECT public.is_super_admin())
+    OR ((SELECT public.user_has_permission('hr.payroll.register.view'))
+        AND (SELECT public.role_has_institution_access(institution_id)))
+  );
+
+CREATE POLICY hr_payroll_document_settings_insert
+  ON public.hr_payroll_document_settings FOR INSERT TO authenticated
+  WITH CHECK (
+    EXISTS (SELECT 1 FROM public.hr_organizations o
+             WHERE o.id = hr_payroll_document_settings.hr_organization_id
+               AND o.institution_id = hr_payroll_document_settings.institution_id)
+    AND ((SELECT public.is_super_admin())
+         OR ((SELECT public.user_has_permission('hr.payroll.register.manage'))
+             AND (SELECT public.role_has_institution_access(institution_id))))
+  );
+
+CREATE POLICY hr_payroll_document_settings_update
+  ON public.hr_payroll_document_settings FOR UPDATE TO authenticated
+  USING (
+    (SELECT public.is_super_admin())
+    OR ((SELECT public.user_has_permission('hr.payroll.register.manage'))
+        AND (SELECT public.role_has_institution_access(institution_id)))
+  )
+  WITH CHECK (
+    EXISTS (SELECT 1 FROM public.hr_organizations o
+             WHERE o.id = hr_payroll_document_settings.hr_organization_id
+               AND o.institution_id = hr_payroll_document_settings.institution_id)
+    AND ((SELECT public.is_super_admin())
+         OR ((SELECT public.user_has_permission('hr.payroll.register.manage'))
+             AND (SELECT public.role_has_institution_access(institution_id))))
+  );
+
+-- No DELETE policy (denied).
+CREATE POLICY hr_payroll_document_settings_service_role
+  ON public.hr_payroll_document_settings FOR ALL TO service_role
+  USING (true) WITH CHECK (true);
+
+REVOKE ALL ON public.hr_payroll_document_settings FROM anon;
+GRANT SELECT, INSERT, UPDATE ON public.hr_payroll_document_settings TO authenticated;

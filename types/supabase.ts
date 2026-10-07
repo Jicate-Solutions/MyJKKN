@@ -88923,6 +88923,78 @@ export type Database = {
           },
         ]
       }
+      hr_payroll_document_settings: {
+        Row: {
+          addressee_title: string
+          approval_salutation: string
+          approver_title: string
+          bank_branch: string
+          bank_name: string
+          college_account_number: string
+          created_at: string
+          created_by: string | null
+          hr_organization_id: string
+          id: string
+          institution_id: string
+          non_teaching_suffix: string
+          reference_code: string
+          submitter_title: string
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          addressee_title?: string
+          approval_salutation?: string
+          approver_title?: string
+          bank_branch: string
+          bank_name: string
+          college_account_number: string
+          created_at?: string
+          created_by?: string | null
+          hr_organization_id: string
+          id?: string
+          institution_id: string
+          non_teaching_suffix?: string
+          reference_code: string
+          submitter_title?: string
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          addressee_title?: string
+          approval_salutation?: string
+          approver_title?: string
+          bank_branch?: string
+          bank_name?: string
+          college_account_number?: string
+          created_at?: string
+          created_by?: string | null
+          hr_organization_id?: string
+          id?: string
+          institution_id?: string
+          non_teaching_suffix?: string
+          reference_code?: string
+          submitter_title?: string
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "hr_payroll_document_settings_hr_organization_id_fkey"
+            columns: ["hr_organization_id"]
+            isOneToOne: true
+            referencedRelation: "hr_organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hr_payroll_document_settings_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       hr_payroll_periods: {
         Row: {
           accounts_verified_at: string | null
@@ -92327,6 +92399,7 @@ export type Database = {
           exclusion_reason: string | null
           id: string
           is_included: boolean
+          is_teaching: boolean
           net_pay: number
           on_duty_days: number
           other_paid_leave_days: number
@@ -92339,6 +92412,7 @@ export type Database = {
           remarks: string | null
           run_id: string
           serial_no: number
+          staff_category_name: string | null
           staff_id: string
           staff_name: string
           tds_deduction: number
@@ -92369,6 +92443,7 @@ export type Database = {
           exclusion_reason?: string | null
           id?: string
           is_included?: boolean
+          is_teaching: boolean
           net_pay?: number
           on_duty_days?: number
           other_paid_leave_days?: number
@@ -92381,6 +92456,7 @@ export type Database = {
           remarks?: string | null
           run_id: string
           serial_no: number
+          staff_category_name?: string | null
           staff_id: string
           staff_name: string
           tds_deduction?: number
@@ -92411,6 +92487,7 @@ export type Database = {
           exclusion_reason?: string | null
           id?: string
           is_included?: boolean
+          is_teaching?: boolean
           net_pay?: number
           on_duty_days?: number
           other_paid_leave_days?: number
@@ -92423,6 +92500,7 @@ export type Database = {
           remarks?: string | null
           run_id?: string
           serial_no?: number
+          staff_category_name?: string | null
           staff_id?: string
           staff_name?: string
           tds_deduction?: number

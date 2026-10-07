@@ -11253,3 +11253,43 @@ CREATE INDEX IF NOT EXISTS hr_leave_type_deletions_deleted_at_idx
   ON public.hr_leave_type_deletions (deleted_at DESC);
 COMMENT ON TABLE public.hr_leave_type_deletions IS
   'Tombstone of every hr_leave_type_delete_super_admin() commit: who, when, how many rows of each kind went with the type, and the type row itself as jsonb. No foreign keys on purpose. Balances and adjustments are NOT recoverable from it.';
+
+-- ════════════════════════════════════════════════════════════════════════════
+-- Salary Register — category snapshot + payroll document settings
+-- Mirrored from supabase/migrations/20271007120000_hr_payroll_documents.sql
+-- ════════════════════════════════════════════════════════════════════════════
+ALTER TABLE public.hr_salary_register_lines
+  ADD COLUMN IF NOT EXISTS staff_category_name text,
+  ADD COLUMN IF NOT EXISTS is_teaching boolean NOT NULL;
+
+CREATE TABLE IF NOT EXISTS public.hr_payroll_document_settings (
+  id                      uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  hr_organization_id      uuid NOT NULL UNIQUE
+                            REFERENCES public.hr_organizations(id) ON DELETE CASCADE,
+  institution_id          uuid NOT NULL REFERENCES public.institutions(id),
+  reference_code          text NOT NULL,
+  non_teaching_suffix     text NOT NULL DEFAULT 'NT',
+  bank_name               text NOT NULL,
+  bank_branch             text NOT NULL,
+  college_account_number  text NOT NULL,
+  addressee_title         text NOT NULL DEFAULT 'The Manager',
+  approval_salutation     text NOT NULL DEFAULT 'Respected Madam',
+  submitter_title         text NOT NULL DEFAULT 'CAO',
+  approver_title          text NOT NULL DEFAULT 'CHAIRPERSON',
+  created_at              timestamptz NOT NULL DEFAULT now(),
+  updated_at              timestamptz NOT NULL DEFAULT now(),
+  created_by              uuid REFERENCES auth.users(id) ON DELETE SET NULL,
+  updated_by              uuid REFERENCES auth.users(id) ON DELETE SET NULL,
+  CONSTRAINT hr_payroll_doc_settings_reference_code_chk CHECK (length(btrim(reference_code)) BETWEEN 1 AND 40),
+  CONSTRAINT hr_payroll_doc_settings_nt_suffix_chk      CHECK (length(non_teaching_suffix) <= 10),
+  CONSTRAINT hr_payroll_doc_settings_bank_name_chk      CHECK (length(btrim(bank_name)) BETWEEN 1 AND 120),
+  CONSTRAINT hr_payroll_doc_settings_bank_branch_chk    CHECK (length(btrim(bank_branch)) BETWEEN 1 AND 120),
+  CONSTRAINT hr_payroll_doc_settings_account_chk        CHECK (length(btrim(college_account_number)) BETWEEN 1 AND 40),
+  CONSTRAINT hr_payroll_doc_settings_addressee_chk      CHECK (length(btrim(addressee_title)) BETWEEN 1 AND 80),
+  CONSTRAINT hr_payroll_doc_settings_salutation_chk     CHECK (length(btrim(approval_salutation)) BETWEEN 1 AND 80),
+  CONSTRAINT hr_payroll_doc_settings_submitter_chk      CHECK (length(btrim(submitter_title)) BETWEEN 1 AND 60),
+  CONSTRAINT hr_payroll_doc_settings_approver_chk       CHECK (length(btrim(approver_title)) BETWEEN 1 AND 60)
+);
+CREATE INDEX IF NOT EXISTS idx_hr_payroll_doc_settings_institution ON public.hr_payroll_document_settings (institution_id);
+CREATE INDEX IF NOT EXISTS idx_hr_payroll_doc_settings_created_by  ON public.hr_payroll_document_settings (created_by);
+CREATE INDEX IF NOT EXISTS idx_hr_payroll_doc_settings_updated_by  ON public.hr_payroll_document_settings (updated_by);

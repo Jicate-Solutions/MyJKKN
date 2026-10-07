@@ -2867,3 +2867,9 @@ CREATE TRIGGER trg_hlb_reject_unfunded
      OR NEW.carried_forward < OLD.carried_forward
      OR NEW.entitled < OLD.entitled)
   EXECUTE FUNCTION public.hr_trig_reject_unfunded_after_balance_change();
+
+-- Mirrored from supabase/migrations/20271007120000_hr_payroll_documents.sql
+DROP TRIGGER IF EXISTS trg_hr_payroll_document_settings_touch ON public.hr_payroll_document_settings;
+CREATE TRIGGER trg_hr_payroll_document_settings_touch
+  BEFORE UPDATE ON public.hr_payroll_document_settings
+  FOR EACH ROW EXECUTE FUNCTION public.fn_touch_updated_at();
