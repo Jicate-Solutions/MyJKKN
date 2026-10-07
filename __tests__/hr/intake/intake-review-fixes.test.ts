@@ -635,7 +635,7 @@ describe('ninth review (prepare judges certainty against every college)', () => 
     // ...and the card never names that college: this person cannot see it.
     expect(rows[0].proposal.reasons[0]).toContain('also open at another college');
     expect(rows[0].proposal.reasons.join(' ')).not.toContain(J.english_eng.institution_name as string);
-    expect(rawRow(rows[0].id).proposal_reasons.join(' ')).not.toContain(J.english_eng.institution_name as string);
+    expect((rawRow(rows[0].id).proposal_reasons as string[]).join(' ')).not.toContain(J.english_eng.institution_name as string);
   });
 });
 
