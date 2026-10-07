@@ -7,7 +7,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import toast from 'react-hot-toast';
 import { TournamentFixturesService } from '@/lib/services/events/tournament/tournament-fixtures-service';
-import type { ScheduleMatchDto, RecordResultDto } from '@/types/tournament';
+import type { ScheduleMatchDto, RecordResultDto, SetMatchSideDto } from '@/types/tournament';
 
 const KEYS = {
   matches: (eventId: string) => ['tournament-matches', eventId] as const,
@@ -58,6 +58,21 @@ export function useScheduleMatch(eventId: string) {
       else toast.success('Match scheduled');
     },
     onError: (e: Error) => toast.error(e.message || 'Failed to schedule match'),
+  });
+}
+
+export function useSetMatchSide(eventId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ matchId, dto }: { matchId: string; dto: SetMatchSideDto }) =>
+      TournamentFixturesService.setMatchSide(eventId, matchId, dto),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: KEYS.matches(eventId) });
+      // A side swapped out of the bracket is withdrawn, so entries change too.
+      qc.invalidateQueries({ queryKey: ['tournament-entries', eventId] });
+      toast.success('Fixture updated');
+    },
+    onError: (e: Error) => toast.error(e.message || 'Failed to update the fixture'),
   });
 }
 

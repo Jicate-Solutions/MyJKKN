@@ -45,10 +45,10 @@ const GATE_ACTOR: Record<number, string> = { 0: 'Requester', 1: 'Approver', 2: '
 
 export type View = 'pending' | 'updated' | 'recent';
 /** Pending / Updated / Recent — the switch sits in the page header (app/(routes)/procurement/page.tsx). */
-export const VIEWS: ReadonlyArray<{ value: View; label: string; explain: string }> = [
-  { value: 'pending', label: 'Pending', explain: 'Purchases sitting at each step right now. Select a step to open its list.' },
-  { value: 'updated', label: 'Updated', explain: 'Purchases that reached each step in the last 7 days.' },
-  { value: 'recent', label: 'Recent', explain: 'Purchases raised in the last 7 days, shown at the step they are at now.' },
+export const VIEWS: ReadonlyArray<{ value: View; label: string }> = [
+  { value: 'pending', label: 'Pending' },
+  { value: 'updated', label: 'Updated' },
+  { value: 'recent', label: 'Recent' },
 ];
 type Mode = 'mine' | 'held' | 'colleges';
 const HELD_UP_DAYS = 30;
@@ -181,7 +181,6 @@ export function StaffOverview() {
             );
           })}
         </div>
-        <p className="text-xs text-muted-foreground">{VIEWS.find((v) => v.value === view)?.explain}</p>
       </section>
 
       {/* ── One panel, three modes ───────────────────────────────────── */}

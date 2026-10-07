@@ -7,7 +7,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import toast from 'react-hot-toast';
 import { TournamentRegistrationService } from '@/lib/services/events/tournament/tournament-registration-service';
-import type { UpdateEntryDto } from '@/types/tournament';
+import type { CreateSpotEntryDto, UpdateEntryDto } from '@/types/tournament';
 
 const KEYS = {
   entries: (eventId: string) => ['tournament-entries', eventId] as const,
@@ -70,6 +70,21 @@ export function useMarkEntryPaid(eventId: string) {
       toast.success('Marked as paid');
     },
     onError: (e: Error) => toast.error(e.message || 'Failed to mark paid'),
+  });
+}
+
+export function useAddSpotEntry(eventId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (dto: CreateSpotEntryDto) => TournamentRegistrationService.addSpotEntry(eventId, dto),
+    onSuccess: (res) => {
+      qc.invalidateQueries({ queryKey: KEYS.entries(eventId) });
+      // The same form was already saved (double click / lost response): nothing
+      // new was written, so any change made before resubmitting was not applied.
+      if (res.duplicate) toast('This entry was already saved. Check it in the list before adding it again.', { icon: 'ℹ️' });
+      else toast.success('Spot entry added');
+    },
+    onError: (e: Error) => toast.error(e.message || 'Failed to add the entry'),
   });
 }
 

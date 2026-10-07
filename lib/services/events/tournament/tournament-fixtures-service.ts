@@ -6,6 +6,7 @@
 import type {
   TournamentMatch,
   ScheduleMatchDto,
+  SetMatchSideDto,
   GenerateFixturesResult,
   RecordResultDto,
 } from '@/types/tournament';
@@ -66,6 +67,23 @@ export class TournamentFixturesService {
       body: JSON.stringify(dto),
     });
     return asJson<{ match: TournamentMatch; clash: unknown[] | null; warning: string | null }>(res);
+  }
+
+  /**
+   * Put an entry into one side of an unplayed knockout match, or fill the empty
+   * side of a bye. The server holds every rule (fn_tournament_set_match_side).
+   */
+  static async setMatchSide(
+    eventId: string,
+    matchId: string,
+    dto: SetMatchSideDto
+  ): Promise<{ match: TournamentMatch }> {
+    const res = await fetch(`/api/events/tournament/${eventId}/matches/${matchId}/side`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(dto),
+    });
+    return asJson<{ match: TournamentMatch }>(res);
   }
 
   /** Record a match result (advances the knockout winner). */
