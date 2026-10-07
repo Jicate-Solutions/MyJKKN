@@ -22,6 +22,8 @@ import {
   useCurrentHRAcademicYear,
   useHRAcademicYears,
 } from '@/hooks/hr/use-hr-academic-years';
+import { DutyProofPanel } from '@/components/hr/duty-proof/duty-proof-panel';
+import { DutyProofBadge } from '@/components/hr/duty-proof/duty-proof-badge';
 
 export default function EncashmentPage() {
   // Auto-resolve the employee from the logged-in user (same pattern as Apply —
@@ -190,6 +192,8 @@ export default function EncashmentPage() {
             </CardContent>
           </Card>
 
+          <DutyProofPanel duty="L4" />
+
           {encashments && encashments.length > 0 && (
             <Card>
               <CardHeader><CardTitle className="text-sm">Your Encashment History</CardTitle></CardHeader>
@@ -206,7 +210,10 @@ export default function EncashmentPage() {
                           <p className="text-xs text-red-700 dark:text-red-400 mt-1">Rejection: {e.rejection_reason}</p>
                         )}
                       </div>
-                      <span className="text-xs px-2 py-1 rounded bg-muted capitalize">{e.status}</span>
+                      <div className="flex items-center gap-2">
+                        <DutyProofBadge duty="L4" itemId={e.id} />
+                        <span className="text-xs px-2 py-1 rounded bg-muted capitalize">{e.status}</span>
+                      </div>
                     </div>
                   ))}
                 </div>

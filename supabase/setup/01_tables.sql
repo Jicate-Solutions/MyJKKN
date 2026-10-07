@@ -11550,6 +11550,140 @@ COMMENT ON TABLE public.hr_salary_revision_target_setting_log IS
   'written by the trg_audit_hr_salary_revision_target_rules triggers (insert, update incl. a rename away, delete). '
   'Migration 20271007180207.';
 
+-- ============================================================================
+-- Updated: 2026-10-07 - HR duty proofs: a file or a second-person check on the
+-- duties that move money or end a job (migration 20271007161123). Tables, seed rules, private bucket.
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS public.hr_duty_proof_rules (
+  -- shared config mixin (config-table-pattern.md, verbatim)
+  id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  config_key    text NOT NULL,                  -- the duty code, e.g. 'L4'
+  display_name  text NOT NULL,
+  description   text,
+  is_active     boolean NOT NULL DEFAULT true,
+  created_at    timestamptz NOT NULL DEFAULT now(),
+  updated_at    timestamptz NOT NULL DEFAULT now(),
+  updated_by    uuid REFERENCES public.profiles(id),
+  change_reason text,
+
+  -- typed columns
+  -- Same code set as hr_duty_definitions.config_key (#4152). Joined on this
+  -- code by readers; no FK on purpose.
+  duty_code              text NOT NULL
+                           CHECK (duty_code ~ '^(R[1-9]|L[1-5]|A[1-6]|P[1-4]|S[1-4]|G([1-9]|10))$'),
+  item_table             text NOT NULL
+                           CHECK (item_table IN ('hr_leave_encashments','hr_offboarding_cases')),
+  proof_kind             text NOT NULL
+                           CHECK (proof_kind IN ('file','second_check')),
+  -- For a second_check rule: the key a checker must hold. For a file rule:
+  -- the key that may attach and read the file. NULL = super admins / admins only.
+  checker_permission_key text,
+  applies_when           text,
+  href                   text,
+
+  CONSTRAINT hr_duty_proof_rules_key_is_code CHECK (config_key = duty_code),
+  CONSTRAINT hr_duty_proof_rules_checker_named
+    CHECK (proof_kind <> 'second_check' OR checker_permission_key IS NOT NULL)
+);
+
+COMMENT ON TABLE public.hr_duty_proof_rules IS
+  'HR staff harness proof rules (20271007161123): which duty needs which proof (a file or a second-person check) and which permission key the checker holds. Config-table pattern; super admins write, every change audited in hr_duty_proof_rules_audit. Shown, never enforced.';
+COMMENT ON COLUMN public.hr_duty_proof_rules.applies_when IS
+  'Plain words for the HR head. NOT evaluated: what "done" means per duty lives in fn_hr_duty_proof_done_items.';
+
+CREATE UNIQUE INDEX IF NOT EXISTS hr_duty_proof_rules_active_unique
+  ON public.hr_duty_proof_rules (config_key)
+  WHERE is_active = true;
+
+CREATE TABLE IF NOT EXISTS public.hr_duty_proof_rules_audit (
+  id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  config_id     uuid NOT NULL REFERENCES public.hr_duty_proof_rules(id),
+  changed_at    timestamptz NOT NULL DEFAULT now(),
+  changed_by    uuid REFERENCES public.profiles(id),
+  old_value     jsonb,
+  new_value     jsonb,
+  change_reason text
+);
+
+CREATE INDEX IF NOT EXISTS idx_hr_duty_proof_rules_audit_config
+  ON public.hr_duty_proof_rules_audit (config_id, changed_at DESC);
+
+-- Seed (idempotent: only when no active row for that duty exists).
+INSERT INTO public.hr_duty_proof_rules
+  (config_key, duty_code, display_name, description, item_table, proof_kind,
+   checker_permission_key, applies_when, href, change_reason)
+SELECT v.code, v.code, v.display_name, v.description, v.item_table, v.proof_kind,
+       v.checker_key, v.applies_when, v.href, 'Seeded by 20271007161123'
+FROM (VALUES
+  ('L4', 'Leave encashment: second check of the amount',
+   'A second team member confirms the encashment amount, someone other than the approver and the team member being paid.',
+   'hr_leave_encashments', 'second_check', 'hr.leave.encashment.approve',
+   'status is approved or paid', '/hr/leave/encashment'),
+  ('G5', 'Termination: signed order on file',
+   'The signed termination order is attached as a file once the Director has signed off.',
+   'hr_offboarding_cases', 'file', 'hr.employees.edit',
+   'separation_type = termination and the Director step of the approval chain is approved', '/hr/admin/terminations'),
+  ('G6', 'Termination final settlement: second check of the amount',
+   'A second team member confirms the full and final settlement amount, someone other than whoever completed or approved it.',
+   'hr_offboarding_cases', 'second_check', 'hr.payroll.salary.manage',
+   'separation_type = termination and the final_settlement step is complete', '/hr/admin/terminations')
+) AS v(code, display_name, description, item_table, proof_kind, checker_key, applies_when, href)
+WHERE NOT EXISTS (
+  SELECT 1 FROM public.hr_duty_proof_rules r WHERE r.config_key = v.code AND r.is_active
+);
+
+CREATE TABLE IF NOT EXISTS public.hr_duty_proofs (
+  id               uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  duty_code        text NOT NULL
+                     CHECK (duty_code ~ '^(R[1-9]|L[1-5]|A[1-6]|P[1-4]|S[1-4]|G([1-9]|10))$'),
+  item_table       text NOT NULL
+                     CHECK (item_table IN ('hr_leave_encashments','hr_offboarding_cases')),
+  item_id          uuid NOT NULL,
+  institution_id   uuid,
+  kind             text NOT NULL CHECK (kind IN ('file','second_check')),
+  storage_path     text,
+  file_name        text,
+  recorded_by      uuid NOT NULL REFERENCES public.profiles(id),
+  recorded_at      timestamptz NOT NULL DEFAULT now(),
+  check_result     text CHECK (check_result IN ('confirmed','corrected')),
+  corrected_amount numeric(12,2),
+  check_note       text,
+  revoked_at       timestamptz,
+  revoked_by       uuid REFERENCES public.profiles(id),
+  created_at       timestamptz NOT NULL DEFAULT now(),
+  updated_at       timestamptz NOT NULL DEFAULT now(),
+
+  CONSTRAINT hr_duty_proofs_file_has_path
+    CHECK (kind <> 'file' OR (storage_path IS NOT NULL AND file_name IS NOT NULL AND check_result IS NULL)),
+  CONSTRAINT hr_duty_proofs_check_has_result
+    CHECK (kind <> 'second_check' OR (check_result IS NOT NULL AND storage_path IS NULL)),
+  CONSTRAINT hr_duty_proofs_corrected_has_amount_and_note
+    CHECK (check_result IS DISTINCT FROM 'corrected'
+           OR (corrected_amount IS NOT NULL AND char_length(btrim(COALESCE(check_note, ''))) >= 10)),
+  CONSTRAINT hr_duty_proofs_confirmed_has_no_amount
+    CHECK (check_result IS DISTINCT FROM 'confirmed' OR corrected_amount IS NULL),
+  CONSTRAINT hr_duty_proofs_revoke_pair
+    CHECK ((revoked_at IS NULL) = (revoked_by IS NULL))
+);
+
+COMMENT ON TABLE public.hr_duty_proofs IS
+  'HR staff harness proof of done (20271007161123): a file or a second-person check per done item. Written only by fn_hr_duty_proof_second_check / fn_hr_duty_proof_attach_file. A corrected check never changes the source item.';
+
+CREATE UNIQUE INDEX IF NOT EXISTS hr_duty_proofs_one_active
+  ON public.hr_duty_proofs (duty_code, item_id, kind)
+  WHERE revoked_at IS NULL;
+
+CREATE INDEX IF NOT EXISTS idx_hr_duty_proofs_item
+  ON public.hr_duty_proofs (item_id);
+
+INSERT INTO storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+VALUES (
+  'hr-duty-proofs', 'hr-duty-proofs', false,
+  10485760,  -- 10 MB: a scanned signed order
+  ARRAY['application/pdf', 'image/jpeg', 'image/png', 'image/webp']
+)
+ON CONFLICT (id) DO NOTHING;
+
 -- =====================================================================
 -- Updated: 2026-10-01 - HR memo detector run log + acknowledgement nudges
 -- Migration: 20270613101223_hr_memo_detector_schedule_disabled_with_dry_run.sql
