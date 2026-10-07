@@ -72,6 +72,7 @@ const row = (over: Partial<SalaryRevisionListRow>): SalaryRevisionListRow => ({
   asked_monthly_gross: '56500.00', is_cut: false, final_monthly_gross: null, final_is_cut: null, reason: 'Good work',
   status: 'waiting_director', starts_on: null, created_at: '2026-09-29T05:00:00Z', principal_decided_at: null,
   director_decided_at: null, applied_at: null, comment_count: 0,
+  asker_is_also_hod: false, band_changed: false, apply_note: null, cancel_note: null,
   suggestion: { verdict: 'suggested', figure: 50000, note: null }, band_warning: null, ...over,
 });
 

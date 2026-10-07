@@ -325,19 +325,31 @@ describe('GET /api/hr/salary-revisions/my-outcomes (ruling 5)', () => {
 });
 
 describe('GET /api/cron/hr-salary-revisions', () => {
+  const cron = (url: string, bearer?: string) =>
+    new NextRequest(`http://localhost${url}`, bearer === undefined ? undefined : { headers: { authorization: `Bearer ${bearer}` } });
   it('refuses a call without the secret', async () => {
-    const res = await cronRoute.GET(req('/api/cron/hr-salary-revisions?mode=apply'));
+    const res = await cronRoute.GET(cron('/api/cron/hr-salary-revisions?mode=apply'));
     expect(res.status).toBe(401);
   });
+  it('refuses the secret in the query string (30 Sep: Bearer only, this route writes pay)', async () => {
+    const res = await cronRoute.GET(cron('/api/cron/hr-salary-revisions?mode=apply&secret=cron-secret'));
+    expect(res.status).toBe(401);
+    expect(adminCalls).toHaveLength(0);
+  });
+  it('refuses a wrong secret, of the same or another length', async () => {
+    expect((await cronRoute.GET(cron('/api/cron/hr-salary-revisions?mode=apply', 'cron-secreT'))).status).toBe(401);
+    expect((await cronRoute.GET(cron('/api/cron/hr-salary-revisions?mode=apply', 'cron'))).status).toBe(401);
+    expect(adminCalls).toHaveLength(0);
+  });
   it('apply mode writes the raises that are due; digest mode sends the weekly reminder (ruling 11)', async () => {
-    const apply = await cronRoute.GET(req('/api/cron/hr-salary-revisions?mode=apply&secret=cron-secret'));
-    const digest = await cronRoute.GET(req('/api/cron/hr-salary-revisions?mode=digest&secret=cron-secret'));
+    const apply = await cronRoute.GET(cron('/api/cron/hr-salary-revisions?mode=apply', 'cron-secret'));
+    const digest = await cronRoute.GET(cron('/api/cron/hr-salary-revisions?mode=digest', 'cron-secret'));
     expect(apply.status).toBe(200);
     expect(digest.status).toBe(200);
     expect(adminCalls.map((c) => c.fn)).toEqual(['fn_hr_salary_revision_apply_due', 'fn_hr_salary_revision_weekly_digest']);
   });
   it('refuses any other mode', async () => {
-    const res = await cronRoute.GET(req('/api/cron/hr-salary-revisions?mode=approve&secret=cron-secret'));
+    const res = await cronRoute.GET(cron('/api/cron/hr-salary-revisions?mode=approve', 'cron-secret'));
     expect(res.status).toBe(400);
     expect(adminCalls).toHaveLength(0);
   });

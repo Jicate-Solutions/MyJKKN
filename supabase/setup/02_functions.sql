@@ -73437,6 +73437,27 @@ $function$;
 -- How senior a user is in THIS workflow: 4 the Director (super admin or the
 -- approve key), 3 the HR head (ask anyone), 2 a principal, 1 an HOD, 0 anyone
 -- else. Decided by permission keys, never by role names.
+-- The list's members, for the notices only the Director should get. Internal:
+-- called by the definer functions below, granted to nobody.
+CREATE OR REPLACE FUNCTION public.hr_salary_revision_director_ids()
+RETURNS uuid[]
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+  SELECT COALESCE((
+    SELECT array_agg((e.v)::uuid)
+      FROM public.platform_policies pp
+      CROSS JOIN LATERAL jsonb_array_elements_text(pp.value) AS e(v)
+     WHERE pp.policy_key = 'platform.the_director_profile_ids'
+       AND pp.scope_type = 'global' AND pp.scope_id IS NULL
+       AND pp.is_active = true
+       AND jsonb_typeof(pp.value) = 'array'
+       AND e.v ~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+  ), ARRAY[]::uuid[])
+$function$;
+
 CREATE OR REPLACE FUNCTION public.hr_salary_revision_user_tier(p_user uuid)
 RETURNS integer
 LANGUAGE sql
@@ -73446,8 +73467,7 @@ SET search_path TO 'public'
 AS $function$
   SELECT CASE
     WHEN p_user IS NULL THEN 0
-    WHEN EXISTS (SELECT 1 FROM public.profiles WHERE id = p_user AND is_super_admin IS TRUE)
-      OR public.hr_salary_revision_user_holds(p_user, 'hr.payroll.salary_revision.approve') THEN 4
+    WHEN p_user = ANY (public.hr_salary_revision_director_ids()) THEN 4
     WHEN public.hr_salary_revision_user_holds(p_user, 'hr.payroll.salary_revision.ask_anyone') THEN 3
     WHEN public.hr_salary_revision_user_holds(p_user, 'hr.payroll.salary_revision.ask_own_college')
       OR public.hr_salary_revision_user_holds(p_user, 'hr.payroll.salary_revision.college_check') THEN 2
@@ -73482,7 +73502,9 @@ STABLE
 SECURITY DEFINER
 SET search_path TO 'public'
 AS $function$
-  SELECT public.is_super_admin() OR public.user_has_permission('hr.payroll.salary_revision.approve')
+  -- 30 Sep: the NAMED list (#4121), never is_super_admin(). The .approve key is
+  -- granted to nobody and no longer opens this door either.
+  SELECT public.fn_is_the_director()
 $function$;
 
 -- May the CALLER see a request with these facts? One function for the RLS
@@ -73715,7 +73737,9 @@ RETURNS TABLE(
   final_monthly_gross numeric, final_is_cut boolean,
   reason text, status text, starts_on date,
   created_at timestamptz, principal_decided_at timestamptz,
-  director_decided_at timestamptz, applied_at timestamptz, comment_count integer)
+  director_decided_at timestamptz, applied_at timestamptz, comment_count integer,
+  -- 30 Sep
+  asker_is_also_hod boolean, band_changed boolean, apply_note text, cancel_note text)
 LANGUAGE plpgsql
 STABLE
 SECURITY DEFINER
@@ -73750,7 +73774,16 @@ BEGIN
          r.final_monthly_gross, r.final_is_cut,
          r.reason, r.status, r.starts_on,
          r.created_at, r.principal_decided_at, r.director_decided_at, r.applied_at,
-         (SELECT count(*)::int FROM public.hr_salary_revision_comments c WHERE c.request_id = r.id)
+         (SELECT count(*)::int FROM public.hr_salary_revision_comments c WHERE c.request_id = r.id),
+         r.asker_is_also_hod,
+         -- 30 Sep: only a yes/no leaves here, never the band itself. Only the
+         -- Director is told (the screen shows the note on his list alone).
+         (public.fn_hr_salary_revision_can_approve()
+          AND r.band_snapshot IS DISTINCT FROM (
+                SELECT bp.value FROM public.platform_policies bp
+                 WHERE bp.policy_key = 'hr.pay_scales' AND bp.scope_type = 'institution'
+                   AND bp.scope_id = r.institution_id LIMIT 1)),
+         r.apply_note, r.cancel_note
     FROM public.hr_salary_revision_requests r
     JOIN public.staff s ON s.id = r.staff_id
     JOIN public.institutions i ON i.id = r.institution_id
@@ -73878,6 +73911,8 @@ DECLARE
   v_self     boolean;
   v_name     text;
   v_checkers uuid[];
+  v_also_hod boolean := false;
+  v_band     jsonb;
 BEGIN
   IF v_uid IS NULL THEN
     RAISE EXCEPTION 'Sign in first.' USING ERRCODE = 'insufficient_privilege';
@@ -73945,12 +73980,28 @@ BEGIN
   -- principal or someone more senior, who cannot check their own pay.
   v_route := CASE WHEN v_as = 'hod' AND v_sub_tier < 2 THEN 'via_principal' ELSE 'direct' END;
 
+  -- 30 Sep: a principal who is ALSO the head of this person's department has
+  -- nobody to check them; the request goes straight to the Director, marked.
+  v_also_hod := v_as = 'principal'
+    AND v_s.department_id IS NOT NULL
+    AND v_s.department_id = ANY (public.fn_hr_salary_revision_my_department_ids());
+
+  -- 30 Sep: the college's band as it stands now, kept so the Director's screen
+  -- can say when it changed since the request (the same row #4119 reads).
+  SELECT bp.value INTO v_band
+    FROM public.platform_policies bp
+   WHERE bp.policy_key = 'hr.pay_scales' AND bp.scope_type = 'institution'
+     AND bp.scope_id = v_s.institution_id
+   LIMIT 1;
+
   INSERT INTO public.hr_salary_revision_requests (
     staff_id, institution_id, department_id, asked_by, asked_as, route,
-    is_self, is_for_senior, current_monthly_gross, asked_monthly_gross, reason, status)
+    is_self, is_for_senior, asker_is_also_hod, band_snapshot,
+    current_monthly_gross, asked_monthly_gross, reason, status)
   VALUES (
     p_staff_id, v_s.institution_id, v_s.department_id, v_uid, v_as, v_route,
-    v_self, (NOT v_self) AND v_sub_tier > v_cap_tier, v_current, p_monthly_gross, btrim(p_reason),
+    v_self, (NOT v_self) AND v_sub_tier > v_cap_tier, v_also_hod, v_band,
+    v_current, p_monthly_gross, btrim(p_reason),
     CASE v_route WHEN 'via_principal' THEN 'waiting_principal' ELSE 'waiting_director' END)
   RETURNING id INTO v_id;
 
@@ -74117,6 +74168,11 @@ BEGIN
     RAISE EXCEPTION 'This request is not waiting for the Director (it is %).', v_r.status
       USING ERRCODE = '55000';
   END IF;
+  -- 30 Sep: a person who has left cannot be given a raise.
+  IF NOT EXISTS (SELECT 1 FROM public.v_hr_staff s WHERE s.id = v_r.staff_id AND COALESCE(s.is_active, false)) THEN
+    RAISE EXCEPTION 'This person is no longer an active team member, so there is no pay to revise.'
+      USING ERRCODE = '55000';
+  END IF;
 
   v_final := COALESCE(p_final, v_r.asked_monthly_gross);
   IF v_final IS NULL OR v_final <= 0 THEN
@@ -74138,9 +74194,16 @@ BEGIN
   SELECT monthly_gross INTO v_now_pay
     FROM public.hr_staff_salaries WHERE staff_id = v_r.staff_id AND superseded_by IS NULL;
 
+  -- A fresh yes after a missed start finds the earlier outcome row (request_id
+  -- is UNIQUE), so it is overwritten rather than deleted and re-inserted.
   INSERT INTO public.hr_salary_revision_outcomes
     (request_id, staff_id, previous_monthly_gross, new_monthly_gross, starts_on)
-  VALUES (p_request_id, v_r.staff_id, COALESCE(v_now_pay, v_r.current_monthly_gross), v_final, v_start);
+  VALUES (p_request_id, v_r.staff_id, COALESCE(v_now_pay, v_r.current_monthly_gross), v_final, v_start)
+  ON CONFLICT (request_id) DO UPDATE
+     SET staff_id = EXCLUDED.staff_id,
+         previous_monthly_gross = EXCLUDED.previous_monthly_gross,
+         new_monthly_gross = EXCLUDED.new_monthly_gross,
+         starts_on = EXCLUDED.starts_on;
 
   SELECT profile_id, TRIM(BOTH FROM COALESCE(first_name, '') || ' ' || COALESCE(last_name, ''))
     INTO v_subject, v_name
@@ -74296,6 +74359,8 @@ DECLARE
   v_cur  record;
   v_new  uuid;
   v_done integer := 0;
+  v_name text;
+  v_when text;
 BEGIN
   FOR v_r IN
     SELECT * FROM public.hr_salary_revision_requests
@@ -74303,49 +74368,106 @@ BEGIN
      ORDER BY starts_on, id
      FOR UPDATE SKIP LOCKED
   LOOP
-    SELECT * INTO v_cur FROM public.hr_staff_salaries
-     WHERE staff_id = v_r.staff_id AND superseded_by IS NULL;
+    -- 30 Sep: every request on its own. One that cannot be written is noted
+    -- and the next one is still tried; nothing rolls the whole run back.
+    BEGIN
+      SELECT TRIM(BOTH FROM COALESCE(s.first_name, '') || ' ' || COALESCE(s.last_name, '')) INTO v_name
+        FROM public.staff s WHERE s.id = v_r.staff_id;
+      v_when := to_char(v_r.starts_on, 'FMDD FMMonth YYYY');
 
-    IF NOT FOUND THEN
+      -- 30 Sep: the person left before the start date: cancelled, both told.
+      IF NOT EXISTS (SELECT 1 FROM public.v_hr_staff s WHERE s.id = v_r.staff_id AND COALESCE(s.is_active, false)) THEN
+        UPDATE public.hr_salary_revision_requests
+           SET status = 'cancelled', cancelled_at = now(), apply_note = NULL,
+               cancel_note = 'Cancelled: ' || COALESCE(NULLIF(v_name, ''), 'the person')
+                             || ' left before the new pay was due to start on ' || v_when || '.'
+         WHERE id = v_r.id;
+        PERFORM public.hr_salary_revision_notify(
+          public.hr_salary_revision_director_ids() || ARRAY[v_r.asked_by],
+          'A salary revision was cancelled',
+          COALESCE(NULLIF(v_name, ''), 'The person') || ' left before the approved pay change was due to start on '
+            || v_when || ', so it was cancelled. Nothing was written.',
+          '/hr/salary-revisions/' || v_r.id,
+          'hr.payroll.salary_revision.cancelled:' || v_r.id,
+          jsonb_build_object('request_id', v_r.id));
+        CONTINUE;
+      END IF;
+
+      -- 30 Sep: the start date has passed without the pay being written (the
+      -- job did not run that day). It is never written late (#4122 refuses a
+      -- past start; the missed month is not paid back): back to the Director
+      -- for a fresh yes, which sets a fresh start date. Both are told.
+      IF v_r.starts_on < p_today THEN
+        -- The person was told of a change that is not happening on that date;
+        -- the fresh yes tells them again, with the new date, and overwrites
+        -- their outcome row (approve_one upserts on request_id).
+        UPDATE public.hr_salary_revision_requests
+           SET status = 'waiting_director', starts_on = NULL, final_monthly_gross = NULL,
+               director_decided_by = NULL, director_decided_at = NULL,
+               apply_note = 'The start date ' || v_when || ' passed without the pay being written, so it needs a fresh yes. '
+                            || 'The Director had approved ' || public.hr_salary_revision_rupees(v_r.final_monthly_gross) || '.'
+         WHERE id = v_r.id;
+        PERFORM public.hr_salary_revision_notify(
+          public.hr_salary_revision_director_ids() || ARRAY[v_r.asked_by],
+          'A salary revision missed its start date',
+          'The pay change for ' || COALESCE(NULLIF(v_name, ''), 'a team member') || ' was due to start on '
+            || v_when || ' but was not written that day. It is back with the Director for a fresh yes; '
+            || 'it will start on the 1st of the month after that. The missed month is not paid back.',
+          '/hr/salary-revisions/' || v_r.id,
+          'hr.payroll.salary_revision.missed:' || v_r.id || ':' || v_when,
+          jsonb_build_object('request_id', v_r.id));
+        CONTINUE;
+      END IF;
+
+      SELECT * INTO v_cur FROM public.hr_staff_salaries
+       WHERE staff_id = v_r.staff_id AND superseded_by IS NULL;
+
+      IF NOT FOUND THEN
+        UPDATE public.hr_salary_revision_requests
+           SET apply_note = 'No salary is recorded for this person any more, so the new pay could not be written. HR must record it on Employee Salaries.'
+         WHERE id = v_r.id;
+        CONTINUE;
+      END IF;
+      IF v_cur.effective_from > v_r.starts_on THEN
+        UPDATE public.hr_salary_revision_requests
+           SET apply_note = 'HR recorded a salary starting ' || to_char(v_cur.effective_from, 'FMDD FMMonth YYYY')
+                            || ', after this revision''s start. HR must decide which one stands.'
+         WHERE id = v_r.id;
+        CONTINUE;
+      END IF;
+
+      v_new := public.fn_hr_set_staff_salary(
+        p_staff_id               => v_r.staff_id,
+        p_hr_organization_id     => v_cur.hr_organization_id,
+        p_monthly_gross          => v_r.final_monthly_gross,
+        p_effective_from         => v_r.starts_on,
+        p_salary_structure       => v_cur.salary_structure,
+        p_overtime_level         => v_cur.overtime_level,
+        p_overtime_amount        => v_cur.overtime_amount,
+        p_eligible_for_pf        => v_cur.eligible_for_pf,
+        p_exempt_edli            => v_cur.exempt_edli,
+        p_eligible_for_insurance => v_cur.eligible_for_insurance,
+        p_eligible_for_gratuity  => v_cur.eligible_for_gratuity,
+        p_eligible_for_etf       => v_cur.eligible_for_etf,
+        p_notes                  => 'Salary revision approved by the Director on '
+                                    || to_char((v_r.director_decided_at AT TIME ZONE 'Asia/Kolkata')::date, 'FMDD FMMonth YYYY')
+                                    || ' (request ' || v_r.id || ').',
+        p_epf_amount             => v_cur.epf_amount,
+        p_eligible_for_esi       => v_cur.eligible_for_esi,
+        p_esi_amount             => v_cur.esi_amount,
+        p_allowance_amount       => v_cur.allowance_amount,
+        p_allowance_label        => v_cur.allowance_label);
+
       UPDATE public.hr_salary_revision_requests
-         SET apply_note = 'No salary is recorded for this person any more, so the new pay could not be written. HR must record it on Employee Salaries.'
+         SET status = 'applied', applied_salary_id = v_new, applied_at = now(), apply_note = NULL
        WHERE id = v_r.id;
-      CONTINUE;
-    END IF;
-    IF v_cur.effective_from > v_r.starts_on THEN
+      v_done := v_done + 1;
+    EXCEPTION WHEN OTHERS THEN
+      -- Kept on the request, in the words the database gave, and the run goes on.
       UPDATE public.hr_salary_revision_requests
-         SET apply_note = 'HR recorded a salary starting ' || to_char(v_cur.effective_from, 'FMDD FMMonth YYYY')
-                          || ', after this revision''s start. HR must decide which one stands.'
+         SET apply_note = 'The new pay could not be written: ' || SQLERRM
        WHERE id = v_r.id;
-      CONTINUE;
-    END IF;
-
-    v_new := public.fn_hr_set_staff_salary(
-      p_staff_id               => v_r.staff_id,
-      p_hr_organization_id     => v_cur.hr_organization_id,
-      p_monthly_gross          => v_r.final_monthly_gross,
-      p_effective_from         => v_r.starts_on,
-      p_salary_structure       => v_cur.salary_structure,
-      p_overtime_level         => v_cur.overtime_level,
-      p_overtime_amount        => v_cur.overtime_amount,
-      p_eligible_for_pf        => v_cur.eligible_for_pf,
-      p_exempt_edli            => v_cur.exempt_edli,
-      p_eligible_for_insurance => v_cur.eligible_for_insurance,
-      p_eligible_for_gratuity  => v_cur.eligible_for_gratuity,
-      p_eligible_for_etf       => v_cur.eligible_for_etf,
-      p_notes                  => 'Salary revision approved by the Director on '
-                                  || to_char((v_r.director_decided_at AT TIME ZONE 'Asia/Kolkata')::date, 'FMDD FMMonth YYYY')
-                                  || ' (request ' || v_r.id || ').',
-      p_epf_amount             => v_cur.epf_amount,
-      p_eligible_for_esi       => v_cur.eligible_for_esi,
-      p_esi_amount             => v_cur.esi_amount,
-      p_allowance_amount       => v_cur.allowance_amount,
-      p_allowance_label        => v_cur.allowance_label);
-
-    UPDATE public.hr_salary_revision_requests
-       SET status = 'applied', applied_salary_id = v_new, applied_at = now(), apply_note = NULL
-     WHERE id = v_r.id;
-    v_done := v_done + 1;
+    END;
   END LOOP;
   RETURN v_done;
 END;
@@ -74402,13 +74524,8 @@ BEGIN
     FROM public.hr_salary_revision_requests;
   IF v_waiting + v_check = 0 THEN RETURN 0; END IF;
 
-  SELECT array_agg(DISTINCT u) INTO v_to FROM (
-    SELECT p.id AS u FROM public.profiles p WHERE p.is_super_admin IS TRUE
-    UNION
-    SELECT ur.user_id FROM public.user_roles ur
-      JOIN public.custom_roles cr ON cr.id = ur.role_id
-     WHERE (cr.permissions ->> 'hr.payroll.salary_revision.approve')::boolean IS TRUE
-  ) x;
+  -- 30 Sep: the Director list (#4121), not every super admin.
+  v_to := public.hr_salary_revision_director_ids();
 
   SELECT string_agg(line, E'\n' ORDER BY ord) INTO v_lines FROM (
     SELECT row_number() OVER (ORDER BY r.created_at) AS ord,
@@ -74449,6 +74566,7 @@ REVOKE EXECUTE ON FUNCTION public.hr_salary_revision_user_tier(uuid) FROM anon, 
 REVOKE EXECUTE ON FUNCTION public.hr_salary_revision_notify(uuid[], text, text, text, text, jsonb) FROM anon, PUBLIC, authenticated;
 REVOKE EXECUTE ON FUNCTION public.hr_salary_revision_start_date(uuid, date) FROM anon, PUBLIC, authenticated;
 REVOKE EXECUTE ON FUNCTION public.hr_salary_revision_approve_one(uuid, numeric, text) FROM anon, PUBLIC, authenticated;
+REVOKE EXECUTE ON FUNCTION public.hr_salary_revision_director_ids() FROM anon, PUBLIC, authenticated;
 REVOKE EXECUTE ON FUNCTION public.hr_salary_revision_apply_due_on(date) FROM anon, PUBLIC, authenticated;
 REVOKE EXECUTE ON FUNCTION public.hr_salary_revision_suggestion_inputs(uuid[]) FROM anon, PUBLIC, authenticated;
 REVOKE EXECUTE ON FUNCTION public.fn_hr_salary_revision_weekly_digest() FROM anon, PUBLIC, authenticated;
