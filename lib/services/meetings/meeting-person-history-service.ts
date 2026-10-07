@@ -62,7 +62,7 @@ export const HISTORY_LIMIT = 10;
  * place. Rendering them as "happened" would manufacture a fact the database
  * does not hold.
  */
-export type MeetingOutcome = 'happened' | 'no_show' | 'cancelled' | 'not_recorded';
+export type MeetingOutcome = 'happened' | 'no_show' | 'cancelled' | 'notes_linked' | 'not_recorded';
 
 /** One earlier meeting between this host and this person. */
 export interface PriorMeeting {
@@ -107,6 +107,9 @@ interface OutcomeInput {
  * the meeting unless outcome_marked_by names one ('host' or 'admin'). The
  * third legal value, 'system', is the auto-closer, and the detail page already
  * words that case as "nobody confirmed it took place"; this agrees with it.
+ * The fourth, 'notes' (Director, 2 Oct 2026), is the daily sweep closing a
+ * meeting because its notes are linked: there is a record of it, but no person
+ * said it happened, so it gets its own outcome rather than 'happened'.
  *
  * A 'confirmed' row is a meeting nobody ever closed. Whether it is in the past
  * or the future, the record says nothing about what happened — and every row
@@ -117,6 +120,7 @@ export function deriveOutcome(row: OutcomeInput): MeetingOutcome {
   if (row.status === 'no_show') return 'no_show';
   if (row.status === 'completed') {
     const by = row.outcomeMarkedBy;
+    if (by === 'notes') return 'notes_linked';
     return by === 'host' || by === 'admin' ? 'happened' : 'not_recorded';
   }
   return 'not_recorded';
@@ -131,6 +135,8 @@ export function outcomeLabel(outcome: MeetingOutcome): string {
       return 'No-show';
     case 'cancelled':
       return 'Cancelled';
+    case 'notes_linked':
+      return 'Closed automatically — notes linked';
     default:
       return 'Not recorded';
   }

@@ -18,13 +18,14 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Upload, X, Loader2, Plus, MoreHorizontal } from 'lucide-react';
+import { Upload, X, Loader2, Plus, MoreHorizontal, AlertTriangle } from 'lucide-react';
 import { toast } from 'sonner';
 import { useAuth } from '@/hooks/use-auth';
 import { useVendorsForSelect } from '@/hooks/procurement/use-rfqs';
 import { useCreateQuotation, useCreateVendor } from '@/hooks/procurement/use-quotations';
 import { ProcurementQuotationService } from '@/lib/services/procurement/quotation-service';
 import { readQuotationPdf, type ExtractResult } from '@/lib/procurement/read-quotation-pdf';
+import { checkQuotationMath } from '@/lib/procurement/quotation-math';
 import { matchVendor, normalizeGstin } from '@/lib/procurement/vendor-match';
 import { namesShareAWord } from '@/lib/procurement/item-name-match';
 import { comparePacks, isMeasuredUnit, parsePack, qtyWithPack, requestedPack, type PackCheck } from '@/lib/procurement/pack-size';
@@ -88,6 +89,8 @@ interface Row {
   warranty: string;
   lines: ReadLine[];
   choices: Record<string, Choice | undefined>;
+  /** Where the reading disagrees with the quotation's own printed numbers. */
+  readIssues: string[];
 }
 
 type RfqItem = RfqWithDetails['items'][number];
@@ -248,6 +251,7 @@ export function BulkQuotationUpload({
       deliveryDays: result.delivery_days ? String(result.delivery_days) : '',
       paymentTerms: result.payment_terms ?? '',
       warranty: result.warranty ?? '',
+      readIssues: [...(result.read_notes ?? []), ...checkQuotationMath(result).issues],
     });
   };
 
@@ -270,6 +274,7 @@ export function BulkQuotationUpload({
       warranty: '',
       lines: [],
       choices: {},
+      readIssues: [],
     }));
     setRows((prev) => [...prev, ...fresh]);
     setSelectedKey((k) => k ?? fresh[0].key);
@@ -517,7 +522,8 @@ export function BulkQuotationUpload({
 
 
   const many = rows.length > 1;
-  const COLS = 'grid grid-cols-[minmax(0,1fr)_104px_88px_28px] items-center gap-2.5 sm:grid-cols-[minmax(0,1fr)_120px_100px_28px] sm:gap-3';
+  // Phones: the item takes the first line; price, total and remove share the second.
+  const COLS = 'grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_28px] items-center gap-x-2.5 gap-y-2 sm:grid-cols-[minmax(0,1fr)_120px_100px_28px] sm:gap-3';
   const totalOf = (r: Row) => rfq.items.reduce((sum, it) => sum + (priceOf(r, it.id) ?? 0) * Number(it.quantity), 0);
   const titleOf = (r: Row) =>
     r.status === 'reading' ? 'Reading the quote…' : r.vendorId || r.newVendor.name.trim() ? `Quote from ${vendorName(r)}` : 'Add quote';
@@ -675,10 +681,11 @@ export function BulkQuotationUpload({
             </DialogHeader>
 
             {reviewing ? reviewBody : (
-            <div className={`grid min-h-0 flex-1 overflow-hidden ${many ?'grid-cols-[180px_minmax(0,1fr)] sm:grid-cols-[200px_minmax(0,1fr)]' : 'grid-cols-1'}`}>
-              {/* ── Vendor rail (several PDFs): name + one status word ─────── */}
+            <div className={`grid min-h-0 flex-1 overflow-hidden ${many ? 'grid-rows-[auto_minmax(0,1fr)] sm:grid-cols-[200px_minmax(0,1fr)] sm:grid-rows-1' : 'grid-cols-1'}`}>
+              {/* ── Vendor rail (several PDFs): name + one status word. A strip across
+                  the top on phones, a side rail from sm. ─────── */}
               {many && (
-                <nav aria-label="Quotes" className="flex flex-col gap-1 overflow-y-auto border-r bg-muted/40 p-2">
+                <nav aria-label="Quotes" className="flex gap-1 overflow-x-auto border-b bg-muted/40 p-2 sm:flex-col sm:overflow-y-auto sm:overflow-x-visible sm:border-b-0 sm:border-r">
                   {rows.map((r) => {
                     const st = statusOf[r.key];
                     const isSel = selected?.key === r.key;
@@ -690,7 +697,7 @@ export function BulkQuotationUpload({
                         type="button"
                         onClick={() => setSelectedKey(r.key)}
                         className={cn(
-                          'flex flex-col gap-0.5 rounded-lg border px-3 py-2.5 text-left transition-colors',
+                          'flex max-w-[12rem] shrink-0 flex-col gap-0.5 rounded-lg border px-3 py-2.5 text-left transition-colors sm:max-w-none',
                           isSel ? 'border-primary bg-background' : 'border-transparent hover:bg-background/70'
                         )}
                       >
@@ -715,6 +722,19 @@ export function BulkQuotationUpload({
                   </div>
                 ) : (
                   <>
+                    {selected.readIssues.length > 0 && (
+                      <div className="mx-5 mt-4 flex items-start gap-2 rounded-xl bg-secondary/20 px-3 py-2 text-sm">
+                        <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
+                        <div>
+                          <p className="font-medium">The reading does not match this quotation&apos;s own numbers</p>
+                          <ul className="list-disc pl-4 text-xs text-muted-foreground">
+                            {selected.readIssues.map((m) => (
+                              <li key={m}>{m}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      </div>
+                    )}
                     {many && (
                       <div className="px-5 pt-4">
                         <p className="font-semibold">{vendorName(selected)}</p>
@@ -804,7 +824,7 @@ export function BulkQuotationUpload({
 
                     {/* Items: ONE aligned grid — item | price / unit | total */}
                     <div className="mt-4 border-t">
-                      <div className={`${COLS} bg-muted/50 px-5 py-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground`}>
+                      <div className={`${COLS} hidden bg-muted/50 px-5 py-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground sm:grid`}>
                         <span>Item</span>
                         <span className="text-right">Price / unit</span>
                         <span className="text-right">Total</span>
@@ -867,7 +887,7 @@ export function BulkQuotationUpload({
                             key={it.id}
                             className={cn(COLS, 'border-t px-5 py-3', amber && 'bg-secondary/20')}
                           >
-                            <div className="min-w-0">
+                            <div className="col-span-3 min-w-0 sm:col-span-1">
                               <p className="truncate text-sm font-semibold">
                                 {it.item_name}{' '}
                                 <span className="font-normal text-muted-foreground">· {askedLabel(it)}</span>
@@ -974,7 +994,7 @@ export function BulkQuotationUpload({
             )}
 
             {/* ── Footer: total, what is left, Save ─────────────────────────── */}
-            <div className="flex flex-wrap items-center gap-3 border-t bg-muted/40 px-6 py-3">
+            <div className="flex flex-wrap items-center gap-3 border-t bg-muted/30 px-5 py-3">
               <span className="min-w-0 flex-1 text-sm">
                 {reviewing ? (
                   <span className="text-muted-foreground">
@@ -1015,7 +1035,7 @@ export function BulkQuotationUpload({
               {/* Nothing is saved straight from the edit view: the person first sees every
                   item with the quantity and pack it is being saved for. */}
               <Button
-                className="h-10 px-5"
+                className="h-11 w-full px-5 sm:h-9 sm:w-auto"
                 onClick={reviewing ? saveAll : () => setReviewing(true)}
                 disabled={saving || stillReading || savable.length === 0}
               >

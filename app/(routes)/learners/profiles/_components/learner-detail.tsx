@@ -69,6 +69,7 @@ export function LearnerDetail({ learner }: LearnerDetailProps) {
     canAccess,
     isSuperAdmin,
     isAdmissionGlobalUser,
+    userRoles,
     isLoading: permissionsLoading,
   } = usePermissions();
 
@@ -102,6 +103,10 @@ export function LearnerDetail({ learner }: LearnerDetailProps) {
   const hasEditPermission =
     !permissionsLoading && (isSuperAdmin || isAdmissionGlobalUser || canAccess('learners', 'edit'));
   const canViewFinance = isSuperAdmin || isAdmissionGlobalUser || canAccess('learners', 'finance.view');
+  // Reference Details: super admins and Admission Officers (role_key 'admission').
+  // learners_profiles UPDATE RLS already admits Admission Officers.
+  const canManageReference =
+    isSuperAdmin || userRoles.some((r) => r.role_key === 'admission');
 
   const { data: degreeData } = useQuery({
     queryKey: ['degree-for-detail', learner.degree_id],
@@ -1106,8 +1111,8 @@ export function LearnerDetail({ learner }: LearnerDetailProps) {
                   </div>
                 </div>
 
-                {/* Reference Details - Super Admin Only */}
-                {isSuperAdmin && (
+                {/* Reference Details - Super Admin + Admission Officer */}
+                {canManageReference && (
                   <>
                     <Separator />
 
@@ -1115,7 +1120,7 @@ export function LearnerDetail({ learner }: LearnerDetailProps) {
                       <div className="flex flex-wrap items-center gap-2">
                         <h3 className="text-sm font-medium">Reference Details</h3>
                         <Badge variant="outline" className="bg-purple-50 text-purple-700 border-purple-300 text-xs">
-                          Super Admin Only
+                          Super Admin / Admission Officer
                         </Badge>
                         {/* Whether the referral resolves to a real record is the
                           * fact that matters: a name-only referral cannot be

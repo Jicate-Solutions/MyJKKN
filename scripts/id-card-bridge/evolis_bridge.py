@@ -1,4 +1,4 @@
-"""Evolis Primacy 2 <-> MyJKKN print bridge (v0.3.5, 2026-10-03: SDK tuned for mono back, or print via the Windows driver).
+"""Evolis Primacy 2 <-> MyJKKN print bridge (v0.3.6, 2026-10-06: SDK tuned for mono back, or print via the Windows driver).
 Polls MyJKKN for pending ID-card print jobs and drives the printer via the
 official Evolis SDK. Runs as a Windows Service (nssm) in Block 4.
 Duplex: if the claim response says has_back, the back PNG is fetched and staged
@@ -31,6 +31,11 @@ v0.3.5 — optional second route, PRINT_VIA=driver (env var, or the word
 printer driver as a two-page document, the same path the Evolis design
 software uses with the preferences saved in Evolis Premium Suite. Needs
 pywin32. The SDK route stays the default.
+
+v0.3.6 — the driver route no longer trusts the hard-coded printer name (the
+first driver-route card failed with "Unable to open printer"). It lists the
+Windows printers the SERVICE ACCOUNT can see, logs them at start-up, and uses
+the Evolis one; C:/jkkn-bridge/windows-printer.txt overrides the choice.
 See MyJKKN repo docs/modules/id-cards/2026-10-01-OPS-bridge-mono-back.md.
 """
 import os, sys, time, traceback
@@ -221,6 +226,44 @@ def _force_mono_back(ps):
     print("[mono-back] FBlackManagement=NOBLACKPOINT accepted=" + str(fok) + " now=" + str(fnow), flush=True)
 
 
+def _windows_printer():
+    """Pick the Windows printer for the driver route.
+
+    Returns (name_or_None, visible) where visible is "name [port]" for every
+    printer THIS account can see. A service running as Local System does not
+    see printers that were added only for the logged-in user. Order: the name
+    in windows-printer.txt / EVOLIS_WINDOWS_PRINTER if it exists, else the one
+    Evolis printer, else (several) the one on the SDK printer's IP.
+    """
+    import win32print
+    try:
+        with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "windows-printer.txt")) as f:
+            want = f.read().strip()
+    except Exception:
+        want = ""
+    want = want or WINDOWS_PRINTER
+    try:
+        rows = win32print.EnumPrinters(
+            win32print.PRINTER_ENUM_LOCAL | win32print.PRINTER_ENUM_CONNECTIONS, None, 2)
+    except Exception as e:
+        print("[driver] could not list Windows printers: " + repr(e), flush=True)
+        rows = []
+    found = [(r.get("pPrinterName") or "", r.get("pPortName") or "") for r in rows]
+    visible = [n + " [" + port + "]" for n, port in found]
+    for n, _ in found:
+        if n.lower() == want.lower():
+            return n, visible
+    hits = [(n, port) for n, port in found if "evolis" in n.lower() or "primacy" in n.lower()]
+    if len(hits) > 1:
+        ip = PRINTER.split("//")[-1].split(":")[0]
+        on_ip = [h for h in hits if ip and ip in h[1]]
+        if len(on_ip) == 1:
+            hits = on_ip
+    if len(hits) == 1:
+        return hits[0][0], visible
+    return None, visible
+
+
 def print_via_driver(job_id, front_bmp, back_bmp):
     """Print one card through the Windows driver: one document, page 1 = front,
     page 2 = back (the driver's dual-side preference puts page 2 on the back).
@@ -231,11 +274,15 @@ def print_via_driver(job_id, front_bmp, back_bmp):
         from PIL import ImageWin
     except Exception as e:
         return False, "Driver printing needs pywin32 on this PC (pip install pywin32): " + repr(e)
+    printer, visible = _windows_printer()
+    if printer is None:
+        return False, ("Windows printer '" + WINDOWS_PRINTER + "' not found for the bridge service. It can see: " +
+                       (", ".join(visible) or "no printers") + " - see bridge-service.log")[:300]
     hdc = None
     spool_id = None
     try:
         hdc = win32ui.CreateDC()
-        hdc.CreatePrinterDC(WINDOWS_PRINTER)
+        hdc.CreatePrinterDC(printer)
         page_w = hdc.GetDeviceCaps(8)    # HORZRES, device pixels
         page_h = hdc.GetDeviceCaps(10)   # VERTRES
         spool_id = hdc.StartDoc("MyJKKN ID card " + str(job_id))
@@ -250,7 +297,7 @@ def print_via_driver(job_id, front_bmp, back_bmp):
             ImageWin.Dib(img).draw(hdc.GetHandleOutput(), (0, 0, page_w, page_h))
             hdc.EndPage()
         hdc.EndDoc()
-        print("[driver] spooled job " + str(spool_id) + " to " + WINDOWS_PRINTER + " page=" +
+        print("[driver] spooled job " + str(spool_id) + " to " + printer + " page=" +
               str(page_w) + "x" + str(page_h) + (" duplex" if back_bmp else " front-only"), flush=True)
     except Exception as e:
         try:
@@ -270,7 +317,7 @@ def print_via_driver(job_id, front_bmp, back_bmp):
     # JOB_STATUS_ERROR = 0x2, _OFFLINE = 0x20, _PAPEROUT = 0x40 (cards/ribbon).
     deadline = time.time() + DRIVER_WAIT_SECONDS
     try:
-        h = win32print.OpenPrinter(WINDOWS_PRINTER)
+        h = win32print.OpenPrinter(printer)
     except Exception as e:
         return False, friendly(str(e))
     try:
@@ -371,7 +418,15 @@ def main():
     if not TOKEN:
         print("AGENT_PRINT_TOKEN not set - bridge cannot authenticate. Exiting.")
         sys.exit(1)
-    print(f"bridge v0.3.5 up: via={_print_via()} base={BASE_URL} sdk_printer={PRINTER} windows_printer={WINDOWS_PRINTER}", flush=True)
+    print(f"bridge v0.3.6 up: via={_print_via()} base={BASE_URL} sdk_printer={PRINTER} windows_printer={WINDOWS_PRINTER}", flush=True)
+    if _print_via() == "driver":
+        try:
+            import getpass
+            printer, visible = _windows_printer()
+            print("[driver] running as " + getpass.getuser() + "; printers visible: " +
+                  (", ".join(visible) or "NONE") + "; using: " + str(printer), flush=True)
+        except Exception as e:
+            print("[driver] printer check FAILED: " + repr(e), flush=True)
     while True:
         try:
             jobs = api("GET", "/api/id-cards/jobs?status=pending&limit=1")

@@ -19,6 +19,11 @@ export interface ExtractedLine {
   other_specs?: string | null;
   gst_percent?: number | null;
   hsn?: string | null;
+  /** Quantity and amount as printed on the line; absent from older reads. */
+  quantity?: number | null;
+  line_total?: number | null;
+  list_price?: number | null;
+  discount_percent?: number | null;
 }
 
 export interface ExtractResult {
@@ -39,6 +44,11 @@ export interface ExtractResult {
   delivery_days?: number | null;
   payment_terms?: string | null;
   warranty?: string | null;
+  /** The grand total printed on the quotation, and whether it includes GST. */
+  stated_total?: number | null;
+  /** Corrections the reader made, in words — show them with the other warnings. */
+  read_notes?: string[];
+  total_includes_gst?: boolean | null;
 }
 
 const POLL_MS = 2_000;
