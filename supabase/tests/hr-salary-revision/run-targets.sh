@@ -719,7 +719,7 @@ mutate_sched "S14 round 6 finding 5: the leave key covers the days before the 1s
   "s/date_trunc\('week', (mo\.month|v_row\.month|v_m)\)::date, \(/\1, (/g" \
   'R6-5 leave approved later on a day before the 1st in the week holding the 1st: the missed month is measured again'
 mutate_sched "S15 round 6 finding 9: listing the days stops at its time box" \
-  's/^    EXIT WHEN p_budget_ms IS NOT NULL AND clock_timestamp\(\) - v_started > make_interval\(secs => p_budget_ms \/ 1000\.0\);$/    NULL;/' \
+  's/^      EXIT WHEN p_budget_ms IS NOT NULL AND clock_timestamp\(\) - v_started > make_interval\(secs => p_budget_ms \/ 1000\.0\);$/      NULL;/' \
   "R6-9 listing the days stops at its time box: with none left only today's days are listed, given time the rest are"
 # 8 Oct 2026, review round 7 (the money review's B1-B4): one control per fix.
 mutate_file probe-stale.sql "B1 a stale day counts as not recorded (the month waits)" \
