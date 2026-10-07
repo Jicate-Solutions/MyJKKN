@@ -98,58 +98,73 @@ export interface ChangeRequestFilters {
 }
 
 /**
- * Editable fields whitelist
- * Students can only edit these fields
+ * Editable fields whitelist: the learners_profiles columns a learner may ask
+ * to change through a profile change request (2026-10-07). These are the
+ * columns the learner edit screen (my-profile -> EnquiryForm with
+ * isStudentView) really sends and shows as editable, identity corrections
+ * included (an approver decides). The academic assignment (college, programme,
+ * semester, section, quota, admission year...), roll and register numbers,
+ * the college email, fees and lifecycle are not here: they are changed by the
+ * office. Enforced on the server when a request is created and again when it
+ * is approved, so a key not on this list never reaches the service-role write.
  */
 export const EDITABLE_PROFILE_FIELDS = [
-  // Academic Marks (Added)
+  // Identity: a learner may REQUEST a correction; a human approver decides
+  // (2026-10-07, default taken, overrule here: kept as before round 12; none
+  // of these links an account).
+  'first_name',
+  'last_name',
+  'date_of_birth',
+  'gender',
+  'aadhar_number',
+
+  // Personal (Basic Details tab)
+  'religion',
+  'community_category_id',
+  'caste_id',
+  'blood_group',
+  'student_photo_url',
+
+  // Parent/Guardian Information
+  'father_name',
+  'father_occupation',
+  'father_mobile',
+  'mother_name',
+  'mother_occupation',
+  'mother_mobile',
+  'annual_income',
+
+  // Contact Details (the college email is not shown to learners)
+  'student_mobile',
+  'student_email',
+  'permanent_address_street',
+  'permanent_address_taluk',
+  'permanent_address_district',
+  'permanent_address_pin_code',
+  'permanent_address_state',
+  'post_office_id',
+
+  // Academic Information (marks and previous schooling)
+  'last_school',
+  'last_school_id',
+  'school_district',
+  'board_of_study',
   'tenth_marks',
   'twelfth_marks',
-  'engineering_cutoff_marks',
+  'previous_degree',
   'medical_cutoff_marks',
+  'engineering_cutoff_marks',
   'neet_roll_number',
   'neet_score',
   'counseling_applied',
   'counseling_number',
   'scholarship_type',
-  'last_school',
-  'board_of_study',
 
-  // Contact Details
-  'student_mobile',
-  'student_email',
-  'alternate_mobile',
-
-  // Parent/Guardian Information
-  'father_name',
-  'father_mobile',
-  'father_occupation',
-  'mother_name',
-  'mother_mobile',
-  'mother_occupation',
-  'guardian_name',
-  'guardian_mobile',
-  'guardian_occupation',
-  'annual_income',
-
-  // Address Information
-  'permanent_address',
-  'permanent_city',
-  'permanent_state',
-  'permanent_pincode',
-  'present_address',
-  'present_city',
-  'present_state',
-  'present_pincode',
-
-  // Other Personal Details
-  'blood_group',
-  'religion',
-  'community',
-  'caste',
-  'hostel_required',
-  'transport_required',
-  'accommodation_type',
+  // Accommodation Preferences
+  'accommodation_type_id',
+  'bus_required',
+  'transport_route_id',
+  'transport_stop_id',
 ] as const;
 
 export type EditableProfileField = typeof EDITABLE_PROFILE_FIELDS[number];
@@ -172,12 +187,8 @@ export const READ_ONLY_PROFILE_FIELDS = [
   'register_number',
   'college_email',
 
-  // Identity fields
-  'first_name',
-  'last_name',
-  'date_of_birth',
-  'gender',
-  'aadhar_number',
+  // Identity fields (first_name, last_name, date_of_birth, gender,
+  // aadhar_number) are requestable corrections: see EDITABLE_PROFILE_FIELDS.
 
   // Application details
   'application_id',
@@ -186,3 +197,20 @@ export const READ_ONLY_PROFILE_FIELDS = [
 ] as const;
 
 export type ReadOnlyProfileField = typeof READ_ONLY_PROFILE_FIELDS[number];
+
+/**
+ * The keys of a change request that are not on the editable list (2026-10-07).
+ * Enforced on the server when a request is created and again when it is
+ * approved: approval writes every key with the service role, so a request
+ * carrying college_email (read-only) turned whoever held that email into a
+ * learner's account.
+ */
+export function disallowedChangeFields(changedFields: Record<string, unknown> | null | undefined): string[] {
+  return Object.keys(changedFields ?? {}).filter(
+    (key) => !(EDITABLE_PROFILE_FIELDS as readonly string[]).includes(key)
+  );
+}
+
+export function disallowedChangeFieldsMessage(fields: string[]): string {
+  return `These fields cannot be changed through a profile change request: ${fields.join(', ')}.`;
+}

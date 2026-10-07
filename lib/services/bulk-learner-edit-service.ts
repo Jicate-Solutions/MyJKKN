@@ -9,6 +9,7 @@
 
 import { createClient } from '@supabase/supabase-js';
 import { LearnerValidationService, ValidationResult } from './learner-validation-service';
+import { refuseLearnerCollegeEmail, type RpcClient } from '@/lib/services/staff/staff-admin-powers';
 import {
   getLearnerFkResolvers,
   resolveLearnerFkFields,
@@ -531,7 +532,9 @@ export class BulkLearnerEditService {
     userInstitutionId?: string | string[],
     isSuperAdmin: boolean = false,
     userId?: string,
-    requireActive: boolean = true
+    requireActive: boolean = true,
+    /** The caller's own (session) client: who they are decides the college email check. */
+    sessionClient?: RpcClient
   ): Promise<BulkEditResult> {
     const result: BulkEditResult = {
       success: true,
@@ -703,6 +706,26 @@ export class BulkLearnerEditService {
           continue;
         }
 
+        // 2026-10-07: a new college email that is the caller's own, a
+        // team-member record's, or a non-learner account's would turn that
+        // account into a student's through the learner email sync (the write
+        // below uses the service role, so the database cannot see who asks).
+        // Refused for this row unless a super admin is editing.
+        if (
+          typeof updateData.college_email === 'string' &&
+          updateData.college_email.trim().toLowerCase() !==
+            String((learnerCheck.learner as { college_email?: string | null }).college_email ?? '').trim().toLowerCase()
+        ) {
+          const refusal = sessionClient
+            ? await refuseLearnerCollegeEmail(sessionClient, updateData.college_email, learnerId)
+            : { status: 500, error: 'Could not check the college email. Nothing was changed for this row.' };
+          if (refusal) {
+            result.errors.push({ row: row.rowNumber, id: learnerId, error: refusal.error });
+            result.failed++;
+            continue;
+          }
+        }
+
         // Update timestamp
         updateData.updated_at = new Date().toISOString();
 
@@ -721,10 +744,13 @@ export class BulkLearnerEditService {
           .single();
 
         if (updateError) {
+          // A refusal from sync_learner_email_to_profile (2026-10-03: the new
+          // college email belongs to someone with admin powers) is shown as is.
+          const refused = updateError.message?.includes('belongs to someone with admin powers');
           result.errors.push({
             row: row.rowNumber,
             id: learnerId,
-            error: `Update failed: ${updateError.message}`
+            error: refused ? updateError.message : `Update failed: ${updateError.message}`
           });
           result.failed++;
           continue;

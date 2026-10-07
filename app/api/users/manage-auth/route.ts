@@ -3,6 +3,11 @@ export const dynamic = 'force-dynamic';
 import { createClient } from '@supabase/supabase-js';
 import { NextRequest, NextResponse, connection } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
+import {
+  ADMIN_ROLE_MESSAGE,
+  callerIsSuperAdmin,
+  refuseIfLinksToAdmin
+} from '@/lib/services/staff/staff-admin-powers';
 
 export async function PATCH(request: NextRequest) {
   await connection();
@@ -79,7 +84,9 @@ export async function PATCH(request: NextRequest) {
 
     console.log('User role:', profile.role);
 
-    if (!['super_admin', 'administrator'].includes(profile.role)) {
+    // Super admin = the is_super_admin flag, nothing else (2026-10-01).
+    const isSuperAdmin = await callerIsSuperAdmin(supabase);
+    if (!(isSuperAdmin || profile.role === 'administrator')) {
       console.error(
         'Insufficient permissions for user:',
         user.email,
@@ -125,6 +132,16 @@ export async function PATCH(request: NextRequest) {
     if (!targetUser) {
       console.error('Target user not found:', email);
       return NextResponse.json({ error: 'User not found' }, { status: 404 });
+    }
+
+    // 2026-10-01: disabling or enabling someone with admin powers is super
+    // admin only. Checked on the very account about to be changed (its id and
+    // its own email), before anything is written.
+    if (!isSuperAdmin) {
+      const refusal = await refuseIfLinksToAdmin(supabase, targetUser.id, targetUser.email, ADMIN_ROLE_MESSAGE);
+      if (refusal) {
+        return NextResponse.json({ error: refusal.error }, { status: refusal.status });
+      }
     }
 
     console.log('Found target user:', targetUser.id, targetUser.email);

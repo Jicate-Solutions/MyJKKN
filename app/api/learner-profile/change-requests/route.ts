@@ -4,7 +4,12 @@ export const dynamic = 'force-dynamic';
 import { NextRequest, NextResponse, connection } from 'next/server';
 import { LearnerProfileChangeService } from '@/lib/services/learner-profile-change-service';
 import { createClient } from '@/lib/supabase/server';
-import { CreateChangeRequestDto, ChangeRequestStatus } from '@/types/learner-profile-change';
+import {
+  CreateChangeRequestDto,
+  ChangeRequestStatus,
+  disallowedChangeFields,
+  disallowedChangeFieldsMessage
+} from '@/types/learner-profile-change';
 
 /**
  * GET /api/learner-profile/change-requests
@@ -65,6 +70,13 @@ export async function POST(request: NextRequest) {
         { error: 'Missing required fields' },
         { status: 400 }
       );
+    }
+
+    // Only the editable fields, checked here and again by the service on
+    // create and on approval (2026-10-07).
+    const disallowed = disallowedChangeFields(body.changed_fields as Record<string, unknown>);
+    if (disallowed.length > 0) {
+      return NextResponse.json({ error: disallowedChangeFieldsMessage(disallowed) }, { status: 400 });
     }
 
     // Verify student owns this learner profile

@@ -10,6 +10,18 @@ import { UpdateUserRequest } from '@/types/users';
 import { logActivity, ActivityTemplates } from '@/lib/utils/activity-logger';
 import { RESOURCE_TYPES } from '@/types/activity';
 import { recordFeatureUse, FEATURE_KEYS } from '@/lib/usage/record';
+import {
+  ADMIN_ROLE_MESSAGE,
+  EMAIL_TAKEN_MESSAGE,
+  SELF_EMAIL_MESSAGE,
+  SELF_ROLE_MESSAGE,
+  refuseIfEmailOnStaffRecord,
+  refuseIfAdminRecord,
+  refuseIfLinksToAdmin,
+  refuseIfPrivilegedRoleId,
+  refuseIfPrivilegedRoleKey,
+  type AdminPowersRefusal
+} from '@/lib/services/staff/staff-admin-powers';
 
 // Create admin client for user management
 const supabaseAdmin = createClient(
@@ -22,6 +34,79 @@ const supabaseAdmin = createClient(
     }
   }
 );
+
+type RpcClient = {
+  rpc: (fn: string, args: Record<string, unknown>) => PromiseLike<{ data: unknown; error: unknown }>;
+};
+
+// 2026-10-01: a non-super-admin may not change the role, the roles, the
+// status, the college or the email of someone with admin powers, nor give
+// anyone a privileged role.
+async function refuseAdminPowerChanges(
+  supabase: RpcClient,
+  callerId: string,
+  userId: string,
+  body: UpdateUserRequest,
+  original: {
+    role?: string | null;
+    is_active?: boolean | null;
+    email?: string | null;
+    institution_id?: string | null;
+  } | null
+): Promise<AdminPowersRefusal | null> {
+  const roleChanged = body.role !== undefined && body.role !== original?.role;
+  const statusChanged = body.is_active !== undefined && body.is_active !== original?.is_active;
+  const emailChanged = body.email !== undefined && body.email !== original?.email;
+  const collegeChanged =
+    body.institution_id !== undefined && (body.institution_id || null) !== (original?.institution_id || null);
+
+  let addedRoleIds: string[] = [];
+  let rolesChanged = false;
+  if (Array.isArray(body.role_ids)) {
+    const { data: current, error } = await supabaseAdmin
+      .from('user_roles')
+      .select('role_id')
+      .eq('user_id', userId);
+    if (error) {
+      return { status: 500, error: "Could not read this person's roles. Nothing was changed." };
+    }
+    const before = new Set(((current ?? []) as Array<{ role_id: string }>).map((r) => r.role_id));
+    const after = new Set(body.role_ids);
+    addedRoleIds = [...after].filter((r) => !before.has(r));
+    rolesChanged = addedRoleIds.length > 0 || [...before].some((r) => !after.has(r));
+  }
+  if (!roleChanged && !statusChanged && !rolesChanged && !emailChanged && !collegeChanged) return null;
+
+  // 2026-10-03: nobody but a super admin changes their own role or roles,
+  // however ordinary (e.g. giving themselves hr_head), or their own email.
+  if (callerId === userId && (roleChanged || rolesChanged)) {
+    return { status: 403, error: SELF_ROLE_MESSAGE };
+  }
+  if (callerId === userId && emailChanged) {
+    return { status: 403, error: SELF_EMAIL_MESSAGE };
+  }
+
+  const holder = await refuseIfLinksToAdmin(supabase, userId, null, ADMIN_ROLE_MESSAGE);
+  if (holder) return holder;
+  // 2026-10-03: nor take an email that belongs to someone with admin powers
+  // (the staff sync would then attach their record to this account).
+  if (emailChanged && body.email) {
+    const taken = await refuseIfLinksToAdmin(supabase, null, body.email, EMAIL_TAKEN_MESSAGE);
+    if (taken) return taken;
+    // Nor another person's email to one a team-member record carries.
+    const onRecord = await refuseIfEmailOnStaffRecord(supabase, body.email);
+    if (onRecord) return onRecord;
+  }
+  if (roleChanged && body.role) {
+    const refusal = await refuseIfPrivilegedRoleKey(supabase, body.role);
+    if (refusal) return refusal;
+  }
+  for (const roleId of addedRoleIds) {
+    const refusal = await refuseIfPrivilegedRoleId(supabase, roleId);
+    if (refusal) return refusal;
+  }
+  return null;
+}
 
 export async function GET(
   request: NextRequest,
@@ -223,7 +308,7 @@ export async function PATCH(
     // Get current user's profile to check permissions
     const { data: currentProfile, error: profileError } = await supabase
       .from('profiles')
-      .select('role, full_name, institution_id')
+      .select('role, full_name, institution_id, is_super_admin')
       .eq('id', user.id)
       .single();
 
@@ -237,19 +322,16 @@ export async function PATCH(
 
     console.log('PATCH Current user role:', currentProfile.role);
 
+    // Super admin = the is_super_admin flag, nothing else (2026-10-01).
+    const isSuperAdmin = currentProfile.is_super_admin === true;
+
     // Check permissions: users can edit their own profile, or admins can edit any profile
     const canEdit =
       user.id === userId || // User editing their own profile
-      ['super_admin', 'administrator'].includes(currentProfile.role); // Admin roles
+      isSuperAdmin ||
+      currentProfile.role === 'administrator';
 
-    console.log(
-      'PATCH Can edit:',
-      canEdit,
-      'self-edit:',
-      user.id === userId,
-      'admin role:',
-      ['super_admin', 'administrator'].includes(currentProfile.role)
-    );
+    console.log('PATCH Can edit:', canEdit, 'self-edit:', user.id === userId);
 
     if (!canEdit) {
       return NextResponse.json(
@@ -261,21 +343,28 @@ export async function PATCH(
     // Get target user's original data for activity logging
     const { data: originalTargetUser } = await supabase
       .from('profiles')
-      .select('role, full_name, email, phone_number, institution_id, is_active, assigned_store_id')
+      .select('role, full_name, email, phone_number, institution_id, is_active, assigned_store_id, is_super_admin')
       .eq('id', userId)
       .single();
 
     // If editing someone else's profile, check additional restrictions
     if (user.id !== userId) {
       // Only super_admin can edit other super_admin profiles
-      if (
-        originalTargetUser?.role === 'super_admin' &&
-        currentProfile.role !== 'super_admin'
-      ) {
+      if (originalTargetUser?.is_super_admin === true && !isSuperAdmin) {
         return NextResponse.json(
           { error: 'Only super admins can edit other super admin profiles' },
           { status: 403 }
         );
+      }
+    }
+
+    // 2026-10-01: the role, roles and status of someone with admin powers are
+    // super admin only, and so is giving anyone a privileged role. The writes
+    // below use supabaseAdmin, which skips the database guards that say so.
+    if (!isSuperAdmin) {
+      const refusal = await refuseAdminPowerChanges(supabase, user.id, userId, body, originalTargetUser);
+      if (refusal) {
+        return NextResponse.json({ error: refusal.error }, { status: refusal.status });
       }
     }
 
@@ -354,7 +443,7 @@ export async function PATCH(
     // an audit trail of who opened up what.
     let grantsChanged = false;
     if (body.ims_store_grant_ids !== undefined) {
-      if (currentProfile.role !== 'super_admin') {
+      if (!isSuperAdmin) {
         return NextResponse.json(
           { error: 'Only super admins can change IMS store grants' },
           { status: 403 }
@@ -619,13 +708,16 @@ export async function DELETE(
     // Check if user has permission to delete users (super_admin or administrator)
     const { data: currentProfile, error: profileError } = await supabase
       .from('profiles')
-      .select('role, full_name, institution_id')
+      .select('role, full_name, institution_id, is_super_admin')
       .eq('id', user.id)
       .single();
 
+    // Super admin = the is_super_admin flag, nothing else (2026-10-01).
+    const isSuperAdmin = currentProfile?.is_super_admin === true;
+
     if (
       profileError ||
-      !['super_admin', 'administrator', 'hod'].includes(currentProfile.role)
+      !(isSuperAdmin || ['administrator', 'hod'].includes(currentProfile.role))
     ) {
       return NextResponse.json(
         { error: 'Insufficient permissions to delete users' },
@@ -636,18 +728,24 @@ export async function DELETE(
     // Check if trying to delete a super admin (only super admins can delete other super admins)
     const { data: targetUser } = await supabase
       .from('profiles')
-      .select('role, full_name, email, institution_id')
+      .select('role, full_name, email, institution_id, is_super_admin')
       .eq('id', id)
       .single();
 
-    if (
-      targetUser?.role === 'super_admin' &&
-      currentProfile.role !== 'super_admin'
-    ) {
+    if (targetUser?.is_super_admin === true && !isSuperAdmin) {
       return NextResponse.json(
         { error: 'Only super admins can delete other super admins' },
         { status: 403 }
       );
+    }
+
+    // 2026-10-01: deleting someone with admin powers is super admin only,
+    // whatever staff rows they have (powers held only in user_roles count).
+    if (!isSuperAdmin) {
+      const refusal = await refuseIfLinksToAdmin(supabase, id, targetUser?.email ?? null);
+      if (refusal) {
+        return NextResponse.json({ error: refusal.error }, { status: refusal.status });
+      }
     }
 
     // HOD role restrictions
@@ -699,6 +797,18 @@ export async function DELETE(
       console.log('Could not fetch profile email or profile not found');
       if (profileFetchError) {
         console.error('Profile fetch error:', profileFetchError);
+      }
+    }
+
+    // 2026-10-01: deleting the staff record of someone with admin powers is
+    // super admin only. The deletes below use supabaseAdmin, which skips the
+    // database guard that says so.
+    if (staffRecords && staffRecords.length > 0 && !isSuperAdmin) {
+      for (const staffRecord of staffRecords) {
+        const refusal = await refuseIfAdminRecord(supabase, staffRecord.id);
+        if (refusal) {
+          return NextResponse.json({ error: refusal.error }, { status: refusal.status });
+        }
       }
     }
 

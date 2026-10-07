@@ -7,6 +7,17 @@ import type { NextRequest } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import type { CookieOptions } from '@supabase/ssr';
 import { getStaffScope } from '@/lib/services/staff/staff-scope';
+import { pickStaffPatchFields } from '@/lib/services/staff/staff-patch-fields';
+import {
+  adminRecordMessageFor,
+  OWN_COLLEGE_MESSAGE,
+  refuseIfCallersRecord,
+  refuseIfPrivilegedRoleKey,
+  changedFieldsBeyondSmall,
+  refuseIdentityChange,
+  refuseIfAdminRecord,
+  refuseIfLinksToAdmin
+} from '@/lib/services/staff/staff-admin-powers';
 
 // Create admin client for database operations (bypasses RLS)
 const supabaseAdmin = createClient(
@@ -81,8 +92,8 @@ export async function PATCH(
       );
     }
 
-    const isSuperAdmin =
-      userProfile.is_super_admin || userProfile.role === 'super_admin';
+    // Super admin = the is_super_admin flag, nothing else (2026-10-01).
+    const isSuperAdmin = userProfile.is_super_admin === true;
 
     // Resolve staff module scope (defence-in-depth alongside the RLS
     // policies on public.staff from Batch A).
@@ -94,11 +105,11 @@ export async function PATCH(
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 
-    // Get the target staff record (need profile_id + institution_id to
-    // enforce scope ownership rules).
+    // Get the target staff record: profile_id + institution_id for the scope
+    // rules, and every column for the admin-powers check below.
     const { data: staffRecord, error: staffFetchError } = await supabaseAdmin
       .from('staff')
-      .select('id, profile_id, institution_id, institution_email, role_key')
+      .select('*')
       .eq('id', id)
       .single();
 
@@ -155,6 +166,31 @@ export async function PATCH(
 
     const json = await request.json();
 
+    // Moving a person to another institution: the caller must reach the new
+    // one. On the record of someone with admin powers it is super admin only
+    // (the admin-powers check below), like every field but the small ones.
+    if (
+      !isSuperAdmin &&
+      Object.prototype.hasOwnProperty.call(json, 'institution_id') &&
+      json.institution_id !== staffRecord.institution_id
+    ) {
+      const { data: canReach, error: reachError } = await supabase.rpc('role_has_institution_access', {
+        check_institution_id: json.institution_id ?? null
+      });
+      if (reachError || canReach !== true) {
+        return NextResponse.json(
+          { error: 'You cannot move a team member to an institution you do not have access to.' },
+          { status: 403 }
+        );
+      }
+      // 2026-10-07: nor their own record: the sync would copy the college onto
+      // their profile and widen what "their own institution" lets them see.
+      const own = await refuseIfCallersRecord(supabase, staffRecord, OWN_COLLEGE_MESSAGE);
+      if (own) {
+        return NextResponse.json({ error: own.error }, { status: own.status });
+      }
+    }
+
     // Role change. supabaseAdmin below has no auth.uid(), so
     // trg_staff_guard_role_key lets everything through — this is the same
     // rule enforced in code: super admin, or staff.role.change onto a
@@ -164,6 +200,14 @@ export async function PATCH(
       json.role_key !== staffRecord.role_key &&
       !isSuperAdmin
     ) {
+      // 2026-10-03: nobody but a super admin changes the role on their own
+      // record: its profile link, or any account or profile carrying its
+      // emails (the database's own test of "the caller's record").
+      const own = await refuseIfCallersRecord(supabase, staffRecord);
+      if (own) {
+        return NextResponse.json({ error: own.error }, { status: own.status });
+      }
+
       const { data: canChangeRole } = await supabase.rpc('user_has_permission', {
         permission_name: 'staff.role.change'
       });
@@ -173,28 +217,87 @@ export async function PATCH(
           { status: 403 }
         );
       }
+      // Privileged = the database's one test (is_privileged, or a role name
+      // is_admin() trusts).
       const { data: targetRole } = await supabaseAdmin
         .from('custom_roles')
-        .select('is_privileged')
+        .select('id')
         .eq('role_key', json.role_key)
         .maybeSingle();
-      if (!targetRole || (targetRole as any).is_privileged) {
+      const privileged = targetRole ? await refuseIfPrivilegedRoleKey(supabase, json.role_key) : null;
+      if (!targetRole || privileged) {
         return NextResponse.json(
-          { error: `Only a super administrator can assign the role "${json.role_key}".` },
-          { status: 403 }
+          {
+            error:
+              privileged?.status === 500
+                ? privileged.error
+                : `Only a super administrator can assign the role "${json.role_key}".`
+          },
+          { status: privileged?.status ?? 403 }
         );
+      }
+    }
+
+    // Only the columns the staff form edits — never the raw body.
+    const fields = pickStaffPatchFields(json);
+
+    // 2026-10-01: the record of someone with admin powers (privileged staff
+    // role, super admin flag, privileged profile role or user_roles role) is
+    // super admin only, except the photo, phone numbers and attendance
+    // machine code. supabaseAdmin below skips the database guard that
+    // enforces the same rule.
+    const extraColumns = changedFieldsBeyondSmall(fields, staffRecord);
+    if (!isSuperAdmin && extraColumns.length > 0) {
+      const refusal = await refuseIfAdminRecord(supabase, id);
+      if (refusal) {
+        // Name what else the edit changes: the staff form sends every field.
+        const error = refusal.status === 403 ? adminRecordMessageFor(extraColumns) : refusal.error;
+        return NextResponse.json({ error }, { status: refusal.status });
+      }
+    }
+
+    // A new institution email re-points the record: sync_staff_to_profiles
+    // finds the profile by that email when profile_id is empty, and would
+    // copy this row's role onto someone with admin powers.
+    if (
+      !isSuperAdmin &&
+      typeof fields.institution_email === 'string' &&
+      fields.institution_email !== staffRecord.institution_email
+    ) {
+      const refusal = await refuseIfLinksToAdmin(
+        supabase,
+        staffRecord.profile_id,
+        fields.institution_email
+      );
+      if (refusal) {
+        return NextResponse.json({ error: refusal.error }, { status: refusal.status });
       }
     }
 
     // Normalize empty staff_id to null so the staff_staff_id_not_empty
     // CHECK constraint doesn't reject blanks coming from the form.
-    if (json.staff_id === '') json.staff_id = null;
+    if (fields.staff_id === '') fields.staff_id = null;
+
+    // 2026-10-03: for every caller, super admins included: the record may not
+    // be re-pointed to or from the caller's own account or the Director's, nor
+    // to anyone else while a salary revision is waiting or approved.
+    const identity = await refuseIdentityChange(supabase, id, {
+      profileId: staffRecord.profile_id,
+      email: 'email' in fields ? (fields.email as string | null) : staffRecord.email,
+      institutionEmail:
+        'institution_email' in fields
+          ? (fields.institution_email as string | null)
+          : staffRecord.institution_email
+    });
+    if (identity) {
+      return NextResponse.json({ error: identity.error }, { status: identity.status });
+    }
 
     // Update the staff record using admin client (bypasses RLS)
     const { data: updatedStaff, error: updateError } = await supabaseAdmin
       .from('staff')
       .update({
-        ...json,
+        ...fields,
         updated_by: session.user.id,
         updated_at: new Date().toISOString()
       })
@@ -218,12 +321,21 @@ export async function PATCH(
       );
     }
 
-    // If institution_id was updated and staff has institution_email, sync profile
-    if (json.institution_id && staffRecord.institution_email) {
+    // If the college really changed (the form always sends one) and the
+    // record is linked, sync the profile. Only a real move: a phone-only
+    // edit must not copy the record's college over a profile's (2026-10-03);
+    // a real move has already passed the admin-record check above.
+    // The profile is the one linked by profile_id, never every profile that
+    // happens to carry the institution email (2026-10-03).
+    if (
+      fields.institution_id &&
+      fields.institution_id !== staffRecord.institution_id &&
+      staffRecord.profile_id
+    ) {
       const { error: profileUpdateError } = await supabaseAdmin
         .from('profiles')
-        .update({ institution_id: json.institution_id })
-        .eq('email', staffRecord.institution_email);
+        .update({ institution_id: fields.institution_id })
+        .eq('id', staffRecord.profile_id);
 
       if (profileUpdateError) {
         console.warn(
@@ -308,8 +420,8 @@ export async function DELETE(
       );
     }
 
-    const isSuperAdmin =
-      userProfile.is_super_admin || userProfile.role === 'super_admin';
+    // Super admin = the is_super_admin flag, nothing else (2026-10-01).
+    const isSuperAdmin = userProfile.is_super_admin === true;
 
     const scope = isSuperAdmin
       ? ('all_institutions' as const)
@@ -345,6 +457,15 @@ export async function DELETE(
         { error: 'Insufficient permissions to delete staff' },
         { status: 403 }
       );
+    }
+
+    // 2026-10-01: deleting the record of someone with admin powers is super
+    // admin only (same rule as PATCH and the database guard).
+    if (!isSuperAdmin) {
+      const refusal = await refuseIfAdminRecord(supabase, id);
+      if (refusal) {
+        return NextResponse.json({ error: refusal.error }, { status: refusal.status });
+      }
     }
 
     // Mirrors the "staff_delete_scope_aware" RLS policy: own_records scope

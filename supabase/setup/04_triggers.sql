@@ -2993,3 +2993,39 @@ CREATE TRIGGER trg_zz_student_attendance_first_marks
   FOR EACH ROW
   EXECUTE FUNCTION public.fn_record_attendance_first_marks();
 
+
+-- =============================================================================
+-- Mirrored from supabase/migrations/20271007170139_staff_admin_records_super_admin_only.sql
+-- Updated: 2026-10-07 (round 15) - appended, not edited in place: main's
+-- earlier copies above are untouched, and these definitions, being the last
+-- in this file, are the ones a fresh setup ends with. Records and roles of
+-- people with admin powers are super admin only; see the migration header.
+-- =============================================================================
+
+DROP TRIGGER IF EXISTS trg_guard_roles_without_admin_powers_policy ON public.platform_policies;
+
+CREATE TRIGGER trg_guard_roles_without_admin_powers_policy
+  BEFORE INSERT OR UPDATE OR DELETE ON public.platform_policies
+  FOR EACH ROW EXECUTE FUNCTION public.fn_guard_roles_without_admin_powers_policy();
+
+CREATE OR REPLACE TRIGGER trg_staff_guard_role_key
+  BEFORE INSERT OR UPDATE OR DELETE ON public.staff
+  FOR EACH ROW EXECUTE FUNCTION public.fn_staff_guard_role_key();
+
+DROP TRIGGER IF EXISTS trg_profiles_guard_admin_powers ON public.profiles;
+
+CREATE TRIGGER trg_profiles_guard_admin_powers
+  BEFORE INSERT OR UPDATE OR DELETE ON public.profiles
+  FOR EACH ROW EXECUTE FUNCTION public.fn_profiles_guard_admin_powers();
+
+DROP TRIGGER IF EXISTS trg_user_roles_guard_admin_powers ON public.user_roles;
+
+CREATE TRIGGER trg_user_roles_guard_admin_powers
+  BEFORE INSERT OR UPDATE OR DELETE ON public.user_roles
+  FOR EACH ROW EXECUTE FUNCTION public.fn_user_roles_guard_admin_powers();
+
+DROP TRIGGER IF EXISTS trg_custom_roles_guard_admin_powers ON public.custom_roles;
+
+CREATE TRIGGER trg_custom_roles_guard_admin_powers
+  BEFORE INSERT OR UPDATE OR DELETE ON public.custom_roles
+  FOR EACH ROW EXECUTE FUNCTION public.fn_custom_roles_guard_admin_powers();

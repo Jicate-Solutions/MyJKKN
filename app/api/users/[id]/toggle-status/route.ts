@@ -7,6 +7,11 @@ import type { NextRequest } from 'next/server';
 import { Database } from '@/types/auth';
 import { createClient } from '@supabase/supabase-js';
 import { logActivity, ActivityTemplates } from '@/lib/utils/activity-logger';
+import {
+  ADMIN_ROLE_MESSAGE,
+  callerIsSuperAdmin,
+  refuseIfLinksToAdmin
+} from '@/lib/services/staff/staff-admin-powers';
 
 // Create admin client for user management
 const supabaseAdmin = createClient(
@@ -71,16 +76,26 @@ export async function PATCH(
       );
     }
 
-    // Check permissions: only admins can toggle user status
-    const canToggleStatus = ['super_admin', 'administrator'].includes(
-      currentProfile.role
-    );
+    // Check permissions: only admins can toggle user status. Super admin =
+    // the is_super_admin flag, nothing else (2026-10-01).
+    const isSuperAdmin = await callerIsSuperAdmin(supabase);
+    const canToggleStatus = isSuperAdmin || currentProfile.role === 'administrator';
 
     if (!canToggleStatus) {
       return NextResponse.json(
         { error: 'Insufficient permissions to toggle user status' },
         { status: 403 }
       );
+    }
+
+    // 2026-10-01: the status of someone with admin powers is super admin
+    // only. The update below uses supabaseAdmin, which skips the database
+    // guard that says so.
+    if (!isSuperAdmin) {
+      const refusal = await refuseIfLinksToAdmin(supabase, userId, null, ADMIN_ROLE_MESSAGE);
+      if (refusal) {
+        return NextResponse.json({ error: refusal.error }, { status: refusal.status });
+      }
     }
 
     // Get target user's current status
@@ -95,10 +110,7 @@ export async function PATCH(
     }
 
     // Prevent super_admin from being deactivated by non-super_admin
-    if (
-      targetUser.role === 'super_admin' &&
-      currentProfile.role !== 'super_admin'
-    ) {
+    if (targetUser.role === 'super_admin' && !isSuperAdmin) {
       return NextResponse.json(
         { error: 'Only super admins can modify other super admin accounts' },
         { status: 403 }

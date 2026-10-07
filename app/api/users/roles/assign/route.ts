@@ -17,6 +17,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server';
 import { recordFeatureUse, FEATURE_KEYS } from '@/lib/usage/record';
 import { isPushOptedOut } from '@/lib/push/opt-out';
+import { callerIsSuperAdmin, refuseRoleChange } from '@/lib/services/staff/staff-admin-powers';
 import webpush from 'web-push';
 
 // Configure web-push with VAPID keys once on module load (same as notifications/send).
@@ -59,7 +60,8 @@ export async function POST(request: NextRequest) {
       .eq('id', user.id)
       .single();
 
-    let allowed = callerProfile?.role === 'super_admin';
+    // Super admin = the is_super_admin flag, nothing else (2026-10-01).
+    let allowed = await callerIsSuperAdmin(supabase);
     if (!allowed && callerProfile?.role) {
       const { data: callerRole } = await supabase
         .from('custom_roles')
@@ -91,6 +93,14 @@ export async function POST(request: NextRequest) {
     }
     const roleId = (role as { id: string }).id;
     const roleName = (role as { role_name?: string }).role_name || roleKey;
+
+    // 2026-10-01: the roles of someone with admin powers, and any privileged
+    // role, are super admin only. The insert below uses the service-role
+    // client, which skips the database guard that says so.
+    const refusal = await refuseRoleChange(supabase, { callerId: user.id, targetUserId: userId, grantRoleIds: [roleId] });
+    if (refusal) {
+      return NextResponse.json({ error: refusal.error }, { status: refusal.status });
+    }
 
     // Confirm the target user exists.
     const { data: target } = await admin

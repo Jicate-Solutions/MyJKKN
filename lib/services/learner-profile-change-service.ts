@@ -8,6 +8,8 @@ import {
   ApproveRequestDto,
   RejectRequestDto,
   ChangeRequestFilters,
+  disallowedChangeFields,
+  disallowedChangeFieldsMessage,
 } from '@/types/learner-profile-change';
 import type { ChangeRequestAnalytics, InstitutionChangeRequestStats } from '@/types/learner-dashboard';
 import { LearnerProfileAuditService } from './learner-profile-audit-service';
@@ -91,6 +93,12 @@ export class LearnerProfileChangeService {
     // Validate at least one field changed
     if (Object.keys(dto.changed_fields).length === 0) {
       throw new Error('No changes detected');
+    }
+
+    // Only the editable fields (2026-10-07): approval writes every key.
+    const disallowed = disallowedChangeFields(dto.changed_fields as Record<string, unknown>);
+    if (disallowed.length > 0) {
+      throw new Error(disallowedChangeFieldsMessage(disallowed));
     }
 
     // Insert change request
@@ -324,6 +332,15 @@ export class LearnerProfileChangeService {
 
     if (request.request_status !== 'pending') {
       throw new Error('Only pending requests can be approved');
+    }
+
+    // Approval writes every key with the service role, so the editable list is
+    // checked again here: a request row can be written without the route
+    // (2026-10-07). college_email, for one, would turn whoever holds that
+    // email into a learner's account.
+    const disallowed = disallowedChangeFields(request.changed_fields as Record<string, unknown>);
+    if (disallowed.length > 0) {
+      throw new Error(disallowedChangeFieldsMessage(disallowed));
     }
 
     // Check approval permission

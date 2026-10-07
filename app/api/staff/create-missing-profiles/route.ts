@@ -5,6 +5,12 @@ import { cookies } from 'next/headers';
 import { NextResponse , connection } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { selectInBatches } from '@/lib/utils/supabase-batched-in';
+import {
+  ADMIN_ROLE_MESSAGE,
+  refuseIdentityChange,
+  refuseIfLinksToAdmin,
+  refuseIfPrivilegedRoleKey
+} from '@/lib/services/staff/staff-admin-powers';
 
 
 // Create admin client for user management
@@ -151,7 +157,7 @@ export async function POST(request: Request) {
 
     const { data: currentUser, error: userError } = await supabase
       .from('profiles')
-      .select('role')
+      .select('role, is_super_admin')
       .eq('id', session.user.id)
       .single();
 
@@ -159,7 +165,41 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    if (!['super_admin', 'administrator'].includes(currentUser.role)) {
+    // Super admin = the is_super_admin flag, nothing else (2026-10-01).
+    const isSuperAdmin = currentUser.is_super_admin === true;
+
+    // 2026-10-01: only a super admin may change the role or the college of
+    // someone with admin powers, or give anyone a privileged role. The writes
+    // below use supabaseAdmin, which skips the database guards that say so.
+    // Returns the refusal message, or null when the change may go ahead.
+    const profileChangeRefusal = async (
+      profileId: string | null,
+      change: { targetRole: string | null; collegeChanges: boolean }
+    ): Promise<string | null> => {
+      if (isSuperAdmin) return null;
+      if (profileId && (change.targetRole || change.collegeChanges)) {
+        const holder = await refuseIfLinksToAdmin(supabase, profileId, null, ADMIN_ROLE_MESSAGE);
+        if (holder) return holder.error;
+      }
+      if (!change.targetRole) return null;
+      const privileged = await refuseIfPrivilegedRoleKey(supabase, change.targetRole);
+      return privileged ? privileged.error : null;
+    };
+
+    // 2026-10-03: for every caller, super admins included: linking a
+    // team-member record to a profile may not move it to or from the caller's
+    // own account or the Director's, nor to anyone else while a salary
+    // revision is waiting or approved. Throws the refusal for that person.
+    const refuseLinking = async (staff: any, profileId: string): Promise<void> => {
+      const identity = await refuseIdentityChange(supabase, staff.id, {
+        profileId,
+        email: staff.email ?? null,
+        institutionEmail: staff.institution_email ?? null
+      });
+      if (identity) throw new Error(identity.error);
+    };
+
+    if (!(isSuperAdmin || currentUser.role === 'administrator')) {
       return NextResponse.json(
         {
           error:
@@ -181,6 +221,7 @@ export async function POST(request: Request) {
         id,
         first_name,
         last_name,
+        email,
         institution_email,
         phone,
         institution_id,
@@ -280,10 +321,12 @@ export async function POST(request: Request) {
             profile_id: profile.id,
             current_role: effectiveCurrentRole,
             role_matches: roleMatches,
+            institution_matches: hasInstitutionId,
             target_role: staffRoleKey || effectiveCurrentRole
           } as StaffWithProfileId & {
             current_role: string;
             role_matches: boolean;
+            institution_matches: boolean;
             target_role: string;
           });
         }
@@ -341,6 +384,13 @@ export async function POST(request: Request) {
         if (!profileId) {
           throw new Error(`Profile ID not found for ${staff.institution_email}`);
         }
+
+        const refusal = await profileChangeRefusal(profileId, {
+          targetRole: !(staff as any).role_matches ? (staff as any).target_role || null : null,
+          collegeChanges: !(staff as any).institution_matches
+        });
+        if (refusal) throw new Error(refusal);
+        await refuseLinking(staff, profileId);
 
         // Role sync rule: if staff.role_key is set and differs from profile.role,
         // update profile.role to staff.role_key. Otherwise leave role alone.
@@ -464,6 +514,15 @@ export async function POST(request: Request) {
             existingProfileCheck.designation !== staff.designation;
 
           if (needsUpdate) {
+            const refusal = await profileChangeRefusal(existingProfileCheck.id, {
+              targetRole: !roleMatches ? targetRole || null : null,
+              collegeChanges: existingProfileCheck.institution_id !== staff.institution_id
+            });
+            if (refusal) throw new Error(refusal);
+            await refuseLinking(staff, existingProfileCheck.id);
+          }
+
+          if (needsUpdate) {
             const updateData: any = {
               institution_id: staff.institution_id,
               department_id: staff.department_id,
@@ -526,12 +585,18 @@ export async function POST(request: Request) {
 
         // Generate a placeholder UUID for profile creation
         const profileId = crypto.randomUUID();
+        await refuseLinking(staff, profileId);
         console.log(`Creating new profile with ID: ${profileId}`);
 
         // Create new profile. Use staff.role_key as the authoritative role source.
         // Fallback to 'faculty' only if role_key is genuinely missing (shouldn't happen
         // post the 2026-04-16 bulk upload fix that plumbs role_key through).
         const newProfileRole = (staff as any).role_key || 'faculty';
+        const createRefusal = await profileChangeRefusal(null, {
+          targetRole: newProfileRole,
+          collegeChanges: false
+        });
+        if (createRefusal) throw new Error(createRefusal);
         const { data: profileData, error: profileError } = await supabaseAdmin
           .from('profiles')
           .insert({

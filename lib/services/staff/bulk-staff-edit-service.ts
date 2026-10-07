@@ -15,6 +15,7 @@ import {
   type StaffLookupRow
 } from './staff-bulk-edit-validation';
 import { EDITABLE_COLUMNS, type StaffEditableField } from './staff-bulk-edit-columns';
+import { ADMIN_RECORD_SMALL_FIELDS, refuseIfAdminRecord } from './staff-admin-powers';
 
 export interface BulkEditRow {
   rowNumber: number;
@@ -104,6 +105,46 @@ const LOOKUP_RANGE_END = 9999;
  */
 export function scopesToInstitutions(accessibleInstitutionIds: string[]): boolean {
   return accessibleInstitutionIds.length > 0;
+}
+
+/**
+ * 2026-10-01: the record of someone with admin powers is super admin only, except the
+ * photo, phone numbers and attendance machine code. The database guard would refuse
+ * those writes at apply time anyway; checking during evaluate() makes preview say so up
+ * front, so preview and apply agree. Fails closed: a row whose check cannot run becomes
+ * an error row, not a write. Exported so it can be unit-tested.
+ */
+export async function refuseAdminRecordWrites(
+  supabase: any,
+  writes: Map<string, Record<string, unknown>>,
+  rowByStaffId: Map<string, BulkEditRow>
+): Promise<void> {
+  // Only rows that change something beyond the small fields need the check.
+  const needCheck = Array.from(writes.entries())
+    .filter(([, updates]) => Object.keys(updates).some(k => !ADMIN_RECORD_SMALL_FIELDS.includes(k)))
+    .map(([staffId]) => staffId);
+  if (needCheck.length === 0) return;
+  const { data: isSuperAdmin } = await supabase.rpc('is_super_admin');
+  if (isSuperAdmin === true) return;
+
+  for (const part of chunk(needCheck, 20)) {
+    const refusals = await Promise.all(part.map(id => refuseIfAdminRecord(supabase, id)));
+    part.forEach((staffId, i) => {
+      const refusal = refusals[i];
+      if (!refusal) return;
+      // Name the columns the row tried to change, not the match key.
+      const fields = Object.keys(writes.get(staffId) ?? {})
+        .filter(k => !ADMIN_RECORD_SMALL_FIELDS.includes(k))
+        .map(k => EDITABLE_COLUMNS.find(c => c.field === k)?.header ?? k);
+      writes.delete(staffId);
+      const row = rowByStaffId.get(staffId);
+      if (row) {
+        row.status = 'error';
+        row.changes = [];
+        row.issues = [{ field: fields.join(', ') || 'Institution Email', kind: 'record', message: refusal.error }];
+      }
+    });
+  }
 }
 
 export class BulkStaffEditService extends BaseService {
@@ -241,6 +282,7 @@ export class BulkStaffEditService extends BaseService {
     const seen = new Set<string>();
     const reportRows: BulkEditRow[] = [];
     const writes = new Map<string, Partial<Record<StaffEditableField, string | null>>>();
+    const rowByStaffId = new Map<string, BulkEditRow>();
 
     const headerOf = new Map(EDITABLE_COLUMNS.map(c => [c.field, c.header] as const));
     // A `lookup` column stores a UUID but the sheet speaks names, so a change line for one
@@ -280,6 +322,7 @@ export class BulkStaffEditService extends BaseService {
       reportRows.push({ rowNumber: row.rowNumber, institutionEmail: row.institutionEmail, name, status: 'change', changes, issues: [] });
       if (staff) {
         writes.set(staff.id, updates);
+        rowByStaffId.set(staff.id, reportRows[reportRows.length - 1]);
 
         // CLAIM the newly-taken unique values into ctx as we go.
         //
@@ -293,6 +336,8 @@ export class BulkStaffEditService extends BaseService {
         claimUniqueValues(ctx, staff, updates);
       }
     }
+
+    await refuseAdminRecordWrites(this.supabase, writes, rowByStaffId);
 
     const report: BulkEditReport = {
       total_rows: rows.length,

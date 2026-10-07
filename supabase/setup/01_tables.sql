@@ -11549,3 +11549,14 @@ COMMENT ON TABLE public.hr_salary_revision_target_setting_log IS
   'signed in or not (changed_via: signed_in, server_key, console; changed_by NULL unless signed in). Append-only, '
   'written by the trg_audit_hr_salary_revision_target_rules triggers (insert, update incl. a rename away, delete). '
   'Migration 20271007180207.';
+
+-- =============================================================================
+-- Mirrored from supabase/migrations/20271007170139_staff_admin_records_super_admin_only.sql
+-- Updated: 2026-10-07 (round 15) - appended, not edited in place: main's
+-- earlier copies above are untouched, and these definitions, being the last
+-- in this file, are the ones a fresh setup ends with. Records and roles of
+-- people with admin powers are super admin only; see the migration header.
+-- =============================================================================
+
+-- fn_staff_link_has_admin_powers compares lower(btrim(email)); profiles had no index for that.
+CREATE INDEX IF NOT EXISTS idx_profiles_lower_btrim_email ON public.profiles (lower(btrim(email)));

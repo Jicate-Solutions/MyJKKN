@@ -9,6 +9,13 @@ import type { CookieOptions } from '@supabase/ssr';
 import { CreateUserRequest } from '@/types/users';
 import { logActivity, ActivityTemplates } from '@/lib/utils/activity-logger';
 import { RESOURCE_TYPES } from '@/types/activity';
+import {
+  EMAIL_TAKEN_MESSAGE,
+  callerIsSuperAdmin,
+  refuseIfEmailOnStaffRecord,
+  refuseIfLinksToAdmin,
+  refuseRoleChange
+} from '@/lib/services/staff/staff-admin-powers';
 
 
 // Create admin client for database operations
@@ -273,6 +280,31 @@ export async function POST(request: Request) {
       console.log(
         `Allowing ${currentUser.role} to create user with custom role: ${role}`
       );
+    }
+
+    // 2026-10-01: giving anyone a privileged role (the main role or any of
+    // role_ids) is super admin only. The role writes below use supabaseAdmin,
+    // which skips the database guard that says so.
+    const refusal = await refuseRoleChange(supabase, {
+      grantRoleKeys: [role],
+      grantRoleIds: Array.isArray(role_ids) ? role_ids : []
+    });
+    if (refusal) {
+      return NextResponse.json({ error: refusal.error }, { status: refusal.status });
+    }
+    // 2026-10-03: nor an email that belongs to someone with admin powers (any
+    // case); create_preregistered_profile refuses it too.
+    if (!(await callerIsSuperAdmin(supabase))) {
+      const taken = await refuseIfLinksToAdmin(supabase, null, email, EMAIL_TAKEN_MESSAGE);
+      if (taken) {
+        return NextResponse.json({ error: taken.error }, { status: taken.status });
+      }
+      // 2026-10-07: nor one a team-member record carries (institution or
+      // personal); create_preregistered_profile refuses it too.
+      const onRecord = await refuseIfEmailOnStaffRecord(supabase, email);
+      if (onRecord) {
+        return NextResponse.json({ error: onRecord.error }, { status: onRecord.status });
+      }
     }
 
     // For Google OAuth only system, we pre-register profiles

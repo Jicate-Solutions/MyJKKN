@@ -64,6 +64,7 @@ import {
   getLocationDisplayName,
 } from '@/lib/data/locations';
 import { TagsInput } from './tags-input';
+import { pickChangedStaffFields } from './staff-form-changed-fields';
 import { useStaffTags } from '@/hooks/staff/use-staff-tags';
 import { TabbedFormShell, type TabSpec } from '@/components/forms';
 import { BasicTab } from './staff-form-tabs/basic-tab';
@@ -454,9 +455,15 @@ export function StaffForm({ staff, isEditing }: StaffFormProps) {
   // per-record in the Profile Settings sub-section if they don't want it.
   useEffect(() => {
     if (canEnableExtended && form.getValues('has_extended_profile') === false) {
-      form.setValue('has_extended_profile', true);
+      // On edit it counts as a change (and is sent) only when the person
+      // picked the category; on load it would turn a phone-only edit into a
+      // profile-settings change, refused on the record of someone with admin
+      // powers (2026-10-07). A person who wants it on toggles it.
+      form.setValue('has_extended_profile', true, {
+        shouldDirty: !isEditing || form.getFieldState('category_id').isDirty
+      });
     }
-  }, [canEnableExtended, form]);
+  }, [canEnableExtended, form, isEditing]);
 
   // Reset form when staff data changes (for edit mode)
   useEffect(() => {
@@ -621,8 +628,11 @@ export function StaffForm({ staff, isEditing }: StaffFormProps) {
     if (typeof selectedCategory.allows_login !== 'boolean') return;
     const current = form.getValues('login_enabled');
     if (current !== selectedCategory.allows_login) {
+      // Counts as a change (and is sent on edit) only when the person picked
+      // the category: on load it would turn a photo-only edit into a login
+      // change (2026-10-03).
       form.setValue('login_enabled', selectedCategory.allows_login, {
-        shouldDirty: true
+        shouldDirty: form.getFieldState('category_id').isDirty
       });
     }
   }, [selectedCategory, form]);
@@ -773,8 +783,17 @@ export function StaffForm({ staff, isEditing }: StaffFormProps) {
 
       let savedStaffId: string;
       if (isEditing && staff) {
-        await StaffService.updateStaff(staff.id, formattedValues as any);
-        savedStaffId = staff.id;
+        // Send only what was changed: the form fills defaults for empty
+        // columns, which made a phone-only edit look like more (2026-10-03).
+        const record = staff;
+        const statusChanged = values.status !== (record.status ?? 'draft');
+        const changed = pickChangedStaffFields(
+          formattedValues as Record<string, unknown>,
+          form.formState.dirtyFields as Record<string, unknown>,
+          statusChanged ? ['status'] : []
+        );
+        await StaffService.updateStaff(record.id, changed as any);
+        savedStaffId = record.id;
       } else {
         const created = await StaffService.createStaff(formattedValues as any);
         savedStaffId = created.id;
