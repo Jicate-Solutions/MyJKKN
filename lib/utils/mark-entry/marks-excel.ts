@@ -65,6 +65,12 @@ export interface MarksImportRow {
   learnerId: string;
   marks: Record<string, number>;
   isAbsent: boolean;
+  /**
+   * Question-wise only: the round's other components as found in the file
+   * (component code → mark, `null` = the cell was blank). Present only when the
+   * file has those columns.
+   */
+  others?: Record<string, number | null>;
 }
 
 export interface MarksImportResult {
@@ -81,6 +87,8 @@ export interface TemplateLearner {
   name: string;
   marks: Record<string, number>;
   is_absent?: boolean;
+  /** Question-wise only: marks for the round's other components, by component code. */
+  other_marks?: Record<string, number>;
 }
 
 export interface DirectComponent {
@@ -151,7 +159,18 @@ interface TemplateSpec {
   columns: MarkColumn[];
   learners: TemplateLearner[];
   withAbsent: boolean;
+  /** Limit for the sum of `columns` (the component the paper feeds, or the round for direct entry). */
+  paperMax: number;
+  /** Limit for the whole row. Equals `paperMax` unless `others` adds components. */
   totalMax: number;
+  /**
+   * Components keyed in as ONE total each, after the Absent column (e.g. the
+   * Assignment beside a question-wise Test 1). `key` is the component code.
+   * They are independent of the paper's rules and of AB.
+   */
+  others?: MarkColumn[];
+  /** Header of the paper-subtotal column shown before `others`, e.g. "Test 1 total". */
+  subHeader?: string;
   /** Rule clauses for one cell, MOST important first — the tail is dropped if the formula would exceed Excel's limit. */
   clauses: (ctx: ClauseContext) => string[];
   /**
@@ -172,19 +191,36 @@ async function loadExcelJS(): Promise<typeof ExcelJSType> {
   return (mod.default ?? mod) as typeof ExcelJSType;
 }
 
+/** Meta key prefix for an other-component column, so it can never collide with a question id. */
+const OTHER_PREFIX = 'c:';
+const SUB_KEY = 'sub';
+
 async function buildAndDownload(spec: TemplateSpec): Promise<void> {
   const ExcelJS = await loadExcelJS();
   const wb = new ExcelJS.Workbook();
   const ws = wb.addWorksheet(MARKS_SHEET);
 
   const { columns, learners, withAbsent } = spec;
+  const others = spec.others ?? [];
+  const hasOthers = others.length > 0;
+
+  // Column map: fixed | paper columns | Absent | paper subtotal | others | Total | Check
   const firstMarkCol = 4;
   const lastMarkCol = firstMarkCol + columns.length - 1;
   const absentCol = withAbsent ? lastMarkCol + 1 : null;
-  const totalCol = lastMarkCol + (withAbsent ? 2 : 1);
+  let next = lastMarkCol + (withAbsent ? 2 : 1);
+  const subCol = hasOthers ? next++ : null;
+  const firstOtherCol = next;
+  next += others.length;
+  const lastOtherCol = next - 1;
+  const totalCol = next;
   const checkCol = totalCol + 1;
   const hasBands = columns.some((c) => c.band);
   const hasSub = columns.some((c) => c.sub);
+
+  /** Tint for a sheet column: its part colour for a paper column, neutral for everything else. */
+  const toneAt = (c: number) => toneOf(columns[c - firstMarkCol]?.tone ?? null);
+  const boxed = { top: BORDER, left: BORDER, right: BORDER, bottom: BORDER };
 
   // The Check column is a formula; make sure it is computed the moment the file opens.
   wb.calcProperties.fullCalcOnLoad = true;
@@ -201,9 +237,9 @@ async function buildAndDownload(spec: TemplateSpec): Promise<void> {
   ws.getRow(r).height = 30;
   r++;
 
-  if (hasBands) {
+  if (hasBands || hasOthers) {
     let start = 0;
-    while (start < columns.length) {
+    while (hasBands && start < columns.length) {
       let end = start;
       while (end + 1 < columns.length && columns[end + 1].band === columns[start].band) end++;
       const c1 = firstMarkCol + start;
@@ -215,32 +251,44 @@ async function buildAndDownload(spec: TemplateSpec): Promise<void> {
       cell.alignment = { horizontal: 'center' };
       for (let c = c1; c <= c2; c++) {
         ws.getCell(r, c).fill = fill(toneOf(columns[start].tone).band);
-        ws.getCell(r, c).border = { top: BORDER, left: BORDER, right: BORDER, bottom: BORDER };
+        ws.getCell(r, c).border = boxed;
       }
       start = end + 1;
+    }
+    if (hasOthers) {
+      if (lastOtherCol > firstOtherCol) ws.mergeCells(r, firstOtherCol, r, lastOtherCol);
+      const cell = ws.getCell(r, firstOtherCol);
+      cell.value = 'OTHER COMPONENTS';
+      cell.font = { bold: true, size: 10 };
+      cell.alignment = { horizontal: 'center' };
+      for (let c = firstOtherCol; c <= lastOtherCol; c++) {
+        ws.getCell(r, c).fill = fill(NEUTRAL.band);
+        ws.getCell(r, c).border = boxed;
+      }
     }
     r++;
   }
 
   const headerRow = r;
-  const headers = [
-    HEAD.sno,
-    HEAD.register,
-    HEAD.name,
-    ...columns.map((c) => c.header),
-    ...(withAbsent ? [HEAD.absent] : []),
-    HEAD.total,
-    HEAD.check,
-  ];
-  headers.forEach((h, i) => {
-    const cell = ws.getCell(headerRow, i + 1);
-    cell.value = h;
+  const headerAt = new Map<number, string>([
+    [1, HEAD.sno],
+    [2, HEAD.register],
+    [3, HEAD.name],
+    [totalCol, HEAD.total],
+    [checkCol, HEAD.check],
+  ]);
+  columns.forEach((c, i) => headerAt.set(firstMarkCol + i, c.header));
+  if (absentCol) headerAt.set(absentCol, HEAD.absent);
+  if (subCol) headerAt.set(subCol, spec.subHeader ?? 'Paper total');
+  others.forEach((c, i) => headerAt.set(firstOtherCol + i, c.header));
+  for (let c = 1; c <= checkCol; c++) {
+    const cell = ws.getCell(headerRow, c);
+    cell.value = headerAt.get(c) ?? '';
     cell.font = { bold: true, size: 10 };
-    cell.alignment = { horizontal: i < 3 ? 'left' : 'center', vertical: 'middle', wrapText: true };
-    const col = columns[i - 3];
-    cell.fill = fill(col ? toneOf(col.tone).head : NEUTRAL.head);
-    cell.border = { top: BORDER, left: BORDER, right: BORDER, bottom: BORDER };
-  });
+    cell.alignment = { horizontal: c <= 3 ? 'left' : 'center', vertical: 'middle', wrapText: true };
+    cell.fill = fill(toneAt(c).head);
+    cell.border = boxed;
+  }
   r++;
 
   // Max-marks row. Its Register cell is blank, which is how upload skips it.
@@ -249,14 +297,17 @@ async function buildAndDownload(spec: TemplateSpec): Promise<void> {
   columns.forEach((c, i) => {
     ws.getCell(r, firstMarkCol + i).value = c.max;
   });
+  others.forEach((c, i) => {
+    ws.getCell(r, firstOtherCol + i).value = c.max;
+  });
+  if (subCol && spec.paperMax > 0) ws.getCell(r, subCol).value = spec.paperMax;
   if (spec.totalMax > 0) ws.getCell(r, totalCol).value = spec.totalMax;
   for (let c = 1; c <= checkCol; c++) {
     const cell = ws.getCell(r, c);
     cell.font = { size: 9, color: { argb: 'FF475569' } };
     cell.alignment = { horizontal: c <= 3 ? 'right' : 'center' };
-    const col = columns[c - firstMarkCol];
-    cell.fill = fill(col ? toneOf(col.tone).head : NEUTRAL.head);
-    cell.border = { top: BORDER, left: BORDER, right: BORDER, bottom: BORDER };
+    cell.fill = fill(toneAt(c).head);
+    cell.border = boxed;
   }
   r++;
 
@@ -269,25 +320,58 @@ async function buildAndDownload(spec: TemplateSpec): Promise<void> {
       const cell = ws.getCell(r, c);
       cell.font = { size: 8, color: { argb: 'FF64748B' } };
       cell.alignment = { horizontal: c <= 3 ? 'right' : 'center' };
-      const col = columns[c - firstMarkCol];
-      cell.fill = fill(col ? toneOf(col.tone).head : NEUTRAL.head);
-      cell.border = { top: BORDER, left: BORDER, right: BORDER, bottom: BORDER };
+      cell.fill = fill(toneAt(c).head);
+      cell.border = boxed;
     }
     r++;
   }
 
   const firstDataRow = r;
   const keyToCol = new Map(columns.map((c, i) => [c.key, firstMarkCol + i]));
+  const paperRangeAt = (row: number) =>
+    `$${colLetter(firstMarkCol)}${row}:$${colLetter(lastMarkCol)}${row}`;
+  const otherRangeAt = (row: number) =>
+    `$${colLetter(firstOtherCol)}${row}:$${colLetter(lastOtherCol)}${row}`;
 
   learners.forEach((learner, i) => {
     const row = firstDataRow + i;
-    const range = `$${colLetter(firstMarkCol)}${row}:$${colLetter(lastMarkCol)}${row}`;
+    const range = paperRangeAt(row);
+    const otherRange = hasOthers ? otherRangeAt(row) : null;
+    /** Every mark cell on the row, as function arguments: `$D7:$N7,$Q7:$R7`. */
+    const allMarks = otherRange ? `${range},${otherRange}` : range;
     const absentRef = absentCol ? `$${colLetter(absentCol)}${row}` : null;
+    const rowLimit =
+      hasOthers && spec.totalMax > 0 ? `SUM(${allMarks})<=${spec.totalMax}` : null;
 
     ws.getCell(row, 1).value = i + 1;
     ws.getCell(row, 2).value = learner.register_number;
     ws.getCell(row, 3).value = learner.name;
     ws.getCell(row, 1).alignment = { horizontal: 'center' };
+
+    /** Longest prefix of `clauses` that fits Excel's 255-character limit. */
+    const fitValidation = (address: string, clauses: string[]): string => {
+      for (let n = clauses.length; n > 0; n--) {
+        const candidate = `OR(${address}="",AND(${clauses.slice(0, n).join(',')}))`;
+        if (candidate.length <= MAX_VALIDATION_FORMULA) return candidate;
+      }
+      return '';
+    };
+    const refuse = (cell: ExcelJSType.Cell, formula: string, title: string, error: string) => {
+      if (!formula) return;
+      cell.dataValidation = {
+        type: 'custom',
+        // MUST be false. With "Ignore blank" on, Excel skips a custom rule
+        // entirely whenever the formula touches an empty cell — and every one
+        // of these reads the row's other (mostly empty) mark cells, so nothing
+        // would ever be refused. Clearing a cell stays legal via the OR in the formula.
+        allowBlank: false,
+        formulae: [formula],
+        showErrorMessage: true,
+        errorStyle: 'stop',
+        errorTitle: `${title} — not allowed`,
+        error: error.slice(0, 250),
+      };
+    };
 
     let sum = 0;
     let entered = 0;
@@ -313,31 +397,14 @@ async function buildAndDownload(spec: TemplateSpec): Promise<void> {
         range,
         absent: absentRef,
       });
-      // Keep as many clauses as fit; whatever is dropped is still enforced by the
-      // red highlight, the Check column and the upload.
-      let formula = '';
-      for (let n = clauses.length; n > 0; n--) {
-        const candidate = `OR(${address}="",AND(${clauses.slice(0, n).join(',')}))`;
-        if (candidate.length <= MAX_VALIDATION_FORMULA) {
-          formula = candidate;
-          break;
-        }
-      }
-      if (formula) {
-        cell.dataValidation = {
-          type: 'custom',
-          // MUST be false. With "Ignore blank" on, Excel skips a custom rule
-          // entirely whenever the formula touches an empty cell — and every one
-          // of these reads the row's other (mostly empty) mark cells, so nothing
-          // would ever be refused. Clearing a cell stays legal via the OR above.
-          allowBlank: false,
-          formulae: [formula],
-          showErrorMessage: true,
-          errorStyle: 'stop',
-          errorTitle: `${col.header} — not allowed`,
-          error: spec.errorMessage(col).slice(0, 250),
-        };
-      }
+      // Whatever does not fit is still enforced by the red highlight, the Check
+      // column and the upload.
+      refuse(
+        cell,
+        fitValidation(address, rowLimit ? [...clauses, rowLimit] : clauses),
+        col.header,
+        spec.errorMessage(col)
+      );
     });
 
     if (absentCol) {
@@ -357,31 +424,106 @@ async function buildAndDownload(spec: TemplateSpec): Promise<void> {
     }
 
     const sumExpr = `IF(COUNT(${range})=0,"",SUM(${range}))`;
-    ws.getCell(row, totalCol).value = {
-      formula: absentRef ? `IF(${absentRef}<>"","AB",${sumExpr})` : sumExpr,
-      result: learner.is_absent ? 'AB' : entered > 0 ? sum : '',
-    };
+    const paperExpr = absentRef ? `IF(${absentRef}<>"","AB",${sumExpr})` : sumExpr;
+    const paperResult = learner.is_absent ? 'AB' : entered > 0 ? sum : '';
+
+    if (subCol) {
+      ws.getCell(row, subCol).value = { formula: paperExpr, result: paperResult };
+      ws.getCell(row, subCol).alignment = { horizontal: 'center' };
+      ws.getCell(row, subCol).font = { color: { argb: 'FF475569' } };
+    }
+
+    let otherSum = 0;
+    let otherEntered = 0;
+    others.forEach((col, ci) => {
+      const c = firstOtherCol + ci;
+      const cell = ws.getCell(row, c);
+      // Not tied to AB: a learner who missed the test can still have an assignment mark.
+      const value = learner.other_marks?.[col.key];
+      if (value != null) {
+        cell.value = value;
+        otherSum += value;
+        otherEntered++;
+      }
+      cell.alignment = { horizontal: 'center' };
+      cell.fill = fill('FFF8FAFC');
+      cell.protection = { locked: false };
+
+      const address = `${colLetter(c)}${row}`;
+      const clauses = [
+        `ISNUMBER(${address})`,
+        `${address}=INT(${address})`,
+        `${address}>=0`,
+        `${address}<=${col.max}`,
+        ...(rowLimit ? [rowLimit] : []),
+      ];
+      refuse(
+        cell,
+        fitValidation(address, clauses),
+        col.header,
+        `Whole number from 0 to ${col.max}.` +
+          (spec.totalMax > 0 ? ` Row total cannot exceed ${spec.totalMax}.` : '')
+      );
+    });
+
+    if (hasOthers) {
+      // Round total. An absent learner's paper is blank, so this is simply what
+      // the other components add up to — or AB when there is nothing at all.
+      const nothing = absentRef ? `IF(${absentRef}<>"","AB","")` : '""';
+      ws.getCell(row, totalCol).value = {
+        formula: `IF(COUNT(${allMarks})=0,${nothing},SUM(${allMarks}))`,
+        result:
+          entered + otherEntered > 0
+            ? (learner.is_absent ? 0 : sum) + otherSum
+            : learner.is_absent
+              ? 'AB'
+              : '',
+      };
+    } else {
+      ws.getCell(row, totalCol).value = { formula: paperExpr, result: paperResult };
+    }
     ws.getCell(row, totalCol).alignment = { horizontal: 'center' };
     ws.getCell(row, totalCol).font = { bold: true };
 
     // Check column — names the first rule the row breaks, or OK. It is a plain
     // formula, so it catches pasted values that data validation never sees.
     const maxRange = `$${colLetter(firstMarkCol)}$${maxRow}:$${colLetter(lastMarkCol)}$${maxRow}`;
+    const otherMaxRange = `$${colLetter(firstOtherCol)}$${maxRow}:$${colLetter(lastOtherCol)}$${maxRow}`;
     const rowCtx: RowContext = {
       row,
       ref: (key) => `$${colLetter(keyToCol.get(key) ?? firstMarkCol)}${row}`,
       range,
       absent: absentRef,
     };
+    const outOfRange =
+      `SUMPRODUCT(--(${range}>${maxRange}))+COUNTIF(${range},"<0")` +
+      (otherRange
+        ? `+SUMPRODUCT(--(${otherRange}>${otherMaxRange}))+COUNTIF(${otherRange},"<0")`
+        : '');
+    const fractional =
+      `SUMPRODUCT(--(MOD(${range},1)<>0))` +
+      (otherRange ? `+SUMPRODUCT(--(MOD(${otherRange},1)<>0))` : '');
     const checks: Array<[string, string]> = [
       // Order matters: the later tests would error on text, and IF only
       // evaluates the branch it takes.
-      [`COUNTA(${range})<>COUNT(${range})`, 'Marks must be numbers'],
-      [`SUMPRODUCT(--(${range}>${maxRange}))+COUNTIF(${range},"<0")>0`, 'Mark outside 0 to max'],
-      [`SUMPRODUCT(--(MOD(${range},1)<>0))>0`, 'Whole numbers only'],
+      [`COUNTA(${allMarks})<>COUNT(${allMarks})`, 'Marks must be numbers'],
+      [`${outOfRange}>0`, 'Mark outside 0 to max'],
+      [`${fractional}>0`, 'Whole numbers only'],
       ...spec.rowChecks(rowCtx),
-      ...(spec.totalMax > 0
-        ? ([[`SUM(${range})>${spec.totalMax}`, `Total over ${spec.totalMax}`]] as Array<[string, string]>)
+      ...(spec.paperMax > 0
+        ? ([
+            [
+              `SUM(${range})>${spec.paperMax}`,
+              hasOthers
+                ? `${spec.subHeader ?? 'Paper total'} over ${spec.paperMax}`
+                : `Total over ${spec.paperMax}`,
+            ],
+          ] as Array<[string, string]>)
+        : []),
+      ...(hasOthers && spec.totalMax > 0
+        ? ([[`SUM(${allMarks})>${spec.totalMax}`, `Round total over ${spec.totalMax}`]] as Array<
+            [string, string]
+          >)
         : []),
     ];
     let checkFormula = '"OK"';
@@ -389,13 +531,13 @@ async function buildAndDownload(spec: TemplateSpec): Promise<void> {
       checkFormula = `IF(${checks[n][0]},"${checks[n][1]}",${checkFormula})`;
     }
     const untouched = absentRef
-      ? `AND(COUNTA(${range})=0,${absentRef}="")`
-      : `COUNTA(${range})=0`;
+      ? `AND(COUNTA(${allMarks})=0,${absentRef}="")`
+      : `COUNTA(${allMarks})=0`;
     ws.getCell(row, checkCol).value = { formula: `IF(${untouched},"",${checkFormula})` };
     ws.getCell(row, checkCol).font = { size: 9 };
 
     for (let c = 1; c <= checkCol; c++) {
-      ws.getCell(row, c).border = { top: BORDER, left: BORDER, right: BORDER, bottom: BORDER };
+      ws.getCell(row, c).border = boxed;
     }
   });
 
@@ -407,51 +549,47 @@ async function buildAndDownload(spec: TemplateSpec): Promise<void> {
     font: { bold: true, color: { argb: 'FFB91C1C' } },
   };
   let priority = 1;
+  const highlight = (c: number, formula: string) => {
+    const letter = colLetter(c);
+    ws.addConditionalFormatting({
+      ref: `${letter}${firstDataRow}:${letter}${lastDataRow}`,
+      rules: [{ type: 'expression', priority: priority++, formulae: [formula], style: BAD }],
+    });
+  };
 
   // Red highlight on any mark cell that breaks a rule. Conditional formatting
   // re-evaluates on paste and fill-down, which is exactly where data validation
   // is blind. References are relative to the first data row; Excel shifts them.
   columns.forEach((col, ci) => {
     const c = firstMarkCol + ci;
-    const letter = colLetter(c);
-    const cell = `${letter}${firstDataRow}`;
+    const cell = `${colLetter(c)}${firstDataRow}`;
     const extra = spec.violations({
       cell,
       row: firstDataRow,
       col,
       ref: (key) => `$${colLetter(keyToCol.get(key) ?? c)}${firstDataRow}`,
-      range: `$${colLetter(firstMarkCol)}${firstDataRow}:$${colLetter(lastMarkCol)}${firstDataRow}`,
+      range: paperRangeAt(firstDataRow),
       absent: absentCol ? `$${colLetter(absentCol)}${firstDataRow}` : null,
     });
     const broken = [`${cell}<>INT(${cell})`, `${cell}<0`, `${cell}>${col.max}`, ...extra].join(',');
-    ws.addConditionalFormatting({
-      ref: `${letter}${firstDataRow}:${letter}${lastDataRow}`,
-      rules: [
-        {
-          type: 'expression',
-          priority: priority++,
-          // Text in a mark cell is itself a violation; the numeric tests only run on numbers.
-          formulae: [`IF(ISNUMBER(${cell}),OR(${broken}),${cell}<>"")`],
-          style: BAD,
-        },
-      ],
-    });
+    // Text in a mark cell is itself a violation; the numeric tests only run on numbers.
+    highlight(c, `IF(ISNUMBER(${cell}),OR(${broken}),${cell}<>"")`);
+  });
+  others.forEach((col, ci) => {
+    const c = firstOtherCol + ci;
+    const cell = `${colLetter(c)}${firstDataRow}`;
+    highlight(
+      c,
+      `IF(ISNUMBER(${cell}),OR(${cell}<>INT(${cell}),${cell}<0,${cell}>${col.max}),${cell}<>"")`
+    );
   });
 
-  if (spec.totalMax > 0) {
-    const t = colLetter(totalCol);
-    ws.addConditionalFormatting({
-      ref: `${t}${firstDataRow}:${t}${lastDataRow}`,
-      rules: [
-        {
-          type: 'expression',
-          priority: priority++,
-          formulae: [`AND(ISNUMBER($${t}${firstDataRow}),$${t}${firstDataRow}>${spec.totalMax})`],
-          style: BAD,
-        },
-      ],
-    });
-  }
+  const overLimit = (c: number, limit: number) => {
+    const ref = `$${colLetter(c)}${firstDataRow}`;
+    highlight(c, `AND(ISNUMBER(${ref}),${ref}>${limit})`);
+  };
+  if (subCol && spec.paperMax > 0) overLimit(subCol, spec.paperMax);
+  if (spec.totalMax > 0) overLimit(totalCol, spec.totalMax);
 
   const k = colLetter(checkCol);
   ws.addConditionalFormatting({
@@ -479,9 +617,13 @@ async function buildAndDownload(spec: TemplateSpec): Promise<void> {
     ws.getColumn(firstMarkCol + i).width = Math.max(8, Math.min(c.header.length + 3, 22));
   });
   if (absentCol) ws.getColumn(absentCol).width = 9;
+  if (subCol) ws.getColumn(subCol).width = Math.max(11, Math.min((spec.subHeader ?? '').length + 3, 22));
+  others.forEach((c, i) => {
+    ws.getColumn(firstOtherCol + i).width = Math.max(11, Math.min(c.header.length + 3, 22));
+  });
   ws.getColumn(totalCol).width = 9;
   ws.getColumn(checkCol).width = 30;
-  ws.views =[{ state: 'frozen', xSplit: 3, ySplit: firstDataRow - 1 }];
+  ws.views = [{ state: 'frozen', xSplit: 3, ySplit: firstDataRow - 1 }];
 
   // Only the mark and Absent cells are unlocked: register numbers and headers
   // are what the upload matches on, so they must not be edited.
@@ -504,6 +646,10 @@ async function buildAndDownload(spec: TemplateSpec): Promise<void> {
   const columnMap: Record<string, string> = {};
   columns.forEach((c, i) => {
     columnMap[String(firstMarkCol + i)] = c.key;
+  });
+  if (subCol) columnMap[String(subCol)] = SUB_KEY;
+  others.forEach((c, i) => {
+    columnMap[String(firstOtherCol + i)] = `${OTHER_PREFIX}${c.key}`;
   });
   Object.entries({ ...spec.meta, kind: spec.kind, columns: JSON.stringify(columnMap) }).forEach(
     ([key, value], i) => {
@@ -752,14 +898,26 @@ interface QuestionWiseContext {
   componentName: string;
   componentMax: number;
   learners: TemplateLearner[];
+  /** The round's components the paper does not feed (e.g. Assignment). */
+  otherComponents?: DirectComponent[];
+  /** Ceiling for the paper's component + the other components. Read only when there are any. */
+  roundMax?: number;
 }
 
 function questionHeader(q: EntryQuestion): string {
   return `Q${q.label}`;
 }
 
+/** Header of the paper-subtotal column — also how upload recognises (and skips) it. */
+function subHeaderFor(componentName: string): string {
+  return `${componentName} total`;
+}
+
 export async function downloadQuestionWiseTemplate(ctx: QuestionWiseContext): Promise<void> {
   const { paper, componentMax } = ctx;
+  const otherComponents = ctx.otherComponents ?? [];
+  const hasOthers = otherComponents.length > 0;
+  const roundMax = hasOthers ? Number(ctx.roundMax) || 0 : componentMax;
   const partIndex = new Map(paper.parts.map((p, i) => [p.part_label, i]));
   const partByLabel = new Map(paper.parts.map((p) => [p.part_label, p]));
 
@@ -814,7 +972,15 @@ export async function downloadQuestionWiseTemplate(ctx: QuestionWiseContext): Pr
     columns,
     learners: ctx.learners,
     withAbsent: true,
-    totalMax: componentMax,
+    paperMax: componentMax,
+    totalMax: roundMax,
+    others: otherComponents.map((c) => ({
+      key: c.code,
+      header: c.name,
+      max: Number(c.max_marks) || 0,
+      tone: null,
+    })),
+    subHeader: subHeaderFor(ctx.componentName),
     clauses: ({ cell, col, ref, range, absent }) => {
       const q = byId.get(col.key)!;
       const out = [`ISNUMBER(${cell})`, `${cell}=INT(${cell})`, `${cell}>=0`, `${cell}<=${q.marks}`];
@@ -888,6 +1054,14 @@ export async function downloadQuestionWiseTemplate(ctx: QuestionWiseContext): Pr
       `${5 + Math.max(restrictions.length, 1)}. A learner's total cannot exceed the component max (${componentMax}); an over-limit total turns red.`,
       `${6 + Math.max(restrictions.length, 1)}. For a learner who did not sit, type AB in the Absent column and leave every mark blank.`,
       `${7 + Math.max(restrictions.length, 1)}. Rows left completely blank are ignored on upload — those learners keep whatever is on screen.`,
+      ...(hasOthers
+        ? [
+            `${8 + Math.max(restrictions.length, 1)}. Other components (${otherComponents
+              .map((c) => `${c.name}, max ${c.max_marks}`)
+              .join('; ')}) take one total per learner, in the columns after Absent. They do not depend on AB — a learner who missed the test can still have an assignment mark.`,
+            `${9 + Math.max(restrictions.length, 1)}. The Total column is the round total (${ctx.componentName} + the other components) and cannot exceed ${roundMax}.`,
+          ]
+        : []),
       '',
       'Checking your work in this sheet: a mark that breaks a rule turns red, and the Check column on the right names the problem (or says OK).',
       'Typing a wrong value is refused outright. Pasted values are not refused by Excel, so look for red cells and the Check column after pasting.',
@@ -901,7 +1075,8 @@ export async function downloadQuestionWiseTemplate(ctx: QuestionWiseContext): Pr
 
 export async function parseQuestionWiseUpload(
   file: File,
-  ctx: Pick<QuestionWiseContext, 'paper' | 'componentMax' | 'learners'>
+  ctx: Pick<QuestionWiseContext, 'paper' | 'componentMax' | 'learners'> &
+    Partial<Pick<QuestionWiseContext, 'componentName' | 'otherComponents' | 'roundMax'>>
 ): Promise<MarksImportResult> {
   const sheet = await readSheet(file);
   if ('fatal' in sheet) return { issues: [{ message: sheet.fatal }], rows: [], blankRows: 0 };
@@ -926,14 +1101,50 @@ export async function parseQuestionWiseUpload(
     byLabel.set(k, [...(byLabel.get(k) ?? []), q]);
   }
 
+  const otherComponents = ctx.otherComponents ?? [];
+  const otherByCode = new Map(otherComponents.map((c) => [c.code, c]));
+  const otherByName = new Map<string, DirectComponent[]>();
+  for (const c of otherComponents) {
+    const k = c.name.trim().toLowerCase();
+    otherByName.set(k, [...(otherByName.get(k) ?? []), c]);
+  }
+  const subHeader = ctx.componentName ? subHeaderFor(ctx.componentName).toLowerCase() : null;
+
   const markCols: ResolvedColumn[] = [];
+  /** Other-component columns found in the file. Absent from an older template — that is fine. */
+  const otherCols: ResolvedColumn[] = [];
   const mapped = new Set<string>();
   for (const h of sheet.headers) {
     const text = h.text.trim();
     if (RESERVED_HEADERS.has(text.toLowerCase())) continue;
+    const metaKey = sheet.metaColumns[String(h.col)] ?? '';
+
+    // The paper-subtotal column is a formula for the reader, never an input.
+    if (metaKey === SUB_KEY || text.toLowerCase() === subHeader) continue;
+
+    const otherViaMeta = metaKey.startsWith(OTHER_PREFIX)
+      ? otherByCode.get(metaKey.slice(OTHER_PREFIX.length))
+      : undefined;
+    const otherViaName = otherByName.get(text.toLowerCase()) ?? [];
+    const other =
+      otherViaMeta && otherViaMeta.name.trim().toLowerCase() === text.toLowerCase()
+        ? otherViaMeta
+        : otherViaName.length === 1
+          ? otherViaName[0]
+          : undefined;
+    if (other) {
+      if (mapped.has(`${OTHER_PREFIX}${other.code}`)) {
+        issues.push({ message: `Column "${text}" appears more than once` });
+        continue;
+      }
+      mapped.add(`${OTHER_PREFIX}${other.code}`);
+      otherCols.push({ col: h.col, key: `${OTHER_PREFIX}${other.code}`, header: other.name });
+      continue;
+    }
+
     // Prefer the position recorded at download; fall back to the header label
     // for a file whose hidden sheet was lost in a round-trip through another app.
-    const viaMeta = byId.get(sheet.metaColumns[String(h.col)] ?? '');
+    const viaMeta = byId.get(metaKey);
     const viaLabel = byLabel.get(text.toUpperCase()) ?? [];
     const q = viaMeta && questionHeader(viaMeta).toUpperCase() === text.toUpperCase()
       ? viaMeta
@@ -941,7 +1152,9 @@ export async function parseQuestionWiseUpload(
         ? viaLabel[0]
         : undefined;
     if (!q) {
-      issues.push({ message: `Column "${text}" is not a question in this paper — the header row must not be edited` });
+      issues.push({
+        message: `Column "${text}" is not a question in this paper or a component of this round — the header row must not be edited`,
+      });
       continue;
     }
     if (mapped.has(q.id)) {
@@ -957,28 +1170,69 @@ export async function parseQuestionWiseUpload(
   }
   if (issues.length) return { issues, rows: [], blankRows: 0 };
 
-  const collected = collectRows(sheet, ctx.learners, markCols, findHeader(sheet, HEAD.absent), issues);
+  const collected = collectRows(
+    sheet,
+    ctx.learners,
+    [...markCols, ...otherCols],
+    findHeader(sheet, HEAD.absent),
+    issues
+  );
+  const roundMax = otherCols.length ? Number(ctx.roundMax) || 0 : 0;
 
   const rows: MarksImportRow[] = [];
   let blankRows = 0;
   for (const row of collected) {
     const where = { row: row.rowNumber, register: row.register };
-    const hasMarks = Object.keys(row.marks).length > 0;
-    if (!hasMarks && !row.isAbsent) {
+    // collectRows read both kinds of column into one map — split them apart again.
+    const marks: Record<string, number> = {};
+    const others: Record<string, number | null> = {};
+    for (const oc of otherCols) others[oc.key.slice(OTHER_PREFIX.length)] = null;
+    for (const [key, value] of Object.entries(row.marks)) {
+      if (key.startsWith(OTHER_PREFIX)) others[key.slice(OTHER_PREFIX.length)] = value;
+      else marks[key] = value;
+    }
+    const hasMarks = Object.keys(marks).length > 0;
+    const hasOther = Object.values(others).some((v) => v != null);
+
+    if (!hasMarks && !hasOther && !row.isAbsent) {
       blankRows++;
       continue;
     }
     if (row.isAbsent && hasMarks) {
-      issues.push({ ...where, message: 'is marked AB but also has marks — clear one or the other' });
+      issues.push({ ...where, message: 'is marked AB but also has question marks — clear one or the other' });
       continue;
     }
     if (!row.isAbsent) {
       // The same function the grid and the API route use — one definition of "valid".
-      for (const message of validateLearnerMarks(row.marks, paper.questions, paper.parts, ctx.componentMax)) {
+      for (const message of validateLearnerMarks(marks, paper.questions, paper.parts, ctx.componentMax)) {
         issues.push({ ...where, message });
       }
     }
-    rows.push({ learnerId: row.learnerId, marks: row.isAbsent ? {} : row.marks, isAbsent: row.isAbsent });
+
+    let total = row.isAbsent ? 0 : Object.values(marks).reduce((sum, v) => sum + v, 0);
+    for (const [code, value] of Object.entries(others)) {
+      if (value == null) continue;
+      const comp = otherByCode.get(code)!;
+      const max = Number(comp.max_marks) || 0;
+      total += value;
+      if (!Number.isInteger(value)) {
+        issues.push({ ...where, message: `${comp.name} mark (${value}) must be a whole number` });
+      } else if (value < 0) {
+        issues.push({ ...where, message: `${comp.name} mark cannot be negative` });
+      } else if (value > max) {
+        issues.push({ ...where, message: `${comp.name} mark (${value}) exceeds its max (${max})` });
+      }
+    }
+    if (roundMax > 0 && total > roundMax) {
+      issues.push({ ...where, message: `round total (${total}) exceeds the round max (${roundMax})` });
+    }
+
+    rows.push({
+      learnerId: row.learnerId,
+      marks: row.isAbsent ? {} : marks,
+      isAbsent: row.isAbsent,
+      others: otherCols.length ? others : undefined,
+    });
   }
 
   if (!issues.length && rows.length === 0) {
@@ -1019,6 +1273,7 @@ export async function downloadDirectTemplate(ctx: DirectContext): Promise<void> 
     })),
     learners: ctx.learners,
     withAbsent: false,
+    paperMax: maxInternalMarks,
     totalMax: maxInternalMarks,
     clauses: ({ cell, col, range }) => {
       const out = [

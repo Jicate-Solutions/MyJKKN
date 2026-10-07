@@ -34,6 +34,35 @@ const TONE_GLOW: Record<Tone, string> = {
   muted: 'bg-slate-300'
 };
 
+/**
+ * A second palette for the figure cards on Workload, Analytics and
+ * Administration (owner's request 2026-10-05): the dashboard's look, in
+ * colours the dashboard does not use, so those pages read as their own.
+ */
+export type Accent = "teal" | "cyan" | "orange" | "rose" | "fuchsia" | "purple" | "pink" | "lime";
+
+const ACCENT_ICON: Record<Accent, string> = {
+  teal: "bg-teal-100 text-teal-700 dark:bg-teal-950 dark:text-teal-400",
+  cyan: "bg-cyan-100 text-cyan-700 dark:bg-cyan-950 dark:text-cyan-400",
+  orange: "bg-orange-100 text-orange-700 dark:bg-orange-950 dark:text-orange-400",
+  rose: "bg-rose-100 text-rose-700 dark:bg-rose-950 dark:text-rose-400",
+  fuchsia: "bg-fuchsia-100 text-fuchsia-700 dark:bg-fuchsia-950 dark:text-fuchsia-400",
+  purple: "bg-purple-100 text-purple-700 dark:bg-purple-950 dark:text-purple-400",
+  pink: "bg-pink-100 text-pink-700 dark:bg-pink-950 dark:text-pink-400",
+  lime: "bg-lime-100 text-lime-700 dark:bg-lime-950 dark:text-lime-400"
+};
+
+const ACCENT_GLOW: Record<Accent, string> = {
+  teal: "bg-teal-400",
+  cyan: "bg-cyan-400",
+  orange: "bg-orange-400",
+  rose: "bg-rose-400",
+  fuchsia: "bg-fuchsia-400",
+  purple: "bg-purple-400",
+  pink: "bg-pink-400",
+  lime: "bg-lime-400"
+};
+
 export interface StatCardProps {
   label: string;
   value: number | null | undefined;
@@ -41,20 +70,26 @@ export interface StatCardProps {
   hint?: string;
   icon?: LucideIcon;
   tone?: Tone;
+  /** Use the second palette instead of a status tone. */
+  accent?: Accent;
   href?: string;
+  /** The dashboard's hover lift for a card with nowhere exact to go. */
+  interactive?: boolean;
   isLoading?: boolean;
 }
 
-export function StatCard({ label, value, suffix, hint, icon: Icon, tone = 'neutral', href, isLoading = false }: StatCardProps) {
+export function StatCard({ label, value, suffix, hint, icon: Icon, tone = 'neutral', accent, href, interactive = false, isLoading = false }: StatCardProps) {
+  const glow = accent ? ACCENT_GLOW[accent] : TONE_GLOW[tone];
+  const iconWash = accent ? ACCENT_ICON[accent] : TONE_ICON[tone];
   const body = (
     <CardContent className="relative flex flex-col items-start gap-2.5 p-3.5 sm:flex-row sm:items-center sm:gap-3 sm:p-4">
       <span
-        className={cn('pointer-events-none absolute -right-8 -top-8 h-24 w-24 rounded-full opacity-30 blur-2xl', TONE_GLOW[tone])}
+        className={cn('pointer-events-none absolute -right-8 -top-8 h-24 w-24 rounded-full opacity-30 blur-2xl', glow)}
         aria-hidden
       />
       {Icon ? (
         <span
-          className={cn('relative flex h-9 w-9 shrink-0 items-center justify-center rounded-xl', TONE_ICON[tone])}
+          className={cn('relative flex h-9 w-9 shrink-0 items-center justify-center rounded-xl', iconWash)}
           aria-hidden
         >
           <Icon className="h-[18px] w-[18px]" />
@@ -87,7 +122,18 @@ export function StatCard({ label, value, suffix, hint, icon: Icon, tone = 'neutr
     </CardContent>
   );
 
-  if (!href) return <Card className="overflow-hidden">{body}</Card>;
+  if (!href) {
+    return (
+      <Card
+        className={cn(
+          'overflow-hidden',
+          interactive && 'transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-md'
+        )}
+      >
+        {body}
+      </Card>
+    );
+  }
   return (
     <Card className="group overflow-hidden transition-all duration-200 focus-within:ring-2 focus-within:ring-ring hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-md">
       <Link href={href} className="block rounded-xl outline-none">

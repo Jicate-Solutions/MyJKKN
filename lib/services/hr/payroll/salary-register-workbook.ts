@@ -11,6 +11,11 @@
  *     TOTAL row carrying a live SUM, exactly as the hand-kept file does.
  *   Sheet "Excluded Staff"  — only when somebody was left out, naming who and why.
  *
+ *   Since 2026-10-07 the two money sheets are repeated per staff category —
+ *   "Teaching Register" / "Teaching Bank Statement" and the Non-Teaching pair —
+ *   between BANK STATEMENT and Excluded Staff, built by the same functions
+ *   (addRegisterSheet / addBankSheet) so they cannot drift from the originals.
+ *
  * THREE DELIBERATE DEPARTURES FROM THE HAND-KEPT FILE:
  *   - "Works At" and "Remarks" are appended after Net Pay. The register is
  *     grouped by the PAYING institution (2026-09-23), so a row's workplace may be
@@ -32,6 +37,11 @@
 import ExcelJS from 'exceljs';
 import type { HRSalaryRegisterLine, HRSalaryRegisterRun } from '@/types/hr-payroll';
 import { EXCLUSION_LABELS, monthLabel } from './salary-register-service';
+import {
+  STAFF_CATEGORY_KEYS,
+  STAFF_CATEGORY_LABEL,
+  linesForCategory,
+} from './salary-register-document-model';
 
 /**
  * Number formats are picked PER VALUE, never one '#,##0.##' / '0.##' for all.
@@ -207,28 +217,20 @@ export interface SalaryRegisterWorkbookInput {
 }
 
 /**
- * Build the workbook. Returns a Buffer ready to stream from a route handler.
+ * One register sheet: titles, headers and a row per INCLUDED line.
  *
- * Only INCLUDED lines reach the two money sheets — an excluded person has no
- * net pay, and a zero row on a bank statement is an instruction to transfer
- * nothing, which is not the same as "we did not pay them". They appear on the
- * third sheet instead, with the reason.
+ * Extracted 2026-10-07 so the all-staff "Salary Register" and the Teaching /
+ * Non-Teaching register sheets are built by the same code — the category
+ * sheets are the all-staff sheet filtered, never a second layout that drifts.
  */
-export async function buildSalaryRegisterWorkbook(
-  input: SalaryRegisterWorkbookInput,
-): Promise<Buffer> {
-  const { run, lines, institutionName } = input;
-  const included = lines.filter((l) => l.is_included);
-  const excluded = lines.filter((l) => !l.is_included);
-
-  const heading = institutionName.toUpperCase();
-  const subheading = `SALARY REGISTER FOR THE MONTH OF ${monthLabel(run.period_year, run.period_month).toUpperCase()}`;
-
-  const wb = new ExcelJS.Workbook();
-  wb.created = new Date();
-
-  // ── Sheet 1: Salary Register ─────────────────────────────────────────────
-  const reg = wb.addWorksheet('Salary Register');
+function addRegisterSheet(
+  wb: ExcelJS.Workbook,
+  sheetName: string,
+  included: HRSalaryRegisterLine[],
+  heading: string,
+  subheading: string,
+): void {
+  const reg = wb.addWorksheet(sheetName);
   REGISTER_WIDTHS.forEach((w, i) => { reg.getColumn(i + 1).width = w; });
 
   // Merged from A through Net Pay, leaving Works At and Remarks outside — as in
@@ -335,9 +337,18 @@ export async function buildSalaryRegisterWorkbook(
     lastRow: lastDataRow,
     lastCol: REGISTER_HEADERS.length,
   });
+}
 
-  // ── Sheet 2: BANK STATEMENT ──────────────────────────────────────────────
-  const bank = wb.addWorksheet('BANK STATEMENT');
+/** One bank statement sheet — S.No / Name / Account / Net Pay and a live TOTAL. */
+function addBankSheet(
+  wb: ExcelJS.Workbook,
+  sheetName: string,
+  included: HRSalaryRegisterLine[],
+  heading: string,
+  subheading: string,
+): void {
+  const firstDataRow = 4;
+  const bank = wb.addWorksheet(sheetName);
   bank.getColumn(1).width = 7;
   bank.getColumn(2).width = 29.7;
   bank.getColumn(3).width = 22;
@@ -379,8 +390,56 @@ export async function buildSalaryRegisterWorkbook(
     lastCol: 4,
     totalRow: included.length > 0 ? firstDataRow + included.length : undefined,
   });
+}
 
-  // ── Sheet 3: Excluded Staff (only when there are any) ─────────────────────
+/**
+ * Build the workbook. Returns a Buffer ready to stream from a route handler.
+ *
+ * Only INCLUDED lines reach the money sheets — an excluded person has no
+ * net pay, and a zero row on a bank statement is an instruction to transfer
+ * nothing, which is not the same as "we did not pay them". They appear on the
+ * Excluded Staff sheet instead, with the reason.
+ *
+ * SHEET ORDER (2026-10-07): the all-staff Salary Register and BANK STATEMENT
+ * first and unchanged — the downstream process reads them — then a Register and
+ * a Bank Statement per category (Teaching, then Non-Teaching), then Excluded
+ * Staff. A category with nobody paid gets no sheets, as Excluded Staff is
+ * skipped when nobody was excluded.
+ */
+export async function buildSalaryRegisterWorkbook(
+  input: SalaryRegisterWorkbookInput,
+): Promise<Buffer> {
+  const { run, lines, institutionName } = input;
+  const included = lines.filter((l) => l.is_included);
+  const excluded = lines.filter((l) => !l.is_included);
+
+  const heading = institutionName.toUpperCase();
+  const monthTitle = monthLabel(run.period_year, run.period_month).toUpperCase();
+  const subheading = `SALARY REGISTER FOR THE MONTH OF ${monthTitle}`;
+  const firstDataRow = 4;
+
+  const wb = new ExcelJS.Workbook();
+  wb.created = new Date();
+
+  addRegisterSheet(wb, 'Salary Register', included, heading, subheading);
+  addBankSheet(wb, 'BANK STATEMENT', included, heading, subheading);
+
+  for (const key of STAFF_CATEGORY_KEYS) {
+    const rows = linesForCategory(lines, key);
+    if (rows.length === 0) continue;
+    const label = STAFF_CATEGORY_LABEL[key];
+    const upper = label.toUpperCase();
+    addRegisterSheet(
+      wb, `${label} Register`, rows, heading,
+      `${upper} STAFF SALARY REGISTER FOR THE MONTH OF ${monthTitle}`,
+    );
+    addBankSheet(
+      wb, `${label} Bank Statement`, rows, heading,
+      `${upper} STAFF BANK STATEMENT FOR THE MONTH OF ${monthTitle}`,
+    );
+  }
+
+  // ── Excluded Staff (only when there are any) ─────────────────────────────
   if (excluded.length > 0) {
     const ex = wb.addWorksheet('Excluded Staff');
     ex.getColumn(1).width = 7;

@@ -56,6 +56,8 @@ function line(o: Partial<HRSalaryRegisterLine> & { id: string; staff_name: strin
     paid_by_name: null,
     work_institution_id: null,
     work_institution_name: null,
+    staff_category_name: null,
+    is_teaching: false,
     business_working_days: 0,
     casual_leave_days: 0,
     comp_off_days: 0,
@@ -85,6 +87,7 @@ function line(o: Partial<HRSalaryRegisterLine> & { id: string; staff_name: strin
 const lines: HRSalaryRegisterLine[] = [
   line({
     id: '1', serial_no: 1, employee_code: 'AHS001', staff_name: 'GIRIDHARAN P',
+    staff_category_name: 'Teaching', is_teaching: true,
     designation: 'Lecturer', department_name: 'Department of Allied (UG)',
     date_of_joining: '2024-06-18',
     // Deliberately leading-zeroed: the reason accounts are written as text.
@@ -96,6 +99,7 @@ const lines: HRSalaryRegisterLine[] = [
   }),
   line({
     id: '2', serial_no: 2, employee_code: 'AHS002', staff_name: 'PRISKALA M',
+    staff_category_name: 'Lab Technician', is_teaching: false,
     designation: 'Tutor', department_name: 'Department of Allied (UG)',
     date_of_joining: '2024-10-23', bank_account_number: '7895658573',
     business_working_days: 22, paid_leave_days: 1, unpaid_leave_days: 2,
@@ -107,6 +111,7 @@ const lines: HRSalaryRegisterLine[] = [
   }),
   line({
     id: '3', serial_no: 3, employee_code: 'AHS004', staff_name: 'VIJAYSABARI S',
+    staff_category_name: 'Teaching', is_teaching: true,
     designation: 'Assistant Professor', department_name: 'Department of Allied (UG)',
     date_of_joining: '2025-07-01', bank_account_number: null,
     business_working_days: 22, paid_leave_days: 0, unpaid_leave_days: 0,
@@ -134,11 +139,15 @@ async function build(): Promise<ExcelJS.Workbook> {
 }
 
 describe('salary register workbook', () => {
-  it('emits the register, the bank statement, and an exclusions sheet', async () => {
+  it('emits the register, the bank statement, the category pairs, and an exclusions sheet', async () => {
     const wb = await build();
     expect(wb.worksheets.map((w) => w.name)).toEqual([
       'Salary Register',
       'BANK STATEMENT',
+      'Teaching Register',
+      'Teaching Bank Statement',
+      'Non-Teaching Register',
+      'Non-Teaching Bank Statement',
       'Excluded Staff',
     ]);
   });
@@ -305,7 +314,14 @@ describe('salary register workbook', () => {
     });
     const wb = new ExcelJS.Workbook();
     await wb.xlsx.load(buffer as unknown as ArrayBuffer);
-    expect(wb.worksheets.map((w) => w.name)).toEqual(['Salary Register', 'BANK STATEMENT']);
+    expect(wb.worksheets.map((w) => w.name)).toEqual([
+      'Salary Register',
+      'BANK STATEMENT',
+      'Teaching Register',
+      'Teaching Bank Statement',
+      'Non-Teaching Register',
+      'Non-Teaching Bank Statement',
+    ]);
   });
 
   it('builds a filename safe for institutions with punctuation', async () => {
@@ -364,6 +380,62 @@ describe('salary register workbook — staff working elsewhere', () => {
 
   it('no longer emits a per-payer split sheet', async () => {
     const wb = await buildMixed();
-    expect(wb.worksheets.map((w) => w.name)).toEqual(['Salary Register', 'BANK STATEMENT']);
+    // All three are non-teaching, so only that category's pair follows.
+    expect(wb.worksheets.map((w) => w.name)).toEqual([
+      'Salary Register',
+      'BANK STATEMENT',
+      'Non-Teaching Register',
+      'Non-Teaching Bank Statement',
+    ]);
+  });
+});
+
+describe('salary register workbook — Teaching / Non-Teaching sheets', () => {
+  /**
+   * 2026-10-07: the money sheets repeat per staff category so each half can be
+   * printed and sent on its own. They are built by the same functions as the
+   * all-staff sheets — same columns, same TOTAL formula — filtered to the
+   * category, renumbered from 1, and never listing an excluded person.
+   */
+  it('lists only teaching staff on the teaching sheets, renumbered from 1', async () => {
+    const wb = await build();
+    const reg = wb.getWorksheet('Teaching Register')!;
+    expect(reg.getCell('A2').value).toBe('TEACHING STAFF SALARY REGISTER FOR THE MONTH OF JUNE 2026');
+    expect((reg.getRow(3).values as unknown[]).slice(1)).toEqual(
+      (wb.getWorksheet('Salary Register')!.getRow(3).values as unknown[]).slice(1),
+    );
+    expect(reg.getCell('A4').value).toBe(1);
+    expect(reg.getCell('C4').value).toBe('GIRIDHARAN P');
+    expect(reg.getCell('A5').value).toBe(2);
+    expect(reg.getCell('C5').value).toBe('VIJAYSABARI S');
+    expect(reg.getCell('C6').value).toBeFalsy();
+  });
+
+  it('puts the non-teaching staff on their own pair, without the excluded person', async () => {
+    const wb = await build();
+    const bank = wb.getWorksheet('Non-Teaching Bank Statement')!;
+    expect(bank.getCell('A2').value).toBe('NON-TEACHING STAFF BANK STATEMENT FOR THE MONTH OF JUNE 2026');
+    expect(bank.getCell('B4').value).toBe('PRISKALA M');
+    expect(String(bank.getCell('A5').value)).toBe('TOTAL');
+    expect((bank.getCell('D5').value as { formula: string }).formula).toBe('SUM(D4:D4)');
+    const names = [4, 5, 6].map((r) => wb.getWorksheet('Non-Teaching Register')!.getCell(`C${r}`).value);
+    expect(names).not.toContain('MURALIDHARAN C');
+  });
+
+  it('splits the bank total exactly: teaching + non-teaching = all staff', async () => {
+    const wb = await build();
+    const sum = (name: string) => {
+      const ws = wb.getWorksheet(name)!;
+      let total = 0;
+      ws.eachRow((row, n) => {
+        if (n < 4) return;
+        const v = row.getCell(4).value;
+        if (typeof v === 'number') total += v;
+      });
+      return total;
+    };
+    expect(sum('Teaching Bank Statement')).toBe(17700 + 42000);
+    expect(sum('Non-Teaching Bank Statement')).toBe(12954);
+    expect(sum('Teaching Bank Statement') + sum('Non-Teaching Bank Statement')).toBe(sum('BANK STATEMENT'));
   });
 });

@@ -17,26 +17,36 @@ import { Check, Loader2, X } from 'lucide-react';
 export interface PickedPerson {
   name: string;
   staffId: string | null;
+  /**
+   * Set instead of `staffId` when the pick is a user account with no team
+   * member record. Only ever produced with `includeAccounts`.
+   */
+  profileId?: string | null;
 }
 
 interface Person {
-  staff_id: string;
+  staff_id: string | null;
   user_id: string | null;
   name: string | null;
   email: string | null;
   designation: string | null;
-  source: 'posted_associate' | 'me' | 'directory';
+  source: 'posted_associate' | 'me' | 'directory' | 'account';
 }
 
 interface Props {
   areaId: string;
   value: PickedPerson;
   onChange: (next: PickedPerson) => void;
+  /**
+   * Also offer user accounts that have no team member record. Off by default:
+   * an organogram role is stored as a team member id and cannot hold one.
+   */
+  includeAccounts?: boolean;
 }
 
 const DEBOUNCE_MS = 250;
 
-export function PersonPicker({ areaId, value, onChange }: Props) {
+export function PersonPicker({ areaId, value, onChange, includeAccounts = false }: Props) {
   const [open, setOpen] = useState(false);
   const [term, setTerm] = useState('');
   const [people, setPeople] = useState<Person[]>([]);
@@ -50,7 +60,7 @@ export function PersonPicker({ areaId, value, onChange }: Props) {
       setLoading(true);
       try {
         const res = await fetch(
-          `/api/mba/dept-artifacts/people?area_id=${encodeURIComponent(areaId)}&q=${encodeURIComponent(q)}`,
+          `/api/mba/dept-artifacts/people?area_id=${encodeURIComponent(areaId)}&q=${encodeURIComponent(q)}${includeAccounts ? '&accounts=1' : ''}`,
         );
         if (!res.ok) {
           setPeople([]);
@@ -70,7 +80,7 @@ export function PersonPicker({ areaId, value, onChange }: Props) {
         setLoading(false);
       }
     },
-    [areaId],
+    [areaId, includeAccounts],
   );
 
   // Debounced: one request per pause in typing, not one per keystroke.
@@ -91,11 +101,15 @@ export function PersonPicker({ areaId, value, onChange }: Props) {
   }, [open]);
 
   function pick(p: Person) {
-    onChange({ name: p.name ?? p.email ?? '', staffId: p.staff_id });
+    onChange({
+      name: p.name ?? p.email ?? '',
+      staffId: p.staff_id,
+      profileId: p.staff_id ? null : p.user_id,
+    });
     setOpen(false);
   }
 
-  const linked = Boolean(value.staffId);
+  const linked = Boolean(value.staffId || value.profileId);
 
   return (
     <div ref={boxRef} className="relative">
@@ -144,7 +158,7 @@ export function PersonPicker({ areaId, value, onChange }: Props) {
           ) : (
             <ul className="py-1">
               {people.map((p) => (
-                <li key={p.staff_id}>
+                <li key={p.staff_id ?? `account-${p.user_id}`}>
                   <button
                     type="button"
                     onClick={() => pick(p)}
@@ -155,6 +169,7 @@ export function PersonPicker({ areaId, value, onChange }: Props) {
                       {[p.designation, p.email].filter(Boolean).join(' · ')}
                       {p.source === 'me' && ' · you'}
                       {p.source === 'posted_associate' && ' · posted to this area'}
+                      {p.source === 'account' && ' · user account'}
                     </span>
                   </button>
                 </li>

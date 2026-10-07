@@ -71,6 +71,7 @@ import { useTournamentMatches } from '@/hooks/events/use-tournament-fixtures';
 import type { TournamentDivision, TournamentEntry, TournamentMatch } from '@/types/tournament';
 import { InchargePanel } from './_components/incharge-panel';
 import { DivisionFixtures } from './_components/fixtures-section';
+import { DivisionPlacings } from './_components/division-placings';
 import { RegistrationFormCard } from './_components/registration-form-card';
 import { EventFeedbackLinkCard } from '@/components/events/feedback/event-feedback-link-card';
 // Reuses the list page's dialog — one editor, so the two entry points can't drift.
@@ -349,6 +350,21 @@ export default function TournamentManagePage() {
     return m;
   }, [matches]);
 
+  // A tournament is often created with every sport of the template, most of
+  // which nobody enters. Only divisions in use — an active entry or a fixture —
+  // are shown; organisers can reveal the empty ones (e.g. to add a spot entry).
+  const [showEmptyDivisions, setShowEmptyDivisions] = useState(false);
+  // Active = registered / confirmed: what the draw and the match pickers use.
+  const activeEntryCount = (divisionId: string) =>
+    (entriesByDivision.get(divisionId) ?? []).filter((e) => e.status === 'registered' || e.status === 'confirmed').length;
+  const divisionsInUse = useMemo(
+    () => divisions.filter((d) => activeEntryCount(d.id) > 0 || (matchesByDivision.get(d.id)?.length ?? 0) > 0),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [divisions, entriesByDivision, matchesByDivision]
+  );
+  const emptyDivisionCount = divisions.length - divisionsInUse.length;
+  const shownDivisions = showEmptyDivisions ? divisions : divisionsInUse;
+
   // KPI + chart data — computed over ACTIVE (non-withdrawn) entries so the
   // headline numbers match who is actually competing.
   const stats = useMemo(() => {
@@ -362,11 +378,14 @@ export default function TournamentManagePage() {
     }
     const decided: TournamentMatch['status'][] = ['completed', 'walkover', 'disqualified', 'bye'];
     const played = matches.filter((m) => decided.includes(m.status)).length;
-    const divisionRows = divisions.map((d) => ({
-      id: d.id,
-      label: divisionLabel(d),
-      count: (entriesByDivision.get(d.id) ?? []).filter((e) => e.status !== 'withdrawn').length,
-    }));
+    // Divisions nobody entered are left out of the chart.
+    const divisionRows = divisions
+      .map((d) => ({
+        id: d.id,
+        label: divisionLabel(d),
+        count: (entriesByDivision.get(d.id) ?? []).filter((e) => e.status !== 'withdrawn').length,
+      }))
+      .filter((r) => r.count > 0);
     return { active: active.length, payment, played, totalMatches: matches.length, divisionRows };
   }, [entries, matches, divisions, entriesByDivision]);
 
@@ -683,25 +702,47 @@ export default function TournamentManagePage() {
           the fixtures API rejects their writes anyway. */}
       <Card className="mb-4" data-testid="tournament-fixtures-card">
         <CardHeader className="pb-2">
-          <CardTitle className="flex items-center gap-1.5 text-sm font-semibold">
-            <Swords className="h-4 w-4" /> Fixtures &amp; results
-          </CardTitle>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <CardTitle className="flex items-center gap-1.5 text-sm font-semibold">
+              <Swords className="h-4 w-4" /> Fixtures &amp; results
+            </CardTitle>
+            {canManage && emptyDivisionCount > 0 && (
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-7 text-xs"
+                onClick={() => setShowEmptyDivisions((v) => !v)}
+              >
+                {showEmptyDivisions
+                  ? 'Hide divisions with no entries'
+                  : `Show ${emptyDivisionCount} division${emptyDivisionCount === 1 ? '' : 's'} with no entries`}
+              </Button>
+            )}
+          </div>
         </CardHeader>
         <CardContent className="space-y-4">
           {divisions.length === 0 ? (
             <p className="py-6 text-center text-sm text-muted-foreground">No divisions yet.</p>
+          ) : shownDivisions.length === 0 ? (
+            <p className="py-6 text-center text-sm text-muted-foreground">No entries in any division yet.</p>
           ) : (
-            divisions.map((d) => (
+            shownDivisions.map((d) => (
               <div key={d.id}>
                 <p className="text-sm font-medium">{divisionLabel(d)}</p>
                 <DivisionFixtures
                   eventId={id}
                   divisionId={d.id}
                   matches={matchesByDivision.get(d.id) ?? []}
-                  entryCount={
-                    (entriesByDivision.get(d.id) ?? []).filter((e) => e.status !== 'withdrawn').length
-                  }
+                  entryCount={activeEntryCount(d.id)}
                   divisionFormat={d.format}
+                  canManage={canManage}
+                  division={d}
+                  divisionLabel={divisionLabel(d)}
+                  entries={entriesByDivision.get(d.id) ?? []}
+                />
+                <DivisionPlacings
+                  eventId={id}
+                  entries={entriesByDivision.get(d.id) ?? []}
                   canManage={canManage}
                 />
               </div>

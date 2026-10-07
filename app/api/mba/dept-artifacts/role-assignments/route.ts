@@ -16,8 +16,12 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server';
 
 export interface RoleAssignment {
+  /** hr_additional_roles.id — a department can carry several department_owner rows. */
+  id: string;
   role_type: string;
   staff_id: string | null;
+  /** User account of a department owner who has no team member record. */
+  profile_id: string | null;
   /** Name of a holder who has no MyJKKN team member record. */
   holder_note: string | null;
   /** Resolved display name — from the linked record, else the typed name. */
@@ -27,11 +31,15 @@ export interface RoleAssignment {
 }
 
 interface AssignmentRow {
+  id: string;
   role_type: string;
   staff_id: string | null;
+  profile_id?: string | null;
   notes: string | null;
   start_date: string | null;
 }
+
+const BASE_COLUMNS = 'id, role_type, staff_id, notes, start_date, created_at';
 
 export async function GET(request: NextRequest) {
   try {
@@ -72,20 +80,35 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'area_id is required' }, { status: 400 });
     }
 
-    const { data, error } = await supabase
-      .from('hr_additional_roles')
-      .select('role_type, staff_id, notes, start_date')
-      .eq('improvement_area_id', areaId)
-      .eq('is_current', true)
-      .order('role_type', { ascending: true });
+    const read = (columns: string) =>
+      supabase
+        .from('hr_additional_roles')
+        .select(columns)
+        .eq('improvement_area_id', areaId)
+        .eq('is_current', true)
+        .order('role_type', { ascending: true })
+        .order('start_date', { ascending: true })
+        .order('created_at', { ascending: true });
+
+    // profile_id arrives with 20271006100000. Until that migration is applied
+    // the column does not exist (42703); fall back rather than take the whole
+    // holders list down with it.
+    let { data, error } = await read(`${BASE_COLUMNS}, profile_id`);
+    if (error && (error as { code?: string }).code === '42703') {
+      ({ data, error } = await read(BASE_COLUMNS));
+    }
 
     if (error) {
       console.error('[GET /api/mba/dept-artifacts/role-assignments] Query error:', error);
       return NextResponse.json({ error: 'Failed to fetch role holders' }, { status: 500 });
     }
 
-    const rows = (data ?? []) as AssignmentRow[];
+    const rows = (data ?? []) as unknown as AssignmentRow[];
     const ids = rows.map((r) => r.staff_id).filter((v): v is string => Boolean(v));
+    const accountIds = rows
+      .filter((r) => !r.staff_id)
+      .map((r) => r.profile_id)
+      .filter((v): v is string => Boolean(v));
 
     // Resolve names for the linked records only (never a bulk directory read).
     const byId = new Map<string, { name: string | null; email: string | null }>();
@@ -106,11 +129,34 @@ export async function GET(request: NextRequest) {
       }
     }
 
+    // Owners linked by user account (no team member record) — same rule.
+    const byAccount = new Map<string, { name: string | null; email: string | null }>();
+    if (accountIds.length > 0) {
+      const admin = createServiceRoleClient();
+      const { data: accounts } = await admin
+        .from('profiles')
+        .select('id, full_name, email')
+        .in('id', accountIds);
+      for (const a of (accounts ?? []) as Array<{
+        id: string;
+        full_name: string | null;
+        email: string | null;
+      }>) {
+        byAccount.set(a.id, { name: a.full_name?.trim() || null, email: a.email });
+      }
+    }
+
     const assignments: RoleAssignment[] = rows.map((r) => {
-      const linked = r.staff_id ? byId.get(r.staff_id) : undefined;
+      const linked = r.staff_id
+        ? byId.get(r.staff_id)
+        : r.profile_id
+          ? byAccount.get(r.profile_id)
+          : undefined;
       return {
+        id: r.id,
         role_type: r.role_type,
         staff_id: r.staff_id,
+        profile_id: r.staff_id ? null : (r.profile_id ?? null),
         holder_note: r.staff_id ? null : r.notes,
         holder_name: linked?.name ?? (r.staff_id ? null : r.notes),
         holder_email: linked?.email ?? null,

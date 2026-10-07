@@ -791,6 +791,22 @@ ALTER TABLE user_activity_logs
     REFERENCES institutions(id)
     ON DELETE SET NULL;
 
+-- Mirrored from supabase/migrations/20271007130000_hostel_floors.sql
+-- A room / eligibility rule must sit on a real floor of its own block.
+ALTER TABLE public.hostel_rooms DROP CONSTRAINT IF EXISTS hostel_rooms_block_floor_fkey;
+ALTER TABLE public.hostel_rooms
+  ADD CONSTRAINT hostel_rooms_block_floor_fkey
+  FOREIGN KEY (block_id, floor)
+  REFERENCES public.hostel_floors (block_id, floor_number)
+  ON UPDATE RESTRICT ON DELETE RESTRICT;
+
+ALTER TABLE public.hostel_room_eligibility_rules DROP CONSTRAINT IF EXISTS hostel_room_eligibility_rules_block_floor_fkey;
+ALTER TABLE public.hostel_room_eligibility_rules
+  ADD CONSTRAINT hostel_room_eligibility_rules_block_floor_fkey
+  FOREIGN KEY (block_id, floor)
+  REFERENCES public.hostel_floors (block_id, floor_number)
+  ON UPDATE RESTRICT ON DELETE RESTRICT;
+
 -- ================================================================================
 -- End of Foreign Keys File
 -- Total Foreign Key Constraints: 150+
