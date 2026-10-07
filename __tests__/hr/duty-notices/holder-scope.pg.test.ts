@@ -8,8 +8,9 @@
  *           only those group-wide holders — never everyone.
  *   item 7  a deactivated role makes nobody a holder, in either arm (user_roles
  *           or the legacy profiles.role), and passes on no group-wide scope.
- *   risk 6  a permission granted as the JSON string "true" counts, as it does
- *           for user_has_permission ((… ->> k)::boolean).
+ *   risk 6  a permission stored as a non-canonical true (the JSON string "t")
+ *           counts, as it does for user_has_permission ((… ->> k)::boolean);
+ *           a plain text compare with 'true' missed it.
  *   ledger  pending_user_ids exists (chase recipients on leave), defaults empty.
  *
  * The migration file is applied VERBATIM with psql, TWICE, onto plain
@@ -111,7 +112,7 @@ const P = {
   disabledA: id(), // it_admin in A, login disabled
   apprA: id(), // approver_own in A
   apprB: id(), // approver_own in B
-  apprAll: id(), // approver_all (scope 'all', permission stored as the string "true"), in B
+  apprAll: id(), // approver_all (scope 'all', permission stored as the string "t"), in B
   apprDeadA: id(), // approver_dead (deactivated role with the key), in A
   apprFalseA: id(), // approver_false (key = false), in A
   apprLegacyA: id(), // legacy profiles.role = approver_own, in A
@@ -158,7 +159,7 @@ describe.skipIf(!RUN)('HR duty notices: recipients stay in the college (migratio
     await role('old_it', 'own', false);
     await role('dead_group', 'all', false);
     const apprOwn = await role('approver_own', 'own', true, { 'hr.attendance.approve_team': true });
-    const apprAll = await role('approver_all', 'all', true, { 'hr.attendance.regularize_approve': 'true' });
+    const apprAll = await role('approver_all', 'all', true, { 'hr.attendance.regularize_approve': 't' });
     const apprDead = await role('approver_dead', 'own', false, { 'hr.attendance.approve_team': true });
     const apprFalse = await role('approver_false', 'own', true, { 'hr.attendance.approve_team': false });
 

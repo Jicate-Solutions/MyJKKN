@@ -309,6 +309,17 @@ describe('item 2: an orphaned claim is not "sent"', () => {
     expect(body.errors.join('\n')).toMatch(/release after a failed send did not go through \(delete refused\)/);
   });
 
+  it('a send that reached only some recipients keeps its claim and says so', async () => {
+    dispatchSpy.mockResolvedValue(1);
+    const { client, queries } = world({
+      pending: [reg('r-new', 'pending', '2026-10-10T04:00:00Z', null)],
+      approvers: ['u-a', 'u-b'],
+    });
+    const { body } = await runCron(client);
+    expect(queries.some((q) => q.table === 'hr_duty_notices' && q.op === 'delete')).toBe(false);
+    expect(body.errors.join('\n')).toMatch(/reached 1 of 2 recipients; kept as sent/);
+  });
+
   it('a failed "sent" record is reported, not swallowed', async () => {
     const { client } = world({
       pending: [reg('r-new', 'pending', '2026-10-10T04:00:00Z', null)],
