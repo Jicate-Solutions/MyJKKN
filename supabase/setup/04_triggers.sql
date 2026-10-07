@@ -2956,8 +2956,14 @@ CREATE TRIGGER hr_duty_tower_duties_touch_trg
 DROP TRIGGER IF EXISTS hr_duty_tower_duties_audit_trg ON public.hr_duty_tower_duties;
 
 CREATE TRIGGER hr_duty_tower_duties_audit_trg
-  AFTER UPDATE ON public.hr_duty_tower_duties
+  AFTER INSERT OR UPDATE ON public.hr_duty_tower_duties
   FOR EACH ROW EXECUTE FUNCTION public.fn_hr_duty_tower_duties_audit();
+
+DROP TRIGGER IF EXISTS trg_guard_hr_duty_tower_duties_writes ON public.hr_duty_tower_duties;
+
+CREATE TRIGGER trg_guard_hr_duty_tower_duties_writes
+  BEFORE INSERT OR UPDATE OR DELETE ON public.hr_duty_tower_duties
+  FOR EACH ROW EXECUTE FUNCTION public.fn_guard_hr_duty_tower_duties_writes();
 
 DROP TRIGGER IF EXISTS trg_guard_hr_trust_policy_writes ON public.platform_policies;
 

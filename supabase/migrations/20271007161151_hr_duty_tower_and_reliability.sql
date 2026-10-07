@@ -93,6 +93,35 @@
 --   and an applicant can still edit the chain JSON of their own pending leave
 --   (L1).
 --
+-- WHEN AN L2 CLAIM WAS DECIDED
+--   An approver can write a comp-off claim's approved_at directly (hcoc_update),
+--   so it could be back-dated. Where the database itself recorded the decision
+--   — the hr_decision_emails row that trg_hcoc_zz_decision_email inserts when a
+--   person approves or rejects a claim (created_at = server time; signed-in
+--   users can only read that table) — that time is used. Only claims with no
+--   such row (decided before 20260911200000, or with no signed-in decider) fall
+--   back to approved_at, and THAT timing can be back-dated.
+--
+-- SMALL COLLEGES (fewer than 3 deciders)
+--   Each reading stores how many different people decided its items
+--   (deciders). A reading with fewer than 3 is close to one person's own
+--   number, so it is readable only by the Director list and hr.dashboard.manage
+--   holders with access to that college — not by every admin — and the weekly
+--   tower measurement records NULL ("no reading") instead of its rate.
+--
+-- LOAD: MY DESK READS A WEEKLY SNAPSHOT
+--   fn_hr_my_reliability runs on every My Desk load, learners included. It
+--   returns at once for anyone with no staff row, and otherwise reads the
+--   caller's rows from hr_duty_person_records — written by the weekly compute
+--   for the 12 weeks ending with the week it measured — instead of scanning the
+--   seven sources live. So a person's record is as of the last weekly run.
+--
+-- NOT HANDLED IN v1 (noted, not fixed)
+--   A quorum leave step (several approvers, decisions[]) counts once, for the
+--   approver whose decision completed it; the others are not credited.
+--   All seven tower rows share one routine (hr-duty-tower), so they share one
+--   run status: one failed run marks all seven.
+--
 -- REVERSED
 --   revoked_at is set (leave, comp-off). On a leave it marks only the last
 --   decided step (the decision the revocation took back), never the steps
@@ -190,7 +219,7 @@ CREATE TABLE IF NOT EXISTS public.hr_duty_tower_duties (
 );
 
 COMMENT ON TABLE public.hr_duty_tower_duties IS
-  'HR staff harness (20271007161151): the seven measurable HR duties shown on the loops tower, with each duty''s due rule. Read by fn_hr_duty_item_facts. Config-table pattern; super admins write, every change audited in hr_duty_tower_duties_audit. Codes match #4152''s hr_duty_definitions.config_key; once that lands, due rules should be read from there.';
+  'HR staff harness (20271007161151): the seven measurable HR duties shown on the loops tower, with each duty''s due rule. Read by fn_hr_duty_item_facts. Config-table pattern; only the Director list writes (trg_guard_hr_duty_tower_duties_writes), every insert and change audited in hr_duty_tower_duties_audit. Codes match #4152''s hr_duty_definitions.config_key; once that lands, due rules should be read from there.';
 
 CREATE UNIQUE INDEX IF NOT EXISTS hr_duty_tower_duties_active_unique
   ON public.hr_duty_tower_duties (config_key)
@@ -243,8 +272,43 @@ CREATE TRIGGER hr_duty_tower_duties_touch_trg
 
 DROP TRIGGER IF EXISTS hr_duty_tower_duties_audit_trg ON public.hr_duty_tower_duties;
 CREATE TRIGGER hr_duty_tower_duties_audit_trg
-  AFTER UPDATE ON public.hr_duty_tower_duties
+  AFTER INSERT OR UPDATE ON public.hr_duty_tower_duties
   FOR EACH ROW EXECUTE FUNCTION public.fn_hr_duty_tower_duties_audit();
+
+-- Who may add, change or remove a duty or its due rule: the Director list only
+-- (plus service_role and a database session with no JWT — a migration). The
+-- same shape as fn_guard_hr_trust_policy_writes below. RLS still requires a
+-- super admin; this trigger narrows that to the Director list. Fails closed.
+CREATE OR REPLACE FUNCTION public.fn_guard_hr_duty_tower_duties_writes()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY INVOKER
+SET search_path = public
+AS $function$
+DECLARE
+  v_role text := auth.role();
+BEGIN
+  IF v_role IS NOT NULL AND v_role IS DISTINCT FROM 'service_role' THEN
+    IF v_role IS DISTINCT FROM 'authenticated' THEN
+      RAISE EXCEPTION 'Only the Director can change the HR duty due rules.'
+        USING ERRCODE = '42501';
+    END IF;
+    IF public.fn_is_the_director() IS NOT TRUE THEN
+      RAISE EXCEPTION 'Only the Director can change the HR duty due rules.'
+        USING ERRCODE = '42501';
+    END IF;
+  END IF;
+
+  RETURN CASE WHEN TG_OP = 'DELETE' THEN OLD ELSE NEW END;
+END;
+$function$;
+
+REVOKE EXECUTE ON FUNCTION public.fn_guard_hr_duty_tower_duties_writes() FROM anon, PUBLIC;
+
+DROP TRIGGER IF EXISTS trg_guard_hr_duty_tower_duties_writes ON public.hr_duty_tower_duties;
+CREATE TRIGGER trg_guard_hr_duty_tower_duties_writes
+  BEFORE INSERT OR UPDATE OR DELETE ON public.hr_duty_tower_duties
+  FOR EACH ROW EXECUTE FUNCTION public.fn_guard_hr_duty_tower_duties_writes();
 
 -- Cold-read config (read once per weekly run), so no pg_notify cache trigger.
 
@@ -456,7 +520,12 @@ BEGIN
            k.approved_by,
            k.created_at,
            ((k.expires_on - c.due_days_before_deadline + 1)::timestamp AT TIME ZONE 'Asia/Kolkata'),
-           k.approved_at,
+           -- the server's own record of the decision when there is one;
+           -- approved_at (writable by approvers) only as a fallback
+           COALESCE((SELECT min(e.created_at) FROM public.hr_decision_emails e
+                      WHERE e.comp_off_credit_id = k.id
+                        AND e.decision IN ('approved','rejected')),
+                    k.approved_at),
            (k.revoked_at IS NOT NULL),
            ARRAY[st.profile_id, k.created_by]
       FROM public.hr_comp_off_credits k
@@ -639,6 +708,9 @@ CREATE TABLE IF NOT EXISTS public.hr_duty_tower_readings (
   reversed       integer NOT NULL DEFAULT 0,
   on_time_rate   numeric,         -- NULL when there were no items
   reversal_rate  numeric,
+  -- how many different people decided this reading's items; under 3, the
+  -- reading is close to one person's number (see SMALL COLLEGES)
+  deciders       integer NOT NULL DEFAULT 0,
   computed_at    timestamptz NOT NULL DEFAULT now()
 );
 
@@ -660,10 +732,37 @@ GRANT ALL ON public.hr_duty_tower_readings TO service_role;
 DROP POLICY IF EXISTS hr_duty_tower_readings_select ON public.hr_duty_tower_readings;
 CREATE POLICY hr_duty_tower_readings_select ON public.hr_duty_tower_readings
   FOR SELECT USING (
-    public.is_super_admin() OR public.is_admin()
+    public.fn_is_the_director() IS TRUE
     OR (public.user_has_permission('hr.dashboard.manage')
         AND (institution_id IS NULL OR public.role_has_institution_access(institution_id)))
+    -- every other admin sees only readings with at least 3 deciders
+    OR (deciders >= 3 AND (public.is_super_admin() OR public.is_admin()))
   );
+
+
+-- A person's own 12-week numbers per duty, as of each weekly run. PRIVATE: RLS
+-- on and no policy, no grant to authenticated — not the Director, not HR.
+-- Read only through fn_hr_my_reliability (the caller's own rows).
+CREATE TABLE IF NOT EXISTS public.hr_duty_person_records (
+  user_id     uuid NOT NULL,
+  duty_code   text NOT NULL CHECK (duty_code ~ '^(R[1-9]|L[1-5]|A[1-6]|P[1-4]|S[1-4]|G([1-9]|10))$'),
+  week_start  date NOT NULL,
+  items       integer NOT NULL,
+  on_time     integer NOT NULL,
+  reversed    integer NOT NULL,
+  computed_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (user_id, week_start, duty_code)
+);
+
+COMMENT ON TABLE public.hr_duty_person_records IS
+  'HR staff harness (20271007161151): each person''s own items / on time / reversed per duty over the 12 weeks ending week_start''s week. Written only by fn_hr_duty_tower_compute; read only by fn_hr_my_reliability for auth.uid(). No policy: nobody else can read it.';
+
+CREATE INDEX IF NOT EXISTS idx_hr_duty_person_records_week
+  ON public.hr_duty_person_records (week_start DESC);
+
+ALTER TABLE public.hr_duty_person_records ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON public.hr_duty_person_records FROM anon, PUBLIC, authenticated;
+GRANT ALL ON public.hr_duty_person_records TO service_role;
 
 
 -- ----------------------------------------------------------------------------
@@ -701,10 +800,11 @@ BEGIN
 
   INSERT INTO public.hr_duty_tower_readings
     (duty_code, institution_id, week_start, items, on_time, late, open_overdue, reversed,
-     on_time_rate, reversal_rate, computed_at)
+     on_time_rate, reversal_rate, deciders, computed_at)
   SELECT g.duty_code, g.institution_id, p_week_start, g.items, g.on_time, g.late, g.open_overdue, g.reversed,
          CASE WHEN g.items > 0 THEN round(g.on_time::numeric / g.items, 4) END,
          CASE WHEN g.items > 0 THEN round(g.reversed::numeric / g.items, 4) END,
+         g.deciders,
          now()
     FROM (
       -- all colleges: one row per measured duty, even a week with no items
@@ -713,7 +813,8 @@ BEGIN
              count(f.item_id) FILTER (WHERE f.on_time)::int                     AS on_time,
              count(f.item_id) FILTER (WHERE f.done_at IS NOT NULL AND NOT f.on_time)::int AS late,
              count(f.item_id) FILTER (WHERE f.done_at IS NULL)::int             AS open_overdue,
-             count(f.item_id) FILTER (WHERE f.reversed)::int                    AS reversed
+             count(f.item_id) FILTER (WHERE f.reversed)::int                    AS reversed,
+             count(DISTINCT f.actor_id)::int                                    AS deciders
         FROM public.hr_duty_tower_duties d
         LEFT JOIN _hr_duty_tower_facts f ON f.duty_code = d.duty_code
        WHERE d.is_active AND d.measured
@@ -725,7 +826,8 @@ BEGIN
              count(*) FILTER (WHERE f.on_time)::int,
              count(*) FILTER (WHERE f.done_at IS NOT NULL AND NOT f.on_time)::int,
              count(*) FILTER (WHERE f.done_at IS NULL)::int,
-             count(*) FILTER (WHERE f.reversed)::int
+             count(*) FILTER (WHERE f.reversed)::int,
+             count(DISTINCT f.actor_id)::int
         FROM _hr_duty_tower_facts f
        WHERE f.institution_id IS NOT NULL
        GROUP BY f.duty_code, f.institution_id
@@ -738,10 +840,26 @@ BEGIN
                 reversed      = EXCLUDED.reversed,
                 on_time_rate  = EXCLUDED.on_time_rate,
                 reversal_rate = EXCLUDED.reversal_rate,
+                deciders      = EXCLUDED.deciders,
                 computed_at   = EXCLUDED.computed_at;
 
+  -- Each person's own 12 weeks, ending with the week just measured, for My
+  -- Desk to read without scanning the sources (LOAD, in the header). Private:
+  -- no policy on the table, read only through fn_hr_my_reliability.
+  DELETE FROM public.hr_duty_person_records pr WHERE pr.week_start = p_week_start;
+  INSERT INTO public.hr_duty_person_records (user_id, duty_code, week_start, items, on_time, reversed)
+  SELECT f.actor_id, f.duty_code, p_week_start,
+         count(*)::int,
+         count(*) FILTER (WHERE f.on_time)::int,
+         count(*) FILTER (WHERE f.reversed)::int
+    FROM public.fn_hr_duty_item_facts(v_to - interval '84 days', v_to) f
+   WHERE f.actor_id IS NOT NULL
+   GROUP BY f.actor_id, f.duty_code;
+
+  -- The tower gets no rate from a reading with fewer than 3 deciders: it
+  -- would be close to one person's own number (SMALL COLLEGES).
   RETURN QUERY
-    SELECT r.duty_code, r.items, r.on_time_rate
+    SELECT r.duty_code, r.items, CASE WHEN r.deciders >= 3 THEN r.on_time_rate END
       FROM public.hr_duty_tower_readings r
      WHERE r.week_start = p_week_start AND r.institution_id IS NULL
      ORDER BY r.duty_code;
@@ -749,7 +867,7 @@ END;
 $$;
 
 COMMENT ON FUNCTION public.fn_hr_duty_tower_compute(date) IS
-  'HR staff harness (20271007161151): records the readings for the IST week starting p_week_start — per duty, per college and for all colleges — and returns one row per duty with the all-college on-time rate. Idempotent per week (upsert). Service role only. Measures; sends nothing.';
+  'HR staff harness (20271007161151): records the readings for the IST week starting p_week_start — per duty, per college and for all colleges — and each person''s own 12 weeks ending that week (hr_duty_person_records), and returns one row per duty with the all-college on-time rate (NULL when fewer than 3 people decided). Idempotent per week (upsert). Service role only. Measures; sends nothing.';
 
 REVOKE EXECUTE ON FUNCTION public.fn_hr_duty_tower_compute(date) FROM anon, PUBLIC, authenticated;
 GRANT  EXECUTE ON FUNCTION public.fn_hr_duty_tower_compute(date) TO service_role;
@@ -933,6 +1051,12 @@ BEGIN
     RAISE EXCEPTION 'Sign in to see your record.' USING ERRCODE = '42501';
   END IF;
 
+  -- Learners and anyone else with no staff row decide no HR duties: return at
+  -- once, before any other read (My Desk calls this on every load).
+  IF NOT EXISTS (SELECT 1 FROM public.staff s WHERE s.profile_id = v_uid) THEN
+    RETURN;
+  END IF;
+
   SELECT t.min_items, t.steady_on_time, t.max_reversal INTO v_min, v_on, v_rev
     FROM public.fn_hr_trust_thresholds() t;
 
@@ -943,20 +1067,22 @@ BEGIN
            -- (all three NULL when any is unreadable: nothing reads 'steady')
            v_min, v_on, v_rev
       FROM (
-        SELECT f.duty_code,
-               count(*)::int AS items,
-               round(count(*) FILTER (WHERE f.on_time)::numeric / count(*), 4) AS on_time_rate,
-               round(count(*) FILTER (WHERE f.reversed)::numeric / count(*), 4) AS reversal_rate
-          FROM public.fn_hr_duty_item_facts(now() - interval '84 days', 'infinity'::timestamptz) f
-         WHERE f.actor_id = v_uid
-         GROUP BY f.duty_code
+        -- the latest weekly snapshot, never a live scan of the sources
+        SELECT pr.duty_code,
+               pr.items,
+               round(pr.on_time::numeric / pr.items, 4) AS on_time_rate,
+               round(pr.reversed::numeric / pr.items, 4) AS reversal_rate
+          FROM public.hr_duty_person_records pr
+         WHERE pr.user_id = v_uid
+           AND pr.items > 0
+           AND pr.week_start = (SELECT max(x.week_start) FROM public.hr_duty_person_records x)
       ) g
      ORDER BY g.duty_code;
 END;
 $$;
 
 COMMENT ON FUNCTION public.fn_hr_my_reliability() IS
-  'HR staff harness (20271007161151): the signed-in team member''s OWN record over the trailing 12 weeks, per duty they decided: items, on-time rate, reversed rate and a signal (steady / building / too few items), plus the three thresholds the signal was read against (NULL when unreadable). No user parameter: a person can only ever read their own numbers. Read-only.';
+  'HR staff harness (20271007161151): the signed-in team member''s OWN record over the 12 weeks ending with the last weekly run (hr_duty_person_records; empty for anyone with no staff row), per duty they decided: items, on-time rate, reversed rate and a signal (steady / building / too few items), plus the three thresholds the signal was read against (NULL when unreadable). No user parameter: a person can only ever read their own numbers. Read-only.';
 
 REVOKE EXECUTE ON FUNCTION public.fn_hr_my_reliability() FROM anon, PUBLIC;
 GRANT  EXECUTE ON FUNCTION public.fn_hr_my_reliability() TO authenticated;

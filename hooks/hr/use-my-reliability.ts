@@ -11,7 +11,9 @@
  *   is_super_admin().
  * - useTrustDirectorView: only fetched when the caller is the Director; every
  *   table it reads is also RLS-limited to the Director (suggestions, switch
- *   log) or to HR desk access (readings, which carry no person).
+ *   log) or to HR desk access (readings, which carry no person). The switch
+ *   shows the policy row hr.harness.trust.suggestions_enabled itself; the log
+ *   only says when it last changed.
  * - useTrustSwitch / useDecideTrustSuggestion: Director-only RPCs. Neither
  *   changes a role, a permission or an approval chain.
  */
@@ -33,6 +35,11 @@ import type {
 function db(): SupabaseClient {
   return createClientSupabaseClient() as unknown as SupabaseClient;
 }
+
+/** One hr_trust_suggestions row as selected, with the embedded profile name. */
+type SuggestionRow = Omit<TrustSuggestion, 'person_name'> & {
+  person: { full_name: string | null } | Array<{ full_name: string | null }> | null;
+};
 
 export const MY_RELIABILITY_KEYS = {
   mine: ['hr', 'my-reliability'] as const,
@@ -73,7 +80,13 @@ export function useTrustDirectorView(enabled: boolean) {
     queryFn: async () => {
       const supabase = db();
 
-      const [logRes, sugRes, weekRes] = await Promise.all([
+      const [policyRes, logRes, sugRes, weekRes] = await Promise.all([
+        supabase
+          .from('platform_policies')
+          .select('value')
+          .eq('policy_key', 'hr.harness.trust.suggestions_enabled')
+          .eq('scope_type', 'global')
+          .limit(1),
         supabase.from('hr_trust_switch_log').select('turned_on, at').order('at', { ascending: false }).limit(1),
         supabase
           .from('hr_trust_suggestions')
@@ -82,6 +95,7 @@ export function useTrustDirectorView(enabled: boolean) {
           .order('created_at', { ascending: true }),
         supabase.from('hr_duty_tower_readings').select('week_start').order('week_start', { ascending: false }).limit(1),
       ]);
+      if (policyRes.error) throw new Error(policyRes.error.message);
       if (logRes.error) throw new Error(logRes.error.message);
       if (sugRes.error) throw new Error(sugRes.error.message);
       if (weekRes.error) throw new Error(weekRes.error.message);
@@ -110,7 +124,7 @@ export function useTrustDirectorView(enabled: boolean) {
       }
 
       const lastLog = logRes.data?.[0] as { turned_on: boolean; at: string } | undefined;
-      const suggestions: TrustSuggestion[] = (sugRes.data ?? []).map((s: any) => ({
+      const suggestions: TrustSuggestion[] = ((sugRes.data ?? []) as SuggestionRow[]).map((s) => ({
         id: s.id,
         user_id: s.user_id,
         duty_code: s.duty_code,
@@ -119,9 +133,10 @@ export function useTrustDirectorView(enabled: boolean) {
         created_at: s.created_at,
         person_name: (Array.isArray(s.person) ? s.person[0]?.full_name : s.person?.full_name) ?? null,
       }));
+      const policyRow = policyRes.data?.[0] as { value: unknown } | undefined;
 
       return {
-        switchOn: lastLog?.turned_on === true,
+        switchOn: policyRow?.value === true,
         switchChangedAt: lastLog?.at ?? null,
         suggestions,
         weekStart,

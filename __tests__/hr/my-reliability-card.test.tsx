@@ -16,10 +16,13 @@ const rpc = vi.fn(async (name: string) => answers[name] ?? { data: null, error: 
 
 // Every table read the Director block makes. A non-Director must never reach one.
 const tableReads: string[] = [];
+let policyValue: unknown = false;
 function table(name: string) {
   tableReads.push(name);
   const rows: Record<string, unknown[]> = {
-    hr_trust_switch_log: [{ turned_on: false, at: '2026-10-05T01:17:00Z' }],
+    // The switch shows the policy row; the log is only when it last changed.
+    platform_policies: [{ value: policyValue }],
+    hr_trust_switch_log: [{ turned_on: !policyValue, at: '2026-10-05T01:17:00Z' }],
     hr_trust_suggestions: [{
       id: 's1', user_id: 'u-9', duty_code: 'S2', status: 'proposed', created_at: '2026-10-05T01:17:00Z',
       evidence: { steady_weeks: 12 }, person: { full_name: 'Kavya Suggested' },
@@ -65,6 +68,7 @@ const MY_ROWS = [
 beforeEach(() => {
   rpc.mockClear();
   tableReads.length = 0;
+  policyValue = false;
   answers = {
     fn_hr_my_reliability: { data: MY_ROWS, error: null },
     fn_is_the_director: { data: false, error: null },
@@ -144,6 +148,14 @@ describe('<MyReliability/> — the Director block', () => {
     expect(screen.getByRole('button', { name: 'Decline' })).toBeInTheDocument();
     expect(screen.getByText('All colleges')).toBeInTheDocument();
     expect(screen.getByText('75%')).toBeInTheDocument();
+  });
+
+  it('the switch shows the policy row, not the switch log', async () => {
+    answers.fn_is_the_director = { data: true, error: null };
+    policyValue = true; // the log's latest row says off
+    mount();
+    await screen.findByTestId('trust-director-block');
+    await waitFor(() => expect(screen.getByRole('switch')).toBeChecked());
   });
 
   it("a suggestion shows the person's name and 'steady for 12 weeks', never their counts or rates", async () => {

@@ -695,6 +695,6 @@ export const PLATFORM_OPS_ROUTINES: AIRoutine[] = [
     "configKnobs": "hr_duty_tower_duties (due rule per duty; super admins edit, audited). platform_policies hr.harness.trust.min_items / steady_on_time / max_reversal (the 12-week signal) and hr.harness.trust.suggestions_enabled (ships false; only the Director's switch turns it on). Day/time editable at /admin/ai-routines.",
     "sideEffects": "DB writes only: hr_duty_tower_readings (upsert per week), one loop_measurements row per duty per week, and — only when the Director's switch is on — hr_trust_suggestions rows. SENDS NOTHING. Changes no role, permission or approval chain.",
     "safeToManualTrigger": true,
-    "notes": "Idempotent: the compute upserts per week and each measurement's run id is hr-duty-tower:<week_start>:<code>, skipped when already recorded. Auth: CRON_SECRET, Bearer ONLY (constant-time). Migration 20271007161151."
+    "notes": "Idempotent: the compute upserts per week and each measurement's run id is hr-duty-tower:<week_start>:<code>, skipped when already recorded. Auth: CRON_SECRET as an Authorization: Bearer header ONLY (constant-time); a secret in the address (?secret=) is refused. A manual run is the Run button on /admin/ai-routines, which sends the Bearer header from the server. Migration 20271007161151."
   }
 ];

@@ -41,7 +41,8 @@ CREATE FUNCTION auth.role() RETURNS text LANGUAGE sql STABLE AS $$
   SELECT nullif(current_setting('test.role', true), '') $$;
 CREATE FUNCTION public.is_super_admin() RETURNS boolean LANGUAGE sql STABLE AS $$
   SELECT coalesce(current_setting('test.super', true), '') = 'on' $$;
-CREATE FUNCTION public.is_admin() RETURNS boolean LANGUAGE sql STABLE AS $$ SELECT false $$;
+CREATE FUNCTION public.is_admin() RETURNS boolean LANGUAGE sql STABLE AS $$
+  SELECT coalesce(current_setting('test.admin', true), '') = 'on' $$;
 CREATE FUNCTION public.user_has_permission(p text) RETURNS boolean LANGUAGE sql STABLE AS $$
   SELECT p = ANY (string_to_array(coalesce(current_setting('test.perms', true), ''), ',')) $$;
 CREATE FUNCTION public.role_has_institution_access(p uuid) RETURNS boolean LANGUAGE sql STABLE AS $$
@@ -103,6 +104,10 @@ CREATE TABLE public.hr_form_submissions (
 CREATE TABLE public.hr_recruitment_candidates (
   id uuid PRIMARY KEY, institution_id uuid, status text NOT NULL, current_step integer NOT NULL DEFAULT 0,
   approval_chain jsonb, final_decided_at timestamptz, submitted_by uuid, submitted_at timestamptz NOT NULL DEFAULT now());
+-- The decision-email outbox: its created_at is the server's record of a comp-off decision.
+CREATE TABLE public.hr_decision_emails (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(), leave_application_id uuid, comp_off_credit_id uuid,
+  employee_id uuid, decision text NOT NULL, created_at timestamptz NOT NULL DEFAULT now());
 -- The permission and chain tables no function here may write.
 CREATE TABLE public.user_roles (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), user_id uuid, role_id uuid);
 CREATE TABLE public.custom_roles (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), role_key text, permissions jsonb);
@@ -310,7 +315,9 @@ describe('steady at EVERY one of the last 12 weekly checkpoints, not just some',
       INSERT INTO public.hr_employee_documents (id, institution_id, verification_status, verified_by, verified_at, uploaded_at)
       SELECT gen_random_uuid(), '${INST}', 'verified', '${RECENT}',
              now() - make_interval(days => 3 * g) + interval '1 hour', now() - make_interval(days => 3 * g)
-        FROM generate_series(1, 30) g`;
+        FROM generate_series(1, 30) g;
+      INSERT INTO public.staff VALUES (gen_random_uuid(), '${INST}', '${RECENT}');
+      SELECT public.fn_hr_duty_tower_compute((date_trunc('week', now() AT TIME ZONE 'Asia/Kolkata'))::date)`;
     const mineNow = { uid: RECENT, sql: `SELECT signal FROM public.fn_hr_my_reliability() WHERE duty_code = 'S2'` };
     const r = await run(recent, [mineNow, switchOn(DIRECTOR), generate]);
     // steady today...

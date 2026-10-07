@@ -11395,7 +11395,7 @@ CREATE TABLE IF NOT EXISTS public.hr_duty_tower_duties (
 );
 
 COMMENT ON TABLE public.hr_duty_tower_duties IS
-  'HR staff harness (20271007161151): the seven measurable HR duties shown on the loops tower, with each duty''s due rule. Read by fn_hr_duty_item_facts. Config-table pattern; super admins write, every change audited in hr_duty_tower_duties_audit. Codes match #4152''s hr_duty_definitions.config_key; once that lands, due rules should be read from there.';
+  'HR staff harness (20271007161151): the seven measurable HR duties shown on the loops tower, with each duty''s due rule. Read by fn_hr_duty_item_facts. Config-table pattern; only the Director list writes (trg_guard_hr_duty_tower_duties_writes), every insert and change audited in hr_duty_tower_duties_audit. Codes match #4152''s hr_duty_definitions.config_key; once that lands, due rules should be read from there.';
 
 CREATE UNIQUE INDEX IF NOT EXISTS hr_duty_tower_duties_active_unique
   ON public.hr_duty_tower_duties (config_key)
@@ -11426,6 +11426,9 @@ CREATE TABLE IF NOT EXISTS public.hr_duty_tower_readings (
   reversed       integer NOT NULL DEFAULT 0,
   on_time_rate   numeric,         -- NULL when there were no items
   reversal_rate  numeric,
+  -- how many different people decided this reading's items; under 3, the
+  -- reading is close to one person's number (see SMALL COLLEGES)
+  deciders       integer NOT NULL DEFAULT 0,
   computed_at    timestamptz NOT NULL DEFAULT now()
 );
 
@@ -11438,6 +11441,23 @@ CREATE UNIQUE INDEX IF NOT EXISTS hr_duty_tower_readings_unique
 
 CREATE INDEX IF NOT EXISTS idx_hr_duty_tower_readings_week
   ON public.hr_duty_tower_readings (week_start DESC, duty_code);
+
+CREATE TABLE IF NOT EXISTS public.hr_duty_person_records (
+  user_id     uuid NOT NULL,
+  duty_code   text NOT NULL CHECK (duty_code ~ '^(R[1-9]|L[1-5]|A[1-6]|P[1-4]|S[1-4]|G([1-9]|10))$'),
+  week_start  date NOT NULL,
+  items       integer NOT NULL,
+  on_time     integer NOT NULL,
+  reversed    integer NOT NULL,
+  computed_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (user_id, week_start, duty_code)
+);
+
+COMMENT ON TABLE public.hr_duty_person_records IS
+  'HR staff harness (20271007161151): each person''s own items / on time / reversed per duty over the 12 weeks ending week_start''s week. Written only by fn_hr_duty_tower_compute; read only by fn_hr_my_reliability for auth.uid(). No policy: nobody else can read it.';
+
+CREATE INDEX IF NOT EXISTS idx_hr_duty_person_records_week
+  ON public.hr_duty_person_records (week_start DESC);
 
 CREATE TABLE IF NOT EXISTS public.hr_trust_switch_log (
   id         uuid PRIMARY KEY DEFAULT gen_random_uuid(),

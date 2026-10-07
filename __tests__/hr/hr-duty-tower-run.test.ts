@@ -125,12 +125,29 @@ describe('GET /api/cron/hr-duty-tower', () => {
   const OLD = process.env.CRON_SECRET;
   beforeEach(() => { process.env.CRON_SECRET = 'test-secret'; });
 
-  async function call(auth?: string) {
+  async function call(auth?: string, query = '') {
     const { GET } = await import('@/app/api/cron/hr-duty-tower/route');
     const { NextRequest } = await import('next/server');
     const headers: Record<string, string> = auth ? { authorization: auth } : {};
-    return GET(new NextRequest('http://localhost/api/cron/hr-duty-tower', { headers }));
+    return GET(new NextRequest(`http://localhost/api/cron/hr-duty-tower${query}`, { headers }));
   }
+
+  it('refuses the secret in the address: Bearer header only', async () => {
+    serviceClient = fakeAdmin({});
+    expect((await call(undefined, '?secret=test-secret')).status).toBe(401);
+    expect((await call(undefined, '?key=test-secret')).status).toBe(401);
+    expect((await call(undefined, '?token=test-secret')).status).toBe(401);
+  });
+
+  it('the routine catalogue says the same: Bearer only, never the secret in the address', async () => {
+    const { PLATFORM_OPS_ROUTINES } = await import('@/lib/ai-routines/platform-ops');
+    const entry = (PLATFORM_OPS_ROUTINES as Array<Record<string, unknown>>).find((r) => r.id === 'hr-duty-tower');
+    expect(entry).toBeDefined();
+    const text = JSON.stringify(entry);
+    expect(text).toMatch(/Bearer header ONLY/);
+    expect(text).toMatch(/\?secret=\) is refused/);
+    expect(text).not.toMatch(/\?secret=<|secret in the (address|URL) (works|is accepted)/i);
+  });
 
   it('refuses a request without the Bearer secret', async () => {
     serviceClient = fakeAdmin({});

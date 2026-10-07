@@ -40,7 +40,8 @@ CREATE FUNCTION auth.role() RETURNS text LANGUAGE sql STABLE AS $$
   SELECT nullif(current_setting('test.role', true), '') $$;
 CREATE FUNCTION public.is_super_admin() RETURNS boolean LANGUAGE sql STABLE AS $$
   SELECT coalesce(current_setting('test.super', true), '') = 'on' $$;
-CREATE FUNCTION public.is_admin() RETURNS boolean LANGUAGE sql STABLE AS $$ SELECT false $$;
+CREATE FUNCTION public.is_admin() RETURNS boolean LANGUAGE sql STABLE AS $$
+  SELECT coalesce(current_setting('test.admin', true), '') = 'on' $$;
 CREATE FUNCTION public.user_has_permission(p text) RETURNS boolean LANGUAGE sql STABLE AS $$
   SELECT p = ANY (string_to_array(coalesce(current_setting('test.perms', true), ''), ',')) $$;
 CREATE FUNCTION public.role_has_institution_access(p uuid) RETURNS boolean LANGUAGE sql STABLE AS $$
@@ -99,6 +100,10 @@ CREATE TABLE public.hr_form_submissions (
 CREATE TABLE public.hr_recruitment_candidates (
   id uuid PRIMARY KEY, institution_id uuid, status text NOT NULL, current_step integer NOT NULL DEFAULT 0,
   approval_chain jsonb, final_decided_at timestamptz, submitted_by uuid, submitted_at timestamptz NOT NULL DEFAULT now());
+-- The decision-email outbox: its created_at is the server's record of a comp-off decision.
+CREATE TABLE public.hr_decision_emails (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(), leave_application_id uuid, comp_off_credit_id uuid,
+  employee_id uuid, decision text NOT NULL, created_at timestamptz NOT NULL DEFAULT now());
 -- The permission and chain tables no function here may write.
 CREATE TABLE public.user_roles (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), user_id uuid, role_id uuid);
 CREATE TABLE public.custom_roles (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), role_key text, permissions jsonb);
@@ -130,6 +135,9 @@ const SLOW = '00000000-0000-4000-8000-0000000000c3';       // 10 documents, all 
 const SELF = '00000000-0000-4000-8000-0000000000c4';       // verified 12 of their OWN documents
 const DIRECT = '00000000-0000-4000-8000-0000000000c6';     // 12 attendance corrections written already approved
 const SELF_ROW = '00000000-0000-4000-8000-0000000000b4';
+const NOT_A_MEMBER = '00000000-0000-4000-8000-0000000000c7';   // decided 12 documents on time, but has no team-member record
+/** The weekly compute for the IST week holding now: writes everyone's 12-week snapshot. */
+const COMPUTE = `SELECT public.fn_hr_duty_tower_compute((date_trunc('week', now() AT TIME ZONE 'Asia/Kolkata'))::date)`;
 
 let client: Client;
 
@@ -150,6 +158,7 @@ async function mine(uid: string | null, setup?: string) {
   await client.query('BEGIN');
   try {
     if (setup) await client.query(setup);
+    await client.query(COMPUTE);
     await client.query(`SELECT set_config('test.uid', $1, true)`, [uid ?? '']);
     await client.query('SET LOCAL ROLE authenticated');
     const r = await client.query(`SELECT * FROM public.fn_hr_my_reliability()`);
@@ -173,7 +182,13 @@ beforeAll(async () => {
   await documents(ME, 12, 1);
   await documents(OTHER, 3, 24 * 6);
   await documents(SLOW, 10, 24 * 6);
-  await client.query(`INSERT INTO public.profiles VALUES ($1, 'Self'), ($2, 'Direct')`, [SELF, DIRECT]);
+  await client.query(`INSERT INTO public.profiles VALUES ($1, 'Self'), ($2, 'Direct'), ($3, 'Not A Team Member')`,
+    [SELF, DIRECT, NOT_A_MEMBER]);
+  // Everyone who decides HR duties here is a team member with a staff row, except NOT_A_MEMBER.
+  await client.query(
+    `INSERT INTO public.staff (id, institution_id, profile_id)
+     SELECT gen_random_uuid(), $1, p FROM unnest($2::uuid[]) p`, [INST, [ME, OTHER, SLOW, DIRECT]]);
+  await documents(NOT_A_MEMBER, 12, 1);
   await client.query(`INSERT INTO public.staff VALUES ($1, $2, $3)`, [SELF_ROW, INST, SELF]);
   await client.query(
     `INSERT INTO public.hr_employee_documents (id, institution_id, staff_id, verification_status, verified_by, verified_at, uploaded_at)
@@ -277,5 +292,45 @@ describe('the bar for steady travels with the rows, read from the policy rows', 
     const r = await mine(ME,
       `UPDATE public.platform_policies SET value = '"ninety"'::jsonb WHERE policy_key = 'hr.harness.trust.steady_on_time'`);
     expect(r.rows[0]).toMatchObject({ min_items: null, steady_on_time: null, max_reversal: null });
+  });
+});
+
+describe('load: My Desk reads a weekly snapshot, and nothing at all for someone with no team-member record', () => {
+  it('a caller with no team-member record gets nothing, even with decided items on record', async () => {
+    const r = await mine(NOT_A_MEMBER);
+    expect(r.error).toBeNull();
+    expect(r.rows).toHaveLength(0);
+  });
+
+  it('reads the last weekly snapshot, not the live sources', async () => {
+    await client.query('BEGIN');
+    try {
+      await client.query(COMPUTE);
+      // twelve more decided documents after the weekly run...
+      await client.query(
+        `INSERT INTO public.hr_employee_documents (id, institution_id, verification_status, verified_by, verified_at, uploaded_at)
+         SELECT gen_random_uuid(), $1, 'verified', $2, now() - make_interval(days => 5 * g) + interval '2 hours',
+                now() - make_interval(days => 5 * g)
+           FROM generate_series(1, 12) g`, [INST, ME]);
+      await client.query(`SELECT set_config('test.uid', $1, true)`, [ME]);
+      await client.query('SET LOCAL ROLE authenticated');
+      const r = await client.query(`SELECT items FROM public.fn_hr_my_reliability()`);
+      // ...do not show until the next run
+      expect(r.rows[0].items).toBe(12);
+    } finally {
+      await client.query('ROLLBACK');
+    }
+  });
+
+  it('nobody signed in can read the snapshot table directly, the Director included', async () => {
+    await client.query('BEGIN');
+    try {
+      await client.query(COMPUTE);
+      await client.query(`SELECT set_config('test.uid', $1, true)`, [ME]);
+      await client.query('SET LOCAL ROLE authenticated');
+      await expect(client.query(`SELECT * FROM public.hr_duty_person_records`)).rejects.toThrow(/permission denied/);
+    } finally {
+      await client.query('ROLLBACK');
+    }
   });
 });

@@ -40,7 +40,8 @@ CREATE FUNCTION auth.role() RETURNS text LANGUAGE sql STABLE AS $$
   SELECT nullif(current_setting('test.role', true), '') $$;
 CREATE FUNCTION public.is_super_admin() RETURNS boolean LANGUAGE sql STABLE AS $$
   SELECT coalesce(current_setting('test.super', true), '') = 'on' $$;
-CREATE FUNCTION public.is_admin() RETURNS boolean LANGUAGE sql STABLE AS $$ SELECT false $$;
+CREATE FUNCTION public.is_admin() RETURNS boolean LANGUAGE sql STABLE AS $$
+  SELECT coalesce(current_setting('test.admin', true), '') = 'on' $$;
 CREATE FUNCTION public.user_has_permission(p text) RETURNS boolean LANGUAGE sql STABLE AS $$
   SELECT p = ANY (string_to_array(coalesce(current_setting('test.perms', true), ''), ',')) $$;
 CREATE FUNCTION public.role_has_institution_access(p uuid) RETURNS boolean LANGUAGE sql STABLE AS $$
@@ -99,6 +100,10 @@ CREATE TABLE public.hr_form_submissions (
 CREATE TABLE public.hr_recruitment_candidates (
   id uuid PRIMARY KEY, institution_id uuid, status text NOT NULL, current_step integer NOT NULL DEFAULT 0,
   approval_chain jsonb, final_decided_at timestamptz, submitted_by uuid, submitted_at timestamptz NOT NULL DEFAULT now());
+-- The decision-email outbox: its created_at is the server's record of a comp-off decision.
+CREATE TABLE public.hr_decision_emails (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(), leave_application_id uuid, comp_off_credit_id uuid,
+  employee_id uuid, decision text NOT NULL, created_at timestamptz NOT NULL DEFAULT now());
 -- The permission and chain tables no function here may write.
 CREATE TABLE public.user_roles (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), user_id uuid, role_id uuid);
 CREATE TABLE public.custom_roles (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), role_key text, permissions jsonb);
@@ -163,6 +168,10 @@ const L2_GRANT = '00000000-0000-4000-8000-000000000503';
 const G2_TWO = '00000000-0000-4000-8000-000000000601';
 const G2_SELF = '00000000-0000-4000-8000-000000000602';
 const R5_SELF = '00000000-0000-4000-8000-000000000701';
+const APPROVER3 = '00000000-0000-4000-8000-0000000000c4';
+const L2_BACKDATED = '00000000-0000-4000-8000-000000000504';
+const DIRECTOR = '00000000-0000-4000-8000-0000000000d1';
+const SUPER = '00000000-0000-4000-8000-0000000000d2';
 
 /** One approval-chain step with the keys main writes (types/hr.ts LeaveApprovalStep). */
 const step = (over: Record<string, unknown>) => ({
@@ -204,7 +213,7 @@ beforeAll(async () => {
   // A per-step override of 24 h, decided at 36 h: late (would be on time under the 48 h default).
   await insertLeave(LV_LATE, [step({ escalate_after_hours: 24, decided_at: at(36), decided_by: APPROVER })]);
   // Decided exactly at its 24 h due time: on time.
-  await insertLeave(LV_EDGE, [step({ escalate_after_hours: 24, decided_at: at(24), decided_by: APPROVER })]);
+  await insertLeave(LV_EDGE, [step({ escalate_after_hours: 24, decided_at: at(24), decided_by: APPROVER3 })]);
   // Still waiting, long past its 48 h due time: late and open.
   await insertLeave(LV_OPEN, [step({ status: 'pending' })], { status: 'pending' });
   // Approved in 1 h, later revoked (applyRevocation sets the step to 'revoked').
@@ -233,8 +242,13 @@ beforeAll(async () => {
   await insertLeave(LV_NOT_DUE, [step({ status: 'pending' })],
     { status: 'pending', created_at: new Date(Date.now() - 3_600_000).toISOString() });
 
-  await client.query(`INSERT INTO public.profiles VALUES ($1, 'Approver Two'), ($2, 'Self Approver'), ($3, 'Uploader')`,
-    [APPROVER2, SELF_PROFILE, UPLOADER]);
+  await client.query(`INSERT INTO public.profiles VALUES ($1, 'Approver Two'), ($2, 'Self Approver'), ($3, 'Uploader'),
+      ($4, 'Approver Three'), ($5, 'The Director'), ($6, 'Super Admin')`,
+    [APPROVER2, SELF_PROFILE, UPLOADER, APPROVER3, DIRECTOR, SUPER]);
+  await client.query(
+    `INSERT INTO public.platform_policies (policy_key, scope_type, value, data_type, classification)
+     VALUES ('platform.the_director_profile_ids', 'global', $1::jsonb, 'array', 'major')`,
+    [JSON.stringify([DIRECTOR])]);
   await client.query(`INSERT INTO public.staff VALUES ($1, $2, $3)`, [SELF_ROW, INST, SELF_PROFILE]);
   // A leave its own applicant decided.
   await insertLeave(LV_SELF, [step({ decided_at: at(3), decided_by: SELF_PROFILE })], { employee_id: SELF_ROW });
@@ -266,6 +280,15 @@ beforeAll(async () => {
             ($2, $4, '2026-09-10', 'claim', 'rejected', NULL, $6, $7),
             ($3, $4, '2026-09-10', 'grant', 'approved', $5, $6, $7)`,
     [L2_OK, L2_AUTO, L2_GRANT, MEMBER_ROW, APPROVER, at(5), T0]);
+  // L2: approved_at says 5 h (on time), but the server recorded the decision at
+  // 100 h, after the 62 h due time: the server's time wins.
+  await client.query(
+    `INSERT INTO public.hr_comp_off_credits (id, employee_id, expires_on, source, status, approved_by, approved_at, created_at)
+     VALUES ($1, $2, '2026-09-10', 'claim', 'approved', $3, $4, $5)`,
+    [L2_BACKDATED, MEMBER_ROW, APPROVER, at(5), T0]);
+  await client.query(
+    `INSERT INTO public.hr_decision_emails (comp_off_credit_id, employee_id, decision, created_at) VALUES ($1, $2, 'approved', $3)`,
+    [L2_BACKDATED, MEMBER_ROW, at(100)]);
   // G2: two steps — the second starts waiting at the first's decision (10 h);
   // and a form approved by the person who filed it.
   await client.query(
@@ -313,7 +336,7 @@ describe('fn_hr_duty_item_facts — leave approval steps (L1)', () => {
     const edge = rows.find((r) => r.item_id === LV_EDGE);
     expect(late).toMatchObject({ duty_code: 'L1', actor_id: APPROVER, on_time: false, institution_id: INST });
     expect(new Date(late!.due_at).toISOString()).toBe(at(24));
-    expect(edge).toMatchObject({ on_time: true, actor_id: APPROVER });
+    expect(edge).toMatchObject({ on_time: true, actor_id: APPROVER3 });
   });
 
   it('a later step starts waiting when the step below it was decided', async () => {
@@ -348,11 +371,11 @@ describe('fn_hr_duty_tower_compute — the weekly reading', () => {
     try {
       const first = await client.query(`SELECT * FROM public.fn_hr_duty_tower_compute($1::date)`, [WEEK]);
       const snap1 = await client.query(
-        `SELECT duty_code, institution_id, items, on_time, late, open_overdue, reversed, on_time_rate, reversal_rate
+        `SELECT duty_code, institution_id, items, on_time, late, open_overdue, reversed, on_time_rate, reversal_rate, deciders
            FROM public.hr_duty_tower_readings ORDER BY duty_code, institution_id NULLS FIRST`);
       const second = await client.query(`SELECT * FROM public.fn_hr_duty_tower_compute($1::date)`, [WEEK]);
       const snap2 = await client.query(
-        `SELECT duty_code, institution_id, items, on_time, late, open_overdue, reversed, on_time_rate, reversal_rate
+        `SELECT duty_code, institution_id, items, on_time, late, open_overdue, reversed, on_time_rate, reversal_rate, deciders
            FROM public.hr_duty_tower_readings ORDER BY duty_code, institution_id NULLS FIRST`);
       expect(second.rows).toEqual(first.rows);
       expect(snap2.rows).toEqual(snap1.rows);
@@ -367,14 +390,18 @@ describe('fn_hr_duty_tower_compute — the weekly reading', () => {
       expect(l1All!.on_time).toBe(7);
       const l1College = snap1.rows.find((r) => r.duty_code === 'L1' && r.institution_id === INST);
       expect(l1College).toMatchObject({ items: 9, on_time: 7 });
+      // three different people decided L1 items, so the tower gets the rate
+      expect(l1All!.deciders).toBe(3);
       expect(first.rows.find((r) => r.duty_code === 'L1').on_time_rate).toBe(String(Number((7 / 9).toFixed(4))));
+      // one person decided every S3 item: the tower gets no rate from it
+      expect(first.rows.find((r) => r.duty_code === 'S3').on_time_rate).toBeNull();
 
       // S3: the photo closed by a resubmission is neither late, on time nor open.
       const s3All = snap1.rows.find((r) => r.duty_code === 'S3' && r.institution_id === null);
       expect(s3All).toMatchObject({ items: 1, on_time: 1, late: 0, open_overdue: 0 });
       // L2: the night's auto-reject and the HR grant are not counted.
       const l2All = snap1.rows.find((r) => r.duty_code === 'L2' && r.institution_id === null);
-      expect(l2All).toMatchObject({ items: 1, on_time: 1, late: 0, open_overdue: 0 });
+      expect(l2All).toMatchObject({ items: 2, on_time: 1, late: 1, open_overdue: 0 });
     } finally {
       await client.query('ROLLBACK');
     }
@@ -499,5 +526,118 @@ describe('the readings are desk numbers, shown by college access', () => {
     } finally {
       await client.query('ROLLBACK');
     }
+  });
+});
+
+describe('comp-off timing comes from the server where it can', () => {
+  it("a claim whose approved_at was written earlier than the server's own record is judged by the server's time", async () => {
+    const rows = await facts();
+    const back = rows.find((r) => r.item_id === L2_BACKDATED);
+    expect(new Date(back!.done_at).toISOString()).toBe(at(100));
+    expect(back!.on_time).toBe(false);
+    // no server record: approved_at is the fallback
+    expect(new Date(rows.find((r) => r.item_id === L2_OK)!.done_at).toISOString()).toBe(at(5));
+  });
+});
+
+/** Run sql as a signed-in caller; always rolled back. */
+async function as(who: { uid?: string; superAdmin?: boolean; admin?: boolean; perms?: string; insts?: string },
+                  sql: string, setup?: string) {
+  await client.query('BEGIN');
+  try {
+    if (setup) await client.query(setup);
+    await client.query(
+      `SELECT set_config('test.uid', $1, true), set_config('test.super', $2, true), set_config('test.admin', $3, true),
+              set_config('test.perms', $4, true), set_config('test.insts', $5, true), set_config('test.role', 'authenticated', true)`,
+      [who.uid ?? '', who.superAdmin ? 'on' : '', who.admin ? 'on' : '', who.perms ?? '', who.insts ?? '']);
+    await client.query('SET LOCAL ROLE authenticated');
+    const r = await client.query(sql);
+    return { rows: r.rows as Array<Record<string, any>>, error: null as string | null };
+  } catch (e) {
+    return { rows: [] as Array<Record<string, any>>, error: (e as Error).message };
+  } finally {
+    await client.query('ROLLBACK');
+  }
+}
+
+describe('small readings (fewer than 3 deciders) are not a per-person view', () => {
+  const compute = `SELECT public.fn_hr_duty_tower_compute('${WEEK}'::date)`;
+  const read = `SELECT duty_code, institution_id, deciders FROM public.hr_duty_tower_readings`;
+
+  it('an admin without hr.dashboard.manage sees only readings with at least 3 deciders', async () => {
+    const r = await as({ uid: SUPER, admin: true }, read, compute);
+    expect(r.error).toBeNull();
+    expect(r.rows.length).toBeGreaterThan(0);
+    expect(r.rows.every((x) => x.deciders >= 3)).toBe(true);
+    expect(r.rows.map((x) => x.duty_code)).toContain('L1');
+    expect(r.rows.map((x) => x.duty_code)).not.toContain('S3');
+  });
+
+  it('an hr.dashboard.manage holder with access to the college sees the small readings too', async () => {
+    const r = await as({ uid: SUPER, perms: 'hr.dashboard.manage', insts: INST }, read, compute);
+    expect(r.rows.some((x) => x.duty_code === 'S3' && x.institution_id === INST)).toBe(true);
+  });
+
+  it('the Director passes the readings rule with no HR permission and no admin role', async () => {
+    await client.query('BEGIN');
+    let total = 0;
+    try {
+      await client.query(compute);
+      total = (await client.query(`SELECT count(*)::int AS n FROM public.hr_duty_tower_readings`)).rows[0].n;
+    } finally {
+      await client.query('ROLLBACK');
+    }
+    expect(total).toBeGreaterThan(7);
+    const r = await as({ uid: DIRECTOR }, read, compute);
+    expect(r.error).toBeNull();
+    expect(r.rows).toHaveLength(total); // every reading, small ones included
+  });
+});
+
+describe('the duty due rules: every insert audited, Director list only', () => {
+  const update = `UPDATE public.hr_duty_tower_duties SET due_hours = 24, change_reason = 'test' WHERE duty_code = 'A3' RETURNING due_hours`;
+  const insert = `INSERT INTO public.hr_duty_tower_duties
+      (config_key, duty_code, display_name, loop_key, due_hours, source, is_active, change_reason)
+    VALUES ('A4', 'A4', 'Test duty', 'hr-duty-a4', 24, 'test', false, 'test insert') RETURNING id`;
+
+  it('a super admin who is not the Director cannot change, add or remove a duty', async () => {
+    for (const sql of [update, insert]) {
+      const r = await as({ uid: SUPER, superAdmin: true }, sql);
+      expect(r.error).toMatch(/Only the Director/);
+    }
+    // signed-in callers hold no DELETE grant on the table at all
+    const del = await as({ uid: SUPER, superAdmin: true }, `DELETE FROM public.hr_duty_tower_duties WHERE duty_code = 'A3'`);
+    expect(del.error).toMatch(/permission denied|Only the Director/);
+  });
+
+  it('the Director can, and an insert is audited like an update', async () => {
+    const r = await as({ uid: DIRECTOR, superAdmin: true }, `WITH a AS (${insert}) SELECT id FROM a`);
+    expect(r.error).toBeNull();
+    await client.query('BEGIN');
+    try {
+      await client.query(`SELECT set_config('test.uid', $1, true), set_config('test.super', 'on', true),
+                                 set_config('test.role', 'authenticated', true)`, [DIRECTOR]);
+      await client.query('SET LOCAL ROLE authenticated');
+      const ins = await client.query(insert);
+      const upd = await client.query(update);
+      await client.query('RESET ROLE');
+      expect(upd.rows[0].due_hours).toBe(24);
+      const audit = await client.query(
+        `SELECT old_value IS NULL AS was_insert, changed_by, change_reason FROM public.hr_duty_tower_duties_audit
+          WHERE changed_by = $1 ORDER BY changed_at, was_insert DESC`, [DIRECTOR]);
+      expect(audit.rows).toEqual([
+        { was_insert: true, changed_by: DIRECTOR, change_reason: 'test insert' },
+        { was_insert: false, changed_by: DIRECTOR, change_reason: 'test' },
+      ]);
+      expect(ins.rows).toHaveLength(1);
+    } finally {
+      await client.query('ROLLBACK');
+    }
+  });
+
+  it('the seven seeded duties were audited when the migration inserted them', async () => {
+    const r = await client.query(
+      `SELECT count(*)::int AS n FROM public.hr_duty_tower_duties_audit a WHERE a.old_value IS NULL`);
+    expect(r.rows[0].n).toBe(7);
   });
 });

@@ -11859,10 +11859,18 @@ DROP POLICY IF EXISTS hr_duty_tower_readings_select ON public.hr_duty_tower_read
 
 CREATE POLICY hr_duty_tower_readings_select ON public.hr_duty_tower_readings
   FOR SELECT USING (
-    public.is_super_admin() OR public.is_admin()
+    public.fn_is_the_director() IS TRUE
     OR (public.user_has_permission('hr.dashboard.manage')
         AND (institution_id IS NULL OR public.role_has_institution_access(institution_id)))
+    -- every other admin sees only readings with at least 3 deciders
+    OR (deciders >= 3 AND (public.is_super_admin() OR public.is_admin()))
   );
+
+ALTER TABLE public.hr_duty_person_records ENABLE ROW LEVEL SECURITY;
+
+REVOKE ALL ON public.hr_duty_person_records FROM anon, PUBLIC, authenticated;
+
+GRANT ALL ON public.hr_duty_person_records TO service_role;
 
 ALTER TABLE public.hr_trust_switch_log ENABLE ROW LEVEL SECURITY;
 
