@@ -12165,3 +12165,27 @@ CREATE POLICY hr_duty_chase_runs_select ON public.hr_duty_chase_runs
   FOR SELECT USING (public.is_super_admin() OR public.is_admin());
 
 
+-- =====================================================================
+-- Updated: 2026-10-01 - HR memo detector run log + acknowledgement nudges
+-- Migration: 20270613101223_hr_memo_detector_schedule_disabled_with_dry_run.sql
+-- =====================================================================
+ALTER TABLE public.hr_memo_detector_runs ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON TABLE public.hr_memo_detector_runs FROM anon, PUBLIC;
+GRANT SELECT ON TABLE public.hr_memo_detector_runs TO authenticated;
+GRANT ALL ON TABLE public.hr_memo_detector_runs TO service_role;
+
+DROP POLICY IF EXISTS hr_memo_detector_runs_select ON public.hr_memo_detector_runs;
+CREATE POLICY hr_memo_detector_runs_select ON public.hr_memo_detector_runs
+  FOR SELECT TO authenticated
+  USING ((SELECT public.is_super_admin()) OR (SELECT public.is_admin()));
+
+ALTER TABLE public.hr_memo_nudges ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON TABLE public.hr_memo_nudges FROM anon, PUBLIC;
+GRANT SELECT ON TABLE public.hr_memo_nudges TO authenticated;
+GRANT ALL ON TABLE public.hr_memo_nudges TO service_role;
+
+DROP POLICY IF EXISTS hr_memo_nudges_select ON public.hr_memo_nudges;
+CREATE POLICY hr_memo_nudges_select ON public.hr_memo_nudges
+  FOR SELECT TO authenticated
+  USING ((SELECT public.is_super_admin()) OR (SELECT public.is_admin()));
+
