@@ -55,6 +55,7 @@ import {
   latestSnapshotByPost,
   postNotOursMessage,
   ALREADY_CLAIMED,
+  NOT_A_POST_LINK,
   type ClaimedPostInput,
   type ClaimStatus,
   type IgMetricSnapshot,
@@ -73,10 +74,17 @@ function deny(error: string, status: number) {
 async function ownLearnerId(
   db: Awaited<ReturnType<typeof createServerSupabaseClient>>,
   userId: string
-): Promise<string | null> {
-  const { data } = await db.from('profiles').select('learner_id').eq('id', userId).maybeSingle();
-  return (data?.learner_id as string | null) ?? null;
+): Promise<{ learnerId: string | null } | { failed: true }> {
+  const { data, error } = await db.from('profiles').select('learner_id').eq('id', userId).maybeSingle();
+  if (error) {
+    logger.error(MODULE, 'profile read failed', error);
+    return { failed: true };
+  }
+  return { learnerId: (data?.learner_id as string | null) ?? null };
 }
+
+/** Instagram shortcodes are base64url: letters, digits, '-' and '_'. */
+const SHORTCODE_CHARS = /^[A-Za-z0-9_-]+$/;
 
 /**
  * Resolve a pasted link to a post we already hold.
@@ -88,20 +96,32 @@ async function resolvePostOrExplain(
   const parsed = parsePostLink(igUrl);
   if ('reason' in parsed) return { error: parsed.message, status: 400 };
 
+  // Anything outside the shortcode alphabet could act as a pattern character
+  // ('%', '\\', and '*', which PostgREST treats as '%'), so it is refused here.
+  if (!SHORTCODE_CHARS.test(parsed.shortcode)) return { error: NOT_A_POST_LINK, status: 400 };
+
+  // Case-sensitive LIKE with '_' escaped: shortcodes are case-sensitive and
+  // often contain '_', which LIKE would otherwise read as "any one character".
+  const escaped = parsed.shortcode.replace(/_/g, '\\_');
   const admin = createServiceRoleClient();
   const { data, error } = await admin
     .from('ig_posts')
     .select('id')
-    .ilike('permalink', `%/${parsed.shortcode}/%`)
-    .limit(1)
-    .maybeSingle();
+    .like('permalink', `%/${escaped}/%`)
+    .limit(2);
 
   if (error) {
     logger.error(MODULE, 'post lookup failed', error);
     return { error: 'Could not check that link just now. Try again shortly.', status: 500 };
   }
-  if (!data) return { error: postNotOursMessage(parsed.shortcode), status: 404 };
-  return { postId: data.id as string };
+  if (!data || data.length === 0) return { error: postNotOursMessage(parsed.shortcode), status: 404 };
+  if (data.length > 1) {
+    return {
+      error: 'That link matches more than one post we hold, so it cannot be credited automatically. Ask the department to check it.',
+      status: 409,
+    };
+  }
+  return { postId: data[0].id as string };
 }
 
 // ---------------------------------------------------------------------------
@@ -141,10 +161,17 @@ export async function GET(req: NextRequest) {
   const postIds = Array.from(new Set(claims.map((c) => c.ig_post_id as string)));
   const learnerIds = Array.from(new Set(claims.map((c) => c.learner_id as string)));
 
-  const [{ data: posts }, { data: metrics }, { data: learners }] = await Promise.all([
+  // The view holds exactly one row per post (its latest snapshot). Reading
+  // ig_post_metrics directly returns ~627 rows a post and PostgREST's 1,000-row
+  // cap silently cuts it to an arbitrary subset.
+  const [
+    { data: posts, error: postsError },
+    { data: metrics, error: metricsError },
+    { data: learners, error: learnersError },
+  ] = await Promise.all([
     admin.from('ig_posts').select('id, account_id').in('id', postIds),
     admin
-      .from('ig_post_metrics')
+      .from('v_ig_post_latest_metrics')
       .select('post_id, snapshot_at, saves, shares, comments, likes, reach')
       .in('post_id', postIds),
     db
@@ -152,14 +179,23 @@ export async function GET(req: NextRequest) {
       .select('id, first_name, last_name, institution_id')
       .in('id', learnerIds),
   ]);
+  const readError = postsError ?? metricsError ?? learnersError;
+  if (readError) {
+    logger.error(MODULE, 'board read failed', readError);
+    return deny('Could not read the board just now. Try again shortly.', 500);
+  }
 
   const accountIds = Array.from(
     new Set((posts ?? []).map((p) => p.account_id as string).filter(Boolean))
   );
-  const { data: accounts } = await admin
+  const { data: accounts, error: accountsError } = await admin
     .from('ig_accounts')
     .select('id, metrics_source')
     .in('id', accountIds);
+  if (accountsError) {
+    logger.error(MODULE, 'account read failed', accountsError);
+    return deny('Could not read the board just now. Try again shortly.', 500);
+  }
 
   const sourceByAccount = new Map<string, string | null>(
     (accounts ?? []).map((a) => [a.id as string, (a.metrics_source as string | null) ?? null])
@@ -177,7 +213,9 @@ export async function GET(req: NextRequest) {
   ) as Map<string, CreditSnapshot>;
 
   const claimsByLearner = new Map<string, ClaimedPostInput[]>();
+  const institutionByLearner = new Map<string, string>();
   for (const c of claims) {
+    institutionByLearner.set(c.learner_id as string, (c.institution_id as string) ?? '');
     const list = claimsByLearner.get(c.learner_id as string) ?? [];
     list.push({
       ig_post_id: c.ig_post_id as string,
@@ -187,19 +225,38 @@ export async function GET(req: NextRequest) {
     claimsByLearner.set(c.learner_id as string, list);
   }
 
-  const rows: LearnerCreditRow[] = (learners ?? []).map((l) =>
-    buildCreditRow(
-      {
-        learner_id: l.id as string,
-        learner_name: [l.first_name, l.last_name].filter(Boolean).join(' ') || 'Unnamed learner',
-        institution_id: (l.institution_id as string) ?? '',
-      },
-      claimsByLearner.get(l.id as string) ?? [],
-      latestByPost
-    )
+  // Rows come from the claims, not from the profiles this person can read, so a
+  // claim whose learner profile is hidden from them still shows and still counts.
+  const profileById = new Map((learners ?? []).map((l) => [l.id as string, l]));
+  let hiddenProfiles = 0;
+  const rows: LearnerCreditRow[] = Array.from(claimsByLearner.entries()).map(
+    ([learnerId, learnerClaims]) => {
+      const l = profileById.get(learnerId);
+      if (!l) hiddenProfiles += 1;
+      return buildCreditRow(
+        {
+          learner_id: learnerId,
+          learner_name: l
+            ? [l.first_name, l.last_name].filter(Boolean).join(' ') || 'Unnamed learner'
+            : 'Learner (name not visible to you)',
+          institution_id: l
+            ? ((l.institution_id as string) ?? '')
+            : (institutionByLearner.get(learnerId) ?? ''),
+        },
+        learnerClaims,
+        latestByPost
+      );
+    }
   );
 
-  return NextResponse.json({ success: true, rows, caveats: boardCaveats(rows) });
+  const caveats = boardCaveats(rows);
+  if (hiddenProfiles > 0) {
+    caveats.unshift(
+      `${hiddenProfiles} ${hiddenProfiles === 1 ? 'learner is' : 'learners are'} shown without a name, because you can see ${hiddenProfiles === 1 ? 'their claims but not their profile' : 'their claims but not their profiles'}.`
+    );
+  }
+
+  return NextResponse.json({ success: true, rows, caveats });
 }
 
 // ---------------------------------------------------------------------------
@@ -221,7 +278,9 @@ export async function POST(req: NextRequest) {
   if (!body.ig_url) return deny('Send an Instagram post link.', 400);
 
   const db = await createServerSupabaseClient();
-  const mine = await ownLearnerId(db, user.id);
+  const own = await ownLearnerId(db, user.id);
+  if ('failed' in own) return deny('Could not read your account just now. Try again shortly.', 500);
+  const mine = own.learnerId;
 
   // No learner_id given → the signed-in learner is claiming for themselves.
   const learnerId = body.learner_id ?? mine;
@@ -307,10 +366,16 @@ export async function PATCH(req: NextRequest) {
       review_note: body.note ?? null,
     })
     .eq('id', body.claim_id)
+    // A decision is made once. Without this, a second reviewer or a double
+    // submit silently overwrites the first decision.
+    .eq('status', 'pending')
     .select('id, status')
     .maybeSingle();
 
   if (error) {
+    if (error.code === '23514') {
+      return deny('This claim was already decided. A decision is final.', 409);
+    }
     if (error.code === '42501') {
       return deny('You are not allowed to decide that claim.', 403);
     }
@@ -318,7 +383,7 @@ export async function PATCH(req: NextRequest) {
     return deny(error.message, 400);
   }
   if (!data) {
-    return deny('That claim does not exist, or you cannot see it.', 404);
+    return deny('This claim was already decided, or you cannot decide it.', 409);
   }
 
   return NextResponse.json({ success: true, claim: data });
