@@ -216,6 +216,9 @@ interface RosterMember {
   date_of_joining: string | null;
   work_institution_id: string;
   work_institution_name: string | null;
+  /** employment_categories, snapshotted onto the line — splits Teaching / Non-Teaching. */
+  staff_category_name: string | null;
+  is_teaching: boolean;
 }
 
 /** Everything a preflight or a generate needs, loaded once. */
@@ -734,7 +737,7 @@ export class SalaryRegisterService {
       // people whose days it freezes. Same view, same gates as below.
       const { data, error: staffErr } = await (supabase as any)
         .from('v_hr_staff')
-        .select('id, staff_id, first_name, last_name, designation, date_of_joining, institution_id, department_id')
+        .select('id, staff_id, first_name, last_name, designation, date_of_joining, institution_id, department_id, category_id')
         .eq('institution_id', org.institution_id)
         .eq('is_active', true)
         .limit(5000);
@@ -746,7 +749,7 @@ export class SalaryRegisterService {
     for (const ids of chunk(paidStaffIds)) {
       const { data, error: staffErr } = await (supabase as any)
         .from('v_hr_staff')
-        .select('id, staff_id, first_name, last_name, designation, date_of_joining, institution_id, department_id')
+        .select('id, staff_id, first_name, last_name, designation, date_of_joining, institution_id, department_id, category_id')
         .in('id', ids)
         .eq('is_active', true);
 
@@ -772,6 +775,24 @@ export class SalaryRegisterService {
 
       if (deptErr) throw new Error(`Failed to load departments: ${getErrorMessage(deptErr)}`);
       for (const d of ((deptRows ?? []) as any[])) departmentNameById.set(d.id, d.department_name);
+    }
+
+    // Categories the same way — a few dozen rows, read once. is_teaching splits
+    // the register into its Teaching and Non-Teaching sheets and documents.
+    const categoryIds = Array.from(
+      new Set(staffRows.map((r) => r.category_id).filter(Boolean)),
+    ) as string[];
+    const categoryById = new Map<string, { name: string | null; isTeaching: boolean }>();
+    if (categoryIds.length > 0) {
+      const { data: catRows, error: catErr } = await (supabase as any)
+        .from('employment_categories')
+        .select('id, category_name, is_teaching')
+        .in('id', categoryIds);
+
+      if (catErr) throw new Error(`Failed to load staff categories: ${getErrorMessage(catErr)}`);
+      for (const c of ((catRows ?? []) as any[])) {
+        categoryById.set(c.id, { name: c.category_name ?? null, isTeaching: c.is_teaching === true });
+      }
     }
 
     // Work-location names, for the dependency list and the "Works At" column.
@@ -800,6 +821,8 @@ export class SalaryRegisterService {
         date_of_joining: st.date_of_joining ?? null,
         work_institution_id: st.institution_id,
         work_institution_name: workNameByInstitution.get(st.institution_id) ?? null,
+        staff_category_name: st.category_id ? categoryById.get(st.category_id)?.name ?? null : null,
+        is_teaching: st.category_id ? categoryById.get(st.category_id)?.isTeaching ?? false : false,
       });
     }
 
@@ -1464,6 +1487,8 @@ export class SalaryRegisterService {
         paid_by_name: ctx.payerByStaff.get(member.staff_id)?.name ?? null,
         work_institution_id: member.work_institution_id,
         work_institution_name: member.work_institution_name,
+        staff_category_name: member.staff_category_name,
+        is_teaching: member.is_teaching,
       };
 
       // Exclusion order matters: report the FIRST thing HR has to fix, not all
@@ -1891,6 +1916,7 @@ export class SalaryRegisterService {
       total_deductions: num(l.total_deductions),
       adjustment_amount: num(l.adjustment_amount),
       net_pay: num(l.net_pay),
+      is_teaching: l.is_teaching === true,
     } as HRSalaryRegisterLine;
   }
 }

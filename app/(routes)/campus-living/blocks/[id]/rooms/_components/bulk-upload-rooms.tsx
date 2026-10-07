@@ -35,6 +35,8 @@ import {
 } from '@/components/ui/table';
 import { Upload, X, FileText, Download } from 'lucide-react';
 import { useActiveHostelCategories } from '@/hooks/campus-living/use-hostel-categories';
+import { useBlockFloors } from '@/hooks/campus-living/use-hostel-floors';
+import { floorDisplayName } from '@/lib/utils/floor-label';
 import { hostelRoomKeys } from '@/hooks/campus-living/use-hostel-rooms';
 import { HostelRoomService } from '@/lib/services/campus-living/hostel-room-service';
 import type { RoomType, AcStatus, CreateHostelRoomDTO } from '@/types/campus-living';
@@ -103,10 +105,23 @@ export function BulkUploadRooms({ blockId, blockType }: BulkUploadRoomsProps) {
   }, [categories]);
   const acceptedNames = categories.map((c) => c.name).join(', ');
 
+  // A room must sit on one of the block's real floors (hostel_floors). The
+  // sheet's `floor` is checked against them so a typo fails in the preview
+  // instead of as a foreign-key error halfway through the import.
+  const { data: floors } = useBlockFloors(blockId);
+  const floorByNumber = useMemo(
+    () => new Map((floors ?? []).map((f) => [f.floor_number, f])),
+    [floors]
+  );
+  const acceptedFloors = (floors ?? [])
+    .filter((f) => f.is_active)
+    .map((f) => `${f.floor_number} (${floorDisplayName(f.floor_number, f.name)})`)
+    .join(', ');
+
   const downloadTemplate = () => {
     const header = {
       room_number: '101',
-      floor: 1,
+      floor: (floors ?? []).find((f) => f.is_active)?.floor_number ?? 1,
       room_type: 'double',
       ac_status: 'non_ac',
       room_purpose: 'student',
@@ -128,6 +143,10 @@ export function BulkUploadRooms({ blockId, blockType }: BulkUploadRoomsProps) {
     // reader only ever reads the first ("Rooms") sheet, so this is purely
     // informational.
     const ref = XLSX.utils.json_to_sheet([
+      {
+        field: 'floor',
+        accepted_values: acceptedFloors || '(no active floors — add floors in the Floors tab first)',
+      },
       { field: 'room_type', accepted_values: ROOM_TYPES.join(' | ') },
       { field: 'ac_status', accepted_values: AC_STATUSES.join(' | ') },
       { field: 'room_purpose', accepted_values: PURPOSE_VALUES.join(' | ') },
@@ -161,6 +180,13 @@ export function BulkUploadRooms({ blockId, blockType }: BulkUploadRoomsProps) {
     const floor = Number(floorRaw);
     if (floorRaw === '' || !Number.isInteger(floor) || floor < 0 || floor > 50) {
       errors.push('Floor must be a whole number 0–50');
+    } else {
+      const floorRow = floorByNumber.get(floor);
+      if (!floorRow) {
+        errors.push(`Floor ${floor} doesn't exist in this block — add it in the Floors tab first (existing: ${acceptedFloors || 'none'})`);
+      } else if (!floorRow.is_active) {
+        errors.push(`Floor ${floor} is inactive — activate it in the Floors tab first`);
+      }
     }
 
     let room_type = String(raw.room_type ?? '').trim().toLowerCase() as RoomType;
@@ -269,6 +295,10 @@ export function BulkUploadRooms({ blockId, blockType }: BulkUploadRoomsProps) {
   };
 
   const processFile = async (file: File) => {
+    if (!floors) {
+      toast.error('Floors are still loading — try again in a moment.');
+      return;
+    }
     try {
       const data = await file.arrayBuffer();
       const workbook = XLSX.read(data);

@@ -2917,6 +2917,34 @@ CREATE TRIGGER trg_guard_director_list_removals_for_raises
   WHEN (OLD.policy_key = 'platform.the_director_profile_ids')
   EXECUTE FUNCTION public.fn_guard_director_list_removals_for_raises();
 
+-- Mirrored from supabase/migrations/20271007120000_hr_payroll_documents.sql
+DROP TRIGGER IF EXISTS trg_hr_payroll_document_settings_touch ON public.hr_payroll_document_settings;
+CREATE TRIGGER trg_hr_payroll_document_settings_touch
+  BEFORE UPDATE ON public.hr_payroll_document_settings
+  FOR EACH ROW EXECUTE FUNCTION public.fn_touch_updated_at();
+
+
+-- Mirrored from supabase/migrations/20271007130000_hostel_floors.sql
+DROP TRIGGER IF EXISTS trg_hostel_floors_updated_at ON public.hostel_floors;
+CREATE TRIGGER trg_hostel_floors_updated_at
+  BEFORE UPDATE ON public.hostel_floors
+  FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
+
+DROP TRIGGER IF EXISTS trg_hostel_floors_identity_guard ON public.hostel_floors;
+CREATE TRIGGER trg_hostel_floors_identity_guard
+  BEFORE UPDATE ON public.hostel_floors
+  FOR EACH ROW EXECUTE FUNCTION public.fn_hostel_floors_identity_guard();
+
+DROP TRIGGER IF EXISTS trg_hostel_floors_sync_total ON public.hostel_floors;
+CREATE TRIGGER trg_hostel_floors_sync_total
+  AFTER INSERT OR DELETE ON public.hostel_floors
+  FOR EACH ROW EXECUTE FUNCTION public.fn_hostel_floors_sync_total();
+
+DROP TRIGGER IF EXISTS trg_hostel_blocks_seed_floors ON public.hostel_blocks;
+CREATE TRIGGER trg_hostel_blocks_seed_floors
+  AFTER INSERT ON public.hostel_blocks
+  FOR EACH ROW EXECUTE FUNCTION public.fn_hostel_blocks_seed_floors();
+
 -- ===========================================================================
 -- Source: 20271007161139_hr_duty_playbooks_and_lessons.sql (triggers)
 -- HR staff harness — playbooks, the lessons log and credited authorship.

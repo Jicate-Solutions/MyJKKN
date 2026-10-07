@@ -204,6 +204,22 @@ export interface LearnerEntry {
   marks: Record<string, number>;
   /** Learner did not sit the assessment — saved as grade 'AAA', not as zeros. */
   is_absent?: boolean;
+  /**
+   * Totals for the round's OTHER components (component code → mark), shown
+   * beside the question grid. Holds what is on screen: a value typed this
+   * session, else the one already saved.
+   */
+  other_marks?: Record<string, number>;
+}
+
+/**
+ * A component of the round that is NOT fed by the question paper — e.g. the
+ * Assignment beside a question-wise Test 1. Keyed in as one total per learner.
+ */
+export interface OtherComponent {
+  code: string;
+  name: string;
+  max_marks: number;
 }
 
 /** A record sent to POST /api/mark-entry/marks. */
@@ -234,6 +250,18 @@ export interface QuestionMarkSyncRecord {
    */
   clear_component_code?: string;
   question_marks: Record<string, QuestionMarksBlock>;
+  /**
+   * The round's other components, written in the same row as plain totals:
+   * component code → mark and its max. They have no breakdown.
+   */
+  other_components?: Record<string, { mark: number; max: number }>;
+  /**
+   * Total already on file for `component_code`. Sent ONLY for a row that carries
+   * no question marks this time (e.g. just the Assignment is being added a week
+   * after the test was keyed in), where the route must not touch that component
+   * but still needs it to state a correct `total_internal_marks`.
+   */
+  carried_component_total?: number;
 }
 
 export interface QuestionMarkSaveRequest {
@@ -292,6 +320,8 @@ export interface MarkEntryDraft {
   entries: Record<string, Record<string, number>>;
   /** student_ids marked absent. Optional so older drafts still parse. */
   absent?: string[];
+  /** student_id → (other component code → mark, null = cleared). Optional for older drafts. */
+  others?: Record<string, Record<string, number | null>>;
   /** Learners keyed in OR marked absent — shown in the restore banner. */
   count: number;
 }

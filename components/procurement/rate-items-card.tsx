@@ -5,7 +5,6 @@
 
 import { useState } from 'react';
 import { Pencil } from 'lucide-react';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
@@ -27,18 +26,16 @@ export function RateItemsCard({ requestId }: { requestId: string }) {
   const toRate = lines.filter((l) => l.my_stars == null).length;
 
   return (
-    <section id="rate" className="scroll-mt-4">
-      <Card>
-        <CardHeader className="flex flex-row items-center gap-2 space-y-0">
-          <CardTitle className="text-base">How are the items you received?</CardTitle>
-          {toRate > 0 && <Badge variant="secondary">{toRate} to rate</Badge>}
-        </CardHeader>
-        <CardContent className="divide-y p-0">
-          {lines.map((line) => (
-            <RateLine key={line.grn_item_id} line={line} />
-          ))}
-        </CardContent>
-      </Card>
+    <section id="rate" className="scroll-mt-4 overflow-hidden rounded-xl border bg-background shadow">
+      <div className="flex items-center gap-2 border-b px-5 py-3">
+        <h2 className="text-base font-semibold">How are the items you received?</h2>
+        {toRate > 0 && <Badge variant="secondary">{toRate} to rate</Badge>}
+      </div>
+      <div className="divide-y">
+        {lines.map((line) => (
+          <RateLine key={line.grn_item_id} line={line} />
+        ))}
+      </div>
     </section>
   );
 }
@@ -71,7 +68,7 @@ function RateLine({ line }: { line: RateableLine }) {
         <div className="flex items-center gap-2 text-sm text-muted-foreground">
           <StarDisplay value={line.my_stars!} />
           <span>· meets spec: {SPEC_OPTIONS.find((o) => o.value === line.my_meets_spec)?.label}</span>
-          <Button variant="ghost" size="sm" className="h-7 px-2" onClick={() => setEditing(true)}>
+          <Button variant="ghost" size="sm" className="h-9 px-2" onClick={() => setEditing(true)}>
             <Pencil className="mr-1 h-3.5 w-3.5" /> Edit
           </Button>
         </div>
@@ -125,11 +122,11 @@ function RateLine({ line }: { line: RateableLine }) {
       />
       <div className="flex justify-end gap-2">
         {rated && (
-          <Button variant="ghost" size="sm" onClick={() => setEditing(false)}>
+          <Button variant="ghost" className="h-9" onClick={() => setEditing(false)}>
             Cancel
           </Button>
         )}
-        <Button size="sm" disabled={!canSave || rate.isPending} onClick={save}>
+        <Button className="h-9" disabled={!canSave || rate.isPending} onClick={save}>
           {rate.isPending ? 'Saving…' : 'Save rating'}
         </Button>
       </div>

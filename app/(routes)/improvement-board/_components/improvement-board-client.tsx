@@ -13,7 +13,7 @@
  * first thing they see rather than one card among a hundred.
  */
 
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -35,7 +35,9 @@ import {
   SlidersHorizontal,
   UserCheck,
   ClipboardCheck,
-  ChevronRight
+  ChevronRight,
+  Maximize2,
+  Minimize2
 } from 'lucide-react';
 import { usePermissions } from '@/hooks/use-permissions';
 import {
@@ -44,7 +46,7 @@ import {
   type ImprovementIdeaEnriched,
   type ImprovementIdeaStatus
 } from '@/lib/services/improvement/improvement-service';
-import { BOARD_COLUMNS } from './board-constants';
+import { BOARD_COLUMNS, STATUS_LABEL } from './board-constants';
 import { CreateIdeaDialog } from './create-idea-dialog';
 import { IdeaDetailDialog } from './idea-detail-dialog';
 
@@ -161,8 +163,9 @@ function initials(name: string | null): string {
   return (parts[0][0] + (parts[1]?.[0] ?? '')).toUpperCase();
 }
 
-/** From this stage on, an idea is with its department's owners. */
+/** From Under Review on, an idea is with its department's owners. */
 const OWNER_STAGES: ImprovementIdeaStatus[] = [
+  'under_review',
   'approved',
   'applied',
   'verified',
@@ -170,13 +173,22 @@ const OWNER_STAGES: ImprovementIdeaStatus[] = [
 ];
 
 /**
- * Who an idea is with: its assignee, and — once approved — the owners of its
- * department. The same person reached both ways is listed once.
+ * Who an idea is with. The idea's own assignee list is the answer whenever it
+ * has one: the CEO while Logged, the department owners while Under Review, then
+ * whoever the owner picked.
+ *
+ * An idea with no list falls back to the older reading — its single assignee
+ * plus, from Under Review on, the owners of its department — so the line shows
+ * before the assignee table exists. The same person reached both ways is
+ * listed once.
  */
 function assignedTo(
   idea: ImprovementIdeaEnriched,
   ownerNamesByArea: Record<string, string[]>
 ): string[] {
+  if (idea.assignees && idea.assignees.length > 0) {
+    return idea.assignees.map((a) => a.name);
+  }
   const names: string[] = [];
   if (idea.assignee_name) names.push(idea.assignee_name);
   if (OWNER_STAGES.includes(idea.status) && idea.area_id) {
@@ -190,6 +202,17 @@ function assignedTo(
     return true;
   });
 }
+
+/** Stages at which an assigned idea is still waiting on somebody. */
+const MY_WORK_STAGES: ImprovementIdeaStatus[] = [
+  'logged',
+  'under_review',
+  'approved',
+  'applied'
+];
+
+/** How many of the viewer's ideas the panel lists before pointing at the board. */
+const MY_WORK_SHOWN = 9;
 
 const EMPTY_OWNER_NAMES: Record<string, string[]> = {};
 const EMPTY_OWNED_AREAS: string[] = [];
@@ -214,6 +237,25 @@ export function ImprovementBoardClient({
   const [areaFilter, setAreaFilter] = useState<string>('all');
   const [createOpen, setCreateOpen] = useState(false);
   const [detailIdea, setDetailIdea] = useState<ImprovementIdeaEnriched | null>(null);
+  /** The board laid over the whole window, lanes running its full height. */
+  const [fullScreen, setFullScreen] = useState(false);
+
+  // While full screen: the page behind must not scroll, and Escape leaves —
+  // unless a dialog is open, in which case Escape belongs to the dialog.
+  const dialogOpen = createOpen || !!detailIdea;
+  useEffect(() => {
+    if (!fullScreen) return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && !dialogOpen) setFullScreen(false);
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      document.removeEventListener('keydown', onKeyDown);
+    };
+  }, [fullScreen, dialogOpen]);
 
   const refresh = useCallback(async () => {
     const next = await ImprovementService.listIdeas(
@@ -250,20 +292,28 @@ export function ImprovementBoardClient({
     [visibleIdeas]
   );
 
-  /** The viewer's own work: approved ideas on departments they own. */
-  const myApproved = useMemo(
+  /**
+   * The viewer's own work: open ideas assigned to them — a new idea for the
+   * CEO, one under review for a department owner, an approved one for whoever
+   * the owner picked. An idea under review or approved on a department the viewer owns counts
+   * too when it has no assignee list yet.
+   */
+  const mine = useMemo(
     () =>
-      ownedAreaIds.length === 0
-        ? []
-        : ideas
-            .filter(
-              (i) =>
-                i.status === 'approved' &&
-                !!i.area_id &&
-                ownedAreaIds.includes(i.area_id)
-            )
-            .sort(byPriority),
-    [ideas, ownedAreaIds]
+      ideas
+        .filter((i) => {
+          if (!MY_WORK_STAGES.includes(i.status)) return false;
+          if (i.assignees && i.assignees.length > 0) {
+            return i.assignees.some((a) => a.id === userId);
+          }
+          return (
+            (i.status === 'under_review' || i.status === 'approved') &&
+            !!i.area_id &&
+            ownedAreaIds.includes(i.area_id)
+          );
+        })
+        .sort(byPriority),
+    [ideas, ownedAreaIds, userId]
   );
 
   const totalOnBoard = columns.reduce((sum, c) => sum + c.items.length, 0);
@@ -343,26 +393,25 @@ export function ImprovementBoardClient({
         </div>
       </div>
 
-      {/* The viewer's own approved work, ahead of everything else. */}
-      {myApproved.length > 0 && (
+      {/* The viewer's own work, ahead of everything else. */}
+      {mine.length > 0 && (
         <div className="rounded-2xl border border-emerald-200 bg-gradient-to-br from-emerald-50 to-teal-50 p-4 dark:border-emerald-900 dark:from-emerald-950/40 dark:to-teal-950/40">
           <div className="mb-3 flex items-center gap-2">
             <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-emerald-600 text-white">
               <ClipboardCheck className="h-4 w-4" aria-hidden="true" />
             </span>
             <div className="min-w-0">
-              <p className="text-sm font-semibold">
-                Approved for your department
-              </p>
+              <p className="text-sm font-semibold">Assigned to you</p>
               <p className="text-muted-foreground text-xs">
-                {myApproved.length}{' '}
-                {myApproved.length === 1 ? 'idea is' : 'ideas are'} approved and
-                with you to carry out.
+                {mine.length} {mine.length === 1 ? 'idea is' : 'ideas are'}{' '}
+                waiting on you.
+                {mine.length > MY_WORK_SHOWN &&
+                  ` Showing the first ${MY_WORK_SHOWN} — the rest are on the board below.`}
               </p>
             </div>
           </div>
           <ul className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
-            {myApproved.map((idea) => (
+            {mine.slice(0, MY_WORK_SHOWN).map((idea) => (
               <li key={idea.id}>
                 <button
                   type="button"
@@ -374,7 +423,8 @@ export function ImprovementBoardClient({
                       {idea.title}
                     </span>
                     <span className="text-muted-foreground mt-0.5 block truncate text-xs">
-                      {idea.area_label ?? 'Your department'}
+                      {STATUS_LABEL[idea.status]}
+                      {idea.area_label ? ` · ${idea.area_label}` : ''}
                       {idea.author_name ? ` · filed by ${idea.author_name}` : ''}
                     </span>
                   </span>
@@ -389,8 +439,26 @@ export function ImprovementBoardClient({
         </div>
       )}
 
-      {/* Filter */}
+      {/* Filter + board. In full screen this block is laid over the whole    */}
+      {/* window: a fixed layer rather than the browser's Fullscreen API,     */}
+      {/* because the idea dialogs render in a portal on <body> and would be  */}
+      {/* invisible inside a fullscreened element.                            */}
+      <div
+        className={
+          fullScreen
+            ? 'bg-background fixed inset-0 z-50 flex flex-col gap-3 p-3 sm:p-4'
+            : 'space-y-5'
+        }
+      >
       <div className="flex flex-wrap items-center gap-3">
+        {fullScreen && (
+          <span className="flex items-center gap-2 pr-1 text-base font-semibold">
+            <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-emerald-600 to-sky-600 text-white">
+              <Lightbulb className="h-4 w-4" aria-hidden="true" />
+            </span>
+            <span className="hidden sm:inline">Improvement Board</span>
+          </span>
+        )}
         <Filter className="text-muted-foreground h-4 w-4 shrink-0" />
         <Select value={areaFilter} onValueChange={handleAreaFilter}>
           <SelectTrigger className="h-10 min-w-0 flex-1 rounded-xl sm:w-64 sm:flex-none">
@@ -408,6 +476,37 @@ export function ImprovementBoardClient({
         {areaFilter !== 'all' && (
           <Badge variant="secondary" className="shrink-0">{areaLabelForSelect(areaFilter)}</Badge>
         )}
+        <div className="ml-auto flex items-center gap-2">
+          {fullScreen && canCreate && (
+            <Button
+              size="sm"
+              onClick={() => setCreateOpen(true)}
+              className="h-10 bg-gradient-to-r from-emerald-600 to-teal-600 text-white hover:from-emerald-700 hover:to-teal-700"
+            >
+              <Plus className="h-4 w-4 sm:mr-2" />
+              <span className="hidden sm:inline">File an idea</span>
+            </Button>
+          )}
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setFullScreen((v) => !v)}
+            aria-pressed={fullScreen}
+            className="h-10 rounded-xl"
+          >
+            {fullScreen ? (
+              <Minimize2 className="h-4 w-4 sm:mr-2" />
+            ) : (
+              <Maximize2 className="h-4 w-4 sm:mr-2" />
+            )}
+            <span className="hidden sm:inline">
+              {fullScreen ? 'Exit full screen' : 'Full screen'}
+            </span>
+            <span className="sr-only sm:hidden">
+              {fullScreen ? 'Exit full screen' : 'Full screen'}
+            </span>
+          </Button>
+        </div>
       </div>
 
       {/* Board / empty state */}
@@ -437,14 +536,18 @@ export function ImprovementBoardClient({
         /* Phones swipe sideways through the lanes, one snapping into view at
            a time; from xl the six lanes sit side by side. Each lane scrolls
            its own cards, so a long Logged list never pushes the others away. */
-        <div className="flex snap-x snap-mandatory gap-3 overflow-x-auto pb-3 xl:grid xl:snap-none xl:grid-cols-6 xl:overflow-visible">
+        <div
+          className={`flex snap-x snap-mandatory gap-3 overflow-x-auto pb-3 xl:grid xl:snap-none xl:grid-cols-6 xl:overflow-visible ${
+            fullScreen ? 'min-h-0 flex-1 xl:auto-rows-[minmax(0,1fr)]' : ''
+          }`}
+        >
           {columns.map((col) => {
             const Icon = col.icon;
             const style = LANE_STYLE[col.status] ?? LANE_STYLE.logged;
             return (
               <div
                 key={col.status}
-                className={`flex w-[82vw] shrink-0 snap-center flex-col overflow-hidden rounded-2xl sm:w-72 xl:w-auto xl:shrink ${style.lane}`}
+                className={`flex min-h-0 w-[82vw] shrink-0 snap-center flex-col overflow-hidden rounded-2xl sm:w-72 xl:w-auto xl:shrink ${style.lane}`}
               >
                 <div className={`h-1 w-full ${style.bar}`} />
                 <div className="flex items-center justify-between gap-2 px-3 py-2.5">
@@ -459,7 +562,11 @@ export function ImprovementBoardClient({
                   </span>
                 </div>
 
-                <div className="max-h-[68dvh] min-h-[88px] flex-1 space-y-2 overflow-y-auto px-2 pb-2">
+                <div
+                  className={`min-h-[88px] flex-1 space-y-2 overflow-y-auto px-2 pb-2 ${
+                    fullScreen ? '' : 'max-h-[68dvh]'
+                  }`}
+                >
                   {col.items.length === 0 ? (
                     <div className="text-muted-foreground rounded-xl border-2 border-dashed py-7 text-center text-xs">
                       Nothing here
@@ -572,6 +679,8 @@ export function ImprovementBoardClient({
         </div>
       )}
 
+      </div>
+
       <CreateIdeaDialog
         open={createOpen}
         onOpenChange={setCreateOpen}
@@ -590,6 +699,9 @@ export function ImprovementBoardClient({
         currentUserId={userId}
         onChanged={refresh}
         assignedTo={detailIdea ? assignedTo(detailIdea, ownerNamesByArea) : []}
+        isAreaOwner={
+          !!detailIdea?.area_id && ownedAreaIds.includes(detailIdea.area_id)
+        }
       />
     </div>
   );
