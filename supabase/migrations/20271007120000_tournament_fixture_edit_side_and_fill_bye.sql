@@ -18,7 +18,12 @@
 --   * the new entry is an active entry of the same division and is not already
 --     anywhere in the bracket;
 --   * an entry taken out of the bracket by the swap is marked withdrawn;
---   * every change is written to tournament_match_side_edits.
+--   * every change is written to tournament_match_side_edits;
+--   * concurrency: one division's bracket edits are serialised (advisory lock,
+--     taken before any row lock so a bye fill and an edit of its next match
+--     cannot deadlock), and the caller states the side's occupant it saw
+--     (p_expected_entry_id, NULL = empty). If someone changed it meanwhile the
+--     call is refused instead of silently overwriting their placement.
 -- Same permission as fn_generate_fixtures / fn_record_result: super admin,
 -- admin, sports.tournaments.manage, or an in-charge of the tournament.
 
@@ -50,8 +55,11 @@ CREATE POLICY tournament_match_side_edits_select ON public.tournament_match_side
     OR (SELECT user_has_permission('sports.tournaments.manage'))
     OR fn_is_event_incharge(tournament_match_side_edits.event_id));
 
+-- An earlier 3-argument version was applied by hand on 2026-10-06; replace it.
+DROP FUNCTION IF EXISTS public.fn_tournament_set_match_side(uuid, text, uuid);
+
 CREATE OR REPLACE FUNCTION public.fn_tournament_set_match_side(
-  p_match_id uuid, p_slot text, p_entry_id uuid
+  p_match_id uuid, p_slot text, p_entry_id uuid, p_expected_entry_id uuid
 ) RETURNS public.tournament_matches
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
 DECLARE
@@ -61,6 +69,7 @@ DECLARE
   v_entry   public.tournament_entries;
   v_old     uuid;
   v_kind    text;
+  v_div     uuid;
 BEGIN
   IF auth.uid() IS NULL THEN RAISE EXCEPTION 'not authenticated'; END IF;
   IF NOT (is_super_admin() OR is_admin() OR user_has_permission('sports.tournaments.manage')
@@ -69,8 +78,12 @@ BEGIN
   END IF;
   IF p_slot IS NULL OR p_slot NOT IN ('a', 'b') THEN RAISE EXCEPTION 'slot must be a or b'; END IF;
 
+  SELECT division_id INTO v_div FROM tournament_matches WHERE id = p_match_id;
+  IF v_div IS NULL THEN RAISE EXCEPTION 'match not found'; END IF;
+  -- One bracket edit per division at a time; before any row lock (see header).
+  PERFORM pg_advisory_xact_lock(hashtext('tournament_bracket:' || v_div::text));
+
   SELECT * INTO v_match FROM tournament_matches WHERE id = p_match_id FOR UPDATE;
-  IF v_match.id IS NULL THEN RAISE EXCEPTION 'match not found'; END IF;
 
   SELECT format INTO v_format FROM tournament_divisions WHERE id = v_match.division_id;
   IF v_format IS DISTINCT FROM 'knockout' THEN
@@ -94,6 +107,9 @@ BEGIN
   END IF;
 
   v_old := CASE p_slot WHEN 'a' THEN v_match.side_a_entry_id ELSE v_match.side_b_entry_id END;
+  IF v_old IS DISTINCT FROM p_expected_entry_id THEN
+    RAISE EXCEPTION 'this match was changed by someone else just now; reload and try again';
+  END IF;
 
   IF v_match.status IN ('pending', 'scheduled') AND v_match.winner_entry_id IS NULL THEN
     v_kind := 'replace';
@@ -153,7 +169,14 @@ BEGIN
   RETURN v_match;
 END; $$;
 
-REVOKE EXECUTE ON FUNCTION public.fn_tournament_set_match_side(uuid, text, uuid) FROM PUBLIC, anon;
-GRANT EXECUTE ON FUNCTION public.fn_tournament_set_match_side(uuid, text, uuid) TO authenticated;
+REVOKE EXECUTE ON FUNCTION public.fn_tournament_set_match_side(uuid, text, uuid, uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_tournament_set_match_side(uuid, text, uuid, uuid) TO authenticated;
+
+-- Spot entries are idempotent per dialog: the client sends one request key per
+-- form, so a double click, a second tab of the same form or a retry after a lost
+-- response can never create a second entry (and a second paid fee record).
+CREATE UNIQUE INDEX IF NOT EXISTS uq_events_registrations_spot_request_key
+  ON public.events_registrations ((custom_data->'spot_entry'->>'request_key'))
+  WHERE source = 'tournament_spot' AND (custom_data->'spot_entry'->>'request_key') IS NOT NULL;
 
 NOTIFY pgrst, 'reload schema';

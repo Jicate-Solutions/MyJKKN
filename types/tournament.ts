@@ -749,6 +749,11 @@ export interface GenerateFixturesResult {
 export interface SetMatchSideDto {
   slot: 'a' | 'b';
   entry_id: string;
+  /**
+   * The side's occupant the organiser saw (null = empty). The change is refused
+   * if someone else changed that side meanwhile.
+   */
+  expected_entry_id: string | null;
 }
 
 /** How an organiser collected a spot entry's fee (fee divisions only). */
@@ -767,6 +772,8 @@ export const SPOT_ENTRY_PAYMENT_METHODS: { value: SpotEntryPaymentMethod; label:
  * self-registration; a fee division needs the fee collected first.
  */
 export interface CreateSpotEntryDto {
+  /** One random UUID per opened form — makes the submit idempotent (double click, retry). */
+  request_key: string;
   division_id: string;
   entry_name: string;                 // player name OR team name
   /** Optional JKKN learner register / roll number — links the learner (or team captain). */

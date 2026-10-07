@@ -28,6 +28,40 @@ import {
 import type { CreateSpotEntryDto, EligibilityRules } from '@/types/tournament';
 import { insertEntryWithAccessCode } from '../entry-access-code';
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+/** Event statuses that no longer take entries (events status CHECK values). */
+const CLOSED_EVENT_STATUSES = ['draft', 'cancelled', 'post_event', 'archived'];
+const GENDERS = ['male', 'female', 'other'];
+const MEMBER_ROLES = ['captain', 'player', 'substitute', 'coach', 'manager'];
+
+/** The entry already created for this form submission (idempotent retry / double click). */
+async function existingSpotEntry(svc: any, eventId: string, requestKey: string) {
+  const { data: reg } = await svc
+    .from('events_registrations')
+    .select('id')
+    .eq('event_id', eventId)
+    .eq('source', 'tournament_spot')
+    .eq('custom_data->spot_entry->>request_key', requestKey)
+    .maybeSingle();
+  if (!reg) return null;
+  const { data: entry } = await svc
+    .from('tournament_entries')
+    .select('id, access_code')
+    .eq('registration_id', reg.id)
+    .maybeSingle();
+  return entry ? { entry_id: entry.id as string, access_code: (entry.access_code as string | null) ?? null } : null;
+}
+
+/** A trimmed string, or null for blank / non-string input. */
+const str = (v: unknown): string | null =>
+  typeof v === 'string' && v.trim() ? v.trim().slice(0, 200) : null;
+
+/** Undo a half-made spot entry; a failed undo is logged, never swallowed silently. */
+async function undo(svc: any, table: string, id: string) {
+  const { error } = await svc.from(table).delete().eq('id', id);
+  if (error) console.error(`[tournament/spot-entry] could not roll back ${table} ${id}:`, error.message);
+}
+
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ eventId: string }> }
@@ -43,12 +77,40 @@ export async function POST(
       return NextResponse.json({ error: 'Forbidden — sports.tournaments.manage required' }, { status: 403 });
     }
 
-    const dto = (await request.json().catch(() => ({}))) as CreateSpotEntryDto;
-    if (!dto.division_id) return NextResponse.json({ error: 'division_id is required' }, { status: 400 });
-    const entryName = dto.entry_name?.trim();
+    const raw: unknown = await request.json().catch(() => null);
+    if (!raw || typeof raw !== 'object') {
+      return NextResponse.json({ error: 'A JSON object body is required' }, { status: 400 });
+    }
+    const dto = raw as CreateSpotEntryDto;
+    if (typeof dto.request_key !== 'string' || !UUID_RE.test(dto.request_key)) {
+      return NextResponse.json({ error: 'request_key must be a uuid' }, { status: 400 });
+    }
+    if (typeof dto.division_id !== 'string' || !UUID_RE.test(dto.division_id)) {
+      return NextResponse.json({ error: 'division_id is required' }, { status: 400 });
+    }
+    const entryName = typeof dto.entry_name === 'string' ? dto.entry_name.trim() : '';
     if (!entryName) return NextResponse.json({ error: 'Name is required' }, { status: 400 });
 
+    // Typed checks before eligibility sees them.
+    const age = dto.participant_age;
+    if (age != null && (!Number.isInteger(age) || age < 3 || age > 100)) {
+      return NextResponse.json({ error: 'Age must be a whole number between 3 and 100' }, { status: 400 });
+    }
+    const gender = typeof dto.participant_gender === 'string' && dto.participant_gender.trim()
+      ? dto.participant_gender.trim().toLowerCase()
+      : null;
+    if (gender && !GENDERS.includes(gender)) {
+      return NextResponse.json({ error: 'Gender must be male, female or other' }, { status: 400 });
+    }
+    if (dto.members != null && !Array.isArray(dto.members)) {
+      return NextResponse.json({ error: 'members must be a list' }, { status: 400 });
+    }
+
     const svc = createServiceRoleClient();
+
+    // Same form submitted again (double click, retry): hand back what it made.
+    const again = await existingSpotEntry(svc, eventId, dto.request_key);
+    if (again) return NextResponse.json({ ...again, duplicate: true }, { status: 200 });
 
     const { data: ev } = await (svc as any)
       .from('events')
@@ -56,7 +118,7 @@ export async function POST(
       .eq('id', eventId)
       .eq('event_type', 'sports_tournament')
       .maybeSingle();
-    if (!ev || ['draft', 'cancelled'].includes(ev.status)) {
+    if (!ev || CLOSED_EVENT_STATUSES.includes(ev.status)) {
       return NextResponse.json({ error: 'This tournament is not taking entries' }, { status: 404 });
     }
 
@@ -74,7 +136,15 @@ export async function POST(
 
     // Team vs individual follows the division, never the caller.
     const entryType: 'team' | 'individual' = isTeamDivision(division) ? 'team' : 'individual';
-    const members = (dto.members ?? []).filter((m) => m.member_name?.trim());
+    // Roster names only: a client-supplied learner_id is never trusted on this
+    // service-role path, the role is limited to the DB's values, jersey is short text.
+    const members = (dto.members ?? [])
+      .filter((m) => m && typeof m.member_name === 'string' && m.member_name.trim())
+      .map((m) => ({
+        member_name: m.member_name.trim().slice(0, 120),
+        jersey_no: typeof m.jersey_no === 'string' && m.jersey_no.trim() ? m.jersey_no.trim().slice(0, 10) : null,
+        role: typeof m.role === 'string' && MEMBER_ROLES.includes(m.role) ? m.role : 'player',
+      }));
     if (divisionPlayType(division.config) === 'doubles' && members.length !== DOUBLES_ROSTER_SIZE) {
       return NextResponse.json(
         { error: `A doubles entry needs exactly ${DOUBLES_ROSTER_SIZE} players.` },
@@ -92,7 +162,7 @@ export async function POST(
       date_of_birth: string | null;
       institution_id: string | null;
     } | null = null;
-    const regNo = dto.learner_register_number?.trim();
+    const regNo = str(dto.learner_register_number);
     if (regNo) {
       // Goes into a PostgREST filter string, so only the characters a register
       // or roll number uses — a comma or bracket would change the filter.
@@ -125,9 +195,9 @@ export async function POST(
     // ---- eligibility (same rules as self-registration) ----
     const subject: EligibilitySubject = {
       isLearner: !!learner,
-      gender: learner?.gender ?? dto.participant_gender ?? null,
+      gender: learner?.gender ?? gender,
       dateOfBirth: learner?.date_of_birth ?? null,
-      age: dto.participant_age ?? null,
+      age: age ?? null,
       label: entryName,
     };
     const elig = checkEligibility(rules, subject);
@@ -175,7 +245,7 @@ export async function POST(
     // ---- fee: a spot entry in a fee division is paid at the desk, first ----
     const fee = Number((division.config as any)?.entry_fee ?? 0) || 0;
     const methodLabel = SPOT_ENTRY_PAYMENT_METHODS.find((m) => m.value === dto.payment_method)?.label ?? null;
-    const reference = dto.payment_reference?.trim() || null;
+    const reference = str(dto.payment_reference);
     if (fee > 0) {
       if (dto.fee_collected !== true || !methodLabel) {
         return NextResponse.json(
@@ -201,7 +271,7 @@ export async function POST(
       day: '2-digit', month: 'short', year: 'numeric', timeZone: 'Asia/Kolkata',
     });
     const institutionId = dto.is_external ? null : (learner?.institution_id ?? null);
-    const institutionName = dto.institution_name?.trim() || null;
+    const institutionName = str(dto.institution_name);
 
     const { data: reg, error: regErr } = await (svc as any)
       .from('events_registrations')
@@ -210,9 +280,9 @@ export async function POST(
         category_id: null,
         participant_type: dto.is_external ? 'external' : 'internal',
         participant_name: entryName,
-        participant_phone: dto.participant_phone?.trim() || null,
-        participant_age: dto.participant_age ?? null,
-        participant_gender: learner?.gender ?? dto.participant_gender ?? null,
+        participant_phone: str(dto.participant_phone),
+        participant_age: age ?? null,
+        participant_gender: learner?.gender ?? gender,
         learner_id: entryType === 'individual' ? (learner?.id ?? null) : null,
         institution_id: institutionId,
         institution_name: institutionName,
@@ -225,6 +295,7 @@ export async function POST(
         registered_by: user.id,
         custom_data: {
           spot_entry: {
+            request_key: dto.request_key,
             added_by: user.id,
             added_by_name: organiserName,
             fee_method: fee > 0 ? dto.payment_method : null,
@@ -233,6 +304,12 @@ export async function POST(
       })
       .select('id')
       .single();
+    if (regErr?.code === '23505' && /spot_request_key/i.test(`${regErr.message} ${regErr.details ?? ''}`)) {
+      // The same submission raced in twice; the other one won. Return its entry.
+      const winner = await existingSpotEntry(svc, eventId, dto.request_key);
+      if (winner) return NextResponse.json({ ...winner, duplicate: true }, { status: 200 });
+      return NextResponse.json({ error: 'This entry is already being saved. Reload to see it.' }, { status: 409 });
+    }
     if (regErr || !reg) {
       return NextResponse.json({ error: regErr?.message || 'Failed to add the entry' }, { status: 500 });
     }
@@ -255,23 +332,17 @@ export async function POST(
       null
     );
     if (entryErr || !entry) {
-      await (svc as any).from('events_registrations').delete().eq('id', reg.id);
+      await undo(svc, 'events_registrations', reg.id);
       return NextResponse.json({ error: entryErr?.message || 'Failed to add the entry' }, { status: 500 });
     }
 
     if (entryType === 'team' && members.length) {
       const { error: rosterErr } = await (svc as any).from('tournament_team_members').insert(
-        members.map((m) => ({
-          entry_id: entry.id,
-          learner_id: m.learner_id ?? null,
-          member_name: m.member_name.trim(),
-          jersey_no: m.jersey_no ?? null,
-          role: m.role ?? 'player',
-        }))
+        members.map((m) => ({ entry_id: entry.id, learner_id: null, ...m }))
       );
       if (rosterErr) {
-        await (svc as any).from('tournament_entries').delete().eq('id', entry.id);
-        await (svc as any).from('events_registrations').delete().eq('id', reg.id);
+        await undo(svc, 'tournament_entries', entry.id);
+        await undo(svc, 'events_registrations', reg.id);
         return NextResponse.json({ error: rosterErr.message || 'Failed to save the roster' }, { status: 500 });
       }
     }

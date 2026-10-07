@@ -9,7 +9,7 @@
 // helpers here only decide what to offer, so the UI never shows a button the
 // server would refuse.
 
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import {
@@ -105,10 +105,15 @@ export function EditMatchSideDialog({
   const replacing = slot ? sideName(slot) : null;
   const byeHolder = match.side_a_name ?? match.side_b_name;
 
-  async function submit() {
-    if (!slot || !entryId) return;
-    await setSide.mutateAsync({ matchId: match.id, dto: { slot, entry_id: entryId } });
-    onOpenChange(false);
+  function submit() {
+    if (!slot || !entryId || setSide.isPending) return;
+    // The occupant this dialog showed: the server refuses the change if someone
+    // else altered the side since (e.g. two organisers filling the same bye).
+    const expected = (slot === 'a' ? match.side_a_entry_id : match.side_b_entry_id) ?? null;
+    setSide.mutate(
+      { matchId: match.id, dto: { slot, entry_id: entryId, expected_entry_id: expected } },
+      { onSuccess: () => onOpenChange(false) }
+    );
   }
 
   return (
@@ -234,9 +239,17 @@ export function SpotEntryDialog({
   const feeOk = fee === 0 || (feeCollected && !!method && (method === 'cash' || !!reference.trim()));
   const canSubmit = !!name.trim() && rosterOk && feeOk && !add.isPending;
 
-  async function submit() {
-    if (!canSubmit) return;
-    await add.mutateAsync({
+  // One key per opened form: the server returns the same entry for a repeat of
+  // this submission (double click, retry), so a fee is never recorded twice.
+  const [requestKey] = useState(() => crypto.randomUUID());
+  // Blocks a second click before React re-renders with isPending.
+  const submitting = useRef(false);
+
+  function submit() {
+    if (!canSubmit || submitting.current) return;
+    submitting.current = true;
+    add.mutate({
+      request_key: requestKey,
       division_id: division.id,
       entry_name: name.trim(),
       learner_register_number: !isExternal && regNo.trim() ? regNo.trim() : null,
@@ -249,8 +262,12 @@ export function SpotEntryDialog({
       fee_collected: fee > 0 ? feeCollected : undefined,
       payment_method: fee > 0 && method ? method : null,
       payment_reference: fee > 0 ? reference.trim() || null : null,
+    }, {
+      onSuccess: () => onOpenChange(false),
+      onSettled: () => {
+        submitting.current = false;
+      },
     });
-    onOpenChange(false);
   }
 
   return (
