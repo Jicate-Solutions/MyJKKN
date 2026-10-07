@@ -82717,3 +82717,220 @@ COMMENT ON FUNCTION public.fn_hr_permission_holder_ids(text[]) IS
 REVOKE EXECUTE ON FUNCTION public.fn_hr_permission_holder_ids(text[]) FROM anon, PUBLIC, authenticated;
 GRANT  EXECUTE ON FUNCTION public.fn_hr_permission_holder_ids(text[]) TO service_role;
 
+
+-- ============================================================================
+-- HR staff harness — chase ladder: functions
+-- Migration: 20270613101207_hr_duty_chase_ladder.sql
+-- Added: 2026-10-01 - duty register (config table), chase ledger, blocked marks,
+-- run log. Seed rows (38 duties, policies, schedule, loop row) live in the
+-- migration only.
+-- ============================================================================
+CREATE OR REPLACE FUNCTION public.fn_hr_duty_definitions_touch()
+RETURNS trigger
+LANGUAGE plpgsql
+SET search_path = public
+AS $$
+BEGIN
+  NEW.updated_at := now();
+  NEW.updated_by := COALESCE(auth.uid(), NEW.updated_by);
+  RETURN NEW;
+END $$;
+
+CREATE OR REPLACE FUNCTION public.fn_hr_duty_definitions_audit()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+  INSERT INTO public.hr_duty_definitions_audit (config_id, changed_by, old_value, new_value, change_reason)
+  VALUES (NEW.id, auth.uid(), to_jsonb(OLD), to_jsonb(NEW), NEW.change_reason);
+  RETURN NEW;
+END $$;
+
+
+CREATE OR REPLACE FUNCTION public.fn_hr_duty_mark_blocked(
+  p_duty_code text,
+  p_item_id   uuid,
+  p_stage_key text,
+  p_reason    text
+)
+RETURNS uuid
+LANGUAGE plpgsql
+VOLATILE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_uid   uuid := auth.uid();
+  v_stage text := COALESCE(p_stage_key, '');
+  v_step  text;
+  v_id    uuid;
+BEGIN
+  IF v_uid IS NULL THEN
+    RAISE EXCEPTION 'Sign in to mark an item blocked.' USING ERRCODE = '42501';
+  END IF;
+  IF p_reason IS NULL OR length(btrim(p_reason)) < 10 THEN
+    RAISE EXCEPTION 'Say what is blocking it, in a few words.' USING ERRCODE = '22023';
+  END IF;
+
+  SELECT l.step_key INTO v_step
+    FROM public.hr_duty_chase_ledger l
+   WHERE l.duty_code = p_duty_code
+     AND l.item_id   = p_item_id
+     AND l.stage_key = v_stage
+     AND l.resolved_at IS NULL
+     AND v_uid = ANY (l.owner_profile_ids)
+   ORDER BY l.reached_at DESC
+   LIMIT 1;
+
+  IF v_step IS NULL THEN
+    RAISE EXCEPTION 'Only the person this item is waiting on can mark it blocked.'
+      USING ERRCODE = '42501';
+  END IF;
+
+  INSERT INTO public.hr_duty_blocked_marks (duty_code, item_id, stage_key, at_step_key, reason, marked_by)
+  VALUES (p_duty_code, p_item_id, v_stage, v_step, btrim(p_reason), v_uid)
+  RETURNING id INTO v_id;
+  RETURN v_id;
+EXCEPTION
+  WHEN unique_violation THEN
+    RAISE EXCEPTION 'This item is already marked blocked.' USING ERRCODE = '23505';
+END;
+$$;
+
+COMMENT ON FUNCTION public.fn_hr_duty_mark_blocked(text, uuid, text, text) IS
+  'HR chase ladder: the item''s owner marks it blocked with a reason (>= 10 characters). Parks it and lifts it one rung at the next run. Only an owner on the item''s open ledger rows may mark. Migration 20270613101207.';
+
+-- The marker, or a supervisor on that item, clears the mark once it is unblocked.
+CREATE OR REPLACE FUNCTION public.fn_hr_duty_clear_blocked(
+  p_duty_code text,
+  p_item_id   uuid,
+  p_stage_key text
+)
+RETURNS boolean
+LANGUAGE plpgsql
+VOLATILE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_uid   uuid := auth.uid();
+  v_stage text := COALESCE(p_stage_key, '');
+  v_n     integer;
+BEGIN
+  IF v_uid IS NULL THEN
+    RAISE EXCEPTION 'Sign in to clear a blocked mark.' USING ERRCODE = '42501';
+  END IF;
+
+  UPDATE public.hr_duty_blocked_marks m
+     SET cleared_at = now(),
+         cleared_by = v_uid
+   WHERE m.duty_code = p_duty_code
+     AND m.item_id   = p_item_id
+     AND m.stage_key = v_stage
+     AND m.cleared_at IS NULL
+     AND (
+       m.marked_by = v_uid
+       OR EXISTS (
+         SELECT 1 FROM public.hr_duty_chase_ledger l
+          WHERE l.duty_code = m.duty_code
+            AND l.item_id   = m.item_id
+            AND l.stage_key = m.stage_key
+            AND v_uid = ANY (l.supervisor_profile_ids)
+       )
+     );
+  GET DIAGNOSTICS v_n = ROW_COUNT;
+  IF v_n = 0 THEN
+    RAISE EXCEPTION 'Only the person who marked it, or their supervisor, can clear this mark.'
+      USING ERRCODE = '42501';
+  END IF;
+  RETURN true;
+END;
+$$;
+
+COMMENT ON FUNCTION public.fn_hr_duty_clear_blocked(text, uuid, text) IS
+  'HR chase ladder: clear an open blocked mark. The marker or a supervisor on that item only. Migration 20270613101207.';
+
+-- Late counts per DESK (a duty's queue at one college). No person, no item
+-- title, no per-person count: this is the Director's and the HR head's view.
+CREATE OR REPLACE FUNCTION public.fn_hr_duty_desk_summary()
+RETURNS TABLE (
+  duty_code                 text,
+  owning_queue              text,
+  institution_id            uuid,
+  institution_name          text,
+  open_items                integer,
+  late_items                integer,
+  at_supervisor             integer,
+  at_hr_head                integer,
+  blocked_items             integer,
+  oldest_late_working_days  integer
+)
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+#variable_conflict use_column
+BEGIN
+  IF NOT (
+    COALESCE(public.is_super_admin(), false)
+    OR COALESCE(public.fn_is_the_director(), false)
+    OR COALESCE(public.user_has_permission('hr.harness.desks.view'), false)
+  ) THEN
+    RAISE EXCEPTION 'The HR desk summary is for the Director and the HR head.'
+      USING ERRCODE = '42501';
+  END IF;
+
+  RETURN QUERY
+  WITH latest AS (
+    -- One row per open item: the highest rung it has reached.
+    SELECT DISTINCT ON (l.duty_code, l.item_id, l.stage_key)
+           l.duty_code, l.item_id, l.stage_key, l.institution_id, l.audience,
+           l.late_working_days, l.blocked
+      FROM public.hr_duty_chase_ledger l
+     WHERE l.resolved_at IS NULL
+     ORDER BY l.duty_code, l.item_id, l.stage_key, l.reached_at DESC
+  ),
+  marks AS (
+    SELECT m.duty_code, m.item_id, m.stage_key
+      FROM public.hr_duty_blocked_marks m
+     WHERE m.cleared_at IS NULL
+  )
+  SELECT x.duty_code,
+         d.owning_queue,
+         x.institution_id,
+         i.name::text,
+         count(*)::integer,
+         count(*) FILTER (WHERE x.late_working_days >= 1)::integer,
+         count(*) FILTER (WHERE x.audience = 'supervisor')::integer,
+         count(*) FILTER (WHERE x.audience = 'hr_head')::integer,
+         count(*) FILTER (WHERE mk.item_id IS NOT NULL OR x.blocked)::integer,
+         COALESCE(max(x.late_working_days), 0)::integer
+    FROM latest x
+    LEFT JOIN marks mk
+      ON mk.duty_code = x.duty_code AND mk.item_id = x.item_id AND mk.stage_key = x.stage_key
+    LEFT JOIN public.hr_duty_definitions d
+      ON d.config_key = x.duty_code AND d.is_active
+    LEFT JOIN public.institutions i
+      ON i.id = x.institution_id
+   GROUP BY x.duty_code, d.owning_queue, x.institution_id, i.name
+   ORDER BY count(*) FILTER (WHERE x.late_working_days >= 1) DESC, x.duty_code;
+END;
+$$;
+
+COMMENT ON FUNCTION public.fn_hr_duty_desk_summary() IS
+  'HR chase ladder: open and late items per desk (duty x college) from the ledger. Desks only — never a person. Super admins, the Director (fn_is_the_director) and holders of hr.harness.desks.view. Migration 20270613101207.';
+
+REVOKE EXECUTE ON FUNCTION public.fn_hr_duty_definitions_audit() FROM anon, PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.fn_hr_duty_definitions_touch() FROM anon, PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.fn_hr_duty_mark_blocked(text, uuid, text, text) FROM anon, PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.fn_hr_duty_clear_blocked(text, uuid, text) FROM anon, PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.fn_hr_duty_desk_summary() FROM anon, PUBLIC;
+
+GRANT EXECUTE ON FUNCTION public.fn_hr_duty_mark_blocked(text, uuid, text, text) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.fn_hr_duty_clear_blocked(text, uuid, text) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.fn_hr_duty_desk_summary() TO authenticated, service_role;
+
+
