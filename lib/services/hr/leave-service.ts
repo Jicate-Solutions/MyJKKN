@@ -432,10 +432,10 @@ export class LeaveService {
      * any future caller would otherwise file leave against a type the person
      * is not entitled to, and the frozen chain would make it look legitimate.
      *
-     * Passing the check is also what waives the per-application document: the
-     * proof was given once, at eligibility, and a human approved it.
+     * Passing the check does NOT waive the per-application document (changed
+     * 2026-10-06): a gated type that requires documents wants one with the
+     * eligibility request AND with every application.
      */
-    let eligibilityCoversDocument = false;
     if ((leaveType as { requires_eligibility?: boolean }).requires_eligibility) {
       const { data: eligible, error: eligErr } = await (supabase as any).rpc(
         'fn_hr_leave_eligibility_ok',
@@ -445,11 +445,10 @@ export class LeaveService {
       if (eligible !== true) {
         throw new Error(
           `${leaveType.leave_type_name} is only open to team members whose eligibility has been approved. ` +
-            'Request eligibility from the Apply Leave screen and attach the supporting document once; ' +
+            'Request eligibility from the Apply Leave screen and attach the supporting document; ' +
             'after it is approved this leave type becomes available to you.',
         );
       }
-      eligibilityCoversDocument = true;
     }
 
     const documentRule = leaveDocumentRequirement(
@@ -458,7 +457,6 @@ export class LeaveService {
         document_required_after_days: leaveType.document_required_after_days ?? null,
       },
       durationDays,
-      eligibilityCoversDocument,
     );
     if (documentRule.required && (payload.documents?.length ?? 0) === 0) {
       throw new Error(

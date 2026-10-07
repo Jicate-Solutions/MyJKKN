@@ -10,9 +10,9 @@
 // 2026-07-28: the per-division cards were removed at the organizer's request.
 // Entry rows and their actions (mark paid, payment link, withdraw) plus the entry
 // fee moved to the Event Logistics "Registrations" tab. The FIXTURES/bracket UI
-// went with the cards and now has no entry point — _components/fixtures-section
-// .tsx and mobile-score-sheet.tsx are intact but unreferenced, so a future
-// "Fixtures" tab can mount DivisionFixtures again without rewriting it.
+// went with the cards; 2026-10-05 (BUG-006252) it is back as its own
+// "Fixtures & results" card — one DivisionFixtures per division, where the
+// organiser generates fixtures, records results and awards the winners.
 
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
@@ -70,6 +70,7 @@ import { useTournamentEntries } from '@/hooks/events/use-tournament-registration
 import { useTournamentMatches } from '@/hooks/events/use-tournament-fixtures';
 import type { TournamentDivision, TournamentEntry, TournamentMatch } from '@/types/tournament';
 import { InchargePanel } from './_components/incharge-panel';
+import { DivisionFixtures } from './_components/fixtures-section';
 import { RegistrationFormCard } from './_components/registration-form-card';
 import { EventFeedbackLinkCard } from '@/components/events/feedback/event-feedback-link-card';
 // Reuses the list page's dialog — one editor, so the two entry points can't drift.
@@ -338,6 +339,15 @@ export default function TournamentManagePage() {
     }
     return m;
   }, [entries]);
+  const matchesByDivision = useMemo(() => {
+    const m = new Map<string, TournamentMatch[]>();
+    for (const x of matches) {
+      const arr = m.get(x.division_id) ?? [];
+      arr.push(x);
+      m.set(x.division_id, arr);
+    }
+    return m;
+  }, [matches]);
 
   // KPI + chart data — computed over ACTIVE (non-withdrawn) entries so the
   // headline numbers match who is actually competing.
@@ -666,6 +676,39 @@ export default function TournamentManagePage() {
           </CardContent>
         </Card>
       </div>
+
+      {/* ── Fixtures & results (BUG-006252) ─────────────────────────────────
+          One bracket per division: generate fixtures, record each result and
+          award the winners and runners-up. Read-only for committee members —
+          the fixtures API rejects their writes anyway. */}
+      <Card className="mb-4" data-testid="tournament-fixtures-card">
+        <CardHeader className="pb-2">
+          <CardTitle className="flex items-center gap-1.5 text-sm font-semibold">
+            <Swords className="h-4 w-4" /> Fixtures &amp; results
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {divisions.length === 0 ? (
+            <p className="py-6 text-center text-sm text-muted-foreground">No divisions yet.</p>
+          ) : (
+            divisions.map((d) => (
+              <div key={d.id}>
+                <p className="text-sm font-medium">{divisionLabel(d)}</p>
+                <DivisionFixtures
+                  eventId={id}
+                  divisionId={d.id}
+                  matches={matchesByDivision.get(d.id) ?? []}
+                  entryCount={
+                    (entriesByDivision.get(d.id) ?? []).filter((e) => e.status !== 'withdrawn').length
+                  }
+                  divisionFormat={d.format}
+                  canManage={canManage}
+                />
+              </div>
+            ))
+          )}
+        </CardContent>
+      </Card>
 
       {/* Shared event logistics (sponsors, …) — promoted from Marathon so tournaments inherit them.
           Committee members see every board read-only; task checkboxes stay live for them

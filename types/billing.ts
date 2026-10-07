@@ -141,6 +141,12 @@ export interface MyBill {
   academicYear: string;
   /** True when academicYear was inferred from due_date, not stored on the bill. */
   yearInferred: boolean;
+  /**
+   * Start year of the bill's academic year (academicYearKey) — orders bills
+   * oldest-first. A bill cannot be paid online while an older year has a
+   * balance. null = no year and no due date (never locked).
+   */
+  yearKey: number | null;
 }
 
 /**

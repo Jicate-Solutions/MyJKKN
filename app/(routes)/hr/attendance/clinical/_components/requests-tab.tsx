@@ -1,8 +1,8 @@
 'use client';
 
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { format } from 'date-fns';
-import { Check, X } from 'lucide-react';
+import { Check, Loader2, X } from 'lucide-react';
 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -15,6 +15,7 @@ import {
 } from '@/components/ui/table';
 import {
   useClinicalEligibilities,
+  useClinicalSites,
   useDecideClinicalEligibility,
   useRevokeClinicalEligibility,
 } from '@/hooks/hr/use-clinical-duty';
@@ -46,7 +47,7 @@ const subjectOf = (r: ClinicalEligibility) => {
 type Pending = { kind: 'reject' | 'revoke'; row: ClinicalEligibility } | null;
 
 export function RequestsTab({ institutions }: { institutions: InstitutionOption[] }) {
-  const [status, setStatus] = useState<FilterStatus>('pending');
+  const [status, setStatus] = useState<FilterStatus>('all');
   const [institutionId, setInstitutionId] = useState('any');
   const [dialog, setDialog] = useState<Pending>(null);
 
@@ -56,6 +57,15 @@ export function RequestsTab({ institutions }: { institutions: InstitutionOption[
   });
   const decide = useDecideClinicalEligibility();
   const revoke = useRevokeClinicalEligibility();
+
+  // The Site column: a request stores site IDS, so the names come from the duty
+  // sites list (all institutions, inactive ones included — a request may still
+  // point at a site that has since been switched off).
+  const { data: sites, isLoading: sitesLoading } = useClinicalSites();
+  const siteById = useMemo(
+    () => new Map((sites ?? []).map((s) => [s.id, s] as const)),
+    [sites]
+  );
 
   const rows = data ?? [];
 
@@ -89,14 +99,14 @@ export function RequestsTab({ institutions }: { institutions: InstitutionOption[
             </SelectContent>
           </Select>
         )}
-        <span className="text-xs text-muted-foreground">
-          {rows.length} request{rows.length === 1 ? '' : 's'}
-        </span>
+        {!isLoading && (
+          <span className="text-xs text-muted-foreground">
+            {rows.length} request{rows.length === 1 ? '' : 's'}
+          </span>
+        )}
       </div>
 
-      {isLoading ? (
-        <div className="text-sm text-muted-foreground">Loading requests…</div>
-      ) : rows.length === 0 ? (
+      {!isLoading && rows.length === 0 ? (
         <EmptyState
           title="No requests in this view"
           description="No clinical duty requests match the current filters."
@@ -109,6 +119,7 @@ export function RequestsTab({ institutions }: { institutions: InstitutionOption[
                 <TableHead>Staff</TableHead>
                 <TableHead>Scope</TableHead>
                 <TableHead>Institution</TableHead>
+                <TableHead>Site</TableHead>
                 <TableHead>Valid</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead>Reason</TableHead>
@@ -117,6 +128,24 @@ export function RequestsTab({ institutions }: { institutions: InstitutionOption[
               </TableRow>
             </TableHeader>
             <TableBody>
+              {/* One row spanning every column, so the spinner sits in the middle
+                  of the table (both ways) under the real column headings instead
+                  of a line of text in the top-left that the table then replaces.
+                  `rows` is [] while loading, so the map below renders nothing. */}
+              {isLoading && (
+                <TableRow className="hover:bg-transparent">
+                  <TableCell colSpan={9} className="h-56">
+                    <div
+                      role="status"
+                      aria-live="polite"
+                      className="flex h-full flex-col items-center justify-center gap-2 text-sm text-muted-foreground"
+                    >
+                      <Loader2 className="h-6 w-6 animate-spin" />
+                      Loading requests…
+                    </div>
+                  </TableCell>
+                </TableRow>
+              )}
               {rows.map((r) => {
                 const subject = subjectOf(r);
                 return (
@@ -130,6 +159,32 @@ export function RequestsTab({ institutions }: { institutions: InstitutionOption[
                     <TableCell>{SCOPE_LABEL[r.scope_type]}</TableCell>
                     <TableCell className="text-muted-foreground">
                       {r.institution?.name ?? '—'}
+                    </TableCell>
+                    <TableCell className="max-w-[240px]">
+                      {/* site_ids null = every active site of the institution
+                          (fn_hr_clinical_allowed_sites); otherwise the named
+                          sites only. */}
+                      {r.site_ids == null ? (
+                        <span className="text-muted-foreground">All sites</span>
+                      ) : r.site_ids.length === 0 ? (
+                        <span className="text-muted-foreground">—</span>
+                      ) : sitesLoading ? (
+                        <span className="text-muted-foreground">…</span>
+                      ) : (
+                        <div className="flex flex-wrap gap-1">
+                          {r.site_ids.map((id) => {
+                            const site = siteById.get(id);
+                            return (
+                              <Badge key={id} variant="outline" className="font-normal">
+                                {site ? site.name : 'Removed site'}
+                                {site && !site.is_active && (
+                                  <span className="ml-1 text-muted-foreground">(inactive)</span>
+                                )}
+                              </Badge>
+                            );
+                          })}
+                        </div>
+                      )}
                     </TableCell>
                     <TableCell className="whitespace-nowrap">
                       {fmtDate(r.valid_from)} – {r.valid_until ? fmtDate(r.valid_until) : 'open'}

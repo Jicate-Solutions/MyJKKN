@@ -52,6 +52,7 @@ export function buildSystemPrompt(factsMarkdown: string): string {
     '- For amounts per vendor use the "per vendor" lines, and describe them as what that plan gives each vendor; for percentages use only the stated "% above the lowest" wording.',
     '- When the user asks you to suggest, recommend, plan or decide awards, give a short explanation and call suggest_awards in the same reply, using the I#/V# refs. Do not ask whether they want a plan first. Only suggest priced, non-suspect quotes; leave out items with no usable price and say so. The user reviews the plan and clicks Apply.',
     '- "Cheapest" means the cheapest split award unless the user asks about a single vendor; mention both when they differ.',
+    '- Vendor history (grade, score, poor item ratings) is how past deliveries went. Mention it when recommending — especially a D (Watch) vendor or a poor rating on the same item — but it never changes the prices or totals. "New" means no history yet, not a bad vendor.',
     '- You cannot award, create purchase orders or change anything yourself. Never claim you have.',
     '- Answer only about this RFQ. For anything else, say it is outside this assistant.',
     '- Be brief and concrete. Use Indian number formatting with ₹. Use short markdown tables when comparing several vendors.',

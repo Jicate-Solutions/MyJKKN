@@ -5,7 +5,8 @@ import { useRouter } from 'next/navigation';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { useAuth } from '@/hooks/use-auth';
 import { useImsStoreContext } from '@/hooks/ims/use-ims-store-context';
-import { useImsIndents, useCancelImsIndent } from '@/hooks/ims/use-ims-indents';
+import { useImsIndents, useDeleteImsIndent } from '@/hooks/ims/use-ims-indents';
+import { EDITABLE_INDENT_STATUSES } from '@/types/ims/indents';
 import { useImsDepartmentsForSelect } from '@/hooks/ims/use-ims-departments';
 import { formatDateDMY } from '@/lib/utils/date-format';
 import {
@@ -43,7 +44,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
-import { Plus, Eye, X, Search, Pencil } from 'lucide-react';
+import { Plus, Eye, Search, Pencil, Trash2 } from 'lucide-react';
 import { BeatLoader } from 'react-spinners';
 import { toast } from 'sonner';
 import { ImsPageGuard } from '@/components/ims/ims-page-guard';
@@ -83,29 +84,30 @@ function IndentsPageInner() {
   const { data: departments = [] } = useImsDepartmentsForSelect(
     institutionId || null
   );
-  const cancelIndent = useCancelImsIndent();
+  const deleteIndent = useDeleteImsIndent();
 
   const handleCancel = async () => {
     if (!cancelId) return;
     try {
-      await cancelIndent.mutateAsync(cancelId);
-      toast.success('Indent cancelled successfully');
+      await deleteIndent.mutateAsync(cancelId);
+      toast.success('Indent deleted');
       setCancelId(null);
-    } catch {
-      toast.error('Failed to cancel indent');
+    } catch (e) {
+      toast.error(e instanceof Error && e.message ? e.message : 'Failed to delete indent');
+      setCancelId(null);
     }
   };
 
+  // Edit / Delete: not approved yet (draft, waiting for HOD or for the store), own
+  // request, and the user holds ims.indents.edit (or is super admin).
   const canCancel = (indent: { status: string; requested_by: string }) => {
     if (!canEditIndent) return false;
     return (
-      (indent.status === 'draft' || indent.status === 'pending_approval') &&
+      (EDITABLE_INDENT_STATUSES as readonly string[]).includes(indent.status) &&
       indent.requested_by === profile?.id
     );
   };
 
-  // Edit is allowed under the same conditions as cancel: pre-approval, own request,
-  // and the user holds ims.indents.edit (or is super admin).
   const canEditRow = (indent: { status: string; requested_by: string }) =>
     canCancel(indent);
 
@@ -249,9 +251,11 @@ function IndentsPageInner() {
                               <Button
                                 variant="ghost"
                                 size="sm"
+                                title="Delete indent"
+                                aria-label={`Delete indent ${indent.indent_number}`}
                                 onClick={() => setCancelId(indent.id)}
                               >
-                                <X className="h-4 w-4 text-destructive" />
+                                <Trash2 className="h-4 w-4 text-destructive" />
                               </Button>
                             )}
                           </div>
@@ -269,9 +273,9 @@ function IndentsPageInner() {
         <AlertDialog open={!!cancelId} onOpenChange={() => setCancelId(null)}>
           <AlertDialogContent>
             <AlertDialogHeader>
-              <AlertDialogTitle>Cancel Indent</AlertDialogTitle>
+              <AlertDialogTitle>Delete indent?</AlertDialogTitle>
               <AlertDialogDescription>
-                Are you sure you want to cancel this indent request? This action cannot be undone.
+                The indent request and its items are removed permanently. This cannot be undone.
               </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>
@@ -280,7 +284,7 @@ function IndentsPageInner() {
                 onClick={handleCancel}
                 className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
               >
-                Yes, cancel indent
+                Yes, delete
               </AlertDialogAction>
             </AlertDialogFooter>
           </AlertDialogContent>

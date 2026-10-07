@@ -15,10 +15,12 @@ import {
   useConfirmImsIndentDelivery,
   useImsHodPendingIndents,
   useLocalApproveImsIndent,
+  useDeleteImsIndent,
 } from '@/hooks/ims/use-ims-indents';
 import {
   INDENT_STATUS_CONFIG,
   INDENT_URGENCY_CONFIG,
+  EDITABLE_INDENT_STATUSES,
   type ImsIndentRequestItem,
 } from '@/types/ims/indents';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -54,6 +56,7 @@ import {
   User,
   FileText,
   Pencil,
+  Trash2,
 } from 'lucide-react';
 import { BeatLoader } from 'react-spinners';
 import { toast } from 'sonner';
@@ -82,6 +85,8 @@ function IndentDetailPageInner() {
   const [issueQuantities, setIssueQuantities] = useState<Record<string, number>>({});
   const [rejectDialogOpen, setRejectDialogOpen] = useState(false);
   const [rejectReason, setRejectReason] = useState('');
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const deleteIndent = useDeleteImsIndent();
 
   const { data: indent, isLoading } = useImsIndent(id);
   const approveIndent = useApproveImsIndent();
@@ -133,9 +138,10 @@ function IndentDetailPageInner() {
   const isPendingApproval = indent.status === 'pending_approval';
   const isRequester = indent.requested_by === profile?.id;
   const canConfirmDelivery = indent.status === 'issued' && isRequester && canReceive;
-  // Edit allowed only pre-approval, by the requester (or a privileged user).
+  // Edit / Delete only before approval (draft, waiting for HOD or for the store),
+  // by the requester (or a Super Admin).
   const isEditable =
-    (indent.status === 'draft' || indent.status === 'pending_approval') &&
+    (EDITABLE_INDENT_STATUSES as readonly string[]).includes(indent.status) &&
     canEdit &&
     (isRequester || isSuperAdmin);
 
@@ -248,6 +254,16 @@ function IndentDetailPageInner() {
               >
                 <Pencil className="mr-2 h-4 w-4" />
                 Edit
+              </Button>
+            )}
+            {isEditable && (
+              <Button
+                variant="outline"
+                className="text-destructive hover:text-destructive"
+                onClick={() => setDeleteOpen(true)}
+              >
+                <Trash2 className="mr-2 h-4 w-4" />
+                Delete
               </Button>
             )}
             {isPendingApproval && canApprove && (
@@ -548,6 +564,37 @@ function IndentDetailPageInner() {
           </DialogContent>
         </Dialog>
       </div>
+      <Dialog open={deleteOpen} onOpenChange={setDeleteOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete {indent.indent_number}?</DialogTitle>
+            <DialogDescription>
+              The indent request and its items are removed permanently. This cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteOpen(false)}>
+              No, keep it
+            </Button>
+            <Button
+              variant="destructive"
+              disabled={deleteIndent.isPending}
+              onClick={async () => {
+                try {
+                  await deleteIndent.mutateAsync(id);
+                  toast.success('Indent deleted');
+                  router.push('/ims/indents');
+                } catch (e) {
+                  toast.error(e instanceof Error && e.message ? e.message : 'Failed to delete indent');
+                  setDeleteOpen(false);
+                }
+              }}
+            >
+              {deleteIndent.isPending ? 'Deleting…' : 'Yes, delete'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </ContentLayout>
   );
 }

@@ -41,6 +41,13 @@ import { IntegrationPrefsCard } from './_components/integration-prefs-card';
 import { getIntegrationPrefs } from './_components/integration-prefs-actions';
 import { DelegatesCard } from './_components/delegates-card';
 import { getMyDelegates } from './_components/delegates-actions';
+import { GoogleReadCard } from './_components/google-read-card';
+import type { SupabaseClient } from '@supabase/supabase-js';
+import { canUseAssistant } from '@/lib/services/integrations/google-read/auth';
+import {
+  getGoogleReadCardState,
+  type GoogleReadCardState,
+} from '@/lib/services/integrations/google-read/connection';
 
 // Cal.com reads/writes are user-specific and mutable — never statically cache.
 export const dynamic = 'force-dynamic';
@@ -90,12 +97,18 @@ function Shell({ children }: { children: React.ReactNode }) {
 export default async function MeetingsAvailabilityPage({
   searchParams,
 }: {
-  searchParams: Promise<{ google?: string; schedule?: string }>;
+  searchParams: Promise<{ google?: string; schedule?: string; google_read?: string }>;
 }) {
   // ?google= is set by the OAuth callback redirect (U2) — banner only.
   // ?schedule= picks WHICH set of working hours the editor edits; a host may
   // keep more than one. An id they do not own falls back to their own default.
-  const { google: googleFlag, schedule: selectedScheduleId } = await searchParams;
+  // ?google_read= is set by the Gmail/Drive connect, callback and disconnect
+  // routes — banner only.
+  const {
+    google: googleFlag,
+    schedule: selectedScheduleId,
+    google_read: googleReadFlag,
+  } = await searchParams;
 
   // Explicit auth gate — render a clear message, never silently redirect.
   const supabase = await createClient();
@@ -166,6 +179,16 @@ export default async function MeetingsAvailabilityPage({
   // with one set is exactly where they were before.
   const schedulesState = await listMySchedules();
 
+  // Gmail/Drive read for the AI Assistant. A load failure degrades to simply
+  // not rendering the card — it must never block the editor.
+  let googleReadState: GoogleReadCardState | null = null;
+  try {
+    const client = supabase as unknown as SupabaseClient;
+    googleReadState = await getGoogleReadCardState(client, user.id, await canUseAssistant(client));
+  } catch (err) {
+    console.error('[meetings/availability] google read card failed to load:', (err as Error).message);
+  }
+
   // Bookable meeting-type count — drives the "your link won't accept bookings
   // until you add a meeting type" warning on the booking-page card. A booking
   // link with zero meeting types renders the public "not accepting bookings"
@@ -202,6 +225,7 @@ export default async function MeetingsAvailabilityPage({
           meetingTypeCount={meetingTypeCount ?? 0}
         />
       )}
+      {googleReadState && <GoogleReadCard state={googleReadState} flag={googleReadFlag} />}
       {prefsState.success && prefsState.data && (
         <IntegrationPrefsCard initial={prefsState.data} />
       )}
