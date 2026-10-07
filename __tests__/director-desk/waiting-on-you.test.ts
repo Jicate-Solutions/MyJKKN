@@ -379,13 +379,16 @@ describe('summaryLine', () => {
 });
 
 describe('emptyVerdict — the page may not claim what it did not check', () => {
-  it('the all-clear names all six queues and the time', () => {
+  it('the all-clear names how many queues it checked, the areas they sit in, and the time', () => {
+    // Was six queues named one by one. With seventeen (migration
+    // 20270613101149 added eleven HR queues) the sentence names the AREAS so
+    // it still fits a phone — every one of the seventeen sits in one of them.
     const sentence = emptyVerdict({ kind: 'empty', checkedAt: CHECKED_AT });
     expect(sentence).toBe(
-      'Nothing waiting across 6 queues (hires, refunds, leave, triggers, grievances, onboarding) — checked 07:12',
+      'Nothing waiting across 17 queues (recruitment, leave, attendance, payroll, team member records, governance, other) — checked 07:12',
     );
-    expect(WAITING_SOURCES).toHaveLength(6);
-    expect(queuesChecked()).toContain('6 queues');
+    expect(WAITING_SOURCES).toHaveLength(17);
+    expect(queuesChecked()).toContain('17 queues');
   });
 
   it('the failure says it could not check, and never reads as nothing waiting', () => {
