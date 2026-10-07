@@ -1214,6 +1214,11 @@ export const PERMISSION_CATEGORIES = [
       { key: 'hr.policies.create', label: 'Create Policy Entries' },
       { key: 'hr.policies.edit', label: 'Edit Policy Entries' },
       { key: 'hr.policies.history.view', label: 'View Policy Change History' },
+      // HR staff harness — playbooks (20271007161139): accept, edit or decline
+      // proposed playbook lines and retire old ones on /hr/playbooks. Meant for
+      // the HR head. The migration grants it to no role; until it is granted in
+      // Role Management only super admins decide.
+      { key: 'hr.harness.playbooks.manage', label: 'Decide HR Playbook Lines' },
       // Onboarding (Sprint 4) — hr_onboarding_checklists cadre templates
       { key: 'hr.onboarding.view', label: 'View Onboarding Checklists' },
       { key: 'hr.onboarding.manage', label: 'Manage Onboarding Templates' },

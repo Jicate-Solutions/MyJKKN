@@ -944,6 +944,7 @@
     "hr.fdp.view_own",
     "hr.forms.submit_own",
     "hr.harness.desks.view",
+    "hr.harness.playbooks.manage",
     "hr.leave.apply",
     "hr.leave.approve",
     "hr.leave.balance.adjust",

@@ -57,6 +57,12 @@ const NAV_EXCLUDE = new Set<string>([
   // Reached from the in-app notice sent at the Director's yes; a team member
   // has nothing to find there before one, so it has no sidebar row.
   '/hr/my-pay-changes',
+  // HR Playbooks (20271007161139). Reached from the "How this is done" card on
+  // each HR duty screen (leave approvals, attendance corrections, document
+  // verification, photo review, HR form inbox, recruitment approvals), whose
+  // link opens /hr/playbooks?duty=<code>. It has no sidebar row: the HR nav
+  // files belong to other in-flight work (#4163).
+  '/hr/playbooks',
   // Induction Session Catalog — the curated cross-college "best sessions" library.
   // Reached via the "Session catalog" button on the chip-reachable /events/induction
   // landing page (not a tier-strip destination). Gated induction.view in MENU_PERMISSIONS.

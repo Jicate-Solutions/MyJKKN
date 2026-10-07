@@ -3,6 +3,7 @@ export const dynamic = 'force-dynamic';
 import { createClient } from '@supabase/supabase-js';
 import { NextResponse, connection } from 'next/server';
 import type { NextRequest } from 'next/server';
+import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { logActivity, ActivityTemplates } from '@/lib/utils/activity-logger';
 import { generateTemporaryPassword } from '@/lib/utils/temporary-password';
 import { INDUCTION_ELIGIBLE_LIFECYCLE_STATUSES } from '@/lib/constants/induction-access';
@@ -46,15 +47,88 @@ const supabaseAdmin = createClient(
  * Generate a random temporary password
  * Requirements: 12 chars, at least 1 digit, at least 1 uppercase
  */
+// Who may create a learner's login: byte-for-byte the predicate in
+// learners_profiles_update_policy, the same one fn_activate_learner_from_onboarding
+// re-applies (20260810070549). Both callers of this route (activateIfReady and
+// updateLearnerProfile in learner-profile-service) only reach it after that bar
+// has already been met, so no legitimate caller loses access. This route uses
+// the service role and bypasses RLS, so the bar is re-applied here by hand.
+const LEARNER_EDIT_PERMISSIONS = [
+  'learners.admissions.edit',
+  'learners.profiles.edit',
+  'learners.edit',
+] as const;
+
+function forbidden(error: string) {
+  return NextResponse.json({ success: false, error }, { status: 403 });
+}
+
+function checkFailed() {
+  return NextResponse.json(
+    { success: false, error: 'Could not check your access. Please try again.' },
+    { status: 500 }
+  );
+}
+
 export async function POST(request: NextRequest) {
   await connection();
-  const { learner_id } = await request.json();
-
-  if (!learner_id) {
-    return NextResponse.json({ error: 'Learner ID is required' }, { status: 400 });
-  }
 
   try {
+    // 0. Signed-in caller with learner-edit authority. A learner never reaches
+    // this route for their own record: before sign-in they have no session,
+    // and after it they already have a profile (409 below).
+    const supabase = await createServerSupabaseClient();
+    const {
+      data: { user },
+      error: authError,
+    } = await supabase.auth.getUser();
+
+    if (authError || !user) {
+      return NextResponse.json(
+        { success: false, error: 'Unauthorized' },
+        { status: 401 }
+      );
+    }
+
+    // A failed check is a 500, never a 403: "the check could not run" must not
+    // be reported as "you are not allowed".
+    const [superRes, adminRes] = await Promise.all([
+      supabase.rpc('is_super_admin'),
+      supabase.rpc('is_admin'),
+    ]);
+    if (superRes.error || adminRes.error) {
+      console.error('[learners/complete-onboarding] Admin check failed:', superRes.error || adminRes.error);
+      return checkFailed();
+    }
+    const isAdminGrade = superRes.data === true || adminRes.data === true;
+
+    if (!isAdminGrade) {
+      const permResults = await Promise.all(
+        LEARNER_EDIT_PERMISSIONS.map((permission_name) =>
+          supabase.rpc('user_has_permission', { permission_name })
+        )
+      );
+      const permError = permResults.find((r) => r.error)?.error;
+      if (permError) {
+        console.error('[learners/complete-onboarding] Permission check failed:', permError);
+        return checkFailed();
+      }
+      if (!permResults.some((r) => r.data === true)) {
+        return forbidden('You do not have permission to create learner logins');
+      }
+    }
+
+    let learner_id: unknown;
+    try {
+      ({ learner_id } = await request.json());
+    } catch {
+      return NextResponse.json({ error: 'Invalid request body' }, { status: 400 });
+    }
+
+    if (!learner_id || typeof learner_id !== 'string') {
+      return NextResponse.json({ error: 'Learner ID is required' }, { status: 400 });
+    }
+
     // 1. Fetch learner profile
     const { data: learner, error: learnerError } = await supabaseAdmin
       .from('learners_profiles')
@@ -66,6 +140,21 @@ export async function POST(request: NextRequest) {
 
     if (learnerError || !learner) {
       return NextResponse.json({ error: 'Learner not found' }, { status: 404 });
+    }
+
+    // Institution scope for everyone below admin grade.
+    if (!isAdminGrade) {
+      const { data: hasInstAccess, error: scopeError } = await supabase.rpc(
+        'role_has_institution_access',
+        { check_institution_id: learner.institution_id }
+      );
+      if (scopeError) {
+        console.error('[learners/complete-onboarding] Institution check failed:', scopeError);
+        return checkFailed();
+      }
+      if (hasInstAccess !== true) {
+        return forbidden("You do not have access to this learner's institution");
+      }
     }
 
     // 2. Validate profile is complete and active
