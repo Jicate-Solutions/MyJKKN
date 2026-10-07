@@ -11839,6 +11839,40 @@ CREATE INDEX IF NOT EXISTS hr_playbook_lines_duty_idx
 COMMENT ON TABLE public.hr_playbook_lines IS
   'The short playbook shown on each HR duty screen. authored_by is the person credited, edited_by the decider who changed the words (if any); names are read from profiles at read time, never copied. Readable by team members (a staff row), super admins, admins and holders of hr.harness.playbooks.manage (fn_hr_playbook_can_read). 20271007161139.';
 
+-- =====================================================================================
+-- Updated: 2026-10-01 - HR staff harness (R5/R6/R8): hr_recruitment_nudges_sent
+-- Migration: 20270613101125_hr_recruitment_nudges.sql
+-- One row per recruitment nudge ever due (approval reminder / escalation, missing
+-- scorecard, offer not issued, joining outcome missing). Claimed BEFORE the send;
+-- UNIQUE (kind, ref_key) makes every nudge fire once. Service role only.
+-- =====================================================================================
+CREATE TABLE IF NOT EXISTS public.hr_recruitment_nudges_sent (
+  id               uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  kind             text NOT NULL,
+  ref_key          text NOT NULL,
+  candidate_id     uuid NOT NULL REFERENCES public.hr_recruitment_candidates(id) ON DELETE CASCADE,
+  recipient_ids    uuid[] NOT NULL DEFAULT '{}',
+  notification_id  uuid,
+  sent_at          timestamptz NOT NULL DEFAULT now(),
+  created_at       timestamptz NOT NULL DEFAULT now(),
+  updated_at       timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT hr_recruitment_nudges_sent_kind_chk CHECK (kind IN (
+    'approval_reminder',
+    'approval_escalation',
+    'scorecard_missing',
+    'offer_not_issued',
+    'joining_outcome_missing'
+  )),
+  CONSTRAINT hr_recruitment_nudges_sent_once UNIQUE (kind, ref_key)
+);
+
+CREATE INDEX IF NOT EXISTS idx_hr_recruitment_nudges_sent_candidate
+  ON public.hr_recruitment_nudges_sent (candidate_id);
+
+ALTER TABLE public.hr_recruitment_nudges_sent ENABLE ROW LEVEL SECURITY;
+-- Deliberately NO policies: written and read only by /api/cron/hr-recruitment-nudges.
+REVOKE ALL ON public.hr_recruitment_nudges_sent FROM anon, authenticated;
+
 -- ============================================================================
 -- Updated: 2026-10-01 - HR intake helper (source: migrations/20270613101241_hr_intake_helper.sql)
 -- ============================================================================
