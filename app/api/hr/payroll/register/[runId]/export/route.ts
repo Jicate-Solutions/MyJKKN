@@ -17,6 +17,28 @@ import {
   buildSalaryRegisterWorkbook,
   salaryRegisterFilename,
 } from '@/lib/services/hr/payroll/salary-register-workbook';
+import { createServiceRoleClient } from '@/lib/supabase/server';
+import { RegisterSignoffService } from '@/lib/services/hr/payroll/register-signoff-service';
+import { REGISTER_UNSIGNED_EXPORT_ERROR } from '@/types/hr-register-signoff';
+
+/**
+ * The sign-off block (20271007161107). OFF unless the Director sets
+ * hr.harness.proof.register_signoff_required to a literal true. When on, a run
+ * without an active accounts sign-off (which itself needs the college check)
+ * is refused. Both reads use the service role so the answer does not depend on
+ * what the caller's RLS happens to show. A policy that cannot be read means
+ * not enforced; a signature that cannot be read, while enforced, means unsigned.
+ */
+async function unsignedExportBlocked(runId: string): Promise<boolean> {
+  let svc;
+  try {
+    svc = createServiceRoleClient();
+  } catch {
+    return false;
+  }
+  if (!(await RegisterSignoffService.isSignoffRequired(svc))) return false;
+  return !(await RegisterSignoffService.hasActiveAccountsSign(svc, runId));
+}
 
 export const GET = withAuth(
   async (_request, auth, context) => {
@@ -28,7 +50,17 @@ export const GET = withAuth(
         return NextResponse.json({ error: 'runId is required' }, { status: 400 });
       }
 
+      // Read the run as the caller FIRST: someone who cannot see this run (another
+      // college) gets the same failure as before and learns nothing from the
+      // service-role sign-off check below.
       const detail = await SalaryRegisterService.getRunDetail(auth.supabase, runId);
+
+      if (await unsignedExportBlocked(runId)) {
+        return NextResponse.json(
+          { success: false, error: REGISTER_UNSIGNED_EXPORT_ERROR },
+          { status: 409 },
+        );
+      }
 
       const buffer = await buildSalaryRegisterWorkbook({
         run: detail.run,

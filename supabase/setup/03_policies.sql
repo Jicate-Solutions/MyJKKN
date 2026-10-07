@@ -11960,3 +11960,24 @@ CREATE POLICY hr_salary_revision_target_setting_log_service_role ON public.hr_sa
   FOR SELECT TO service_role USING (true);
 REVOKE ALL ON public.hr_salary_revision_target_setting_log FROM anon, PUBLIC, authenticated, service_role;
 GRANT SELECT ON public.hr_salary_revision_target_setting_log TO authenticated, service_role;
+
+-- ============================================================================
+-- Updated: 2027-10-07 - RLS + grants for hr_salary_register_signoffs
+-- Source: supabase/migrations/20271007161107_hr_salary_register_signoff.sql
+-- (named two-step sign-off on the monthly salary register; HR harness proof 1)
+-- ============================================================================
+ALTER TABLE public.hr_salary_register_signoffs ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS hr_salary_register_signoffs_select ON public.hr_salary_register_signoffs;
+CREATE POLICY hr_salary_register_signoffs_select ON public.hr_salary_register_signoffs
+  FOR SELECT TO authenticated
+  USING (
+    public.is_super_admin() OR public.is_admin()
+    OR (public.user_has_permission('hr.payroll.register.view')
+        AND public.role_has_institution_access(institution_id))
+  );
+-- No INSERT / UPDATE / DELETE policies: every write goes through the
+-- SECURITY DEFINER functions below.
+
+REVOKE ALL ON public.hr_salary_register_signoffs FROM anon, authenticated, PUBLIC;
+GRANT SELECT ON public.hr_salary_register_signoffs TO authenticated;

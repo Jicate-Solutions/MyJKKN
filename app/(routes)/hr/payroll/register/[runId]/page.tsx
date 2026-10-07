@@ -78,6 +78,7 @@ import {
 import { DocumentSettingsDialog } from '../_components/document-settings-dialog';
 import { ManualEntryDialog } from '../_components/manual-entry-dialog';
 import { RegisterDataTable } from '../_components/register-data-table';
+import { SignoffPanel } from '../_components/signoff-panel';
 import {
   DEFAULT_REGISTER_FILTERS,
   RegisterFilters,
@@ -441,6 +442,7 @@ export default function SalaryRegisterRunPage({
               </CardContent>
             </Card>
 
+            <SignoffPanel runId={run.id} isSuperseded={Boolean(run.superseded_at)} />
             {view === 'register' ? (
               /* Filters belong TO the table, so they share its surface instead
                  of floating above it as an unrelated toolbar. Keyed on the tab
