@@ -17,6 +17,9 @@ import type {
   HRSalaryRegisterDeletedRun,
   HRSalaryRegisterLine,
   HRSalaryRegisterRun,
+  ManualEntryContext,
+  ManualEntryInput,
+  ManualEntryResult,
   PayrollDocumentKind,
   PayrollDocumentSettingsInput,
   PayrollDocumentSettingsResponse,
@@ -33,6 +36,7 @@ export const SALARY_REGISTER_KEYS = {
     ['hr', 'salary-register', 'runs', org ?? 'all', year ?? 'all'] as const,
   detail: (runId: string) => ['hr', 'salary-register', 'detail', runId] as const,
   documentSettings: (org: string) => ['hr', 'salary-register', 'document-settings', org] as const,
+  manualEntry: (lineId: string) => ['hr', 'salary-register', 'manual-entry', lineId] as const,
 };
 
 /**
@@ -257,6 +261,60 @@ export function useDownloadPayrollDocument() {
       }
       const blob = await res.blob();
       saveAs(blob, filenameFrom(res.headers.get('Content-Disposition'), 'document.docx'));
+    },
+  });
+}
+
+// ── Days entered by hand (2026-10-07) ─────────────────────────────────────
+
+/** What the Enter / Edit details dialog opens with. */
+export function useManualEntryContext(lineId: string | null) {
+  return useQuery({
+    queryKey: SALARY_REGISTER_KEYS.manualEntry(lineId ?? ''),
+    enabled: Boolean(lineId),
+    // The pay in force can change between openings; never serve a stale one.
+    staleTime: 0,
+    queryFn: async () =>
+      readJson<ManualEntryContext>(
+        await fetch(`/api/hr/payroll/register/lines/${lineId}/manual`),
+      ),
+  });
+}
+
+/** The live preview — computed by the server, saves nothing. */
+export async function fetchManualEntryPreview(
+  lineId: string,
+  input: Omit<ManualEntryInput, 'reason'> & { reason?: string },
+  signal?: AbortSignal,
+): Promise<ManualEntryResult> {
+  return readJson<ManualEntryResult>(
+    await fetch(`/api/hr/payroll/register/lines/${lineId}/manual`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...input, dry_run: true }),
+      signal,
+    }),
+  );
+}
+
+export function useSaveManualEntry(runId: string) {
+  const qc = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (vars: { lineId: string; input: ManualEntryInput }) =>
+      readJson<ManualEntryResult>(
+        await fetch(`/api/hr/payroll/register/lines/${vars.lineId}/manual`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(vars.input),
+        }),
+      ),
+    onSuccess: (_data, vars) => {
+      // The row, the run header (paid / excluded / totals) and the run list all
+      // moved; nothing self-refreshes.
+      qc.invalidateQueries({ queryKey: SALARY_REGISTER_KEYS.detail(runId) });
+      qc.invalidateQueries({ queryKey: SALARY_REGISTER_KEYS.manualEntry(vars.lineId) });
+      qc.invalidateQueries({ queryKey: SALARY_REGISTER_KEYS.all });
     },
   });
 }
