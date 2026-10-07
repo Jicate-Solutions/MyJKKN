@@ -79508,6 +79508,2127 @@ $function$;
 REVOKE ALL ON FUNCTION public.fn_hostel_floors_sync_total()  FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.fn_hostel_blocks_seed_floors() FROM PUBLIC, anon, authenticated;
 
+-- Updated: 2026-10-07 - Target-gated raises (Director's rulings of 7 Oct 2026): the
+-- raise rules setting, the measurement switch (seeded OFF: nothing is measured and
+-- the held part only waits), the first-mark record, the measurement, who teaches, the ask
+-- (one held raise at a time), the split at the yes (approve_one), the start date
+-- writing pay + increment (apply_due_on), the pay guard's second marker, the
+-- nightly run (one call per raise, attempts counted), the principal's flag, the
+-- Director's decision, lapse and list, and the person's own view. These later
+-- definitions replace the 20271007150103 bodies above.
+-- Source: 20271007180207_hr_salary_revision_target_gated_raises.sql
+CREATE OR REPLACE FUNCTION public.hr_salary_revision_target_rules_ok(p jsonb)
+RETURNS boolean
+LANGUAGE plpgsql
+IMMUTABLE
+SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_role text;
+  v_set  jsonb;
+  v_key  text;
+BEGIN
+  IF jsonb_typeof(p) IS DISTINCT FROM 'object' THEN RETURN false; END IF;
+  IF (SELECT count(*) FROM jsonb_object_keys(p)) <> 5
+     OR NOT (p ?& ARRAY['annual_increment_percent', 'window_months', 'pause_after_missed_months',
+                        'roles_waiting_for_own_targets', 'role_targets']) THEN
+    RETURN false;
+  END IF;
+  IF jsonb_typeof(p->'annual_increment_percent') <> 'number'
+     OR (p->>'annual_increment_percent')::numeric <= 0 OR (p->>'annual_increment_percent')::numeric > 100 THEN
+    RETURN false;
+  END IF;
+  IF jsonb_typeof(p->'window_months') <> 'number' OR (p->>'window_months') !~ '^[0-9]+$'
+     OR (p->>'window_months')::int NOT BETWEEN 1 AND 24 THEN
+    RETURN false;
+  END IF;
+  IF jsonb_typeof(p->'pause_after_missed_months') <> 'number' OR (p->>'pause_after_missed_months') !~ '^[0-9]+$'
+     OR (p->>'pause_after_missed_months')::int NOT BETWEEN 1 AND 12 THEN
+    RETURN false;
+  END IF;
+  IF jsonb_typeof(p->'roles_waiting_for_own_targets') <> 'array'
+     OR EXISTS (SELECT 1 FROM jsonb_array_elements(p->'roles_waiting_for_own_targets') e
+                 WHERE jsonb_typeof(e) <> 'string' OR btrim(e #>> '{}') = '') THEN
+    RETURN false;
+  END IF;
+  IF jsonb_typeof(p->'role_targets') <> 'object' THEN RETURN false; END IF;
+  FOR v_role, v_set IN SELECT key, value FROM jsonb_each(p->'role_targets') LOOP
+    IF btrim(v_role) = '' OR jsonb_typeof(v_set) <> 'object'
+       OR (SELECT count(*) FROM jsonb_object_keys(v_set)) <> 5
+       OR NOT (v_set ?& ARRAY['t1_marked_by_self_min_pct', 't1_mark_within_hours', 't3_linked_min_pct',
+                              't4_resource_min_pct', 't5_min_pulses_per_week']) THEN
+      RETURN false;
+    END IF;
+    FOREACH v_key IN ARRAY ARRAY['t1_marked_by_self_min_pct', 't3_linked_min_pct', 't4_resource_min_pct'] LOOP
+      IF jsonb_typeof(v_set->v_key) <> 'number'
+         OR (v_set->>v_key)::numeric < 0 OR (v_set->>v_key)::numeric > 100 THEN
+        RETURN false;
+      END IF;
+    END LOOP;
+    IF jsonb_typeof(v_set->'t1_mark_within_hours') <> 'number' OR (v_set->>'t1_mark_within_hours') !~ '^[0-9]+$'
+       OR (v_set->>'t1_mark_within_hours')::int NOT BETWEEN 1 AND 168 THEN
+      RETURN false;
+    END IF;
+    IF jsonb_typeof(v_set->'t5_min_pulses_per_week') <> 'number' OR (v_set->>'t5_min_pulses_per_week') !~ '^[0-9]+$'
+       OR (v_set->>'t5_min_pulses_per_week')::int NOT BETWEEN 1 AND 7 THEN
+      RETURN false;
+    END IF;
+  END LOOP;
+  RETURN true;
+EXCEPTION WHEN OTHERS THEN
+  RETURN false;  -- a value that cannot even be read is malformed
+END;
+$function$;
+
+REVOKE EXECUTE ON FUNCTION public.hr_salary_revision_target_rules_ok(jsonb) FROM anon, PUBLIC, authenticated;
+
+COMMENT ON FUNCTION public.hr_salary_revision_target_rules_ok(jsonb) IS
+  'Internal. True only for the exact shape of hr.salary_revision.target_rules. Migration 20271007180207.';
+
+CREATE OR REPLACE FUNCTION public.hr_salary_revision_target_rules()
+RETURNS jsonb
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+  SELECT pp.value
+    FROM public.platform_policies pp
+   WHERE pp.policy_key = 'hr.salary_revision.target_rules'
+     AND pp.scope_type = 'global' AND pp.scope_id IS NULL
+     AND pp.is_active = true
+     AND public.hr_salary_revision_target_rules_ok(pp.value)
+   LIMIT 1
+$function$;
+
+REVOKE EXECUTE ON FUNCTION public.hr_salary_revision_target_rules() FROM anon, PUBLIC, authenticated;
+
+COMMENT ON FUNCTION public.hr_salary_revision_target_rules() IS
+  'Internal. The value of platform_policies ''hr.salary_revision.target_rules'' (global), or NULL when it is '
+  'missing, switched off or malformed: then no raise can be approved (fail closed). Rulings of 7 Oct 2026. '
+  'Migration 20271007180207.';
+
+CREATE OR REPLACE FUNCTION public.hr_salary_revision_target_measurement_on()
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+  SELECT COALESCE((SELECT pp.value = 'true'::jsonb
+                     FROM public.platform_policies pp
+                    WHERE pp.policy_key = 'hr.salary_revision.target_measurement_on'
+                      AND pp.scope_type = 'global' AND pp.scope_id IS NULL AND pp.is_active = true
+                    LIMIT 1), false)
+$function$;
+
+REVOKE EXECUTE ON FUNCTION public.hr_salary_revision_target_measurement_on() FROM anon, PUBLIC, authenticated;
+
+COMMENT ON FUNCTION public.hr_salary_revision_target_measurement_on() IS
+  'Internal (default ll). True only when hr.salary_revision.target_measurement_on is present, switched on and '
+  'true; anything else is OFF. Migration 20271007180207.';
+
+CREATE OR REPLACE FUNCTION public.fn_guard_hr_salary_revision_target_rules()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $function$
+DECLARE
+  -- Round 6: the same guard covers the measurement switch.
+  c_keys CONSTANT text[] := ARRAY['hr.salary_revision.target_rules', 'hr.salary_revision.target_measurement_on'];
+  v_role text := auth.role();
+BEGIN
+  IF NOT (   (TG_OP IN ('INSERT', 'UPDATE') AND NEW.policy_key = ANY (c_keys))
+          OR (TG_OP IN ('UPDATE', 'DELETE') AND OLD.policy_key = ANY (c_keys))) THEN
+    RETURN CASE WHEN TG_OP = 'DELETE' THEN OLD ELSE NEW END;
+  END IF;
+
+  -- WHO: the Director list (#4121), service_role, or a database session with
+  -- no signed-in user (migration, SQL console). The same rule as #4190's guard
+  -- on the decider row, without its "only the person named" step.
+  IF v_role IS NOT NULL AND v_role IS DISTINCT FROM 'service_role' THEN
+    IF v_role IS DISTINCT FROM 'authenticated' OR public.fn_is_the_director() IS NOT TRUE THEN
+      RAISE EXCEPTION 'Only the Director can change the raise rules (increment, held part and targets).'
+        USING ERRCODE = '42501';
+    END IF;
+  END IF;
+
+  IF TG_OP = 'DELETE' AND v_role IS NOT NULL AND v_role IS DISTINCT FROM 'service_role' THEN
+    RAISE EXCEPTION 'Switch this setting off instead of deleting it, so the change stays on record.'
+      USING ERRCODE = '42501';
+  END IF;
+  IF TG_OP = 'UPDATE' AND OLD.policy_key = ANY (c_keys) AND NEW.policy_key IS DISTINCT FROM OLD.policy_key
+     AND v_role IS NOT NULL AND v_role IS DISTINCT FROM 'service_role' THEN
+    RAISE EXCEPTION 'This setting cannot be renamed. Switch it off instead, so the change stays on record.'
+      USING ERRCODE = '42501';
+  END IF;
+  IF TG_OP = 'DELETE' OR NOT (NEW.policy_key = ANY (c_keys)) THEN
+    RETURN CASE WHEN TG_OP = 'DELETE' THEN OLD ELSE NEW END;
+  END IF;
+
+  -- SHAPE.
+  IF NEW.scope_type IS DISTINCT FROM 'global' OR NEW.scope_id IS NOT NULL THEN
+    RAISE EXCEPTION 'The raise rules are one setting for the whole group. They cannot be set for one college, role or person.'
+      USING ERRCODE = '22023';
+  END IF;
+  IF NEW.policy_key = 'hr.salary_revision.target_measurement_on' AND jsonb_typeof(NEW.value) IS DISTINCT FROM 'boolean' THEN
+    RAISE EXCEPTION 'hr.salary_revision.target_measurement_on must be true or false.'
+      USING ERRCODE = '22023';
+  END IF;
+  IF NEW.policy_key = 'hr.salary_revision.target_rules' AND NOT public.hr_salary_revision_target_rules_ok(NEW.value) THEN
+    RAISE EXCEPTION 'hr.salary_revision.target_rules must hold exactly: annual_increment_percent (above 0, at most 100), window_months (1-24), pause_after_missed_months (1-12), roles_waiting_for_own_targets (a list of role keys) and role_targets (per role key: t1_marked_by_self_min_pct, t1_mark_within_hours, t3_linked_min_pct, t4_resource_min_pct, t5_min_pulses_per_week).'
+      USING ERRCODE = '22023';
+  END IF;
+
+  NEW.updated_by := auth.uid();
+  NEW.updated_at := now();
+  RETURN NEW;
+END;
+$function$;
+
+REVOKE EXECUTE ON FUNCTION public.fn_guard_hr_salary_revision_target_rules() FROM anon, PUBLIC, authenticated;
+
+COMMENT ON FUNCTION public.fn_guard_hr_salary_revision_target_rules() IS
+  'BEFORE trigger on platform_policies for ''hr.salary_revision.target_rules''. Who: the Director list, '
+  'service_role or a direct DB session (42501 otherwise). Shape: one global row of the exact shape (22023). '
+  'A signed-in person may not delete or rename it (switch it off: fails closed). Migration 20271007180207.';
+
+CREATE OR REPLACE FUNCTION public.fn_audit_hr_salary_revision_target_rules()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $function$
+DECLARE
+  v_uid  uuid := auth.uid();
+  v_role text := auth.role();
+  v_via  text;
+BEGIN
+  IF TG_OP = 'UPDATE'
+     AND NEW.value IS NOT DISTINCT FROM OLD.value
+     AND NEW.is_active IS NOT DISTINCT FROM OLD.is_active
+     AND NEW.policy_key IS NOT DISTINCT FROM OLD.policy_key THEN
+    RETURN NULL;
+  END IF;
+  -- Round 7: every change, by anyone (the server key and the SQL console too).
+  v_via := CASE WHEN v_role IS NOT DISTINCT FROM 'service_role' THEN 'server_key'
+                WHEN v_uid IS NOT NULL THEN 'signed_in'
+                ELSE 'console' END;
+  INSERT INTO public.hr_salary_revision_target_setting_log
+    (policy_key, action, old_value, new_value, old_is_active, new_is_active, changed_by, changed_via)
+  VALUES
+    (CASE WHEN TG_OP = 'DELETE'
+               OR (TG_OP = 'UPDATE' AND NEW.policy_key NOT IN ('hr.salary_revision.target_rules', 'hr.salary_revision.target_measurement_on'))
+          THEN OLD.policy_key ELSE NEW.policy_key END, lower(TG_OP),
+     CASE WHEN TG_OP <> 'INSERT' THEN OLD.value END, CASE WHEN TG_OP <> 'DELETE' THEN NEW.value END,
+     CASE WHEN TG_OP <> 'INSERT' THEN OLD.is_active END, CASE WHEN TG_OP <> 'DELETE' THEN NEW.is_active END,
+     CASE WHEN v_via = 'signed_in' THEN v_uid END, v_via);
+  -- edited_by is NOT NULL there: only a signed-in change also goes to hr_policy_audit_log.
+  IF TG_OP = 'DELETE' OR v_via <> 'signed_in' OR to_regclass('public.hr_policy_audit_log') IS NULL THEN
+    RETURN NULL;
+  END IF;
+  INSERT INTO public.hr_policy_audit_log
+    (policy_id, policy_key, scope_type, scope_id, action, old_value, new_value, reason, edited_by)
+  VALUES
+    (NEW.id, NEW.policy_key, NEW.scope_type, NEW.scope_id, 'publish',
+     CASE WHEN TG_OP = 'UPDATE' THEN OLD.value END, NEW.value,
+     CASE WHEN NEW.policy_key = 'hr.salary_revision.target_measurement_on'
+          THEN 'Switched target measurement ' || CASE WHEN NEW.value = 'true'::jsonb THEN 'ON' ELSE 'OFF' END
+          ELSE 'Changed the raise rules (increment, held part and targets)' END
+       || CASE WHEN NEW.is_active IS TRUE THEN '.' ELSE ' (switched off: no raise can be approved).' END,
+     v_uid);
+  RETURN NULL;
+END;
+$function$;
+
+REVOKE EXECUTE ON FUNCTION public.fn_audit_hr_salary_revision_target_rules() FROM anon, PUBLIC, authenticated;
+
+COMMENT ON FUNCTION public.fn_audit_hr_salary_revision_target_rules() IS
+  'AFTER triggers (insert; update, also when the key is renamed away, round 8; delete) on platform_policies for '
+  '''hr.salary_revision.target_rules'' and the measurement switch: every '
+  'change (insert, update, delete), by anyone, writes one hr_salary_revision_target_setting_log row (round 7); a '
+  'change by a signed-in person also writes one hr_policy_audit_log row. Migration 20271007180207.';
+
+CREATE OR REPLACE FUNCTION public.attendance_first_mark_period_key(p_name text)
+RETURNS text
+LANGUAGE sql
+IMMUTABLE
+PARALLEL SAFE
+SET search_path TO 'public'
+AS $function$
+  SELECT CASE WHEN length(p_name) >= 200 THEN left(p_name, 150) || ' #' || md5(p_name) ELSE p_name END
+$function$;
+
+REVOKE EXECUTE ON FUNCTION public.attendance_first_mark_period_key(text) FROM anon, PUBLIC, authenticated;
+
+COMMENT ON FUNCTION public.attendance_first_mark_period_key(text) IS
+  'Internal (round 7). The period name as stamped in attendance_first_marks: unchanged under 200 characters, '
+  'otherwise its first 150 characters plus its md5. Migration 20271007180207.';
+
+CREATE OR REPLACE FUNCTION public.hr_salary_revision_target_can_read(p_request_id uuid)
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+  SELECT COALESCE(
+    (SELECT public.fn_hr_salary_revision_can_see(r.staff_id, r.institution_id, r.department_id, r.asked_by)
+            AND NOT public.hr_salary_revision_is_own(r.staff_id, r.subject_profile_id)
+       FROM public.hr_salary_revision_requests r WHERE r.id = p_request_id), false)
+$function$;
+
+REVOKE EXECUTE ON FUNCTION public.hr_salary_revision_target_can_read(uuid) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.hr_salary_revision_target_can_read(uuid) TO authenticated;
+
+COMMENT ON FUNCTION public.hr_salary_revision_target_can_read(uuid) IS
+  'Round 7. True when the signed-in caller may see the request (fn_hr_salary_revision_can_see) and it is not about '
+  'them (hr_salary_revision_is_own). The RLS of the plan and flag tables. Migration 20271007180207.';
+
+CREATE OR REPLACE FUNCTION public.fn_record_attendance_first_marks()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+DECLARE
+  -- A signed-in person (not the server key) is the marker; anyone else: nobody.
+  v_marker uuid;
+  v_name   text;
+  v_count  integer;
+BEGIN
+  -- Round 7: this record must NEVER fail an attendance save. Any error here is
+  -- a warning, and the save goes ahead without the stamp.
+  BEGIN
+    -- Round 8: read inside the protected block, so a malformed claim cannot fail the save.
+    v_marker := CASE WHEN auth.role() IS NOT DISTINCT FROM 'service_role' THEN NULL ELSE auth.uid() END;
+    IF jsonb_typeof(NEW.attendance_data) IS DISTINCT FROM 'object' THEN
+      RETURN NULL;
+    END IF;
+    -- CASE, not AND: Postgres may run jsonb_array_length before the type test.
+    FOR v_name, v_count IN
+      SELECT public.attendance_first_mark_period_key(btrim(e.value->>'period_name')), count(*)::int
+        FROM jsonb_each(NEW.attendance_data) e
+       WHERE jsonb_typeof(e.value) = 'object'
+         AND NULLIF(btrim(e.value->>'period_name'), '') IS NOT NULL
+         AND CASE WHEN jsonb_typeof(e.value->'students') = 'array'
+                  THEN jsonb_array_length(e.value->'students') END > 0
+       GROUP BY 1
+    LOOP
+      INSERT INTO public.attendance_first_marks
+        (timetable_id, attendance_date, period_name, ordinal, institution_id, marker_profile_id, first_marked_at)
+      SELECT NEW.timetable_id, NEW.attendance_date, v_name, g, NEW.institution_id, v_marker, now()
+        FROM generate_series(1, v_count) g
+      ON CONFLICT (timetable_id, attendance_date, period_name, ordinal) DO NOTHING;
+    END LOOP;
+  EXCEPTION WHEN OTHERS THEN
+    RAISE WARNING 'attendance_first_marks: not recorded for timetable % on %: %',
+      NEW.timetable_id, NEW.attendance_date, SQLERRM;
+  END;
+  RETURN NULL;
+END;
+$function$;
+
+REVOKE EXECUTE ON FUNCTION public.fn_record_attendance_first_marks() FROM anon, PUBLIC, authenticated;
+
+COMMENT ON FUNCTION public.fn_record_attendance_first_marks() IS
+  'AFTER INSERT/UPDATE trigger on student_attendance (default q, 7 Oct 2026): records each period''s FIRST '
+  'marking in attendance_first_marks (ON CONFLICT DO NOTHING). Never changes the attendance row and never fails '
+  'the save (an error is a WARNING; round 7). Migration 20271007180207.';
+
+CREATE OR REPLACE FUNCTION public.hr_salary_revision_target_measure(p_staff_id uuid, p_month date, p_targets jsonb)
+RETURNS TABLE(target text, numerator integer, denominator integer, met boolean)
+LANGUAGE sql
+STABLE
+SET search_path TO 'public'
+AS $function$
+WITH
+me AS (
+  SELECT s.id, s.profile_id::text AS who FROM public.staff s WHERE s.id = p_staff_id
+),
+days AS (
+  SELECT g::date AS d
+    FROM generate_series(date_trunc('month', p_month)::date,
+                         (date_trunc('month', p_month) + interval '1 month' - interval '1 day')::date,
+                         interval '1 day') g
+),
+-- T1's denominator: their timetable slots on every working day of the month.
+-- A slot whose period has no name cannot be matched to attendance and is left
+-- out (default u); two slots with the same name on one day are numbered.
+raw_slots AS (
+  SELECT t.id AS timetable_id, dd.d, slot.key AS slot_id, lower(slot.value->>'course_id') AS course_id,
+         NULLIF(btrim(pe.period_name), '') AS period_name, pe.start_time, pe.end_time
+    FROM public.timetables t
+    JOIN days dd ON dd.d BETWEEN t.start_date AND t.end_date
+                AND t.selected_days ? upper(btrim(to_char(dd.d, 'DAY')))
+    CROSS JOIN LATERAL jsonb_each(CASE WHEN jsonb_typeof(t.timetable_data -> upper(btrim(to_char(dd.d, 'DAY')))) = 'object'
+                                       THEN t.timetable_data -> upper(btrim(to_char(dd.d, 'DAY')))
+                                       ELSE '{}'::jsonb END) slot
+    LEFT JOIN LATERAL (
+      SELECT x->>'period_name' AS period_name, NULLIF(x->>'start_time', '')::time AS start_time,
+             NULLIF(x->>'end_time', '')::time AS end_time
+        FROM jsonb_array_elements(CASE WHEN jsonb_typeof(t.periods) = 'array' THEN t.periods ELSE '[]'::jsonb END) x
+       WHERE x->>'id' = slot.key
+       LIMIT 1) pe ON true
+   -- Default dd: a timetable runs on the days between its start and end
+   -- dates (not a template), whatever is_active says NOW: the daily job
+   -- switches a timetable off the day after it ends.
+   WHERE COALESCE(t.is_template, false) = false
+     AND jsonb_typeof(slot.value) = 'object'
+     AND lower(slot.value->>'primary_staff_id') = p_staff_id::text
+     -- Default ii: the teacher's own approved leave days are not counted against them.
+     AND NOT EXISTS (SELECT 1 FROM public.hr_leave_applications la
+                      WHERE la.employee_id = p_staff_id AND la.status = 'approved'
+                        AND dd.d BETWEEN la.start_date AND la.end_date)
+     AND NULLIF(slot.value->>'course_id', '') IS NOT NULL
+     AND NOT EXISTS (SELECT 1 FROM public.institution_off_days o
+                      WHERE o.institution_id = t.institution_id AND o.off_date = dd.d)
+     AND NOT EXISTS (SELECT 1 FROM public.institution_leaves l
+                      WHERE l.institution_id = t.institution_id AND l.status = 'approved'
+                        AND COALESCE(l.scope_level, 'institution') = 'institution'
+                        AND dd.d BETWEEN l.start_date AND l.end_date)
+),
+-- Default dd: when two timetables give the same person the same period name
+-- on the same day (one replaced the other), only one counts: the one whose
+-- period was marked, else the newer.
+chosen AS (
+  SELECT DISTINCT ON (r.d, r.period_name) r.d, r.period_name, r.timetable_id
+    FROM raw_slots r
+    JOIN public.timetables t ON t.id = r.timetable_id
+   WHERE r.period_name IS NOT NULL
+   ORDER BY r.d, r.period_name,
+            EXISTS (SELECT 1 FROM public.attendance_first_marks fm
+                     WHERE fm.timetable_id = r.timetable_id AND fm.attendance_date = r.d
+                       AND fm.period_name = public.attendance_first_mark_period_key(r.period_name)) DESC,
+            t.created_at DESC NULLS LAST, t.id DESC
+),
+slots AS (
+  SELECT r.*, row_number() OVER (PARTITION BY r.timetable_id, r.d, r.period_name ORDER BY r.end_time NULLS LAST, r.slot_id) AS rn
+    FROM raw_slots r
+    JOIN chosen c ON c.d = r.d AND c.period_name = r.period_name AND c.timetable_id = r.timetable_id
+),
+-- The attendance entries of those timetables and days, with learners in them
+-- (for the period's key, which links lessons and material).
+entries AS (
+  SELECT sa.timetable_id, sa.attendance_date AS d, e.key AS entry_id, btrim(e.value->>'period_name') AS period_name
+    FROM public.student_attendance sa
+    CROSS JOIN LATERAL jsonb_each(CASE WHEN jsonb_typeof(sa.attendance_data) = 'object'
+                                       THEN sa.attendance_data ELSE '{}'::jsonb END) e
+   WHERE (sa.timetable_id, sa.attendance_date) IN (SELECT timetable_id, d FROM slots)
+     AND jsonb_typeof(e.value) = 'object'
+     AND CASE WHEN jsonb_typeof(e.value->'students') = 'array' THEN jsonb_array_length(e.value->'students') END > 0
+),
+numbered AS (
+  SELECT x.*, row_number() OVER (PARTITION BY x.timetable_id, x.d, x.period_name ORDER BY x.entry_id) AS rn
+    FROM entries x
+),
+-- Each slot matched to at most one entry and one first-mark stamp: same
+-- timetable, day, period name and number. Who first marked it and when come
+-- ONLY from attendance_first_marks (the server's record, default q).
+marks AS (
+  SELECT s.*, n.entry_id, fm.marker_profile_id::text AS marker_id, fm.first_marked_at AS marked_at
+    FROM slots s
+    LEFT JOIN numbered n ON n.timetable_id = s.timetable_id AND n.d = s.d
+                        AND n.period_name = s.period_name AND n.rn = s.rn
+    LEFT JOIN public.attendance_first_marks fm ON fm.timetable_id = s.timetable_id AND fm.attendance_date = s.d
+                        AND fm.period_name = public.attendance_first_mark_period_key(s.period_name) AND fm.ordinal = s.rn
+),
+mine AS (
+  SELECT k.* FROM marks k, me WHERE me.who IS NOT NULL AND k.marker_id = me.who AND k.marked_at IS NOT NULL
+),
+t1 AS (
+  SELECT (SELECT count(*) FROM slots)::int AS den,
+         (SELECT count(*) FROM mine k
+           WHERE (k.marked_at AT TIME ZONE 'Asia/Kolkata')
+                 <= k.d + COALESCE(k.end_time, time '23:59:59')
+                    + make_interval(hours => (p_targets->>'t1_mark_within_hours')::int)
+             -- default z: never before the session began (a row saved ahead for a future day)
+             AND (k.marked_at AT TIME ZONE 'Asia/Kolkata') >= k.d + COALESCE(k.start_time, time '00:00'))::int AS num
+),
+courses AS (SELECT DISTINCT course_id FROM slots),
+-- T2 (default r): a course counts when they approved at least one published
+-- lesson they did not write themselves (an AI draft, or a colleague's), and
+-- no draft THEY created is left on it. Other teachers' drafts on a shared
+-- course do not count against them (there is no assignment column).
+spine_ok AS (
+  SELECT c.course_id FROM courses c, me
+   WHERE me.who IS NOT NULL
+     AND NOT EXISTS (SELECT 1 FROM public.curriculum_lesson l
+                      WHERE l.course_id::text = c.course_id AND l.status = 'draft'
+                        AND l.created_by::text = me.who)
+     AND EXISTS (SELECT 1 FROM public.curriculum_lesson l
+                  WHERE l.course_id::text = c.course_id AND l.status = 'published' AND l.approved_by::text = me.who
+                    AND (l.source <> 'faculty' OR l.created_by::text IS DISTINCT FROM me.who))
+),
+t2 AS (
+  SELECT (SELECT count(*) FROM courses)::int AS den, (SELECT count(*) FROM spine_ok)::int AS num
+),
+t3 AS (
+  SELECT count(*)::int AS den,
+         (count(*) FILTER (WHERE EXISTS (
+            SELECT 1 FROM public.class_session_lesson c, me
+             WHERE c.timetable_id = k.timetable_id AND c.attendance_date = k.d
+               AND c.period_id = k.entry_id AND c.linked_by::text = me.who)))::int AS num
+    FROM mine k
+   WHERE k.course_id IN (SELECT course_id FROM spine_ok)
+),
+-- T4 (default s): their OWN scheduled periods with class material they posted
+-- for that period by the end of that day, still switched on.
+t4 AS (
+  SELECT count(*) FILTER (WHERE EXISTS (
+            SELECT 1 FROM public.session_resource r, me
+             WHERE me.who IS NOT NULL AND r.posted_by::text = me.who
+               AND r.is_active
+               AND r.timetable_id = k.timetable_id AND r.attendance_date = k.d AND r.period_id = k.entry_id
+               AND r.posted_at < ((k.d + 1)::timestamp AT TIME ZONE 'Asia/Kolkata')))::int AS num
+    FROM marks k
+),
+-- T5 (default t): every (course, Monday-to-Sunday week) they teach in the
+-- month needs the set number of pulses they actually OPENED: the class poll
+-- they made for it reached open (induction_session_poll.issued_at is set only
+-- when a poll opens), or a pulse they opened directly (fn_scf_open_pulse
+-- inserts it already open and never gives it a poll), open now or closed
+-- since. A placeholder always gets its poll in the same call; one whose poll
+-- was drafted and closed never reached open and does not count.
+weeks AS (
+  SELECT DISTINCT course_id, date_trunc('week', d)::date AS wk FROM slots
+),
+pulses AS (
+  SELECT lower(sa.attendance_data -> lp.period_id ->> 'course_id') AS course_id,
+         date_trunc('week', lp.attendance_date)::date AS wk
+    FROM public.scf_live_pulse lp
+    JOIN me ON me.who IS NOT NULL AND lp.created_by::text = me.who
+    JOIN public.student_attendance sa ON sa.timetable_id = lp.timetable_id AND sa.attendance_date = lp.attendance_date
+   WHERE date_trunc('week', lp.attendance_date)::date IN (SELECT wk FROM weeks)
+     AND jsonb_typeof(sa.attendance_data -> lp.period_id) = 'object'
+     -- Default ee: opened IN that week (India time), not back-filled later.
+     AND (EXISTS (SELECT 1 FROM public.induction_session_poll ip
+                   WHERE ip.context_type = 'class_session' AND ip.context_id = lp.id
+                     AND ip.issued_at IS NOT NULL AND ip.created_by::text = me.who
+                     AND date_trunc('week', (ip.issued_at AT TIME ZONE 'Asia/Kolkata')::date) = date_trunc('week', lp.attendance_date))
+          OR (NOT EXISTS (SELECT 1 FROM public.induction_session_poll ip
+                           WHERE ip.context_type = 'class_session' AND ip.context_id = lp.id)
+              AND date_trunc('week', (lp.issued_at AT TIME ZONE 'Asia/Kolkata')::date) = date_trunc('week', lp.attendance_date)))
+),
+t5 AS (
+  SELECT count(*)::int AS den,
+         (count(*) FILTER (WHERE (SELECT count(*) FROM pulses p WHERE p.course_id = w.course_id AND p.wk = w.wk)
+                                 >= (p_targets->>'t5_min_pulses_per_week')::int))::int AS num
+    FROM weeks w
+)
+SELECT 't1', t1.num, t1.den,
+       t1.den > 0 AND t1.num * 100 >= (p_targets->>'t1_marked_by_self_min_pct')::numeric * t1.den
+  FROM t1
+UNION ALL
+SELECT 't2', t2.num, t2.den, t2.den > 0 AND t2.num = t2.den FROM t2
+UNION ALL
+SELECT 't3', t3.num, t3.den,
+       (SELECT t2.den > 0 AND t2.num = t2.den FROM t2)
+       AND t3.den > 0 AND t3.num * 100 >= (p_targets->>'t3_linked_min_pct')::numeric * t3.den
+  FROM t3
+UNION ALL
+SELECT 't4', t4.num, t1.den,
+       t1.den > 0 AND t4.num * 100 >= (p_targets->>'t4_resource_min_pct')::numeric * t1.den
+  FROM t4, t1
+UNION ALL
+SELECT 't5', t5.num, t5.den, t5.den > 0 AND t5.num = t5.den FROM t5
+$function$;
+
+REVOKE EXECUTE ON FUNCTION public.hr_salary_revision_target_measure(uuid, date, jsonb) FROM anon, PUBLIC, authenticated;
+
+COMMENT ON FUNCTION public.hr_salary_revision_target_measure(uuid, date, jsonb) IS
+  'Internal, pure SQL. One row per faculty target (t1..t5) for one person and one calendar month: numerator, '
+  'denominator and met, against the thresholds passed in (the snapshot on the plan). T1 reads only the server''s '
+  'stamps on the first marking. A month with no scheduled periods has t1''s denominator 0. Rulings of 7 Oct 2026, '
+  'defaults q-u. Migration 20271007180207.';
+
+CREATE OR REPLACE FUNCTION public.hr_salary_revision_target_role_keys(p_profile_id uuid)
+RETURNS text[]
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+  SELECT COALESCE(array_agg(DISTINCT k ORDER BY k), ARRAY[]::text[])
+    FROM (SELECT p.role AS k FROM public.profiles p WHERE p.id = p_profile_id
+          UNION
+          SELECT cr.role_key FROM public.user_roles ur
+            JOIN public.custom_roles cr ON cr.id = ur.role_id
+           WHERE ur.user_id = p_profile_id AND COALESCE(cr.is_active, true)) x
+   WHERE k IS NOT NULL AND btrim(k) <> ''
+$function$;
+
+REVOKE EXECUTE ON FUNCTION public.hr_salary_revision_target_role_keys(uuid) FROM anon, PUBLIC, authenticated;
+
+COMMENT ON FUNCTION public.hr_salary_revision_target_role_keys(uuid) IS
+  'Internal. The role keys an account holds (profiles.role and its active user_roles). Migration 20271007180207.';
+
+CREATE OR REPLACE FUNCTION public.hr_salary_revision_target_teaches(p_staff_id uuid, p_from date, p_to date)
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+  SELECT EXISTS (
+    SELECT 1
+      FROM public.timetables t
+      CROSS JOIN LATERAL jsonb_each(CASE WHEN jsonb_typeof(t.timetable_data) = 'object'
+                                         THEN t.timetable_data ELSE '{}'::jsonb END) dd
+      CROSS JOIN LATERAL jsonb_each(CASE WHEN jsonb_typeof(dd.value) = 'object'
+                                         THEN dd.value ELSE '{}'::jsonb END) sl
+     -- Default dd: running by its dates, not by is_active now.
+     WHERE COALESCE(t.is_template, false) = false
+       AND t.start_date <= p_to AND t.end_date >= p_from
+       AND t.selected_days ? dd.key
+       AND jsonb_typeof(sl.value) = 'object'
+       AND lower(sl.value->>'primary_staff_id') = p_staff_id::text
+       -- Default kk: made before the range began, or actually marked by them in
+       -- it (a timetable made just before the yes cannot make anyone a teacher).
+       AND (t.created_at < p_from
+            OR EXISTS (SELECT 1 FROM public.attendance_first_marks fm
+                         JOIN public.staff s ON s.id = p_staff_id AND s.profile_id = fm.marker_profile_id
+                        WHERE fm.timetable_id = t.id AND fm.attendance_date BETWEEN p_from AND p_to)))
+$function$;
+
+REVOKE EXECUTE ON FUNCTION public.hr_salary_revision_target_teaches(uuid, date, date) FROM anon, PUBLIC, authenticated;
+
+COMMENT ON FUNCTION public.hr_salary_revision_target_teaches(uuid, date, date) IS
+  'Internal (defaults y, dd, kk, 7 Oct 2026). True when the person is the main teacher (primary_staff_id) of a slot '
+  'on a selected day of a non-template timetable whose dates overlap the range, made before the range began or '
+  'first-marked by them in it. Migration 20271007180207.';
+
+CREATE OR REPLACE FUNCTION public.hr_salary_revision_target_classify(p_request_id uuid, p_rules jsonb, p_today date)
+RETURNS TABLE(state text, role text, reason text)
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_r       record;
+  v_profile uuid;
+  v_keys    text[];
+  v_wait    text;
+  v_match   text[];
+  v_role    text;
+  v_state   text;
+  v_reason  text;
+BEGIN
+  SELECT * INTO v_r FROM public.hr_salary_revision_requests WHERE id = p_request_id;
+  v_profile := COALESCE((SELECT s.profile_id FROM public.staff s WHERE s.id = v_r.staff_id), v_r.subject_profile_id);
+  v_keys := public.hr_salary_revision_target_role_keys(v_profile);
+
+  IF false THEN
+    NULL;
+  -- RULING 6: a Director-list member's held part is never released by itself.
+  ELSIF public.hr_salary_revision_is_list_member(v_r.staff_id, v_r.subject_profile_id, v_r.subject_was_list_member) THEN
+    v_state := 'held_listed'; v_reason := 'director_list';
+  ELSE
+    -- RULING 6: the principal's own raise waits for principal targets.
+    SELECT min(e) INTO v_wait
+      FROM jsonb_array_elements_text(p_rules->'roles_waiting_for_own_targets') e
+     WHERE e = ANY (v_keys);
+    IF v_wait IS NOT NULL THEN
+      v_state := 'held_listed'; v_reason := 'waits_for_own_targets:' || v_wait;
+    ELSE
+      SELECT array_agg(k ORDER BY k) INTO v_match
+        FROM jsonb_object_keys(p_rules->'role_targets') k
+       WHERE k = ANY (v_keys);
+      IF cardinality(v_match) = 1 THEN
+        v_state := 'waiting'; v_role := v_match[1];
+      ELSIF v_match IS NOT NULL THEN
+        v_state := 'held_listed'; v_reason := 'several_target_roles:' || array_to_string(v_match, ',');
+      -- Default y: whoever TEACHES (periods as the main teacher in a
+      -- timetable in the 90 days before the day classified) gets the faculty
+      -- set, whatever their role key is called.
+      ELSIF public.hr_salary_revision_target_teaches(v_r.staff_id,
+              p_today - 90, p_today - 1) THEN
+        IF p_rules->'role_targets' ? 'faculty' THEN
+          v_state := 'waiting'; v_role := 'faculty';
+        ELSE
+          v_state := 'held_listed'; v_reason := 'no_targets_for_role';
+        END IF;
+      ELSE
+        v_state := 'held_listed'; v_reason := 'no_teaching_timetable';
+      END IF;
+    END IF;
+  END IF;
+  RETURN QUERY SELECT v_state, v_role, v_reason;
+END;
+$function$;
+
+REVOKE EXECUTE ON FUNCTION public.hr_salary_revision_target_classify(uuid, jsonb, date) FROM anon, PUBLIC, authenticated;
+
+COMMENT ON FUNCTION public.hr_salary_revision_target_classify(uuid, jsonb, date) IS
+  'Internal (defaults y, ll). Classifies a held part for measurement on a day: Director list, principal, role '
+  'targets, several roles, teaches, or none. Migration 20271007180207.';
+
+CREATE OR REPLACE FUNCTION public.hr_salary_revision_target_plan_write(
+  p_request_id uuid, p_base numeric, p_increment numeric, p_held numeric, p_rules jsonb)
+RETURNS text
+LANGUAGE plpgsql
+VOLATILE
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_r       record;
+  v_role    text;
+  v_state   text;
+  v_reason  text;
+BEGIN
+  SELECT * INTO v_r FROM public.hr_salary_revision_requests WHERE id = p_request_id;
+
+  IF p_held <= 0 THEN
+    v_state := 'none';
+  -- Default ll: measurement switched OFF: held, unclassified, until it is switched on.
+  ELSIF NOT public.hr_salary_revision_target_measurement_on() THEN
+    v_state := 'awaiting_measurement';
+  ELSE
+    SELECT c.state, c.role, c.reason INTO v_state, v_role, v_reason
+      FROM public.hr_salary_revision_target_classify(p_request_id, p_rules, public.hr_salary_revision_ist_today()) c;
+  END IF;
+
+  DELETE FROM public.hr_salary_revision_target_months WHERE request_id = p_request_id;
+
+  INSERT INTO public.hr_salary_revision_target_plans
+    (request_id, staff_id, institution_id, base_monthly_gross, increment_amount, held_amount,
+     target_role, rules, window_start, window_months, state, state_reason)
+  VALUES
+    (p_request_id, v_r.staff_id, v_r.institution_id, p_base, p_increment, GREATEST(p_held, 0),
+     v_role,
+     jsonb_build_object(
+       'annual_increment_percent', p_rules->'annual_increment_percent',
+       'window_months', p_rules->'window_months',
+       'pause_after_missed_months', p_rules->'pause_after_missed_months',
+       'role', v_role,
+       'targets', CASE WHEN v_role IS NULL THEN NULL ELSE p_rules->'role_targets'->v_role END),
+     (date_trunc('month', public.hr_salary_revision_ist_today()) + interval '1 month')::date,
+     (p_rules->>'window_months')::int, v_state, v_reason)
+  ON CONFLICT (request_id) DO UPDATE
+     SET staff_id = EXCLUDED.staff_id, institution_id = EXCLUDED.institution_id,
+         base_monthly_gross = EXCLUDED.base_monthly_gross, increment_amount = EXCLUDED.increment_amount,
+         held_amount = EXCLUDED.held_amount, target_role = EXCLUDED.target_role, rules = EXCLUDED.rules,
+         window_start = EXCLUDED.window_start, window_months = EXCLUDED.window_months,
+         state = EXCLUDED.state, state_reason = EXCLUDED.state_reason, missed_in_row = 0,
+         pending_action = NULL, pending_effective_from = NULL, held_paid_from = NULL, paused_from = NULL,
+         run_note = NULL, lapse_note = NULL, last_run_on = NULL, failed_nights = 0, last_attempt_on = NULL,
+         updated_at = now();
+  RETURN v_state;
+END;
+$function$;
+
+REVOKE EXECUTE ON FUNCTION public.hr_salary_revision_target_plan_write(uuid, numeric, numeric, numeric, jsonb) FROM anon, PUBLIC, authenticated;
+
+COMMENT ON FUNCTION public.hr_salary_revision_target_plan_write(uuid, numeric, numeric, numeric, jsonb) IS
+  'Internal (approve_one only). Writes the plan for a yes: increment, held part, the role''s targets and '
+  'thresholds as they stand (snapshot), and the starting state. Rulings of 7 Oct 2026. Migration 20271007180207.';
+
+CREATE OR REPLACE FUNCTION public.fn_hr_salary_revision_propose(
+  p_staff_id uuid, p_monthly_gross numeric, p_reason text)
+RETURNS uuid
+LANGUAGE plpgsql
+VOLATILE
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_uid      uuid := auth.uid();
+  v_s        record;
+  v_current  numeric;
+  v_as       text;
+  v_cap_tier integer;
+  v_sub_tier integer;
+  v_route    text;
+  v_open     uuid;
+  v_id       uuid;
+  v_self     boolean;
+  v_name     text;
+  v_checkers uuid[];
+  v_also_hod boolean := false;
+  v_band     jsonb;
+  v_director uuid;
+  v_ident    uuid[];
+BEGIN
+  IF v_uid IS NULL THEN
+    RAISE EXCEPTION 'Sign in first.' USING ERRCODE = 'insufficient_privilege';
+  END IF;
+  IF p_monthly_gross IS NULL OR p_monthly_gross <= 0 THEN
+    RAISE EXCEPTION 'The new monthly pay must be more than zero.' USING ERRCODE = '22023';
+  END IF;
+  IF p_reason IS NULL OR btrim(p_reason) = '' THEN
+    RAISE EXCEPTION 'Write a reason. The Director reads it before he decides.' USING ERRCODE = '22023';
+  END IF;
+  IF length(btrim(p_reason)) > 2000 THEN
+    RAISE EXCEPTION 'The reason is too long (2,000 characters at most).' USING ERRCODE = '22023';
+  END IF;
+
+  SELECT s.id, s.profile_id, s.institution_id, s.department_id, s.first_name, s.last_name
+    INTO v_s
+    FROM public.v_hr_staff s
+   WHERE s.id = p_staff_id AND COALESCE(s.is_active, false);
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'This person is not on the HR list of active team members.' USING ERRCODE = 'P0002';
+  END IF;
+
+  -- RULING 1 — who may ask for whom. The broadest lane the caller holds wins.
+  IF public.fn_hr_salary_revision_can_approve() THEN
+    v_as := 'director'; v_cap_tier := 4;
+  ELSIF public.user_has_permission('hr.payroll.salary_revision.ask_anyone') THEN
+    v_as := 'hr_head'; v_cap_tier := 3;
+  ELSIF public.user_has_permission('hr.payroll.salary_revision.ask_own_college')
+        AND v_s.institution_id = ANY (public.fn_my_staff_institution_ids()) THEN
+    v_as := 'principal'; v_cap_tier := 2;
+  ELSIF public.user_has_permission('hr.payroll.salary_revision.ask_own_department')
+        AND v_s.department_id = ANY (public.fn_hr_salary_revision_my_department_ids()) THEN
+    v_as := 'hod'; v_cap_tier := 1;
+  ELSE
+    RAISE EXCEPTION 'You can ask only for people in your own college (principal) or your own department (head of department).'
+      USING ERRCODE = 'insufficient_privilege';
+  END IF;
+
+  -- RULE 3 (1 Oct 2026): the Director himself's own pay is not asked for here.
+  -- Without the setting that names him nobody can tell which person on the
+  -- Director list he is, and no such raise could be decided anyway (rule 2
+  -- fails closed), so then a raise for anyone on the list is refused.
+  -- Who the raise is for: the record's link and the accounts whose sign-in
+  -- email it carries (a record linked to a decoy is still theirs).
+  v_ident := public.hr_salary_revision_request_identity(p_staff_id, v_s.profile_id);
+  -- The Director himself as the setting names him, on the list or not (taking
+  -- him off the list does not make his raise askable).
+  IF public.hr_salary_revision_configured_decider_id() = ANY (v_ident) THEN
+    RAISE EXCEPTION 'The Director''s own pay is decided outside MyJKKN.'
+      USING ERRCODE = 'insufficient_privilege';
+  END IF;
+  IF v_ident && public.hr_salary_revision_director_ids() THEN
+    v_director := public.hr_salary_revision_list_member_raise_decider_id();
+    IF v_director IS NULL THEN
+      RAISE EXCEPTION 'This person is on the Director list, and a raise for someone on the Director list cannot be asked for yet: the setting that names the Director himself (hr.salary_revision.list_member_raise_decider_profile_id) is missing or does not name someone on the Director list.'
+        USING ERRCODE = '55000';
+    END IF;
+  END IF;
+  -- A staff record linked to no account, whose email is that of someone on the
+  -- Director list, is not asked for until it is linked: until then rule 3 and
+  -- the decision rules could not tell whose raise it is.
+  IF v_s.profile_id IS NULL
+     AND public.hr_salary_revision_email_profile_ids(p_staff_id) && public.hr_salary_revision_director_ids() THEN
+    RAISE EXCEPTION 'This team member''s record is not linked to an account, but its email belongs to someone on the Director list. Link the record to that account first.'
+      USING ERRCODE = '55000';
+  END IF;
+
+  SELECT monthly_gross INTO v_current
+    FROM public.hr_staff_salaries
+   WHERE staff_id = p_staff_id AND superseded_by IS NULL;
+  IF v_current IS NULL THEN
+    RAISE EXCEPTION 'This person has no salary recorded yet, so there is nothing to revise. HR records the first salary on Employee Salaries.'
+      USING ERRCODE = 'P0002';
+  END IF;
+  IF p_monthly_gross = v_current THEN
+    RAISE EXCEPTION 'That is the same as the pay now.' USING ERRCODE = '22023';
+  END IF;
+
+  -- RULING 10. The partial unique index is the real guarantee; this check only
+  -- lets the second asker be told WHICH request is waiting.
+  PERFORM pg_advisory_xact_lock(hashtextextended(p_staff_id::text || ':salary_revision', 0));
+  SELECT id INTO v_open FROM public.hr_salary_revision_requests
+   WHERE staff_id = p_staff_id AND status IN ('waiting_principal', 'waiting_director', 'approved');
+  IF v_open IS NOT NULL THEN
+    RAISE EXCEPTION 'A salary revision for this person is already waiting. You can add a comment to it instead.'
+      USING ERRCODE = 'unique_violation', DETAIL = v_open::text;
+  END IF;
+
+  -- 7 Oct 2026, default p: one held raise at a time.
+  IF EXISTS (SELECT 1 FROM public.hr_salary_revision_target_plans tp
+               JOIN public.hr_salary_revision_requests rq ON rq.id = tp.request_id AND rq.status IN ('approved', 'applied')
+              WHERE tp.staff_id = p_staff_id
+                AND tp.state IN ('awaiting_measurement', 'waiting', 'released', 'paused', 'held_listed', 'back_to_director')) THEN
+    RAISE EXCEPTION 'This person has an earlier raise whose held part is still open. Finish or lapse the earlier held raise first.'
+      USING ERRCODE = '55000';
+  END IF;
+
+  -- RULING 9 — flagged, never refused.
+  v_self := p_staff_id = ANY (public.fn_my_staff_ids());
+  v_sub_tier := public.hr_salary_revision_user_tier(v_s.profile_id);
+
+  -- RULING 2. An HOD's request goes via the principal — unless it is ABOUT a
+  -- principal or someone more senior, who cannot check their own pay.
+  -- RULE 4 (1 Oct 2026): nor an HOD asking for THEIR OWN raise, which goes
+  -- straight to the Director, the same as a principal's own. A raise for any
+  -- other HOD still goes via the principal.
+  v_route := CASE WHEN v_as = 'hod' AND NOT COALESCE(v_self, false) AND v_sub_tier < 2 THEN 'via_principal' ELSE 'direct' END;
+
+  -- 30 Sep: a principal who is ALSO the head of this person's department has
+  -- nobody to check them; the request goes straight to the Director, marked.
+  v_also_hod := v_as = 'principal'
+    AND v_s.department_id IS NOT NULL
+    AND v_s.department_id = ANY (public.fn_hr_salary_revision_my_department_ids());
+
+  -- 30 Sep: the college's band as it stands now, kept so the Director's screen
+  -- can say when it changed since the request (the same row #4119 reads).
+  SELECT bp.value INTO v_band
+    FROM public.platform_policies bp
+   WHERE bp.policy_key = 'hr.pay_scales' AND bp.scope_type = 'institution'
+     AND bp.scope_id = v_s.institution_id
+   LIMIT 1;
+
+  INSERT INTO public.hr_salary_revision_requests (
+    staff_id, subject_profile_id, institution_id, department_id, asked_by, asked_as, route,
+    is_self, is_for_senior, asker_is_also_hod, band_snapshot,
+    current_monthly_gross, asked_monthly_gross, reason, status, subject_was_list_member)
+  VALUES (
+    p_staff_id, v_s.profile_id, v_s.institution_id, v_s.department_id, v_uid, v_as, v_route,
+    v_self, (NOT v_self) AND v_sub_tier > v_cap_tier, v_also_hod, v_band,
+    v_current, p_monthly_gross, btrim(p_reason),
+    CASE v_route WHEN 'via_principal' THEN 'waiting_principal' ELSE 'waiting_director' END,
+    v_ident && public.hr_salary_revision_director_ids())
+  RETURNING id INTO v_id;
+
+  IF v_route = 'via_principal' THEN
+    v_name := TRIM(BOTH FROM COALESCE(v_s.first_name, '') || ' ' || COALESCE(v_s.last_name, ''));
+    SELECT array_agg(DISTINCT st.profile_id) INTO v_checkers
+      FROM public.staff st
+     WHERE st.institution_id = v_s.institution_id
+       AND st.is_active AND st.profile_id IS NOT NULL
+       AND st.id <> p_staff_id
+       AND public.hr_salary_revision_user_holds(st.profile_id, 'hr.payroll.salary_revision.college_check');
+    PERFORM public.hr_salary_revision_notify(
+      v_checkers,
+      'A salary revision needs your check',
+      'A head of department asked for a salary revision for ' || v_name
+        || '. Please agree or stop it before it goes to the Director.',
+      '/hr/salary-revisions/' || v_id,
+      'hr.payroll.salary_revision.check:' || v_id,
+      jsonb_build_object('request_id', v_id));
+  END IF;
+
+  RETURN v_id;
+END;
+$function$;
+
+REVOKE EXECUTE ON FUNCTION public.fn_hr_salary_revision_propose(uuid, numeric, text) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_hr_salary_revision_propose(uuid, numeric, text) TO authenticated;
+
+CREATE OR REPLACE FUNCTION public.hr_salary_revision_approve_one(
+  p_request_id uuid, p_final numeric, p_note text)
+RETURNS date
+LANGUAGE plpgsql
+VOLATILE
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_uid     uuid := auth.uid();
+  v_r       record;
+  v_final   numeric;
+  v_start   date;
+  v_now_pay numeric;
+  v_subject uuid;
+  v_name    text;
+  v_when    text;
+  -- 7 Oct 2026: the split.
+  v_rules   jsonb;
+  v_base    numeric;
+  v_inc     numeric;
+  v_held    numeric;
+BEGIN
+  SELECT * INTO v_r FROM public.hr_salary_revision_requests WHERE id = p_request_id FOR UPDATE;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'No such request.' USING ERRCODE = 'P0002';
+  END IF;
+  IF v_r.status <> 'waiting_director' THEN
+    RAISE EXCEPTION 'This request is not waiting for the Director (it is %).', v_r.status
+      USING ERRCODE = '55000';
+  END IF;
+  -- 30 Sep: a person who has left cannot be given a raise.
+  IF NOT EXISTS (SELECT 1 FROM public.v_hr_staff s WHERE s.id = v_r.staff_id AND COALESCE(s.is_active, false)) THEN
+    RAISE EXCEPTION 'This person is no longer an active team member, so there is no pay to revise.'
+      USING ERRCODE = '55000';
+  END IF;
+  -- 1 Oct 2026: never one's own raise; a Director-list member's only by the
+  -- Director himself.
+  PERFORM public.hr_salary_revision_assert_may_decide(v_r.staff_id, v_r.subject_profile_id, v_r.subject_was_list_member);
+  -- 7 Oct 2026, default p: one held raise at a time (an ask made before it).
+  IF EXISTS (SELECT 1 FROM public.hr_salary_revision_target_plans tp
+               JOIN public.hr_salary_revision_requests rq ON rq.id = tp.request_id AND rq.status IN ('approved', 'applied')
+              WHERE tp.staff_id = v_r.staff_id AND tp.request_id <> p_request_id
+                AND tp.state IN ('awaiting_measurement', 'waiting', 'released', 'paused', 'held_listed', 'back_to_director')) THEN
+    RAISE EXCEPTION 'This person has an earlier raise whose held part is still open. Finish or lapse the earlier held raise first.'
+      USING ERRCODE = '55000';
+  END IF;
+
+  v_final := COALESCE(p_final, v_r.asked_monthly_gross);
+  IF v_final IS NULL OR v_final <= 0 THEN
+    RAISE EXCEPTION 'The new monthly pay must be more than zero.' USING ERRCODE = '22023';
+  END IF;
+
+  -- 7 Oct 2026: the split needs the raise rules. Missing, switched off or
+  -- malformed: nothing is approved (fail closed).
+  v_rules := public.hr_salary_revision_target_rules();
+  IF v_rules IS NULL THEN
+    RAISE EXCEPTION 'The raise rules setting (hr.salary_revision.target_rules) is missing, switched off or malformed, so no raise can be approved until it is restored.'
+      USING ERRCODE = '55000';
+  END IF;
+
+  v_start := public.hr_salary_revision_start_date(v_r.staff_id, public.hr_salary_revision_ist_today());
+
+  UPDATE public.hr_salary_revision_requests
+     SET status = 'approved', final_monthly_gross = v_final, starts_on = v_start,
+         director_decided_by = v_uid, director_decided_at = now(),
+         decided_under_rules = true
+   WHERE id = p_request_id;
+
+  IF p_note IS NOT NULL AND btrim(p_note) <> '' THEN
+    INSERT INTO public.hr_salary_revision_comments (request_id, author_id, body)
+    VALUES (p_request_id, COALESCE(v_uid, v_r.asked_by), left(btrim(p_note), 2000));
+  END IF;
+
+  SELECT monthly_gross INTO v_now_pay
+    FROM public.hr_staff_salaries WHERE staff_id = v_r.staff_id AND superseded_by IS NULL;
+
+  -- 7 Oct 2026, RULING 1: the annual increment is the set percent of the pay
+  -- now (whole rupees), or the whole raise if that is smaller; the rest is
+  -- held. A pay cut, or no change, has nothing held.
+  v_base := COALESCE(v_now_pay, v_r.current_monthly_gross);
+  v_inc  := CASE WHEN v_final > v_base
+                 THEN LEAST(round(v_base * (v_rules->>'annual_increment_percent')::numeric / 100), v_final - v_base)
+                 ELSE v_final - v_base END;
+  v_held := v_final - v_base - v_inc;
+  -- Round 7: a held part under a rupee (paise in the ask) is not held: it is
+  -- paid with the increment, and there is no held part to block a later raise.
+  IF v_held > 0 AND v_held < 1 THEN
+    v_inc  := v_inc + v_held;
+    v_held := 0;
+  END IF;
+  PERFORM public.hr_salary_revision_target_plan_write(p_request_id, v_base, v_inc, v_held, v_rules);
+
+  -- A fresh yes after a missed start finds the earlier outcome row (request_id
+  -- is UNIQUE), so it is overwritten rather than deleted and re-inserted.
+  -- 7 Oct 2026: the new pay is what starts on the start date (pay + increment).
+  INSERT INTO public.hr_salary_revision_outcomes
+    (request_id, staff_id, previous_monthly_gross, new_monthly_gross, starts_on)
+  VALUES (p_request_id, v_r.staff_id, v_base, v_base + v_inc, v_start)
+  ON CONFLICT (request_id) DO UPDATE
+     SET staff_id = EXCLUDED.staff_id,
+         previous_monthly_gross = EXCLUDED.previous_monthly_gross,
+         new_monthly_gross = EXCLUDED.new_monthly_gross,
+         starts_on = EXCLUDED.starts_on;
+
+  SELECT profile_id, TRIM(BOTH FROM COALESCE(first_name, '') || ' ' || COALESCE(last_name, ''))
+    INTO v_subject, v_name
+    FROM public.staff WHERE id = v_r.staff_id;
+  v_when := to_char(v_start, 'FMDD FMMonth YYYY');
+
+  -- RULING 5: the person is told now, and only now.
+  PERFORM public.hr_salary_revision_notify(
+    ARRAY[v_subject],
+    'Your monthly pay is changing',
+    'From ' || v_when || ' your monthly pay will be ' || public.hr_salary_revision_rupees(v_base + v_inc)
+      || ' (it is ' || public.hr_salary_revision_rupees(v_base) || ' now).'
+      || CASE WHEN v_final < v_base THEN ' This is a pay cut.' ELSE '' END
+      || CASE WHEN v_held > 0
+              THEN ' Another ' || public.hr_salary_revision_rupees(v_held)
+                   || ' a month is held back for now; My Pay Changes shows when it can be paid.'
+              ELSE '' END,
+    '/hr/my-pay-changes',
+    'hr.payroll.salary_revision.outcome:' || p_request_id,
+    jsonb_build_object('request_id', p_request_id));
+
+  -- RULING 12: the asker sees his figure.
+  PERFORM public.hr_salary_revision_notify(
+    ARRAY[v_r.asked_by],
+    'Salary revision approved',
+    'The Director approved the salary revision you asked for ' || v_name || ': '
+      || public.hr_salary_revision_rupees(v_final) || ' a month from ' || v_when
+      || CASE WHEN v_final <> v_r.asked_monthly_gross
+              THEN ' (you asked for ' || public.hr_salary_revision_rupees(v_r.asked_monthly_gross) || ').'
+              ELSE '.' END
+      || CASE WHEN v_held > 0
+              THEN ' ' || public.hr_salary_revision_rupees(v_held) || ' of it is held until the raise rules allow it.'
+              ELSE '' END,
+    '/hr/salary-revisions/' || p_request_id,
+    'hr.payroll.salary_revision.approved:' || p_request_id,
+    jsonb_build_object('request_id', p_request_id));
+
+  RETURN v_start;
+END;
+$function$;
+
+CREATE OR REPLACE FUNCTION public.hr_salary_revision_apply_due_on(p_today date)
+RETURNS integer
+LANGUAGE plpgsql
+VOLATILE
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_r    record;
+  v_cur  record;
+  v_new  uuid;
+  v_done integer := 0;
+  v_name text;
+  v_when text;
+  -- 7 Oct 2026: the held part, kept back from this write.
+  v_held numeric;
+BEGIN
+  FOR v_r IN
+    SELECT * FROM public.hr_salary_revision_requests
+     WHERE status = 'approved' AND starts_on <= p_today
+     ORDER BY starts_on, id
+     FOR UPDATE SKIP LOCKED
+  LOOP
+    -- 30 Sep: every request on its own. One that cannot be written is noted
+    -- and the next one is still tried; nothing rolls the whole run back.
+    BEGIN
+      -- 1 Oct 2026, RULE 8: linked to no account, then or now: never written,
+      -- never changed, listed for the Director, stamped or not.
+      IF public.hr_salary_revision_is_unlinked(v_r.staff_id, v_r.subject_profile_id) THEN
+        CONTINUE;
+      END IF;
+
+      -- 1 Oct 2026, RULE 6: an UNSTAMPED yes (given before those rules) that
+      -- breaks rule 1 or 2 is never written and never changed: it stays as it
+      -- is and is listed for the Director (fn_hr_salary_revision_held_approvals).
+      -- A stamped yes passed the rules when it was given and is always written.
+      IF NOT v_r.decided_under_rules
+         AND public.hr_salary_revision_decision_breach(v_r.staff_id, v_r.subject_profile_id, v_r.director_decided_by, v_r.subject_was_list_member) IS NOT NULL THEN
+        CONTINUE;
+      END IF;
+
+      SELECT TRIM(BOTH FROM COALESCE(s.first_name, '') || ' ' || COALESCE(s.last_name, '')) INTO v_name
+        FROM public.staff s WHERE s.id = v_r.staff_id;
+      v_when := to_char(v_r.starts_on, 'FMDD FMMonth YYYY');
+
+      -- 30 Sep: the person left before the start date: cancelled, both told.
+      IF NOT EXISTS (SELECT 1 FROM public.v_hr_staff s WHERE s.id = v_r.staff_id AND COALESCE(s.is_active, false)) THEN
+        UPDATE public.hr_salary_revision_requests
+           SET status = 'cancelled', cancelled_at = now(), apply_note = NULL,
+               cancel_note = 'Cancelled: ' || COALESCE(NULLIF(v_name, ''), 'the person')
+                             || ' left before the new pay was due to start on ' || v_when || '.'
+         WHERE id = v_r.id;
+        -- 7 Oct 2026: its held part lapses with it (listed), so it blocks nothing.
+        UPDATE public.hr_salary_revision_target_plans
+           SET state = 'lapsed', state_reason = 'left_before_start', updated_at = now()
+         WHERE request_id = v_r.id AND state <> 'none';
+        PERFORM public.hr_salary_revision_notify(
+          public.hr_salary_revision_director_ids() || ARRAY[v_r.asked_by],
+          'A salary revision was cancelled',
+          COALESCE(NULLIF(v_name, ''), 'The person') || ' left before the approved pay change was due to start on '
+            || v_when || ', so it was cancelled. Nothing was written.',
+          '/hr/salary-revisions/' || v_r.id,
+          'hr.payroll.salary_revision.cancelled:' || v_r.id,
+          jsonb_build_object('request_id', v_r.id));
+        CONTINUE;
+      END IF;
+
+      -- 30 Sep: the start date has passed without the pay being written (the
+      -- job did not run that day). It is never written late (#4122 refuses a
+      -- past start; the missed month is not paid back): back to the Director
+      -- for a fresh yes, which sets a fresh start date. Both are told.
+      IF v_r.starts_on < p_today THEN
+        -- The person was told of a change that is not happening on that date;
+        -- the fresh yes tells them again, with the new date, and overwrites
+        -- their outcome row (approve_one upserts on request_id).
+        UPDATE public.hr_salary_revision_requests
+           SET status = 'waiting_director', starts_on = NULL, final_monthly_gross = NULL,
+               director_decided_by = NULL, director_decided_at = NULL, decided_under_rules = false,
+               apply_note = 'The start date ' || v_when || ' passed without the pay being written, so it needs a fresh yes. '
+                            || 'The Director had approved ' || public.hr_salary_revision_rupees(v_r.final_monthly_gross) || '.'
+         WHERE id = v_r.id;
+        -- 7 Oct 2026: its held part lapses (listed); a fresh yes writes a new one.
+        UPDATE public.hr_salary_revision_target_plans
+           SET state = 'lapsed', state_reason = 'start_missed', updated_at = now()
+         WHERE request_id = v_r.id AND state <> 'none';
+        PERFORM public.hr_salary_revision_notify(
+          public.hr_salary_revision_director_ids() || ARRAY[v_r.asked_by],
+          'A salary revision missed its start date',
+          'The pay change for ' || COALESCE(NULLIF(v_name, ''), 'a team member') || ' was due to start on '
+            || v_when || ' but was not written that day. It is back with the Director for a fresh yes; '
+            || 'it will start on the 1st of the month after that. The missed month is not paid back.',
+          '/hr/salary-revisions/' || v_r.id,
+          'hr.payroll.salary_revision.missed:' || v_r.id || ':' || v_when,
+          jsonb_build_object('request_id', v_r.id));
+        CONTINUE;
+      END IF;
+
+      SELECT * INTO v_cur FROM public.hr_staff_salaries
+       WHERE staff_id = v_r.staff_id AND superseded_by IS NULL;
+
+      IF NOT FOUND THEN
+        UPDATE public.hr_salary_revision_requests
+           SET apply_note = 'No salary is recorded for this person any more, so the new pay could not be written. HR must record it on Employee Salaries.'
+         WHERE id = v_r.id;
+        CONTINUE;
+      END IF;
+      IF v_cur.effective_from > v_r.starts_on THEN
+        UPDATE public.hr_salary_revision_requests
+           SET apply_note = 'HR recorded a salary starting ' || to_char(v_cur.effective_from, 'FMDD FMMonth YYYY')
+                            || ', after this revision''s start. HR must decide which one stands.'
+         WHERE id = v_r.id;
+        CONTINUE;
+      END IF;
+
+      -- 7 Oct 2026, RULING 1: the held part is not written on the start date;
+      -- only the increment is. A yes given before 7 Oct has no plan: whole figure.
+      v_held := COALESCE((SELECT p.held_amount FROM public.hr_salary_revision_target_plans p
+                           WHERE p.request_id = v_r.id), 0);
+      -- 7 Oct 2026, default p: the pay changed since the yes (another raise,
+      -- an HR edit): nothing is written; noted and listed for the Director.
+      IF EXISTS (SELECT 1 FROM public.hr_salary_revision_target_plans p
+                  WHERE p.request_id = v_r.id AND p.base_monthly_gross IS DISTINCT FROM v_cur.monthly_gross) THEN
+        UPDATE public.hr_salary_revision_requests
+           SET apply_note = 'The pay in force (' || public.hr_salary_revision_rupees(v_cur.monthly_gross)
+                            || ') is no longer the pay this raise was split from. Nothing was written; the Director must decide it again.'
+         WHERE id = v_r.id;
+        CONTINUE;
+      END IF;
+
+      -- 1 Oct 2026, RULE 7: tells the Employee Salaries trigger which approved
+      -- request this write is (this transaction only; undone with it).
+      PERFORM set_config('app.hr_salary_revision_apply', v_r.id::text, true);
+      v_new := public.fn_hr_set_staff_salary(
+        p_staff_id               => v_r.staff_id,
+        p_hr_organization_id     => v_cur.hr_organization_id,
+        p_monthly_gross          => v_r.final_monthly_gross - v_held,
+        p_effective_from         => v_r.starts_on,
+        p_salary_structure       => v_cur.salary_structure,
+        p_overtime_level         => v_cur.overtime_level,
+        p_overtime_amount        => v_cur.overtime_amount,
+        p_eligible_for_pf        => v_cur.eligible_for_pf,
+        p_exempt_edli            => v_cur.exempt_edli,
+        p_eligible_for_insurance => v_cur.eligible_for_insurance,
+        p_eligible_for_gratuity  => v_cur.eligible_for_gratuity,
+        p_eligible_for_etf       => v_cur.eligible_for_etf,
+        p_notes                  => 'Salary revision approved by the Director on '
+                                    || to_char((v_r.director_decided_at AT TIME ZONE 'Asia/Kolkata')::date, 'FMDD FMMonth YYYY')
+                                    || ' (request ' || v_r.id || ').',
+        p_epf_amount             => v_cur.epf_amount,
+        p_eligible_for_esi       => v_cur.eligible_for_esi,
+        p_esi_amount             => v_cur.esi_amount,
+        p_allowance_amount       => v_cur.allowance_amount,
+        p_allowance_label        => v_cur.allowance_label);
+      PERFORM set_config('app.hr_salary_revision_apply', '', true);
+
+      UPDATE public.hr_salary_revision_requests
+         SET status = 'applied', applied_salary_id = v_new, applied_at = now(), apply_note = NULL
+       WHERE id = v_r.id;
+      v_done := v_done + 1;
+    EXCEPTION WHEN OTHERS THEN
+      -- Kept on the request, in the words the database gave, and the run goes on.
+      UPDATE public.hr_salary_revision_requests
+         SET apply_note = 'The new pay could not be written: ' || SQLERRM
+       WHERE id = v_r.id;
+    END;
+  END LOOP;
+  RETURN v_done;
+END;
+$function$;
+
+CREATE OR REPLACE FUNCTION public.fn_guard_hr_staff_salaries_no_own_or_list_pay()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $function$
+DECLARE
+  v_uid   uuid := auth.uid();
+  v_req   uuid;
+  v_staff uuid;
+  -- 7 Oct 2026: the monthly run's marker.
+  v_plan  uuid;
+BEGIN
+  -- 7 Oct 2026: the monthly run writing the held part (release, pause, resume).
+  -- Checked for EVERY caller, service_role and the SQL console included: under
+  -- this marker only the one write the plan calls for passes; anything else is
+  -- refused, never waved through.
+  v_plan := NULLIF(current_setting('app.hr_salary_revision_target_pay', true), '')::uuid;
+  IF v_plan IS NOT NULL THEN
+    IF TG_OP <> 'DELETE' AND EXISTS (
+         SELECT 1
+           FROM public.hr_salary_revision_target_plans p
+           JOIN public.hr_salary_revision_requests r ON r.id = p.request_id
+          WHERE p.request_id = v_plan
+            AND p.staff_id = NEW.staff_id AND r.staff_id = NEW.staff_id
+            AND r.status = 'applied' AND r.decided_under_rules
+            AND p.held_amount > 0
+            AND ((p.pending_action = 'release' AND p.state = 'waiting')
+                 OR (p.pending_action = 'pause' AND p.state = 'released')
+                 OR (p.pending_action = 'resume' AND p.state = 'paused'))
+            -- RULING 6 / default v: never for someone on the Director list, then or now (not even a pause).
+            AND NOT public.hr_salary_revision_is_list_member(r.staff_id, r.subject_profile_id, r.subject_was_list_member)
+            -- #4190 rule 8: never a record linked to no account.
+            AND NOT public.hr_salary_revision_is_unlinked(r.staff_id, r.subject_profile_id)
+            AND (CASE WHEN TG_OP = 'INSERT' THEN
+                        NEW.effective_from = p.pending_effective_from
+                        -- the pay it replaces, plus or minus exactly the held part
+                        AND NEW.monthly_gross = (SELECT x.monthly_gross + CASE WHEN p.pending_action = 'pause' THEN -p.held_amount ELSE p.held_amount END
+                                                   FROM public.hr_staff_salaries x
+                                                  WHERE x.staff_id = NEW.staff_id AND x.superseded_by = NEW.id)
+                      ELSE OLD.staff_id = NEW.staff_id
+                       AND OLD.superseded_by IS NULL AND NEW.superseded_by IS NOT NULL
+                       AND to_jsonb(NEW) - ARRAY['superseded_by', 'updated_at', 'updated_by', 'annual_gross']
+                         = to_jsonb(OLD) - ARRAY['superseded_by', 'updated_at', 'updated_by', 'annual_gross'] END)) THEN
+      RETURN NEW;
+    END IF;
+    RAISE EXCEPTION 'The held part of a raise can be written only by the monthly targets run, for that person, at exactly the pay in force plus or minus the held part.'
+      USING ERRCODE = '42501';
+  END IF;
+
+  -- Only a signed-in person is checked: service_role and the SQL console pass.
+  IF v_uid IS NULL OR auth.role() IS NOT DISTINCT FROM 'service_role' THEN
+    RETURN CASE WHEN TG_OP = 'DELETE' THEN OLD ELSE NEW END;
+  END IF;
+
+  -- Deleting a staff record takes its pay rows with it (ON DELETE CASCADE):
+  -- by then the record is gone, and that delete is not a pay change.
+  IF TG_OP = 'DELETE' AND NOT EXISTS (SELECT 1 FROM public.staff s WHERE s.id = OLD.staff_id) THEN
+    RETURN OLD;
+  END IF;
+
+  -- The approvals job (apply_due_on) writing a yes that passed the rules,
+  -- whoever opened the page that ran it: the new row at the approved figure,
+  -- and, on the row it replaces, ONLY what fn_hr_set_staff_salary sets there
+  -- (the "replaced by" pointer and its updated_at / updated_by).
+  -- 7 Oct 2026: "the approved figure" is the figure less the held part.
+  v_req := NULLIF(current_setting('app.hr_salary_revision_apply', true), '')::uuid;
+  IF v_req IS NOT NULL AND TG_OP <> 'DELETE' AND EXISTS (
+       SELECT 1 FROM public.hr_salary_revision_requests r
+        WHERE r.id = v_req
+          AND r.status = 'approved'
+          AND r.staff_id = NEW.staff_id
+          AND (CASE WHEN TG_OP = 'INSERT' THEN NEW.monthly_gross = r.final_monthly_gross
+                                                 - COALESCE((SELECT p.held_amount FROM public.hr_salary_revision_target_plans p
+                                                              WHERE p.request_id = r.id), 0)
+                    ELSE OLD.superseded_by IS NULL AND NEW.superseded_by IS NOT NULL
+                     AND to_jsonb(NEW) - ARRAY['superseded_by', 'updated_at', 'updated_by', 'annual_gross']
+                       = to_jsonb(OLD) - ARRAY['superseded_by', 'updated_at', 'updated_by', 'annual_gross'] END)
+          AND (r.decided_under_rules
+               OR public.hr_salary_revision_decision_breach(r.staff_id, r.subject_profile_id, r.director_decided_by, r.subject_was_list_member) IS NULL)) THEN
+    RETURN NEW;
+  END IF;
+
+  FOR v_staff IN
+    SELECT DISTINCT x FROM unnest(CASE TG_OP WHEN 'INSERT' THEN ARRAY[NEW.staff_id]
+                                             WHEN 'UPDATE' THEN ARRAY[NEW.staff_id, OLD.staff_id]
+                                             ELSE ARRAY[OLD.staff_id] END) AS x
+  LOOP
+    -- Own: linked to the caller, or carrying the caller's sign-in email
+    -- (hr_salary_revision_request_identity), so unlinking or relinking one's
+    -- own record does not make it editable.
+    IF public.hr_salary_revision_is_own(v_staff, NULL) THEN
+      RAISE EXCEPTION 'You cannot change your own pay.'
+        USING ERRCODE = '42501';
+    END IF;
+    -- On the Director list: linked to a list member, or carrying a list
+    -- member's sign-in email. A new joiner with no account and nobody's email
+    -- stays editable by HR.
+    IF public.hr_salary_revision_is_list_member(v_staff, NULL)
+       AND v_uid IS DISTINCT FROM public.hr_salary_revision_list_member_raise_decider_id() THEN
+      RAISE EXCEPTION 'This is the pay of someone on the Director list. Only the Director himself can change it.'
+        USING ERRCODE = '42501';
+    END IF;
+    -- A record linked to no account: who it is cannot be checked for sure (an
+    -- email can be changed), so nobody signed in changes its pay, except the
+    -- FIRST pay of a new joiner, whose record has no pay row yet.
+    IF NOT EXISTS (SELECT 1 FROM public.staff s WHERE s.id = v_staff AND s.profile_id IS NOT NULL)
+       AND NOT (TG_OP = 'INSERT'
+                AND NOT EXISTS (SELECT 1 FROM public.hr_staff_salaries x WHERE x.staff_id = v_staff)) THEN
+      RAISE EXCEPTION 'This record is not linked to an account. Link it first, then change the pay. Only a new joiner''s first pay can be set before that.'
+        USING ERRCODE = '42501';
+    END IF;
+  END LOOP;
+
+  RETURN CASE WHEN TG_OP = 'DELETE' THEN OLD ELSE NEW END;
+END;
+$function$;
+
+REVOKE EXECUTE ON FUNCTION public.fn_guard_hr_staff_salaries_no_own_or_list_pay() FROM anon, PUBLIC, authenticated;
+
+COMMENT ON FUNCTION public.fn_guard_hr_staff_salaries_no_own_or_list_pay() IS
+  'BEFORE INSERT/UPDATE/DELETE trigger on hr_staff_salaries (Director default, 1 Oct 2026). For a signed-in '
+  'caller: never their own pay (the same test as hr_salary_revision_is_own, plus the record''s emails matching '
+  'the caller''s sign-in email), never the pay of a record linked to no account except a new joiner''s first pay '
+  'row, and the pay of someone on the '
+  'Director list only by the person named in hr.salary_revision.list_member_raise_decider_profile_id (no row = '
+  'no one). service_role and direct DB sessions pass; so does apply_due_on writing a yes that passed the rules '
+  '(at the figure less its held part, 7 Oct 2026). Under app.hr_salary_revision_target_pay (the monthly targets '
+  'run, 7 Oct 2026) only the one write the plan calls for passes, for every caller. '
+  'Migrations 20271007150103, 20271007180207.';
+
+CREATE OR REPLACE FUNCTION public.hr_salary_revision_target_pay(p_request_id uuid, p_action text, p_today date)
+RETURNS date
+LANGUAGE plpgsql
+VOLATILE
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_p   record;
+  v_cur record;
+  v_eff date;
+  v_new numeric;
+BEGIN
+  IF p_action NOT IN ('release', 'pause', 'resume') THEN
+    RAISE EXCEPTION 'Unknown step %.', p_action USING ERRCODE = '22023';
+  END IF;
+  SELECT * INTO v_p FROM public.hr_salary_revision_target_plans WHERE request_id = p_request_id FOR UPDATE;
+
+  -- Default e (7 Oct 2026): never in the past. Run on the 1st: that day;
+  -- otherwise the next 1st; a month payroll is already working on is skipped.
+  v_eff := public.hr_salary_revision_start_date(v_p.staff_id, p_today - 1);
+
+  SELECT * INTO v_cur FROM public.hr_staff_salaries WHERE staff_id = v_p.staff_id AND superseded_by IS NULL;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'No salary is recorded for this person, so the held part could not be written. HR must record it on Employee Salaries.';
+  END IF;
+  IF v_cur.effective_from > v_eff THEN
+    RAISE EXCEPTION 'HR recorded a salary starting %, after %. HR must decide which one stands.',
+      to_char(v_cur.effective_from, 'FMDD FMMonth YYYY'), to_char(v_eff, 'FMDD FMMonth YYYY');
+  END IF;
+  v_new := v_cur.monthly_gross + CASE WHEN p_action = 'pause' THEN -v_p.held_amount ELSE v_p.held_amount END;
+  IF v_new <= 0 THEN
+    RAISE EXCEPTION 'Pausing the held part would leave no pay; nothing was written.';
+  END IF;
+
+  UPDATE public.hr_salary_revision_target_plans
+     SET pending_action = p_action, pending_effective_from = v_eff
+   WHERE request_id = p_request_id;
+
+  PERFORM set_config('app.hr_salary_revision_target_pay', p_request_id::text, true);
+  PERFORM public.fn_hr_set_staff_salary(
+    p_staff_id               => v_p.staff_id,
+    p_hr_organization_id     => v_cur.hr_organization_id,
+    p_monthly_gross          => v_new,
+    p_effective_from         => v_eff,
+    p_salary_structure       => v_cur.salary_structure,
+    p_overtime_level         => v_cur.overtime_level,
+    p_overtime_amount        => v_cur.overtime_amount,
+    p_eligible_for_pf        => v_cur.eligible_for_pf,
+    p_exempt_edli            => v_cur.exempt_edli,
+    p_eligible_for_insurance => v_cur.eligible_for_insurance,
+    p_eligible_for_gratuity  => v_cur.eligible_for_gratuity,
+    p_eligible_for_etf       => v_cur.eligible_for_etf,
+    p_notes                  => CASE p_action
+                                  WHEN 'release' THEN 'Held part of a salary revision paid: targets met'
+                                  WHEN 'resume'  THEN 'Held part of a salary revision paid again: back on target'
+                                  ELSE 'Held part of a salary revision paused: targets missed '
+                                       || (v_p.rules->>'pause_after_missed_months') || ' months in a row'
+                                END || ' (request ' || p_request_id || ').',
+    p_epf_amount             => v_cur.epf_amount,
+    p_eligible_for_esi       => v_cur.eligible_for_esi,
+    p_esi_amount             => v_cur.esi_amount,
+    p_allowance_amount       => v_cur.allowance_amount,
+    p_allowance_label        => v_cur.allowance_label);
+  PERFORM set_config('app.hr_salary_revision_target_pay', '', true);
+
+  UPDATE public.hr_salary_revision_target_plans
+     SET state = CASE WHEN p_action = 'pause' THEN 'paused' ELSE 'released' END,
+         held_paid_from = CASE WHEN p_action = 'pause' THEN held_paid_from ELSE v_eff END,
+         paused_from = CASE WHEN p_action = 'pause' THEN v_eff ELSE NULL END,
+         pending_action = NULL, pending_effective_from = NULL, missed_in_row = 0, updated_at = now()
+   WHERE request_id = p_request_id;
+  RETURN v_eff;
+END;
+$function$;
+
+REVOKE EXECUTE ON FUNCTION public.hr_salary_revision_target_pay(uuid, text, date) FROM anon, PUBLIC, authenticated;
+
+COMMENT ON FUNCTION public.hr_salary_revision_target_pay(uuid, text, date) IS
+  'Internal (the monthly run only). Writes the pay in force plus (release, resume) or minus (pause) the held part '
+  'through fn_hr_set_staff_salary under app.hr_salary_revision_target_pay, never on a past date. Migration 20271007180207.';
+
+CREATE OR REPLACE FUNCTION public.hr_salary_revision_targets_run_one(
+  p_request_id uuid, p_today date, p_max_months integer DEFAULT 12)
+RETURNS integer
+LANGUAGE plpgsql
+VOLATILE
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_p        record;
+  v_r        record;
+  v_row      record;
+  v_cur_m    date := date_trunc('month', p_today)::date;
+  v_last     date;
+  v_from     date;
+  v_m        date;
+  v_res      jsonb;
+  v_t1_den   integer;
+  v_all_met  boolean;
+  v_status   text;
+  v_action   text;
+  v_eff      date;
+  v_writes   integer := 0;
+  v_flagged  boolean;
+  v_measured integer := 0;
+  v_rules    jsonb;
+  v_state    text;
+  v_role     text;
+  v_reason   text;
+BEGIN
+  -- Default hh: a second call for the same raise on the same day (two runs
+  -- overlapping) finds it locked or already run, and skips it.
+  SELECT * INTO v_p FROM public.hr_salary_revision_target_plans
+   WHERE request_id = p_request_id AND state IN ('awaiting_measurement', 'waiting', 'released', 'paused')
+     AND last_run_on IS DISTINCT FROM p_today
+   FOR UPDATE SKIP LOCKED;
+  IF NOT FOUND THEN
+    RETURN 0;
+  END IF;
+
+  -- Default ll: measurement switched OFF. The month is recorded as not
+  -- measured and NOTHING else happens: no release, pause, resume, expiry,
+  -- lapse, back-to-Director or classification.
+  IF NOT public.hr_salary_revision_target_measurement_on() THEN
+    -- Any month left "so far" from a time it was ON is closed unmeasured too.
+    UPDATE public.hr_salary_revision_target_months
+       SET status = 'not_measured', results = '[]'::jsonb, measured_at = now(), acted = true, action = 'none'
+     WHERE request_id = p_request_id AND status = 'in_progress';
+    INSERT INTO public.hr_salary_revision_target_months (request_id, month, status, results, measured_at, acted, action)
+    VALUES (p_request_id, v_cur_m, 'not_measured', '[]'::jsonb, now(), true, 'none')
+    ON CONFLICT (request_id, month) DO NOTHING;
+    UPDATE public.hr_salary_revision_target_plans SET last_run_on = p_today, failed_nights = 0
+     WHERE request_id = p_request_id;
+    RETURN 0;
+  END IF;
+
+  -- Default ll: measurement just switched ON for a held part waiting for it:
+  -- classified now, with the rules as they are now, and its window starts on
+  -- the 1st of next month. Measured from the next run on.
+  IF v_p.state = 'awaiting_measurement' THEN
+    v_rules := public.hr_salary_revision_target_rules();
+    IF v_rules IS NULL THEN
+      UPDATE public.hr_salary_revision_target_plans
+         SET run_note = 'Measurement is on but the raise rules setting is missing or malformed: not classified.',
+             last_run_on = p_today, failed_nights = 0, updated_at = now()
+       WHERE request_id = p_request_id;
+      RETURN 0;
+    END IF;
+    SELECT c.state, c.role, c.reason INTO v_state, v_role, v_reason
+      FROM public.hr_salary_revision_target_classify(p_request_id, v_rules, p_today) c;
+    UPDATE public.hr_salary_revision_target_plans
+       SET state = v_state, target_role = v_role, state_reason = v_reason,
+           rules = rules || jsonb_build_object(
+                    'window_months', v_rules->'window_months',
+                    'pause_after_missed_months', v_rules->'pause_after_missed_months',
+                    'role', v_role,
+                    'targets', CASE WHEN v_role IS NULL THEN NULL ELSE v_rules->'role_targets'->v_role END),
+           window_start = (date_trunc('month', p_today) + interval '1 month')::date,
+           window_months = (v_rules->>'window_months')::int,
+           run_note = NULL, last_run_on = p_today, failed_nights = 0, updated_at = now()
+     WHERE request_id = p_request_id;
+    RETURN 0;
+  END IF;
+  -- An error on this person is noted and the night goes on.
+  BEGIN
+    <<one>>
+    BEGIN
+      SELECT * INTO v_r FROM public.hr_salary_revision_requests WHERE id = v_p.request_id;
+      -- Nothing before the increment is written; nothing for a yes since undone.
+      IF v_r.status IS DISTINCT FROM 'applied' THEN
+        EXIT one;
+      END IF;
+
+      -- #4190 rule 8 (default v): linked to no account: skipped and listed.
+      IF public.hr_salary_revision_is_unlinked(v_r.staff_id, v_r.subject_profile_id) THEN
+        UPDATE public.hr_salary_revision_target_plans
+           SET run_note = 'Linked to no account, so nobody can tell whose raise it is: not measured, nothing written. Listed for the Director.',
+               updated_at = now()
+         WHERE request_id = v_p.request_id;
+        EXIT one;
+      END IF;
+      -- Default v: on the Director list now, after the held part was paid:
+      -- the run never changes such pay; listed for the Director.
+      IF v_p.state IN ('released', 'paused')
+         AND public.hr_salary_revision_is_list_member(v_r.staff_id, v_r.subject_profile_id, v_r.subject_was_list_member) THEN
+        UPDATE public.hr_salary_revision_target_plans
+           SET run_note = 'Now on the Director list: the monthly run no longer pauses or resumes this held part. Listed for the Director.',
+               updated_at = now()
+         WHERE request_id = v_p.request_id;
+        EXIT one;
+      END IF;
+
+      IF v_p.state = 'waiting' THEN
+        -- Default b: left, or moved to another college, while waiting: lapses, listed.
+        IF NOT EXISTS (SELECT 1 FROM public.v_hr_staff s
+                        WHERE s.id = v_p.staff_id AND COALESCE(s.is_active, false)
+                          AND s.institution_id = v_p.institution_id) THEN
+          UPDATE public.hr_salary_revision_target_plans
+             SET state = 'lapsed',
+                 state_reason = CASE WHEN EXISTS (SELECT 1 FROM public.v_hr_staff s
+                                                   WHERE s.id = v_p.staff_id AND COALESCE(s.is_active, false))
+                                     THEN 'moved_college' ELSE 'left' END,
+                 run_note = NULL, updated_at = now()
+           WHERE request_id = v_p.request_id;
+          EXIT one;
+        END IF;
+        -- RULING 6: someone on the Director list (then or now) is never released by the run.
+        IF public.hr_salary_revision_is_list_member(v_r.staff_id, v_r.subject_profile_id, v_r.subject_was_list_member) THEN
+          UPDATE public.hr_salary_revision_target_plans
+             SET state = 'held_listed', state_reason = 'director_list', run_note = NULL, updated_at = now()
+           WHERE request_id = v_p.request_id;
+          EXIT one;
+        END IF;
+      END IF;
+
+      -- RULING 3: while waiting, only the months of the window count.
+      v_last := CASE WHEN v_p.state = 'waiting'
+                     THEN (v_p.window_start + make_interval(months => v_p.window_months - 1))::date
+                     ELSE v_cur_m END;
+
+      -- Default aa: once the held part is paid, only the months the pause
+      -- rule can still use are measured (the last pause_after_missed_months
+      -- finished months and this one). An older month left "so far" (the run
+      -- missed it) is closed as not counted, unmeasured.
+      v_from := CASE WHEN v_p.state IN ('released', 'paused')
+                     THEN GREATEST(v_p.window_start,
+                                   (v_cur_m - make_interval(months => (v_p.rules->>'pause_after_missed_months')::int))::date)
+                     ELSE v_p.window_start END;
+      UPDATE public.hr_salary_revision_target_months
+         SET status = 'not_counted', results = '[]'::jsonb, measured_at = now()
+       WHERE request_id = v_p.request_id AND month < v_from AND status = 'in_progress';
+
+      -- Measure every month not yet counted (the current one as "so far"),
+      -- at most p_max_months in one call; the rest waits for the next run.
+      FOR v_m IN
+        SELECT g::date FROM generate_series(v_from, LEAST(v_cur_m, v_last), interval '1 month') g
+      LOOP
+        SELECT * INTO v_row FROM public.hr_salary_revision_target_months
+         WHERE request_id = v_p.request_id AND month = v_m;
+        IF FOUND AND v_row.status NOT IN ('in_progress', 'flagged') THEN
+          CONTINUE;
+        END IF;
+        EXIT WHEN v_measured >= p_max_months;
+        v_measured := v_measured + 1;
+        v_flagged := FOUND AND v_row.status = 'flagged';
+        SELECT jsonb_agg(jsonb_build_object('target', m.target, 'numerator', m.numerator,
+                                            'denominator', m.denominator, 'met', m.met) ORDER BY m.target),
+               max(m.denominator) FILTER (WHERE m.target = 't1'),
+               bool_and(m.met)
+          INTO v_res, v_t1_den, v_all_met
+          FROM public.hr_salary_revision_target_measure(v_p.staff_id, v_m, v_p.rules->'targets') m;
+        -- RULING 5: a flagged month stays flagged until the Director decides it.
+        v_status := CASE WHEN v_flagged THEN 'flagged'
+                         WHEN v_m >= v_cur_m THEN 'in_progress'
+                         WHEN COALESCE(v_t1_den, 0) = 0 THEN 'not_counted'  -- default d
+                         WHEN v_all_met THEN 'met'
+                         ELSE 'missed' END;
+        INSERT INTO public.hr_salary_revision_target_months (request_id, month, status, results, measured_at)
+        VALUES (v_p.request_id, v_m, v_status, COALESCE(v_res, '[]'::jsonb), now())
+        ON CONFLICT (request_id, month) DO UPDATE
+           SET status = EXCLUDED.status, results = EXCLUDED.results, measured_at = EXCLUDED.measured_at;
+      END LOOP;
+
+      -- Act on each counted month not yet acted on, oldest first.
+      FOR v_row IN
+        SELECT * FROM public.hr_salary_revision_target_months
+         WHERE request_id = v_p.request_id AND NOT acted
+           AND status IN ('met', 'missed', 'not_counted', 'decided_met', 'decided_missed')
+         ORDER BY month
+      LOOP
+        SELECT * INTO v_p FROM public.hr_salary_revision_target_plans WHERE request_id = v_row.request_id;
+        v_action := 'none'; v_eff := NULL;
+        IF v_p.state = 'waiting' AND v_row.status IN ('met', 'decided_met') THEN
+          -- RULING 3: the first month with every target met releases the held part.
+          v_eff := public.hr_salary_revision_target_pay(v_p.request_id, 'release', p_today);
+          v_action := 'released';
+        ELSIF v_p.state = 'released' AND v_row.status IN ('missed', 'decided_missed') THEN
+          -- RULING 4: the set number of missed months in a row pauses it.
+          IF v_p.missed_in_row + 1 >= (v_p.rules->>'pause_after_missed_months')::int THEN
+            v_eff := public.hr_salary_revision_target_pay(v_p.request_id, 'pause', p_today);
+            v_action := 'paused';
+          ELSE
+            UPDATE public.hr_salary_revision_target_plans
+               SET missed_in_row = missed_in_row + 1, updated_at = now()
+             WHERE request_id = v_p.request_id;
+          END IF;
+        ELSIF v_p.state = 'released' AND v_row.status IN ('met', 'decided_met') THEN
+          UPDATE public.hr_salary_revision_target_plans
+             SET missed_in_row = 0, updated_at = now()
+           WHERE request_id = v_p.request_id;
+        ELSIF v_p.state = 'paused' AND v_row.status IN ('met', 'decided_met') THEN
+          -- RULING 4: back on target: paid again.
+          v_eff := public.hr_salary_revision_target_pay(v_p.request_id, 'resume', p_today);
+          v_action := 'resumed';
+        END IF;
+        IF v_eff IS NOT NULL THEN
+          v_writes := v_writes + 1;
+        END IF;
+        UPDATE public.hr_salary_revision_target_months
+           SET acted = true, action = v_action, action_effective_from = v_eff
+         WHERE request_id = v_row.request_id AND month = v_row.month;
+      END LOOP;
+
+      -- RULING 3: the window is over, every month of it counted and acted on,
+      -- and nothing released: back to the Director with the numbers.
+      SELECT * INTO v_p FROM public.hr_salary_revision_target_plans WHERE request_id = v_p.request_id;
+      IF v_p.state = 'waiting' AND v_cur_m > v_last
+         AND (SELECT count(*) FROM public.hr_salary_revision_target_months mo
+               WHERE mo.request_id = v_p.request_id AND mo.month <= v_last AND mo.acted) = v_p.window_months THEN
+        UPDATE public.hr_salary_revision_target_plans
+           SET state = 'back_to_director', state_reason = 'window_over', updated_at = now()
+         WHERE request_id = v_p.request_id;
+      END IF;
+
+      UPDATE public.hr_salary_revision_target_plans SET run_note = NULL
+       WHERE request_id = v_p.request_id AND run_note IS NOT NULL;
+    END one;
+  EXCEPTION WHEN OTHERS THEN
+    UPDATE public.hr_salary_revision_target_plans
+       SET run_note = 'The monthly targets run could not finish for this raise: ' || SQLERRM, updated_at = now()
+     WHERE request_id = p_request_id;
+  END;
+  UPDATE public.hr_salary_revision_target_plans SET last_run_on = p_today, failed_nights = 0
+   WHERE request_id = p_request_id;
+  RETURN v_writes;
+END;
+$function$;
+
+REVOKE EXECUTE ON FUNCTION public.hr_salary_revision_targets_run_one(uuid, date, integer) FROM anon, PUBLIC, authenticated;
+
+COMMENT ON FUNCTION public.hr_salary_revision_targets_run_one(uuid, date, integer) IS
+  'Internal. The monthly targets run for ONE raise on one day: measures its months (at most p_max_months per '
+  'call; once paid, only the months the pause rule can use), then releases, pauses or resumes the held part, '
+  'sends a window that ran out back to the Director, lapses a plan whose person left or moved. Marks the plan as '
+  'run that day. Migration 20271007180207.';
+
+CREATE OR REPLACE FUNCTION public.hr_salary_revision_targets_due(p_today date)
+RETURNS SETOF uuid
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+  SELECT p.request_id FROM public.hr_salary_revision_target_plans p
+   WHERE p.state IN ('awaiting_measurement', 'waiting', 'released', 'paused')
+     AND p.last_run_on IS DISTINCT FROM p_today
+   -- Default ff: one that did not finish on 3 nights goes last.
+   ORDER BY (p.failed_nights >= 3), p.last_run_on NULLS FIRST, p.request_id
+$function$;
+
+REVOKE EXECUTE ON FUNCTION public.hr_salary_revision_targets_due(date) FROM anon, PUBLIC, authenticated;
+
+COMMENT ON FUNCTION public.hr_salary_revision_targets_due(date) IS
+  'Internal. The open held parts not yet run on that day, longest-waiting first. Migration 20271007180207.';
+
+CREATE OR REPLACE FUNCTION public.hr_salary_revision_targets_run_on(p_today date)
+RETURNS integer
+LANGUAGE plpgsql
+VOLATILE
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_id     uuid;
+  v_writes integer := 0;
+BEGIN
+  FOR v_id IN SELECT * FROM public.hr_salary_revision_targets_due(p_today) LOOP
+    v_writes := v_writes + public.hr_salary_revision_targets_run_one(v_id, p_today);
+  END LOOP;
+  RETURN v_writes;
+END;
+$function$;
+
+REVOKE EXECUTE ON FUNCTION public.hr_salary_revision_targets_run_on(date) FROM anon, PUBLIC, authenticated;
+
+COMMENT ON FUNCTION public.hr_salary_revision_targets_run_on(date) IS
+  'Internal. The monthly targets run for one day: measures each open plan''s months, then releases, pauses or '
+  'resumes the held part as the rulings of 7 Oct 2026 say, sends a window that ran out back to the Director and '
+  'lapses a plan whose person left or moved college. Returns the number of pay writes. Migration 20271007180207.';
+
+CREATE OR REPLACE FUNCTION public.fn_hr_salary_revision_targets_run()
+RETURNS integer
+LANGUAGE plpgsql
+VOLATILE
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+BEGIN
+  -- The service role (no user) or a database session with no JWT at all.
+  IF auth.uid() IS NOT NULL OR COALESCE(auth.role(), 'service_role') <> 'service_role' THEN
+    RAISE EXCEPTION 'Only the scheduled job can run the monthly targets check.'
+      USING ERRCODE = 'insufficient_privilege';
+  END IF;
+  RETURN public.hr_salary_revision_targets_run_on(public.hr_salary_revision_ist_today());
+END;
+$function$;
+
+REVOKE EXECUTE ON FUNCTION public.fn_hr_salary_revision_targets_run() FROM anon, PUBLIC, authenticated;
+GRANT  EXECUTE ON FUNCTION public.fn_hr_salary_revision_targets_run() TO service_role;
+
+COMMENT ON FUNCTION public.fn_hr_salary_revision_targets_run() IS
+  'The daily cron (/api/cron/hr-salary-revisions?mode=targets, service role) or the SQL console only; refuses '
+  'any signed-in caller (42501). Runs hr_salary_revision_targets_run_on(today in India). Migration 20271007180207.';
+
+CREATE OR REPLACE FUNCTION public.fn_hr_salary_revision_targets_due()
+RETURNS SETOF uuid
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+BEGIN
+  IF auth.uid() IS NOT NULL OR COALESCE(auth.role(), 'service_role') <> 'service_role' THEN
+    RAISE EXCEPTION 'Only the scheduled job can run the monthly targets check.'
+      USING ERRCODE = 'insufficient_privilege';
+  END IF;
+  RETURN QUERY SELECT * FROM public.hr_salary_revision_targets_due(public.hr_salary_revision_ist_today());
+END;
+$function$;
+
+REVOKE EXECUTE ON FUNCTION public.fn_hr_salary_revision_targets_due() FROM anon, PUBLIC, authenticated;
+GRANT  EXECUTE ON FUNCTION public.fn_hr_salary_revision_targets_due() TO service_role;
+
+CREATE OR REPLACE FUNCTION public.hr_salary_revision_targets_attempt(p_request_id uuid, p_today date)
+RETURNS integer
+LANGUAGE sql
+VOLATILE
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+  UPDATE public.hr_salary_revision_target_plans
+     SET failed_nights = failed_nights + CASE WHEN last_attempt_on IS DISTINCT FROM p_today THEN 1 ELSE 0 END,
+         last_attempt_on = p_today
+   WHERE request_id = p_request_id AND state IN ('awaiting_measurement', 'waiting', 'released', 'paused')
+  RETURNING failed_nights
+$function$;
+
+REVOKE EXECUTE ON FUNCTION public.hr_salary_revision_targets_attempt(uuid, date) FROM anon, PUBLIC, authenticated;
+
+COMMENT ON FUNCTION public.hr_salary_revision_targets_attempt(uuid, date) IS
+  'Internal (default ff). Counts one attempt per night on a raise before its run; a finished run resets it. '
+  'Migration 20271007180207.';
+
+CREATE OR REPLACE FUNCTION public.fn_hr_salary_revision_targets_attempt(p_request_id uuid)
+RETURNS integer
+LANGUAGE plpgsql
+VOLATILE
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+BEGIN
+  IF auth.uid() IS NOT NULL OR COALESCE(auth.role(), 'service_role') <> 'service_role' THEN
+    RAISE EXCEPTION 'Only the scheduled job can run the monthly targets check.'
+      USING ERRCODE = 'insufficient_privilege';
+  END IF;
+  RETURN public.hr_salary_revision_targets_attempt(p_request_id, public.hr_salary_revision_ist_today());
+END;
+$function$;
+
+REVOKE EXECUTE ON FUNCTION public.fn_hr_salary_revision_targets_attempt(uuid) FROM anon, PUBLIC, authenticated;
+GRANT  EXECUTE ON FUNCTION public.fn_hr_salary_revision_targets_attempt(uuid) TO service_role;
+
+CREATE OR REPLACE FUNCTION public.fn_hr_salary_revision_targets_run_one(p_request_id uuid)
+RETURNS integer
+LANGUAGE plpgsql
+VOLATILE
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+BEGIN
+  IF auth.uid() IS NOT NULL OR COALESCE(auth.role(), 'service_role') <> 'service_role' THEN
+    RAISE EXCEPTION 'Only the scheduled job can run the monthly targets check.'
+      USING ERRCODE = 'insufficient_privilege';
+  END IF;
+  RETURN public.hr_salary_revision_targets_run_one(p_request_id, public.hr_salary_revision_ist_today());
+END;
+$function$;
+
+REVOKE EXECUTE ON FUNCTION public.fn_hr_salary_revision_targets_run_one(uuid) FROM anon, PUBLIC, authenticated;
+GRANT  EXECUTE ON FUNCTION public.fn_hr_salary_revision_targets_run_one(uuid) TO service_role;
+
+COMMENT ON FUNCTION public.fn_hr_salary_revision_targets_run_one(uuid) IS
+  'The cron route (service role) only: the monthly targets run for one raise, today in India, in its own call. '
+  'Pairs with fn_hr_salary_revision_targets_due(). Migration 20271007180207.';
+
+CREATE OR REPLACE FUNCTION public.fn_hr_salary_revision_target_flag(p_request_id uuid, p_month date, p_note text)
+RETURNS void
+LANGUAGE plpgsql
+VOLATILE
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_uid   uuid := auth.uid();
+  v_r     record;
+  v_p     record;
+  v_month date := date_trunc('month', p_month)::date;
+  v_row   record;
+BEGIN
+  IF v_uid IS NULL THEN
+    RAISE EXCEPTION 'Sign in first.' USING ERRCODE = 'insufficient_privilege';
+  END IF;
+  SELECT * INTO v_r FROM public.hr_salary_revision_requests WHERE id = p_request_id;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'No such request.' USING ERRCODE = 'P0002';
+  END IF;
+  -- RULING 5: the principal of that college, never on their own raise.
+  IF NOT public.user_has_permission('hr.payroll.salary_revision.college_check')
+     OR NOT (v_r.institution_id = ANY (public.fn_my_staff_institution_ids()))
+     OR public.hr_salary_revision_is_own(v_r.staff_id, v_r.subject_profile_id) THEN
+    RAISE EXCEPTION 'Only the principal of this college can flag a month, and never on their own raise.'
+      USING ERRCODE = 'insufficient_privilege';
+  END IF;
+  IF p_note IS NULL OR btrim(p_note) = '' THEN
+    RAISE EXCEPTION 'Write a short note: the Director sees it with the numbers.' USING ERRCODE = '22023';
+  END IF;
+  SELECT * INTO v_p FROM public.hr_salary_revision_target_plans WHERE request_id = p_request_id;
+  IF NOT FOUND OR v_p.state NOT IN ('waiting', 'released', 'paused') THEN
+    RAISE EXCEPTION 'This raise has no held part being checked month by month.' USING ERRCODE = '55000';
+  END IF;
+  IF v_month < v_p.window_start OR v_month > date_trunc('month', public.hr_salary_revision_ist_today())::date
+     OR (v_p.state = 'waiting' AND v_month > (v_p.window_start + make_interval(months => v_p.window_months - 1))::date) THEN
+    RAISE EXCEPTION 'That month is not one being checked for this raise.' USING ERRCODE = '22023';
+  END IF;
+  SELECT * INTO v_row FROM public.hr_salary_revision_target_months
+   WHERE request_id = p_request_id AND month = v_month FOR UPDATE;
+  -- Default j: only until the month has been counted.
+  IF FOUND AND v_row.status <> 'in_progress' THEN
+    RAISE EXCEPTION 'That month has already been %; the Director decides from the listed numbers.',
+      CASE WHEN v_row.status = 'flagged' THEN 'flagged' ELSE 'counted' END
+      USING ERRCODE = '55000';
+  END IF;
+
+  INSERT INTO public.hr_salary_revision_target_months (request_id, month, status)
+  VALUES (p_request_id, v_month, 'flagged')
+  ON CONFLICT (request_id, month) DO UPDATE SET status = 'flagged';
+  INSERT INTO public.hr_salary_revision_target_flags (request_id, month, flagged_by, note)
+  VALUES (p_request_id, v_month, v_uid, left(btrim(p_note), 2000));
+END;
+$function$;
+
+REVOKE EXECUTE ON FUNCTION public.fn_hr_salary_revision_target_flag(uuid, date, text) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_hr_salary_revision_target_flag(uuid, date, text) TO authenticated;
+
+COMMENT ON FUNCTION public.fn_hr_salary_revision_target_flag(uuid, date, text) IS
+  'Ruling 5 of 7 Oct 2026: the principal of the request''s college (hr.payroll.salary_revision.college_check, '
+  'never on their own raise) flags a month that has not been counted yet, with a note. The month then counts as '
+  'neither met nor missed until the Director decides it. Migration 20271007180207.';
+
+CREATE OR REPLACE FUNCTION public.fn_hr_salary_revision_target_decide(
+  p_request_id uuid, p_month date, p_counts_as_met boolean, p_note text DEFAULT NULL)
+RETURNS text
+LANGUAGE plpgsql
+VOLATILE
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_uid   uuid := auth.uid();
+  v_r     record;
+  v_row   record;
+  v_month date := date_trunc('month', p_month)::date;
+BEGIN
+  IF v_uid IS NULL OR NOT public.fn_hr_salary_revision_can_approve() THEN
+    RAISE EXCEPTION 'Only the Director can decide a flagged month.' USING ERRCODE = 'insufficient_privilege';
+  END IF;
+  SELECT * INTO v_r FROM public.hr_salary_revision_requests WHERE id = p_request_id;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'No such request.' USING ERRCODE = 'P0002';
+  END IF;
+  -- #4190's rules: never on one's own raise; a Director-list member's only by the Director himself.
+  PERFORM public.hr_salary_revision_assert_may_decide(v_r.staff_id, v_r.subject_profile_id, v_r.subject_was_list_member);
+  IF p_counts_as_met IS NULL THEN
+    RAISE EXCEPTION 'Say whether the month counts as met or missed.' USING ERRCODE = '22023';
+  END IF;
+  SELECT * INTO v_row FROM public.hr_salary_revision_target_months
+   WHERE request_id = p_request_id AND month = v_month FOR UPDATE;
+  IF NOT FOUND OR v_row.status <> 'flagged' THEN
+    RAISE EXCEPTION 'That month is not waiting for your decision.' USING ERRCODE = '55000';
+  END IF;
+  IF v_month >= date_trunc('month', public.hr_salary_revision_ist_today())::date THEN
+    RAISE EXCEPTION 'That month is not over yet.' USING ERRCODE = '55000';
+  END IF;
+
+  UPDATE public.hr_salary_revision_target_months
+     SET status = CASE WHEN p_counts_as_met THEN 'decided_met' ELSE 'decided_missed' END
+   WHERE request_id = p_request_id AND month = v_month;
+  UPDATE public.hr_salary_revision_target_flags
+     SET decided_by = v_uid, decided_at = now(), counts_as_met = p_counts_as_met,
+         decision_note = NULLIF(left(btrim(COALESCE(p_note, '')), 2000), '')
+   WHERE request_id = p_request_id AND month = v_month;
+  RETURN CASE WHEN p_counts_as_met THEN 'decided_met' ELSE 'decided_missed' END;
+END;
+$function$;
+
+REVOKE EXECUTE ON FUNCTION public.fn_hr_salary_revision_target_decide(uuid, date, boolean, text) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_hr_salary_revision_target_decide(uuid, date, boolean, text) TO authenticated;
+
+COMMENT ON FUNCTION public.fn_hr_salary_revision_target_decide(uuid, date, boolean, text) IS
+  'Ruling 5 of 7 Oct 2026: the Director decides a flagged, finished month as met or missed (#4190''s rules on '
+  'who may decide apply). The next daily run acts on it. Migration 20271007180207.';
+
+CREATE OR REPLACE FUNCTION public.fn_hr_salary_revision_target_lapse(p_request_id uuid, p_note text)
+RETURNS text
+LANGUAGE plpgsql
+VOLATILE
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_uid uuid := auth.uid();
+  v_r   record;
+  v_p   record;
+BEGIN
+  IF v_uid IS NULL OR NOT public.fn_hr_salary_revision_can_approve() THEN
+    RAISE EXCEPTION 'Only the Director can lapse a held part.' USING ERRCODE = 'insufficient_privilege';
+  END IF;
+  SELECT * INTO v_r FROM public.hr_salary_revision_requests WHERE id = p_request_id;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'No such request.' USING ERRCODE = 'P0002';
+  END IF;
+  -- #4190's rules: never on one's own raise; a Director-list member's only by the Director himself.
+  PERFORM public.hr_salary_revision_assert_may_decide(v_r.staff_id, v_r.subject_profile_id, v_r.subject_was_list_member);
+  IF p_note IS NULL OR btrim(p_note) = '' THEN
+    RAISE EXCEPTION 'Write a short note: why the held part lapses.' USING ERRCODE = '22023';
+  END IF;
+  SELECT * INTO v_p FROM public.hr_salary_revision_target_plans WHERE request_id = p_request_id FOR UPDATE;
+  IF NOT FOUND OR v_p.state NOT IN ('awaiting_measurement', 'waiting', 'released', 'paused', 'back_to_director', 'held_listed') THEN
+    RAISE EXCEPTION 'This raise has no held part to lapse.' USING ERRCODE = '55000';
+  END IF;
+  UPDATE public.hr_salary_revision_target_plans
+     SET state = 'lapsed', state_reason = 'lapsed_by_director', lapse_note = left(btrim(p_note), 2000),
+         pending_action = NULL, pending_effective_from = NULL, updated_at = now()
+   WHERE request_id = p_request_id;
+  RETURN 'lapsed';
+END;
+$function$;
+
+REVOKE EXECUTE ON FUNCTION public.fn_hr_salary_revision_target_lapse(uuid, text) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_hr_salary_revision_target_lapse(uuid, text) TO authenticated;
+
+COMMENT ON FUNCTION public.fn_hr_salary_revision_target_lapse(uuid, text) IS
+  'Default p (7 Oct 2026): the Director (Director list, #4190''s who-may-decide rules) lapses a held part with a '
+  'note, so a new raise can be asked for. Marked lapsed and listed; nobody''s pay changes. Migration 20271007180207.';
+
+CREATE OR REPLACE FUNCTION public.fn_hr_salary_revision_targets_listed()
+RETURNS TABLE(
+  request_id uuid, staff_id uuid, person_name text, staff_code text, state text, why text,
+  month date, increment_amount numeric, held_amount numeric, results jsonb)
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+BEGIN
+  IF auth.uid() IS NULL OR NOT public.fn_hr_salary_revision_can_approve() THEN
+    RAISE EXCEPTION 'Only the Director can see this list.' USING ERRCODE = 'insufficient_privilege';
+  END IF;
+  -- Round 8: never a row about the caller themselves (a Director-list member
+  -- whose own raise is listed would otherwise read the notes on it).
+  RETURN QUERY
+  SELECT x.* FROM (
+  -- Rulings 3 and 6 and default b: held parts waiting on him.
+  SELECT p.request_id, p.staff_id,
+         TRIM(BOTH FROM COALESCE(s.first_name, '') || ' ' || COALESCE(s.last_name, ''))::text,
+         s.staff_id::text, p.state, COALESCE(p.state_reason, p.state) || COALESCE(': ' || p.lapse_note, ''), NULL::date,
+         p.increment_amount, p.held_amount,
+         COALESCE((SELECT jsonb_agg(jsonb_build_object('month', mo.month, 'status', mo.status, 'results', mo.results)
+                                    ORDER BY mo.month)
+                     FROM public.hr_salary_revision_target_months mo WHERE mo.request_id = p.request_id), '[]'::jsonb)
+    FROM public.hr_salary_revision_target_plans p
+    JOIN public.staff s ON s.id = p.staff_id
+   WHERE p.state IN ('back_to_director', 'held_listed', 'lapsed', 'awaiting_measurement')
+  UNION ALL
+  -- Default v: open held parts the monthly run skipped, with its note.
+  SELECT p.request_id, p.staff_id,
+         TRIM(BOTH FROM COALESCE(s.first_name, '') || ' ' || COALESCE(s.last_name, ''))::text,
+         s.staff_id::text, p.state, 'run: ' || p.run_note, NULL::date,
+         p.increment_amount, p.held_amount, '[]'::jsonb
+    FROM public.hr_salary_revision_target_plans p
+    JOIN public.staff s ON s.id = p.staff_id
+   WHERE p.state IN ('waiting', 'released', 'paused') AND p.run_note IS NOT NULL
+  UNION ALL
+  -- Default ff: did not finish on 3 nights in a row (timed out).
+  SELECT p.request_id, p.staff_id,
+         TRIM(BOTH FROM COALESCE(s.first_name, '') || ' ' || COALESCE(s.last_name, ''))::text,
+         s.staff_id::text, p.state,
+         'run: The monthly check did not finish on ' || p.failed_nights || ' nights in a row (it timed out); nothing was measured or written.',
+         NULL::date, p.increment_amount, p.held_amount, '[]'::jsonb
+    FROM public.hr_salary_revision_target_plans p
+    JOIN public.staff s ON s.id = p.staff_id
+   WHERE p.state IN ('waiting', 'released', 'paused') AND p.failed_nights >= 3
+  UNION ALL
+  -- Default p: a start date that wrote nothing because the pay changed since the yes.
+  SELECT p.request_id, p.staff_id,
+         TRIM(BOTH FROM COALESCE(s.first_name, '') || ' ' || COALESCE(s.last_name, ''))::text,
+         s.staff_id::text, r.status, 'start date: ' || r.apply_note, NULL::date,
+         p.increment_amount, p.held_amount, '[]'::jsonb
+    FROM public.hr_salary_revision_target_plans p
+    JOIN public.hr_salary_revision_requests r ON r.id = p.request_id
+    JOIN public.staff s ON s.id = p.staff_id
+   WHERE r.status = 'approved' AND r.apply_note LIKE 'The pay in force%'
+  UNION ALL
+  -- Ruling 5: flagged months he has not decided.
+  SELECT p.request_id, p.staff_id,
+         TRIM(BOTH FROM COALESCE(s.first_name, '') || ' ' || COALESCE(s.last_name, ''))::text,
+         s.staff_id::text, p.state, 'flagged: ' || f.note, mo.month,
+         p.increment_amount, p.held_amount, mo.results
+    FROM public.hr_salary_revision_target_months mo
+    JOIN public.hr_salary_revision_target_flags f ON f.request_id = mo.request_id AND f.month = mo.month
+    JOIN public.hr_salary_revision_target_plans p ON p.request_id = mo.request_id
+    JOIN public.staff s ON s.id = p.staff_id
+   WHERE mo.status = 'flagged'
+  ) AS x(request_id, staff_id, person_name, staff_code, state, why, month, increment_amount, held_amount, results)
+   WHERE NOT EXISTS (SELECT 1 FROM public.hr_salary_revision_requests rr
+                      WHERE rr.id = x.request_id
+                        AND public.hr_salary_revision_is_own(rr.staff_id, rr.subject_profile_id))
+  ORDER BY 5, 3, 7;
+END;
+$function$;
+
+REVOKE EXECUTE ON FUNCTION public.fn_hr_salary_revision_targets_listed() FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_hr_salary_revision_targets_listed() TO authenticated;
+
+COMMENT ON FUNCTION public.fn_hr_salary_revision_targets_listed() IS
+  'Rulings of 7 Oct 2026, read-only, Director list only (42501): held parts back with him (window over), held '
+  'and listed (Director list, principal, no targets for the role), lapsed (left or moved college), and flagged '
+  'months he has not decided, each with the numbers. Migration 20271007180207.';
+
+CREATE OR REPLACE FUNCTION public.fn_hr_salary_revision_my_targets()
+RETURNS TABLE(
+  request_id uuid, base_monthly_gross numeric, increment_amount numeric, held_amount numeric,
+  rules jsonb, window_start date, window_months integer, state text, missed_in_row integer,
+  held_paid_from date, paused_from date, months jsonb)
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+BEGIN
+  -- A signed-in person only (not the server key); each gets their own rows.
+  IF auth.uid() IS NULL OR auth.role() IS NOT DISTINCT FROM 'service_role' THEN
+    RAISE EXCEPTION 'Sign in first.' USING ERRCODE = 'insufficient_privilege';
+  END IF;
+  RETURN QUERY
+  SELECT p.request_id, p.base_monthly_gross, p.increment_amount, p.held_amount,
+         jsonb_build_object('annual_increment_percent', p.rules->'annual_increment_percent',
+                            'window_months', p.rules->'window_months',
+                            'pause_after_missed_months', p.rules->'pause_after_missed_months',
+                            'role', p.rules->'role', 'targets', p.rules->'targets'),
+         p.window_start, p.window_months, p.state, p.missed_in_row, p.held_paid_from, p.paused_from,
+         COALESCE((SELECT jsonb_agg(jsonb_build_object('request_id', mo.request_id, 'month', mo.month,
+                                                       'status', mo.status, 'results', mo.results, 'acted', mo.acted,
+                                                       'action', mo.action, 'action_effective_from', mo.action_effective_from)
+                                    ORDER BY mo.month DESC)
+                     FROM public.hr_salary_revision_target_months mo WHERE mo.request_id = p.request_id), '[]'::jsonb)
+    FROM public.hr_salary_revision_target_plans p
+   WHERE p.staff_id = ANY (public.fn_my_staff_ids());
+END;
+$function$;
+
+REVOKE EXECUTE ON FUNCTION public.fn_hr_salary_revision_my_targets() FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_hr_salary_revision_my_targets() TO authenticated;
+
+COMMENT ON FUNCTION public.fn_hr_salary_revision_my_targets() IS
+  'Default cc (7 Oct 2026): the signed-in person''s own held parts (from fn_my_staff_ids()): numbers, state and '
+  'dates only, never the parked reason, the Director''s lapse note, run notes or flags. Migration 20271007180207.';
+
+REVOKE EXECUTE ON FUNCTION public.hr_salary_revision_approve_one(uuid, numeric, text) FROM anon, PUBLIC, authenticated;
+REVOKE EXECUTE ON FUNCTION public.hr_salary_revision_apply_due_on(date) FROM anon, PUBLIC, authenticated;
+
 -- =============================================================================
 -- Mirrored from supabase/migrations/20271007170139_staff_admin_records_super_admin_only.sql
 -- Updated: 2026-10-07 (round 15) - appended, not edited in place: main's

@@ -51,6 +51,10 @@ vi.mock('@/hooks/hr/use-salary-revisions', async (orig) => ({
   }),
   useRevisionDetail: () => ({ data: detail, isLoading: false, error: null }),
   useHeldApprovals: () => ({ ...held, isLoading: false }),
+  // 7 Oct 2026 (target-gated raises): the Director's list of held parts; tested in
+  // salary-revision-targets-screens.test.tsx. Empty here.
+  useTargetsListed: () => ({ data: [], isLoading: false, error: null }),
+  useTargetDecide: () => ({ mutate: vi.fn(), isPending: false }),
 }));
 vi.mock('react-hot-toast', () => ({ default: { success: vi.fn(), error: vi.fn() } }));
 vi.mock('next/link', () => ({ default: (p: React.AnchorHTMLAttributes<HTMLAnchorElement>) => <a {...p} /> }));
