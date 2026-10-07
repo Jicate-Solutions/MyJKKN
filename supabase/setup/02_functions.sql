@@ -82038,3 +82038,127 @@ COMMENT ON FUNCTION public.fn_hr_register_signoff_void_on_manual_days_change() I
   'AFTER INSERT/UPDATE/DELETE on hr_salary_register_manual_days: withdraws every active sign-off on the live register run of that college and month that lists the person, when a pay-affecting column changes (all except who/when/reason). Reason ''pay changed after sign-off''. Never blocks the change. Migration 20271007161107.';
 
 REVOKE EXECUTE ON FUNCTION public.fn_hr_register_signoff_void_on_manual_days_change() FROM anon, PUBLIC;
+
+-- ============================================================================
+-- Updated: 2027-10-07 - fn_hr_register_signoff_void_on_line_change and
+-- fn_hr_register_signoff_void_on_manual_days_change now lock the run row(s)
+-- (FOR UPDATE, id order) before withdrawing, the same lock order as signing,
+-- so a pay change and an in-flight signature on one run cannot interleave.
+-- Supersedes the two definitions above.
+-- Source: supabase/migrations/20271007161107_hr_salary_register_signoff.sql, section (f)
+-- ============================================================================
+CREATE OR REPLACE FUNCTION public.fn_hr_register_signoff_void_on_line_change()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  -- Columns that never change what a person is paid or where the money goes.
+  -- EVERY other column counts as pay, a column added later included: it
+  -- withdraws the signatures until someone lists it here on purpose.
+  c_display CONSTANT text[] := ARRAY[
+    'id', 'created_at', 'updated_at', 'serial_no', 'remarks',
+    'employee_code', 'staff_name', 'designation', 'department_name', 'date_of_joining',
+    'staff_category_name', 'work_institution_name', 'paid_by_name',
+    'manual_reason', 'manual_entered_by', 'manual_entered_at'];
+  v_runs uuid[];
+BEGIN
+  IF TG_OP = 'UPDATE' THEN
+    IF (to_jsonb(NEW) - c_display) = (to_jsonb(OLD) - c_display) THEN
+      RETURN NULL;
+    END IF;
+    v_runs := ARRAY[OLD.run_id, NEW.run_id];
+  ELSIF TG_OP = 'INSERT' THEN
+    v_runs := ARRAY[NEW.run_id];
+  ELSE
+    -- A run being removed takes its lines and its signatures with it; there
+    -- is nothing left to withdraw.
+    IF NOT EXISTS (SELECT 1 FROM public.hr_salary_register_runs r WHERE r.id = OLD.run_id) THEN
+      RETURN NULL;
+    END IF;
+    v_runs := ARRAY[OLD.run_id];
+  END IF;
+
+  -- Same lock order as signing: the run first (see LOCK ORDER above).
+  PERFORM 1 FROM public.hr_salary_register_runs r
+   WHERE r.id = ANY (v_runs)
+   ORDER BY r.id
+     FOR UPDATE;
+
+  UPDATE public.hr_salary_register_signoffs s
+     SET revoked_at = now(), revoked_by = auth.uid(),
+         revoke_reason = 'pay changed after sign-off', updated_at = now()
+   WHERE s.run_id = ANY (v_runs)
+     AND s.revoked_at IS NULL;
+
+  RETURN NULL;
+END;
+$$;
+
+COMMENT ON FUNCTION public.fn_hr_register_signoff_void_on_line_change() IS
+  'AFTER INSERT/UPDATE/DELETE on hr_salary_register_lines: withdraws every active sign-off on the run when a pay-affecting column changes (all columns except a fixed list of display ones). Reason ''pay changed after sign-off''. Never blocks the change. Migration 20271007161107.';
+
+REVOKE EXECUTE ON FUNCTION public.fn_hr_register_signoff_void_on_line_change() FROM anon, PUBLIC;
+
+CREATE OR REPLACE FUNCTION public.fn_hr_register_signoff_void_on_manual_days_change()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  -- Who and why, never how many days or what salary. Every other column,
+  -- a column added later included, counts as pay.
+  c_display CONSTANT text[] := ARRAY[
+    'id', 'created_at', 'updated_at', 'created_by', 'updated_by', 'reason'];
+  v_keys jsonb[] := ARRAY[]::jsonb[];
+  v_runs uuid[];
+BEGIN
+  IF TG_OP = 'UPDATE' AND (to_jsonb(NEW) - c_display) = (to_jsonb(OLD) - c_display) THEN
+    RETURN NULL;
+  END IF;
+  IF TG_OP IN ('UPDATE', 'DELETE') THEN
+    v_keys := v_keys || to_jsonb(OLD);
+  END IF;
+  IF TG_OP IN ('UPDATE', 'INSERT') THEN
+    v_keys := v_keys || to_jsonb(NEW);
+  END IF;
+
+  -- The live (not replaced) run of that college and month that lists the
+  -- person. A replaced run is history and is never signed again.
+  SELECT array_agg(DISTINCT r.id ORDER BY r.id) INTO v_runs
+    FROM public.hr_salary_register_runs r
+    JOIN public.hr_salary_register_lines l ON l.run_id = r.id
+    JOIN unnest(v_keys) AS k(row) ON true
+   WHERE r.superseded_at IS NULL
+     AND r.superseded_by IS NULL
+     AND r.hr_organization_id = (k.row ->> 'hr_organization_id')::uuid
+     AND r.period_year        = (k.row ->> 'period_year')::int
+     AND r.period_month       = (k.row ->> 'period_month')::int
+     AND l.staff_id           = (k.row ->> 'staff_id')::uuid;
+  IF v_runs IS NULL THEN
+    RETURN NULL;
+  END IF;
+
+  -- Same lock order as signing: every affected run first, in id order (see
+  -- LOCK ORDER above).
+  PERFORM 1 FROM public.hr_salary_register_runs r
+   WHERE r.id = ANY (v_runs)
+   ORDER BY r.id
+     FOR UPDATE;
+
+  UPDATE public.hr_salary_register_signoffs s
+     SET revoked_at = now(), revoked_by = auth.uid(),
+         revoke_reason = 'pay changed after sign-off', updated_at = now()
+   WHERE s.run_id = ANY (v_runs)
+     AND s.revoked_at IS NULL;
+
+  RETURN NULL;
+END;
+$$;
+
+COMMENT ON FUNCTION public.fn_hr_register_signoff_void_on_manual_days_change() IS
+  'AFTER INSERT/UPDATE/DELETE on hr_salary_register_manual_days: withdraws every active sign-off on the live register run of that college and month that lists the person, when a pay-affecting column changes (all except who/when/reason). Reason ''pay changed after sign-off''. Never blocks the change. Migration 20271007161107.';
+
+REVOKE EXECUTE ON FUNCTION public.fn_hr_register_signoff_void_on_manual_days_change() FROM anon, PUBLIC;

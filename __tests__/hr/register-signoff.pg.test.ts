@@ -484,6 +484,92 @@ describe('salary register sign-off — a pay change after sign-off withdraws it 
     expect(r.rows).toEqual(kept);
   });
 
+  it('(c) a hand entry removed for a person on the run withdraws both steps', async () => {
+    const days = `INSERT INTO public.hr_salary_register_manual_days
+                    (hr_organization_id, institution_id, period_year, period_month, staff_id, business_working_days, reason)
+                  VALUES ('${ORG}', '${COLLEGE}', 2027, 9, '${MEMBER}', 26, 'no biometric record')`;
+    const r = await scenario([
+      ...signBoth,
+      { as: editor, sql: `DELETE FROM public.hr_salary_register_manual_days WHERE staff_id = '${MEMBER}'` },
+      { as: accounts, sql: gate },
+    ], { setup: `${withLine}; ${days}` });
+    expect(r.error).toBeNull();
+    expect(r.rows).toEqual(voided);
+    expect(r.results[3]).toEqual([{ active: 0 }]);
+  });
+
+  it('both triggers lock the run (FOR UPDATE) before they withdraw anything', async () => {
+    const r = await client.query(`
+      SELECT p.proname, pg_get_functiondef(p.oid) AS def FROM pg_proc p
+       WHERE p.proname IN ('fn_hr_register_signoff_void_on_line_change', 'fn_hr_register_signoff_void_on_manual_days_change')
+       ORDER BY p.proname`);
+    expect(r.rows).toHaveLength(2);
+    for (const { proname, def } of r.rows as Array<{ proname: string; def: string }>) {
+      const lock = def.search(/FROM public\.hr_salary_register_runs r\s+WHERE r\.id = ANY \(v_runs\)\s+ORDER BY r\.id\s+FOR UPDATE/);
+      const voidAt = def.indexOf('UPDATE public.hr_salary_register_signoffs');
+      expect(lock, `${proname} takes no ordered run lock`).toBeGreaterThan(-1);
+      expect(lock, `${proname} locks the run only after withdrawing`).toBeLessThan(voidAt);
+    }
+  });
+
+  // Two real sessions. A signature is taken and NOT yet committed; a pay change
+  // on the same run starts meanwhile. With the run lock the change waits for the
+  // signature, then withdraws it. Without it the change cannot see the
+  // uncommitted signature and a signature on the old figures survives.
+  describe.each([
+    ['a register line', `UPDATE public.hr_salary_register_lines SET net_pay = 24000 WHERE id = '${LINE}'`],
+    ['hand-entered days', `UPDATE public.hr_salary_register_manual_days SET unpaid_leave_days = 1 WHERE staff_id = '${MEMBER}'`],
+  ])('a pay change to %s racing an in-flight signature', (_what, change) => {
+    it('waits for the signature and then withdraws it', async () => {
+      const signer = new Client({ host: PGHOST, port: Number(PGPORT), user: PGUSER, database: DBNAME });
+      const changer = new Client({ host: PGHOST, port: Number(PGPORT), user: PGUSER, database: DBNAME });
+      await signer.connect();
+      await changer.connect();
+      const as = async (c: Client, who: Caller) => {
+        await c.query(
+          `SELECT set_config('test.uid', $1, true), set_config('test.keys', $2, true),
+                  set_config('test.colleges', $3, true), set_config('test.sa', 'false', true)`,
+          [who.uid, (who.keys ?? []).join(','), COLLEGE],
+        );
+        await c.query('SET LOCAL ROLE authenticated');
+      };
+      try {
+        // Committed fixture, removed in finally (the run removal cascades).
+        await client.query(`INSERT INTO public.hr_salary_register_runs (id, institution_id, generated_by) VALUES ($1, $2, $3)`, [RUN, COLLEGE, GENERATOR]);
+        await client.query(withLine);
+        await client.query(`INSERT INTO public.hr_salary_register_manual_days
+                              (hr_organization_id, institution_id, period_year, period_month, staff_id, business_working_days, reason)
+                            VALUES ($1, $2, 2027, 9, $3, 26, 'no biometric record')`, [ORG, COLLEGE, MEMBER]);
+
+        await signer.query('BEGIN');
+        await as(signer, principal);
+        await signer.query(sign('college_check'));          // holds the run lock, not committed
+
+        await changer.query('BEGIN');
+        await as(changer, editor);
+        let changed = false;
+        const pending = changer.query(change).then(() => { changed = true; });
+        await new Promise((res) => setTimeout(res, 400));
+        expect(changed, 'the pay change did not wait for the in-flight signature').toBe(false);
+
+        await signer.query('COMMIT');
+        await pending;
+        await changer.query('COMMIT');
+
+        const left = await client.query(
+          `SELECT stage, revoked_at IS NOT NULL AS revoked, revoke_reason FROM public.hr_salary_register_signoffs WHERE run_id = $1`, [RUN]);
+        expect(left.rows).toEqual([{ stage: 'college_check', revoked: true, revoke_reason: 'pay changed after sign-off' }]);
+      } finally {
+        await signer.query('ROLLBACK').catch(() => undefined);
+        await changer.query('ROLLBACK').catch(() => undefined);
+        await signer.end();
+        await changer.end();
+        await client.query(`DELETE FROM public.hr_salary_register_manual_days WHERE staff_id = $1`, [MEMBER]);
+        await client.query(`DELETE FROM public.hr_salary_register_runs WHERE id = $1`, [RUN]);
+      }
+    }, 20_000);
+  });
+
   it('removing a signed run still works', async () => {
     await client.query('BEGIN');
     try {

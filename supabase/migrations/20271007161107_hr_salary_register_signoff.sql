@@ -435,6 +435,13 @@ WHERE NOT EXISTS (
 --     signed again. Every active sign-off on the run is withdrawn with the
 --     reason 'pay changed after sign-off', under the editor's id (NULL for a
 --     service-role write).
+--     LOCK ORDER: both triggers lock the run row (FOR UPDATE, several runs in
+--     id order) BEFORE they withdraw anything, exactly as signing and
+--     withdrawing do. A pay change and a signature on the same run are then
+--     serialised: a signature taken while the change is in flight waits for it,
+--     and a change made while a signature is in flight waits and then withdraws
+--     it. Without the lock the change's withdrawal cannot see the uncommitted
+--     signature, and a signature on the old figures survives.
 -- ----------------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION public.fn_hr_register_signoff_void_on_line_change()
 RETURNS trigger
@@ -469,6 +476,12 @@ BEGIN
     v_runs := ARRAY[OLD.run_id];
   END IF;
 
+  -- Same lock order as signing: the run first (see LOCK ORDER above).
+  PERFORM 1 FROM public.hr_salary_register_runs r
+   WHERE r.id = ANY (v_runs)
+   ORDER BY r.id
+     FOR UPDATE;
+
   UPDATE public.hr_salary_register_signoffs s
      SET revoked_at = now(), revoked_by = auth.uid(),
          revoke_reason = 'pay changed after sign-off', updated_at = now()
@@ -502,6 +515,7 @@ DECLARE
   c_display CONSTANT text[] := ARRAY[
     'id', 'created_at', 'updated_at', 'created_by', 'updated_by', 'reason'];
   v_keys jsonb[] := ARRAY[]::jsonb[];
+  v_runs uuid[];
 BEGIN
   IF TG_OP = 'UPDATE' AND (to_jsonb(NEW) - c_display) = (to_jsonb(OLD) - c_display) THEN
     RETURN NULL;
@@ -515,21 +529,32 @@ BEGIN
 
   -- The live (not replaced) run of that college and month that lists the
   -- person. A replaced run is history and is never signed again.
+  SELECT array_agg(DISTINCT r.id ORDER BY r.id) INTO v_runs
+    FROM public.hr_salary_register_runs r
+    JOIN public.hr_salary_register_lines l ON l.run_id = r.id
+    JOIN unnest(v_keys) AS k(row) ON true
+   WHERE r.superseded_at IS NULL
+     AND r.superseded_by IS NULL
+     AND r.hr_organization_id = (k.row ->> 'hr_organization_id')::uuid
+     AND r.period_year        = (k.row ->> 'period_year')::int
+     AND r.period_month       = (k.row ->> 'period_month')::int
+     AND l.staff_id           = (k.row ->> 'staff_id')::uuid;
+  IF v_runs IS NULL THEN
+    RETURN NULL;
+  END IF;
+
+  -- Same lock order as signing: every affected run first, in id order (see
+  -- LOCK ORDER above).
+  PERFORM 1 FROM public.hr_salary_register_runs r
+   WHERE r.id = ANY (v_runs)
+   ORDER BY r.id
+     FOR UPDATE;
+
   UPDATE public.hr_salary_register_signoffs s
      SET revoked_at = now(), revoked_by = auth.uid(),
          revoke_reason = 'pay changed after sign-off', updated_at = now()
-   WHERE s.revoked_at IS NULL
-     AND s.run_id IN (
-       SELECT r.id
-         FROM public.hr_salary_register_runs r
-         JOIN public.hr_salary_register_lines l ON l.run_id = r.id
-         JOIN unnest(v_keys) AS k(row) ON true
-        WHERE r.superseded_at IS NULL
-          AND r.superseded_by IS NULL
-          AND r.hr_organization_id = (k.row ->> 'hr_organization_id')::uuid
-          AND r.period_year        = (k.row ->> 'period_year')::int
-          AND r.period_month       = (k.row ->> 'period_month')::int
-          AND l.staff_id           = (k.row ->> 'staff_id')::uuid);
+   WHERE s.run_id = ANY (v_runs)
+     AND s.revoked_at IS NULL;
 
   RETURN NULL;
 END;
