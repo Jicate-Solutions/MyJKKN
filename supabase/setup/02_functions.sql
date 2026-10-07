@@ -82451,6 +82451,14 @@ BEGIN
       USING ERRCODE = 'insufficient_privilege';
   END IF;
 
+  -- Round 15 (institution-param-guard): the college must be one the caller
+  -- may reach (super admin, a role with scope 'all', their own college or a
+  -- granted one). Production's faculty rule below is kept as it is.
+  IF profile_institution_id IS NOT NULL AND NOT public.role_has_institution_access(profile_institution_id) THEN
+    RAISE EXCEPTION 'You do not have access to that college.'
+      USING ERRCODE = '42501';
+  END IF;
+
   -- For faculty, ensure they can only create profiles for their own institution
   IF current_user_role = 'faculty' THEN
     IF profile_institution_id IS NULL OR profile_institution_id != current_user_institution_id THEN

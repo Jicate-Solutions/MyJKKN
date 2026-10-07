@@ -1902,3 +1902,45 @@ describe('round 15: a guest holds a privileged role that confers no admin powers
     expect(r.rowCount).toBe(1);
   });
 });
+
+describe('round 15: create_preregistered_profile only for a college the caller may reach (institution-param-guard)', () => {
+  const COLLEGE_A = id(160);
+  const COLLEGE_B = id(161);
+  const NO_ACCESS = /You do not have access to that college\./;
+  // production's role_has_institution_access, in brief: super admin, a role with
+  // scope 'all' (user_roles or the legacy profiles.role), one's own college, or
+  // a granted one. The suite's stand-in answers true for every college.
+  const realAccess = (administratorScope: 'own' | 'all') => [
+    `ALTER TABLE public.custom_roles ADD COLUMN institution_scope text NOT NULL DEFAULT 'own'`,
+    `UPDATE public.custom_roles SET institution_scope = 'all' WHERE role_key = 'super_admin'`,
+    `UPDATE public.custom_roles SET institution_scope = '${administratorScope}' WHERE role_key = 'administrator'`,
+    `CREATE TABLE public.user_institution_access (user_id uuid, institution_id uuid, is_active boolean)`,
+    `CREATE OR REPLACE FUNCTION public.role_has_institution_access(check_institution_id uuid) RETURNS boolean
+       LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
+       SELECT check_institution_id IS NULL OR is_super_admin()
+           OR EXISTS (SELECT 1 FROM user_roles ur JOIN custom_roles cr ON cr.id = ur.role_id
+                       WHERE ur.user_id = auth.uid() AND cr.institution_scope = 'all')
+           OR EXISTS (SELECT 1 FROM profiles p JOIN custom_roles cr ON cr.role_key = p.role
+                       WHERE p.id = auth.uid() AND cr.institution_scope = 'all')
+           OR check_institution_id = (SELECT institution_id FROM profiles WHERE id = auth.uid())
+           OR EXISTS (SELECT 1 FROM user_institution_access uia WHERE uia.user_id = auth.uid()
+                       AND uia.institution_id = check_institution_id AND uia.is_active) $$`,
+    `UPDATE public.profiles SET institution_id = '${COLLEGE_A}' WHERE id IN ('${ADMIN}', '${PLAIN}')`,
+  ];
+  const callAs = (who: string, college: string, email: string) => [
+    `SELECT set_config('test.uid', '${who}', true)`, 'SET LOCAL ROLE authenticated',
+    `SELECT id FROM public.create_preregistered_profile(gen_random_uuid(), '${email}', 'PRE', 'faculty', NULL, '${college}')`,
+  ];
+
+  it('an own-scope caller passing another college is refused; their own college passes', async () => {
+    expect((await asOwner([...realAccess('own'), ...callAs(ADMIN, COLLEGE_B, 'pre.other@jkkn.ac.in')])).error).toMatch(NO_ACCESS);
+    expect((await asOwner([...realAccess('own'), ...callAs(ADMIN, COLLEGE_A, 'pre.own@jkkn.ac.in')])).error).toBeNull();
+    // a faculty member's own college still passes (production's faculty rule too)
+    expect((await asOwner([...realAccess('own'), ...callAs(PLAIN, COLLEGE_A, 'pre.faculty@jkkn.ac.in')])).error).toBeNull();
+  });
+
+  it('a super admin, and a role with scope all, pass for any college', async () => {
+    expect((await asOwner([...realAccess('own'), ...callAs(SUPER, COLLEGE_B, 'pre.super@jkkn.ac.in')])).error).toBeNull();
+    expect((await asOwner([...realAccess('all'), ...callAs(ADMIN, COLLEGE_B, 'pre.all@jkkn.ac.in')])).error).toBeNull();
+  });
+});

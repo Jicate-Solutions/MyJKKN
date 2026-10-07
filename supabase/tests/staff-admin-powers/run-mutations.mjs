@@ -214,6 +214,7 @@ const SQL = [
   { id: 'guard.own-college', find: `IF NEW.institution_id IS DISTINCT FROM OLD.institution_id AND (`, replace: `IF false AND (` },
   { id: 'guard.own-college-old', find: `AND (public.fn_staff_record_is_callers(OLD.profile_id, OLD.email, OLD.institution_email)`, replace: `AND (false` },
   { id: 'guard.own-college-new', find: `OR public.fn_staff_record_is_callers(NEW.profile_id, NEW.email, NEW.institution_email)) THEN`, replace: `OR false) THEN` },
+  { id: 'prereg.college-the-caller-may-reach', find: `IF profile_institution_id IS NOT NULL AND NOT public.role_has_institution_access(profile_institution_id) THEN`, replace: `IF false THEN` },
   { id: 'prereg.staff-email', find: `IF NOT is_super_admin() AND fn_email_on_staff_record(profile_email) THEN`, replace: `IF false THEN` },
   { id: 'learnerref.self-spares-super-admin', find: `IF auth.uid() IS NOT NULL AND NOT v_super AND (`, replace: `IF auth.uid() IS NOT NULL AND (` },
   { id: 'learnerref.asks-taken', find: `v_reason := public.fn_learner_email_taken(p_email, p_learner_id);`, replace: `v_reason := NULL;` },

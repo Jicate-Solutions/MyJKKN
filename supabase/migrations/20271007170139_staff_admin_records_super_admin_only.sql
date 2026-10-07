@@ -67,7 +67,7 @@
 --        sync_staff_to_profiles()              body md5 3ea56d935f35075b55159fe35cff041c  definer t  {search_path=public}
 --        fn_staff_guard_role_key()             body md5 952f9532127d7c9fb1ff419ed97bca22  definer f  {"search_path=\"\""}
 --        mirror_staff_role_to_user_roles(...)  body md5 bc4a2d2c57984733742701b638a18bd5  definer t  {search_path=public}
---        create_preregistered_profile(...)     body md5 d01037d51fc787154f9e3cefca36876a  definer t  {search_path=public}
+--        create_preregistered_profile(...)     body md5 58e923ee71640d963a137638b4bbcfe9  definer t  {search_path=public}
 --        sync_learner_email_to_profile()       body md5 6247db4f6824cad4d27ea548e4401104  definer f  (no settings)
 --        fn_course_backfill_participant_email(uuid, text)
 --                                              body md5 4df5f26deaaac7f6d12422c78c60274e  definer t  {search_path=public}
@@ -97,7 +97,9 @@
 --   * create_preregistered_profile: production reads the caller's college
 --     into a variable and compares with != instead of NOT IN (subquery).
 --     Kept verbatim (the two forms give the same answer, NULL college
---     included).
+--     included). Round 15 also adds, before it, the institution-param-guard
+--     check: a college the caller may not reach (role_has_institution_access)
+--     is refused, for every caller role.
 --
 --   1. sync_staff_to_profiles: a (re)link is decided only from what the WRITER
 --      changed (a new row, or a changed profile_id / institution email). A
@@ -274,7 +276,7 @@ BEGIN
        '6247db4f6824cad4d27ea548e4401104', false, ''),
       ('public.create_preregistered_profile(uuid,text,text,text,text,uuid,uuid)',
        '4034ea9d86315fc91c9b4e78c6b0af00', true, '{search_path=public}',
-       'd01037d51fc787154f9e3cefca36876a', true, '{search_path=public}'),
+       '58e923ee71640d963a137638b4bbcfe9', true, '{search_path=public}'),
       ('public.fn_course_backfill_participant_email(uuid,text)',
        'aa4ec46ac109c6b27cf3eae7d9e2fdb6', true, '{search_path=public}',
        '4df5f26deaaac7f6d12422c78c60274e', true, '{search_path=public}')
@@ -1173,6 +1175,14 @@ BEGIN
   IF current_user_role NOT IN ('super_admin', 'administrator', 'faculty') THEN
     RAISE EXCEPTION 'Insufficient permissions to create pre-registered profile'
       USING ERRCODE = 'insufficient_privilege';
+  END IF;
+
+  -- Round 15 (institution-param-guard): the college must be one the caller
+  -- may reach (super admin, a role with scope 'all', their own college or a
+  -- granted one). Production's faculty rule below is kept as it is.
+  IF profile_institution_id IS NOT NULL AND NOT public.role_has_institution_access(profile_institution_id) THEN
+    RAISE EXCEPTION 'You do not have access to that college.'
+      USING ERRCODE = '42501';
   END IF;
 
   -- For faculty, ensure they can only create profiles for their own institution
