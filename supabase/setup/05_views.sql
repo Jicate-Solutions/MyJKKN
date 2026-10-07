@@ -2062,3 +2062,16 @@ GRANT SELECT ON TABLE public.v_staff_id_crosswalk TO authenticated;
 --
 -- Full definitions in the migration.
 -- ===========================================================================
+
+
+-- Updated: 2026-10-07 - Mirrored from supabase/migrations/20271007200100_session_feedback_pending_ingest_service_only.sql
+-- v_session_feedback_pending_ingest (created in 20261021000100) is read only by the
+-- feedback-adapter-session cron through the service role; signed-in callers lose access.
+-- Guarded: setup never creates this view, so a fresh setup run must not abort here.
+DO $$
+BEGIN
+  IF to_regclass('public.v_session_feedback_pending_ingest') IS NOT NULL THEN
+    REVOKE ALL ON public.v_session_feedback_pending_ingest FROM anon, authenticated, PUBLIC;
+    GRANT SELECT ON public.v_session_feedback_pending_ingest TO service_role;
+  END IF;
+END $$;

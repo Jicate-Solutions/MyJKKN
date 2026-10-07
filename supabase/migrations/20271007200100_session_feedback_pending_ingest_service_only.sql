@@ -1,0 +1,13 @@
+-- Updated: 2026-10-07 - v_session_feedback_pending_ingest: service role only.
+--
+-- Review follow-up to #4172 (20261021000100). That migration granted SELECT on
+-- the pending-ingest view to `authenticated`; on production the role actually
+-- holds every table privilege on it (INSERT, UPDATE, DELETE included), because
+-- the view is a single-table anti-join and so auto-updatable. It is not a leak:
+-- the view is security_invoker, so session_feedback's own row rules still
+-- decide what a caller sees or writes. But nothing signed-in reads it. Its only
+-- reader is the feedback-adapter-session cron, through the service-role client.
+-- An unused door is closed rather than left to be reasoned about later.
+
+REVOKE ALL ON public.v_session_feedback_pending_ingest FROM anon, authenticated, PUBLIC;
+GRANT SELECT ON public.v_session_feedback_pending_ingest TO service_role;
