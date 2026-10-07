@@ -212,7 +212,7 @@ INSERT INTO public.hr_employee_documents (id, staff_id, institution_id, document
 VALUES (gen_random_uuid(), '${EMP}', '${INST}', 'Degree certificate', 'pending');
 -- promotion
 INSERT INTO public.hr_promotion_applications (id, staff_id, status, from_designation_name, to_designation_name)
-VALUES (gen_random_uuid(), '${EMP}', 'submitted', 'Assistant Professor', 'Associate Professor');
+VALUES (gen_random_uuid(), '${EMP}', 'submitted', 'Grade 1', 'Grade 2');
 -- termination
 INSERT INTO public.hr_offboarding_cases (id, staff_id, status, separation_type, termination_approval_chain)
 VALUES (gen_random_uuid(), '${EMP}', 'open', 'termination', '[{"step":"hr","status":"pending"}]');
