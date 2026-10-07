@@ -196,6 +196,7 @@ jobs:
       PHC_TEST_PGUSER: postgres
       ACK_SEEN_TEST_PGUSER: postgres
       MEETING_HISTORY_TEST_PGUSER: postgres   # __tests__/ai-query/meeting-history.pg.test.ts (#4051)
+      HR_INTAKE_TEST_PGUSER: postgres   # __tests__/hr/intake/intake-schema.pg.test.ts
 
     steps:
       - uses: actions/checkout@v4

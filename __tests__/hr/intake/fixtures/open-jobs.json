@@ -1,0 +1,76 @@
+{
+  "_note": "Invented open jobs for the HR intake helper tests. Titles live here, not in .ts files, so the terminology gate reads only copy.",
+  "jobs": {
+    "principal": {
+      "id": "a0000000-0000-4000-8000-000000000001",
+      "title": "Principal",
+      "job_code": "PRN-01",
+      "institution_id": "c0000000-0000-4000-8000-000000000001",
+      "institution_name": "Demo Arts College",
+      "department_name": null
+    },
+    "english": {
+      "id": "a0000000-0000-4000-8000-000000000002",
+      "title": "Assistant Professor - English",
+      "job_code": "AP-ENG",
+      "institution_id": "c0000000-0000-4000-8000-000000000001",
+      "institution_name": "Demo Arts College",
+      "department_name": "English"
+    },
+    "history": {
+      "id": "a0000000-0000-4000-8000-000000000003",
+      "title": "Assistant Professor - History",
+      "job_code": "AP-HIS",
+      "institution_id": "c0000000-0000-4000-8000-000000000001",
+      "institution_name": "Demo Arts College",
+      "department_name": "History"
+    },
+    "admin_officer": {
+      "id": "a0000000-0000-4000-8000-000000000004",
+      "title": "Administrative Officer",
+      "job_code": "AO-01",
+      "institution_id": "c0000000-0000-4000-8000-000000000002",
+      "institution_name": "Demo Engineering College",
+      "department_name": null
+    },
+    "lab_tech": {
+      "id": "a0000000-0000-4000-8000-000000000005",
+      "title": "Lab Technician",
+      "job_code": "LT-01",
+      "institution_id": "c0000000-0000-4000-8000-000000000002",
+      "institution_name": "Demo Engineering College",
+      "department_name": "Chemistry"
+    },
+    "store_keeper": {
+      "id": "a0000000-0000-4000-8000-000000000006",
+      "title": "Store Keeper",
+      "job_code": "SK-01",
+      "institution_id": "c0000000-0000-4000-8000-000000000003",
+      "institution_name": "Demo Pharmacy College",
+      "department_name": "Pharmacy"
+    },
+    "english_eng": {
+      "id": "a0000000-0000-4000-8000-000000000007",
+      "title": "Assistant Professor - English",
+      "job_code": "AP-ENG-2",
+      "institution_id": "c0000000-0000-4000-8000-000000000002",
+      "institution_name": "Demo Engineering College",
+      "department_name": "Science and Humanities"
+    }
+  },
+  "titles": {
+    "generic": "Assistant Professor",
+    "generic_caps": "ASSISTANT PROFESSOR",
+    "associate": "Associate Professor - English",
+    "vice_principal": "Vice Principal, ",
+    "combo": "Lab Technician/Research Assistant",
+    "unmatched": "Guest Lecturer",
+    "mech_post": "Assistant Professor - Mechanical Engineering",
+    "civil_cv": "Assistant Professor - Civil Engineering",
+    "nursing_post": "Nursing Tutor - Medical Surgical Nursing",
+    "nursing_cv": "Nursing Tutor - Child Health Nursing",
+    "pharm_post": "Assistant Professor - Pharmaceutical Chemistry",
+    "pharm_cv": "Assistant Professor - Pharmaceutical Analysis",
+    "english_post": "Assistant Professor - English"
+  }
+}
