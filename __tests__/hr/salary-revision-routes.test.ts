@@ -409,7 +409,8 @@ describe('GET /api/cron/hr-salary-revisions', () => {
   it('targets mode starts no raise once fewer than 15 s of the 60 s remain; the rest wait for the next night', async () => {
     const t0 = 1_000_000;
     // Started at 0 s; raise-1 checked at 10 s (50 s left: go); raise-2 at 46 s (14 s left): stop.
-    const times = [t0, t0 + 10_000, t0 + 46_000];
+    // 8 Oct 2026: the schedule record reads the clock once first (its time box for listing the days).
+    const times = [t0, t0, t0 + 10_000, t0 + 46_000];
     const spy = vi.spyOn(Date, 'now').mockImplementation(() => times.shift() ?? t0 + 59_000);
     try {
       const res = await cronRoute.GET(cron('/api/cron/hr-salary-revisions?mode=targets', 'cron-secret'));

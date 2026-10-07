@@ -269,3 +269,84 @@ describe('the cron route (mode=targets)', () => {
     vi.doUnmock('@/lib/supabase/server');
   });
 });
+
+describe('the cron route loads no browser-only code (review round 6, finding 8)', () => {
+  // Walks the route's real import graph (relative and @/ imports, type-only
+  // imports skipped, as the bundler does): the browser Supabase client is built
+  // at module load by FacultyAttendanceService, and react-hot-toast is a
+  // 'use client' module the attendance services import. Neither may be reached.
+  it('reaches the resolver module, never the browser client, react-hot-toast or a \'use client\' file', async () => {
+    const fs = await import('node:fs');
+    const path = await import('node:path');
+    const root = process.cwd();
+    const resolve = (spec: string, from: string): string | null => {
+      const base = spec.startsWith('@/') ? path.join(root, spec.slice(2))
+        : spec.startsWith('.') ? path.resolve(path.dirname(from), spec) : null;
+      if (!base) return null;
+      for (const ext of ['.ts', '.tsx', '/index.ts', '/index.tsx']) if (fs.existsSync(base + ext)) return base + ext;
+      return fs.existsSync(base) ? base : null;
+    };
+    const seen = new Set<string>();
+    const packages = new Set<string>();
+    const useClient: string[] = [];
+    const walk = (file: string) => {
+      if (seen.has(file)) return;
+      seen.add(file);
+      const src = fs.readFileSync(file, 'utf8');
+      if (/^\s*['"]use client['"]/.test(src)) useClient.push(path.relative(root, file));
+      const re = /(?:import|export)\s+(type\s+)?[^'"]*?from\s+['"]([^'"]+)['"]|import\(\s*['"]([^'"]+)['"]/g;
+      for (let m = re.exec(src); m; m = re.exec(src)) {
+        if (m[1]) continue;
+        const spec = m[2] ?? m[3];
+        const r = resolve(spec, file);
+        if (r) walk(r); else if (!spec.startsWith('.') && !spec.startsWith('@/')) packages.add(spec);
+      }
+    };
+    walk(path.join(root, 'app/api/cron/hr-salary-revisions/route.ts'));
+    const files = [...seen].map((f) => path.relative(root, f));
+    expect(files).toContain('lib/services/academic/faculty-schedule-resolver.ts');
+    expect(files).not.toContain('lib/supabase/client.ts');
+    expect(files).not.toContain('lib/services/academic/faculty-attendance-service.ts');
+    expect([...packages]).not.toContain('react-hot-toast');
+    expect(useClient).toEqual([]);
+  });
+
+  it('My Classes and the job run the same resolver: the class hands it its client', async () => {
+    const db = client();
+    const viaClass = await FacultyAttendanceService.getFacultyTodayPeriods(MEMBER, DAY, { client: db });
+    const { resolveFacultyTodayPeriods } = await import('@/lib/services/academic/faculty-schedule-resolver');
+    const direct = await resolveFacultyTodayPeriods(client(), MEMBER, DAY);
+    expect(viaClass).toEqual(direct);
+  });
+});
+
+describe('listing the days is time-boxed (review round 6, finding 9)', () => {
+  it('gives the database a third of the time left, between half a second and 8 seconds', async () => {
+    const { needsBudgetMs } = await import('@/lib/services/hr/salary-revision/scheduled-periods-recorder');
+    expect(needsBudgetMs(25_000)).toBe(8_000);
+    expect(needsBudgetMs(9_000)).toBe(3_000);
+    expect(needsBudgetMs(0)).toBe(500);
+  });
+
+  it('passes the time box to the database, and stops waiting for the list at the deadline', async () => {
+    const db = client();
+    await recordScheduledPeriods(db, { deadline: Date.now() + 9_000 });
+    const asked = db.log.find((e) => e.fn === 'fn_hr_target_schedule_needs')!;
+    expect(asked.args).toMatchObject({ p_limit: 400 });
+    expect(asked.args?.p_budget_ms).toBeGreaterThanOrEqual(2_900);
+    expect(asked.args?.p_budget_ms).toBeLessThanOrEqual(3_000);
+
+    vi.useFakeTimers();
+    try {
+      const hung = { rpc: () => new Promise<{ data: unknown; error: unknown }>(() => undefined) };
+      const err = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+      const t0 = Date.now();
+      const pending = recordScheduledPeriods(hung, { deadline: t0 + 1_000 });
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(await pending).toEqual({ needed: 0, recorded: 0, failed: 0, error: 'listing the days to record did not finish in time' });
+      err.mockRestore();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});

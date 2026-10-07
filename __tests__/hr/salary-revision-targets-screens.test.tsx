@@ -112,6 +112,11 @@ describe('the words', () => {
     // The person's own view carries no reason (7 Oct, default cc): plain words, nothing internal.
     expect(planStateText(plan({ state: 'held_listed', state_reason: null }))).toBe('Held: the Director decides when it is paid.');
     expect(planStateText(plan({ state: 'lapsed', state_reason: null }))).toBe('Lapsed: this held part will not be paid under this raise.');
+    // 8 Oct 2026: measurement is on and the schedule record is not complete yet: not "targets being set up".
+    expect(planStateText(plan({ state: 'awaiting_measurement', state_reason: 'schedule_not_recorded' }))).toBe(
+      'The held ₹2,100 a month is held while the class schedule of the last 90 days is being recorded. '
+      + 'Then it is decided which targets apply. Nothing changes your pay until then.');
+    expect(planStateText(plan({ state: 'awaiting_measurement', state_reason: null }))).toMatch(/while the targets are being set up/);
   });
 
   it('writes each number as "n of d (p%)", and a month with nothing scheduled plainly', () => {
@@ -313,6 +318,9 @@ describe("the Director's list of held parts waiting on him (approval page)", () 
   it('says every reason in plain words', () => {
     expect(listedReasonInWords('director_list')).toMatch(/On the Director list/);
     expect(listedReasonInWords('awaiting_measurement')).toBe('Waiting for measurement to be switched on');
+    // 8 Oct 2026: measurement on, the schedule of the 90 days not all recorded yet (never the raw code).
+    expect(listedReasonInWords('schedule_not_recorded'))
+      .toBe('Waiting for the last 90 days of class schedule to be recorded, then for its targets to be decided');
     expect(listedReasonInWords('waits_for_own_targets:principal')).toBe('No targets for the principal role yet');
     expect(listedReasonInWords('window_over')).toMatch(/No month met every target in time/);
     expect(listedReasonInWords('lapsed_by_director: New scale')).toBe('Lapsed by you: New scale');

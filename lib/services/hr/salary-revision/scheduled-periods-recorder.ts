@@ -5,7 +5,8 @@
 // timetables.timetable_data itself, with SQL that only understood weekday-keyed
 // timetables. The app's real schedule logic is TypeScript: My Classes resolves
 // a team member's periods for a day through
-// FacultyAttendanceService.getFacultyTodayPeriods (cycle timetables through
+// FacultyAttendanceService.getFacultyTodayPeriods, whose body lives in
+// lib/services/academic/faculty-schedule-resolver.ts (cycle timetables through
 // get_cycle_for_date, batch ranges, specific dates, department / semester /
 // section holidays through approved-leave-scope.ts, the period master's
 // timings). So the nightly job now asks THAT resolver, per team member per day,
@@ -19,7 +20,11 @@
 // needs that were never recorded (newest first). The service role does the
 // reading; the database refuses any signed-in caller.
 // =====================================================================
-import { FacultyAttendanceService } from '@/lib/services/academic/faculty-attendance-service';
+// The server-safe resolver module, not FacultyAttendanceService: that class
+// builds the BROWSER Supabase client when it loads and imports attendance
+// services that import react-hot-toast ('use client'). The resolver is the
+// same code My Classes runs (the class delegates to it), with no such imports.
+import { resolveFacultyTodayPeriods } from '@/lib/services/academic/faculty-schedule-resolver';
 
 /** Written on every row, so a later reader knows which logic made it. */
 export const SCHEDULE_RESOLVER = 'FacultyAttendanceService.getFacultyTodayPeriods';
@@ -92,6 +97,14 @@ export function toRecordedPeriods(periods: unknown[]): RecordedPeriod[] {
 
 type Rpc = (fn: string, args?: Record<string, unknown>) => PromiseLike<{ data: any; error: any }>;
 
+/**
+ * The database's time box for listing the days (ms): a third of the time left,
+ * at least half a second, at most 8 seconds. The rest of the budget records.
+ */
+export function needsBudgetMs(timeLeftMs: number): number {
+  return Math.max(500, Math.min(8_000, Math.floor(timeLeftMs / 3)));
+}
+
 export interface RecordResult {
   needed: number;
   recorded: number;
@@ -110,7 +123,23 @@ export async function recordScheduledPeriods(
   opts: { deadline: number; now?: () => number; limit?: number; concurrency?: number },
 ): Promise<RecordResult> {
   const now = opts.now ?? Date.now;
-  const needs = await supabase.rpc('fn_hr_target_schedule_needs', { p_limit: opts.limit ?? 400 });
+  // 8 Oct 2026 (review round 6, finding 9): listing the days is time-boxed too.
+  // The database stops working out more people once p_budget_ms has passed and
+  // returns what it has (fn_hr_target_schedule_needs); this side also stops
+  // waiting at the deadline, so the measure that follows always gets its turn.
+  const leftMs = opts.deadline - now();
+  const budgetMs = needsBudgetMs(leftMs);
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const late = new Promise<{ data: null; error: { message: string } }>((resolve) => {
+    timer = setTimeout(
+      () => resolve({ data: null, error: { message: 'listing the days to record did not finish in time' } }),
+      Math.max(leftMs, 0),
+    );
+  });
+  const needs = await Promise.race([
+    Promise.resolve(supabase.rpc('fn_hr_target_schedule_needs', { p_limit: opts.limit ?? 400, p_budget_ms: budgetMs })),
+    late,
+  ]).finally(() => { if (timer) clearTimeout(timer); });
   if (needs.error) {
     console.error('[HR Salary Revisions cron] schedule: could not list the days to record:', needs.error);
     return { needed: 0, recorded: 0, failed: 0, error: needs.error.message ?? String(needs.error) };
@@ -119,8 +148,7 @@ export async function recordScheduledPeriods(
   const result: RecordResult = { needed: queue.length, recorded: 0, failed: 0 };
 
   const recordOne = async (need: ScheduleNeed) => {
-    const { periods } = await FacultyAttendanceService.getFacultyTodayPeriods(need.staff_id, need.day, {
-      client: supabase,
+    const { periods } = await resolveFacultyTodayPeriods(supabase, need.staff_id, need.day, {
       includeInactive: true,
       ...(need.institution_ids && need.institution_ids.length > 0 ? { teachingInstitutionIds: need.institution_ids } : {}),
     });
