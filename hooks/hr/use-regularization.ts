@@ -97,7 +97,11 @@ export function usePendingRegularizations(filters?: ApprovalFilters) {
  */
 function requestRegularizationNotice(id: string | undefined) {
   if (!id) return;
-  void fetch(`/api/hr/attendance/regularizations/${id}/notify`, { method: 'POST' }).catch(
+  void fetch('/api/hr/attendance/regularizations/notify', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ id }),
+  }).catch(
     (err) => console.warn('[hr/regularization] notice request failed', err),
   );
 }

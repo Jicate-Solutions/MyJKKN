@@ -1,5 +1,8 @@
 /**
- * POST /api/hr/attendance/regularizations/[id]/notify
+ * POST /api/hr/attendance/regularizations/notify   body: { "id": "<request uuid>" }
+ *
+ * A static path on purpose: the id travels in the JSON body, not the URL, so
+ * the route adds no dynamic segment to the route budget (2000 cap).
  *
  * HR staff harness (2026-10-01), duty A3. Regularisation requests are written
  * from the browser (RLS-gated), so the browser calls this right after a
@@ -24,14 +27,12 @@ import type { NextRequest } from 'next/server';
 import { createServerSupabaseClient, createServiceRoleClient } from '@/lib/supabase/server';
 import { notifyRegularizationEvent } from '@/lib/services/hr/duty-notices/dispatch';
 
-export async function POST(
-  _request: NextRequest,
-  { params }: { params: Promise<{ id: string }> },
-) {
+export async function POST(request: NextRequest) {
   await connection();
   try {
-    const { id } = await params;
-    if (!/^[0-9a-f-]{36}$/i.test(id)) {
+    const body = (await request.json().catch(() => null)) as { id?: unknown } | null;
+    const id = body?.id;
+    if (typeof id !== 'string' || !/^[0-9a-f-]{36}$/i.test(id)) {
       return NextResponse.json({ error: 'Invalid request id' }, { status: 400 });
     }
 
@@ -55,7 +56,7 @@ export async function POST(
     const result = await notifyRegularizationEvent(createServiceRoleClient(), id);
     return NextResponse.json({ success: true, ...result });
   } catch (err) {
-    console.error('[hr/attendance/regularizations/:id/notify] error', err);
+    console.error('[hr/attendance/regularizations/notify] error', err);
     return NextResponse.json(
       { success: false, error: err instanceof Error ? err.message : 'Unknown error' },
       { status: 500 },
