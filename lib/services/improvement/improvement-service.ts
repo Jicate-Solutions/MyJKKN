@@ -119,6 +119,20 @@ export interface ImprovementIdeaRanking {
   model: string | null;
 }
 
+/** One person an idea is assigned to. `name` is the name as it was when assigned. */
+export interface ImprovementIdeaAssignee {
+  id: string;
+  name: string;
+}
+
+/** A person offered by the "Assign people" search. */
+export interface ImprovementAssignableUser {
+  id: string;
+  name: string | null;
+  email: string | null;
+  role: string | null;
+}
+
 /** An idea decorated with the display fields the UI needs. */
 export interface ImprovementIdeaEnriched extends ImprovementIdea {
   area_label: string | null;
@@ -128,6 +142,12 @@ export interface ImprovementIdeaEnriched extends ImprovementIdea {
   resolver_name: string | null;
   /** Display name of `assignee_id`, null when nobody is assigned. */
   assignee_name?: string | null;
+  /**
+   * The people this idea is with right now (improvement_idea_assignees): the
+   * CEO while Logged, the department owners while Under Review, then whoever
+   * the owner picked. Absent or empty when nobody is assigned.
+   */
+  assignees?: ImprovementIdeaAssignee[];
   // Latest AI ranking (PR-2) — null until a ranking run has scored the idea.
   ai_rank: number | null;
   ai_rank_reason: string | null;
@@ -221,6 +241,86 @@ export class ImprovementService {
     return map;
   }
 
+  /**
+   * Who each visible idea is assigned to, keyed by idea id. One read: the
+   * table's RLS already limits it to ideas the viewer can see. A failed read
+   * (including the table not existing before 20271007090000 is applied)
+   * returns an empty map, and the board simply shows no "Assigned to" line.
+   */
+  static async fetchAssigneesByIdea(): Promise<
+    Map<string, ImprovementIdeaAssignee[]>
+  > {
+    const map = new Map<string, ImprovementIdeaAssignee[]>();
+    const supabase = this.getSupabase();
+    const { data, error } = (await (supabase as any)
+      .from('improvement_idea_assignees')
+      .select('idea_id, profile_id, assignee_name')
+      .order('assignee_name', { ascending: true })) as {
+      data:
+        | { idea_id: string; profile_id: string; assignee_name: string }[]
+        | null;
+      error: any;
+    };
+    if (error) {
+      logger.warn(MODULE, 'Failed to read idea assignees', error);
+      return map;
+    }
+    for (const row of data || []) {
+      const list = map.get(row.idea_id) ?? [];
+      list.push({ id: row.profile_id, name: row.assignee_name });
+      map.set(row.idea_id, list);
+    }
+    return map;
+  }
+
+  /**
+   * Replace the people an idea is assigned to (an empty list clears it).
+   * Goes through `fn_improvement_set_assignees`, which is the authority on who
+   * may do this: a board manager at any stage, or the owner of the idea's
+   * department once it is approved. It also writes the timeline row and
+   * notifies everyone newly added.
+   */
+  static async setAssignees(ideaId: string, profileIds: string[]): Promise<void> {
+    const supabase = this.getSupabase();
+    const { error } = await (supabase as any).rpc('fn_improvement_set_assignees', {
+      p_idea_id: ideaId,
+      p_profile_ids: profileIds
+    });
+    if (error) {
+      logger.error(MODULE, 'Error assigning people to an idea', error);
+      throw new Error(error.message || 'Failed to assign people to this idea.');
+    }
+  }
+
+  /**
+   * Search for people to assign. Server-side on purpose — a department owner
+   * usually cannot read other people's profiles directly.
+   */
+  static async searchAssignableUsers(
+    term: string
+  ): Promise<{ users: ImprovementAssignableUser[]; needsQuery: boolean; minQuery: number }> {
+    const response = await fetch(
+      `/api/improvement/assignable-users?q=${encodeURIComponent(term)}`
+    );
+    if (!response.ok) {
+      throw new Error(
+        response.status === 403
+          ? 'You are not allowed to assign people to improvement ideas.'
+          : `The search failed (the server returned ${response.status}).`
+      );
+    }
+    const body = (await response.json()) as {
+      users?: ImprovementAssignableUser[];
+      needs_query?: boolean;
+      min_query?: number;
+    };
+    return {
+      users: body.users ?? [],
+      needsQuery: body.needs_query ?? false,
+      minQuery: typeof body.min_query === 'number' ? body.min_query : 3
+    };
+  }
+
   /** Active areas for the picker/filter, ordered for display. */
   static async listAreas(): Promise<ImprovementArea[]> {
     const supabase = this.getSupabase();
@@ -265,17 +365,21 @@ export class ImprovementService {
       if (ideas.length === 0) return [];
 
       // Authors and resolvers resolve in ONE batched profile lookup.
-      const [areaMap, personMap, rankMap] = await Promise.all([
+      const [areaMap, personMap, rankMap, assigneeMap] = await Promise.all([
         this.areaLabelMap(ideas.map((i) => i.area_id)),
         this.fetchProfileNames([
           ...ideas.map((i) => i.author_id),
           ...ideas.map((i) => i.resolved_by),
           ...ideas.map((i) => i.assignee_id ?? null)
         ]),
-        this.fetchLatestRankings(ideas.map((i) => i.id))
+        this.fetchLatestRankings(ideas.map((i) => i.id)),
+        this.fetchAssigneesByIdea()
       ]);
 
-      return ideas.map((i) => this.enrichIdea(i, areaMap, personMap, rankMap));
+      return ideas.map((i) => ({
+        ...this.enrichIdea(i, areaMap, personMap, rankMap),
+        assignees: assigneeMap.get(i.id) ?? []
+      }));
     } catch (error) {
       logger.error(MODULE, 'Error fetching ideas', error);
       return [];

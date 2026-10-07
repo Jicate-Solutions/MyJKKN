@@ -64,6 +64,12 @@ import {
   STATUS_BADGE_CLASS,
   ALLOWED_MANAGER_TRANSITIONS
 } from './board-constants';
+import { IdeaAssigneesEditor } from './idea-assignees-editor';
+import type { ImprovementIdeaAssignee } from '@/lib/services/improvement/improvement-service';
+
+/** Stable empty list, so the editor's "reset when the saved list changes"
+ *  effect does not fire on every render of an unassigned idea. */
+const NO_ASSIGNEES: ImprovementIdeaAssignee[] = [];
 
 /** The statuses `fn_improvement_set_resolution` accepts. Kept in sync with the
  *  RPC by hand — the RPC is the authority and will refuse anything else. */
@@ -83,7 +89,24 @@ interface IdeaDetailDialogProps {
   onChanged: () => void;
   /** Who the idea is with — its assignee and its department's owners. */
   assignedTo?: string[];
+  /**
+   * The viewer owns this idea's department. An owner decides an idea that is
+   * under review, and assigns people once it is approved — the RPCs enforce
+   * both; this only decides which controls to offer.
+   */
+  isAreaOwner?: boolean;
 }
+
+/** What a department owner may do with an idea under review. A subset of the
+ *  RPC's own owner path — keep the two together. */
+const OWNER_DECISIONS: ImprovementIdeaStatus[] = [
+  'approved',
+  'not_pursued',
+  'rejected'
+];
+
+/** Stages at which a department owner may assign people. */
+const OWNER_ASSIGN_STATUSES: ImprovementIdeaStatus[] = ['approved', 'applied'];
 
 /** "6 Aug 2026, 2:47 pm" — one readable format for every timestamp here. */
 function formatWhen(iso: string): string {
@@ -100,7 +123,8 @@ export function IdeaDetailDialog({
   canManage,
   currentUserId,
   onChanged,
-  assignedTo = []
+  assignedTo = [],
+  isAreaOwner = false
 }: IdeaDetailDialogProps) {
   const [activity, setActivity] = useState<ImprovementIdeaActivityEnriched[]>([]);
   const [loadingActivity, setLoadingActivity] = useState(false);
@@ -174,7 +198,13 @@ export function IdeaDetailDialog({
 
   if (!idea) return null;
 
-  const targets = ALLOWED_MANAGER_TRANSITIONS[idea.status] || [];
+  const targets = canManage
+    ? ALLOWED_MANAGER_TRANSITIONS[idea.status] || []
+    : isAreaOwner && idea.status === 'under_review'
+      ? OWNER_DECISIONS
+      : [];
+  const canAssign =
+    canManage || (isAreaOwner && OWNER_ASSIGN_STATUSES.includes(idea.status));
 
   const handleMove = async () => {
     if (!moveTarget || busy) return;
@@ -483,10 +513,24 @@ export function IdeaDetailDialog({
             )}
           </div>
 
-          {/* Manager actions */}
-          {canManage && targets.length > 0 && (
+          {/* Who carries it out — a manager at any stage, the owner once approved. */}
+          {canAssign && (
+            <IdeaAssigneesEditor
+              ideaId={idea.id}
+              current={idea.assignees ?? NO_ASSIGNEES}
+              onSaved={() => {
+                onOpenChange(false);
+                onChanged();
+              }}
+            />
+          )}
+
+          {/* Review actions — a manager's, or a department owner's decision. */}
+          {targets.length > 0 && (
             <div className="space-y-4 rounded-xl border border-emerald-200 bg-gradient-to-br from-emerald-50 to-sky-50 p-4 dark:border-emerald-900 dark:from-emerald-950/40 dark:to-sky-950/40">
-              <p className="text-sm font-semibold">Review actions</p>
+              <p className="text-sm font-semibold">
+                {canManage ? 'Review actions' : 'Your decision'}
+              </p>
               <div className="grid gap-3 sm:grid-cols-[14rem_1fr]">
                 <div className="space-y-1.5">
                   <Label htmlFor="idea-move-target" className="text-xs">
@@ -527,25 +571,33 @@ export function IdeaDetailDialog({
                 </div>
               </div>
               <div className="flex flex-wrap items-end justify-between gap-3 border-t pt-3">
-                <div className="flex items-end gap-2">
-                  <div className="space-y-1.5">
-                    <Label htmlFor="idea-score" className="text-xs">
-                      Score
-                    </Label>
-                    <Input
-                      id="idea-score"
-                      type="number"
-                      step="0.1"
-                      value={scoreInput}
-                      onChange={(e) => setScoreInput(e.target.value)}
-                      className="bg-background w-28"
-                      placeholder="0-100"
-                    />
+                {/* Scoring is a board manager's call, not an owner's. */}
+                {canManage ? (
+                  <div className="flex items-end gap-2">
+                    <div className="space-y-1.5">
+                      <Label htmlFor="idea-score" className="text-xs">
+                        Score
+                      </Label>
+                      <Input
+                        id="idea-score"
+                        type="number"
+                        step="0.1"
+                        value={scoreInput}
+                        onChange={(e) => setScoreInput(e.target.value)}
+                        className="bg-background w-28"
+                        placeholder="0-100"
+                      />
+                    </div>
+                    <Button variant="outline" onClick={handleScore} disabled={busy || scoreInput === ''}>
+                      Save score
+                    </Button>
                   </div>
-                  <Button variant="outline" onClick={handleScore} disabled={busy || scoreInput === ''}>
-                    Save score
-                  </Button>
-                </div>
+                ) : (
+                  <p className="text-muted-foreground max-w-sm text-xs">
+                    Approve it to take it on — you then pick the people who will
+                    carry it out.
+                  </p>
+                )}
                 <Button onClick={handleMove} disabled={!moveTarget || busy} className="h-10 w-full bg-gradient-to-r from-emerald-600 to-teal-600 text-white hover:from-emerald-700 hover:to-teal-700 sm:w-auto">
                   Apply move <ArrowRight className="ml-1 h-3.5 w-3.5" />
                 </Button>

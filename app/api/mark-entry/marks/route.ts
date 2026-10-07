@@ -135,6 +135,22 @@ export async function POST(request: NextRequest) {
       const errors = validateLearnerMarks(marks, questions, parts, record.component_max);
       for (const e of errors) issues.push(`${record.student_id}: ${e}`);
     }
+    // The round's other components (e.g. Assignment) ride in the same row as
+    // plain totals. They have no paper to validate against, so the checks are the
+    // ones a component total can fail: whole number, within its max.
+    for (const record of body.records) {
+      for (const [code, entry] of Object.entries(record.other_components ?? {})) {
+        const mark = Number(entry?.mark);
+        const max = Number(entry?.max);
+        if (code === record.component_code || code === 'attendance') {
+          issues.push(`${record.student_id}: ${code} cannot be sent as an other component`);
+        } else if (!Number.isInteger(mark) || mark < 0) {
+          issues.push(`${record.student_id}: ${code} mark must be a whole number, 0 or more`);
+        } else if (!(max > 0) || mark > max) {
+          issues.push(`${record.student_id}: ${code} mark (${mark}) exceeds its max (${max})`);
+        }
+      }
+    }
     if (issues.length) {
       return NextResponse.json({ error: 'Validation failed', details: issues }, { status: 400 });
     }
@@ -149,6 +165,33 @@ export async function POST(request: NextRequest) {
       const round = (settings ?? [])
         .flatMap((s) => s.cia_rounds ?? [])
         .find((r) => r.round === first.cia_round);
+      // Component limits come from the EXACT assessment the client named — two
+      // settings can share a round number with different components, so the
+      // round-number match below is good enough for the window but not for this.
+      const exactRound = (settings ?? [])
+        .find((s) => s.id === first.cia_setting_id)
+        ?.cia_rounds?.find((r) => r.round === first.cia_round);
+      if (exactRound) {
+        // The client's max is only a hint — the round's own setting is the limit.
+        const roundMax = new Map(
+          (exactRound.components ?? []).map((c) => [c.code, Number(c.max_marks) || 0])
+        );
+        const overMax: string[] = [];
+        for (const record of body.records) {
+          for (const [code, entry] of Object.entries(record.other_components ?? {})) {
+            const limit = roundMax.get(code);
+            if (limit == null) {
+              overMax.push(`${record.student_id}: ${code} is not a component of this round`);
+            } else if (limit > 0 && Number(entry.mark) > limit) {
+              overMax.push(`${record.student_id}: ${code} mark (${entry.mark}) exceeds its max (${limit})`);
+            }
+          }
+        }
+        if (overMax.length) {
+          return NextResponse.json({ error: 'Validation failed', details: overMax }, { status: 400 });
+        }
+      }
+
       if (round) {
         const { entryFrom, entryTo } = resolveRoundDates(round);
         const today = istToday();
@@ -174,9 +217,24 @@ export async function POST(request: NextRequest) {
     // breakdown rides alongside in question_marks.
     const syncRecords = body.records.map((record) => {
       const block = record.question_marks?.[record.component_code];
-      // Display/logging value only — COE re-derives the component total from the
-      // breakdown and ignores whatever arrives in the column.
-      const total = record.is_absent ? 0 : sumMarks(block?.marks ?? {});
+      const hasQuestionMarks = !record.is_absent && Object.keys(block?.marks ?? {}).length > 0;
+      // What this write puts in the paper's component:
+      //   absent           → 0 (and the breakdown is cleared)
+      //   question marks   → their sum (COE re-derives it from the breakdown anyway)
+      //   neither          → null: this row only carries other components, so the
+      //                      paper's component and its breakdown are NOT touched.
+      const componentTotal = record.is_absent
+        ? 0
+        : hasQuestionMarks
+          ? sumMarks(block?.marks ?? {})
+          : null;
+      const others = Object.entries(record.other_components ?? {});
+      const othersTotal = others.reduce((sum, [, entry]) => sum + Number(entry.mark), 0);
+      // Round total = the paper's component + every other component. When the
+      // component is not being written, its saved total is carried in so the
+      // stored total does not silently lose it.
+      const total =
+        (componentTotal ?? (Number(record.carried_component_total) || 0)) + othersTotal;
       const fields = componentFields(record.component_code);
 
       const base: Record<string, unknown> = {
@@ -199,25 +257,51 @@ export async function POST(request: NextRequest) {
         // Absent: grade 'AAA', zeroed component, and NO question_marks key —
         // omitting it is what makes COE clear a previously saved breakdown.
         base.grade = ABSENT_GRADE;
-      } else {
+      } else if (hasQuestionMarks) {
         base.question_marks = record.question_marks;
       }
 
-      if (fields) {
-        base[fields.markField] = total;
-        base[fields.maxField] = record.component_max;
-      } else {
-        // A custom (end-user-defined) component lives in the extra_marks JSONB.
-        base.extra_marks = { [record.component_code]: total };
-        base.extra_marks_max = { [record.component_code]: record.component_max };
+      if (componentTotal !== null) {
+        if (fields) {
+          base[fields.markField] = componentTotal;
+          base[fields.maxField] = record.component_max;
+        } else {
+          // A custom (end-user-defined) component lives in the extra_marks JSONB.
+          base.extra_marks = { [record.component_code]: componentTotal };
+          base.extra_marks_max = { [record.component_code]: record.component_max };
+        }
+      }
+
+      for (const [code, entry] of others) {
+        const otherFields = componentFields(code);
+        if (otherFields) {
+          base[otherFields.markField] = Number(entry.mark);
+          base[otherFields.maxField] = Number(entry.max);
+        } else {
+          base.extra_marks = {
+            ...(base.extra_marks as Record<string, number>),
+            [code]: Number(entry.mark),
+          };
+          base.extra_marks_max = {
+            ...(base.extra_marks_max as Record<string, number>),
+            [code]: Number(entry.max),
+          };
+        }
       }
 
       // "Marks go to" was re-pointed after an earlier save: zero the component we
       // are moving away from. COE upserts field-by-field, so an untouched old
       // component would otherwise keep its previous total forever — a number no
       // screen would ever show as wrong, but every report would still add up.
+      // Skipped when that component now arrives as an other component: the user
+      // is stating its value outright, and zeroing it here would contradict both
+      // the screen and the total computed above.
       const clearCode = record.clear_component_code;
-      if (clearCode && clearCode !== record.component_code) {
+      if (
+        clearCode &&
+        clearCode !== record.component_code &&
+        !(clearCode in (record.other_components ?? {}))
+      ) {
         const clearFields = componentFields(clearCode);
         if (clearFields) {
           base[clearFields.markField] = 0;
