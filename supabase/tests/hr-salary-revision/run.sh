@@ -152,7 +152,7 @@ mutate "M12 nothing is written before the start date" \
   's/^     WHERE status = '"'"'approved'"'"' AND starts_on <= p_today/     WHERE status = '"'"'approved'"'"'/' \
   'nothing is written before the start date'
 mutate "M13 the person is told only after a yes (outcome row)" \
-  '/^  INSERT INTO public.hr_salary_revision_outcomes$/,/^  VALUES \(p_request_id, v_r.staff_id/d' \
+  '/^  INSERT INTO public.hr_salary_revision_outcomes$/,/^         starts_on = EXCLUDED.starts_on;$/d' \
   'the person sees their own outcome after the yes'
 mutate "M14 anon locked out of the ask function" \
   '/^REVOKE EXECUTE ON FUNCTION public.fn_hr_salary_revision_propose\(uuid, numeric, text\) FROM anon, PUBLIC;/d' \
