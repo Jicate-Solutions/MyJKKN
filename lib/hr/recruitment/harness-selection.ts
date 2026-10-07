@@ -167,6 +167,45 @@ export interface SentNudge {
   kind: NudgeKind;
   ref_key: string;
   sent_at: string;
+  /** Row id — present when read by the runner; the selection rules ignore it. */
+  id?: string;
+  /** Set once the send landed; NULL on a claim whose send never finished. */
+  notification_id?: string | null;
+  /** {} = the nudge fell due and found nobody to tell (a terminal record). */
+  recipient_ids?: string[] | null;
+}
+
+/**
+ * A claim older than this with people to tell and no notification recorded is a
+ * send that never finished (the run was killed between the claim and the send).
+ * Comfortably longer than the route's 120-second maxDuration, so a run still in
+ * progress never has its own claims taken away.
+ */
+export const STALE_CLAIM_MINUTES = 15;
+
+/**
+ * Claims to re-arm: the run that wrote them died before the send landed, so
+ * nobody was told — but the UNIQUE (kind, ref_key) row would block every later
+ * run from trying again (review of #4149, finding 3). Releasing them lets the
+ * selection pick the nudge up again if it is still due. A re-send is safe: the
+ * notification carries the same idempotency key, so a send that DID land before
+ * the run died is found, not duplicated.
+ *
+ * Never re-armed: a row with recipient_ids = {} (it found nobody — that row is the
+ * record which starts the HR Head's 48-hour clock), a row with a notification, a
+ * row younger than STALE_CLAIM_MINUTES, or one whose sent_at cannot be read.
+ */
+export function staleUnsentClaims(rows: SentNudge[], now: Date): string[] {
+  const cutoff = now.getTime() - STALE_CLAIM_MINUTES * 60 * 1000;
+  const out: string[] = [];
+  for (const r of rows) {
+    if (!r.id || r.notification_id) continue;
+    if (!Array.isArray(r.recipient_ids) || r.recipient_ids.length === 0) continue;
+    const t = Date.parse(r.sent_at ?? '');
+    if (Number.isNaN(t) || t > cutoff) continue;
+    out.push(r.id);
+  }
+  return out;
 }
 
 export interface Nudge {
