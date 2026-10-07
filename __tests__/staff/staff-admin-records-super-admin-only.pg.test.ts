@@ -15,6 +15,9 @@
  *   -> 20260422000004 (mirror_staff_role_to_user_roles)
  *   -> 20250127 (create_preregistered_profile)
  *   -> 20260819180000 (fn_course_backfill_participant_email)
+ *   -> production's own bodies of sync_staff_to_profiles,
+ *      sync_learner_email_to_profile and create_preregistered_profile (round
+ *      15: production runs newer bodies than the repo copies; fixtures/live-*.sql)
  *   -> 20271007170139 (this fix): first against drifted copies of the functions
  *   it replaces (body, SECURITY DEFINER flag, settings: it must abort and create
  *   nothing), then twice for real (it must be safe to re-run).
@@ -44,6 +47,15 @@ const BASE_CHAIN = [
 // (no migration defines it), so the test installs a copy of that body.
 const LEARNER_MAIN = path.join(__dirname, 'fixtures', 'main-sync-learner-email-to-profile.sql');
 const SYNC_MAIN = BASE_CHAIN[2];
+const PREREG_MAIN = BASE_CHAIN[4];
+// Round 15: production's bodies (pg_get_functiondef, read 2026-10-07) of the
+// three functions whose live copy differs from the repo's. The rehearsal
+// starts from these, as the migration will on production.
+const LIVE = {
+  sync: path.join(__dirname, 'fixtures', 'live-sync-staff-to-profiles.sql'),
+  learner: path.join(__dirname, 'fixtures', 'live-sync-learner-email-to-profile.sql'),
+  prereg: path.join(__dirname, 'fixtures', 'live-create-preregistered-profile.sql'),
+};
 const FIX = mig('20271007170139_staff_admin_records_super_admin_only.sql');
 const PGHOST = process.env.STAFF_ADMIN_TEST_PGHOST ?? 'localhost';
 const PGPORT = process.env.STAFF_ADMIN_TEST_PGPORT ?? '5432';
@@ -160,7 +172,10 @@ INSERT INTO public.custom_roles (role_key, is_privileged) VALUES
   ('super_admin', true), ('administrator', true), ('ceo', true),
   ('hr_head', false), ('faculty', false), ('hod', false),
   -- trusted by NAME in is_admin(), whatever its flag says
-  ('admin', false);
+  ('admin', false),
+  -- as on production (20260828150000 flagged it): a guest holds it, yet it
+  -- confers no admin powers (roles.without_admin_powers, round 15)
+  ('guest', true);
 INSERT INTO public.custom_roles (role_key, permissions) VALUES
   ('course_coordinator', '{"courses.applications.decide": true}'),
   -- may write learner records (learners_profiles policies)
@@ -188,9 +203,12 @@ INSERT INTO auth.users (id, email)
 INSERT INTO auth.users (id, email) VALUES ('${QHR}', 'qhr.auth@gmail.com'), ('${DECIDER}', 'decider@jkkn.ac.in'),
   ('${EXT}', NULL), ('${EXTADMIN}', NULL);
 CREATE TABLE public.platform_policies (
-  policy_key text, value jsonb, scope_type text, scope_id uuid, is_active boolean);
-INSERT INTO public.platform_policies VALUES
+  policy_key text, value jsonb, scope_type text, scope_id uuid, is_active boolean,
+  description text, data_type text NOT NULL DEFAULT 'object', is_system boolean DEFAULT false);
+INSERT INTO public.platform_policies (policy_key, value, scope_type, scope_id, is_active) VALUES
   ('platform.the_director_profile_ids', '["${DIRECTOR}"]', 'global', NULL, true);
+-- Principals and administrators may write policy rows on production (RLS).
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.platform_policies TO authenticated, service_role;
 -- Salary revisions (20270519090000), the columns the identity check reads.
 CREATE TABLE public.hr_salary_revision_requests (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(), staff_id uuid, status text);
@@ -329,6 +347,7 @@ beforeAll(async () => {
   psql(['-d', DBNAME, '-c', PRELUDE]);
   for (const f of BASE_CHAIN) psql(['-d', DBNAME, '-f', f]);
   psql(['-d', DBNAME, '-f', LEARNER_MAIN]);
+  for (const f of Object.values(LIVE)) psql(['-d', DBNAME, '-f', f]);
   psql(['-d', DBNAME, '-c', SYNC_TRIGGER]);
 
   // Drift: a copy that differs from main (body, SECURITY DEFINER flag or
@@ -341,9 +360,19 @@ beforeAll(async () => {
   tamper('syncSettings', 'sync_staff_to_profiles()',
     `ALTER FUNCTION public.sync_staff_to_profiles() SET search_path TO 'public', 'pg_temp'`,
     () => psql(['-d', DBNAME, '-c', `ALTER FUNCTION public.sync_staff_to_profiles() SET search_path TO 'public'`]));
+  // Round 15: the REPO bodies are drift too: production runs newer ones.
+  const learnerRepo = readFileSync(LEARNER_MAIN, 'utf8');
+  tamper('syncRepoBody', 'sync_staff_to_profiles()', readFileSync(SYNC_MAIN, 'utf8'),
+    () => psql(['-d', DBNAME, '-f', LIVE.sync]));
+  tamper('learnerRepoBody', 'sync_learner_email_to_profile()',
+    learnerRepo.slice(0, learnerRepo.indexOf('CREATE TRIGGER')),
+    () => psql(['-d', DBNAME, '-f', LIVE.learner]));
+  tamper('preregRepoBody', 'create_preregistered_profile(uuid,text,text,text,text,uuid,uuid)',
+    readFileSync(PREREG_MAIN, 'utf8'),
+    () => psql(['-d', DBNAME, '-f', LIVE.prereg]));
   tamper('syncBody', 'sync_staff_to_profiles()',
-    readFileSync(SYNC_MAIN, 'utf8').replace('Priority 1: durable FK', 'Priority one: durable FK'),
-    () => psql(['-d', DBNAME, '-f', SYNC_MAIN]));
+    readFileSync(LIVE.sync, 'utf8').replace('Role write is gated', 'Role write is Gated'),
+    () => psql(['-d', DBNAME, '-f', LIVE.sync]));
   tamper('guardDefiner', 'fn_staff_guard_role_key()',
     `ALTER FUNCTION public.fn_staff_guard_role_key() SECURITY INVOKER`,
     () => psql(['-d', DBNAME, '-c', `ALTER FUNCTION public.fn_staff_guard_role_key() SECURITY DEFINER`]));
@@ -400,6 +429,28 @@ describe('the file\'s own fingerprints: header, drift table and bodies agree', (
   }
 });
 
+describe('the drift table expects production\'s bodies where they differ from the repo (round 15)', () => {
+  const src = readFileSync(FIX, 'utf8');
+  const bodyMd5 = (text: string) => {
+    const body = text.match(/\bAS (\$\w*\$)([\s\S]*?)\1/)![2];
+    return createHash('md5').update(body.replace(/\r/g, '').replace(/^[ \t\n]+|[ \t\n]+$/g, '')).digest('hex');
+  };
+  for (const [fn, file, live] of [
+    ['sync_staff_to_profiles', LIVE.sync, '38db608c51da195bfbb513f5546a848d'],
+    ['sync_learner_email_to_profile', LIVE.learner, '211bf07bc530c50badcb27c04f338ac6'],
+    ['create_preregistered_profile', LIVE.prereg, '4034ea9d86315fc91c9b4e78c6b0af00'],
+  ]) {
+    it(fn, () => {
+      const before = src.match(new RegExp(`\\('public\\.${fn}\\([^']*',\\n\\s*'([0-9a-f]{32})'`))![1];
+      const header = src.slice(src.indexOf('Expected on production BEFORE applying'), src.indexOf('The ones this file installs'));
+      const inHeader = header.slice(header.indexOf(`${fn}(`)).match(/body md5 ([0-9a-f]{32})/)![1];
+      // the fixture is production's body, as read with the header's query
+      expect(bodyMd5(readFileSync(file, 'utf8'))).toBe(live);
+      expect({ drift_table: before, header: inHeader }).toEqual({ drift_table: live, header: live });
+    });
+  }
+});
+
 // The mutation runner (supabase/tests/staff-admin-powers/run-mutations.mjs)
 // mutates the migration alone; it skips this block so a mutant is caught by
 // behaviour, not by the copy differing. It has its own mutant for the copy.
@@ -422,7 +473,8 @@ describe.skipIf(!!process.env.STAFF_ADMIN_MUTATION_RUN)('the setup copy (supabas
 });
 
 describe('drift check: the file changes nothing when a function it replaces differs from main', () => {
-  for (const key of ['syncSettings', 'syncBody', 'guardDefiner', 'mirror', 'prereg', 'backfill', 'learner']) {
+  for (const key of ['syncSettings', 'syncBody', 'guardDefiner', 'mirror', 'prereg', 'backfill', 'learner',
+                     'syncRepoBody', 'learnerRepoBody', 'preregRepoBody']) {
     it(`${key}: aborts, names the function, creates nothing`, () => {
       const d = drift[key];
       expect(d.error).toContain(`Drift: public.${d.sig}`);
@@ -1705,5 +1757,148 @@ describe('the helpers', () => {
     ]) {
       expect((await as(null, sql, 'anon')).error, sql).toMatch(/permission denied/);
     }
+  });
+});
+
+describe('round 15: production\'s own bodies are the starting point', () => {
+  const profile = (who: string) => `SELECT role, full_name FROM public.profiles WHERE id = '${who}'`;
+
+  it('a relink that keeps the role does not rewrite the profile role (production\'s rule); the rest of the row is copied', async () => {
+    const target = id(150);
+    const r = await asOwner([
+      `INSERT INTO public.profiles (id, email, role) VALUES ('${target}', 'relink.target@jkkn.ac.in', 'hod')`,
+      `UPDATE public.staff SET profile_id = '${target}', institution_email = 'relink.target@jkkn.ac.in' WHERE id = '${S_PLAIN}'`,
+      profile(target),
+    ]);
+    expect(r.error).toBeNull();
+    expect(r.rows[0]).toEqual({ role: 'hod', full_name: 'PLAIN X' });
+  });
+
+  it('a relink that changes the role, and a new row, still write it', async () => {
+    const target = id(151);
+    let r = await asOwner([
+      `INSERT INTO public.profiles (id, email, role) VALUES ('${target}', 'relink.two@jkkn.ac.in', 'faculty')`,
+      `UPDATE public.staff SET profile_id = '${target}', institution_email = 'relink.two@jkkn.ac.in', role_key = 'hod' WHERE id = '${S_PLAIN}'`,
+      profile(target),
+    ]);
+    expect(r.error).toBeNull();
+    expect(r.rows[0]).toEqual({ role: 'hod', full_name: 'PLAIN X' });
+    r = await asOwner([
+      `INSERT INTO public.profiles (id, email, role) VALUES ('${target}', 'new.row@jkkn.ac.in', 'faculty')`,
+      `INSERT INTO public.staff (first_name, role_key, institution_email) VALUES ('NEWROW', 'hod', 'new.row@jkkn.ac.in')`,
+      profile(target),
+    ]);
+    expect(r.error).toBeNull();
+    expect(r.rows[0]).toEqual({ role: 'hod', full_name: 'NEWROW X' });
+  });
+});
+
+describe('round 15: a guest holds a privileged role that confers no admin powers', () => {
+  const POLICY = 'roles.without_admin_powers';
+  const CONFIG_MSG = /Only a super admin can change which roles confer no admin powers\./;
+  const setList = (list: string) =>
+    `UPDATE public.platform_policies SET value = '${list}'::jsonb WHERE policy_key = '${POLICY}' RETURNING policy_key`;
+
+  it('the config row is seeded with guest; giving guest is still privileged, holding it is not admin powers', async () => {
+    const r = await as(HR, `SELECT (SELECT value FROM public.platform_policies WHERE policy_key = '${POLICY}') AS list,
+                                   public.fn_staff_role_key_is_privileged('guest') AS give,
+                                   public.fn_role_key_confers_admin_powers('guest') AS hold,
+                                   public.fn_role_key_confers_admin_powers('ceo') AS ceo,
+                                   public.fn_staff_link_has_admin_powers('${GUEST}', NULL) AS guest_by_id,
+                                   public.fn_staff_link_has_admin_powers(NULL, 'guest.one@gmail.com') AS guest_by_email`);
+    expect(r.error).toBeNull();
+    expect(r.rows[0]).toEqual({ list: ['guest'], give: true, hold: false, ceo: true, guest_by_id: false, guest_by_email: false });
+  });
+
+  it('HR Head may still edit a guest: status, college, roles (not their own)', async () => {
+    expect((await as(HR, `UPDATE public.profiles SET is_active = false, institution_id = '${MACHINE}' WHERE id = '${GUEST}' RETURNING id`)).error)
+      .toBeNull();
+    expect((await as(HR, `INSERT INTO public.user_roles (user_id, role_id)
+                            SELECT '${GUEST}', id FROM public.custom_roles WHERE role_key = 'faculty' RETURNING id`)).error).toBeNull();
+    expect((await as(HR, `DELETE FROM public.user_roles WHERE user_id = '${GUEST}' RETURNING id`)).error).toBeNull();
+    // and a learner record linked to a guest's account by ordinary staff
+    expect((await as(HR, `UPDATE public.profiles SET role = 'student' WHERE id = '${GUEST}' RETURNING id`)).error).toBeNull();
+  });
+
+  it('giving the guest role is still super admin only', async () => {
+    expect((await as(HR, `INSERT INTO public.user_roles (user_id, role_id)
+                            SELECT '${PLAIN}', id FROM public.custom_roles WHERE role_key = 'guest' RETURNING id`)).error).toMatch(ROLE_MSG);
+    expect((await as(HR, `UPDATE public.profiles SET role = 'guest' WHERE id = '${PLAIN}' RETURNING id`)).error).toMatch(ROLE_MSG);
+    expect((await as(HR, setRole(S_PLAIN, 'guest'))).error).toMatch(/Only a super administrator can assign the role "guest"/);
+  });
+
+  it('only a super admin, the service role or a session with no user writes the config row', async () => {
+    expect((await as(HR, setList('["guest","ceo"]'))).error).toMatch(CONFIG_MSG);
+    expect((await as(ADMIN, `DELETE FROM public.platform_policies WHERE policy_key = '${POLICY}' RETURNING policy_key`)).error).toMatch(CONFIG_MSG);
+    expect((await as(ADMIN, `INSERT INTO public.platform_policies (policy_key, value, scope_type, scope_id, is_active)
+                              VALUES ('${POLICY}', '["ceo"]', 'global', NULL, true) RETURNING policy_key`)).error).toMatch(CONFIG_MSG);
+    expect((await as(SUPER, setList('["guest","ceo"]'))).error).toBeNull();
+    expect((await as(null, setList('["guest","ceo"]'), 'service_role')).error).toBeNull();
+    // other policy rows are not this guard's business
+    expect((await as(HR, `UPDATE public.platform_policies SET is_active = true WHERE policy_key = 'platform.the_director_profile_ids' RETURNING policy_key`)).error)
+      .toBeNull();
+  });
+
+  it('the row is read: a listed role stops conferring admin powers, an inactive row lists nothing, and the trusted names always confer them', async () => {
+    const r = await asOwner([
+      setList('["guest","ceo","administrator","admin","super_admin"]'),
+      `SELECT public.fn_staff_link_has_admin_powers('${HIDDEN}', NULL) AS ceo_holder,
+              public.fn_staff_link_has_admin_powers('${ADMIN}', NULL) AS administrator,
+              public.fn_staff_record_has_admin_powers('${S_ROLEONLY}') AS administrator_record,
+              public.fn_role_key_confers_admin_powers('super_admin') AS super_admin`,
+    ]);
+    expect(r.error).toBeNull();
+    expect(r.rows[0]).toEqual({ ceo_holder: false, administrator: true, administrator_record: true, super_admin: true });
+    const off = await asOwner([
+      `UPDATE public.platform_policies SET is_active = false WHERE policy_key = '${POLICY}'`,
+      `SELECT public.fn_staff_link_has_admin_powers('${GUEST}', NULL) AS guest`,
+    ]);
+    expect(off.rows[0]).toEqual({ guest: true });
+  });
+
+  it('holding guest through user_roles or a team-member record is not admin powers either; only a global row counts', async () => {
+    const r = await asOwner([
+      `SET LOCAL session_replication_role = replica`,
+      `INSERT INTO public.user_roles (user_id, role_id) SELECT '${NEWBIE}', id FROM public.custom_roles WHERE role_key = 'guest'`,
+      `INSERT INTO public.staff (id, first_name, role_key, profile_id, institution_email) VALUES
+         ('${id(152)}', 'GUESTREC', 'guest', '${DIRECTOR}', 'director@jkkn.ac.in'),
+         ('${id(153)}', 'GUESTORPHAN', 'guest', NULL, 'guest.orphan@jkkn.ac.in')`,
+      `SET LOCAL session_replication_role = origin`,
+      // a non-global row for the same key is not read (only a super admin could write one)
+      `INSERT INTO public.platform_policies (policy_key, value, scope_type, scope_id, is_active)
+         VALUES ('roles.without_admin_powers', '["ceo"]', 'user', '${HR}', true)`,
+      `SELECT set_config('test.uid', '${HR}', true)`, 'SET LOCAL ROLE authenticated',
+      `SELECT public.fn_staff_link_has_admin_powers('${NEWBIE}', NULL) AS user_roles_guest,
+              public.fn_staff_link_has_admin_powers('${DIRECTOR}', NULL) AS record_guest,
+              public.fn_staff_link_has_admin_powers(NULL, 'guest.orphan@jkkn.ac.in') AS unlinked_guest_record,
+              public.fn_staff_record_has_admin_powers('${id(152)}') AS record_own_role,
+              public.fn_staff_link_has_admin_powers('${HIDDEN}', NULL) AS ceo_holder`,
+    ]);
+    expect(r.error).toBeNull();
+    expect(r.rows[0]).toEqual({ user_roles_guest: false, record_guest: false, unlinked_guest_record: false,
+      record_own_role: false, ceo_holder: true });
+  });
+
+  it('the role mirror still cannot hand out guest', async () => {
+    const r = await asOwner([
+      `SET LOCAL session_replication_role = replica`,
+      `UPDATE public.staff SET role_key = 'guest' WHERE id = '${S_PLAIN}'`,
+      `SET LOCAL session_replication_role = origin`,
+      `SELECT set_config('test.uid', '${HR}', true)`, 'SET LOCAL ROLE authenticated',
+      `SELECT public.mirror_staff_role_to_user_roles('${PLAIN}', 'guest')`,
+    ]);
+    expect(r.error).toMatch(ROLE_MSG);
+  });
+
+  it('HR may take a guest role off a team-member record (it confers no admin powers)', async () => {
+    const r = await asOwner([
+      `SET LOCAL session_replication_role = replica`,
+      `UPDATE public.staff SET role_key = 'guest' WHERE id = '${S_PLAIN}'`,
+      `SET LOCAL session_replication_role = origin`,
+      `SELECT set_config('test.uid', '${HR}', true)`, 'SET LOCAL ROLE authenticated',
+      `UPDATE public.staff SET role_key = 'faculty' WHERE id = '${S_PLAIN}' RETURNING id`,
+    ]);
+    expect(r.error).toBeNull();
+    expect(r.rowCount).toBe(1);
   });
 });

@@ -29,6 +29,7 @@ const m = vi.hoisted(() => ({
   profiles: [] as Array<Record<string, unknown>>,
   answers: {} as Record<string, string>,
   adminEmails: new Set<string>(),
+  superAdmin: false,
 }));
 
 const f = vi.hoisted(() => {
@@ -63,7 +64,7 @@ const f = vi.hoisted(() => {
         const email = String(args.p_email ?? args.p_institution_email ?? '').trim().toLowerCase();
         if (fn === 'fn_learner_email_refusal') return { data: m.answers[email] ?? null, error: null };
         if (fn === 'fn_staff_link_has_admin_powers') return { data: m.adminEmails.has(email), error: null };
-        if (fn === 'is_super_admin') return { data: false, error: null };
+        if (fn === 'is_super_admin') return { data: m.superAdmin, error: null };
         return { data: true, error: null };
       },
       auth: {
@@ -141,6 +142,7 @@ beforeEach(() => {
   m.profiles = [];
   m.answers = { ...ANSWERS };
   m.adminEmails = new Set(['admin@jkkn.ac.in']);
+  m.superAdmin = false;
 });
 
 const editRow = (rowNumber: number, college_email: string) => ({
@@ -208,6 +210,8 @@ describe('BulkLearnerUploadService.processBulkUpload', () => {
 describe('BulkLearnerUploadService: a row for a learner who already exists', () => {
   it('keeps the email on file, so it is not refused on re-upload (a team member who is also studying here)', async () => {
     m.learners = [{ id: 'existing-9', college_email: 'old.learner@jkkn.ac.in' }];
+    // the profile holding that email is already this learner's
+    m.profiles = [{ id: 'p-9', email: 'old.learner@jkkn.ac.in', learner_id: 'existing-9' }];
     m.answers['old.learner@jkkn.ac.in'] = 'refused'; // the email is also on a team-member record
     const LEARNER = {
       first_name: 'A', last_name: 'B', student_mobile: '1', institution_id: 'inst-1', department_id: null,
@@ -223,6 +227,60 @@ describe('BulkLearnerUploadService: a row for a learner who already exists', () 
     expect(m.rpcCalls).toContainEqual({
       fn: 'fn_staff_link_has_admin_powers', args: { p_profile_id: null, p_institution_email: 'old.learner@jkkn.ac.in' },
     });
+  });
+});
+
+describe('BulkLearnerUploadService: an existing learner record carrying the uploader\'s own email (round 15)', () => {
+  const LEARNER = {
+    first_name: 'A', last_name: 'B', student_mobile: '1', institution_id: 'inst-2', department_id: null,
+    gender: 'male', lifecycle_status: 'active', is_profile_complete: true,
+  };
+  const upload = (email: string) => BulkLearnerUploadService.processBulkUpload(
+    [{ rowNumber: 2, data: { ...LEARNER, college_email: email }, validation: { isValid: true, errors: [], warnings: [] } }] as never,
+    'caller-1', f.session(),
+  );
+
+  it('is refused when the profile holding the email is not linked to that learner (the uploader\'s own), and no profile is rewritten', async () => {
+    m.learners = [{ id: 'existing-7', college_email: 'hr@jkkn.ac.in' }];
+    // a profile holding the uploader's sign-in email that is not their own account
+    m.profiles = [{ id: 'p-hr-old', email: 'hr@jkkn.ac.in', learner_id: null }];
+    const result = await upload('hr@jkkn.ac.in');
+    expect(result.errors.map((e: { row: number; error: string }) => [e.row, e.error])).toEqual([[2, SELF]]);
+    expect(m.rpcCalls).toContainEqual({ fn: 'fn_learner_email_refusal', args: { p_email: 'hr@jkkn.ac.in', p_learner_id: 'existing-7' } });
+    expect(m.writes.filter((w) => w.table === 'profiles')).toEqual([]);
+    expect(m.writes.filter((w) => w.table === 'learners_profiles')).toEqual([]);
+  });
+
+  it('…also when one of two profiles holding it is linked to the learner and the other is not', async () => {
+    m.learners = [{ id: 'existing-7', college_email: 'hr@jkkn.ac.in' }];
+    m.profiles = [{ id: 'p-7', email: 'hr@jkkn.ac.in', learner_id: 'existing-7' },
+                  { id: 'p-hr-old', email: 'hr@jkkn.ac.in', learner_id: null }];
+    const result = await upload('hr@jkkn.ac.in');
+    expect(result.errors.map((e: { row: number; error: string }) => e.error)).toEqual([SELF]);
+  });
+
+  it('is refused when the uploader\'s own profile holds it, even linked to that very learner (their own row, another college)', async () => {
+    m.learners = [{ id: 'existing-5', college_email: 'me.learner@jkkn.ac.in' }];
+    m.profiles = [{ id: 'caller-1', email: 'me.learner@jkkn.ac.in', learner_id: 'existing-5' }];
+    const result = await upload('me.learner@jkkn.ac.in');
+    expect(result.errors.map((e: { row: number; error: string }) => [e.row, e.error])).toEqual([[2, SELF]]);
+    expect(m.writes.filter((w) => w.table === 'profiles')).toEqual([]);
+    expect(m.writes.filter((w) => w.table === 'learners_profiles')).toEqual([]);
+  });
+
+  it('…unless the uploader is a super admin', async () => {
+    m.superAdmin = true;
+    m.learners = [{ id: 'existing-5', college_email: 'me.learner@jkkn.ac.in' }];
+    m.profiles = [{ id: 'caller-1', email: 'me.learner@jkkn.ac.in', learner_id: 'existing-5' }];
+    const result = await upload('me.learner@jkkn.ac.in');
+    expect(result.errors).toEqual([]);
+  });
+
+  it('…and when no profile holds it yet, the refusal still runs', async () => {
+    m.learners = [{ id: 'existing-8', college_email: 'plain@jkkn.ac.in' }];
+    m.profiles = [];
+    const result = await upload('plain@jkkn.ac.in');
+    expect(result.errors.map((e: { row: number; error: string }) => e.error)).toEqual([TEAM]);
   });
 });
 

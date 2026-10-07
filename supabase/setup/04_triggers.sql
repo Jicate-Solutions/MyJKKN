@@ -2426,33 +2426,10 @@ CREATE TRIGGER trg_staff_autonumber
 
 -- Only super admins may set or change a staff member's role. This is the
 -- control; the filtered dropdown in the staff form is only a courtesy.
--- Updated: 2026-10-01 - 20271007170139_staff_admin_records_super_admin_only.sql:
--- also fires on DELETE: deleting the record of someone with admin powers is
--- super admin only.
 DROP TRIGGER IF EXISTS trg_staff_guard_role_key ON public.staff;
 CREATE TRIGGER trg_staff_guard_role_key
-  BEFORE INSERT OR UPDATE OR DELETE ON public.staff
+  BEFORE INSERT OR UPDATE ON public.staff
   FOR EACH ROW EXECUTE FUNCTION public.fn_staff_guard_role_key();
-
--- Added: 2026-10-01 - 20271007170139_staff_admin_records_super_admin_only.sql:
--- role, super admin flag, status, college, email and delete of people with admin powers
--- are super admin only.
-DROP TRIGGER IF EXISTS trg_profiles_guard_admin_powers ON public.profiles;
-CREATE TRIGGER trg_profiles_guard_admin_powers
-  BEFORE INSERT OR UPDATE OR DELETE ON public.profiles
-  FOR EACH ROW EXECUTE FUNCTION public.fn_profiles_guard_admin_powers();
-
-DROP TRIGGER IF EXISTS trg_user_roles_guard_admin_powers ON public.user_roles;
-CREATE TRIGGER trg_user_roles_guard_admin_powers
-  BEFORE INSERT OR UPDATE OR DELETE ON public.user_roles
-  FOR EACH ROW EXECUTE FUNCTION public.fn_user_roles_guard_admin_powers();
-
--- Added: 2026-10-03 - 20271007170139: custom_roles is the source of every privilege;
--- non-super-admins may not flag, touch a privileged or a held role, or create one.
-DROP TRIGGER IF EXISTS trg_custom_roles_guard_admin_powers ON public.custom_roles;
-CREATE TRIGGER trg_custom_roles_guard_admin_powers
-  BEFORE INSERT OR UPDATE OR DELETE ON public.custom_roles
-  FOR EACH ROW EXECUTE FUNCTION public.fn_custom_roles_guard_admin_powers();
 
 -- =============================================================================
 -- Mirrored from supabase/migrations/20260828160000_staff_require_institution_email_for_login.sql
@@ -2967,3 +2944,39 @@ DROP TRIGGER IF EXISTS trg_hostel_blocks_seed_floors ON public.hostel_blocks;
 CREATE TRIGGER trg_hostel_blocks_seed_floors
   AFTER INSERT ON public.hostel_blocks
   FOR EACH ROW EXECUTE FUNCTION public.fn_hostel_blocks_seed_floors();
+
+-- =============================================================================
+-- Mirrored from supabase/migrations/20271007170139_staff_admin_records_super_admin_only.sql
+-- Updated: 2026-10-07 (round 15) - appended, not edited in place: main's
+-- earlier copies above are untouched, and these definitions, being the last
+-- in this file, are the ones a fresh setup ends with. Records and roles of
+-- people with admin powers are super admin only; see the migration header.
+-- =============================================================================
+
+DROP TRIGGER IF EXISTS trg_guard_roles_without_admin_powers_policy ON public.platform_policies;
+
+CREATE TRIGGER trg_guard_roles_without_admin_powers_policy
+  BEFORE INSERT OR UPDATE OR DELETE ON public.platform_policies
+  FOR EACH ROW EXECUTE FUNCTION public.fn_guard_roles_without_admin_powers_policy();
+
+CREATE OR REPLACE TRIGGER trg_staff_guard_role_key
+  BEFORE INSERT OR UPDATE OR DELETE ON public.staff
+  FOR EACH ROW EXECUTE FUNCTION public.fn_staff_guard_role_key();
+
+DROP TRIGGER IF EXISTS trg_profiles_guard_admin_powers ON public.profiles;
+
+CREATE TRIGGER trg_profiles_guard_admin_powers
+  BEFORE INSERT OR UPDATE OR DELETE ON public.profiles
+  FOR EACH ROW EXECUTE FUNCTION public.fn_profiles_guard_admin_powers();
+
+DROP TRIGGER IF EXISTS trg_user_roles_guard_admin_powers ON public.user_roles;
+
+CREATE TRIGGER trg_user_roles_guard_admin_powers
+  BEFORE INSERT OR UPDATE OR DELETE ON public.user_roles
+  FOR EACH ROW EXECUTE FUNCTION public.fn_user_roles_guard_admin_powers();
+
+DROP TRIGGER IF EXISTS trg_custom_roles_guard_admin_powers ON public.custom_roles;
+
+CREATE TRIGGER trg_custom_roles_guard_admin_powers
+  BEFORE INSERT OR UPDATE OR DELETE ON public.custom_roles
+  FOR EACH ROW EXECUTE FUNCTION public.fn_custom_roles_guard_admin_powers();

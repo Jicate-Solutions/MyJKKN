@@ -18,6 +18,10 @@
 --      profile has is_super_admin = true, OR profiles.role is a privileged
 --      role key, OR the linked user holds a privileged role in user_roles.
 --      Privileged = custom_roles.is_privileged, read from the table.
+--      Round 15: for the HOLDER side ("has admin powers"), a privileged role
+--      listed in the config row roles.without_admin_powers (seeded
+--      ["guest"]) does not count; giving such a role is still super admin
+--      only. See DEFAULTS TAKEN.
 --   3. HR Head keeps every other staff write it has today (ordinary staff).
 --   "Super admin" means profiles.is_super_admin (is_super_admin()), nothing else.
 --
@@ -45,22 +49,26 @@
 --      sync_learner_email_to_profile and fn_course_backfill_participant_email
 --      are REPLACED below. For each, the body (prosrc, carriage returns removed,
 --      outer whitespace trimmed) md5, the SECURITY DEFINER flag and the
---      settings (proconfig) must equal main's definition or the one this file
---      installs (a re-run); otherwise the file aborts before changing anything.
---      Expected on production BEFORE applying (main's definitions):
---        sync_staff_to_profiles()              body md5 ee5c4c768e180b8d6f33d486e18075ad  definer t  {search_path=public}
+--      settings (proconfig) must equal PRODUCTION's definition (read
+--      2026-10-07) or the one this file installs (a re-run); otherwise the
+--      file aborts before changing anything. Round 15: three of them differ
+--      from the repo copies (production carries fixes never saved to the
+--      repo; see LIVE-ONLY BEHAVIOUR CARRIED), so their expected values are
+--      production's, not main's. The repo copies now abort.
+--      Expected on production BEFORE applying:
+--        sync_staff_to_profiles()              body md5 38db608c51da195bfbb513f5546a848d  definer t  {search_path=public}
 --        fn_staff_guard_role_key()             body md5 c437b1f27474272cb11adebc272323ef  definer t  {"search_path=\"\""}
 --        mirror_staff_role_to_user_roles(...)  body md5 c66842860b0790f1ba27db403c721a35  definer t  {search_path=public}
---        create_preregistered_profile(...)     body md5 c9af79548717e3f5347c02613d3e3323  definer t  {search_path=public}
---        sync_learner_email_to_profile()       body md5 95e53c21900f32503482e64b1674d7ce  definer f  (no settings)
+--        create_preregistered_profile(...)     body md5 4034ea9d86315fc91c9b4e78c6b0af00  definer t  {search_path=public}
+--        sync_learner_email_to_profile()       body md5 211bf07bc530c50badcb27c04f338ac6  definer f  (no settings)
 --        fn_course_backfill_participant_email(uuid, text)
 --                                              body md5 aa4ec46ac109c6b27cf3eae7d9e2fdb6  definer t  {search_path=public}
 --      The ones this file installs (a re-run passes too):
---        sync_staff_to_profiles()              body md5 13d0088aead0bf0d8973d263e5f5b64e  definer t  {search_path=public}
---        fn_staff_guard_role_key()             body md5 53147427a2774330e5b83127870598e4  definer f  {"search_path=\"\""}
---        mirror_staff_role_to_user_roles(...)  body md5 99d2adda3cdd0bbe999eeb86020af4ed  definer t  {search_path=public}
---        create_preregistered_profile(...)     body md5 49108fd54cdf85101823173dad08a882  definer t  {search_path=public}
---        sync_learner_email_to_profile()       body md5 99126ce9ef2ba18fd4dc1d29af8c4c4c  definer f  (no settings)
+--        sync_staff_to_profiles()              body md5 3ea56d935f35075b55159fe35cff041c  definer t  {search_path=public}
+--        fn_staff_guard_role_key()             body md5 952f9532127d7c9fb1ff419ed97bca22  definer f  {"search_path=\"\""}
+--        mirror_staff_role_to_user_roles(...)  body md5 bc4a2d2c57984733742701b638a18bd5  definer t  {search_path=public}
+--        create_preregistered_profile(...)     body md5 d01037d51fc787154f9e3cefca36876a  definer t  {search_path=public}
+--        sync_learner_email_to_profile()       body md5 6247db4f6824cad4d27ea548e4401104  definer f  (no settings)
 --        fn_course_backfill_participant_email(uuid, text)
 --                                              body md5 4df5f26deaaac7f6d12422c78c60274e  definer t  {search_path=public}
 --      Read them with:
@@ -71,6 +79,26 @@
 --                             'mirror_staff_role_to_user_roles', 'create_preregistered_profile',
 --                             'sync_learner_email_to_profile',
 --                             'fn_course_backfill_participant_email');
+--
+-- LIVE-ONLY BEHAVIOUR CARRIED (round 15). Production's bodies of three of the
+-- functions replaced here were changed on the live database and never saved
+-- to the repo. Each live difference is kept in the body this file installs:
+--   * sync_staff_to_profiles: production writes profiles.role only on a new
+--     row or when role_key changed. Kept: the relink branch now writes the
+--     role only then too (v_role_changed); the ordinary-edit branch already
+--     wrote it only when role_key changed. (Production writes it with a
+--     second UPDATE; one UPDATE here, same result.)
+--   * sync_learner_email_to_profile: production moved the nested
+--     conflicting_profile_id block into the top DECLARE and reworded three
+--     comments; the guest-account hand-over (learner link moves to the guest
+--     profile that already has the email, the old profile is deactivated) is
+--     unchanged in SQL. Kept: the body here has production's shape and
+--     comments, plus this lane's checks.
+--   * create_preregistered_profile: production reads the caller's college
+--     into a variable and compares with != instead of NOT IN (subquery).
+--     Kept verbatim (the two forms give the same answer, NULL college
+--     included).
+--
 --   1. sync_staff_to_profiles: a (re)link is decided only from what the WRITER
 --      changed (a new row, or a changed profile_id / institution email). A
 --      re-link copies the row as on main. Otherwise only the columns this write
@@ -83,6 +111,7 @@
 --        fn_custom_role_is_privileged(role_id)
 --        fn_staff_link_has_admin_powers(profile_id, institution_email)
 --        fn_staff_record_has_admin_powers(staff_id)
+--        fn_role_key_confers_admin_powers(role_key)  (round 15, holder side)
 --   3. fn_staff_guard_role_key: main's body plus the rulings, now also fired on
 --      DELETE, with the small-field allow-list for rule 2.
 --   4. Guards on profiles (INSERT, UPDATE, DELETE) and user_roles for direct
@@ -150,6 +179,11 @@
 --     SELECT policyname, cmd, qual, with_check FROM pg_policies
 --      WHERE schemaname = 'public' AND tablename = 'custom_roles';
 --   * the drift fingerprints above.
+--   * the 'guest' role and the policy table (round 15):
+--     SELECT role_key, is_privileged FROM public.custom_roles
+--      WHERE role_key IN ('guest', 'digital_coordinator', 'payment_audit_admin');
+--     SELECT policy_key, value, is_active FROM public.platform_policies
+--      WHERE policy_key = 'roles.without_admin_powers';
 --   * fn_learner_email_refusal answers only learner writers (its key list),
 --     the learner themself and the service role. The enquiry import, the
 --     single learner edit and the bulk paths ask it with the caller's own
@@ -159,6 +193,24 @@
 --     check" on rows with a college email.
 --
 -- DEFAULT TAKEN, OVERRULE HERE
+--   * Defaults taken (round 15): production flags custom_roles 'guest' as
+--     is_privileged (20260828150000, because it grants roles.assign), and
+--     everyone who signs in with Google before being linked to a learner holds
+--     it as profiles.role. Treated as admin powers, that refused the learner
+--     email hand-over to a guest's account, learner account creation and bulk
+--     learner rows for a guest's email, and every ordinary edit of a guest.
+--     Default: a config row, platform_policies roles.without_admin_powers
+--     (global, seeded ["guest"]), lists roles that confer NO admin powers on
+--     their holders; it is read by fn_role_key_confers_admin_powers, which the
+--     holder tests (fn_staff_link_has_admin_powers,
+--     fn_staff_record_has_admin_powers, taking a staff role away) use. Giving
+--     such a role stays super admin only, as on production today. admin,
+--     administrator and super_admin always confer admin powers whatever the
+--     row says, and only a super admin (or the service role) may write the
+--     row. digital_coordinator and payment_audit_admin are NOT listed: their
+--     holders keep the protection. Alternative for the Director: un-flag guest
+--     in Role Management instead (then giving guest, and its roles.assign,
+--     would no longer need a super admin).
 --   * sync_learner_email_to_profile refuses to turn a profile with admin powers
 --     into a learner account even when a super admin is behind the write: a
 --     learner record must never take over an administrator's account; change
@@ -189,7 +241,7 @@
 -- NOTHING from 20260925150000 is re-run here: not its grant UPDATEs, not its
 -- assertions. No existing row is changed. Safe to run twice.
 --
--- ci:allow-secdef-authenticated fn_staff_record_has_admin_powers, fn_staff_link_has_admin_powers, fn_staff_role_key_is_privileged, fn_custom_role_is_privileged, fn_caller_holds_role, fn_role_held_by_admin_powers, fn_email_on_staff_record, fn_learner_email_taken and fn_learner_email_refusal only answer yes/no (or a one-word reason) about whether a staff record, the person it points at, or a role carries admin powers; the guard triggers run as the signed-in caller and must be able to call them, and the staff list already shows every person's role to staff viewers. mirror_staff_role_to_user_roles, create_preregistered_profile and fn_course_backfill_participant_email keep their existing grant to authenticated and check the caller in their bodies.
+-- ci:allow-secdef-authenticated fn_staff_record_has_admin_powers, fn_staff_link_has_admin_powers, fn_staff_role_key_is_privileged, fn_role_key_confers_admin_powers, fn_custom_role_is_privileged, fn_caller_holds_role, fn_role_held_by_admin_powers, fn_email_on_staff_record, fn_learner_email_taken and fn_learner_email_refusal only answer yes/no (or a one-word reason) about whether a staff record, the person it points at, or a role carries admin powers; the guard triggers run as the signed-in caller and must be able to call them, and the staff list already shows every person's role to staff viewers. mirror_staff_role_to_user_roles, create_preregistered_profile and fn_course_backfill_participant_email keep their existing grant to authenticated and check the caller in their bodies.
 -- ============================================================================
 
 BEGIN;
@@ -199,7 +251,7 @@ SET LOCAL lock_timeout = '10s';
 
 -- ---------------------------------------------------------------------------
 -- 0. Drift check: abort, changing nothing, if a function this file replaces
---    is not main's definition (or the one this file installs). See the header.
+--    is not production's definition (or the one this file installs). See the header.
 -- ---------------------------------------------------------------------------
 DO $drift$
 DECLARE
@@ -209,20 +261,20 @@ BEGIN
   FOR r IN
     SELECT * FROM (VALUES
       ('public.sync_staff_to_profiles()',
-       'ee5c4c768e180b8d6f33d486e18075ad', true, '{search_path=public}',
-       '13d0088aead0bf0d8973d263e5f5b64e', true, '{search_path=public}'),
+       '38db608c51da195bfbb513f5546a848d', true, '{search_path=public}',
+       '3ea56d935f35075b55159fe35cff041c', true, '{search_path=public}'),
       ('public.fn_staff_guard_role_key()',
        'c437b1f27474272cb11adebc272323ef', true, '{"search_path=\"\""}',
-       '53147427a2774330e5b83127870598e4', false, '{"search_path=\"\""}'),
+       '952f9532127d7c9fb1ff419ed97bca22', false, '{"search_path=\"\""}'),
       ('public.mirror_staff_role_to_user_roles(uuid,text)',
        'c66842860b0790f1ba27db403c721a35', true, '{search_path=public}',
-       '99d2adda3cdd0bbe999eeb86020af4ed', true, '{search_path=public}'),
+       'bc4a2d2c57984733742701b638a18bd5', true, '{search_path=public}'),
       ('public.sync_learner_email_to_profile()',
-       '95e53c21900f32503482e64b1674d7ce', false, '',
-       '99126ce9ef2ba18fd4dc1d29af8c4c4c', false, ''),
+       '211bf07bc530c50badcb27c04f338ac6', false, '',
+       '6247db4f6824cad4d27ea548e4401104', false, ''),
       ('public.create_preregistered_profile(uuid,text,text,text,text,uuid,uuid)',
-       'c9af79548717e3f5347c02613d3e3323', true, '{search_path=public}',
-       '49108fd54cdf85101823173dad08a882', true, '{search_path=public}'),
+       '4034ea9d86315fc91c9b4e78c6b0af00', true, '{search_path=public}',
+       'd01037d51fc787154f9e3cefca36876a', true, '{search_path=public}'),
       ('public.fn_course_backfill_participant_email(uuid,text)',
        'aa4ec46ac109c6b27cf3eae7d9e2fdb6', true, '{search_path=public}',
        '4df5f26deaaac7f6d12422c78c60274e', true, '{search_path=public}')
@@ -239,7 +291,7 @@ BEGIN
     END IF;
     IF NOT ((v.body_md5, v.definer, v.config) = (r.main_md5, r.main_definer, r.main_config)
             OR (v.body_md5, v.definer, v.config) = (r.new_md5, r.new_definer, r.new_config)) THEN
-      RAISE EXCEPTION 'Drift: % on this database (body md5 %, security definer %, settings %) is neither main''s definition nor the one this file installs. Nothing was changed. Compare it with main before applying 20271007170139.',
+      RAISE EXCEPTION 'Drift: % on this database (body md5 %, security definer %, settings %) is neither production''s definition (read 2026-10-07) nor the one this file installs. Nothing was changed. Compare it with production''s before applying 20271007170139.',
         r.fn, v.body_md5, v.definer, v.config;
     END IF;
   END LOOP;
@@ -261,8 +313,13 @@ DECLARE
     -- this function assigns NEW.profile_id below: a new row, or a changed
     -- profile_id or institution email.
     relinked BOOLEAN := TG_OP = 'INSERT';
+    -- Round 15, carried from production's body (never saved to the repo):
+    -- the profile role is written only on a new row or when role_key changed,
+    -- a relink included.
+    v_role_changed BOOLEAN := TG_OP = 'INSERT';
 BEGIN
     IF TG_OP = 'UPDATE' THEN
+        v_role_changed := NEW.role_key IS DISTINCT FROM OLD.role_key;
         -- 2026-10-07: case and outer spaces do not make a new email:
         -- trigger_lowercase_institution_email runs after this trigger
         -- (BEFORE triggers fire in name order), so a case-only edit would
@@ -299,7 +356,9 @@ BEGIN
 
         IF existing_profile_id IS NOT NULL THEN
             IF relinked THEN
-                -- A new row or a new link: copy the row, as on main.
+                -- A new row or a new link: copy the row, as on main, except
+                -- the role, which only a new row or a role change writes
+                -- (production).
                 UPDATE profiles
                 SET email             = NEW.institution_email,
                     full_name         = CONCAT(NEW.first_name, ' ', NEW.last_name),
@@ -309,7 +368,8 @@ BEGIN
                     department_id     = NEW.department_id,
                     gender            = NEW.gender,
                     designation       = NEW.designation,
-                    role              = NEW.role_key,
+                    role              = CASE WHEN v_role_changed THEN NEW.role_key
+                                             ELSE role END,
                     -- View-only staff get is_active=false, is_login_disabled=true
                     is_active         = CASE WHEN NEW.login_enabled = false THEN false
                                              ELSE NEW.is_active END,
@@ -441,6 +501,86 @@ COMMENT ON FUNCTION public.fn_custom_role_is_privileged(uuid) IS
 REVOKE EXECUTE ON FUNCTION public.fn_custom_role_is_privileged(uuid) FROM anon, PUBLIC;
 GRANT  EXECUTE ON FUNCTION public.fn_custom_role_is_privileged(uuid) TO authenticated;
 
+-- Round 15: roles that are privileged to GIVE but confer no admin powers on
+-- whoever HOLDS them. Production flags 'guest' (20260828150000, because it
+-- grants roles.assign), and everyone who signs in with Google before being
+-- linked to a learner holds it as profiles.role. Counting them as people with
+-- admin powers stopped the learner email hand-over to their account, learner
+-- account creation for them and every ordinary edit of a guest. Giving such a
+-- role stays super admin only (fn_staff_role_key_is_privileged is unchanged).
+-- The list is a config row, platform_policies 'roles.without_admin_powers'
+-- (global), seeded ["guest"]; only a super admin or the service role may change
+-- it (guard below). The names is_admin() / is_super_admin() trust confer admin
+-- powers whatever the list says, so the row can never strip an administrator.
+INSERT INTO public.platform_policies
+  (policy_key, scope_type, scope_id, value, description, data_type, is_system, is_active)
+SELECT 'roles.without_admin_powers', 'global', NULL, '["guest"]'::jsonb,
+       'Role keys that are privileged to give (custom_roles.is_privileged) but confer no admin powers on the people who hold them, so ordinary staff may still edit those people (migration 20271007170139, round 15). Seeded ["guest"]: everyone signed in with Google before being linked holds it. admin, administrator and super_admin always confer admin powers. Only a super admin may change this row.',
+       'array', true, true
+WHERE NOT EXISTS (
+  SELECT 1 FROM public.platform_policies
+   WHERE policy_key = 'roles.without_admin_powers'
+     AND scope_type = 'global' AND scope_id IS NULL);
+
+CREATE OR REPLACE FUNCTION public.fn_role_key_confers_admin_powers(p_role_key text)
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = ''
+AS $function$
+  SELECT public.fn_staff_role_key_is_privileged(p_role_key)
+     AND (   lower(btrim(coalesce(p_role_key, ''))) IN ('admin', 'administrator', 'super_admin')
+          OR NOT EXISTS (
+               SELECT 1 FROM public.platform_policies pp
+                WHERE pp.policy_key = 'roles.without_admin_powers'
+                  AND pp.scope_type = 'global' AND pp.scope_id IS NULL
+                  AND coalesce(pp.is_active, true)
+                  AND jsonb_typeof(pp.value) = 'array'
+                  AND pp.value ? p_role_key));
+$function$;
+
+COMMENT ON FUNCTION public.fn_role_key_confers_admin_powers(text) IS
+  'True when HOLDING this role key gives a person admin powers: a privileged role (fn_staff_role_key_is_privileged) not listed in platform_policies roles.without_admin_powers; admin, administrator and super_admin always. Used for the holder side of every admin-powers test; giving a role still uses fn_staff_role_key_is_privileged (round 15).';
+
+REVOKE EXECUTE ON FUNCTION public.fn_role_key_confers_admin_powers(text) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_role_key_confers_admin_powers(text) TO authenticated, service_role;
+
+-- Only a super admin (or the service role, a migration, cron) changes that
+-- row: the principals and administrators who may edit other policy rows could
+-- otherwise list a role such as ceo and strip its holders' protection.
+CREATE OR REPLACE FUNCTION public.fn_guard_roles_without_admin_powers_policy()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY INVOKER
+SET search_path = ''
+AS $function$
+BEGIN
+  IF NOT ((TG_OP IN ('INSERT', 'UPDATE') AND NEW.policy_key = 'roles.without_admin_powers')
+       OR (TG_OP IN ('UPDATE', 'DELETE') AND OLD.policy_key = 'roles.without_admin_powers')) THEN
+    RETURN CASE WHEN TG_OP = 'DELETE' THEN OLD ELSE NEW END;
+  END IF;
+
+  -- Any signed-in caller, direct or through a SECURITY DEFINER function.
+  IF auth.uid() IS NOT NULL AND NOT coalesce(public.is_super_admin(), false) THEN
+    RAISE EXCEPTION 'Only a super admin can change which roles confer no admin powers.'
+      USING ERRCODE = '42501';
+  END IF;
+
+  RETURN CASE WHEN TG_OP = 'DELETE' THEN OLD ELSE NEW END;
+END;
+$function$;
+
+COMMENT ON FUNCTION public.fn_guard_roles_without_admin_powers_policy() IS
+  'BEFORE trigger on platform_policies: only a super admin, the service role or a session with no signed-in user may write the roles.without_admin_powers row (round 15, 20271007170139).';
+
+REVOKE ALL ON FUNCTION public.fn_guard_roles_without_admin_powers_policy() FROM anon, authenticated, PUBLIC;
+
+DROP TRIGGER IF EXISTS trg_guard_roles_without_admin_powers_policy ON public.platform_policies;
+CREATE TRIGGER trg_guard_roles_without_admin_powers_policy
+  BEFORE INSERT OR UPDATE OR DELETE ON public.platform_policies
+  FOR EACH ROW EXECUTE FUNCTION public.fn_guard_roles_without_admin_powers_policy();
+
 -- The person a staff row writes through to. sync_staff_to_profiles copies the
 -- row (role, is_active, login) onto the profile named by profile_id, or, when
 -- that is empty, onto the profile with the same institution email. So a staff
@@ -467,18 +607,19 @@ AS $function$
                      OR p.id IN (SELECT u.id FROM auth.users u
                                   WHERE lower(btrim(u.email)) = lower(btrim(p_institution_email))))))
        AND (   coalesce(p.is_super_admin, false)
-            -- a privileged legacy role
-            OR public.fn_staff_role_key_is_privileged(p.role)
+            -- a legacy role that confers admin powers (round 15: not one
+            -- listed in roles.without_admin_powers, e.g. guest)
+            OR public.fn_role_key_confers_admin_powers(p.role)
             -- any privileged role the person holds
             OR EXISTS (SELECT 1 FROM public.user_roles ur
                          JOIN public.custom_roles r ON r.id = ur.role_id
                         WHERE ur.user_id = p.id
-                          AND public.fn_staff_role_key_is_privileged(r.role_key))
+                          AND public.fn_role_key_confers_admin_powers(r.role_key))
             -- a privileged role on any of the person's staff records, linked
             -- by profile_id or by institution email (the same people
             -- fn_staff_record_has_admin_powers sees)
             OR EXISTS (SELECT 1 FROM public.staff s
-                        WHERE public.fn_staff_role_key_is_privileged(s.role_key)
+                        WHERE public.fn_role_key_confers_admin_powers(s.role_key)
                           AND (s.profile_id = p.id
                                OR lower(btrim(s.institution_email)) = lower(btrim(p.email))
                                -- 2026-10-07: or carrying the person's SIGN-IN
@@ -492,7 +633,7 @@ AS $function$
   OR EXISTS (
     SELECT 1
       FROM public.staff s
-     WHERE public.fn_staff_role_key_is_privileged(s.role_key)
+     WHERE public.fn_role_key_confers_admin_powers(s.role_key)
        AND nullif(btrim(p_institution_email), '') IS NOT NULL
        AND lower(btrim(s.institution_email)) = lower(btrim(p_institution_email))
   );
@@ -552,7 +693,7 @@ AS $function$
      WHERE s.id = p_staff_id
        AND (
              -- the staff record's own role
-             public.fn_staff_role_key_is_privileged(s.role_key)
+             public.fn_role_key_confers_admin_powers(s.role_key)
              -- the person the record writes through to
           OR public.fn_staff_link_has_admin_powers(s.profile_id, s.institution_email)
            )
@@ -713,8 +854,9 @@ BEGIN
       END IF;
 
       -- Ruling 1: taking a privileged role AWAY needs a super admin too, not
-      -- only giving one.
-      IF public.fn_staff_role_key_is_privileged(OLD.role_key) THEN
+      -- only giving one (round 15: a role that confers admin powers on its
+      -- holder; giving one is the next check).
+      IF public.fn_role_key_confers_admin_powers(OLD.role_key) THEN
         RAISE EXCEPTION 'Only a super admin can change the record of someone with admin powers. Others may change only the photo, phone numbers and attendance machine code.'
           USING ERRCODE = 'P0001';
       END IF;
@@ -836,7 +978,10 @@ BEGIN
      IS DISTINCT FROM
      (OLD.role, OLD.is_active, OLD.is_login_disabled, OLD.institution_id, OLD.email,
       OLD.learner_id, OLD.is_external_participant) THEN
-    IF public.fn_staff_role_key_is_privileged(NEW.role::text)
+    -- Round 15: giving a privileged role means CHANGING to it; an unchanged
+    -- role that confers admin powers is caught by the holder test.
+    IF (NEW.role IS DISTINCT FROM OLD.role
+        AND public.fn_staff_role_key_is_privileged(NEW.role::text))
        OR public.fn_staff_link_has_admin_powers(OLD.id, NULL) THEN
       RAISE EXCEPTION 'Only a super admin can change the role, status, college or email of someone with admin powers, or give anyone admin powers.'
         USING ERRCODE = 'P0001';
@@ -888,9 +1033,10 @@ BEGIN
 
   -- A privileged role given or taken, or any role change for someone who
   -- holds admin powers.
-  -- (A privileged OLD role needs no separate check: user_roles.user_id
-  -- references profiles, so its holder already has admin powers through that
-  -- very row.)
+  -- (An OLD role that confers admin powers needs no separate check:
+  -- user_roles.user_id references profiles, so its holder already has admin
+  -- powers through that very row. Round 15: taking away a role that confers
+  -- none, such as guest, is an ordinary change.)
   IF TG_OP IN ('UPDATE', 'DELETE') THEN
     v_touches := public.fn_staff_link_has_admin_powers(OLD.user_id, NULL);
   END IF;
@@ -952,11 +1098,12 @@ BEGIN
     END IF;
 
     -- 1b. 2026-10-01: replacing the roles of someone with admin powers, or
-    -- giving a privileged role, is super admin only. (A privileged p_role_key
-    -- needs no separate check: step 2 requires a staff row linked to this
-    -- profile with that role, and such a row gives the person admin powers.)
+    -- giving a privileged role, is super admin only. Round 15: a privileged
+    -- role that confers no admin powers on its holder (guest) no longer makes
+    -- the staff row's person count, so giving one is checked on its own.
     IF NOT is_super_admin()
-       AND fn_staff_link_has_admin_powers(p_profile_id, NULL) THEN
+       AND (fn_staff_link_has_admin_powers(p_profile_id, NULL)
+            OR fn_staff_role_key_is_privileged(p_role_key)) THEN
         RAISE EXCEPTION 'Only a super admin can change the role, status, college or email of someone with admin powers, or give anyone admin powers.'
             USING ERRCODE = 'P0001';
     END IF;
@@ -1015,9 +1162,10 @@ AS $function$
 DECLARE
   new_profile public.profiles;
   current_user_role text;
+  current_user_institution_id uuid;
 BEGIN
   -- Check if the current user has permission to create profiles
-  SELECT role INTO current_user_role
+  SELECT role, institution_id INTO current_user_role, current_user_institution_id
   FROM public.profiles
   WHERE id = auth.uid();
 
@@ -1029,9 +1177,7 @@ BEGIN
 
   -- For faculty, ensure they can only create profiles for their own institution
   IF current_user_role = 'faculty' THEN
-    IF profile_institution_id IS NULL OR profile_institution_id NOT IN (
-      SELECT institution_id FROM public.profiles WHERE id = auth.uid()
-    ) THEN
+    IF profile_institution_id IS NULL OR profile_institution_id != current_user_institution_id THEN
       RAISE EXCEPTION 'Faculty can only create profiles for their own institution'
         USING ERRCODE = 'insufficient_privilege';
     END IF;
@@ -1249,6 +1395,7 @@ SECURITY INVOKER
 AS $function$
 DECLARE
   existing_profile_id UUID;
+  conflicting_profile_id UUID;
   old_email TEXT;
   new_email TEXT;
 BEGIN
@@ -1291,87 +1438,81 @@ BEGIN
           NULL;
       END CASE;
 
-      -- Find profile by learner_id (more reliable than email for updates)
+      -- Find profile by learner_id (most reliable)
       SELECT id INTO existing_profile_id
       FROM profiles
       WHERE learner_id = NEW.id
       LIMIT 1;
 
       IF existing_profile_id IS NOT NULL THEN
-        -- Profile found by learner_id - update it
-        -- But first check if another profile already has the new email (e.g., guest login)
-        -- to avoid unique constraint violation (idx_profiles_email_unique_active)
-        DECLARE
-          conflicting_profile_id UUID;
-        BEGIN
-          SELECT id INTO conflicting_profile_id
-          FROM profiles
-          WHERE lower(btrim(email)) = lower(btrim(new_email))
-            AND id != existing_profile_id
-            AND learner_id IS NULL
-          LIMIT 1;
+        -- Profile found by learner_id - check for email conflict before updating
+        SELECT id INTO conflicting_profile_id
+        FROM profiles
+        WHERE lower(btrim(email)) = lower(btrim(new_email))
+          AND id != existing_profile_id
+          AND learner_id IS NULL
+        LIMIT 1;
 
-          IF conflicting_profile_id IS NOT NULL THEN
-            -- 2026-10-03: never turn someone with admin powers into a learner's account.
-            IF public.fn_staff_link_has_admin_powers(conflicting_profile_id, NULL) THEN
-              RAISE EXCEPTION 'This learner''s college email belongs to someone with admin powers, so their account cannot become a learner account. Ask a super admin.'
-                USING ERRCODE = 'P0001';
-            END IF;
-            -- 2026-10-03: never turn someone with admin powers into a learner's account.
-            IF public.fn_staff_link_has_admin_powers(existing_profile_id, NULL) THEN
-              RAISE EXCEPTION 'This learner''s college email belongs to someone with admin powers, so their account cannot become a learner account. Ask a super admin.'
-                USING ERRCODE = 'P0001';
-            END IF;
-            -- Guest/unlinked profile has the new email - deactivate old linked profile,
-            -- transfer learner link to the profile that already has the correct email
-            UPDATE profiles
-            SET
-              learner_id = NULL,
-              is_active = false,
-              updated_at = NOW()
-            WHERE id = existing_profile_id;
-
-            UPDATE profiles
-            SET
-              learner_id = NEW.id,
-              role = 'student',
-              institution_id = COALESCE(NEW.institution_id, institution_id),
-              department_id = COALESCE(NEW.department_id, department_id),
-              updated_at = NOW()
-            WHERE id = conflicting_profile_id;
-
-            RAISE NOTICE 'Transferred learner % from old profile % to guest profile % (email: %)',
-              NEW.id, existing_profile_id, conflicting_profile_id, new_email;
-          ELSE
-            -- 2026-10-03: never turn someone with admin powers into a learner's account.
-            IF public.fn_staff_link_has_admin_powers(existing_profile_id, NULL) THEN
-              RAISE EXCEPTION 'This learner''s college email belongs to someone with admin powers, so their account cannot become a learner account. Ask a super admin.'
-                USING ERRCODE = 'P0001';
-            END IF;
-            -- No conflict - safe to update the linked profile's email directly
-            UPDATE profiles
-            SET
-              email = new_email,
-              role = 'student',
-              institution_id = COALESCE(NEW.institution_id, institution_id),
-              department_id = COALESCE(NEW.department_id, department_id),
-              updated_at = NOW()
-            WHERE id = existing_profile_id;
-
-            IF TG_OP = 'UPDATE' THEN
-              RAISE NOTICE 'Synced profile % email from % to % for learner %',
-                existing_profile_id, old_email, new_email, NEW.id;
-            ELSE
-              RAISE NOTICE 'Synced profile % for new learner % with email %',
-                existing_profile_id, NEW.id, new_email;
-            END IF;
+        IF conflicting_profile_id IS NOT NULL THEN
+          -- 2026-10-03: never turn someone with admin powers into a learner's account.
+          IF public.fn_staff_link_has_admin_powers(conflicting_profile_id, NULL) THEN
+            RAISE EXCEPTION 'This learner''s college email belongs to someone with admin powers, so their account cannot become a learner account. Ask a super admin.'
+              USING ERRCODE = 'P0001';
           END IF;
-        END;
+          -- 2026-10-03: never turn someone with admin powers into a learner's account.
+          IF public.fn_staff_link_has_admin_powers(existing_profile_id, NULL) THEN
+            RAISE EXCEPTION 'This learner''s college email belongs to someone with admin powers, so their account cannot become a learner account. Ask a super admin.'
+              USING ERRCODE = 'P0001';
+          END IF;
+          -- Guest/unlinked profile already has the new email.
+          -- Transfer the learner link to the guest profile (it has the correct OAuth auth.users.id)
+          -- and deactivate the old linked profile (it was created with a temp password).
+          UPDATE profiles
+          SET
+            learner_id = NULL,
+            is_active = false,
+            updated_at = NOW()
+          WHERE id = existing_profile_id;
+
+          UPDATE profiles
+          SET
+            learner_id = NEW.id,
+            role = 'student',
+            institution_id = COALESCE(NEW.institution_id, institution_id),
+            department_id = COALESCE(NEW.department_id, department_id),
+            updated_at = NOW()
+          WHERE id = conflicting_profile_id;
+
+          RAISE NOTICE 'Transferred learner % from old profile % to guest profile % (email: %)',
+            NEW.id, existing_profile_id, conflicting_profile_id, new_email;
+        ELSE
+          -- 2026-10-03: never turn someone with admin powers into a learner's account.
+          IF public.fn_staff_link_has_admin_powers(existing_profile_id, NULL) THEN
+            RAISE EXCEPTION 'This learner''s college email belongs to someone with admin powers, so their account cannot become a learner account. Ask a super admin.'
+              USING ERRCODE = 'P0001';
+          END IF;
+          -- No conflict - safe to update the linked profile email directly
+          UPDATE profiles
+          SET
+            email = new_email,
+            role = 'student',
+            institution_id = COALESCE(NEW.institution_id, institution_id),
+            department_id = COALESCE(NEW.department_id, department_id),
+            updated_at = NOW()
+          WHERE id = existing_profile_id;
+
+          IF TG_OP = 'UPDATE' THEN
+            RAISE NOTICE 'Synced profile % email from % to % for learner %',
+              existing_profile_id, old_email, new_email, NEW.id;
+          ELSE
+            RAISE NOTICE 'Synced profile % for new learner % with email %',
+              existing_profile_id, NEW.id, new_email;
+          END IF;
+        END IF;
       ELSE
         -- No profile found by learner_id
         -- Try to find orphaned/guest profile by email and link it
-        -- Updated: 2026-02-10 - Also match guest roles (not just student)
-        -- because users who log in via OAuth get role='guest' before being linked
+        -- Matches any unlinked profile (guest, student, or other role)
         SELECT id INTO existing_profile_id
         FROM profiles
         WHERE lower(btrim(email)) = lower(btrim(new_email))

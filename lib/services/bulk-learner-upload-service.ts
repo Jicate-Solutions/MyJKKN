@@ -16,6 +16,8 @@ import { randomUUID } from 'crypto';
 import { generateTemporaryPassword } from '@/lib/utils/temporary-password';
 import {
   ADMIN_ROLE_MESSAGE,
+  LEARNER_OWN_EMAIL_MESSAGE,
+  callerIsSuperAdmin,
   refuseIfLinksToAdmin,
   refuseLearnerCollegeEmail,
   type RpcClient
@@ -218,7 +220,11 @@ export class BulkLearnerUploadService {
       // the admin-powers check applies to it, as the single learner edit
       // checks an email only when it changes (2026-10-07): re-uploading a
       // sheet with, say, a team member who is also studying here must not
-      // fail their row.
+      // fail their row. Round 15: only when every profile holding that email
+      // (the ones batchUpsertProfiles would rewrite) is already linked to
+      // this same learner. Otherwise an old learner record carrying the
+      // uploader's own email would let them rewrite their own college,
+      // department and learner link through the profile step.
       const existingLearnerIds = new Map<string, string>();
       const candidateEmails = candidates.map(({ row }) => row.data.college_email).filter(Boolean) as string[];
       for (let i = 0; i < candidateEmails.length; i += 200) {
@@ -231,16 +237,43 @@ export class BulkLearnerUploadService {
           existingLearnerIds.set(l.college_email.trim().toLowerCase(), l.id);
         }
       }
+      const holders = new Map<string, Array<string | null>>(); // email -> learner_id of each profile holding it
+      // Emails one of whose profiles is the uploader's own: never skipped, or
+      // re-uploading their own row would rewrite their own college,
+      // department and role through the profile step (round 15).
+      const ownEmails = new Set<string>();
+      for (let i = 0; i < candidateEmails.length; i += 200) {
+        const { data: found, error: foundError } = await supabaseAdmin
+          .from('profiles')
+          .select('id, email, learner_id')
+          .in('email', candidateEmails.slice(i, i + 200));
+        if (foundError) throw new Error(`Failed to check existing profiles: ${foundError.message}`);
+        for (const p of (found ?? []) as Array<{ id: string; email: string | null; learner_id: string | null }>) {
+          const key = String(p.email ?? '').trim().toLowerCase();
+          holders.set(key, [...(holders.get(key) ?? []), p.learner_id]);
+          if (userId && p.id === userId) ownEmails.add(key);
+        }
+      }
+      const alreadyLinked = (email: string) => {
+        const learnerId = existingLearnerIds.get(email);
+        const linked = holders.get(email) ?? [];
+        return !!learnerId && linked.length > 0 && linked.every((id) => id === learnerId);
+      };
+      const uploaderIsSuperAdmin = ownEmails.size > 0 && await callerIsSuperAdmin(sessionClient);
       for (let i = 0; i < candidates.length; i += 20) {
         const part = candidates.slice(i, i + 20);
         const refusals = await Promise.all(
           part.map(async ({ row }) =>
             (await refuseIfLinksToAdmin(sessionClient, null, row.data.college_email ?? null, ADMIN_ROLE_MESSAGE))
-            // 2026-10-07: nor, for a NEW learner, the uploader's own email, a
-            // team-member record's, or a non-learner account's.
-            ?? (existingLearnerIds.has(String(row.data.college_email ?? '').trim().toLowerCase())
+            // 2026-10-07: nor the uploader's own email, a team-member
+            // record's, or a non-learner account's, unless the row's learner
+            // already holds that email's profile (round 15).
+            ?? (ownEmails.has(String(row.data.college_email ?? '').trim().toLowerCase()) && !uploaderIsSuperAdmin
+              ? { status: 403, error: LEARNER_OWN_EMAIL_MESSAGE }
+              : alreadyLinked(String(row.data.college_email ?? '').trim().toLowerCase())
               ? null
-              : await refuseLearnerCollegeEmail(sessionClient, row.data.college_email, null))
+              : await refuseLearnerCollegeEmail(sessionClient, row.data.college_email,
+                  existingLearnerIds.get(String(row.data.college_email ?? '').trim().toLowerCase()) ?? null))
           )
         );
         part.forEach(({ row, index }, k) => {

@@ -100,12 +100,15 @@ export function refuseIfEmailOnStaffRecord(client: RpcClient, email: string) {
   return ask(client, 'fn_email_on_staff_record', { p_email: email }, STAFF_EMAIL_MESSAGE);
 }
 
+/** A learner row carrying the uploader's own email (round 15). */
+export const LEARNER_OWN_EMAIL_MESSAGE = 'This college email is your own. Only a super admin can give it to a learner.';
+
 const LEARNER_EMAIL_MESSAGES: Record<string, string> = {
   // What a signed-in caller who is not a super admin gets, whatever the
   // reason: the database will not sort emails into kinds for them.
   refused:
     'This college email cannot be a learner\'s: it is your own, a team-member record\'s, or an account that is not a learner\'s. Correct the college email.',
-  self: 'This college email is your own. Only a super admin can give it to a learner.',
+  self: LEARNER_OWN_EMAIL_MESSAGE,
   team_member: 'This college email belongs to a team-member record, so it cannot be a learner\'s. Correct the college email.',
   other_account:
     'This college email belongs to an account that is not a learner\'s, so it cannot be a learner\'s. Correct the college email.'
