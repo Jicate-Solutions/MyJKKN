@@ -246,3 +246,244 @@ export function decisionSummary(row: Pick<SalaryRevisionRow,
       return 'Waiting for the Director’s yes or no.';
   }
 }
+
+// ============================================================================
+// Target-gated raises (rulings of 7 Oct 2026, 20271007180207). At the
+// Director's yes a raise splits: the annual increment starts on the start
+// date; the rest is HELD until a month with every target met. The database
+// measures and decides everything; this says it in plain words.
+// ============================================================================
+
+export type TargetKey = 't1' | 't2' | 't3' | 't4' | 't5';
+
+export type TargetPlanState =
+  | 'none' | 'awaiting_measurement' | 'waiting' | 'released' | 'paused' | 'back_to_director' | 'held_listed' | 'lapsed';
+
+export type TargetMonthStatus =
+  | 'in_progress' | 'met' | 'missed' | 'not_counted' | 'not_measured' | 'flagged' | 'decided_met' | 'decided_missed';
+
+export interface TargetThresholds {
+  t1_marked_by_self_min_pct: number;
+  t1_mark_within_hours: number;
+  t3_linked_min_pct: number;
+  t4_resource_min_pct: number;
+  t5_min_pulses_per_week: number;
+}
+
+export interface TargetPlan {
+  request_id: string;
+  staff_id: string;
+  base_monthly_gross: number | string;
+  increment_amount: number | string;
+  held_amount: number | string;
+  target_role: string | null;
+  /** The copy kept at the yes (role and targets at switch-on); later edits to the setting never change it. */
+  rules: {
+    annual_increment_percent: number;
+    window_months: number;
+    pause_after_missed_months: number;
+    role: string | null;
+    targets: TargetThresholds | null;
+  };
+  window_start: string;
+  window_months: number;
+  state: TargetPlanState;
+  state_reason: string | null;
+  missed_in_row: number;
+  held_paid_from: string | null;
+  paused_from: string | null;
+  run_note: string | null;
+  lapse_note?: string | null;
+}
+
+export interface TargetResult {
+  target: TargetKey;
+  numerator: number;
+  denominator: number;
+  met: boolean;
+}
+
+export interface TargetMonth {
+  request_id: string;
+  month: string;
+  status: TargetMonthStatus;
+  results: TargetResult[];
+  acted: boolean;
+  action: 'released' | 'paused' | 'resumed' | 'none' | null;
+  action_effective_from: string | null;
+}
+
+/** The principal's flag on a month and the Director's decision. Never sent to the person. */
+export interface TargetFlag {
+  request_id: string;
+  month: string;
+  note: string;
+  flagged_at: string;
+  decided_at: string | null;
+  counts_as_met: boolean | null;
+  decision_note: string | null;
+}
+
+export interface RaiseTargets {
+  plan: TargetPlan | null;
+  months: TargetMonth[];
+  flags: TargetFlag[];
+}
+
+export const TARGET_KEYS: TargetKey[] = ['t1', 't2', 't3', 't4', 't5'];
+
+export const TARGET_LABELS: Record<TargetKey, string> = {
+  t1: 'Attendance marked by you, on time',
+  t2: 'Lesson plan reviewed for every course',
+  t3: 'Sessions linked to the lesson taught',
+  t4: 'Class material on your periods',
+  t5: 'A live class pulse every week, per course',
+};
+
+/** What each target asks, with the numbers kept on this raise. */
+export function targetRule(key: TargetKey, t: TargetThresholds): string {
+  switch (key) {
+    case 't1': return `At least ${t.t1_marked_by_self_min_pct}% of your periods, first marked by you between the start of the session and ${t.t1_mark_within_hours} hours after it ends (as the server recorded it)`;
+    case 't2': return 'For each course: at least one lesson you did not write yourself reviewed and published, and none of your own drafts left';
+    case 't3': return `At least ${t.t3_linked_min_pct}% of the sessions you marked (counted once every lesson plan is reviewed)`;
+    case 't4': return `Class material on at least ${t.t4_resource_min_pct}% of your periods, posted by the end of that day`;
+    case 't5': return `At least ${t.t5_min_pulses_per_week} opened each week (Monday to Sunday) for each course you teach`;
+  }
+}
+
+export const MONTH_STATUS_LABELS: Record<TargetMonthStatus, string> = {
+  in_progress: 'So far',
+  met: 'All met',
+  missed: 'Missed',
+  not_counted: 'No sessions: not counted',
+  not_measured: 'Not measured: targets being set up',
+  flagged: 'Flagged: waiting for the Director',
+  decided_met: 'Director: counts as met',
+  decided_missed: 'Director: counts as missed',
+};
+
+/** "October 2026" from yyyy-MM-dd. */
+export function monthName(month: string): string {
+  const [y, m] = month.slice(0, 10).split('-').map(Number);
+  return new Intl.DateTimeFormat('en-IN', { month: 'long', year: 'numeric', timeZone: 'UTC' })
+    .format(new Date(Date.UTC(y, m - 1, 1)));
+}
+
+/** The last month of the window, yyyy-MM-01. */
+export function windowEnd(plan: Pick<TargetPlan, 'window_start' | 'window_months'>): string {
+  const [y, m] = plan.window_start.slice(0, 10).split('-').map(Number);
+  const d = new Date(Date.UTC(y, m - 1 + plan.window_months - 1, 1));
+  return d.toISOString().slice(0, 10);
+}
+
+function heldRupees(plan: TargetPlan): string {
+  const held = toAmount(plan.held_amount);
+  return held === null ? 'The held part' : `The held ${formatRupees(held)} a month`;
+}
+
+/** One sentence: where the held part stands. */
+export function planStateText(plan: TargetPlan): string {
+  const pause = plan.rules.pause_after_missed_months;
+  switch (plan.state) {
+    case 'none':
+      return 'Nothing is held: the whole raise starts on the start date.';
+    case 'awaiting_measurement':
+      return `${heldRupees(plan)} is held while the targets are being set up. `
+        + 'Nothing is measured yet, and nothing changes your pay until they are.';
+    case 'waiting':
+      return `${heldRupees(plan)} starts on the 1st of the month after a month with every target met, `
+        + `if that happens by ${monthName(windowEnd(plan))}.`;
+    case 'released':
+      return `${heldRupees(plan)} is being paid${plan.held_paid_from ? ` from ${longDate(plan.held_paid_from)}` : ''}.`
+        + (plan.missed_in_row > 0
+          ? ` ${plan.missed_in_row} month${plan.missed_in_row === 1 ? '' : 's'} below target in a row; ${pause} in a row pause it.`
+          : ` ${pause} months below target in a row would pause it.`);
+    case 'paused':
+      return `${heldRupees(plan)} is paused${plan.paused_from ? ` from ${longDate(plan.paused_from)}` : ''} after ${pause} months below target in a row. `
+        + 'It is paid again from the 1st after a month on target. Months already paid are not taken back.';
+    case 'back_to_director':
+      return `No month met every target by ${monthName(windowEnd(plan))}. It is back with the Director, with the numbers.`;
+    case 'lapsed':
+      // The person's own view carries no reason (default cc).
+      if (plan.state_reason === null) return 'Lapsed: this held part will not be paid under this raise.';
+      if (plan.state_reason === 'lapsed_by_director') {
+        return 'Lapsed by the Director, so a new raise can be asked for. Nobody’s pay changed.';
+      }
+      return plan.state_reason === 'moved_college'
+        ? 'Lapsed: the person moved to another college before it was paid. Listed for the Director.'
+        : 'Lapsed: the person left before it was paid. Listed for the Director.';
+    case 'held_listed': {
+      if (plan.state_reason === null) return 'Held: the Director decides when it is paid.';
+      const reason = plan.state_reason ?? '';
+      if (reason === 'director_list') return 'Held: the person is on the Director list, so only the Director decides when it is paid.';
+      if (reason.startsWith('waits_for_own_targets:')) {
+        return `Held: there are no targets for the ${reason.split(':')[1]} role yet. Listed for the Director.`;
+      }
+      if (reason.startsWith('several_target_roles:')) {
+        return 'Held: the person holds more than one role with targets. Listed for the Director.';
+      }
+      return 'Held: MyJKKN has no targets for this person’s role yet. Listed for the Director.';
+    }
+  }
+}
+
+/** "12 of 14 (86%)" — or "none scheduled". */
+export function resultText(r: Pick<TargetResult, 'numerator' | 'denominator'>): string {
+  if (r.denominator === 0) return 'none scheduled';
+  return `${r.numerator} of ${r.denominator} (${Math.floor((r.numerator * 100) / r.denominator)}%)`;
+}
+
+/** A principal may flag a month the monthly run has not counted yet. */
+export function canFlagMonth(plan: TargetPlan, month: TargetMonth): boolean {
+  return ['waiting', 'released', 'paused'].includes(plan.state) && month.status === 'in_progress';
+}
+
+/** The Director may lapse a held part that is still open (one held raise at a time). */
+export function canLapsePlan(plan: TargetPlan): boolean {
+  return ['awaiting_measurement', 'waiting', 'released', 'paused', 'back_to_director', 'held_listed'].includes(plan.state);
+}
+
+/** The Director decides a flagged month once it is over. */
+export function canDecideMonth(month: TargetMonth, todayIst: string): boolean {
+  return month.status === 'flagged' && month.month.slice(0, 7) < todayIst.slice(0, 7);
+}
+
+/** One row of fn_hr_salary_revision_targets_listed() (Director list only). */
+export interface ListedTargetRow {
+  request_id: string;
+  staff_id: string;
+  person_name: string;
+  staff_code: string | null;
+  state: string;
+  why: string;
+  /** Set for a flagged month waiting for his decision. */
+  month: string | null;
+  increment_amount: number | string;
+  held_amount: number | string;
+  /** A flagged month: its five results. Otherwise each counted month: { month, status, results }. */
+  results: unknown;
+}
+
+/** Why a held part is on the Director's list, in plain words. */
+export function listedReasonInWords(why: string): string {
+  const [code, ...rest] = why.split(':');
+  const note = rest.join(':').trim();
+  switch (code) {
+    case 'awaiting_measurement': return 'Waiting for measurement to be switched on';
+    case 'director_list': return 'On the Director list: you decide when it is paid';
+    case 'waits_for_own_targets': return `No targets for the ${note || 'principal'} role yet`;
+    case 'no_targets_for_role': return 'No targets set for this person’s role';
+    case 'no_teaching_timetable': return 'Does not teach (no timetable): no targets';
+    case 'several_target_roles': return 'Holds more than one role with targets';
+    case 'window_over': return 'No month met every target in time: back with you';
+    case 'left': return 'Left before it was paid';
+    case 'moved_college': return 'Moved to another college before it was paid';
+    case 'start_missed': return 'Start date passed without the pay being written';
+    case 'left_before_start': return 'Left before the start date';
+    case 'lapsed_by_director': return note ? `Lapsed by you: ${note}` : 'Lapsed by you';
+    case 'flagged': return note ? `Principal flagged this month: ${note}` : 'Principal flagged this month';
+    case 'run': return note ? `Monthly check skipped it: ${note}` : 'Monthly check skipped it';
+    case 'start date': return note ? `Start date wrote nothing: ${note}` : 'Start date wrote nothing';
+    default: return why;
+  }
+}
