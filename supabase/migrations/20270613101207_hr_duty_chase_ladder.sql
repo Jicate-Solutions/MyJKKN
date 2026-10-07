@@ -67,7 +67,6 @@
 -- ============================================================================
 -- ci:allow-secdef-authenticated fn_hr_duty_mark_blocked / fn_hr_duty_clear_blocked are callable by any signed-in user by design: the body refuses anyone who is not an owner (or, to clear, the marker or a supervisor) on that item's own ledger rows — an ownership test on data, which is the authorization, not a role check.
 
-BEGIN;
 
 -- ----------------------------------------------------------------------------
 -- 1. The duty register (config table)
@@ -694,6 +693,5 @@ VALUES
    'director@jkkn.ac.in')
 ON CONFLICT (loop_key) DO NOTHING;
 
-COMMIT;
 
 NOTIFY pgrst, 'reload schema';
