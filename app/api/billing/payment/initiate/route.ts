@@ -10,6 +10,8 @@ import { createClient } from '@/lib/supabase/server';
 import { logger } from '@/lib/utils/enhanced-logger';
 import { withUsageTracking } from '@/lib/middleware/usage-tracking-middleware';
 import type { CreatePaymentSessionDto } from '@/types/payment-gateway';
+import { getLearnerHiddenCategoryIds } from '@/lib/utils/billing/learner-visibility';
+import { findEarlierYearDuesBlock } from '@/lib/utils/billing/academic-year-payment-order';
 
 async function handlePOST(request: NextRequest) {
   try {
@@ -71,6 +73,30 @@ async function handlePOST(request: NextRequest) {
         { error: 'UNAUTHORIZED', message: 'You can only pay for your own bills' },
         { status: 403 }
       );
+    }
+
+    // Year order (learners only, oldest year first): a bill cannot be paid
+    // online while a bill of an older academic year still has a balance. Staff
+    // paying on a learner's behalf are not subject to it. Errors throw → 500
+    // (fail closed).
+    if (profile.role === 'student') {
+      const hiddenCategoryIds = await getLearnerHiddenCategoryIds(supabase);
+      const yearOrder = await findEarlierYearDuesBlock(supabase, {
+        studentId: student_id,
+        billIds: bill_ids,
+        hiddenCategoryIds,
+      });
+      if (yearOrder.blocked) {
+        logger.warn('billing/payment-api', 'Future-year bill blocked by earlier dues', {
+          user_id: user.id,
+          student_id,
+          earlier_due_total: yearOrder.dues.total,
+        });
+        return NextResponse.json(
+          { error: 'EARLIER_YEAR_DUES_PENDING', message: yearOrder.message },
+          { status: 409 }
+        );
+      }
     }
 
     // For parents, verify they have access to the student (future enhancement)

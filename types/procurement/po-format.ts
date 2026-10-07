@@ -12,7 +12,7 @@ export type PoFieldSource =
   | `footer_values.${string}`
   | `item.${string}`
   | `item_extra.${string}`
-  /** Computed per item: qty_with_unit, gst_amount, amount_with_gst. */
+  /** Computed per item: qty_with_unit, item_description, gst_amount, amount_with_gst. */
   | `calc.${string}`
   | 'row_index';
 

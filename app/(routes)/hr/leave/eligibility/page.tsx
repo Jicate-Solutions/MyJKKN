@@ -26,8 +26,8 @@
 // around a second table would have cost more than it returned.
 // ============================================================================
 
-import { useMemo, useState } from 'react';
-import { AlertTriangle, Check, Eye, GraduationCap, Loader2, Plus, ShieldCheck, X } from 'lucide-react';
+import { useCallback, useState } from 'react';
+import { AlertTriangle, Check, GraduationCap, Loader2, Plus, ShieldCheck, X } from 'lucide-react';
 import toast from 'react-hot-toast';
 
 import { TimeOffShell } from '../_components/time-off-shell';
@@ -49,8 +49,8 @@ import { usePermissions } from '@/hooks/use-permissions';
 import { useTimeOffContext } from '@/hooks/hr/use-time-off-context';
 import {
   useCanDecideEligibility,
+  useAllLeaveEligibilities,
   useDecideLeaveEligibility,
-  useLeaveEligibilities,
   usePendingLeaveEligibilities,
   useRequestableGatedTypes,
   useRevokeLeaveEligibility,
@@ -62,6 +62,14 @@ import {
   type LeaveEligibilityRow,
 } from '@/types/hr-leave-types';
 import { GrantEligibilityDialog } from './_components/grant-eligibility-dialog';
+import { EligibilityDataTable } from './_components/eligibility-data-table';
+import {
+  DEFAULT_ELIGIBILITY_FILTERS,
+  EligibilityFilters,
+  type EligibilityFilterState,
+} from './_components/eligibility-filters';
+import { STATUS_TONE, type EligibilityTableRow } from './_components/eligibility-status';
+import { useEligibilityView } from './_components/eligibility-view';
 
 /**
  * WHO SEES "WAITING ON YOU" WITHOUT BEING NAMED ON A FLOW.
@@ -77,12 +85,8 @@ import { GrantEligibilityDialog } from './_components/grant-eligibility-dialog';
  */
 const DEFAULT_ELIGIBILITY_APPROVER_ROLES = new Set(['hr_head', 'cao', 'principal']);
 
-const STATUS_TONE: Record<string, string> = {
-  pending: 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300',
-  approved: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300',
-  rejected: 'bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-300',
-  revoked: 'bg-muted text-muted-foreground',
-};
+/** A stable empty list, so the view hook's memos do not rebuild every render while the query loads. */
+const NO_ROWS: LeaveEligibilityRow[] = [];
 
 export default function LeaveEligibilityPage() {
   const { profile } = useAuth();
@@ -101,7 +105,19 @@ export default function LeaveEligibilityPage() {
   );
   const showQueue = isSuperAdmin || isDefaultApprover || Boolean(canDecide);
   const pending = usePendingLeaveEligibilities(showQueue);
-  const all = useLeaveEligibilities(canManage ? ctx.hrOrgId : undefined);
+  // EVERY organisation the caller may read, not just their home one: RLS gives a
+  // super admin all of them and an HR Head each institution they have access to.
+  const all = useAllLeaveEligibilities(canManage);
+  const { viewRows, organizations, leaveTypes } = useEligibilityView(all.data ?? NO_ROWS);
+
+  // Filters live here, not in the URL: the DataTable owns page / search / sort in
+  // the query string and a second writer would clobber it.
+  const [filters, setFilters] = useState<EligibilityFilterState>(DEFAULT_ELIGIBILITY_FILTERS);
+  const handleFilterChange = useCallback(
+    (patch: Partial<EligibilityFilterState>) => setFilters((prev) => ({ ...prev, ...patch })),
+    [],
+  );
+  const handleFilterReset = useCallback(() => setFilters(DEFAULT_ELIGIBILITY_FILTERS), []);
 
   // MY OWN STANDING — every gated type in my institution, approved ones too,
   // so "you already hold this" sits beside "you could ask for that".
@@ -123,12 +139,12 @@ export default function LeaveEligibilityPage() {
   // The HR table's Document column: which row's proof is open in the viewer.
   const [viewingDocsOf, setViewingDocsOf] = useState<LeaveEligibilityRow | null>(null);
 
-  // The approver queue and the admin list overlap; showing a row twice would
-  // make "2 waiting" read as four things to do.
-  const granted = useMemo(
-    () => (all.data ?? []).filter((r) => r.status !== 'pending'),
-    [all.data],
-  );
+  // Row actions handed to the table. Stable, so its columns are not rebuilt on
+  // every keystroke in a dialog.
+  const handleWithdraw = useCallback((r: EligibilityTableRow) => {
+    setRevoking(r);
+    setRevokeReason('');
+  }, []);
 
   const submitDecision = async () => {
     if (!decidingOn) return;
@@ -342,93 +358,37 @@ export default function LeaveEligibilityPage() {
         {canManage && (
           <Card>
             <CardHeader className="pb-3">
-              <CardTitle className="text-base font-semibold">
-                Granted &amp; decided ({granted.length})
-              </CardTitle>
+              <CardTitle className="text-base font-semibold">Granted &amp; decided</CardTitle>
+              <p className="text-xs text-muted-foreground">
+                Every team member&rsquo;s eligibility across the institutions you can access. The
+                date range in the table filters the date a request was made.
+              </p>
             </CardHeader>
-            <CardContent>
+            <CardContent className="space-y-4">
               {all.isLoading ? (
                 <Skeleton className="h-24 w-full" />
-              ) : granted.length === 0 ? (
-                <p className="rounded-md border bg-muted/30 p-4 text-sm text-muted-foreground">
-                  No eligibility has been decided for this institution yet.
-                </p>
+              ) : all.error ? (
+                // An empty table must never mean "the query failed".
+                <Alert variant="destructive">
+                  <AlertTriangle className="h-4 w-4" />
+                  <AlertDescription>{getErrorMessage(all.error)}</AlertDescription>
+                </Alert>
               ) : (
-                <div className="overflow-x-auto rounded-md border">
-                  <table className="w-full min-w-[820px] text-sm">
-                    <thead className="bg-muted/50">
-                      <tr className="text-left">
-                        <th className="px-3 py-2 font-medium">Team member</th>
-                        <th className="px-3 py-2 font-medium">Leave type</th>
-                        <th className="px-3 py-2 font-medium">Status</th>
-                        <th className="px-3 py-2 font-medium">Days</th>
-                        <th className="px-3 py-2 font-medium">Valid until</th>
-                        <th className="px-3 py-2 font-medium">Document</th>
-                        <th className="px-3 py-2" />
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {granted.map((r) => (
-                        <tr key={r.id} className="border-t align-top">
-                          <td className="px-3 py-2">
-                            {r.staff_name ?? '—'}
-                            {r.staff_code && (
-                              <span className="block font-mono text-xs text-muted-foreground">
-                                {r.staff_code}
-                              </span>
-                            )}
-                          </td>
-                          <td className="px-3 py-2">{r.leave_type_name ?? '—'}</td>
-                          <td className="px-3 py-2">
-                            <Badge className={STATUS_TONE[r.status]} variant="secondary">
-                              {LEAVE_ELIGIBILITY_STATUS_LABELS[r.status]}
-                            </Badge>
-                            {r.granted_directly && (
-                              <span className="ml-1.5 text-xs text-muted-foreground">
-                                granted by HR
-                              </span>
-                            )}
-                          </td>
-                          <td className="px-3 py-2 tabular-nums">
-                            {r.entitled_days ?? <span className="text-muted-foreground">type default</span>}
-                          </td>
-                          <td className="px-3 py-2">
-                            {r.valid_until ?? <span className="text-muted-foreground">no expiry</span>}
-                          </td>
-                          <td className="px-3 py-2">
-                            {/* A direct HR grant carries no document by design;
-                                a request always carries at least one. */}
-                            {r.documents.length > 0 ? (
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                className="h-7"
-                                onClick={() => setViewingDocsOf(r)}
-                              >
-                                <Eye className="mr-1.5 h-3.5 w-3.5" />
-                                View{r.documents.length > 1 ? ` (${r.documents.length})` : ''}
-                              </Button>
-                            ) : (
-                              <span className="text-muted-foreground">—</span>
-                            )}
-                          </td>
-                          <td className="px-3 py-2 text-right">
-                            {r.status === 'approved' && (
-                              <Button
-                                size="sm"
-                                variant="ghost"
-                                className="text-destructive hover:bg-destructive/10 hover:text-destructive"
-                                onClick={() => { setRevoking(r); setRevokeReason(''); }}
-                              >
-                                Withdraw
-                              </Button>
-                            )}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
+                <>
+                  <EligibilityFilters
+                    filters={filters}
+                    onChange={handleFilterChange}
+                    onReset={handleFilterReset}
+                    organizations={organizations}
+                    leaveTypes={leaveTypes}
+                  />
+                  <EligibilityDataTable
+                    rows={viewRows}
+                    filters={filters}
+                    onViewDocs={setViewingDocsOf}
+                    onWithdraw={handleWithdraw}
+                  />
+                </>
               )}
             </CardContent>
           </Card>

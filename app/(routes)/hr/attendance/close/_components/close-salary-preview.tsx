@@ -155,10 +155,19 @@ export function CloseSalaryPreview({
 
   const verified = verifiedFingerprint === preview.fingerprint;
 
+  // The preview lists who WORKS here, whoever pays them. A "Paid by" column only
+  // earns its width when more than one organisation actually appears; for a
+  // college whose staff are all paid by itself it would repeat one name 100 times.
+  const payers = new Set(
+    [...preview.payable, ...preview.excluded].map((r) => r.paid_by_name).filter(Boolean),
+  );
+  const showPaidBy = payers.size > 1;
+  const paidElsewhereTotal = preview.paid_elsewhere.reduce((t, p) => t + p.count, 0);
+
   return (
     <div className='space-y-3'>
       <div className='flex flex-wrap items-center gap-3 rounded-md border bg-muted/30 p-3 text-sm'>
-        <Figure label='On the roster' value={String(preview.roster_count)} />
+        <Figure label='Working here' value={String(preview.roster_count)} />
         <Figure label='Will be paid' value={String(preview.payable.length)} />
         <Figure label='Not paid' value={String(preview.excluded.length)} />
         <Figure label='Total net pay' value={inr.format(preview.total_net_pay)} />
@@ -202,6 +211,7 @@ export function CloseSalaryPreview({
               {canRegularize && <TableHead className='w-[36px]' />}
               <TableHead>Code</TableHead>
               <TableHead>Name</TableHead>
+              {showPaidBy && <TableHead>Paid by</TableHead>}
               <TableHead className='text-right'>Working</TableHead>
               <TableHead className='text-right'>Paid</TableHead>
               <TableHead className='text-right'>Unpaid</TableHead>
@@ -212,7 +222,7 @@ export function CloseSalaryPreview({
           <TableBody>
             {preview.payable.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={canRegularize ? 8 : 7} className='text-center text-sm text-muted-foreground'>
+                <TableCell colSpan={(canRegularize ? 8 : 7) + (showPaidBy ? 1 : 0)} className='text-center text-sm text-muted-foreground'>
                   Nobody at this institution will be paid for this month.
                 </TableCell>
               </TableRow>
@@ -248,6 +258,11 @@ export function CloseSalaryPreview({
                       </Badge>
                     )}
                   </TableCell>
+                  {showPaidBy && (
+                    <TableCell className='whitespace-nowrap text-xs text-muted-foreground'>
+                      {r.paid_by_name ?? '—'}
+                    </TableCell>
+                  )}
                   <TableCell className='text-right tabular-nums'>{days(r.working_days)}</TableCell>
                   <TableCell className='text-right tabular-nums'>{days(r.paid_days)}</TableCell>
                   <TableCell
@@ -262,7 +277,7 @@ export function CloseSalaryPreview({
                 </TableRow>
                 {canRegularize && openStaff === r.staff_id && (
                   <TableRow className='hover:bg-transparent'>
-                    <TableCell colSpan={8} className='bg-muted/20 p-3'>
+                    <TableCell colSpan={8 + (showPaidBy ? 1 : 0)} className='bg-muted/20 p-3'>
                       {/* Keyed on the staff member so switching rows remounts
                           with empty inputs instead of carrying the last
                           person's reason across. */}
@@ -300,6 +315,11 @@ export function CloseSalaryPreview({
                       {r.employee_code ?? '—'}
                     </TableCell>
                     <TableCell className='whitespace-nowrap'>{r.staff_name}</TableCell>
+                    {showPaidBy && (
+                      <TableCell className='whitespace-nowrap text-xs text-muted-foreground'>
+                        {r.paid_by_name ?? '—'}
+                      </TableCell>
+                    )}
                     <TableCell className='text-xs text-muted-foreground'>
                       {EXCLUSION_LABELS[r.reason]}
                     </TableCell>
@@ -309,6 +329,23 @@ export function CloseSalaryPreview({
             </Table>
           </div>
         </details>
+      )}
+
+      {/* People this institution PAYS who work somewhere else. Said once, as
+          information: they are not "not paid" and they are not in the figures
+          being verified — their own work location closes their days. */}
+      {paidElsewhereTotal > 0 && (
+        <Alert>
+          <Info className='h-4 w-4' />
+          <AlertDescription className='text-xs'>
+            <strong>{paidElsewhereTotal}</strong> {paidElsewhereTotal === 1 ? 'person' : 'people'} this
+            institution pays work elsewhere (
+            {preview.paid_elsewhere.map((p) => `${p.institution_name}: ${p.count}`).join(', ')}
+            ). They are not listed here. Their attendance is closed, and their pay verified, when
+            their own institution closes the month; they then appear on this institution’s
+            salary register.
+          </AlertDescription>
+        </Alert>
       )}
 
       <Alert>

@@ -39,6 +39,7 @@ export function buildComparisonRows(
             concentration: qi.concentration,
             other_specs: qi.other_specs,
             awarded: qi.awarded,
+            previous_unit_price: qi.previous_unit_price ?? null,
           }))
       )
       // Not-quoted (unit_price null) sorts last — plain `a - b` would coerce null to 0
