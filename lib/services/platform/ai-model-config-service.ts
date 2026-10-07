@@ -476,6 +476,10 @@ function getHardcodedFallback(featureKey: string): ResolvedModel {
     // in lib/procurement/*-pdf-extract.ts (cutover invariant: degraded == old behavior).
     'procurement.quotation_extract': fallback(featureKey, 'anthropic', 'claude-opus-4-8'),
     'procurement.invoice_extract': fallback(featureKey, 'anthropic', 'claude-opus-4-8'),
+    // HR intake helper's resume reader (2026-10-01) — mirrors its seed row in
+    // 20270521091500_hr_intake_resume_extract_model.sql, so a missing row or an
+    // unreachable table keeps it on Haiku instead of the Sonnet last resort.
+    'hr.intake.resume_extract': fallback(featureKey, 'anthropic', 'claude-haiku-4-5'),
   };
 
   return FALLBACKS[featureKey] ?? fallback(featureKey, 'openai', 'gpt-4o-mini');
