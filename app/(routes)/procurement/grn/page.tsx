@@ -11,13 +11,11 @@ import { displayRequestNumber } from '@/lib/procurement/display-number';
 import { InstitutionFilter } from '@/components/procurement/institution-filter';
 import { StatusBadge } from '@/components/procurement/status-badge';
 import { ResponsiveList } from '@/components/procurement/responsive-list';
-import { PageHeader, FilterBar } from '@/components/procurement/page-header';
+import { FilterBar } from '@/components/procurement/page-header';
 import { EmptyState } from '@/components/empty-state';
 import { AlertBox } from '@/components/ui/alert-box';
 import { formatDateDMY } from '@/lib/utils/date-format';
 import { GRN_STATUS_CONFIG, type GrnStatus, type GrnFilters } from '@/types/procurement';
-import { Card, CardContent } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
 import { ReceiveSwitcher } from '@/components/procurement/receive-switcher';
 import { Input } from '@/components/ui/input';
 import {
@@ -27,7 +25,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Eye, Search } from 'lucide-react';
+import { Search } from 'lucide-react';
 import { BeatLoader } from 'react-spinners';
 
 export default function GrnListPage() {
@@ -40,7 +38,9 @@ export default function GrnListPage() {
   // The Overview status bars link here with ?institution=<id|all>&status=<status>.
   const [statusFilter, setStatusFilter] = useState<string>(() => searchParams.get('status') ?? 'all');
   const [institutionId, setInstitutionId] = useState<string | undefined>(
-    () => searchParams.get('institution') ?? undefined
+    // Opens on every college the viewer may see (RLS scopes the rows), as Requests
+    // does: store staff often handle orders for a college other than their profile's.
+    () => searchParams.get('institution') ?? 'all'
   );
   // 'all' = every college the viewer may see (RLS scopes the rows). effectiveInstitution
   // stays a concrete college for anything that creates a document.
@@ -65,53 +65,43 @@ export default function GrnListPage() {
 
   return (
     <ContentLayout title="Deliveries">
-      <div className="space-y-4 sm:space-y-6">
-        <div className="space-y-2">
-          <PageHeader
-            title="Deliveries"
-            description="Receive deliveries against a purchase order, check they match the PO and invoice, and add accepted stock to inventory once verified."
-          />
+      <div className="w-full space-y-5">
+        {/* One toolbar row: which list · search · status · college. */}
+        <FilterBar>
           <ReceiveSwitcher active="receipts" />
-        </div>
+          <div className="relative min-w-[220px] flex-1">
+            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              placeholder="Search purchase no., delivery or PO number"
+              aria-label="Search deliveries"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="h-9 pl-9"
+            />
+          </div>
+          <Select value={statusFilter} onValueChange={setStatusFilter}>
+            <SelectTrigger className="h-9 w-full sm:w-48" aria-label="Status">
+              <SelectValue placeholder="All statuses" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All statuses</SelectItem>
+              {Object.entries(GRN_STATUS_CONFIG).map(([key, config]) => (
+                <SelectItem key={key} value={key}>
+                  {config.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <InstitutionFilter
+            value={allColleges ? 'all' : effectiveInstitution}
+            onChange={setInstitutionId}
+            allLabel="All colleges"
+            label={null}
+            className="w-full sm:w-52"
+          />
+        </FilterBar>
 
-        <Card>
-          <CardContent className="p-4 sm:p-6">
-            <FilterBar>
-              <div className="relative flex-1">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                <Input
-                  placeholder="Search by purchase no., delivery or PO number..."
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                  className="pl-9"
-                />
-              </div>
-              <Select value={statusFilter} onValueChange={setStatusFilter}>
-                <SelectTrigger className="w-full sm:w-[200px]">
-                  <SelectValue placeholder="Status" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All Status</SelectItem>
-                  {Object.entries(GRN_STATUS_CONFIG).map(([key, config]) => (
-                    <SelectItem key={key} value={key}>
-                      {config.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <InstitutionFilter
-                value={allColleges ? 'all' : effectiveInstitution}
-                onChange={setInstitutionId}
-                allLabel="All colleges"
-                label={null}
-                className="w-full sm:w-[200px]"
-              />
-            </FilterBar>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardContent className="p-0">
+        <section className="overflow-hidden rounded-xl border bg-background shadow">
             {isLoading ? (
               <div className="flex items-center justify-center py-12">
                 <BeatLoader color="hsl(var(--primary))" size={10} />
@@ -143,11 +133,13 @@ export default function GrnListPage() {
                             ? displayRequestNumber(grn.purchase_request.request_number)
                             : grn.grn_number}
                         </div>
-                        <div className="text-xs font-normal text-muted-foreground">
-                          {grn.purchase_request ? `Delivery ${grn.grn_number}` : ''}
-                          {grn.purchase_request && grn.purchase_order ? ' · ' : ''}
-                          {grn.purchase_order ? `Order ${grn.purchase_order.po_number}` : ''}
-                        </div>
+                        {(grn.purchase_request || grn.purchase_order) && (
+                          <div className="text-xs font-normal text-muted-foreground">
+                            {grn.purchase_request ? `Delivery ${grn.grn_number}` : ''}
+                            {grn.purchase_request && grn.purchase_order ? ' · ' : ''}
+                            {grn.purchase_order ? `Order ${grn.purchase_order.po_number}` : ''}
+                          </div>
+                        )}
                       </div>
                     ),
                   },
@@ -164,30 +156,18 @@ export default function GrnListPage() {
                     mobile: 'badge',
                     cell: (grn) => <StatusBadge status={grn.status} config={GRN_STATUS_CONFIG} />,
                   },
+                  // The whole row opens the delivery; this just says so.
                   {
-                    key: 'actions',
-                    header: 'Actions',
+                    key: 'open',
+                    header: '',
                     mobile: 'hidden',
                     className: 'text-right',
-                    cell: (grn) => (
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        aria-label={`View ${grn.grn_number}`}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          router.push(`/procurement/grn/${grn.id}`);
-                        }}
-                      >
-                        <Eye className="h-4 w-4" />
-                      </Button>
-                    ),
+                    cell: () => <span className="text-xs font-medium text-muted-foreground">Open ›</span>,
                   },
                 ]}
               />
             )}
-          </CardContent>
-        </Card>
+        </section>
       </div>
     </ContentLayout>
   );

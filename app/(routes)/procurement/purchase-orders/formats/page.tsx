@@ -1,18 +1,22 @@
 'use client';
 
+import { useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { Input } from '@/components/ui/input';
+import { useDebounceValue } from '@/hooks/use-debounce-value';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { useAuth } from '@/hooks/use-auth';
 import { usePermissions } from '@/hooks/use-permissions';
 import { usePoFormats, useDeletePoFormat, useSetDefaultPoFormat } from '@/hooks/procurement/use-po-formats';
 import { useImsSuppliers, useUpdateImsSupplier } from '@/hooks/ims/use-ims-settings';
 import { AlertBox } from '@/components/ui/alert-box';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { ResponsiveList } from '@/components/procurement/responsive-list';
-import { PageHeader } from '@/components/procurement/page-header';
+import { FilterBar } from '@/components/procurement/page-header';
+import { InstitutionFilter } from '@/components/procurement/institution-filter';
+import { EmptyState } from '@/components/empty-state';
 import {
   Select,
   SelectContent,
@@ -27,7 +31,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { Plus, MoreHorizontal, Pencil, Trash2, Star, FileStack, Truck } from 'lucide-react';
+import { Plus, MoreHorizontal, Pencil, Trash2, Star, FileStack, Truck, Search, ChevronLeft } from 'lucide-react';
 import { BeatLoader } from 'react-spinners';
 import { toast } from 'sonner';
 import { errorMessage } from '@/lib/utils/supabase-error';
@@ -39,17 +43,26 @@ export default function PoFormatsPage() {
   const { profile } = useAuth();
   const { canAccess, isSuperAdmin } = usePermissions();
   const canManage = isSuperAdmin || canAccess('procurement', 'po_create');
-  const institutionId = profile?.institution_id ?? undefined;
+  // Formats and vendor assignments are per college. Multi-college admins pick one
+  // (the picker only renders for them); everyone else stays on their own.
+  const [pickedInstitution, setPickedInstitution] = useState<string | undefined>(undefined);
+  const institutionId = pickedInstitution ?? profile?.institution_id ?? undefined;
 
   const { data: formats, isLoading, isError } = usePoFormats(institutionId);
   const deleteFormat = useDeletePoFormat();
   const setDefault = useSetDefaultPoFormat();
 
+  // Vendors load 100 at a time; search reaches the rest (it used to stop silently at 100).
+  const [vendorSearch, setVendorSearch] = useState('');
+  const debouncedVendorSearch = useDebounceValue(vendorSearch, 300);
   const { data: suppliersList, isLoading: suppliersLoading, isError: suppliersError } = useImsSuppliers({
     institution_id: institutionId,
     is_active: true,
+    search: debouncedVendorSearch.trim() || undefined,
     limit: 100,
   });
+  const vendorTotal = suppliersList?.metadata?.total ?? 0;
+  const vendorShown = suppliersList?.data?.length ?? 0;
   const updateSupplier = useUpdateImsSupplier();
 
   const handleAssignFormat = async (supplierId: string, formatId: string) => {
@@ -88,7 +101,7 @@ export default function PoFormatsPage() {
   const renderFormatActions = (format: ProcurementPoFormat) => (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button variant="ghost" size="sm" className="h-10 sm:h-8" aria-label={`Actions for ${format.name}`}>
+        <Button variant="ghost" size="sm" className="h-9 w-9 p-0" aria-label={`Actions for ${format.name}`}>
           <MoreHorizontal className="h-4 w-4" />
         </Button>
       </DropdownMenuTrigger>
@@ -104,7 +117,7 @@ export default function PoFormatsPage() {
         {canManage && !format.is_default && (
           <DropdownMenuItem onClick={() => handleSetDefault(format.id)}>
             <Star className="h-4 w-4 mr-2" />
-            Set as Default
+            Set as default
           </DropdownMenuItem>
         )}
         {canManage && (
@@ -129,7 +142,7 @@ export default function PoFormatsPage() {
         value={supplier.default_po_format_id || 'none'}
         onValueChange={(v) => handleAssignFormat(supplier.id, v)}
       >
-        <SelectTrigger>
+        <SelectTrigger className="h-9">
           <SelectValue />
         </SelectTrigger>
         <SelectContent>
@@ -148,30 +161,36 @@ export default function PoFormatsPage() {
     );
 
   return (
-    <ContentLayout title="PO Formats">
-      <div className="space-y-4 sm:space-y-6">
-        <PageHeader
-          title="PO Formats"
-          description="Configure item columns, header fields, and footer content per vendor layout."
-          actions={
-            canManage && (
-              <Button onClick={() => router.push('/procurement/purchase-orders/formats/new')}>
-                <Plus className="h-4 w-4 mr-2" />
-                New Format
-              </Button>
-            )
-          }
-        />
+    <ContentLayout title="PO formats">
+      <div className="w-full space-y-5">
+        <FilterBar>
+          <Button
+            variant="ghost"
+            className="h-9 px-2"
+            onClick={() => router.push('/procurement/purchase-orders')}
+          >
+            <ChevronLeft className="mr-1 h-4 w-4" />
+            Purchase orders
+          </Button>
+          <InstitutionFilter
+            value={institutionId}
+            onChange={setPickedInstitution}
+            label={null}
+            className="w-full sm:ml-auto sm:w-52"
+          />
+          {canManage && (
+            <Button
+              className="h-9 w-full sm:w-auto"
+              onClick={() => router.push('/procurement/purchase-orders/formats/new')}
+            >
+              <Plus className="mr-1.5 h-4 w-4" />
+              New format
+            </Button>
+          )}
+        </FilterBar>
 
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Saved formats</CardTitle>
-            <p className="hidden text-sm text-muted-foreground sm:block">
-              Each format is a reusable print layout. One is marked the institution default and is
-              used whenever a vendor has no format of its own.
-            </p>
-          </CardHeader>
-          <CardContent className="p-0">
+        <section className="overflow-hidden rounded-xl border bg-background shadow">
+          <h2 className="border-b px-5 py-3 text-base font-semibold">Saved formats</h2>
             {isLoading ? (
               <div className="flex items-center justify-center py-12">
                 <BeatLoader color="hsl(var(--primary))" size={10} />
@@ -181,14 +200,11 @@ export default function PoFormatsPage() {
                 <AlertBox type="error" message="Failed to load PO formats. Please try again." />
               </div>
             ) : list.length === 0 ? (
-              <div className="px-4 py-12 text-center text-muted-foreground sm:px-6">
-                <FileStack className="h-12 w-12 mx-auto mb-4 opacity-40" />
-                <p className="text-lg font-medium">No formats yet</p>
-                <p className="text-sm mt-1">
-                  Orders without a format fall back to the standard layout. Create one per vendor
-                  document style (e.g. GST breakup, MRP/dealer price, ISBN/author).
-                </p>
-              </div>
+              <EmptyState
+                icon={<FileStack className="h-10 w-10 text-muted-foreground" />}
+                title="No formats yet"
+                description="Orders use the standard layout until you add one."
+              />
             ) : (
               <ResponsiveList
                 rows={list}
@@ -218,7 +234,7 @@ export default function PoFormatsPage() {
                   },
                   {
                     key: 'items',
-                    header: 'Item Columns',
+                    header: 'Item columns',
                     className: 'text-center',
                     cell: (format) => format.item_columns.length,
                   },
@@ -233,32 +249,47 @@ export default function PoFormatsPage() {
                         <Badge variant="secondary">Inactive</Badge>
                       ),
                   },
-                  {
-                    key: 'actions',
-                    header: 'Actions',
-                    mobile: 'hidden',
-                    className: 'text-right',
-                    cell: (format) => renderFormatActions(format),
-                  },
+                  // Only managers get the ⋯ menu; for anyone else it opened empty.
+                  ...(canManage
+                    ? [
+                        {
+                          key: 'actions',
+                          header: 'Actions',
+                          mobile: 'hidden' as const,
+                          className: 'text-right',
+                          cell: (format: ProcurementPoFormat) => renderFormatActions(format),
+                        },
+                      ]
+                    : []),
                 ]}
-                mobileFooter={(format) => (
-                  <div className="flex w-full justify-end">{renderFormatActions(format)}</div>
-                )}
+                mobileFooter={
+                  canManage
+                    ? (format) => <div className="flex w-full justify-end">{renderFormatActions(format)}</div>
+                    : undefined
+                }
               />
             )}
-          </CardContent>
-        </Card>
+        </section>
 
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Vendor Format Assignments</CardTitle>
-            <p className="hidden text-sm text-muted-foreground sm:block">
-              Set the default document format used when an order is generated for each
-              vendor. Vendor identity details (name, contact, GSTIN) are still managed in IMS →
-              Settings → Suppliers.
-            </p>
-          </CardHeader>
-          <CardContent className="p-0">
+        <section className="overflow-hidden rounded-xl border bg-background shadow">
+          <h2 className="border-b px-5 py-3 text-base font-semibold">Format for each vendor</h2>
+            <div className="flex flex-wrap items-center gap-2 border-b px-5 py-3">
+              <div className="relative min-w-[200px] flex-1">
+                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  placeholder="Search vendor name or code"
+                  aria-label="Search vendors"
+                  value={vendorSearch}
+                  onChange={(e) => setVendorSearch(e.target.value)}
+                  className="h-9 pl-9"
+                />
+              </div>
+              {vendorTotal > vendorShown && (
+                <span className="text-xs text-muted-foreground">
+                  Showing {vendorShown} of {vendorTotal}. Search to find the rest.
+                </span>
+              )}
+            </div>
             {suppliersLoading ? (
               <div className="flex items-center justify-center py-12">
                 <BeatLoader color="hsl(var(--primary))" size={10} />
@@ -268,10 +299,11 @@ export default function PoFormatsPage() {
                 <AlertBox type="error" message="Failed to load vendors. Please try again." />
               </div>
             ) : (suppliersList?.data ?? []).length === 0 ? (
-              <div className="px-4 py-12 text-center text-muted-foreground sm:px-6">
-                <Truck className="h-12 w-12 mx-auto mb-4 opacity-40" />
-                <p>No active vendors found.</p>
-              </div>
+              <EmptyState
+                icon={<Truck className="h-10 w-10 text-muted-foreground" />}
+                title={debouncedVendorSearch.trim() ? 'No vendors match this search' : 'No active vendors'}
+                description="Vendors are added in IMS → Settings → Suppliers."
+              />
             ) : (
               <ResponsiveList
                 rows={suppliersList?.data ?? []}
@@ -292,7 +324,7 @@ export default function PoFormatsPage() {
                   },
                   {
                     key: 'format',
-                    header: 'Default PO Format',
+                    header: 'PO format',
                     className: 'w-[240px]',
                     mobile: 'hidden',
                     cell: (supplier) => renderFormatSelect(supplier),
@@ -300,14 +332,13 @@ export default function PoFormatsPage() {
                 ]}
                 mobileFooter={(supplier) => (
                   <div className="w-full space-y-1">
-                    <Label className="text-xs text-muted-foreground">Default PO Format</Label>
+                    <Label className="text-xs text-muted-foreground">PO format</Label>
                     {renderFormatSelect(supplier)}
                   </div>
                 )}
               />
             )}
-          </CardContent>
-        </Card>
+        </section>
       </div>
     </ContentLayout>
   );

@@ -18,6 +18,7 @@ import {
 } from '@/hooks/procurement/use-purchase-requests';
 import { useCreateRfqFromPR } from '@/hooks/procurement/use-rfqs';
 import { StatusBadge } from '@/components/procurement/status-badge';
+import { DetailHeader } from '@/components/procurement/detail-header';
 import { useRequestJourney } from '@/components/procurement/request-journey';
 import {
   useApproveStep,
@@ -35,6 +36,7 @@ import { displayRequestNumber } from '@/lib/procurement/display-number';
 import { STAGE_CONFIG, stageOf } from '@/lib/procurement/purchase-stage';
 import { AlertBox } from '@/components/ui/alert-box';
 import { Button } from '@/components/ui/button';
+import { EmptyState } from '@/components/empty-state';
 import { Input } from '@/components/ui/input';
 import { getRequestLineStock } from '@/lib/services/procurement/request-stock';
 import { Label } from '@/components/ui/label';
@@ -50,7 +52,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
-import { Send, ClipboardList, Check, ChevronLeft, CornerUpLeft, Trash2, Undo2 } from 'lucide-react';
+import { Send, ClipboardList, Check, CornerUpLeft, Trash2, Undo2 } from 'lucide-react';
 import { BeatLoader } from 'react-spinners';
 import { toast } from 'sonner';
 import { errorMessage } from '@/lib/utils/supabase-error';
@@ -174,7 +176,15 @@ export default function PurchasePage() {
   if (!pr) {
     return (
       <ContentLayout title="Purchase">
-        <p className="text-muted-foreground py-12 text-center">Purchase not found.</p>
+        <EmptyState
+          title="Purchase not found"
+          description="It may have been removed, or you may not have access to it."
+          action={
+            <Button variant="outline" onClick={() => router.push('/procurement/requests')}>
+              Back to requests
+            </Button>
+          }
+        />
       </ContentLayout>
     );
   }
@@ -307,17 +317,17 @@ export default function PurchasePage() {
     <>
       <Button
         variant="outline"
-        className="h-10 w-24 border-destructive/30 text-destructive hover:bg-destructive/10 hover:text-destructive"
+        className="h-11 flex-1 border-destructive/30 text-destructive hover:bg-destructive/10 hover:text-destructive sm:h-9 sm:flex-none"
         onClick={() => setRejectOpen(true)}
       >
         Reject
       </Button>
-      <Button variant="outline" className="h-10" onClick={() => setReturnOpen(true)}>
+      <Button variant="outline" className="h-11 flex-1 sm:h-9 sm:flex-none" onClick={() => setReturnOpen(true)}>
         <CornerUpLeft className="mr-1.5 h-4 w-4" />
         Send back
       </Button>
       <Button
-        className="h-10 w-28"
+        className="h-11 flex-1 sm:h-9 sm:flex-none"
         disabled={approving || badQty}
         // A changed quantity needs a reason first — the requester will see it.
         onClick={() => (changedQty.length ? setQtyReasonOpen(true) : void approveItems())}
@@ -337,7 +347,7 @@ export default function PurchasePage() {
         <span className="mr-auto text-xs text-muted-foreground">
           {badQty ? 'Every quantity must be more than 0.' : changedQty.length ? `${changedQty.length} quantity changed` : ''}
         </span>
-        {decisionButtons}
+        <div className="flex w-full gap-2 sm:w-auto">{decisionButtons}</div>
       </>
     );
   } else if (canFix) {
@@ -347,7 +357,7 @@ export default function PurchasePage() {
           {badQty ? 'Every quantity must be more than 0.' : keptItems.length === 0 ? 'Keep at least one item.' : ''}
         </span>
         <Button
-          className="min-h-11 px-6"
+          className="h-11 w-full px-6 sm:h-9 sm:w-auto"
           disabled={resubmitPR.isPending || badQty || keptItems.length === 0}
           onClick={() => void resubmit()}
         >
@@ -357,17 +367,21 @@ export default function PurchasePage() {
       </>
     );
   } else if (pr.status === 'returned') {
-    footer = <span className="mr-auto text-sm text-muted-foreground">Sent back to the requester for changes.</span>;
+    footer = (
+      <span className="mr-auto text-sm text-muted-foreground">
+        Waiting for {pr.requested_by_profile?.full_name || 'the requester'} to make the changes and send it again.
+      </span>
+    );
   } else if (pr.status === 'draft' && isOwner) {
     footer = (
-      <Button className="min-h-11 px-6" onClick={() => run(() => submitPR.mutateAsync(id), 'Request submitted')}>
+      <Button className="h-11 w-full px-6 sm:h-9 sm:w-auto" onClick={() => run(() => submitPR.mutateAsync(id), 'Request submitted')}>
         <Send className="mr-2 h-4 w-4" />
         Send for approval
       </Button>
     );
   } else if (pr.status === 'approved' && !rfqId && canQuote) {
     footer = (
-      <Button className="min-h-11 px-6" disabled={createRfq.isPending} onClick={startQuotes}>
+      <Button className="h-11 w-full px-6 sm:h-9 sm:w-auto" disabled={createRfq.isPending} onClick={startQuotes}>
         <ClipboardList className="mr-2 h-4 w-4" />
         {createRfq.isPending ? 'Starting…' : 'Start quotes'}
       </Button>
@@ -389,7 +403,7 @@ export default function PurchasePage() {
   }
 
   const itemsBlock = (
-    <section className="rounded-2xl border bg-card shadow-sm">
+    <section className="rounded-xl border bg-background shadow">
       <div className="px-5 pb-3 pt-4">
         <div className="flex items-center justify-between gap-3">
           <h2 className="text-base font-semibold">{yourTurn ?? 'Items asked for'}</h2>
@@ -489,7 +503,7 @@ export default function PurchasePage() {
                   {edited && <span>(asked {asked})</span>}
                 </label>
               ) : null}
-              {inlineDecision && <div className="flex shrink-0 gap-2">{decisionButtons}</div>}
+              {inlineDecision && <div className="flex w-full gap-2 sm:w-auto">{decisionButtons}</div>}
               {!canDecide && !canFix && (
                 <span className="shrink-0 text-sm tabular-nums">
                   × <b>{Number(it.required_quantity)}</b>
@@ -544,31 +558,21 @@ export default function PurchasePage() {
       {/* Full width, like the other procurement screens. */}
       <div className="w-full space-y-5">
         {/* One row: back, what it is, where it is, who and when. Wraps on a phone. */}
-        <header className="flex flex-wrap items-center gap-x-3 gap-y-1">
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-9 w-9 shrink-0"
-            aria-label="Requests"
-            title="Requests"
-            onClick={() => router.push('/procurement/requests')}
-          >
-            <ChevronLeft className="h-5 w-5" />
-          </Button>
-          {/* No title: the first item and how many more — never the whole list. */}
-          <h1 className="text-xl font-bold">
-            {pr.title ||
-              (pr.items.length > 2
-                ? `${pr.items[0].item_name} + ${pr.items.length - 1} more items`
-                : pr.items.map((it) => it.item_name).join(', '))}
-          </h1>
-          <StatusBadge status={stage} config={STAGE_CONFIG} />
-          <p className="text-sm text-muted-foreground">
-            {purchaseNo}
-            {` · ${pr.requested_by_profile?.full_name || '—'}`}
-            {pr.created_at ? ` · ${formatDateDMY(pr.created_at)}` : ''}
-          </p>
-        </header>
+        <DetailHeader
+          backLabel="Requests"
+          onBack={() => router.push('/procurement/requests')}
+          // No title: the first item and how many more — never the whole list.
+          title={
+            pr.title ||
+            (pr.items.length > 2
+              ? `${pr.items[0].item_name} + ${pr.items.length - 1} more items`
+              : pr.items.map((it) => it.item_name).join(', '))
+          }
+          badge={<StatusBadge status={stage} config={STAGE_CONFIG} />}
+          meta={`${purchaseNo} · ${pr.requested_by_profile?.full_name || '—'}${
+            pr.created_at ? ` · ${formatDateDMY(pr.created_at)}` : ''
+          }`}
+        />
 
         {/* Requester rates what was delivered (hidden until something is). */}
         {rfqId && (isOwner || isSuperAdmin) && <RateItemsCard requestId={id} />}

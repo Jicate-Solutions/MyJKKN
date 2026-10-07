@@ -315,6 +315,16 @@ export function QuotesSection({
     fullQuoteTotals.length && unchosenCount === 0 ? Math.min(...fullQuoteTotals) - awardSummary.grandTotal : 0;
 
   const cellFor = (row: ComparisonRow, supplierId: string) => row.quotes.find((q) => q.supplier_id === supplierId);
+  const rowVisible = (row: ComparisonRow) => {
+    if (rowSearch.trim() && !row.item_name.toLowerCase().includes(rowSearch.trim().toLowerCase())) return false;
+    if (rowFilter === 'missing') return !row.quotes.some((q) => q.unit_price !== null);
+    if (rowFilter === 'not_lowest') {
+      const chosen = row.quotes.find((q) => q.awarded);
+      const best = bestFor(row);
+      return !!chosen && !!best && chosen.quotation_item_id !== best.quotation_item_id;
+    }
+    return true;
+  };
 
   const wrapQuotes = (node: React.ReactNode) =>
     isLocked ? (
@@ -339,7 +349,7 @@ export function QuotesSection({
                 </>
               )}
             </span>
-            <Button variant="outline" className="h-10" onClick={() => setShowAllQuotes(false)}>
+            <Button variant="outline" className="h-10 sm:h-9" onClick={() => setShowAllQuotes(false)}>
               {awaitingApproval ? 'Back to approval' : 'Close'}
             </Button>
           </div>
@@ -367,13 +377,19 @@ export function QuotesSection({
       setSavingWatch(false);
     }
   };
+  // Who sent the quotes back: the latest returned final-approval step's approver
+  // (a category approver or a Super Admin), not always "the Super Admin".
+  const sentBackBy =
+    [...approvals]
+      .filter((a) => a.stage === 'final' && a.status === 'returned')
+      .sort((a, b) => (b.acted_at ?? '').localeCompare(a.acted_at ?? ''))[0]?.acted_by_profile?.full_name ?? null;
   const sendForApproval = () => (watchVendors.length > 0 ? setWatchOpen(true) : void submitWithReason(null));
 
   return (
     <div className="space-y-3">
       {rfq.award_rejection_reason && !isLocked && (
-        <div className="rounded-md border border-destructive bg-destructive/10 p-3 text-sm text-destructive">
-          <p className="font-medium">The Super Admin sent this back.</p>
+        <div className="rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">
+          <p className="font-medium">{sentBackBy ? `${sentBackBy} sent this back.` : 'Sent back for changes.'}</p>
           <p className="mt-1">Reason: {rfq.award_rejection_reason}</p>
         </div>
       )}
@@ -436,9 +452,9 @@ export function QuotesSection({
             ) : null;
           };
           return (
-            <section className="overflow-hidden rounded-2xl border bg-card shadow-sm">
-              <div className="px-6 pb-3 pt-5">
-                <h2 className="text-lg font-semibold">
+            <section className="overflow-hidden rounded-xl border bg-background shadow">
+              <div className="px-5 pb-3 pt-4">
+                <h2 className="text-base font-semibold">
                   {canFinalApprove
                     ? 'Approve this purchase?'
                     : finalStep
@@ -447,7 +463,7 @@ export function QuotesSection({
                 </h2>
               </div>
 
-              <div className="px-6">
+              <div className="px-5">
                 {vendors.map(([id, g]) =>
                   several ? (
                     <details key={id} className="group border-t">
@@ -492,12 +508,12 @@ export function QuotesSection({
 
               {/* exceptions only — nothing here when everything is normal */}
               {rfq.award_watch_reason && (
-                <div className="mx-6 mb-3 rounded-xl border border-red-600/40 bg-red-50 px-3 py-2.5 text-[13px] text-red-900 dark:bg-red-950/40 dark:text-red-200">
+                <div className="mx-5 mb-3 rounded-xl border border-destructive/40 bg-destructive/10 px-3 py-2.5 text-[13px] text-destructive">
                   <b>Vendor on Watch chosen</b> — {rfq.award_watch_reason}
                 </div>
               )}
               {(vendorColumns.length === 1 || aboveLowest.length > 0 || noQuote.length > 0) && (
-                <div className="mx-6 mb-4 space-y-1 rounded-xl bg-secondary/20 px-3 py-2.5 text-[13px] text-foreground">
+                <div className="mx-5 mb-4 space-y-1 rounded-xl bg-secondary/20 px-3 py-2.5 text-[13px] text-foreground">
                   {vendorColumns.length === 1 && (
                     <p>
                       <b>Only 1 vendor quoted</b> — there was no other price to compare against.
@@ -523,7 +539,7 @@ export function QuotesSection({
               )}
 
               {(canFinalApprove || vendorColumns.length > 1) && (
-                <div className="flex flex-wrap items-center justify-end gap-2 border-t bg-muted/40 px-6 py-3">
+                <div className="flex flex-wrap items-center justify-end gap-2 border-t bg-muted/30 px-5 py-3">
                   {vendorColumns.length > 1 && (
                     <button type="button" className="mr-auto text-sm text-primary hover:underline" onClick={() => setShowAllQuotes(true)}>
                       Compare all quotes
@@ -531,10 +547,10 @@ export function QuotesSection({
                   )}
                   {canFinalApprove && (
                     <>
-                      <Button variant="outline" className="h-10 px-4" onClick={() => setSendBackOpen(true)}>
+                      <Button variant="outline" className="h-10 sm:h-9 px-4" onClick={() => setSendBackOpen(true)}>
                         Send back
                       </Button>
-                      <Button className="h-10 px-5" onClick={handleApprove} disabled={approveAward.isPending || approveStep.isPending}>
+                      <Button className="h-10 sm:h-9 px-5" onClick={handleApprove} disabled={approveAward.isPending || approveStep.isPending}>
                         <Check className="mr-1.5 h-4 w-4" />
                         {approveAward.isPending || approveStep.isPending ? 'Approving…' : several ? `Approve ${vendors.length} orders` : 'Approve & order'}
                       </Button>
@@ -558,18 +574,18 @@ export function QuotesSection({
         </button>
       )}
       {wrapQuotes(
-      <section className={isLocked ? 'min-h-full bg-card' : 'overflow-hidden rounded-2xl border bg-card shadow-sm'}>
+      <section className={isLocked ? 'min-h-full bg-background' : 'overflow-hidden rounded-xl border bg-background shadow'}>
         <div className={`flex flex-wrap items-center justify-between gap-3 px-5 py-4 ${isLocked ? 'pr-14' : ''}`}>
           <div>
             {canManage ? (
               <>
-                <h2 className="text-lg font-semibold">
+                <h2 className="text-base font-semibold">
                   {quotations.length ? 'Compare quotes and pick vendors' : 'Collect vendor quotes'}
                 </h2>
               </>
             ) : (
               <>
-                <h2 className="text-lg font-semibold">{vendorColumns.length === 1 ? 'The quote' : 'Compare quotes'}</h2>
+                <h2 className="text-base font-semibold">{vendorColumns.length === 1 ? 'The quote' : 'Compare quotes'}</h2>
                 <p className="text-xs text-muted-foreground">
                   {vendorColumns.length} vendor{vendorColumns.length === 1 ? '' : 's'} · {comparison.length} item
                   {comparison.length === 1 ? '' : 's'}
@@ -585,13 +601,13 @@ export function QuotesSection({
           </div>
           <div className="flex items-center gap-1">
             {canManage && quotations.length > 0 && (
-              <Button size="sm" variant="outline" className="h-10" onClick={pickPdfs}>
+              <Button size="sm" variant="outline" className="h-10 sm:h-9" onClick={pickPdfs}>
                 <Upload className="mr-1.5 h-4 w-4" />
                 Add quote PDFs
               </Button>
             )}
             {!canManage && quotations.length > 1 && (
-              <Button size="sm" variant="outline" className="h-10" onClick={() => setChatOpen(true)}>
+              <Button size="sm" variant="outline" className="h-10 sm:h-9" onClick={() => setChatOpen(true)}>
                 <Sparkles className="mr-1.5 h-4 w-4" />
                 Ask AI
               </Button>
@@ -599,7 +615,7 @@ export function QuotesSection({
             {canManage && (
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                  <Button size="icon" variant="ghost" className="h-10 w-10" aria-label="More ways to add or check quotes">
+                  <Button size="icon" variant="ghost" className="h-10 w-10 sm:h-9 sm:w-9" aria-label="More ways to add or check quotes">
                     <MoreHorizontal className="h-4 w-4" />
                   </Button>
                 </DropdownMenuTrigger>
@@ -641,7 +657,7 @@ export function QuotesSection({
                   <p className="text-sm text-muted-foreground">
                     Upload the vendors&apos; quotation PDFs — the AI reads the prices for you.
                   </p>
-                  <Button className="h-11 px-6" onClick={pickPdfs}>
+                  <Button className="h-11 w-full px-6 sm:h-9 sm:w-auto" onClick={pickPdfs}>
                     <Upload className="mr-2 h-4 w-4" />
                     Upload quote PDFs
                   </Button>
@@ -708,7 +724,6 @@ export function QuotesSection({
                     <span>Total</span>
                     <span className="tabular-nums">{rupees(vendorTotals.get(v.supplierId)?.total ?? 0)}</span>
                   </div>
-                  <p className="px-5 pb-4 text-xs text-muted-foreground">Only one vendor quoted, so there is nothing to compare against.</p>
                 </div>
               );
             })()
@@ -754,7 +769,7 @@ export function QuotesSection({
                   />
                 </div>
               )}
-              <div className="max-h-[60vh] overflow-auto">
+              <div className="hidden max-h-[60vh] overflow-auto sm:block">
                 <table className="w-full border-separate border-spacing-0 text-sm">
                   <thead>
                     <tr className="text-left">
@@ -832,16 +847,7 @@ export function QuotesSection({
                   </thead>
                   <tbody>
                     {comparison
-                      .filter((row) => {
-                        if (rowSearch.trim() && !row.item_name.toLowerCase().includes(rowSearch.trim().toLowerCase())) return false;
-                        if (rowFilter === 'missing') return !row.quotes.some((q) => q.unit_price !== null);
-                        if (rowFilter === 'not_lowest') {
-                          const chosen = row.quotes.find((q) => q.awarded);
-                          const best = bestFor(row);
-                          return !!chosen && !!best && chosen.quotation_item_id !== best.quotation_item_id;
-                        }
-                        return true;
-                      })
+                      .filter(rowVisible)
                       .map((row) => {
                       const best = bestFor(row);
                       return (
@@ -929,6 +935,79 @@ export function QuotesSection({
                 </table>
               </div>
 
+              {/* Phones: the vendor columns don't fit, so each item is a card with one
+                  tappable price per vendor (same choose / clear as the table). */}
+              <ul className="divide-y border-t sm:hidden">
+                {comparison.filter(rowVisible).map((row) => {
+                  const best = bestFor(row);
+                  return (
+                    <li key={row.rfq_item_id} className="space-y-2 px-4 py-3">
+                      <p className="text-sm font-medium">
+                        {row.item_name} <span className="text-xs font-normal text-muted-foreground">× {row.quantity}</span>
+                      </p>
+                      <div className="space-y-1.5">
+                        {vendorColumns.map((v) => {
+                          const qt = cellFor(row, v.supplierId);
+                          if (!qt || qt.unit_price === null) {
+                            return (
+                              <p key={v.supplierId} className="flex justify-between rounded-lg border px-3 py-2 text-xs text-muted-foreground">
+                                <span className="truncate">{v.name}</span>
+                                <span>Not quoted</span>
+                              </p>
+                            );
+                          }
+                          const price = Number(qt.unit_price);
+                          const qty = Number(qt.quantity ?? row.quantity);
+                          const isLowest = best?.quotation_item_id === qt.quotation_item_id;
+                          const warning = priceWarning(
+                            price,
+                            row.quotes.filter((o) => o !== qt && o.unit_price !== null).map((o) => Number(o.unit_price))
+                          );
+                          return (
+                            <button
+                              key={v.supplierId}
+                              type="button"
+                              disabled={!canManage}
+                              aria-pressed={qt.awarded}
+                              onClick={() =>
+                                qt.awarded
+                                  ? run(() => unawardLine.mutateAsync(row.rfq_item_id), 'Choice cleared')
+                                  : run(
+                                      () => awardLine.mutateAsync({ rfqItemId: row.rfq_item_id, quotationItemId: qt.quotation_item_id }),
+                                      `Chose ${qt.supplier_name}`
+                                    )
+                              }
+                              className={cn(
+                                'flex min-h-11 w-full items-center gap-2 rounded-lg border px-3 py-2 text-left',
+                                qt.awarded ? 'border-primary bg-primary/10' : '',
+                                !canManage && 'cursor-default'
+                              )}
+                            >
+                              {qt.awarded ? (
+                                <CheckCircle2 className="h-4 w-4 shrink-0 text-primary" />
+                              ) : (
+                                canManage && <Circle className="h-4 w-4 shrink-0 text-muted-foreground/50" />
+                              )}
+                              <span className="min-w-0 flex-1">
+                                <span className="block truncate text-sm">{v.name}</span>
+                                {isLowest && vendorColumns.length > 1 && (
+                                  <span className="text-[10px] font-semibold text-primary">LOWEST</span>
+                                )}
+                                {warning && <span className="block text-[11px] font-medium text-destructive">⚠ Check price</span>}
+                              </span>
+                              <span className="shrink-0 text-right">
+                                <span className="block text-sm font-semibold tabular-nums">{rupees(price)}</span>
+                                {qty > 1 && <span className="block text-xs tabular-nums text-muted-foreground">{rupees(price * qty)}</span>}
+                              </span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </li>
+                  );
+                })}
+              </ul>
+
             </>
           )}
         </div>
@@ -968,14 +1047,14 @@ export function QuotesSection({
                 const direct = chosenQuotes.length === 1 ? chosenQuotes[0] : quotations.length === 1 ? quotations[0] : null;
                 const open = (q: (typeof quotations)[number]) => setReviseQuote({ id: q.id, name: q.supplier?.name ?? 'Vendor' });
                 return direct ? (
-                  <Button variant="outline" className="h-11" onClick={() => open(direct)}>
+                  <Button variant="outline" className="h-11 sm:h-9" onClick={() => open(direct)}>
                     <FilePen className="mr-1.5 h-4 w-4" />
                     Revised quotation
                   </Button>
                 ) : (
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild>
-                      <Button variant="outline" className="h-11">
+                      <Button variant="outline" className="h-11 sm:h-9">
                         <FilePen className="mr-1.5 h-4 w-4" />
                         Revised quotation
                       </Button>
@@ -991,7 +1070,7 @@ export function QuotesSection({
                   </DropdownMenu>
                 );
               })()}
-              <Button className="h-11 px-6" disabled={chosenCount === 0 || submitAward.isPending} onClick={sendForApproval}>
+              <Button className="h-11 w-full px-6 sm:h-9 sm:w-auto" disabled={chosenCount === 0 || submitAward.isPending} onClick={sendForApproval}>
                 {submitAward.isPending ? 'Sending…' : 'Send for final approval'}
                 <ArrowRight className="ml-1.5 h-4 w-4" />
               </Button>
@@ -1080,7 +1159,7 @@ export function QuotesSection({
           lockedReason={
             isLocked
               ? awaitingApproval
-                ? 'These quotes are waiting for the Super Admin’s final approval, so choices are locked.'
+                ? `These quotes are waiting for ${finalStep?.label ?? 'the Super Admin'}’s final approval, so choices are locked.`
                 : 'This purchase is past the quotes stage, so choices are no longer changed from here.'
               : null
           }
