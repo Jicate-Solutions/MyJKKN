@@ -915,6 +915,12 @@ BEGIN
          AND v_has_rev_college
          AND q.institution_id = ANY (v_staff_inst_ids))
         OR
+        -- Raises for people on the Director list: PR #4190 (draft) adds
+        -- platform_policies 'hr.salary_revision.list_member_raise_decider_profile_id',
+        -- the one profile allowed to decide such a raise. That key is not on
+        -- main, so this half still shows every waiting_director row to every
+        -- holder of fn_hr_salary_revision_can_approve(). When #4190 lands, show
+        -- a Director-list member's raise only to the profile that row names.
         (q.status = 'waiting_director'
          AND v_can_rev_approve)
       )
