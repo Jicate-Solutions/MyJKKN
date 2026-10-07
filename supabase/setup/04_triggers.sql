@@ -3039,3 +3039,9 @@ CREATE TRIGGER hr_duty_definitions_audit_trg
 
 -- Cold-read config (read once per cron run), so no pg_notify cache trigger.
 
+
+-- Updated: 2026-10-01 - HR staff harness (migration 20270613101125_hr_recruitment_nudges.sql)
+DROP TRIGGER IF EXISTS hr_recruitment_nudges_sent_updated_at ON public.hr_recruitment_nudges_sent;
+CREATE TRIGGER hr_recruitment_nudges_sent_updated_at
+  BEFORE UPDATE ON public.hr_recruitment_nudges_sent
+  FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
