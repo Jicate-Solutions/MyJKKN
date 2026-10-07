@@ -88,12 +88,31 @@ export function usePendingRegularizations(filters?: ApprovalFilters) {
 // Mutations
 // ---------------------------------------------------------------------------
 
+/**
+ * Ask the server to send whatever notice this request's current state calls
+ * for (HR staff harness, 2026-10-01): "awaiting approval" to the approvers
+ * while pending, the decision to the requester once approved or rejected.
+ * Fire-and-forget — a failure here never undoes the mutation, and the daily
+ * /api/cron/hr/duty-notices run sends anything this call missed.
+ */
+function requestRegularizationNotice(id: string | undefined) {
+  if (!id) return;
+  void fetch('/api/hr/attendance/regularizations/notify', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ id }),
+  }).catch(
+    (err) => console.warn('[hr/regularization] notice request failed', err),
+  );
+}
+
 export function useSubmitRegularization() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (dto: SubmitRegularizationDto) => submitRequest(dto),
     onSuccess: (req) => {
       toast.success('Regularization request submitted');
+      requestRegularizationNotice(req.id);
       qc.invalidateQueries({ queryKey: regularizationKeys.myRequests(req.employee_id) });
       qc.invalidateQueries({ queryKey: [...regularizationKeys.all, 'pending'] });
     },
@@ -113,8 +132,9 @@ export function useApproveRegularization() {
       id: string;
       approverProfileId: string;
     }) => approveRequest(id, approverProfileId),
-    onSuccess: () => {
+    onSuccess: (req) => {
       toast.success('Request approved');
+      requestRegularizationNotice(req.id);
       qc.invalidateQueries({ queryKey: regularizationKeys.all });
       // Approving stamps hr_attendance_records, which is what My Attendance
       // and the monthly report read. Without this the day keeps showing its
@@ -139,8 +159,9 @@ export function useRejectRegularization() {
       approverProfileId: string;
       reason: string;
     }) => rejectRequest(id, approverProfileId, reason),
-    onSuccess: () => {
+    onSuccess: (req) => {
       toast.success('Request rejected');
+      requestRegularizationNotice(req.id);
       qc.invalidateQueries({ queryKey: regularizationKeys.all });
       // Cheap, and covers a request rejected after it was already approved —
       // the day's stamp is not undone, so the view must not go stale either.

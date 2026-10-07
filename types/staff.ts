@@ -645,7 +645,17 @@ export type StaffEventType =
   | 'eligibility_approved'  // Eligibility granted → notify requester
   | 'eligibility_rejected'  // Eligibility refused → notify requester
   | 'schedule_assigned'     // Staff assigned to a new shift/class → notify them
-  | 'onboarding_step_pending'; // Onboarding step assigned → notify staff member
+  | 'onboarding_step_pending' // Onboarding step assigned → notify the joiner
+  // HR staff harness (2026-10-01) — duty R9, the onboarding checklist
+  | 'onboarding_step_turn'     // A step becomes someone's turn → notify its owner(s)
+  | 'onboarding_step_reminder' // A step held too long / joining date close → owner(s), once
+  | 'onboarding_joining_passed' // Joining date passed with steps open → HR head, once
+  // HR staff harness (2026-10-01) — duty A3, attendance regularisation
+  | 'regularization_submitted' // Request raised → notify approver(s)
+  | 'regularization_reminder'  // Still pending past the reminder window → approver(s), once
+  | 'regularization_hr_head'   // Still pending past the HR-head window → HR head, once
+  | 'regularization_approved'  // Approver approves → notify requester
+  | 'regularization_rejected'; // Approver rejects  → notify requester, with the reason
 
 /**
  * Represents an in-app notification record for a staff member.
