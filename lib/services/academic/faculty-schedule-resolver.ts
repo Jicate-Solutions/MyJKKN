@@ -9,7 +9,8 @@
 // resolveFacultyTodayPeriods) and the helpers it uses (formatTo12Hour,
 // fetchPeriodMasterMap, mergePeriodMaster, isDateInTimetableRange,
 // getDayOfWeekFromDate, parseTime). The only edits are `this.<helper>(` ->
-// `<helper>(` and the client becoming a parameter.
+// `<helper>(`, the client becoming a parameter, and four log messages worded
+// with JKKN terms (team member).
 //   - My Classes keeps calling FacultyAttendanceService.getFacultyTodayPeriods,
 //     which hands this the browser client: same code, same reads.
 //   - The nightly raise-targets job
@@ -190,11 +191,11 @@ export async function resolveFacultyTodayPeriods(
     // staff-not-found (no error, no row) is a real empty result.
     if (staffError) throw staffError;
     if (!staffData) {
-      logger.error('academic/faculty-attendance', 'Staff not found', staffError);
+      logger.error('academic/faculty-attendance', 'Team member not found', staffError);
       return { periods: [], searchContext: {} };
     }
 
-    logger.dev('academic/faculty-attendance', 'Staff found', { staffId: staffData.id, institutionId: staffData.institution_id });
+    logger.dev('academic/faculty-attendance', 'Team member found', { staffId: staffData.id, institutionId: staffData.institution_id });
 
     // Updated: 2026-06-29 - Do NOT derive the academic year from the target date
     // and hard-filter timetables on it. A timetable's validity is defined by its
@@ -750,7 +751,7 @@ export async function resolveFacultyTodayPeriods(
     });
 
     if (facultyPeriods.length === 0) {
-      logger.warn('academic/faculty-attendance', 'No periods found for faculty', {
+      logger.warn('academic/faculty-attendance', 'No periods found for this team member', {
         targetDate,
         dayOfWeek,
         timetablesCount: timetables.length
@@ -778,7 +779,7 @@ export async function resolveFacultyTodayPeriods(
     // return is indistinguishable from a genuine "no classes today" and is what
     // produced the false "No classes scheduled" reports under load/timeout. The
     // caller (My Classes) catches this and offers a Retry.
-    logger.error('academic/faculty-attendance', 'Error fetching faculty periods', error);
+    logger.error('academic/faculty-attendance', 'Error fetching the team member\'s periods', error);
     throw error;
   }
 }

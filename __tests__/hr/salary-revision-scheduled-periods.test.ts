@@ -311,7 +311,7 @@ describe('the cron route loads no browser-only code (review round 6, finding 8)'
     expect(useClient).toEqual([]);
   });
 
-  it('My Classes and the job run the same resolver: the class hands it its client', async () => {
+  it('the team member\'s own period list and the job run the same resolver: the service hands it its client', async () => {
     const db = client();
     const viaClass = await FacultyAttendanceService.getFacultyTodayPeriods(MEMBER, DAY, { client: db });
     const { resolveFacultyTodayPeriods } = await import('@/lib/services/academic/faculty-schedule-resolver');
