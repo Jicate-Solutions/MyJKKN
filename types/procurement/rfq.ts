@@ -35,6 +35,8 @@ export interface ProcurementRfq {
   award_approved_by: string | null;
   award_approved_at: string | null;
   award_rejection_reason: string | null;
+  /** Why a Watch-grade vendor was still chosen (shown to the approver). */
+  award_watch_reason?: string | null;
   notes: string | null;
   created_at: string;
   updated_at: string;
