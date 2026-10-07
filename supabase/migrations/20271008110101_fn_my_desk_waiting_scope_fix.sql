@@ -141,7 +141,7 @@ BEGIN
     SELECT * FROM (VALUES
       ('auth.uid()'),
       ('public.is_super_admin()'),
-      ('public.is_admin()'),
+      ('public.is_admin(uuid)'),
       ('public.user_has_permission(text)'),
       ('public.role_has_institution_access(uuid)'),
       ('public.fn_my_hr_organization_ids()'),
