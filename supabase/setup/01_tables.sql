@@ -12127,6 +12127,12 @@ COMMENT ON TABLE public.hr_duty_notices IS
 CREATE INDEX IF NOT EXISTS hr_duty_notices_subject_idx
   ON public.hr_duty_notices (duty_code, subject_id);
 
+-- Added in the review of PR #4150 (8 Oct 2026). Repeated here because CREATE
+-- TABLE IF NOT EXISTS skips an existing table: if an earlier copy of this file
+-- was ever hand-applied, the column must still arrive.
+ALTER TABLE public.hr_duty_notices
+  ADD COLUMN IF NOT EXISTS pending_user_ids uuid[] NOT NULL DEFAULT ARRAY[]::uuid[];
+
 ALTER TABLE public.hr_duty_notices ENABLE ROW LEVEL SECURITY;
 
 -- The anon key ships in every page; Supabase's default privileges grant it ALL on

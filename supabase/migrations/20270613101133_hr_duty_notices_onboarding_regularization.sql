@@ -43,6 +43,11 @@
 --      moment). If the row is missing or unreadable, the run uses its own
 --      time instead — nothing old is ever chased.
 --
+-- fn_hr_permission_holder_ids took one argument (keys) before the review of
+-- #4150; it now takes (keys, institution). If the one-argument version was
+-- ever applied, it stays as a separate, unused overload (still service-role
+-- only); the app calls the two-argument one.
+--
 -- BOTH FUNCTIONS ARE SERVICE-ROLE ONLY. They enumerate people by role; nothing
 -- in the browser needs that. EXECUTE revoked from anon, PUBLIC AND
 -- authenticated; granted to service_role.
@@ -82,6 +87,12 @@ COMMENT ON TABLE public.hr_duty_notices IS
 
 CREATE INDEX IF NOT EXISTS hr_duty_notices_subject_idx
   ON public.hr_duty_notices (duty_code, subject_id);
+
+-- Added in the review of PR #4150 (8 Oct 2026). Repeated here because CREATE
+-- TABLE IF NOT EXISTS skips an existing table: if an earlier copy of this file
+-- was ever hand-applied, the column must still arrive.
+ALTER TABLE public.hr_duty_notices
+  ADD COLUMN IF NOT EXISTS pending_user_ids uuid[] NOT NULL DEFAULT ARRAY[]::uuid[];
 
 ALTER TABLE public.hr_duty_notices ENABLE ROW LEVEL SECURITY;
 
