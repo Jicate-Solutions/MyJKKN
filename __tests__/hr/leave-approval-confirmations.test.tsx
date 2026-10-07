@@ -71,6 +71,9 @@ vi.mock('@/app/(routes)/hr/leave/_components/time-off-shell', () => ({
 vi.mock('@/app/(routes)/hr/leave/_components/approval-detail-sheet', () => ({ ApprovalDetailSheet: () => null }));
 vi.mock('@/app/(routes)/hr/leave/_components/leave-document-viewer', () => ({ LeaveDocumentViewer: () => null }));
 vi.mock('@/app/(routes)/hr/leave/_components/comp-off-claims-queue', () => ({ CompOffClaimsQueue: () => null }));
+// The "How this is done" playbook card (#4229) fetches through react-query; this
+// test renders the page without a QueryClient and is not about the card.
+vi.mock('@/components/hr/duty-playbook/duty-playbook-card', () => ({ DutyPlaybookCard: () => null }));
 
 vi.mock('@/components/data-table/data-table', async () => {
   const React = await import('react');

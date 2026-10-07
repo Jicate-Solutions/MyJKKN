@@ -38,6 +38,7 @@
  * option — and the tables page it in memory. See approvals-data-table.tsx.
  */
 
+import { DutyPlaybookCard } from '@/components/hr/duty-playbook/duty-playbook-card';
 import { useCallback, useMemo, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { AlertCircle, Check, RotateCw, ShieldAlert, UserCheck, X } from 'lucide-react';
@@ -603,6 +604,7 @@ export default function LeaveApprovalsPage() {
         <CompOffClaimsQueue />
       ) : (
         <div className="space-y-4">
+          <DutyPlaybookCard duty="L1" />
           <PeriodFilter
             value={filters.period}
             onChange={(p) => set('period', p)}
