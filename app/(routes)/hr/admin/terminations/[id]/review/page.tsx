@@ -56,6 +56,7 @@ import {
   type TerminationApprovalStatus,
   type TerminationCase,
 } from '@/lib/services/hr/termination-service';
+import { DutyProofPanel } from '@/components/hr/duty-proof/duty-proof-panel';
 
 interface StaffDetail {
   id: string;
@@ -179,6 +180,9 @@ function ReviewContent() {
       </div>
 
       <CaseSummaryCard tcase={tcase} staff={staff} />
+
+      <DutyProofPanel duty="G5" itemId={caseId} />
+      <DutyProofPanel duty="G6" itemId={caseId} />
 
       <Card>
         <CardHeader>
