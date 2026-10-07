@@ -183,6 +183,15 @@ describe('a ledger hit belongs to the file it names (PR #4207, 2026-10-05)', () 
     expect(r.out).toContain('20271005090000_procurement_po_approval.sql');
   });
 
+  it('names the other file once, even when the row stores it with its version prefix', () => {
+    // 222 live rows store "<version>_<name>"; the note must not print the version twice.
+    const r = run(shared('20271005090000_procurement_po_approval', []));
+    expect(r.code).toBe(0);
+    expect(r.out).toContain('ledger-shadowed');
+    expect(r.out).toContain('that row belongs to 20271005090000_procurement_po_approval.sql');
+    expect(r.out).not.toContain('20271005090000_20271005090000_');
+  });
+
   it('FAILS when the row names a different file but this file\'s objects ARE present', () => {
     const r = run(shared('procurement_po_approval',
       ['table:gate_pass_expiry_log', 'column:gate_passes.expired_at']));

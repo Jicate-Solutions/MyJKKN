@@ -576,7 +576,7 @@ export function verdictFor({ rename, objects, replaced = [], presentSet, ledgerS
       ledgerSet: new Set([...ledgerSet].filter(x => x !== rename.fromVersion)),
       ledgerNames, attested, credentials });
     return { ...v,
-      ledgerNote: `schema_migrations carries version ${rename.fromVersion} under name "${recorded}", which is NOT this file ("${nameOf(rename.from)}") — that row belongs to ${rename.fromVersion}_${recorded}.sql, a different file sharing the version. Decided on this file's own objects instead.` };
+      ledgerNote: `schema_migrations carries version ${rename.fromVersion} under name "${recorded}", which is NOT this file ("${nameOf(rename.from)}") — that row belongs to ${rename.fromVersion}_${recorded.replace(new RegExp(`^${rename.fromVersion}_`), '').replace(/\.sql$/, '')}.sql, a different file sharing the version. Decided on this file's own objects instead.` };
   }
   if (ledgerSet.has(rename.toVersion)) {
     return { level: 'fail', reason: 'ledger-target',
