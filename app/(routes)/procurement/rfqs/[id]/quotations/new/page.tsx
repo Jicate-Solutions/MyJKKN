@@ -17,9 +17,10 @@ import type { CreateQuotationItemDto } from '@/types/procurement';
 import { cn } from '@/lib/utils';
 import { displayRequestNumber } from '@/lib/procurement/display-number';
 import { AlertBox } from '@/components/ui/alert-box';
-import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { DetailHeader } from '@/components/procurement/detail-header';
+import { FormActionBar } from '@/components/procurement/form-action-bar';
 import { Label } from '@/components/ui/label';
 import {
   Select,
@@ -28,7 +29,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { ArrowLeft, Download, Upload, Sparkles, ChevronDown, Plus } from 'lucide-react';
+import { Download, Upload, Sparkles } from 'lucide-react';
 import { BeatLoader } from 'react-spinners';
 import { toast } from 'sonner';
 import { errorMessage } from '@/lib/utils/supabase-error';
@@ -599,7 +600,7 @@ export default function NewQuotationPage() {
 
   if (rfqLoading) {
     return (
-      <ContentLayout title="Add Quotation">
+      <ContentLayout title="Add quote">
         <div className="flex items-center justify-center py-16">
           <BeatLoader color="hsl(var(--primary))" size={10} />
         </div>
@@ -608,23 +609,23 @@ export default function NewQuotationPage() {
   }
   if (rfqError) {
     return (
-      <ContentLayout title="Add Quotation">
+      <ContentLayout title="Add quote">
         <div className="py-12">
-          <AlertBox type="error" message="Failed to load this quotation. Please try again." />
+          <AlertBox type="error" message="Failed to load this purchase's quotes. Please try again." />
         </div>
       </ContentLayout>
     );
   }
   if (!rfq) {
     return (
-      <ContentLayout title="Add Quotation">
-        <p className="text-muted-foreground py-12 text-center">Quotation not found.</p>
+      <ContentLayout title="Add quote">
+        <p className="text-muted-foreground py-12 text-center">Purchase not found.</p>
       </ContentLayout>
     );
   }
   if (!canManage) {
     return (
-      <ContentLayout title="Add Quotation">
+      <ContentLayout title="Add quote">
         <div className="py-12">
           <AlertBox type="error" message="You do not have permission to capture quotations." />
         </div>
@@ -639,7 +640,8 @@ export default function NewQuotationPage() {
 
   const requestNo = displayRequestNumber(rfq.source_request?.request_number);
 
-  const COLS = 'grid grid-cols-[minmax(0,1fr)_112px_96px] items-center gap-3 sm:grid-cols-[minmax(0,1fr)_128px_104px]';
+  // Phones: the item takes the full first line, price and total share the second.
+  const COLS = 'grid grid-cols-2 items-center gap-x-3 gap-y-2 sm:grid-cols-[minmax(0,1fr)_128px_104px] sm:gap-y-0';
   const terms = [
     quoteNumber ? `Quote ${quoteNumber}` : null,
     deliveryDays ? `${deliveryDays} days delivery` : null,
@@ -648,20 +650,16 @@ export default function NewQuotationPage() {
 
   return (
     <ContentLayout title="Add quote">
+      <div className="w-full space-y-5">
       <div className="mx-auto w-full max-w-xl space-y-5">
-        <Button variant="link" className="h-8 px-0" onClick={() => router.push(backHref)}>
-          <ArrowLeft className="mr-1 h-4 w-4" />
-          Back to the purchase
-        </Button>
-        <header>
-          <h1 className="text-2xl font-bold">Add quote</h1>
-          <p className="text-sm text-muted-foreground">
-            {requestNo ? `${requestNo} · ` : ''}
-            {rfq.items.length} item{rfq.items.length === 1 ? '' : 's'}
-          </p>
-        </header>
+        <DetailHeader
+          backLabel="Back to the purchase"
+          onBack={() => router.push(backHref)}
+          title="Add quote"
+          meta={`${requestNo ? `${requestNo} · ` : ''}${rfq.items.length} item${rfq.items.length === 1 ? '' : 's'}`}
+        />
 
-        <section className="overflow-hidden rounded-2xl border bg-card shadow-sm">
+        <section className="overflow-hidden rounded-xl border bg-background shadow">
           {/* ── Vendor ─────────────────────────────────────────────────── */}
           <div className="space-y-1.5 px-5 pt-5">
             <div className="flex items-center justify-between gap-2">
@@ -685,7 +683,7 @@ export default function NewQuotationPage() {
                   setVendorNote(null);
                 }}
               >
-                <SelectTrigger className="h-10">
+                <SelectTrigger className="h-10 sm:h-9">
                   <SelectValue placeholder={availableVendors.length ? 'Choose a vendor…' : 'No registered vendors — add a new one'} />
                 </SelectTrigger>
                 <SelectContent>
@@ -703,7 +701,7 @@ export default function NewQuotationPage() {
               </Select>
             ) : (
               <>
-                <Input className="h-10" placeholder="Vendor's name" value={newVendorName} onChange={(e) => setNewVendorName(e.target.value)} />
+                <Input className="h-10 sm:h-9" placeholder="Vendor's name" value={newVendorName} onChange={(e) => setNewVendorName(e.target.value)} />
                 <details className="text-xs">
                   <summary className="cursor-pointer text-primary">More vendor details (optional)</summary>
                   <div className="mt-2 grid grid-cols-2 gap-2">
@@ -722,18 +720,30 @@ export default function NewQuotationPage() {
                 {vendorNote}
               </p>
             )}
-            {terms.length > 0 && <p className="text-xs text-muted-foreground">{terms.join(' · ')}</p>}
+            {/* Quote terms: the AI read fills these from the PDF, but they were read-only
+                text, so a wrong or missing value could not be fixed. Now typed or corrected here. */}
+            <details className="text-xs" open={terms.length > 0 || undefined}>
+              <summary className="cursor-pointer text-primary">
+                {terms.length > 0 ? terms.join(' · ') : 'Quote terms (optional)'}
+              </summary>
+              <div className="mt-2 grid grid-cols-2 gap-2">
+                <Input className="h-9 text-sm" aria-label="Vendor's quote number" placeholder="Quote no." value={quoteNumber} onChange={(e) => setQuoteNumber(e.target.value)} />
+                <Input className="h-9 text-sm" aria-label="Delivery in days" type="number" min={0} inputMode="numeric" placeholder="Delivery (days)" value={deliveryDays} onChange={(e) => setDeliveryDays(e.target.value)} />
+                <Input className="h-9 text-sm" aria-label="Payment terms" placeholder="Payment terms" value={paymentTerms} onChange={(e) => setPaymentTerms(e.target.value)} />
+                <Input className="h-9 text-sm" aria-label="Warranty" placeholder="Warranty" value={warranty} onChange={(e) => setWarranty(e.target.value)} />
+              </div>
+            </details>
           </div>
 
           {/* ── Fill the prices from a file (optional) ─────────────────────── */}
           <div className="mt-4 flex flex-wrap items-center gap-x-3 gap-y-1 border-y bg-muted/40 px-5 py-2.5 text-xs">
-            <label className={cn('inline-flex cursor-pointer items-center gap-1.5 font-semibold text-primary hover:underline', readInProgress && 'pointer-events-none opacity-60')}>
+            <label className={cn('inline-flex cursor-pointer items-center gap-1.5 font-semibold text-primary hover:underline focus-within:underline', readInProgress && 'pointer-events-none opacity-60')}>
               <Upload className="h-3.5 w-3.5" />
               {file ? 'Use a different PDF' : 'Read prices from the PDF'}
               <input
                 type="file"
                 accept=".pdf"
-                className="hidden"
+                className="sr-only"
                 onChange={(e) => {
                   setFile(e.target.files?.[0] ?? null);
                   e.target.value = '';
@@ -741,12 +751,12 @@ export default function NewQuotationPage() {
               />
             </label>
             <span className="text-muted-foreground">·</span>
-            <label className="cursor-pointer text-muted-foreground hover:text-foreground">
+            <label className="cursor-pointer text-muted-foreground hover:text-foreground focus-within:text-foreground focus-within:underline">
               Import Excel
               <input
                 type="file"
                 accept=".csv,.xlsx,.xls"
-                className="hidden"
+                className="sr-only"
                 onChange={(e) => {
                   handleImportPrices(e.target.files?.[0] ?? null);
                   e.target.value = '';
@@ -789,7 +799,7 @@ export default function NewQuotationPage() {
           </div>
 
           {/* ── Prices: item | price / unit | total ────────────────────────── */}
-          <div className={`${COLS} bg-muted/50 px-5 py-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground`}>
+          <div className={`${COLS} hidden bg-muted/50 px-5 py-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground sm:grid`}>
             <span>Item</span>
             <span className="text-right">Price / unit</span>
             <span className="text-right">Total</span>
@@ -813,8 +823,8 @@ export default function NewQuotationPage() {
             return (
               <Fragment key={it.id}>
                 <div className={cn(COLS, 'border-t px-5 py-3', aiMark === 'uncertain' && 'bg-secondary/20')}>
-                  <div className="min-w-0">
-                    <p className="truncate text-sm font-semibold">
+                  <div className="col-span-2 min-w-0 sm:col-span-1">
+                    <p className="text-sm font-semibold sm:truncate">
                       {it.item_name}{' '}
                       <span className="font-normal text-muted-foreground">
                         × {Number(it.quantity)}
@@ -860,31 +870,35 @@ export default function NewQuotationPage() {
                 </div>
                 {specsOpen && (
                   <div className="grid gap-2 bg-muted/30 px-5 pb-3 sm:grid-cols-2">
-                    <Input className="h-8 text-xs" placeholder="Brand / manufacturer" value={spec.manufacturer} onChange={(e) => updateSpec('manufacturer', e.target.value)} />
-                    <Input className="h-8 text-xs" placeholder="Quality / grade" value={spec.quality_grade} onChange={(e) => updateSpec('quality_grade', e.target.value)} />
+                    <Input className="h-9 text-sm" placeholder="Brand / manufacturer" value={spec.manufacturer} onChange={(e) => updateSpec('manufacturer', e.target.value)} />
+                    <Input className="h-9 text-sm" placeholder="Quality / grade" value={spec.quality_grade} onChange={(e) => updateSpec('quality_grade', e.target.value)} />
                     {it.is_chemical && (
-                      <Input className="h-8 text-xs" placeholder="Concentration" value={spec.concentration} onChange={(e) => updateSpec('concentration', e.target.value)} />
+                      <Input className="h-9 text-sm" placeholder="Concentration" value={spec.concentration} onChange={(e) => updateSpec('concentration', e.target.value)} />
                     )}
-                    <Input className="h-8 text-xs" placeholder="Other details" value={spec.other_specs} onChange={(e) => updateSpec('other_specs', e.target.value)} />
+                    <Input className="h-9 text-sm" placeholder="Other details" value={spec.other_specs} onChange={(e) => updateSpec('other_specs', e.target.value)} />
                   </div>
                 )}
               </Fragment>
             );
           })}
 
-          {/* ── Total and Save ─────────────────────────────────────────────── */}
-          <div className="flex items-center gap-3 border-t bg-muted/40 px-5 py-3">
-            <span className="flex-1 text-sm">
+        </section>
+      </div>
+
+        <FormActionBar
+          status={
+            <span className="text-sm text-foreground">
               Total <b className="tabular-nums">₹{quoteTotal.toLocaleString('en-IN')}</b>
             </span>
-            <Button variant="ghost" onClick={() => router.push(backHref)} disabled={saving}>
-              Cancel
-            </Button>
-            <Button className="h-10 px-5" onClick={handleSave} disabled={saving}>
-              {saving ? 'Saving…' : 'Save quote'}
-            </Button>
-          </div>
-        </section>
+          }
+        >
+          <Button variant="ghost" className="h-11 sm:h-9" onClick={() => router.push(backHref)} disabled={saving}>
+            Cancel
+          </Button>
+          <Button className="h-11 px-5 sm:h-9" onClick={handleSave} disabled={saving}>
+            {saving ? 'Saving…' : 'Save quote'}
+          </Button>
+        </FormActionBar>
       </div>
     </ContentLayout>
   );

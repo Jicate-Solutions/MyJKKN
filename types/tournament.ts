@@ -742,6 +742,84 @@ export interface GenerateFixturesResult {
   matches_created: number;
 }
 
+/**
+ * Put an entry into one side of an unplayed knockout match, or into the empty
+ * side of a bye (fn_tournament_set_match_side, migration 20271007120000).
+ */
+export interface SetMatchSideDto {
+  slot: 'a' | 'b';
+  entry_id: string;
+  /**
+   * The side's occupant the organiser saw (null = empty). The change is refused
+   * if someone else changed that side meanwhile.
+   */
+  expected_entry_id: string | null;
+}
+
+/**
+ * A division's fixtures are drawn by fn_generate_fixtures ('auto', the default)
+ * or built match by match by the organiser ('manual', config.fixture_mode).
+ */
+export type FixtureMode = 'auto' | 'manual';
+
+export function divisionFixtureMode(config: Record<string, unknown> | null | undefined): FixtureMode {
+  return config?.fixture_mode === 'manual' ? 'manual' : 'auto';
+}
+
+/** Switch a division's fixture mode; 'auto' also regenerates the bracket. */
+export interface SetFixtureModeDto {
+  division_id: string;
+  mode: FixtureMode;
+}
+
+/**
+ * Add (no match id) or edit a match in a manual-mode division. For an edit,
+ * expected_side_* are the sides the organiser saw; a changed match is refused.
+ */
+export interface ManualMatchDto {
+  division_id: string;
+  round_no: number;
+  round_label?: string | null;
+  side_a_entry_id: string;
+  side_b_entry_id: string;
+  expected_side_a?: string | null;
+  expected_side_b?: string | null;
+}
+
+/** How an organiser collected a spot entry's fee (fee divisions only). */
+export type SpotEntryPaymentMethod = 'cash' | 'upi' | 'card' | 'other';
+
+export const SPOT_ENTRY_PAYMENT_METHODS: { value: SpotEntryPaymentMethod; label: string }[] = [
+  { value: 'cash', label: 'Cash' },
+  { value: 'upi', label: 'UPI' },
+  { value: 'card', label: 'Card' },
+  { value: 'other', label: 'Other' },
+];
+
+/**
+ * An organiser registering someone at the venue after registration closed
+ * (/api/events/tournament/[eventId]/spot-entry). Eligibility is checked as for
+ * self-registration; a fee division needs the fee collected first.
+ */
+export interface CreateSpotEntryDto {
+  /** One random UUID per opened form — makes the submit idempotent (double click, retry). */
+  request_key: string;
+  division_id: string;
+  entry_name: string;                 // player name OR team name
+  /** Optional JKKN learner register / roll number — links the learner (or team captain). */
+  learner_register_number?: string | null;
+  is_external?: boolean;
+  institution_name?: string | null;
+  participant_phone?: string | null;
+  participant_gender?: string | null;
+  participant_age?: number | null;
+  members?: CreateTeamMemberDto[];
+  /** Required (true) for a division with an entry fee. */
+  fee_collected?: boolean;
+  payment_method?: SpotEntryPaymentMethod | null;
+  payment_reference?: string | null;
+}
+
 // ============================================================================
 // PR4 — Results + standings + public scoreboard
 // ============================================================================

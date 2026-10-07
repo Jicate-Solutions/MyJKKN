@@ -58,6 +58,12 @@ export interface MeetingRecord {
   startTime: string;
   endTime: string;
   status: string;
+  /**
+   * Who closed it: 'host' | 'admin' | 'system' | 'notes', or null. Read so the
+   * PDF never prints "Held" for a meeting the daily sweep closed only because
+   * its notes were linked (20271003091700) — nobody confirmed that one.
+   */
+  outcomeMarkedBy: string | null;
   attendeeName: string | null;
   attendeeEmail: string | null;
   hostName: string | null;
@@ -103,7 +109,7 @@ export async function loadMeetingRecord(
 ): Promise<MeetingRecord | null> {
   const { data: booking, error } = await client
     .from('meeting_bookings')
-    .select('id, uid, status, start_time, end_time, attendee_name, attendee_email, host_profile_id, meeting_type_id')
+    .select('id, uid, status, outcome_marked_by, start_time, end_time, attendee_name, attendee_email, host_profile_id, meeting_type_id')
     .eq('uid', uid)
     .maybeSingle();
   check('meeting', error);
@@ -166,6 +172,7 @@ export async function loadMeetingRecord(
     startTime: b.start_time as string,
     endTime: b.end_time as string,
     status: (b.status as string) ?? 'confirmed',
+    outcomeMarkedBy: text(b.outcome_marked_by),
     attendeeName: text(b.attendee_name),
     attendeeEmail: text(b.attendee_email),
     hostName: text(hostRow?.full_name),

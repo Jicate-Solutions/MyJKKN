@@ -113,7 +113,8 @@ export default async function ImprovementBoardPage() {
     new Set(
       [
         ...ideaRows.map((i) => i.author_id),
-        ...ideaRows.map((i) => i.resolved_by)
+        ...ideaRows.map((i) => i.resolved_by),
+        ...ideaRows.map((i) => i.assignee_id)
       ].filter(Boolean)
     )
   ) as string[];
@@ -129,16 +130,58 @@ export default async function ImprovementBoardPage() {
     }
   }
 
+  // Who each idea is with (improvement_idea_assignees, 20271007090000). The
+  // table's RLS limits this to ideas the viewer can see. A failed read leaves
+  // the cards without an "Assigned to" line rather than taking the page down.
+  const { data: assigneeRows } = await (supabase as any)
+    .from('improvement_idea_assignees')
+    .select('idea_id, profile_id, assignee_name')
+    .order('assignee_name', { ascending: true });
+
+  const assigneesByIdea = new Map<string, { id: string; name: string }[]>();
+  for (const row of (assigneeRows || []) as {
+    idea_id: string;
+    profile_id: string;
+    assignee_name: string;
+  }[]) {
+    const list = assigneesByIdea.get(row.idea_id) ?? [];
+    list.push({ id: row.profile_id, name: row.assignee_name });
+    assigneesByIdea.set(row.idea_id, list);
+  }
+
   const ideas: ImprovementIdeaEnriched[] = ideaRows.map((i) => {
     const area = i.area_id ? areaById.get(i.area_id) : undefined;
     return {
       ...i,
+      assignees: assigneesByIdea.get(i.id) ?? [],
       area_label: area?.label ?? null,
       area_key: area?.key ?? null,
       author_name: i.author_id ? nameById.get(i.author_id) ?? null : null,
-      resolver_name: i.resolved_by ? nameById.get(i.resolved_by) ?? null : null
+      resolver_name: i.resolved_by ? nameById.get(i.resolved_by) ?? null : null,
+      assignee_name: i.assignee_id ? nameById.get(i.assignee_id) ?? null : null
     };
   });
+
+  // Who owns each department, and which ones the viewer owns. Both come from
+  // SECURITY DEFINER RPCs (20271006110000): hr_additional_roles is not readable
+  // by an ordinary board reader, so a direct read would return nothing for the
+  // very people this is for. A failed call leaves the board without "Assigned
+  // to" lines rather than taking the page down.
+  const [{ data: ownerRows }, { data: ownedRows }] = await Promise.all([
+    (supabase as any).rpc('fn_improvement_area_owner_names'),
+    (supabase as any).rpc('fn_improvement_my_owned_area_ids')
+  ]);
+
+  const ownerNamesByArea: Record<string, string[]> = {};
+  for (const row of (ownerRows || []) as {
+    area_id: string;
+    owner_names: string[] | null;
+  }[]) {
+    ownerNamesByArea[row.area_id] = row.owner_names || [];
+  }
+  const ownedAreaIds = ((ownedRows || []) as unknown[]).filter(
+    (id): id is string => typeof id === 'string'
+  );
 
   return (
     <ContentLayout title="Improvement Board">
@@ -149,6 +192,8 @@ export default async function ImprovementBoardPage() {
         initialAreas={areaList}
         initialDepartments={departments}
         initialIdeas={ideas}
+        ownerNamesByArea={ownerNamesByArea}
+        ownedAreaIds={ownedAreaIds}
       />
     </ContentLayout>
   );

@@ -736,6 +736,20 @@ export interface CreateHostelBlockDTO {
 
 export type UpdateHostelBlockDTO = Partial<CreateHostelBlockDTO>;
 
+// hostel_floors: one row per floor of a block. `floor_number` is the same
+// integer stored in hostel_rooms.floor (0 = Ground) and is immutable once
+// created; `name` is an optional display override and `is_active` hides the
+// floor from room pickers without touching rooms already on it.
+export interface HostelFloor {
+  id: string;
+  block_id: string;
+  floor_number: number;
+  name: string | null;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface BlockFilters {
   hostel_type?: HostelType;
   status?: BlockStatus;

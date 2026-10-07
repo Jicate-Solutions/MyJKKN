@@ -24,6 +24,10 @@
 import { useQuery } from '@tanstack/react-query';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { logger } from '@/lib/utils/enhanced-logger';
+import {
+  fetchLatestPostMetrics,
+  igPermalinkLikePattern,
+} from '@/lib/services/social/ig-post-lookup';
 
 // ============================================================================
 // Types
@@ -284,27 +288,33 @@ export class PulseAnalyticsService {
       }
     }
 
-    // 4. Match ig_posts by permalink shortcode (one OR-filter batch).
+    // 4. Match ig_posts by permalink shortcode — one exact, case-sensitive
+    //    read per shortcode (`_` is a LIKE wildcard; shortcodes are
+    //    case-sensitive, so an ilike OR-batch could pick up another post).
     const shortcodes = Array.from(
       new Set(igSubs.map((s) => s.shortcode).filter(Boolean))
     ) as string[];
 
     const postByShortcode = new Map<string, any>();
     if (shortcodes.length > 0) {
-      const orFilter = shortcodes
-        .map((sc) => `permalink.ilike.%/${sc}%`)
-        .join(',');
-      const { data: posts, error: postsErr } = await supabase
-        .from('ig_posts')
-        .select('id, account_id, permalink, posted_at')
-        .or(orFilter);
-      if (postsErr) {
-        // Non-fatal — render submissions without metrics.
-        logger.warn(MODULE, 'ig_posts match failed', postsErr);
-      }
-      for (const p of (posts ?? []) as any[]) {
-        const sc = extractIgShortcode(p.permalink);
-        if (sc) postByShortcode.set(sc, p);
+      const results = await Promise.all(
+        shortcodes.map((sc) =>
+          supabase
+            .from('ig_posts')
+            .select('id, account_id, permalink, posted_at')
+            .like('permalink', igPermalinkLikePattern(sc))
+            .limit(1)
+        )
+      );
+      for (const { data: posts, error: postsErr } of results) {
+        if (postsErr) {
+          // Non-fatal — render submissions without metrics.
+          logger.warn(MODULE, 'ig_posts match failed', postsErr);
+        }
+        for (const p of (posts ?? []) as any[]) {
+          const sc = extractIgShortcode(p.permalink);
+          if (sc) postByShortcode.set(sc, p);
+        }
       }
     }
 
@@ -312,21 +322,19 @@ export class PulseAnalyticsService {
     const postIds = matchedPosts.map((p) => p.id);
 
     // 5. Latest metrics snapshot per post (likes via column, raw fallback).
-    const latestMetricByPost = new Map<string, any>();
+    //    Read per post: ~627 snapshots a post overflow one .in() read's
+    //    1,000-row cap and silently drop posts.
+    let latestMetricByPost = new Map<string, any>();
     if (postIds.length > 0) {
-      const { data: metrics, error: metricsErr } = await supabase
-        .from('ig_post_metrics')
-        .select('post_id, snapshot_at, reach, comments, likes, raw')
-        .in('post_id', postIds)
-        .order('snapshot_at', { ascending: false });
+      const { latest, error: metricsErr } = await fetchLatestPostMetrics<any>(
+        supabase,
+        postIds,
+        'post_id, snapshot_at, reach, comments, likes, raw'
+      );
       if (metricsErr) {
         logger.warn(MODULE, 'ig_post_metrics read failed', metricsErr);
       }
-      for (const m of (metrics ?? []) as any[]) {
-        if (!latestMetricByPost.has(m.post_id)) {
-          latestMetricByPost.set(m.post_id, m);
-        }
-      }
+      latestMetricByPost = latest;
     }
 
     // 6. Department names via ig_accounts.department_id.

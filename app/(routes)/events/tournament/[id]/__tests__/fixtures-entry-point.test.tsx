@@ -50,6 +50,7 @@ vi.mock('@/hooks/events/use-tournament-registrations', () => ({
       { id: 'e4', division_id: 'd-2', status: 'confirmed', payment_status: 'paid' },
     ],
   }),
+  useRecordPlacings: () => ({ mutateAsync: vi.fn(), isPending: false }),
 }));
 vi.mock('@/hooks/events/use-tournament-fixtures', () => ({
   useTournamentMatches: () => ({

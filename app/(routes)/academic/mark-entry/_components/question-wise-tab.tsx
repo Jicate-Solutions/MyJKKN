@@ -14,6 +14,7 @@ import {
 import Link from 'next/link';
 import { cn } from '@/lib/utils';
 import { useMarkEntryPaper, useSaveQuestionMarks } from '@/hooks/mark-entry/use-mark-entry';
+import { useCiaMarks } from '@/hooks/internal-marks/use-cia-marks';
 import {
   computeAttainment,
   guessTargetComponent,
@@ -25,7 +26,7 @@ import {
 } from '@/lib/utils/mark-entry/draft-storage';
 import { istToday, type CiaRound } from '@/types/internal-marks';
 import type { LearnerForMarkEntry } from '@/types/internal-marks';
-import type { LearnerEntry, QuestionMarkSyncRecord } from '@/types/mark-entry';
+import type { LearnerEntry, OtherComponent, QuestionMarkSyncRecord } from '@/types/mark-entry';
 import {
   downloadQuestionWiseTemplate,
   parseQuestionWiseUpload,
@@ -94,6 +95,12 @@ export function QuestionWiseTab({
   const [entries, setEntries] = useState<Record<string, Record<string, number>>>({});
   /** student_id set. Absent is its own fact — never inferred from empty inputs. */
   const [absent, setAbsent] = useState<Record<string, boolean>>({});
+  /**
+   * Edits to the round's OTHER components (student_id → code → mark). Holds only
+   * what was touched this session: a missing key falls back to the saved value,
+   * `null` means the user cleared it.
+   */
+  const [others, setOthers] = useState<Record<string, Record<string, number | null>>>({});
   const [isFullScreen, setIsFullScreen] = useState(false);
   /** Paper id whose draft the user has already restored or discarded. */
   const [draftHandledFor, setDraftHandledFor] = useState<string | null>(null);
@@ -122,6 +129,23 @@ export function QuestionWiseTab({
   const paper = data?.paper ?? null;
   const options = data?.options ?? [];
 
+  // Component totals already on file for this course + round. The per-question
+  // breakdown cannot be read back through v1, but the component totals can — and
+  // they are what lets Assignment show its saved mark and the round total stay
+  // right when only one of the two is being keyed in.
+  const { data: savedReport, refetch: refetchSaved } = useCiaMarks({
+    institutionId,
+    examSessionId,
+    courseCode,
+    ciaRound: round.round,
+    programCode,
+  });
+  const savedByRegister = useMemo(() => {
+    const map = new Map<string, Record<string, number | null>>();
+    for (const l of savedReport?.learners ?? []) map.set(l.register_number, l.marks ?? {});
+    return map;
+  }, [savedReport]);
+
   const draftParts: DraftKeyParts = useMemo(
     () => ({ examSessionId, settingId: ciaSettingId, ciaRound: round.round, courseCode }),
     [examSessionId, ciaSettingId, round.round, courseCode]
@@ -134,6 +158,16 @@ export function QuestionWiseTab({
   }, [componentCode, round.components, paper?.max_marks]);
   const activeComponent = targetComponent?.code ?? '';
   const componentMax = Number(targetComponent?.max_marks ?? 0);
+
+  // Everything else the round asks for — e.g. the 15-mark Assignment beside a
+  // question-wise Test 1. Attendance is excluded: it is computed from periods.
+  const otherComponents: OtherComponent[] = useMemo(
+    () =>
+      round.components
+        .filter((c) => c.code !== 'attendance' && c.code !== activeComponent)
+        .map((c) => ({ code: c.code, name: c.name, max_marks: Number(c.max_marks) || 0 })),
+    [round.components, activeComponent]
+  );
 
   // Offer a saved draft back — NEVER auto-apply it over what the server holds.
   //
@@ -162,9 +196,13 @@ export function QuestionWiseTab({
         // Absence must survive a crash too — restoring marks but silently
         // dropping "absent" would turn an AB back into a pending learner.
         absent: absentIds,
+        others,
         count:
           new Set([
             ...Object.entries(entries)
+              .filter(([, m]) => Object.keys(m).length > 0)
+              .map(([id]) => id),
+            ...Object.entries(others)
               .filter(([, m]) => Object.keys(m).length > 0)
               .map(([id]) => id),
             ...absentIds,
@@ -174,7 +212,7 @@ export function QuestionWiseTab({
     return () => {
       if (draftTimer.current) clearTimeout(draftTimer.current);
     };
-  }, [entries, absent, paper, draftParts, activeComponent]);
+  }, [entries, absent, others, paper, draftParts, activeComponent]);
 
   // Warn on close while there are unsaved keystrokes.
   useEffect(() => {
@@ -215,7 +253,18 @@ export function QuestionWiseTab({
     []
   );
 
-  /** Marking a learner absent clears their marks — the two cannot coexist. */
+  const handleChangeOther = useCallback(
+    (studentId: string, code: string, value: number | null) => {
+      isDirty.current = true;
+      setErrors([]);
+      // null is kept (not deleted): it records "cleared", which must override a
+      // saved value rather than fall back to it.
+      setOthers((prev) => ({ ...prev, [studentId]: { ...(prev[studentId] ?? {}), [code]: value } }));
+    },
+    []
+  );
+
+  /** Marking a learner absent clears their QUESTION marks — the two cannot coexist. */
   const handleToggleAbsent = useCallback((studentId: string, isAbsent: boolean) => {
     isDirty.current = true;
     setErrors([]);
@@ -235,8 +284,18 @@ export function QuestionWiseTab({
         course_offering_id: l.course_offering_id ?? '',
         marks: entries[l.id] ?? {},
         is_absent: !!absent[l.id],
+        other_marks: (() => {
+          const saved = savedByRegister.get(l.register_number);
+          const out: Record<string, number> = {};
+          for (const c of otherComponents) {
+            const edit = others[l.id]?.[c.code];
+            const value = edit !== undefined ? edit : (saved?.[c.code] ?? null);
+            if (value != null) out[c.code] = Number(value);
+          }
+          return out;
+        })(),
       })),
-    [learners, entries, absent]
+    [learners, entries, absent, others, otherComponents, savedByRegister]
   );
 
   /**
@@ -299,21 +358,54 @@ export function QuestionWiseTab({
 
   // "Filled" includes absentees: recording that a learner did not sit is a real
   // entry, and excluding them would leave the class permanently incomplete.
+  // A row also counts once one of its other components was TOUCHED this session
+  // — merely showing a saved Assignment mark does not make the row dirty.
   const filledRows = entryRows.filter(
-    (r) => r.is_absent || Object.keys(r.marks).length > 0
+    (r) =>
+      r.is_absent ||
+      Object.keys(r.marks).length > 0 ||
+      Object.keys(others[r.student_id] ?? {}).length > 0
   );
   const absentCount = entryRows.filter((r) => r.is_absent).length;
 
   const handleSave = useCallback(() => {
     if (!paper || !targetComponent) return;
 
+    /** Total already on file for the paper's component — used when a row re-saves without question marks. */
+    const savedPaperTotal = (row: LearnerEntry) =>
+      Number(savedByRegister.get(row.register_number)?.[activeComponent] ?? 0) || 0;
+
     const found: string[] = [];
     for (const row of filledRows) {
-      if (row.is_absent) continue;
-      const rowErrors = validateLearnerMarks(
-        row.marks, paper.questions, paper.parts, componentMax
-      );
-      for (const e of rowErrors) found.push(`${row.register_number}: ${e}`);
+      if (!row.is_absent) {
+        const rowErrors = validateLearnerMarks(
+          row.marks, paper.questions, paper.parts, componentMax
+        );
+        for (const e of rowErrors) found.push(`${row.register_number}: ${e}`);
+      }
+      let othersTotal = 0;
+      for (const c of otherComponents) {
+        const value = row.other_marks?.[c.code];
+        if (value == null) continue;
+        othersTotal += value;
+        if (!Number.isInteger(value)) {
+          found.push(`${row.register_number}: ${c.name} mark (${value}) must be a whole number`);
+        } else if (value < 0) {
+          found.push(`${row.register_number}: ${c.name} mark cannot be negative`);
+        } else if (value > c.max_marks) {
+          found.push(`${row.register_number}: ${c.name} mark (${value}) exceeds its max (${c.max_marks})`);
+        }
+      }
+      const paperTotal = row.is_absent
+        ? 0
+        : Object.keys(row.marks).length > 0
+          ? sumMarks(row.marks)
+          : savedPaperTotal(row);
+      if (maxInternalMarks > 0 && paperTotal + othersTotal > maxInternalMarks) {
+        found.push(
+          `${row.register_number}: round total (${paperTotal + othersTotal}) exceeds the round max (${maxInternalMarks})`
+        );
+      }
     }
     if (found.length) {
       setErrors(found);
@@ -321,7 +413,19 @@ export function QuestionWiseTab({
     }
     setErrors([]);
 
-    const records: QuestionMarkSyncRecord[] = filledRows.map((row) => ({
+    const records: QuestionMarkSyncRecord[] = filledRows.map((row) => {
+      const hasQuestionMarks = !row.is_absent && Object.keys(row.marks).length > 0;
+      const saved = savedByRegister.get(row.register_number);
+      const otherPayload: Record<string, { mark: number; max: number }> = {};
+      for (const c of otherComponents) {
+        const edit = others[row.student_id]?.[c.code];
+        const onFile = saved?.[c.code];
+        // Cleared a mark that is already on file → write 0; there is no "unset"
+        // in the sync contract, and leaving the old value would contradict the screen.
+        const value = edit !== undefined ? (edit ?? (onFile != null ? 0 : null)) : (onFile ?? null);
+        if (value != null) otherPayload[c.code] = { mark: Number(value), max: c.max_marks };
+      }
+      return {
       institutions_id: institutionId,
       examination_session_id: examSessionId,
       course_offering_id: row.course_offering_id,
@@ -340,18 +444,24 @@ export function QuestionWiseTab({
         savedComponent && savedComponent !== activeComponent ? savedComponent : undefined,
       is_absent: row.is_absent,
       // Absent learners carry NO breakdown — the route omits question_marks for
-      // them, which is what makes COE clear any previously saved detail.
-      question_marks: row.is_absent
-        ? {}
-        : {
+      // them, which is what makes COE clear any previously saved detail. A row
+      // with only an other component (no question marks keyed this time) sends
+      // none either, so the paper's saved marks are left exactly as they are.
+      question_marks: hasQuestionMarks
+        ? {
             [activeComponent]: {
               paper_id: paper.id,
               set_number: paper.set_number,
               set_label: paper.set_label,
               marks: row.marks,
             },
-          },
-    }));
+          }
+        : {},
+      other_components: Object.keys(otherPayload).length ? otherPayload : undefined,
+      carried_component_total:
+        !row.is_absent && !hasQuestionMarks ? savedPaperTotal(row) : undefined,
+      };
+    });
 
     saveMutation.mutate(
       {
@@ -369,6 +479,9 @@ export function QuestionWiseTab({
           if (result.success) {
             isDirty.current = false;
             clearDraft(draftParts);
+            // Re-read the component totals now on file, so a later save that
+            // touches only one component still states the right round total.
+            void refetchSaved();
           }
         },
       }
@@ -376,7 +489,8 @@ export function QuestionWiseTab({
   }, [
     paper, targetComponent, filledRows, componentMax, institutionId, examSessionId,
     round, ciaSettingId, activeComponent, maxInternalMarks, savedComponent,
-    saveMutation, draftParts, courseCode, programCode,
+    saveMutation, draftParts, courseCode, programCode, otherComponents, others,
+    savedByRegister, refetchSaved,
   ]);
 
   if (isLoading) {
@@ -465,12 +579,30 @@ export function QuestionWiseTab({
     name: r.student_name,
     marks: r.marks,
     is_absent: r.is_absent,
+    other_marks: r.other_marks,
   }));
 
   /** A clean upload only fills the grid — Save still runs the normal write path. */
   const applyImport = (result: MarksImportResult) => {
     isDirty.current = true;
     setErrors([]);
+    // Other components: record an edit only where the file DIFFERS from what is
+    // on screen, so re-uploading an untouched Assignment column does not mark
+    // every learner as changed.
+    const onScreen = new Map(entryRows.map((r) => [r.student_id, r.other_marks ?? {}]));
+    setOthers((prev) => {
+      const next = { ...prev };
+      for (const row of result.rows) {
+        if (!row.others) continue;
+        const shown = onScreen.get(row.learnerId) ?? {};
+        const edits = { ...(next[row.learnerId] ?? {}) };
+        for (const [code, value] of Object.entries(row.others)) {
+          if ((shown[code] ?? null) !== value) edits[code] = value;
+        }
+        if (Object.keys(edits).length) next[row.learnerId] = edits;
+      }
+      return next;
+    });
     setEntries((prev) => {
       const next = { ...prev };
       for (const row of result.rows) next[row.learnerId] = row.marks;
@@ -506,6 +638,7 @@ export function QuestionWiseTab({
                   setAbsent(
                     Object.fromEntries((pendingDraft.absent ?? []).map((id) => [id, true]))
                   );
+                  setOthers(pendingDraft.others ?? {});
                   if (pendingDraft.component_code) setComponentCode(pendingDraft.component_code);
                   isDirty.current = true;
                   setDraftHandledFor(paper.id);
@@ -633,10 +766,19 @@ export function QuestionWiseTab({
                   componentName: targetComponent?.name ?? activeComponent,
                   componentMax,
                   learners: templateLearners,
+                  otherComponents,
+                  roundMax: maxInternalMarks,
                 })
               }
               onParse={(file) =>
-                parseQuestionWiseUpload(file, { paper, componentMax, learners: templateLearners })
+                parseQuestionWiseUpload(file, {
+                  paper,
+                  componentMax,
+                  learners: templateLearners,
+                  componentName: targetComponent?.name ?? activeComponent,
+                  otherComponents,
+                  roundMax: maxInternalMarks,
+                })
               }
               onImported={applyImport}
               onIssues={setImportIssues}
@@ -696,6 +838,9 @@ export function QuestionWiseTab({
           onToggleFullScreen={() => setIsFullScreen((v) => !v)}
           onChange={handleChange}
           onToggleAbsent={handleToggleAbsent}
+          otherComponents={otherComponents}
+          roundMax={maxInternalMarks}
+          onChangeOther={handleChangeOther}
         />
       </div>
       <div className='lg:hidden'>
@@ -708,6 +853,9 @@ export function QuestionWiseTab({
           readOnly={readOnly}
           onChange={handleChange}
           onToggleAbsent={handleToggleAbsent}
+          otherComponents={otherComponents}
+          roundMax={maxInternalMarks}
+          onChangeOther={handleChangeOther}
         />
       </div>
 

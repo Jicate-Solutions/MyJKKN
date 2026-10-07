@@ -74480,6 +74480,44 @@ export type Database = {
           },
         ]
       }
+      hostel_floors: {
+        Row: {
+          block_id: string
+          created_at: string
+          floor_number: number
+          id: string
+          is_active: boolean
+          name: string | null
+          updated_at: string
+        }
+        Insert: {
+          block_id: string
+          created_at?: string
+          floor_number: number
+          id?: string
+          is_active?: boolean
+          name?: string | null
+          updated_at?: string
+        }
+        Update: {
+          block_id?: string
+          created_at?: string
+          floor_number?: number
+          id?: string
+          is_active?: boolean
+          name?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "hostel_floors_block_id_fkey"
+            columns: ["block_id"]
+            isOneToOne: false
+            referencedRelation: "hostel_blocks"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       hostel_gate_passes: {
         Row: {
           accompanying_person: string | null
@@ -88923,6 +88961,78 @@ export type Database = {
           },
         ]
       }
+      hr_payroll_document_settings: {
+        Row: {
+          addressee_title: string
+          approval_salutation: string
+          approver_title: string
+          bank_branch: string
+          bank_name: string
+          college_account_number: string
+          created_at: string
+          created_by: string | null
+          hr_organization_id: string
+          id: string
+          institution_id: string
+          non_teaching_suffix: string
+          reference_code: string
+          submitter_title: string
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          addressee_title?: string
+          approval_salutation?: string
+          approver_title?: string
+          bank_branch: string
+          bank_name: string
+          college_account_number: string
+          created_at?: string
+          created_by?: string | null
+          hr_organization_id: string
+          id?: string
+          institution_id: string
+          non_teaching_suffix?: string
+          reference_code: string
+          submitter_title?: string
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          addressee_title?: string
+          approval_salutation?: string
+          approver_title?: string
+          bank_branch?: string
+          bank_name?: string
+          college_account_number?: string
+          created_at?: string
+          created_by?: string | null
+          hr_organization_id?: string
+          id?: string
+          institution_id?: string
+          non_teaching_suffix?: string
+          reference_code?: string
+          submitter_title?: string
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "hr_payroll_document_settings_hr_organization_id_fkey"
+            columns: ["hr_organization_id"]
+            isOneToOne: true
+            referencedRelation: "hr_organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hr_payroll_document_settings_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       hr_payroll_periods: {
         Row: {
           accounts_verified_at: string | null
@@ -92306,6 +92416,91 @@ export type Database = {
           },
         ]
       }
+      hr_salary_register_manual_days: {
+        Row: {
+          business_working_days: number
+          casual_leave_days: number
+          comp_off_days: number
+          created_at: string
+          created_by: string | null
+          hr_organization_id: string
+          id: string
+          institution_id: string
+          monthly_gross: number | null
+          on_duty_days: number
+          other_paid_leave_days: number
+          period_month: number
+          period_year: number
+          reason: string
+          staff_id: string
+          unpaid_leave_days: number
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          business_working_days: number
+          casual_leave_days?: number
+          comp_off_days?: number
+          created_at?: string
+          created_by?: string | null
+          hr_organization_id: string
+          id?: string
+          institution_id: string
+          monthly_gross?: number | null
+          on_duty_days?: number
+          other_paid_leave_days?: number
+          period_month: number
+          period_year: number
+          reason: string
+          staff_id: string
+          unpaid_leave_days?: number
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          business_working_days?: number
+          casual_leave_days?: number
+          comp_off_days?: number
+          created_at?: string
+          created_by?: string | null
+          hr_organization_id?: string
+          id?: string
+          institution_id?: string
+          monthly_gross?: number | null
+          on_duty_days?: number
+          other_paid_leave_days?: number
+          period_month?: number
+          period_year?: number
+          reason?: string
+          staff_id?: string
+          unpaid_leave_days?: number
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "hr_salary_register_manual_days_hr_organization_id_fkey"
+            columns: ["hr_organization_id"]
+            isOneToOne: false
+            referencedRelation: "hr_organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hr_salary_register_manual_days_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hr_salary_register_manual_days_staff_id_fkey"
+            columns: ["staff_id"]
+            isOneToOne: false
+            referencedRelation: "staff"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       hr_salary_register_lines: {
         Row: {
           actual_gross: number
@@ -92322,11 +92517,17 @@ export type Database = {
           department_name: string | null
           designation: string | null
           employee_code: string | null
+          entry_source: string
           epf_deduction: number
           esi_deduction: number
           exclusion_reason: string | null
           id: string
           is_included: boolean
+          is_teaching: boolean
+          manual_entered_at: string | null
+          manual_entered_by: string | null
+          manual_entry_id: string | null
+          manual_reason: string | null
           net_pay: number
           on_duty_days: number
           other_paid_leave_days: number
@@ -92339,6 +92540,7 @@ export type Database = {
           remarks: string | null
           run_id: string
           serial_no: number
+          staff_category_name: string | null
           staff_id: string
           staff_name: string
           tds_deduction: number
@@ -92364,11 +92566,17 @@ export type Database = {
           department_name?: string | null
           designation?: string | null
           employee_code?: string | null
+          entry_source?: string
           epf_deduction?: number
           esi_deduction?: number
           exclusion_reason?: string | null
           id?: string
           is_included?: boolean
+          is_teaching: boolean
+          manual_entered_at?: string | null
+          manual_entered_by?: string | null
+          manual_entry_id?: string | null
+          manual_reason?: string | null
           net_pay?: number
           on_duty_days?: number
           other_paid_leave_days?: number
@@ -92381,6 +92589,7 @@ export type Database = {
           remarks?: string | null
           run_id: string
           serial_no: number
+          staff_category_name?: string | null
           staff_id: string
           staff_name: string
           tds_deduction?: number
@@ -92406,11 +92615,17 @@ export type Database = {
           department_name?: string | null
           designation?: string | null
           employee_code?: string | null
+          entry_source?: string
           epf_deduction?: number
           esi_deduction?: number
           exclusion_reason?: string | null
           id?: string
           is_included?: boolean
+          is_teaching?: boolean
+          manual_entered_at?: string | null
+          manual_entered_by?: string | null
+          manual_entry_id?: string | null
+          manual_reason?: string | null
           net_pay?: number
           on_duty_days?: number
           other_paid_leave_days?: number
@@ -92423,6 +92638,7 @@ export type Database = {
           remarks?: string | null
           run_id?: string
           serial_no?: number
+          staff_category_name?: string | null
           staff_id?: string
           staff_name?: string
           tds_deduction?: number
