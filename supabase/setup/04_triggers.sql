@@ -2945,6 +2945,13 @@ CREATE TRIGGER trg_hostel_blocks_seed_floors
   AFTER INSERT ON public.hostel_blocks
   FOR EACH ROW EXECUTE FUNCTION public.fn_hostel_blocks_seed_floors();
 
+
+-- Mirrored from supabase/migrations/20271007150000_hr_salary_register_manual_days.sql
+DROP TRIGGER IF EXISTS trg_hr_salary_register_manual_days_touch ON public.hr_salary_register_manual_days;
+CREATE TRIGGER trg_hr_salary_register_manual_days_touch
+  BEFORE UPDATE ON public.hr_salary_register_manual_days
+  FOR EACH ROW EXECUTE FUNCTION public.fn_touch_updated_at();
+
 -- Updated: 2026-10-07 - Target-gated raises: only the Director list changes the
 -- measurement switch 'hr.salary_revision.target_measurement_on' (true or false) and
 -- 'hr.salary_revision.target_rules' (shape checked), each change is logged, and

@@ -390,6 +390,20 @@ export default function SalaryRegisterLinePage({
                   <Row label="Designation" value={line.designation ?? '—'} />
                   <Row label="Department" value={line.department_name ?? '—'} />
                   <Row label="Row number" value={line.serial_no} />
+                  {/* Days typed by hand, not biometric (2026-10-07) — say so,
+                      with why, who and when, on the page that explains a row. */}
+                  <Row
+                    label="Attendance"
+                    value={
+                      line.entry_source === 'manual'
+                        ? `Entered by hand — ${line.manual_reason ?? 'no reason recorded'}${
+                            line.manual_entered_at
+                              ? ` · ${new Date(line.manual_entered_at).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' })}`
+                              : ''
+                          }`
+                        : 'Biometric (closed month)'
+                    }
+                  />
                 </dl>
                 <dl>
                   <Row label="Date of joining" value={dmy(line.date_of_joining)} />
