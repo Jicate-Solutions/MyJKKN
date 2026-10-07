@@ -2,7 +2,8 @@ import type { ReactNode } from 'react';
 import { cn } from '@/lib/utils';
 
 interface PageHeaderProps {
-  title: ReactNode;
+  /** Omit when the page already shows its title (ContentLayout) — avoids a duplicate heading. */
+  title?: ReactNode;
   description?: ReactNode;
   /** Buttons; they stack full-width on phones and sit inline from `sm`. */
   actions?: ReactNode;
@@ -18,9 +19,9 @@ export function PageHeader({ title, description, actions, back, className }: Pag
       {back}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
         <div className="min-w-0">
-          <h2 className="break-words text-xl font-bold tracking-tight sm:text-2xl">{title}</h2>
+          {title && <h2 className="break-words text-2xl font-semibold tracking-tight">{title}</h2>}
           {description && (
-            <p className="mt-1 text-sm text-muted-foreground sm:text-base">{description}</p>
+            <p className={cn('text-sm text-muted-foreground', title && 'mt-1')}>{description}</p>
           )}
         </div>
         {actions && (
@@ -33,10 +34,13 @@ export function PageHeader({ title, description, actions, back, className }: Pag
   );
 }
 
-/** Filter row: stacked on phones, inline from `sm`. Children set their own `sm:w-*`. */
+/**
+ * The list toolbar: one wrapping row (search flex-1 · filters · primary action last),
+ * as on Requests. Children size themselves (h-9; `w-full sm:w-52` for selects).
+ */
 export function FilterBar({ children, className }: { children: ReactNode; className?: string }) {
   return (
-    <div className={cn('flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:gap-4', className)}>
+    <div className={cn('flex flex-wrap items-center gap-2', className)}>
       {children}
     </div>
   );

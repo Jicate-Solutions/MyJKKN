@@ -221,13 +221,14 @@ function RevisedPricesSheet({
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent className="flex w-full flex-col gap-0 overflow-y-auto p-0 sm:max-w-xl">
-        <SheetHeader className="border-b px-6 py-4 text-left">
+      {/* Only the body scrolls, so the save bar stays in view. */}
+      <SheetContent className="flex w-full flex-col gap-0 overflow-hidden p-0 sm:max-w-xl">
+        <SheetHeader className="shrink-0 border-b px-6 py-4 text-left">
           <SheetTitle>{title}</SheetTitle>
           <SheetDescription>{description}</SheetDescription>
         </SheetHeader>
 
-        <div className="flex-1 space-y-5 px-6 py-5">
+        <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-6 py-5">
           {stage === 'upload' && (
             <>
               <label
@@ -456,8 +457,8 @@ function RevisedPricesSheet({
         </div>
 
         {stage === 'review' && (
-          <div className="flex flex-wrap items-center justify-between gap-2 border-t bg-muted/40 px-6 py-3">
-            <span className="text-xs text-muted-foreground">
+          <div className="flex shrink-0 flex-wrap items-center gap-2 border-t bg-muted/30 px-6 py-3">
+            <span className="w-full text-xs text-muted-foreground sm:mr-auto sm:w-auto">
               {bad
                 ? 'Every price must be more than 0.'
                 : changed.length
@@ -466,8 +467,11 @@ function RevisedPricesSheet({
                     ? 'Prices unchanged · terms updated'
                     : 'Nothing changed yet.'}
             </span>
+            <Button variant="ghost" className="h-11 flex-1 sm:h-9 sm:flex-none" onClick={() => onOpenChange(false)} disabled={saving}>
+              Cancel
+            </Button>
             <Button
-              className="h-10 px-5"
+              className="h-11 flex-1 px-5 sm:h-9 sm:flex-none"
               disabled={bad || !(changed.length || termsChanged) || saving}
               onClick={() => void submit()}
             >

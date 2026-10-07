@@ -41,7 +41,8 @@ export function InstitutionFilter({ value, onChange, label = 'Institution', hint
     <div className={className ?? 'space-y-2'}>
       {label && <Label>{label}</Label>}
       <Select value={value} onValueChange={(v) => onChange(v)}>
-        <SelectTrigger>
+        {/* h-9 to line up with the other toolbar controls. */}
+        <SelectTrigger className="h-9">
           <SelectValue placeholder="Select institution" />
         </SelectTrigger>
         <SelectContent>

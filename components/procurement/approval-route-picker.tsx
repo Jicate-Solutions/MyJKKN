@@ -91,7 +91,7 @@ export function ApprovalRoutePicker({
             value={categoryId ?? ''}
             onValueChange={(v) => onChange({ categoryId: v, departmentId })}
           >
-            <SelectTrigger className="h-10" aria-label="Category">
+            <SelectTrigger className="h-10 sm:h-9" aria-label="Category">
               <SelectValue placeholder="Choose the category…" />
             </SelectTrigger>
             <SelectContent>
@@ -107,7 +107,7 @@ export function ApprovalRoutePicker({
           <div className="w-full space-y-1 sm:w-64">
             <Label className="text-xs font-semibold">For which department?</Label>
             <Select value={departmentId ?? ''} onValueChange={(v) => onChange({ categoryId, departmentId: v })}>
-              <SelectTrigger className="h-10" aria-label="Department">
+              <SelectTrigger className="h-10 sm:h-9" aria-label="Department">
                 <SelectValue placeholder="Choose the department…" />
               </SelectTrigger>
               <SelectContent>
