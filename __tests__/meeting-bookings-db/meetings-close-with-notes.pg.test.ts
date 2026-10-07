@@ -43,8 +43,15 @@
  * REQUIRES a local PostgreSQL 16 and refuses to skip silently without one
  * (see "THE POSTGRES SERVICE" in .github/workflows/test-suite.yml):
  *   brew services start postgresql@16
- *   ./node_modules/.bin/vitest run __tests__/meetings/meetings-close-with-notes.pg.test.ts
+ *   ./node_modules/.bin/vitest run __tests__/meeting-bookings-db/meetings-close-with-notes.pg.test.ts
  * Override the server with CWN_TEST_PGHOST / _PGPORT / _PGUSER.
+ *
+ * WHY THIS FILE IS NOT UNDER __tests__/meetings/: the "meetings unit tests
+ * pass" job runs `vitest run __tests__/meetings/` with no database by design
+ * (see its header), so it failed here on "Local PostgreSQL 16 is required".
+ * The gated Vitest job in test-suite.yml runs every *.test.ts with a postgres:16
+ * service and CI=true, which is where this proof executes. The directory name
+ * must not start with "meetings" — vitest's path filter is a substring match.
  */
 import { execFileSync } from 'child_process';
 import path from 'path';
