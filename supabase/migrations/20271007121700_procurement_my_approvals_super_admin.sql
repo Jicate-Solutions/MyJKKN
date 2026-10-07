@@ -1,4 +1,4 @@
--- Migration: 20271007120000_procurement_my_approvals_super_admin
+-- Migration: 20271007121700_procurement_my_approvals_super_admin
 -- ci:allow-secdef-authenticated answers only about the caller: chain rows filter on
 -- auth.uid() = ANY(approver_ids); the Super Admin rows are returned only when is_super_admin().
 -- Purpose:   "Waiting for my approval" now includes the Super Admin's own final approvals.
