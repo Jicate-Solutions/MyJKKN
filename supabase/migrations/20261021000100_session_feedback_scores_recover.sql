@@ -1,3 +1,10 @@
+-- RENUMBERED 2026-10-07 from 20261021000000 → 20261021000100. A direct push to
+-- main on 2026-10-05 (2d590508b7) added 20261021000000_service_request_fee_payment_step.sql,
+-- claiming the same 14-digit version. One version can carry one ledger row, so the
+-- two cannot coexist; the file already on main keeps the number. Both migrations
+-- were ALREADY APPLIED to production when this was found (this one on 2026-10-03,
+-- the other by hand), so the ledger row was moved to the new number rather than
+-- the SQL being re-run. Nothing below changed.
 -- Updated: 2026-10-01 - Recover the learner session scores that were thrown away.
 --
 -- WHAT WAS WRONG, measured on production 2026-10-01.
