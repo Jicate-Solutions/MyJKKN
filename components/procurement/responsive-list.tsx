@@ -80,8 +80,20 @@ export function ResponsiveList<T>({
             {rows.map((row) => (
               <TableRow
                 key={getRowKey(row)}
-                className={cn(onRowClick && 'cursor-pointer')}
+                className={cn(onRowClick && 'cursor-pointer focus-visible:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring')}
                 onClick={onRowClick ? () => onRowClick(row) : undefined}
+                tabIndex={onRowClick ? 0 : undefined}
+                onKeyDown={
+                  onRowClick
+                    ? (e) => {
+                        if (e.target !== e.currentTarget) return;
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault();
+                          onRowClick(row);
+                        }
+                      }
+                    : undefined
+                }
               >
                 {columns.map((c) => (
                   <TableCell key={c.key} className={c.className}>

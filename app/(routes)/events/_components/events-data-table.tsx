@@ -27,10 +27,13 @@ import { formatIstDate } from '@/lib/utils/date-format';
 import { useCallback, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { CalendarDays, MapPin } from 'lucide-react';
+import { CalendarDays, MapPin, X } from 'lucide-react';
 
 import { DataTable } from '@/components/data-table/data-table';
+import { useUrlState } from '@/components/data-table/utils/url-state';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import {
   Select,
   SelectContent,
@@ -58,6 +61,12 @@ import {
   isEventOpen,
   matchesEventStatusFilter,
 } from './event-display';
+import {
+  filterEventsByDate,
+  formatFilterMonth,
+  isValidFilterDate,
+  isValidFilterMonth,
+} from './event-date-filter';
 
 const ALL = 'all';
 
@@ -103,6 +112,15 @@ export function EventsDataTable() {
   // Discovered from the fetched rows: live event_type values are wider than the
   // TS EventType union, so a hardcoded option list would miss real types.
   const [typeOptions, setTypeOptions] = useState<string[]>([]);
+
+  // Month (?month=yyyy-MM) and Date (?date=yyyy-MM-dd) filters — BUG-006221.
+  // In the URL next to the table's own page/search params so a shared link
+  // keeps them; an event matches when the days it runs overlap the choice
+  // (event-date-filter.ts). Malformed URL values are ignored, not applied.
+  const [monthParam, setMonthParam] = useUrlState<string>('month', '');
+  const [dateParam, setDateParam] = useUrlState<string>('date', '');
+  const monthFilter = isValidFilterMonth(monthParam) ? monthParam : '';
+  const dateFilter = isValidFilterDate(dateParam) ? dateParam : '';
 
   const [editOpen, setEditOpen] = useState(false);
   const [editing, setEditing] = useState<Event | null>(null);
@@ -168,6 +186,7 @@ export function EventsDataTable() {
       if (statusFilter !== ALL) {
         rows = rows.filter((e) => matchesEventStatusFilter(e, statusFilter));
       }
+      rows = filterEventsByDate(rows, { month: monthFilter, date: dateFilter });
       if (params.search) {
         const q = params.search.toLowerCase();
         rows = rows.filter(
@@ -209,7 +228,7 @@ export function EventsDataTable() {
     },
     // Filter state is a real dependency: the DataTable re-runs its fetch effect
     // when fetchDataFn's identity changes, which is how a filter change reloads.
-    [typeFilter, statusFilter]
+    [typeFilter, statusFilter, monthFilter, dateFilter]
   );
 
   const renderToolbar = () => (
@@ -241,6 +260,52 @@ export function EventsDataTable() {
           <SelectItem value="cancelled">Cancelled</SelectItem>
         </SelectContent>
       </Select>
+
+      <div className="flex items-center gap-1">
+        <Input
+          type="month"
+          aria-label="Filter by month"
+          title="Events running in this month"
+          className="h-8 w-[160px]"
+          value={monthFilter}
+          onChange={(e) => setMonthParam(e.target.value)}
+        />
+        {monthFilter && (
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8"
+            aria-label={`Clear month filter (${formatFilterMonth(monthFilter)})`}
+            onClick={() => setMonthParam('')}
+          >
+            <X className="h-4 w-4" />
+          </Button>
+        )}
+      </div>
+
+      <div className="flex items-center gap-1">
+        <Input
+          type="date"
+          aria-label="Filter by date"
+          title="Events running on this date"
+          className="h-8 w-[150px]"
+          value={dateFilter}
+          onChange={(e) => setDateParam(e.target.value)}
+        />
+        {dateFilter && (
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8"
+            aria-label="Clear date filter"
+            onClick={() => setDateParam('')}
+          >
+            <X className="h-4 w-4" />
+          </Button>
+        )}
+      </div>
     </div>
   );
 
@@ -339,6 +404,9 @@ export function EventsDataTable() {
         }}
         renderToolbarContent={renderToolbar}
         refetchKey={refetchKey}
+        // A new month/date narrows the rows; go back to page 1 (a link with
+        // ?page=3 would otherwise land past the end of the shorter list).
+        pageResetKey={`${monthFilter}|${dateFilter}`}
       />
 
       <EditGeneralEventDialog

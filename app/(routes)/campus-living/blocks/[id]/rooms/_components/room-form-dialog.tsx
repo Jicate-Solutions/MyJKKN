@@ -26,6 +26,7 @@ import {
 import {
   Form,
   FormControl,
+  FormDescription,
   FormField,
   FormItem,
   FormLabel,
@@ -51,6 +52,8 @@ import {
   useRoomAmenityTagIds,
 } from '@/hooks/campus-living/use-hostel-rooms';
 import { useAmenitiesByScope } from '@/hooks/campus-living/use-amenities';
+import { useBlockFloors } from '@/hooks/campus-living/use-hostel-floors';
+import { floorDisplayName } from '@/lib/utils/floor-label';
 import type { HostelRoom, RoomType, AcStatus } from '@/types/campus-living';
 import { ROOM_PURPOSE_OPTIONS, TIER_ACCESS_OPTIONS } from './room-meta';
 
@@ -154,6 +157,8 @@ interface RoomFormDialogProps {
   blockType?: string;
   /** Required in edit mode — the room being edited. */
   room?: HostelRoom;
+  /** Create mode: preselect this floor (e.g. the floor chip being filtered). */
+  defaultFloor?: number;
 }
 
 export function RoomFormDialog({
@@ -163,8 +168,16 @@ export function RoomFormDialog({
   blockId,
   blockType,
   room,
+  defaultFloor,
 }: RoomFormDialogProps) {
   const { isSuperAdmin } = usePermissions();
+  // A room must sit on one of the block's real floors (hostel_floors; the
+  // composite FK enforces it). Inactive floors are hidden from the picker, but
+  // the room's own floor stays selectable in edit mode so the form can still save.
+  const { data: floors, isLoading: floorsLoading } = useBlockFloors(blockId);
+  const floorOptions = (floors ?? []).filter(
+    (f) => f.is_active || (mode === 'edit' && room?.floor === f.floor_number)
+  );
   const createRoom = useCreateHostelRoom();
   const updateRoom = useUpdateHostelRoom();
   const { hostelCategories: allCategories, loading: categoriesLoading } =
@@ -217,9 +230,22 @@ export function RoomFormDialog({
         is_accessible: !!room.is_accessible,
       });
     } else {
-      form.reset(DEFAULTS);
+      form.reset({ ...DEFAULTS, floor: defaultFloor ?? DEFAULTS.floor });
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, mode, room, form]);
+
+  // The default floor (1) may not exist in this block, and the floor list can
+  // arrive after the dialog opens: once it is known, snap an invalid create-mode
+  // floor to the first real one instead of letting the form submit a floor the
+  // FK would refuse.
+  useEffect(() => {
+    if (!open || mode !== 'create' || !floors) return;
+    if (!floorOptions.some((f) => f.floor_number === form.getValues('floor'))) {
+      form.setValue('floor', floorOptions[0]?.floor_number ?? 0);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, mode, floors]);
 
   // Pre-fill the amenity picker from the room's saved tags (edit mode only).
   useEffect(() => {
@@ -228,6 +254,12 @@ export function RoomFormDialog({
   }, [open, mode, existingAmenityTagIds]);
 
   const onSubmit = async (data: FormValues) => {
+    if (!floorOptions.some((f) => f.floor_number === data.floor)) {
+      form.setError('floor', {
+        message: "Pick one of this block's floors — add the floor in the Floors tab first if it's missing.",
+      });
+      return;
+    }
     setSubmitting(true);
     try {
       const payload = {
@@ -322,9 +354,29 @@ export function RoomFormDialog({
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>Floor</FormLabel>
-                    <FormControl>
-                      <Input type="number" min={0} max={50} {...field} />
-                    </FormControl>
+                    <Select
+                      value={floorOptions.some((f) => f.floor_number === Number(field.value)) ? String(field.value) : ''}
+                      onValueChange={(v) => field.onChange(Number(v))}
+                    >
+                      <FormControl>
+                        <SelectTrigger>
+                          <SelectValue placeholder={floorsLoading ? 'Loading floors…' : 'Select floor'} />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        {floorOptions.map((f) => (
+                          <SelectItem key={f.id} value={String(f.floor_number)}>
+                            {floorDisplayName(f.floor_number, f.name)}
+                            {!f.is_active ? ' (inactive)' : ''}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    {!floorsLoading && floorOptions.length === 0 && (
+                      <FormDescription>
+                        This block has no active floors yet — add one in the Floors tab first.
+                      </FormDescription>
+                    )}
                     <FormMessage />
                   </FormItem>
                 )}

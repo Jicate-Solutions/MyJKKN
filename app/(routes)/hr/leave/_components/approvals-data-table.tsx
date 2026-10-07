@@ -40,10 +40,12 @@ export interface ApprovalFilterState {
   /** 'any' or a leaveTypeFilterKey() — a type NAME, not an id: each
    *  organisation has its own copy of every type (14 × "Permission (Hourly)"). */
   leaveTypeId: string;
-  /** 'open' = pending + escalated (the default work queue); 'any' = everything
-   *  the RPC returned, decided history included. */
+  /** 'open' = pending + escalated (the default work queue); 'decided' = the
+   *  past decisions the RPC returns (last 12 months: approved, rejected,
+   *  withdrawn, cancelled); 'any' = everything the RPC returned. */
   status:
     | 'open'
+    | 'decided'
     | 'any'
     | 'pending'
     | 'escalated'
@@ -112,6 +114,8 @@ export function matchesApprovalFilters(
   if (f.leaveTypeId !== 'any' && leaveTypeFilterKey(r) !== f.leaveTypeId) return false;
   if (f.status === 'open') {
     if (r.status !== 'pending' && r.status !== 'escalated') return false;
+  } else if (f.status === 'decided') {
+    if (r.status === 'pending' || r.status === 'escalated') return false;
   } else if (f.status !== 'any' && r.status !== f.status) {
     return false;
   }
@@ -120,6 +124,50 @@ export function matchesApprovalFilters(
   const q = search.trim().toLowerCase();
   if (q && !haystack(r).includes(q)) return false;
   return true;
+}
+
+/**
+ * BUG-006247: approvers could not find past months' decisions. They were
+ * always in the queue, but only behind the Status filter, which defaults to
+ * Open. This puts the two views side by side above the table.
+ */
+export function ApprovalHistoryToggle({
+  status,
+  onChange,
+}: {
+  status: ApprovalFilterState['status'];
+  onChange: (status: ApprovalFilterState['status']) => void;
+}) {
+  const waiting = status === 'open' || status === 'pending' || status === 'escalated';
+  const past = !waiting && status !== 'any';
+  const base = 'h-8 rounded-sm px-3 text-sm font-medium transition-colors';
+  const on = 'bg-background text-foreground shadow-sm';
+  const off = 'text-muted-foreground hover:text-foreground';
+  return (
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+      <div role="group" aria-label="Which requests to show" className="inline-flex rounded-md bg-muted p-1">
+        <button
+          type="button"
+          aria-pressed={waiting}
+          className={`${base} ${waiting ? on : off}`}
+          onClick={() => onChange('open')}
+        >
+          Waiting for a decision
+        </button>
+        <button
+          type="button"
+          aria-pressed={past}
+          className={`${base} ${past ? on : off}`}
+          onClick={() => onChange('decided')}
+        >
+          Past decisions (12 months)
+        </button>
+      </div>
+      <p className="text-xs text-muted-foreground">
+        Approved, rejected, withdrawn and cancelled requests from the last 12 months are under Past decisions.
+      </p>
+    </div>
+  );
 }
 
 interface Props {

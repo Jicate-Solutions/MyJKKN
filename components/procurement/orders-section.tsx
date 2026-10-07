@@ -22,7 +22,8 @@ import { RecordDeliverySheet } from '@/components/procurement/grn-form';
 import { RenegotiateSheet } from '@/components/procurement/renegotiate-sheet';
 import { errorMessage } from '@/lib/utils/supabase-error';
 import { toast } from 'sonner';
-import type { ProcurementPoRevision } from '@/types/procurement';
+import { PO_STATUS_CONFIG, type ProcurementPoRevision } from '@/types/procurement';
+import { StatusBadge, type StatusConfigEntry } from '@/components/procurement/status-badge';
 import type { RequestJourney } from '@/lib/services/procurement/journey-service';
 import { formatDateDMY } from '@/lib/utils/date-format';
 import { FileText, PackageCheck, ClipboardCheck, Handshake, Check, X } from 'lucide-react';
@@ -45,13 +46,17 @@ import { packOrUnit } from '@/lib/procurement/pack-size';
 const rupees = (n: number) => `₹${n.toLocaleString('en-IN', { maximumFractionDigits: 2 })}`;
 const RECEIVABLE = ['approved', 'sent', 'partially_received'];
 
-/** The order's state in the words the store uses. */
-const ORDER_STATE: Record<string, { label: string; cls: string }> = {
-  approved: { label: 'Not sent to vendor yet', cls: 'bg-secondary/20 text-foreground' },
-  sent: { label: 'Sent · not delivered', cls: 'bg-primary/10 text-primary' },
-  partially_received: { label: 'Part delivered', cls: 'bg-secondary/20 text-foreground' },
-  completed: { label: 'Delivered', cls: 'bg-primary/10 text-primary' },
-  closed: { label: 'Closed', cls: 'bg-muted text-muted-foreground' },
+/**
+ * The order's state in the words the store uses. Shared with the order page so one
+ * order never shows two different labels; statuses not listed keep PO_STATUS_CONFIG's.
+ */
+export const ORDER_STATUS_CONFIG: Record<string, StatusConfigEntry> = {
+  ...PO_STATUS_CONFIG,
+  approved: { label: 'Not sent to vendor yet', color: 'amber' },
+  sent: { label: 'Sent · not delivered', color: 'blue' },
+  partially_received: { label: 'Part delivered', color: 'amber' },
+  completed: { label: 'Delivered', color: 'green' },
+  closed: { label: 'Closed', color: 'gray' },
 };
 
 /** New prices waiting for the Super Admin: old -> new per changed line, Approve / Reject. */
@@ -73,7 +78,7 @@ function PendingRevision({ poId, rev, isSuperAdmin }: { poId: string; rev: Procu
   const saving = Number(rev.old_total) - Number(rev.new_total);
 
   return (
-    <div className="mx-6 mb-4 space-y-2.5 rounded-xl bg-secondary/20 px-4 py-3 ring-1 ring-secondary">
+    <div className="mx-5 mb-4 space-y-2.5 rounded-xl bg-secondary/20 px-4 py-3 ring-1 ring-secondary">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <p className="text-sm font-bold">New prices waiting for the Super Admin</p>
         <p className="text-sm tabular-nums">
@@ -183,22 +188,21 @@ function OrderCard({
   const [downloading, setDownloading] = useState(false);
   const markSent = useMarkPoSent();
   const router = useRouter();
-  if (!po) return <div className="h-40 animate-pulse rounded-2xl border bg-card" />;
+  if (!po) return <div className="h-40 animate-pulse rounded-xl border bg-background shadow" />;
   const pending = revisions.find((r) => r.status === 'pending');
   const lastDecided = revisions.find((r) => r.status === 'approved' || r.status === 'rejected');
   // Receipts copy the order's price, so only an undelivered order can be repriced.
   const renegotiable =
     canRenegotiate && (po.status === 'approved' || po.status === 'sent') && deliveries.length === 0 && !pending;
-  const state = ORDER_STATE[po.status] ?? { label: po.status, cls: 'bg-muted text-muted-foreground' };
   const AMT = 'grid grid-cols-[minmax(0,1fr)_7.5rem] items-baseline gap-3';
   // GST from the vendor's quotation, added on top of the amounts.
   const gstTotal = Math.round(poGstTotal(po) * 100) / 100;
 
   return (
-    <section className="overflow-hidden rounded-2xl border bg-card shadow-sm">
-      <div className="flex flex-wrap items-start justify-between gap-2 px-6 pb-3 pt-5">
+    <section className="overflow-hidden rounded-xl border bg-background shadow">
+      <div className="flex flex-wrap items-start justify-between gap-2 px-5 pb-3 pt-4">
         <div className="min-w-0">
-          <h3 className="truncate text-lg font-semibold">Order to {po.supplier?.name ?? 'vendor'}</h3>
+          <h3 className="truncate text-base font-semibold">Order to {po.supplier?.name ?? 'vendor'}</h3>
           <p className="text-xs text-muted-foreground">
             {po.po_number}
             {po.revision_no ? (
@@ -208,12 +212,12 @@ function OrderCard({
             {po.revised_at ? ` · prices revised ${formatDateDMY(po.revised_at)}` : ''}
           </p>
         </div>
-        <span className={`shrink-0 rounded-full px-2.5 py-0.5 text-xs font-semibold ${state.cls}`}>{state.label}</span>
+        <StatusBadge status={po.status} config={ORDER_STATUS_CONFIG} className="shrink-0" />
       </div>
 
       {/* What was ordered: a table — item · qty · rate · amount — ending in the total.
           Long orders scroll inside a tall box with the header kept in view. */}
-      <div className="px-6">
+      <div className="px-5">
         <div className="max-h-[28rem] overflow-y-auto rounded-xl border">
           <table className="w-full border-collapse text-sm">
             <thead className="sticky top-0 z-10 bg-muted text-left text-[11px] uppercase tracking-wide text-muted-foreground">
@@ -280,14 +284,14 @@ function OrderCard({
 
       {pending && <PendingRevision poId={po.id} rev={pending} isSuperAdmin={isSuperAdmin} />}
       {!pending && lastDecided?.status === 'rejected' && (
-        <p className="mx-6 mb-4 rounded-xl bg-muted/50 px-3 py-2 text-xs text-muted-foreground">
+        <p className="mx-5 mb-4 rounded-xl bg-muted/50 px-3 py-2 text-xs text-muted-foreground">
           Last renegotiation was rejected{lastDecided.decision_note ? `: ${lastDecided.decision_note}` : ''} — the order
           keeps its prices.
         </p>
       )}
 
       {deliveries.length > 0 && (
-        <ul className="mx-6 mb-4 space-y-1.5 rounded-xl bg-muted/50 px-3 py-2.5 text-sm">
+        <ul className="mx-5 mb-4 space-y-1.5 rounded-xl bg-muted/50 px-3 py-2.5 text-sm">
           {deliveries.map((d) => {
             const toCheck = d.status === 'pending_verification' || d.status === 'draft';
             return (
@@ -299,7 +303,7 @@ function OrderCard({
                   </span>
                 </span>
                 {toCheck && canVerify && (
-                  <Button asChild size="sm" className="h-8">
+                  <Button asChild variant="outline" className="h-9">
                     <Link href={`/procurement/grn/${d.id}`}>
                       <ClipboardCheck className="mr-1.5 h-3.5 w-3.5" />
                       Check &amp; add to stock
@@ -315,26 +319,27 @@ function OrderCard({
       {/* Right after ordering, the job is getting the order PDF to the vendor — that is
           the main button. Goods take days to arrive, so recording the delivery is a
           quiet secondary action until then. */}
-      <div className="flex flex-wrap items-center justify-end gap-2 border-t bg-muted/40 px-6 py-3">
+      <div className="flex flex-wrap items-center justify-end gap-2 border-t bg-muted/30 px-5 py-3">
+        {po.status === 'approved' && (
+          <span className="mr-auto text-xs text-muted-foreground">Send the PDF to the vendor first</span>
+        )}
+        <Button asChild variant="ghost" className="h-10 sm:h-9">
+          <Link href={`/procurement/purchase-orders/${po.id}`}>Edit order</Link>
+        </Button>
         {renegotiable && (
-          <Button variant="outline" className="h-10" onClick={() => setRenegotiating(true)}>
+          <Button variant="outline" className="h-10 sm:h-9" onClick={() => setRenegotiating(true)}>
             <Handshake className="mr-1.5 h-4 w-4" />
             Renegotiate
           </Button>
         )}
-        {po.status === 'approved' && (
-          <span className="mr-auto text-xs text-muted-foreground">
-            Send the PDF to the vendor first
-          </span>
-        )}
         {canReceive && RECEIVABLE.includes(po.status) && po.status !== 'approved' && !pending && (
-          <Button variant="outline" className="h-10" onClick={onRecord}>
+          <Button variant="outline" className="h-10 sm:h-9" onClick={onRecord}>
             <PackageCheck className="mr-1.5 h-4 w-4" />
             Goods arrived? Record delivery
           </Button>
         )}
         <Button
-          className="h-10 px-5"
+          className="h-11 w-full px-5 sm:h-9 sm:w-auto"
           disabled={downloading}
           onClick={async () => {
             // A required blank the quotation didn't give: open the order with it highlighted.
@@ -363,9 +368,6 @@ function OrderCard({
         >
           <FileText className="mr-1.5 h-4 w-4" />
           {downloading ? 'Preparing…' : 'Order PDF'}
-        </Button>
-        <Button asChild variant="ghost" className="h-10">
-          <Link href={`/procurement/purchase-orders/${po.id}`}>Edit order</Link>
         </Button>
       </div>
       {renegotiating && <RenegotiateSheet po={po} open={renegotiating} onOpenChange={setRenegotiating} />}

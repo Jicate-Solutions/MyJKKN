@@ -6,8 +6,10 @@
 // can swap in live derivation if needed.
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { logger } from '@/lib/utils/enhanced-logger';
+import { floorDisplayName } from '@/lib/utils/floor-label';
 import type {
   HostelBlock,
+  HostelFloor,
   CreateHostelBlockDTO,
   UpdateHostelBlockDTO,
   BlockFilters,
@@ -165,6 +167,23 @@ export class HostelBlockService {
       if (occErr) {
         logger.error('campus-living/blocks', 'Failed to fetch room occupancy for summary', occErr);
       }
+      // Floors are first-class rows (hostel_floors). Read them so a floor with
+      // no rooms still renders and carries its id/name/is_active for the tab's
+      // add / edit / delete controls. A failure here must not fall back to
+      // room-derived floors: the tab would then look manageable but silently
+      // lose every empty and renamed floor.
+      const { data: floorRows, error: floorErr } = await supabase
+        .from('hostel_floors')
+        .select('id, block_id, floor_number, name, is_active, created_at, updated_at')
+        .eq('block_id', id)
+        .order('floor_number', { ascending: true });
+      if (floorErr) {
+        logger.error('campus-living/blocks', 'Failed to fetch block floors', floorErr);
+        throw floorErr;
+      }
+      const floors = (floorRows ?? []) as HostelFloor[];
+      const floorMeta = new Map<number, HostelFloor>(floors.map((f) => [f.floor_number, f]));
+
       const statusByRoom = new Map<string, string>();
       const occupiedByRoom = new Map<string, number>();
       for (const row of occ ?? []) {
@@ -246,14 +265,17 @@ export class HostelBlockService {
         beds: 0, occupied: 0, free: 0,
       });
       const floorCatMap = new Map<number, Map<string, CategoryOccupancy>>();
+      const newFloorGroup = (floor: number): FloorGroup => ({
+        floor, rooms: 0, capacity: 0, occupied: 0, available: 0,
+        studentRooms: 0, specialRooms: 0, attachedBathrooms: 0,
+        byType: {}, byAC: {}, byCategory: {},
+      });
       const floorMap = new Map<number, FloorGroup>();
+      // Seed from hostel_floors so empty floors appear; rooms then accumulate onto them.
+      for (const f of floors) floorMap.set(f.floor_number, newFloorGroup(f.floor_number));
       for (const room of rooms) {
         const floor = Number(room.floor ?? 0);
-        const g: FloorGroup = floorMap.get(floor) ?? {
-          floor, rooms: 0, capacity: 0, occupied: 0, available: 0,
-          studentRooms: 0, specialRooms: 0, attachedBathrooms: 0,
-          byType: {}, byAC: {}, byCategory: {},
-        };
+        const g: FloorGroup = floorMap.get(floor) ?? newFloorGroup(floor);
         g.rooms += 1;
         g.capacity += Number(room.effective_capacity ?? room.capacity ?? 0);
         g.occupied += occupiedByRoom.get(room.id) ?? 0;
@@ -281,17 +303,22 @@ export class HostelBlockService {
           floorCatMap.set(floor, fc);
         }
       }
-      const floorLabel = (floor: number) => {
-        if (floor === 0) return 'Ground Floor';
-        const suffix = floor % 10 === 1 && floor % 100 !== 11 ? 'st'
-          : floor % 10 === 2 && floor % 100 !== 12 ? 'nd'
-          : floor % 10 === 3 && floor % 100 !== 13 ? 'rd'
-          : 'th';
-        return `${floor}${suffix} Floor`;
-      };
+      const floorLabel = (floor: number) => floorDisplayName(floor, floorMeta.get(floor)?.name);
       const floor_summary = Array.from(floorMap.values())
         .sort((a, b) => a.floor - b.floor)
-        .map((g) => ({ ...g, available: Math.max(g.capacity - g.occupied, 0), label: floorLabel(g.floor) }));
+        .map((g) => {
+          const meta = floorMeta.get(g.floor);
+          return {
+            ...g,
+            available: Math.max(g.capacity - g.occupied, 0),
+            label: floorLabel(g.floor),
+            // null only for a floor with no hostel_floors row — impossible once
+            // the composite FK is in place, kept so the type stays honest.
+            floor_id: meta?.id ?? null,
+            name: meta?.name ?? null,
+            is_active: meta?.is_active ?? true,
+          };
+        });
 
       const finishCatRow = (r: CategoryOccupancy): CategoryOccupancy => ({
         ...r, free: Math.max(r.beds - r.occupied, 0),
@@ -332,6 +359,7 @@ export class HostelBlockService {
         current_occupancy: block_breakdown.occupiedBeds,
         total_rooms: rooms.length,
         rooms_summary,
+        floors,
         floor_summary,
         block_breakdown,
         category_summary,
@@ -340,6 +368,7 @@ export class HostelBlockService {
         hostel_rooms: unknown[];
         hostel_wardens: unknown[];
         rooms_summary: typeof rooms_summary;
+        floors: HostelFloor[];
         floor_summary: typeof floor_summary;
         block_breakdown: typeof block_breakdown;
         category_summary: typeof category_summary;

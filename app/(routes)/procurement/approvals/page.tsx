@@ -2,69 +2,89 @@
 
 /**
  * Waiting for my approval — every request whose current approval step is mine
- * (HOD, Principal, CAO, Chairperson…). Approvers without other procurement access
- * land here from their notification or from the Overview card.
+ * (HOD, Principal, CAO, Chairperson…), plus the Super Admin's own final approvals.
+ * Approvers without other procurement access land here from their notification or
+ * from the Overview card.
  */
 
-import Link from 'next/link';
-import { ChevronRight, Inbox } from 'lucide-react';
+import { useRouter } from 'next/navigation';
+import { ChevronRight } from 'lucide-react';
 import { BeatLoader } from 'react-spinners';
 import { ContentLayout } from '@/components/layout/content-layout';
-import { PageHeader } from '@/components/procurement/page-header';
-import { Card, CardContent } from '@/components/ui/card';
+import { ResponsiveList } from '@/components/procurement/responsive-list';
+import { EmptyState } from '@/components/empty-state';
+import { AlertBox } from '@/components/ui/alert-box';
 import { useMyApprovals } from '@/hooks/procurement/use-approval-chains';
 import { displayRequestNumber } from '@/lib/procurement/display-number';
 import { formatDateDMY } from '@/lib/utils/date-format';
 
 export default function MyApprovalsPage() {
-  const { data = [], isLoading } = useMyApprovals();
+  const router = useRouter();
+  const { data = [], isLoading, isError } = useMyApprovals();
 
   return (
     <ContentLayout title="My approvals">
-      <div className="mx-auto w-full max-w-3xl space-y-4 sm:space-y-6">
-        <PageHeader title="Waiting for my approval" description="Purchase requests where it is your turn to approve." />
-        {isLoading ? (
-          <div className="flex justify-center py-10">
-            <BeatLoader size={10} />
-          </div>
-        ) : data.length === 0 ? (
-          <Card>
-            <CardContent className="flex flex-col items-center gap-2 py-10 text-center text-muted-foreground">
-              <Inbox className="h-8 w-8" />
-              Nothing is waiting for you.
-            </CardContent>
-          </Card>
-        ) : (
-          <ul className="space-y-2">
-            {data.map((a) => (
-              <li key={a.request_id}>
-                <Link
-                  href={`/procurement/requests/${a.request_id}`}
-                  className="flex items-center gap-3 rounded-xl border bg-card p-4 shadow-sm transition-colors hover:bg-muted/50"
-                >
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate font-semibold">{a.title || 'Purchase request'}</p>
-                    <p className="truncate text-sm text-muted-foreground">
-                      {displayRequestNumber(a.request_number)}
-                      {a.requested_by_name ? ` · ${a.requested_by_name}` : ''}
-                      {a.institution_name ? ` · ${a.institution_name}` : ''}
-                      {a.submitted_at ? ` · ${formatDateDMY(a.submitted_at)}` : ''}
-                    </p>
-                    <p className="mt-1 text-xs">
-                      {a.category_name && <span className="mr-2 rounded bg-muted px-1.5 py-0.5">{a.category_name}</span>}
-                      <span className="font-medium text-amber-700 dark:text-amber-400">
-                        {a.stage === 'final' ? 'Final approval · ' : 'Request approval · '}
-                        {a.step_order <= a.steps_total ? `${a.step_order} of ${a.steps_total} — ` : ''}
-                        {a.step_label}
+      <div className="w-full space-y-5">
+        {/* Not merged into Requests' "Waiting for you": approvers without procurement
+            access may open this page (layout gate) but not Requests. */}
+        <section className="overflow-hidden rounded-xl border bg-background shadow">
+            {isLoading ? (
+              <div className="flex justify-center py-12">
+                <BeatLoader color="hsl(var(--primary))" size={10} />
+              </div>
+            ) : isError ? (
+              <div className="p-6">
+                <AlertBox type="error" message="Failed to load your approvals. Please try again." />
+              </div>
+            ) : data.length === 0 ? (
+              <EmptyState title="Nothing is waiting for you" description="Requests that need your approval appear here." />
+            ) : (
+              <ResponsiveList
+                rows={data}
+                getRowKey={(a) => `${a.request_id}:${a.stage}`}
+                onRowClick={(a) => router.push(`/procurement/requests/${a.request_id}`)}
+                rowLabel={(a) => `Review ${a.title || 'purchase request'} ${displayRequestNumber(a.request_number)}`}
+                columns={[
+                  {
+                    key: 'request',
+                    header: 'Request',
+                    mobile: 'title',
+                    className: 'max-w-[280px] truncate',
+                    cell: (a) => <span className="font-medium">{a.title || 'Purchase request'}</span>,
+                  },
+                  { key: 'no', header: 'Purchase no.', className: 'whitespace-nowrap', cell: (a) => displayRequestNumber(a.request_number) },
+                  { key: 'college', header: 'College', className: 'max-w-[200px] truncate', cell: (a) => a.institution_name ?? '—' },
+                  { key: 'by', header: 'Raised by', className: 'whitespace-nowrap', cell: (a) => a.requested_by_name ?? '—' },
+                  { key: 'category', header: 'Category', className: 'whitespace-nowrap', cell: (a) => a.category_name ?? '—' },
+                  {
+                    key: 'step',
+                    header: 'Your step',
+                    mobile: 'badge',
+                    className: 'whitespace-nowrap',
+                    cell: (a) => (
+                      <span className="text-xs font-medium">
+                        {a.stage === 'final' ? 'Final approval' : 'Request approval'}
+                        {a.step_order <= a.steps_total ? ` · ${a.step_order} of ${a.steps_total}` : ''}
                       </span>
-                    </p>
-                  </div>
-                  <ChevronRight className="h-5 w-5 shrink-0 text-muted-foreground" />
-                </Link>
-              </li>
-            ))}
-          </ul>
-        )}
+                    ),
+                  },
+                  { key: 'date', header: 'Submitted', className: 'whitespace-nowrap', cell: (a) => (a.submitted_at ? formatDateDMY(a.submitted_at) : '—') },
+                  {
+                    key: 'act',
+                    header: '',
+                    mobile: 'hidden',
+                    className: 'text-right',
+                    cell: () => (
+                      <span className="inline-flex h-8 items-center gap-1 rounded-md bg-primary px-3 text-xs font-semibold text-primary-foreground">
+                        Review
+                        <ChevronRight className="h-4 w-4" />
+                      </span>
+                    ),
+                  },
+                ]}
+              />
+            )}
+        </section>
       </div>
     </ContentLayout>
   );
