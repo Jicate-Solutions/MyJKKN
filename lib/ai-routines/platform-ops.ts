@@ -713,5 +713,21 @@ export const PLATFORM_OPS_ROUTINES: AIRoutine[] = [
     "sideEffects": "WRITES one notifications row (+ user_notifications link) per recipient per ISO week and SENDS one email per recipient via Resend when that row is freshly created. Moves no money and releases nothing.",
     "safeToManualTrigger": true,
     "notes": "Idempotent per ISO week (IST calendar): notifications.idempotency_key walkin-claims-weekly-note:<week>:<user>, and the email is gated on that row being new, so a re-run in the same week sends nothing. Auth: CRON_SECRET, Bearer ONLY (constant-time). Migration 20270610100000."
+  },
+  {
+    "id": "hr-recruitment-nudges",
+    "name": "HR recruitment nudges — approvals, scorecards, offers",
+    "category": "platform-ops",
+    "type": "cron",
+    "schedule": "Mon–Sat · 09:15 IST (editable via dispatcher)",
+    "triggerPath": "/api/cron/hr-recruitment-nudges",
+    "callsClaude": false,
+    "featureKey": null,
+    "featureKeyNote": "Rules-based deadline checks; no model involved.",
+    "whatItDoes": "HR harness, duty cards R5/R6/R8. Sends one in-app reminder when a candidate has waited at an approval step longer than that step's escalate_after_hours (seeded 72), then one notice to the HR Head 48 hours after that reminder if the step is still waiting; one nudge to each interviewer whose scorecard is missing 24 hours after the interview (interviews from the last 14 days only); one nudge when a candidate has sat at 'package_fixed' for 2 days with no offer, and one when an issued offer's joining date passed 2 days ago with no outcome recorded — both to the job's creator, or to everyone whose role grants hr.recruitment.edit for that college when the job has none.",
+    "configKnobs": "Thresholds are constants in lib/hr/recruitment/harness-selection.ts, except each approval step's own escalate_after_hours, which is frozen into the candidate's chain from the approval flow. Day/time editable at /admin/ai-routines.",
+    "sideEffects": "SENDS in-app notifications (notifications + user_notifications, category 'staff', kind 'work_item'); writes one hr_recruitment_nudges_sent row per nudge, which is what makes every nudge fire only once.",
+    "safeToManualTrigger": false,
+    "notes": "Rules-based, no LLM. Auth: Bearer or ?secret=. Idempotent: each nudge is claimed in hr_recruitment_nudges_sent (UNIQUE (kind, ref_key)) before sending and released if the send fails, so a re-run sends nothing twice. The step-ready notice (next approver told the moment a step is approved) is NOT this routine — it is sent by the approve route. Migration 20270613101125; IST slot 09:15 (minute_of_day 555, days {1..6})."
   }
 ];
