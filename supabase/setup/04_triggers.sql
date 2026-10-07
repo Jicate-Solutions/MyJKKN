@@ -2993,3 +2993,20 @@ CREATE TRIGGER trg_zz_student_attendance_first_marks
   FOR EACH ROW
   EXECUTE FUNCTION public.fn_record_attendance_first_marks();
 
+
+-- ============================================================================
+-- Updated: 2027-10-07 - Added trg_hr_salary_register_lines_void_signoff, trg_hr_salary_register_manual_days_void_signoff
+-- Source: supabase/migrations/20271007161107_hr_salary_register_signoff.sql, section (f)
+-- (a pay change after salary register sign-off withdraws the signatures)
+-- ============================================================================
+DROP TRIGGER IF EXISTS trg_hr_salary_register_lines_void_signoff ON public.hr_salary_register_lines;
+CREATE TRIGGER trg_hr_salary_register_lines_void_signoff
+  AFTER INSERT OR UPDATE OR DELETE ON public.hr_salary_register_lines
+  FOR EACH ROW
+  EXECUTE FUNCTION public.fn_hr_register_signoff_void_on_line_change();
+
+DROP TRIGGER IF EXISTS trg_hr_salary_register_manual_days_void_signoff ON public.hr_salary_register_manual_days;
+CREATE TRIGGER trg_hr_salary_register_manual_days_void_signoff
+  AFTER INSERT OR UPDATE OR DELETE ON public.hr_salary_register_manual_days
+  FOR EACH ROW
+  EXECUTE FUNCTION public.fn_hr_register_signoff_void_on_manual_days_change();

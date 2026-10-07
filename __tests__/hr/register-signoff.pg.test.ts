@@ -32,6 +32,10 @@ const COLLEGE = '00000000-0000-4000-8000-00000000c001';
 const OTHER_COLLEGE = '00000000-0000-4000-8000-00000000c002';
 const RUN = '00000000-0000-4000-8000-00000000e001';
 const NEWER_RUN = '00000000-0000-4000-8000-00000000e002';
+const ORG = '00000000-0000-4000-8000-00000000b001';
+const MEMBER = '00000000-0000-4000-8000-00000000d001';
+const OTHER_MEMBER = '00000000-0000-4000-8000-00000000d002';
+const LINE = '00000000-0000-4000-8000-00000000f001';
 
 const PRELUDE = `
 DO $$ BEGIN CREATE ROLE anon NOLOGIN;          EXCEPTION WHEN duplicate_object OR unique_violation THEN NULL; END $$;
@@ -61,7 +65,29 @@ CREATE TABLE public.profiles (id uuid PRIMARY KEY, full_name text);
 -- The columns of hr_salary_register_runs the migration reads.
 CREATE TABLE public.hr_salary_register_runs (
   id uuid PRIMARY KEY, institution_id uuid NOT NULL,
-  generated_by uuid, superseded_by uuid REFERENCES public.hr_salary_register_runs(id), superseded_at timestamptz);
+  generated_by uuid, superseded_by uuid REFERENCES public.hr_salary_register_runs(id), superseded_at timestamptz,
+  hr_organization_id uuid NOT NULL DEFAULT '${ORG}', period_year integer NOT NULL DEFAULT 2027,
+  period_month integer NOT NULL DEFAULT 9);
+-- A subset of the register line and the hand-entered days: pay, display and key
+-- columns. The section (f) triggers compare whole rows, so a subset is enough.
+CREATE TABLE public.hr_salary_register_lines (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  run_id uuid NOT NULL REFERENCES public.hr_salary_register_runs(id) ON DELETE CASCADE,
+  staff_id uuid NOT NULL, serial_no integer NOT NULL, staff_name text NOT NULL, remarks text,
+  bank_account_number text, is_teaching boolean NOT NULL DEFAULT true,
+  adjustment_amount numeric(12,2) NOT NULL DEFAULT 0, net_pay numeric(12,2) NOT NULL DEFAULT 0,
+  created_at timestamptz NOT NULL DEFAULT now(), updated_at timestamptz NOT NULL DEFAULT now());
+CREATE TABLE public.hr_salary_register_manual_days (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  hr_organization_id uuid NOT NULL, institution_id uuid NOT NULL,
+  period_year integer NOT NULL, period_month integer NOT NULL, staff_id uuid NOT NULL,
+  business_working_days numeric(5,2) NOT NULL, unpaid_leave_days numeric(5,2) NOT NULL DEFAULT 0,
+  monthly_gross numeric(12,2), reason text NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT now(), updated_at timestamptz NOT NULL DEFAULT now(),
+  created_by uuid, updated_by uuid);
+-- In production HR writes these under RLS; here authenticated simply may.
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.hr_salary_register_lines, public.hr_salary_register_manual_days
+  TO authenticated;
 CREATE TABLE public.platform_policies (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(), policy_key text NOT NULL, scope_type text NOT NULL,
   scope_id uuid, value jsonb NOT NULL, description text, data_type text NOT NULL,
@@ -339,5 +365,149 @@ describe('salary register sign-off — grants', () => {
     const r = await client.query(
       `SELECT has_table_privilege('anon', 'public.hr_salary_register_signoffs', 'SELECT') AS anon`);
     expect(r.rows[0]).toEqual({ anon: false });
+  });
+});
+
+describe('salary register sign-off — a pay change after sign-off withdraws it (section f)', () => {
+  const editor: Caller = { uid: OUTSIDER, keys: [VIEW_KEY] };
+  const signBoth = [{ as: principal, sql: sign('college_check') }, { as: accounts, sql: sign('accounts_sign') }];
+  // The exact read the export gate makes (RegisterSignoffService.hasActiveAccountsSign).
+  const gate = `SELECT count(*)::int AS active FROM public.hr_salary_register_signoffs
+                 WHERE run_id = '${RUN}' AND stage = 'accounts_sign' AND revoked_at IS NULL`;
+  const withLine = `INSERT INTO public.hr_salary_register_lines (id, run_id, staff_id, serial_no, staff_name, net_pay)
+                    VALUES ('${LINE}', '${RUN}', '${MEMBER}', 1, 'Anitha K', 25000)`;
+  const voided = [
+    { stage: 'college_check', signed_by: PRINCIPAL, revoked: true, revoke_reason: 'pay changed after sign-off' },
+    { stage: 'accounts_sign', signed_by: ACCOUNTS, revoked: true, revoke_reason: 'pay changed after sign-off' },
+  ];
+  const kept = [
+    { stage: 'college_check', signed_by: PRINCIPAL, revoked: false, revoke_reason: null },
+    { stage: 'accounts_sign', signed_by: ACCOUNTS, revoked: false, revoke_reason: null },
+  ];
+
+  it('(a) an adjustment after sign-off withdraws both steps, and the export gate then finds no accounts sign-off', async () => {
+    const r = await scenario([
+      ...signBoth,
+      { as: editor, sql: `UPDATE public.hr_salary_register_lines SET adjustment_amount = -500, net_pay = 24500 WHERE id = '${LINE}'` },
+      { as: accounts, sql: gate },
+    ], { setup: withLine });
+    expect(r.error).toBeNull();
+    expect(r.rows).toEqual(voided);
+    expect(r.results[3]).toEqual([{ active: 0 }]);
+  });
+
+  it('(a) the change itself is not blocked, and the register can be signed again', async () => {
+    const r = await scenario([
+      ...signBoth,
+      { as: editor, sql: `UPDATE public.hr_salary_register_lines SET net_pay = 26000 WHERE id = '${LINE}' RETURNING net_pay::text` },
+      ...signBoth,
+    ], { setup: withLine });
+    expect(r.error).toBeNull();
+    expect(r.results[2]).toEqual([{ net_pay: '26000.00' }]);
+    expect(r.rows.filter((x) => x.revoked === false)).toHaveLength(2);
+  });
+
+  it('(a) a bank account, a category move, a line added or a line removed counts as pay', async () => {
+    for (const sql of [
+      `UPDATE public.hr_salary_register_lines SET bank_account_number = '0099' WHERE id = '${LINE}'`,
+      `UPDATE public.hr_salary_register_lines SET is_teaching = false WHERE id = '${LINE}'`,
+      `INSERT INTO public.hr_salary_register_lines (run_id, staff_id, serial_no, staff_name) VALUES ('${RUN}', '${OTHER_MEMBER}', 2, 'Ravi M')`,
+      `DELETE FROM public.hr_salary_register_lines WHERE id = '${LINE}'`,
+    ]) {
+      const r = await scenario([...signBoth, { as: editor, sql }], { setup: withLine });
+      expect(r.error, sql).toBeNull();
+      expect(r.rows, sql).toEqual(voided);
+    }
+  });
+
+  it('(b) a display-only touch (serial number, remarks, a name snapshot, updated_at) keeps both signatures', async () => {
+    const r = await scenario([
+      ...signBoth,
+      { as: editor, sql: `UPDATE public.hr_salary_register_lines
+                             SET serial_no = 7, remarks = 'checked', staff_name = 'Anitha K.', updated_at = now() + interval '1 hour'
+                           WHERE id = '${LINE}'` },
+      { as: accounts, sql: gate },
+    ], { setup: withLine });
+    expect(r.error).toBeNull();
+    expect(r.rows).toEqual(kept);
+    expect(r.results[3]).toEqual([{ active: 1 }]);
+  });
+
+  it('(b) a pay change on ANOTHER run leaves this run signed', async () => {
+    const r = await scenario([
+      ...signBoth,
+      { as: editor, sql: `INSERT INTO public.hr_salary_register_lines (run_id, staff_id, serial_no, staff_name, net_pay)
+                           VALUES ('${NEWER_RUN}', '${MEMBER}', 1, 'Anitha K', 1)` },
+    ], { setup: withLine });
+    expect(r.error).toBeNull();
+    expect(r.rows).toEqual(kept);
+  });
+
+  it('(c) hand-entered days changed for a person on the run withdraw both steps', async () => {
+    const days = `INSERT INTO public.hr_salary_register_manual_days
+                    (hr_organization_id, institution_id, period_year, period_month, staff_id, business_working_days, reason)
+                  VALUES ('${ORG}', '${COLLEGE}', 2027, 9, '${MEMBER}', 26, 'no biometric record')`;
+    const r = await scenario([
+      ...signBoth,
+      { as: editor, sql: `UPDATE public.hr_salary_register_manual_days SET unpaid_leave_days = 2 WHERE staff_id = '${MEMBER}'` },
+      { as: accounts, sql: gate },
+    ], { setup: `${withLine}; ${days}` });
+    expect(r.error).toBeNull();
+    expect(r.rows).toEqual(voided);
+    expect(r.results[3]).toEqual([{ active: 0 }]);
+  });
+
+  it('(c) a new hand entry for a person on the run withdraws both steps', async () => {
+    const r = await scenario([
+      ...signBoth,
+      { as: editor, sql: `INSERT INTO public.hr_salary_register_manual_days
+                             (hr_organization_id, institution_id, period_year, period_month, staff_id, business_working_days, reason)
+                           VALUES ('${ORG}', '${COLLEGE}', 2027, 9, '${MEMBER}', 26, 'no biometric record')` },
+    ], { setup: withLine });
+    expect(r.error).toBeNull();
+    expect(r.rows).toEqual(voided);
+  });
+
+  it('(c) only who/why changing on a hand entry, or an entry for another month or person, keeps the signatures', async () => {
+    const days = `INSERT INTO public.hr_salary_register_manual_days
+                    (hr_organization_id, institution_id, period_year, period_month, staff_id, business_working_days, reason)
+                  VALUES ('${ORG}', '${COLLEGE}', 2027, 9, '${MEMBER}', 26, 'no biometric record')`;
+    const r = await scenario([
+      ...signBoth,
+      { as: editor, sql: `UPDATE public.hr_salary_register_manual_days SET reason = 'no biometric record (rechecked)', updated_by = '${OUTSIDER}' WHERE staff_id = '${MEMBER}'` },
+      { as: editor, sql: `INSERT INTO public.hr_salary_register_manual_days
+                             (hr_organization_id, institution_id, period_year, period_month, staff_id, business_working_days, reason)
+                           VALUES ('${ORG}', '${COLLEGE}', 2027, 8, '${MEMBER}', 26, 'last month'),
+                                  ('${ORG}', '${COLLEGE}', 2027, 9, '${OTHER_MEMBER}', 26, 'not on this run')` },
+    ], { setup: `${withLine}; ${days}` });
+    expect(r.error).toBeNull();
+    expect(r.rows).toEqual(kept);
+  });
+
+  it('removing a signed run still works', async () => {
+    await client.query('BEGIN');
+    try {
+      await client.query(`INSERT INTO public.hr_salary_register_runs (id, institution_id, generated_by) VALUES ($1, $2, $3)`, [RUN, COLLEGE, GENERATOR]);
+      await client.query(withLine);
+      await client.query(`INSERT INTO public.hr_salary_register_signoffs (run_id, institution_id, stage, signed_by) VALUES ($1, $2, 'college_check', $3)`, [RUN, COLLEGE, PRINCIPAL]);
+      await client.query(`DELETE FROM public.hr_salary_register_runs WHERE id = $1`, [RUN]);
+      const left = await client.query(`SELECT count(*)::int AS n FROM public.hr_salary_register_signoffs WHERE run_id = $1`, [RUN]);
+      expect(left.rows[0]).toEqual({ n: 0 });
+    } finally {
+      await client.query('ROLLBACK');
+    }
+  });
+
+  it('neither trigger function is callable by anon or PUBLIC', async () => {
+    const r = await client.query(`
+      SELECT p.proname, has_function_privilege('anon', p.oid, 'EXECUTE') AS anon,
+             p.prosecdef AS definer, p.proconfig::text AS config
+        FROM pg_proc p
+       WHERE p.proname IN ('fn_hr_register_signoff_void_on_line_change', 'fn_hr_register_signoff_void_on_manual_days_change')
+       ORDER BY p.proname`);
+    expect(r.rows).toEqual([
+      { proname: 'fn_hr_register_signoff_void_on_line_change', anon: false, definer: true, config: '{search_path=public}' },
+      { proname: 'fn_hr_register_signoff_void_on_manual_days_change', anon: false, definer: true, config: '{search_path=public}' },
+    ]);
   });
 });
