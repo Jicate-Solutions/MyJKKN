@@ -38,7 +38,7 @@ function fakeClient(opts: {
           calls.push({ table, op: name, args });
           return b;
         };
-      for (const m of ['select', 'eq', 'in', 'not', 'is', 'gte', 'lte', 'limit', 'upsert', 'update', 'delete', 'insert']) {
+      for (const m of ['select', 'eq', 'in', 'not', 'is', 'gte', 'lte', 'lt', 'limit', 'order', 'range', 'upsert', 'update', 'delete', 'insert']) {
         b[m] = chain(m);
       }
       const result = () => {
@@ -87,7 +87,8 @@ describe('notifyOnboardingStepTurn', () => {
     const claimAt = calls.findIndex((c) => c.table === 'hr_duty_notices' && c.op === 'upsert');
     expect(claimAt).toBeGreaterThan(-1);
     expect(calls[claimAt].args[0]).toMatchObject({
-      duty_code: 'R9', subject_id: 'c1', subject_key: '1', reminder_kind: 'step_turn',
+      // Keyed on the step itself (stored index + name), not its array position.
+      duty_code: 'R9', subject_id: 'c1', subject_key: '#1:Create email', reminder_kind: 'step_turn',
       recipient_user_ids: ['u-it-1', 'u-it-2'],
     });
     expect(dispatchSpy).toHaveBeenCalledWith(
@@ -224,9 +225,10 @@ function ladderClient(opts: {
     reg('r-new', 'pending', '2026-10-10T04:00:00Z', null),
   ];
   const decided = [reg('r-done', 'approved', '2026-10-05T04:00:00Z', '2026-10-08T04:00:00Z')];
+  // Delivered notices: only notified_count > 0 counts as sent.
   const ledger = [
-    { subject_id: 'r-old', subject_key: '', reminder_kind: 'submitted' },
-    { subject_id: 'r-done', subject_key: '', reminder_kind: 'submitted' },
+    { subject_id: 'r-old', subject_key: '', reminder_kind: 'submitted', notified_count: 1, pending_user_ids: [] },
+    { subject_id: 'r-done', subject_key: '', reminder_kind: 'submitted', notified_count: 1, pending_user_ids: [] },
   ];
 
   const resolve = (x: Built): { data: unknown; error: { message: string } | null } => {
@@ -271,7 +273,7 @@ function ladderClient(opts: {
       const x: Built = { table, calls: [], op: 'select' };
       built.push(x);
       const b: Record<string, unknown> = {};
-      for (const m of ['select', 'eq', 'in', 'not', 'is', 'gte', 'lte', 'limit', 'upsert', 'update', 'delete', 'insert']) {
+      for (const m of ['select', 'eq', 'in', 'not', 'is', 'gte', 'lte', 'lt', 'limit', 'order', 'range', 'upsert', 'update', 'delete', 'insert']) {
         b[m] = (...args: unknown[]) => {
           if (['upsert', 'update', 'delete', 'insert'].includes(m)) x.op = m;
           x.calls.push({ name: m, args });

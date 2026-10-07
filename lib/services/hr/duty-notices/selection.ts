@@ -23,8 +23,16 @@ export const DUTY_REGULARIZATION = 'A3';
 export type OnboardingNoticeKind =
   /** The step has become this owner's turn (start, or the previous step was done). */
   | 'step_turn'
-  /** One reminder to the step owner: held too long, or the joining date is close. */
+  /** One reminder to the step owner: the step has been held too long. */
   | 'step_reminder'
+  /**
+   * One notice per joiner when the joining date is close: every owner of an
+   * open step, in one message listing the open steps. Its own kind, so it is
+   * independent of the held-too-long reminder (review of #4150, items 5 and
+   * risk 4: a shared key let one swallow the other, and one notice per open
+   * step sent the same owner a burst).
+   */
+  | 'joining_soon'
   /** One notice to the HR head: the joining date passed with steps still open. */
   | 'joining_passed';
 
@@ -41,6 +49,37 @@ export type RegularizationNoticeKind =
 /** The ledger's natural key: one row per (subject, key, kind), ever. */
 export function ledgerKey(subjectId: string, subjectKey: string, kind: string): string {
   return `${subjectId}|${subjectKey}|${kind}`;
+}
+
+/**
+ * subject_key of a regularisation "decided" notice: the decision itself. A
+ * request approved and later rejected gets a second notice, because the
+ * requester was told "approved" and must learn it was reversed (review of
+ * #4150, item 4).
+ */
+export function decidedSubjectKey(status: string | null | undefined): string {
+  return status ?? '';
+}
+
+// ---------------------------------------------------------------------------
+// Daytime window (harness guardrail: no scheduled chase at night or on Sunday)
+// ---------------------------------------------------------------------------
+// The schedule (Mon-Sat 10:07 IST) keeps the daily run in the day, but the
+// route can also be triggered by hand or retimed at /admin/ai-routines, so the
+// route checks the clock itself. Event notices ("it is your turn", "a request
+// arrived", "your request was decided") go when the event happens: they are
+// about something a person just did, not a chase.
+
+/** First IST hour a scheduled chase may go out (inclusive). */
+export const DAYTIME_START_HOUR_IST = 8;
+/** IST hour from which scheduled chases stop (exclusive). */
+export const DAYTIME_END_HOUR_IST = 20;
+
+/** True on Monday-Saturday between 08:00 and 20:00 IST. */
+export function isDaytimeIst(now: Date): boolean {
+  const ist = new Date(now.getTime() + 330 * 60 * 1000);
+  const hour = ist.getUTCHours();
+  return ist.getUTCDay() !== 0 && hour >= DAYTIME_START_HOUR_IST && hour < DAYTIME_END_HOUR_IST;
 }
 
 // ---------------------------------------------------------------------------
@@ -147,6 +186,17 @@ export function readOnboardingSteps(details: unknown): OnboardingStepState[] {
 }
 
 /**
+ * subject_key of a step's ledger rows. Built from the step itself (its stored
+ * index and name) and the onboarding's start time, never from its position in
+ * the array: inserting or removing a step shifts positions, and restarting an
+ * onboarding starts a fresh checklist (review of #4150, item 8). No `|` in it,
+ * which is ledgerKey's separator.
+ */
+export function stepSubjectKey(step: OnboardingStepState, onboardingStartedAt: string | null): string {
+  return `${onboardingStartedAt ?? ''}#${step.index}:${step.step}`.replace(/\|/g, '/');
+}
+
+/**
  * The step whose turn it becomes after `completedPosition` is ticked: the
  * first open step AFTER it, else (everything after it is done) the first open
  * step anywhere. null when the checklist is complete.
@@ -197,7 +247,7 @@ export function stepTurnStartedAt(
 export interface OnboardingThresholds {
   /** Remind a step owner after holding the step for MORE than this many working days. */
   reminderAfterWorkingDays: number;
-  /** Remind every open step's owner once the joining date is this close. */
+  /** Tell every open step's owner, in one notice, once the joining date is this close. */
   joiningSoonDays: number;
 }
 
@@ -215,8 +265,8 @@ export interface OnboardingCandidateState {
 }
 
 export interface PlannedOnboardingNotice {
-  kind: 'step_reminder' | 'joining_passed';
-  /** Array position of the step, or null for the HR-head notice. */
+  kind: 'step_reminder' | 'joining_soon' | 'joining_passed';
+  /** Array position of the step, or null for the per-joiner notices. */
   position: number | null;
   /** Why it is due — goes into the message and the run report. */
   reason: 'held_too_long' | 'joining_soon' | 'joining_passed';
@@ -224,8 +274,10 @@ export interface PlannedOnboardingNotice {
 
 /**
  * The scheduled nudges due for one candidate today. `alreadySent` holds
- * ledgerKey(candidateId, subjectKey, kind) for every notice ever recorded, so
- * each rule fires at most once per step (or once per candidate).
+ * ledgerKey(candidateId, subjectKey, kind) for every notice already delivered
+ * in full, so each rule fires at most once per step (held too long) or once
+ * per candidate (joining soon, joining passed). The two reminders have their
+ * own kinds, so one never blocks the other.
  *
  * Go-live cutoff: an onboarding started before `goLiveAt` gets no joining-date
  * notice, and a step whose turn began before it gets no "held too long"
@@ -257,18 +309,16 @@ export function planOnboardingNotices(
   }
 
   const joiningSoon = toJoin !== null && toJoin <= t.joiningSoonDays;
-  const active = new Set(activeStepPositions(c.steps));
+  if (joiningSoon && !startedOld && !alreadySent.has(ledgerKey(c.id, '', 'joining_soon'))) {
+    // Days from joining: every open step's owner can still prepare, and the
+    // candidate page lets them tick a step out of order. One notice for the
+    // joiner, to the owners of all open steps.
+    out.push({ kind: 'joining_soon', position: null, reason: 'joining_soon' });
+  }
 
-  for (const pos of open) {
-    if (alreadySent.has(ledgerKey(c.id, String(pos), 'step_reminder'))) continue;
-    if (joiningSoon) {
-      if (startedOld) continue;
-      // Days from joining: every open step's owner can still prepare, and the
-      // candidate page lets them tick a step out of order.
-      out.push({ kind: 'step_reminder', position: pos, reason: 'joining_soon' });
-      continue;
-    }
-    if (!active.has(pos)) continue;
+  for (const pos of activeStepPositions(c.steps)) {
+    const key = stepSubjectKey(c.steps[pos], c.onboardingStartedAt);
+    if (alreadySent.has(ledgerKey(c.id, key, 'step_reminder'))) continue;
     const since = stepTurnStartedAt(c.steps, pos, c.onboardingStartedAt);
     if (startedBeforeGoLive(since, goLiveAt)) continue;
     if (workingDaysElapsed(since, now) > t.reminderAfterWorkingDays) {
@@ -344,7 +394,8 @@ export function planRegularizationNotices(
 
   if ((row.status === 'approved' || row.status === 'rejected') && row.approved_at) {
     const ageDays = (now.getTime() - new Date(row.approved_at).getTime()) / DAY_MS;
-    if (ageDays <= t.decidedBackstopDays && sent('submitted') && !sent('decided')) {
+    const decidedSent = alreadySent.has(ledgerKey(row.id, decidedSubjectKey(row.status), 'decided'));
+    if (ageDays <= t.decidedBackstopDays && sent('submitted') && !decidedSent) {
       out.push({ kind: 'decided' });
     }
   }

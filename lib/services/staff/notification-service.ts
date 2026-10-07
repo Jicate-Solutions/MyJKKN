@@ -379,6 +379,38 @@ export class StaffNotificationService {
     });
   }
 
+  /**
+   * onboarding_joining_soon → one notice per joiner, to the owners of every
+   * open step, once the joining date is close. Lists the open steps.
+   */
+  static async notifyOnboardingJoiningSoon(
+    supabase: SupabaseClient,
+    candidateId: string,
+    ownerUserIds: string[],
+    args: {
+      candidateName: string;
+      roleTitle: string;
+      joiningDate: string;
+      openSteps: string[];
+    }
+  ): Promise<number> {
+    const list = args.openSteps.slice(0, 5).map((s) => `"${s}"`).join(', ');
+    const more = args.openSteps.length > 5 ? ` and ${args.openSteps.length - 5} more` : '';
+    return this.dispatch(supabase, {
+      title: `Reminder: ${args.candidateName} joins on ${args.joiningDate}`,
+      message: `${args.candidateName} (${args.roleTitle}) joins on ${args.joiningDate} and ${args.openSteps.length} onboarding step(s) are still open: ${list}${more}. If one of them is yours, tick it on the candidate page once it is done.`,
+      userIds: ownerUserIds,
+      eventType: 'onboarding_joining_soon',
+      url: `/hr/recruitment/candidates/${candidateId}`,
+      metadata: {
+        reference_id: candidateId,
+        joining_date: args.joiningDate,
+        open_steps: args.openSteps,
+        reason: 'joining_soon',
+      },
+    });
+  }
+
   /** onboarding_joining_passed → one notice to the HR head. */
   static async notifyOnboardingJoiningPassed(
     supabase: SupabaseClient,

@@ -12104,11 +12104,17 @@ CREATE TABLE IF NOT EXISTS public.hr_duty_notices (
   -- Which table subject_id points into, for a human reading the ledger.
   subject_table      text        NOT NULL,
   subject_id         uuid        NOT NULL,
-  -- Narrows the subject: the onboarding step position, '' when not needed.
+  -- Narrows the subject: an onboarding step (start time, stored index and name),
+  -- the decision ('approved'/'rejected') of a regularisation, '' when not needed.
   subject_key        text        NOT NULL DEFAULT '',
-  -- step_turn | step_reminder | joining_passed | submitted | reminder | hr_head | decided
+  -- step_turn | step_reminder | joining_soon | joining_passed | submitted | reminder | hr_head | decided
   reminder_kind      text        NOT NULL,
   recipient_user_ids uuid[]      NOT NULL DEFAULT ARRAY[]::uuid[],
+  -- Chase recipients who were on approved leave when it went out; the next run
+  -- after they are back sends them the same notice and removes them here.
+  pending_user_ids   uuid[]      NOT NULL DEFAULT ARRAY[]::uuid[],
+  -- 0 = claimed but not (yet) delivered. Only a row > 0 counts as sent; a
+  -- claim still at 0 after 15 minutes is re-taken by the next run.
   notified_count     integer     NOT NULL DEFAULT 0,
   created_at         timestamptz NOT NULL DEFAULT now(),
   updated_at         timestamptz NOT NULL DEFAULT now(),

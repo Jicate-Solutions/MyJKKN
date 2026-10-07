@@ -83031,8 +83031,9 @@ AS $function$
     UNION ALL
     SELECT p.id, cr.institution_scope
     FROM public.profiles p
-    LEFT JOIN public.custom_roles cr ON cr.role_key = p.role
-    WHERE p.role = ANY (p_role_keys)
+    JOIN public.custom_roles cr ON cr.role_key = p.role
+    WHERE cr.is_active
+      AND p.role = ANY (p_role_keys)
   )
   SELECT COALESCE(array_agg(DISTINCT h.uid), ARRAY[]::uuid[])
   FROM holders h
@@ -83040,27 +83041,30 @@ AS $function$
   WHERE COALESCE(p.is_active, true)
     AND NOT COALESCE(p.is_login_disabled, false)
     AND (
-      p_institution_id IS NULL
-      OR h.institution_scope = 'all'
-      OR p.institution_id = p_institution_id
-      OR EXISTS (SELECT 1 FROM public.staff s
-                  WHERE s.profile_id = p.id
-                    AND s.institution_id = p_institution_id
-                    AND COALESCE(s.is_active, true))
-      OR EXISTS (SELECT 1 FROM public.user_institution_access uia
-                  WHERE uia.user_id = p.id
-                    AND uia.institution_id = p_institution_id
-                    AND uia.is_active)
+      h.institution_scope = 'all'
+      OR (p_institution_id IS NOT NULL AND (
+            p.institution_id = p_institution_id
+            OR EXISTS (SELECT 1 FROM public.staff s
+                        WHERE s.profile_id = p.id
+                          AND s.institution_id = p_institution_id
+                          AND COALESCE(s.is_active, true))
+            OR EXISTS (SELECT 1 FROM public.user_institution_access uia
+                        WHERE uia.user_id = p.id
+                          AND uia.institution_id = p_institution_id
+                          AND uia.is_active)))
     );
 $function$;
 
 COMMENT ON FUNCTION public.fn_hr_role_holder_ids(text[], uuid) IS
-  'HR staff harness (2026-10-01). Active profile ids holding any of the role keys (user_roles or legacy profiles.role), optionally scoped to one institution. Service role only.';
+  'HR staff harness (2026-10-01). Active profile ids holding any of the role keys through an active role (user_roles or legacy profiles.role) who belong to the institution (profile, staff row or user_institution_access), plus holders of a group-wide (institution_scope = ''all'') role. NULL institution = group-wide holders only. Service role only.';
 
 REVOKE EXECUTE ON FUNCTION public.fn_hr_role_holder_ids(text[], uuid) FROM anon, PUBLIC, authenticated;
 GRANT  EXECUTE ON FUNCTION public.fn_hr_role_holder_ids(text[], uuid) TO service_role;
 
-CREATE OR REPLACE FUNCTION public.fn_hr_permission_holder_ids(p_keys text[])
+CREATE OR REPLACE FUNCTION public.fn_hr_permission_holder_ids(
+  p_keys           text[],
+  p_institution_id uuid DEFAULT NULL
+)
 RETURNS uuid[]
 LANGUAGE sql
 STABLE
@@ -83068,19 +83072,20 @@ SECURITY DEFINER
 SET search_path TO 'public'
 AS $function$
   WITH granting_roles AS (
-    SELECT cr.id, cr.role_key
+    SELECT cr.id, cr.role_key, cr.institution_scope
     FROM public.custom_roles cr
-    WHERE EXISTS (
-      SELECT 1 FROM unnest(p_keys) k
-       WHERE cr.permissions ->> k = 'true'
-    )
+    WHERE cr.is_active
+      AND EXISTS (
+        SELECT 1 FROM unnest(p_keys) k
+         WHERE (cr.permissions ->> k)::boolean = true
+      )
   ),
   holders AS (
-    SELECT ur.user_id AS uid
+    SELECT ur.user_id AS uid, g.institution_scope
     FROM public.user_roles ur
     JOIN granting_roles g ON g.id = ur.role_id
-    UNION
-    SELECT p.id
+    UNION ALL
+    SELECT p.id, g.institution_scope
     FROM public.profiles p
     JOIN granting_roles g ON g.role_key = p.role
   )
@@ -83088,14 +83093,27 @@ AS $function$
   FROM holders h
   JOIN public.profiles p ON p.id = h.uid
   WHERE COALESCE(p.is_active, true)
-    AND NOT COALESCE(p.is_login_disabled, false);
+    AND NOT COALESCE(p.is_login_disabled, false)
+    AND (
+      h.institution_scope = 'all'
+      OR (p_institution_id IS NOT NULL AND (
+            p.institution_id = p_institution_id
+            OR EXISTS (SELECT 1 FROM public.staff s
+                        WHERE s.profile_id = p.id
+                          AND s.institution_id = p_institution_id
+                          AND COALESCE(s.is_active, true))
+            OR EXISTS (SELECT 1 FROM public.user_institution_access uia
+                        WHERE uia.user_id = p.id
+                          AND uia.institution_id = p_institution_id
+                          AND uia.is_active)))
+    );
 $function$;
 
-COMMENT ON FUNCTION public.fn_hr_permission_holder_ids(text[]) IS
-  'HR staff harness (2026-10-01). Active profile ids whose roles grant any of the permission keys (same arms as user_has_permission, without the super-admin bypass). Service role only.';
+COMMENT ON FUNCTION public.fn_hr_permission_holder_ids(text[], uuid) IS
+  'HR staff harness (2026-10-01). Active profile ids whose active roles grant any of the permission keys (same arms as user_has_permission, without the super-admin bypass) and who belong to the institution, plus holders through a group-wide (institution_scope = ''all'') role. NULL institution = group-wide holders only. Service role only.';
 
-REVOKE EXECUTE ON FUNCTION public.fn_hr_permission_holder_ids(text[]) FROM anon, PUBLIC, authenticated;
-GRANT  EXECUTE ON FUNCTION public.fn_hr_permission_holder_ids(text[]) TO service_role;
+REVOKE EXECUTE ON FUNCTION public.fn_hr_permission_holder_ids(text[], uuid) FROM anon, PUBLIC, authenticated;
+GRANT  EXECUTE ON FUNCTION public.fn_hr_permission_holder_ids(text[], uuid) TO service_role;
 
 -- HR staff harness — chase ladder: functions
 -- Migration: 20270613101207_hr_duty_chase_ladder.sql

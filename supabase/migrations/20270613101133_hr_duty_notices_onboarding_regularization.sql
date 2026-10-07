@@ -19,14 +19,20 @@
 --      (INSERT ... ON CONFLICT DO NOTHING) and only then dispatches, so the
 --      daily run, a manual re-run and the event hooks can never send the same
 --      notice twice, and every notice sent is recorded with its recipients.
---   2. fn_hr_role_holder_ids(role_keys, institution) — profile ids holding a
---      role, optionally inside one institution. Used for onboarding steps that
---      are assigned to a role, and for "the HR head".
---   3. fn_hr_permission_holder_ids(keys) — profile ids whose roles grant any
---      of the keys. Used for regularisation approvers: the approvals screen is
---      gated on these keys and its RLS (hr_attendance_regs_select) is NOT
---      institution-scoped, so every holder sees every request — the notice
---      goes to exactly that set.
+--      Only notified_count > 0 counts as sent; a claim left at 0 by a run that
+--      died is re-taken after 15 minutes. pending_user_ids holds chase
+--      recipients who were on leave, so they get the notice when back.
+--   2. fn_hr_role_holder_ids(role_keys, institution) — profile ids holding an
+--      active role who belong to that institution, plus holders of a
+--      group-wide (institution_scope='all') role. Used for onboarding steps
+--      that are assigned to a role, and for "the HR head". Never every holder
+--      in every college (review of PR #4150, 7 Oct 2026).
+--   3. fn_hr_permission_holder_ids(keys, institution) — the same, for people
+--      whose active roles grant any of the keys. Used for regularisation
+--      approvers: the team member's own college plus group-wide approvers.
+--      (The approvals screen's RLS, hr_attendance_regs_select, is not
+--      institution-scoped, so other colleges' approvers can still OPEN the
+--      request there; they are just not paged about it.)
 --   4. Four config rows (config-table pattern) for the reminder windows.
 --   5. The go-live cutoff (Director, 7 Oct 2026: reminders stay ON, but only
 --      about items that arrive from go-live onward). A fifth config row,
@@ -54,11 +60,17 @@ CREATE TABLE IF NOT EXISTS public.hr_duty_notices (
   -- Which table subject_id points into, for a human reading the ledger.
   subject_table      text        NOT NULL,
   subject_id         uuid        NOT NULL,
-  -- Narrows the subject: the onboarding step position, '' when not needed.
+  -- Narrows the subject: an onboarding step (start time, stored index and name),
+  -- the decision ('approved'/'rejected') of a regularisation, '' when not needed.
   subject_key        text        NOT NULL DEFAULT '',
-  -- step_turn | step_reminder | joining_passed | submitted | reminder | hr_head | decided
+  -- step_turn | step_reminder | joining_soon | joining_passed | submitted | reminder | hr_head | decided
   reminder_kind      text        NOT NULL,
   recipient_user_ids uuid[]      NOT NULL DEFAULT ARRAY[]::uuid[],
+  -- Chase recipients who were on approved leave when it went out; the next run
+  -- after they are back sends them the same notice and removes them here.
+  pending_user_ids   uuid[]      NOT NULL DEFAULT ARRAY[]::uuid[],
+  -- 0 = claimed but not (yet) delivered. Only a row > 0 counts as sent; a
+  -- claim still at 0 after 15 minutes is re-taken by the next run.
   notified_count     integer     NOT NULL DEFAULT 0,
   created_at         timestamptz NOT NULL DEFAULT now(),
   updated_at         timestamptz NOT NULL DEFAULT now(),
@@ -119,8 +131,9 @@ AS $function$
     UNION ALL
     SELECT p.id, cr.institution_scope
     FROM public.profiles p
-    LEFT JOIN public.custom_roles cr ON cr.role_key = p.role
-    WHERE p.role = ANY (p_role_keys)
+    JOIN public.custom_roles cr ON cr.role_key = p.role
+    WHERE cr.is_active
+      AND p.role = ANY (p_role_keys)
   )
   SELECT COALESCE(array_agg(DISTINCT h.uid), ARRAY[]::uuid[])
   FROM holders h
@@ -128,22 +141,22 @@ AS $function$
   WHERE COALESCE(p.is_active, true)
     AND NOT COALESCE(p.is_login_disabled, false)
     AND (
-      p_institution_id IS NULL
-      OR h.institution_scope = 'all'
-      OR p.institution_id = p_institution_id
-      OR EXISTS (SELECT 1 FROM public.staff s
-                  WHERE s.profile_id = p.id
-                    AND s.institution_id = p_institution_id
-                    AND COALESCE(s.is_active, true))
-      OR EXISTS (SELECT 1 FROM public.user_institution_access uia
-                  WHERE uia.user_id = p.id
-                    AND uia.institution_id = p_institution_id
-                    AND uia.is_active)
+      h.institution_scope = 'all'
+      OR (p_institution_id IS NOT NULL AND (
+            p.institution_id = p_institution_id
+            OR EXISTS (SELECT 1 FROM public.staff s
+                        WHERE s.profile_id = p.id
+                          AND s.institution_id = p_institution_id
+                          AND COALESCE(s.is_active, true))
+            OR EXISTS (SELECT 1 FROM public.user_institution_access uia
+                        WHERE uia.user_id = p.id
+                          AND uia.institution_id = p_institution_id
+                          AND uia.is_active)))
     );
 $function$;
 
 COMMENT ON FUNCTION public.fn_hr_role_holder_ids(text[], uuid) IS
-  'HR staff harness (2026-10-01). Active profile ids holding any of the role keys (user_roles or legacy profiles.role), optionally scoped to one institution. Service role only.';
+  'HR staff harness (2026-10-01). Active profile ids holding any of the role keys through an active role (user_roles or legacy profiles.role) who belong to the institution (profile, staff row or user_institution_access), plus holders of a group-wide (institution_scope = ''all'') role. NULL institution = group-wide holders only. Service role only.';
 
 REVOKE EXECUTE ON FUNCTION public.fn_hr_role_holder_ids(text[], uuid) FROM anon, PUBLIC, authenticated;
 GRANT  EXECUTE ON FUNCTION public.fn_hr_role_holder_ids(text[], uuid) TO service_role;
@@ -156,7 +169,10 @@ GRANT  EXECUTE ON FUNCTION public.fn_hr_role_holder_ids(text[], uuid) TO service
 -- people. The super-admin bypass is deliberately NOT an arm: a super admin can
 -- open every screen, and paging all of them about every request is noise. A
 -- super admin whose role explicitly grants the key is still included.
-CREATE OR REPLACE FUNCTION public.fn_hr_permission_holder_ids(p_keys text[])
+CREATE OR REPLACE FUNCTION public.fn_hr_permission_holder_ids(
+  p_keys           text[],
+  p_institution_id uuid DEFAULT NULL
+)
 RETURNS uuid[]
 LANGUAGE sql
 STABLE
@@ -164,19 +180,20 @@ SECURITY DEFINER
 SET search_path TO 'public'
 AS $function$
   WITH granting_roles AS (
-    SELECT cr.id, cr.role_key
+    SELECT cr.id, cr.role_key, cr.institution_scope
     FROM public.custom_roles cr
-    WHERE EXISTS (
-      SELECT 1 FROM unnest(p_keys) k
-       WHERE cr.permissions ->> k = 'true'
-    )
+    WHERE cr.is_active
+      AND EXISTS (
+        SELECT 1 FROM unnest(p_keys) k
+         WHERE (cr.permissions ->> k)::boolean = true
+      )
   ),
   holders AS (
-    SELECT ur.user_id AS uid
+    SELECT ur.user_id AS uid, g.institution_scope
     FROM public.user_roles ur
     JOIN granting_roles g ON g.id = ur.role_id
-    UNION
-    SELECT p.id
+    UNION ALL
+    SELECT p.id, g.institution_scope
     FROM public.profiles p
     JOIN granting_roles g ON g.role_key = p.role
   )
@@ -184,14 +201,27 @@ AS $function$
   FROM holders h
   JOIN public.profiles p ON p.id = h.uid
   WHERE COALESCE(p.is_active, true)
-    AND NOT COALESCE(p.is_login_disabled, false);
+    AND NOT COALESCE(p.is_login_disabled, false)
+    AND (
+      h.institution_scope = 'all'
+      OR (p_institution_id IS NOT NULL AND (
+            p.institution_id = p_institution_id
+            OR EXISTS (SELECT 1 FROM public.staff s
+                        WHERE s.profile_id = p.id
+                          AND s.institution_id = p_institution_id
+                          AND COALESCE(s.is_active, true))
+            OR EXISTS (SELECT 1 FROM public.user_institution_access uia
+                        WHERE uia.user_id = p.id
+                          AND uia.institution_id = p_institution_id
+                          AND uia.is_active)))
+    );
 $function$;
 
-COMMENT ON FUNCTION public.fn_hr_permission_holder_ids(text[]) IS
-  'HR staff harness (2026-10-01). Active profile ids whose roles grant any of the permission keys (same arms as user_has_permission, without the super-admin bypass). Service role only.';
+COMMENT ON FUNCTION public.fn_hr_permission_holder_ids(text[], uuid) IS
+  'HR staff harness (2026-10-01). Active profile ids whose active roles grant any of the permission keys (same arms as user_has_permission, without the super-admin bypass) and who belong to the institution, plus holders through a group-wide (institution_scope = ''all'') role. NULL institution = group-wide holders only. Service role only.';
 
-REVOKE EXECUTE ON FUNCTION public.fn_hr_permission_holder_ids(text[]) FROM anon, PUBLIC, authenticated;
-GRANT  EXECUTE ON FUNCTION public.fn_hr_permission_holder_ids(text[]) TO service_role;
+REVOKE EXECUTE ON FUNCTION public.fn_hr_permission_holder_ids(text[], uuid) FROM anon, PUBLIC, authenticated;
+GRANT  EXECUTE ON FUNCTION public.fn_hr_permission_holder_ids(text[], uuid) TO service_role;
 
 -- ---------------------------------------------------------------------------
 -- 4) The reminder windows, as config rows (editable on Platform Policies)
@@ -231,8 +261,11 @@ WHERE NOT EXISTS (
 -- 5) The schedule — daily 10:07 IST, Monday to Saturday
 -- ---------------------------------------------------------------------------
 -- Daytime and never on Sunday: the harness guardrail is that no chase reaches
--- anyone at night or on the weekly holiday. The route also skips people on
--- approved leave today. minute_of_day 607 = 10:07 IST (off-grid).
+-- anyone at night or on the weekly holiday. The route checks the IST clock
+-- too (08:00-20:00, Monday to Saturday), so a manual or retimed trigger cannot
+-- chase at night; event notices go when the event happens. The route also
+-- holds chases back from people on approved leave today. minute_of_day 607 =
+-- 10:07 IST (off-grid).
 -- ON CONFLICT DO NOTHING so a re-run never clobbers a retuned row.
 INSERT INTO public.ai_routine_schedules
   (routine_id, enabled, managed, days_of_week, minute_of_day, max_only)

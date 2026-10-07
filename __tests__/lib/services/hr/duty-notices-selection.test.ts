@@ -2,13 +2,16 @@ import { describe, it, expect } from 'vitest';
 import {
   activeStepPositions,
   daysUntil,
+  decidedSubjectKey,
   goLiveFromPolicy,
+  isDaytimeIst,
   ledgerKey,
   nextStepAfterCompletion,
   planOnboardingNotices,
   planRegularizationNotices,
   positiveNumberOr,
   readOnboardingSteps,
+  stepSubjectKey,
   stepTurnStartedAt,
   workingDaysElapsed,
   type OnboardingStepState,
@@ -136,20 +139,40 @@ describe('planOnboardingNotices', () => {
     const plan = planOnboardingNotices(
       { id: 'c1', onboardingStartedAt: started, joiningDate: null, steps: steps([null, null]) },
       ist9('2026-10-20'),
-      new Set([ledgerKey('c1', '0', 'step_reminder')]),
+      new Set([ledgerKey('c1', stepSubjectKey(steps([null])[0], started), 'step_reminder')]),
       LONG_AGO,
     );
     expect(plan).toEqual([]);
   });
 
-  it('within 3 days of joining, every open step owner gets their one reminder', () => {
+  it('within 3 days of joining: ONE notice for the joiner, however many steps are open (review #4150 risk 4)', () => {
     const plan = planOnboardingNotices(
       { id: 'c1', onboardingStartedAt: started, joiningDate: '2026-10-08', steps: steps([null, null, '2026-10-05T06:00:00Z']) },
       ist9('2026-10-05'),
-      new Set([ledgerKey('c1', '1', 'step_reminder')]),
+      none,
       LONG_AGO,
     );
-    expect(plan).toEqual([{ kind: 'step_reminder', position: 0, reason: 'joining_soon' }]);
+    expect(plan).toEqual([{ kind: 'joining_soon', position: null, reason: 'joining_soon' }]);
+    expect(
+      planOnboardingNotices(
+        { id: 'c1', onboardingStartedAt: started, joiningDate: '2026-10-08', steps: steps([null, null, '2026-10-05T06:00:00Z']) },
+        ist9('2026-10-06'),
+        new Set([ledgerKey('c1', '', 'joining_soon')]),
+        LONG_AGO,
+      ),
+    ).toEqual([]);
+  });
+
+  it('a step already reminded for being held too long still gets the joining-soon notice (review #4150 item 5)', () => {
+    const c = { id: 'c1', onboardingStartedAt: started, joiningDate: '2026-10-12', steps: steps([null, null]) };
+    const heldSent = new Set([ledgerKey('c1', stepSubjectKey(c.steps[0], started), 'step_reminder')]);
+    expect(planOnboardingNotices(c, ist9('2026-10-09'), heldSent, LONG_AGO)).toEqual([
+      { kind: 'joining_soon', position: null, reason: 'joining_soon' },
+    ]);
+    // ...and the reverse: the joining-soon notice does not swallow the held-too-long one.
+    expect(
+      planOnboardingNotices(c, ist9('2026-10-09'), new Set([ledgerKey('c1', '', 'joining_soon')]), LONG_AGO),
+    ).toEqual([{ kind: 'step_reminder', position: 0, reason: 'held_too_long' }]);
   });
 
   it('once the joining date has passed: one HR-head notice, no more step reminders', () => {
@@ -219,8 +242,16 @@ describe('planRegularizationNotices', () => {
     expect(planRegularizationNotices(decided, hoursLater(6), new Set(), LONG_AGO)).toEqual([]);
     const sent = new Set([ledgerKey('r1', '', 'submitted')]);
     expect(planRegularizationNotices(decided, hoursLater(6), sent, LONG_AGO)).toEqual([{ kind: 'decided' }]);
-    sent.add(ledgerKey('r1', '', 'decided'));
+    sent.add(ledgerKey('r1', decidedSubjectKey('rejected'), 'decided'));
     expect(planRegularizationNotices(decided, hoursLater(6), sent, LONG_AGO)).toEqual([]);
+  });
+
+  it('a request approved and later rejected gets a second decision notice (review #4150 item 4)', () => {
+    const sent = new Set([ledgerKey('r1', '', 'submitted'), ledgerKey('r1', decidedSubjectKey('approved'), 'decided')]);
+    const approved = { id: 'r1', status: 'approved', created_at: created, approved_at: hoursLater(5).toISOString() };
+    expect(planRegularizationNotices(approved, hoursLater(6), sent, LONG_AGO)).toEqual([]);
+    const reversed = { ...approved, status: 'rejected', approved_at: hoursLater(30).toISOString() };
+    expect(planRegularizationNotices(reversed, hoursLater(31), sent, LONG_AGO)).toEqual([{ kind: 'decided' }]);
   });
 
   it('an old decision past the backstop window is left alone', () => {
@@ -285,7 +316,10 @@ describe('go-live cutoff', () => {
     return [...reg, ...lateSubmitted, ...held, ...soon, ...passed].sort();
   }
 
+  // The joining-soon candidate's single step has also been held too long, and
+  // the two reminders are independent (review #4150 item 5), so it gets both.
   const EVERY = [
+    'onb:held_too_long',
     'onb:held_too_long',
     'onb:joining_passed',
     'onb:joining_soon',
@@ -324,5 +358,41 @@ describe('go-live cutoff', () => {
 
   it('reads the timestamp Postgres stores with to_jsonb(now())', () => {
     expect(goLiveFromPolicy('2026-10-07T10:55:12.123456+00:00', new Date()).toISOString()).toBe('2026-10-07T10:55:12.123Z');
+  });
+});
+
+describe('stepSubjectKey (review #4150 item 8)', () => {
+  const started = '2026-10-05T04:00:00.000Z';
+  const named = (index: number, step: string): OnboardingStepState => ({
+    index, step, completed: false, completed_at: null,
+  });
+
+  it('does not change when HR inserts a step before it (array positions shift)', () => {
+    const before = [named(0, 'Offer signed'), named(1, 'Create email')];
+    const after = [named(0, 'Offer signed'), named(5, 'Police verification'), named(1, 'Create email')];
+    expect(stepSubjectKey(after[2], started)).toBe(stepSubjectKey(before[1], started));
+    // The inserted step does not inherit the old step 2's key.
+    expect(stepSubjectKey(after[1], started)).not.toBe(stepSubjectKey(before[1], started));
+  });
+
+  it('a restarted onboarding is a fresh checklist', () => {
+    const s = named(0, 'Offer signed');
+    expect(stepSubjectKey(s, started)).not.toBe(stepSubjectKey(s, '2026-11-01T04:00:00.000Z'));
+  });
+
+  it('never contains the ledger separator', () => {
+    expect(stepSubjectKey(named(0, 'IT | email'), started)).not.toContain('|');
+  });
+});
+
+describe('isDaytimeIst (review #4150 item 6)', () => {
+  it('Monday-Saturday 08:00-20:00 IST only', () => {
+    expect(isDaytimeIst(new Date('2026-10-10T04:37:00Z'))).toBe(true); // Sat 10:07 IST, the schedule
+    expect(isDaytimeIst(new Date('2026-10-10T02:30:00Z'))).toBe(true); // Sat 08:00 IST
+    expect(isDaytimeIst(new Date('2026-10-10T02:29:00Z'))).toBe(false); // Sat 07:59 IST
+    expect(isDaytimeIst(new Date('2026-10-10T14:29:00Z'))).toBe(true); // Sat 19:59 IST
+    expect(isDaytimeIst(new Date('2026-10-10T14:30:00Z'))).toBe(false); // Sat 20:00 IST
+    expect(isDaytimeIst(new Date('2026-10-11T04:37:00Z'))).toBe(false); // Sun 10:07 IST
+    expect(isDaytimeIst(new Date('2026-10-11T19:00:00Z'))).toBe(false); // Mon 00:30 IST
   });
 });

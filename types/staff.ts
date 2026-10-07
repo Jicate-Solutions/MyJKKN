@@ -648,7 +648,8 @@ export type StaffEventType =
   | 'onboarding_step_pending' // Onboarding step assigned → notify the joiner
   // HR staff harness (2026-10-01) — duty R9, the onboarding checklist
   | 'onboarding_step_turn'     // A step becomes someone's turn → notify its owner(s)
-  | 'onboarding_step_reminder' // A step held too long / joining date close → owner(s), once
+  | 'onboarding_step_reminder' // A step held too long → owner(s), once
+  | 'onboarding_joining_soon'  // Joining date close with steps open → owners of the open steps, once per joiner
   | 'onboarding_joining_passed' // Joining date passed with steps open → HR head, once
   // HR staff harness (2026-10-01) — duty A3, attendance regularisation
   | 'regularization_submitted' // Request raised → notify approver(s)
