@@ -13,7 +13,17 @@
 #   3. probe-targets.sql (every line must be PASS);
 #   4. one MUTATION CONTROL per rule of this file: the rule removed from a
 #      copy, the database rebuilt, and probe-targets.sql must print its FAIL.
+# 8 Oct 2026: 20271008093015 (the schedule record) is stacked on top, so every
+# probe above runs on the measure that reads hr_target_scheduled_periods. The
+# rehearsal has no TypeScript: mirror-schedule.sql stands in for the nightly
+# record (see its header). Then:
+#   5. 20271008093015 BEFORE #4252 stops, changing nothing; a re-created
+#      function hand-edited live stops it (the drift check); it re-applies;
+#   6. probe-schedule.sql (findings 1-6, the coverage wait, the record's rules),
+#      every line PASS, and one mutation control per finding.
 # Run: bash supabase/tests/hr-salary-revision/run-targets.sh   (PORT= to move it)
+# FINGERPRINTS=1 prints the drift check's fingerprints (main's and this file's)
+# and stops: paste them into 20271008093015 section 0 after any body edit.
 set -u
 export LC_ALL=en_US.UTF-8 LANG=en_US.UTF-8
 BIN=${PG_BIN:-/opt/homebrew/opt/postgresql@16/bin}
@@ -24,13 +34,15 @@ MIG_BASE="$M/20270519090000_hr_salary_revision_requests.sql"
 MIG_4140="$M/20270524090000_hr_salary_revision_director_list.sql"
 MIG_4190="$M/20271007150103_hr_salary_revision_no_self_decision.sql"
 MIG_MINE="$M/20271007180207_hr_salary_revision_target_gated_raises.sql"
+MIG_SCHED="$M/20271008093015_hr_salary_revision_target_scheduled_periods.sql"
 FN="$SRC/supabase/setup/02_functions.sql"
 PORT=${PORT:-5541}
 WORK="$(mktemp -d)"
 DATA="$WORK/pgdata"
 PSQL=("$BIN/psql" -h 127.0.0.1 -p "$PORT" -U postgres -d rehearsal -X -q)
 MIG="$WORK/combined.sql"
-cat "$MIG_BASE" "$MIG_4140" "$MIG_4190" "$MIG_MINE" > "$MIG"
+cat "$MIG_BASE" "$MIG_4140" "$MIG_4190" "$MIG_MINE" "$MIG_SCHED" > "$MIG"
+cat "$MIG_BASE" "$MIG_4140" "$MIG_4190" "$MIG_MINE" > "$WORK/upto4252.sql"
 teardown() { "$BIN/pg_ctl" -D "$DATA" stop -m fast >/dev/null 2>&1; rm -rf "$WORK"; echo "== torn down"; }
 trap teardown EXIT
 
@@ -79,11 +91,32 @@ build() {  # $1 = the combined migration to apply, $2 = "targets" to load seed-t
   "${PSQL[@]}" -v ON_ERROR_STOP=1 -f "$HERE/seed.sql" >/dev/null || { echo "   SEED FAILED"; return 1; }
   if [ "${2:-}" = targets ]; then
     "${PSQL[@]}" -v ON_ERROR_STOP=1 -f "$HERE/seed-targets.sql" >/dev/null || { echo "   SEED-TARGETS FAILED"; return 1; }
+    # 8 Oct 2026: the stand-in for the nightly schedule record (needs 20271008093015).
+    if "${PSQL[@]}" -tAc "SELECT to_regclass('public.hr_target_scheduled_periods') IS NOT NULL" | grep -q t; then
+      "${PSQL[@]}" -v ON_ERROR_STOP=1 -f "$HERE/mirror-schedule.sql" >/dev/null || { echo "   MIRROR FAILED"; return 1; }
+    fi
   fi
 }
 filter() { grep -E "PASS|FAIL|ERROR" | sed 's/^.*NOTICE: *//; s/^psql:[^E]*//'; }
 probe_targets() { PGOPTIONS= "${PSQL[@]}" -f "$HERE/probe-targets.sql" 2>&1 | filter; }
 probe_off() { PGOPTIONS= "${PSQL[@]}" -f "$HERE/probe-targets-off.sql" 2>&1 | filter; }
+probe_sched() { PGOPTIONS= "${PSQL[@]}" -f "$HERE/probe-schedule.sql" 2>&1 | filter; }
+# 8 Oct 2026: the drift check's fingerprint of a function, as 20271008093015 computes it.
+FP_SQL="SELECT md5(btrim(replace(p.prosrc, E'\\r', ''), E' \\t\\n')) || '|' || p.prosecdef::text || '|' || COALESCE(array_to_string(p.proconfig, ','), '') FROM pg_proc p WHERE p.oid = to_regprocedure"
+SCHED_FNS=('public.hr_salary_revision_target_measure(uuid, date, jsonb)' 'public.hr_salary_revision_target_teaches(uuid, date, date)'
+           'public.hr_salary_revision_target_classify(uuid, jsonb, date)' 'public.hr_salary_revision_targets_run_one(uuid, date, integer)')
+no_drift() { sed -E 's/^  c_check_drift CONSTANT boolean := true;$/  c_check_drift CONSTANT boolean := false;/' "$1"; }
+
+if [ "${FINGERPRINTS:-}" = 1 ]; then
+  build "$WORK/upto4252.sql" >/dev/null || exit 1
+  echo "== main's (#4252) bodies"
+  for f in "${SCHED_FNS[@]}"; do echo "   $f  $("${PSQL[@]}" -tAc "$FP_SQL('$f')")"; done
+  no_drift "$MIG_SCHED" > "$WORK/sched-nodrift.sql"
+  PGOPTIONS="-c client_min_messages=warning" "${PSQL[@]}" -v ON_ERROR_STOP=1 -f "$WORK/sched-nodrift.sql" >/dev/null || { echo "   20271008093015 FAILED"; exit 1; }
+  echo "== this file's (20271008093015) bodies"
+  for f in "${SCHED_FNS[@]}"; do echo "   $f  $("${PSQL[@]}" -tAc "$FP_SQL('$f')")"; done
+  exit 0
+fi
 
 echo "== SECTION 0: this file BEFORE #4190 must stop, changing nothing"
 cat "$MIG_BASE" "$MIG_4140" > "$WORK/no4190.sql"
@@ -121,12 +154,52 @@ build "$MIG" targets || exit 1
 probe_off | tee "$WORK/off.txt" | sed 's/^/   /'
 echo "   total: $(grep -c '^PASS' "$WORK/off.txt") PASS, $(grep -c '^FAIL' "$WORK/off.txt") FAIL, $(grep -c 'ERROR' "$WORK/off.txt") ERROR"
 
+echo "== 20271008093015 (the schedule record) BEFORE #4252 must stop, changing nothing"
+cat "$MIG_BASE" "$MIG_4140" "$MIG_4190" > "$WORK/no4252.sql"
+build "$WORK/no4252.sql" >/dev/null || exit 1
+"${PSQL[@]}" -v ON_ERROR_STOP=1 -f "$MIG_SCHED" 2>&1 | grep -o "ABORT: .*" | sed 's/^/   /'
+"${PSQL[@]}" -tAc "SELECT '   objects created anyway: ' || ((SELECT count(*) FROM pg_proc WHERE proname LIKE '%target_schedule%')
+                                                       + (SELECT count(*) FROM pg_class WHERE relname = 'hr_target_scheduled_periods'))"
+
+echo "== 20271008093015 applies a second time (its own bodies pass the drift check)"
+build "$MIG" targets || exit 1
+PGOPTIONS="-c client_min_messages=warning" "${PSQL[@]}" -v ON_ERROR_STOP=1 -f "$MIG_SCHED" >/dev/null \
+  && echo "   second apply of 20271008093015: ok" || echo "   second apply of 20271008093015: FAILED"
+
+echo "== the drift check: a re-created function changed by hand on the database stops 20271008093015, changing nothing"
+for f in "${SCHED_FNS[@]}" 'setting'; do
+  build "$WORK/upto4252.sql" >/dev/null || exit 1
+  if [ "$f" = setting ]; then
+    f='public.hr_salary_revision_target_teaches(uuid, date, date)'
+    "${PSQL[@]}" -c "ALTER FUNCTION $f SET search_path TO public, pg_temp" >/dev/null
+    what="a changed setting of"
+  else
+    "${PSQL[@]}" -v ON_ERROR_STOP=1 -c "DO \$x\$ BEGIN EXECUTE replace(pg_get_functiondef('$f'::regprocedure), 'AS \$function\$', 'AS \$function\$ -- edited by hand'); END \$x\$" >/dev/null
+    what="a hand edit of"
+  fi
+  out=$("${PSQL[@]}" -v ON_ERROR_STOP=1 -f "$MIG_SCHED" 2>&1 | grep -o "ABORT: .*" | head -1)
+  made=$("${PSQL[@]}" -tAc "SELECT (SELECT count(*) FROM pg_proc WHERE proname LIKE '%target_schedule%') + (SELECT count(*) FROM pg_class WHERE relname = 'hr_target_scheduled_periods')")
+  if echo "$out" | grep -qF "${f%%(*}(" && [ "$made" = 0 ]; then
+    echo "   PASS the drift check stops on $what ${f%%(*}"
+  else
+    echo "   FAIL the drift check stops on $what ${f%%(*}  [${out:-no abort}; $made objects made]"
+  fi
+done
+
+echo "== PROBE (8 Oct 2026: the schedule record, findings 1-6)"
+build "$MIG" targets || exit 1
+probe_sched | tee "$WORK/sched.txt" | sed 's/^/   /'
+echo "   total: $(grep -c '^PASS' "$WORK/sched.txt") PASS, $(grep -c '^FAIL' "$WORK/sched.txt") FAIL, $(grep -c 'ERROR' "$WORK/sched.txt") ERROR"
+
 [ "${SKIP_MUT:-}" = 1 ] && exit 0   # quick runs while editing
 CAUGHT=0; MISSED=0
 mutate() {  # $1 label, $2 sed program (applied to the combined file), $3 the FAIL line that must appear
   local out="$WORK/mut.sql"
-  sed -E "$2" "$MIG" > "$out"
-  local changed; changed=$(diff "$MIG" "$out" | grep -c '^[<>]')
+  sed -E "$2" "$MIG" > "$WORK/mut0.sql"
+  local changed; changed=$(diff "$MIG" "$WORK/mut0.sql" | grep -c '^[<>]')
+  # 8 Oct 2026: a mutated copy of #4252 is, by design, not main's bytes: the
+  # drift check of 20271008093015 is switched off in the copy (it has its own section).
+  no_drift "$WORK/mut0.sql" > "$out"
   if [ "$changed" = 0 ]; then echo "   [$1] the edit matched nothing — CONTROL INVALID"; MISSED=$((MISSED+1)); return; fi
   if ! build "$out" targets >/dev/null; then echo "   [$1] mutated migration did not load"; MISSED=$((MISSED+1)); return; fi
   if probe_targets | grep -qF "FAIL $3"; then
@@ -137,11 +210,25 @@ mutate() {  # $1 label, $2 sed program (applied to the combined file), $3 the FA
 }
 mutate_off() {  # as mutate, against probe-targets-off.sql
   local out="$WORK/mut.sql"
-  sed -E "$2" "$MIG" > "$out"
-  local changed; changed=$(diff "$MIG" "$out" | grep -c '^[<>]')
+  sed -E "$2" "$MIG" > "$WORK/mut0.sql"
+  local changed; changed=$(diff "$MIG" "$WORK/mut0.sql" | grep -c '^[<>]')
+  no_drift "$WORK/mut0.sql" > "$out"
   if [ "$changed" = 0 ]; then echo "   [$1] the edit matched nothing — CONTROL INVALID"; MISSED=$((MISSED+1)); return; fi
   if ! build "$out" targets >/dev/null; then echo "   [$1] mutated migration did not load"; MISSED=$((MISSED+1)); return; fi
   if probe_off | grep -qF "FAIL $3"; then
+    echo "   [$1] CAUGHT ($changed diff lines): FAIL $3"; CAUGHT=$((CAUGHT+1))
+  else
+    echo "   [$1] NOT CAUGHT — expected FAIL $3"; MISSED=$((MISSED+1))
+  fi
+}
+mutate_sched() {  # as mutate, against probe-schedule.sql (8 Oct 2026)
+  local out="$WORK/mut.sql"
+  sed -E "$2" "$MIG" > "$WORK/mut0.sql"
+  local changed; changed=$(diff "$MIG" "$WORK/mut0.sql" | grep -c '^[<>]')
+  no_drift "$WORK/mut0.sql" > "$out"
+  if [ "$changed" = 0 ]; then echo "   [$1] the edit matched nothing — CONTROL INVALID"; MISSED=$((MISSED+1)); return; fi
+  if ! build "$out" targets >/dev/null; then echo "   [$1] mutated migration did not load"; MISSED=$((MISSED+1)); return; fi
+  if probe_sched | grep -qF "FAIL $3"; then
     echo "   [$1] CAUGHT ($changed diff lines): FAIL $3"; CAUGHT=$((CAUGHT+1))
   else
     echo "   [$1] NOT CAUGHT — expected FAIL $3"; MISSED=$((MISSED+1))
@@ -302,7 +389,7 @@ mutate "T44e T5: a poll that reached open counts" \
   's/^     AND \(EXISTS \(SELECT 1 FROM public\.induction_session_poll ip$/     AND (false AND EXISTS (SELECT 1 FROM public.induction_session_poll ip/' \
   'T5 is met with a pulse they opened in every course-week (one week only through a poll that reached open, one only through direct pulses closed since)'
 mutate "T44c T5: Monday-to-Sunday weeks" \
-  "s/^  SELECT DISTINCT course_id, date_trunc\('week', d\)::date AS wk FROM slots$/  SELECT DISTINCT course_id, date_trunc('month', d)::date AS wk FROM slots/" \
+  "s/^  SELECT DISTINCT course_id, date_trunc\('week', d\)::date AS wk FROM (slots|week_slots)$/  SELECT DISTINCT course_id, date_trunc('month', d)::date AS wk FROM \1/" \
   'T5 counts only pulses they opened in that week: not a poll drafted and closed, not one the automation opened, not one opened later for a past week'
 mutate "T45 each slot paired with one attendance entry" \
   's/^                        AND n\.period_name = s\.period_name AND n\.rn = s\.rn$/                        AND n.period_name = s.period_name/' \
@@ -392,7 +479,7 @@ mutate "T69 whoever teaches gets the faculty targets" \
   's/^      ELSIF public\.hr_salary_revision_target_teaches\(v_r\.staff_id,$/      ELSIF false AND public.hr_salary_revision_target_teaches(v_r.staff_id,/' \
   "a teacher whose role key is not 'faculty' gets the faculty targets (they teach; their semester ended and was switched off; they marked in it)"
 mutate "T70 teaching means a timetable in the 90 days before the yes" \
-  's/^       AND t\.start_date <= p_to AND t\.end_date >= p_from$/       AND true/' \
+  's/^       AND t\.start_date <= p_to AND t\.end_date >= p_from$/       AND true/; s/^       AND sp\.staff_id = p_staff_id AND sp\.day BETWEEN p_from AND p_to$/       AND sp.staff_id = p_staff_id/' \
   'someone who does not teach gets no target-based part: parked, no teaching timetable (a timetable made just now and never marked does not count)'
 mutate "T71 one person per call: marked as run, the next night starts with whoever was not" \
   's/^  UPDATE public\.hr_salary_revision_target_plans SET last_run_on = p_today, failed_nights = 0$/  UPDATE public.hr_salary_revision_target_plans SET failed_nights = 0/' \
@@ -419,7 +506,7 @@ mutate "T78 a timetable runs by its dates, not is_active now (teaches)" \
   's/^     WHERE COALESCE\(t\.is_template, false\) = false$/     WHERE t.is_active IS TRUE AND COALESCE(t.is_template, false) = false/' \
   "a teacher whose role key is not 'faculty' gets the faculty targets (they teach; their semester ended and was switched off; they marked in it)"
 mutate "T79 a replaced timetable counts once" \
-  's/^    JOIN chosen c ON c\.d = r\.d AND c\.period_name = r\.period_name AND c\.timetable_id = r\.timetable_id$/    WHERE r.period_name IS NOT NULL/' \
+  's/^    JOIN chosen c ON c\.d = r\.d AND c\.period_name = r\.period_name AND c\.timetable_id = r\.timetable_id$/    WHERE r.period_name IS NOT NULL/; s/^                        AND q\.start_time < r\.end_time AND r\.start_time < q\.end_time$/                        AND false/' \
   'T1 leaves out off-days, approved college leaves and nameless periods (not pending leaves); an ended, switched-off timetable still counts, its replacement does not count twice'
 mutate "T80 T5: opened in that week (direct pulse)" \
   "s/^              AND date_trunc\('week', \(lp\.issued_at AT TIME ZONE 'Asia\/Kolkata'\)::date\) = date_trunc\('week', lp\.attendance_date\)\)\)$/              AND true))/" \
@@ -541,4 +628,41 @@ mutate_off "O25 a cut is written whole" \
 mutate_off "O26 the message says it is a cut" \
   "s/^      \|\| CASE WHEN v_final < v_base THEN ' This is a pay cut\.' ELSE '' END$/      || ''/" \
   'a pay cut has no increment and nothing held'
+# 8 Oct 2026 (20271008093015): one control per finding, and the record's rules.
+mutate_sched "S1 finding 1: a replacement at the same time counts once" \
+  's/^                        AND q\.start_time < r\.end_time AND r\.start_time < q\.end_time$/                        AND false/' \
+  'F1 a replaced timetable that names its periods differently counts once at each time (the marked one, else the newer); two overlapping periods of ONE timetable both count'
+mutate_sched "S2 finding 2: cycle and batch timetables are read the app's way" \
+  "s/^     AND jsonb_typeof\(e\) = 'object'$/     AND jsonb_typeof(e) = 'object' AND COALESCE(t.timetable_format, 'regular') NOT IN ('cycle', 'batch')/" \
+  "F2 the periods of a cycle timetable and a batch timetable, as the app's resolver recorded them, count"
+mutate_sched "S3 finding 3: a day whose holidays changed is recorded again" \
+  's/^         sp\.holiday_key IS DISTINCT FROM public\.hr_target_schedule_holiday_key\(i\.ids, w\.day\) AS holidays_changed$/         false AS holidays_changed/' \
+  'F3 a department holiday approved after the day was recorded: the day is asked for again'
+mutate_sched "S4 finding 4: a day recorded on the day itself shows they teach" \
+  's/^            OR sp\.recorded_live\)\)$/            ))/' \
+  'F4 a day recorded on the day itself counts, whenever the timetable was made'
+mutate_sched "S4b finding 4: not every day recorded yet is undecided, not 'does not teach'" \
+  's/^    WHEN public\.hr_target_schedule_missing_days\(p_staff_id, p_from, p_to\) = 0 THEN false$/    WHEN true THEN false/' \
+  'F4 one of the 90 days not recorded and no teaching found: undecided, the held part waits (awaiting_measurement)'
+mutate_sched "S4c finding 4: undecided waits, it is not parked" \
+  "s/^        v_state := 'awaiting_measurement'; v_reason := 'schedule_not_recorded';$/        v_state := 'held_listed'; v_reason := 'no_teaching_timetable';/" \
+  'F4 one of the 90 days not recorded and no teaching found: undecided, the held part waits (awaiting_measurement)'
+mutate_sched "S5 finding 5: a week counts in the month its Sunday falls in" \
+  "s/^   WHERE date_trunc\('week', d\)::date \+ 6 <= \(date_trunc\('month', p_month\) \+ interval '1 month' - interval '1 day'\)::date$/   WHERE true/" \
+  'F5 a week counts in the month its Sunday falls in: the last week, which ends next month, is not judged yet'
+mutate_sched "S6 finding 6: leave approved after a month was counted is taken into account" \
+  's/^           AND mo\.leave_key IS DISTINCT FROM public\.hr_salary_revision_target_leave_key\($/           AND false AND mo.leave_key IS DISTINCT FROM public.hr_salary_revision_target_leave_key(/' \
+  'F6 leave approved after the month was counted: measured again, met, the held part released from the next 1st (never backdated)'
+mutate_sched "S7 a finished month waits for every day it reads" \
+  "s/^        IF v_m < v_cur_m AND public\.hr_target_schedule_missing_days\(v_p\.staff_id, date_trunc\('week', v_m\)::date,$/        IF false AND public.hr_target_schedule_missing_days(v_p.staff_id, date_trunc('week', v_m)::date,/" \
+  'a finished month with a day not in the schedule record is not counted yet, and the run note says so'
+mutate_sched "S8 the record refuses a day not yet begun" \
+  's/^  IF p_day > p_today THEN$/  IF false THEN/' \
+  'a day not yet begun is refused'
+mutate_sched "S9 only the nightly job records" \
+  "/^CREATE OR REPLACE FUNCTION public\.fn_hr_target_schedule_record\(/,/^\\\$function\\\$;/s/^  IF auth\.uid\(\) IS NOT NULL OR COALESCE\(auth\.role\(\), 'service_role'\) <> 'service_role' THEN$/  IF false THEN/" \
+  "a call carrying a signed-in user is refused even with the job's key"
+mutate_sched "S10 a recording on the day itself stays one" \
+  's/^         recorded_live = public\.hr_target_scheduled_periods\.recorded_live OR EXCLUDED\.recorded_live,$/         recorded_live = EXCLUDED.recorded_live,/' \
+  'F3 recorded again: not asked for any more, and still a day recorded on the day itself'
 echo "== mutation controls: $CAUGHT caught, $MISSED not caught"

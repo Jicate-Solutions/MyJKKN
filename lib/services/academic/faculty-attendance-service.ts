@@ -57,13 +57,14 @@ export class FacultyAttendanceService {
    * transient fetch error into "no classes today".
    */
   private static async fetchPeriodMasterMap(
-    institutionIds: (string | null | undefined)[]
+    institutionIds: (string | null | undefined)[],
+    db: any = this.supabase
   ): Promise<Map<string, any>> {
     const map = new Map<string, any>();
     const ids = Array.from(new Set(institutionIds.filter(Boolean))) as string[];
     if (ids.length === 0) return map;
 
-    const { data, error } = await this.supabase
+    const { data, error } = await db
       .from('periods')
       .select('id, period_name, start_time, end_time, is_break, session')
       .in('institution_id', ids);
@@ -188,14 +189,29 @@ export class FacultyAttendanceService {
    * Get today's periods for a faculty member
    * OPTIMIZED: Directly extracts periods from timetable_data instead of calling expensive service methods
    * Updated: 2025-10-13 - Performance optimization for "My Classes" view
+   *
+   * Updated: 2026-10-08 - `options` (all optional; My Classes passes none and is
+   * unchanged). The raise-targets schedule record
+   * (lib/services/hr/salary-revision/scheduled-periods-recorder.ts) calls this same
+   * resolver from the nightly job with the SERVICE-ROLE client:
+   *   client                 the Supabase client to read with (default: the browser client)
+   *   includeInactive        also read timetables switched off since (the daily job
+   *                          switches a timetable off the day after it ends; default dd)
+   *   teachingInstitutionIds the institutions the team member teaches in, worked out by
+   *                          the caller (fn_staff_teaching_institutions refuses a
+   *                          caller with no signed-in user, such as the service role)
+   * Every period also carries `staff_is_primary`: whether this person is the slot's
+   * main teacher (primary_staff_id).
    */
   static async getFacultyTodayPeriods(
     staffId: string,
-    date?: string
+    date?: string,
+    options?: { client?: any; includeInactive?: boolean; teachingInstitutionIds?: string[] }
   ): Promise<{
     periods: AttendancePeriodOption[];
     searchContext: any;
   }> {
+    const db: any = options?.client ?? this.supabase;
     try {
       const targetDate = date || format(new Date(), 'yyyy-MM-dd');
       const dayOfWeek = this.getDayOfWeekFromDate(targetDate).toUpperCase();
@@ -203,7 +219,7 @@ export class FacultyAttendanceService {
       logger.dev('academic/faculty-attendance', 'getFacultyTodayPeriods start', { staffId, targetDate, dayOfWeek });
 
       // First get the staff member's details
-      const { data: staffData, error: staffError } = (await this.supabase
+      const { data: staffData, error: staffError } = (await db
         .from('staff')
         .select('id, first_name, last_name, email, institution_id, department_id')
         .eq('id', staffId)
@@ -244,9 +260,9 @@ export class FacultyAttendanceService {
       // institutions). This must be a SECURITY DEFINER RPC — staff_plan_courses
       // SELECT RLS hides other institutions' plans from the browser client.
       let teachingInstitutionIds: string[] = [staffData.institution_id];
-      const { data: teachingInstitutions, error: teachingInstError } = await (
-        this.supabase as any
-      ).rpc('fn_staff_teaching_institutions', { p_staff_id: staffId });
+      const { data: teachingInstitutions, error: teachingInstError } = options?.teachingInstitutionIds
+        ? { data: options.teachingInstitutionIds, error: null }
+        : await db.rpc('fn_staff_teaching_institutions', { p_staff_id: staffId });
       if (teachingInstError) {
         logger.warn(
           'academic/faculty-attendance',
@@ -260,7 +276,7 @@ export class FacultyAttendanceService {
         teachingInstitutionIds = teachingInstitutions;
       }
 
-      const { data: timetables, error: timetableError } = (await this.supabase
+      const timetableQuery = db
         .from('timetables')
         .select(`
           id,
@@ -283,8 +299,10 @@ export class FacultyAttendanceService {
           programs(id, program_name),
           degrees(id, degree_name)
         `)
-        .in('institution_id', teachingInstitutionIds)
-        .eq('is_active', true)
+        .in('institution_id', teachingInstitutionIds);
+      const { data: timetables, error: timetableError } = (await (options?.includeInactive
+        ? timetableQuery
+        : timetableQuery.eq('is_active', true))
         // 2026-09-15: gate on the target date IN THE QUERY, not only in
         // isDateInTimetableRange() below. Without this every active timetable
         // across every institution the staff teaches in — full timetable_data
@@ -322,7 +340,7 @@ export class FacultyAttendanceService {
       // Only cycle timetables skipped them (via get_cycle_for_date); regular and
       // batch timetables listed classes on a declared holiday. Same rule as the
       // pending dashboard (BUG-006141), incl. department/semester/section scope.
-      const { data: approvedLeaves, error: approvedLeavesError } = await (this.supabase as any)
+      const { data: approvedLeaves, error: approvedLeavesError } = await db
         .from('institution_leaves')
         .select('institution_id, start_date, end_date, department_ids, semester_ids, section_ids')
         .in('institution_id', Array.from(new Set(timetables.map((t: any) => t.institution_id))))
@@ -334,7 +352,8 @@ export class FacultyAttendanceService {
       // Fixed: 2026-08-19 - Authoritative period timings for every institution this
       // staff teaches in; overlaid onto each timetable's period snapshot below.
       const periodMaster = await this.fetchPeriodMasterMap(
-        timetables.map((t: any) => t.institution_id).concat(teachingInstitutionIds)
+        timetables.map((t: any) => t.institution_id).concat(teachingInstitutionIds),
+        db
       );
 
       // Extract all unique course IDs first, then batch fetch
@@ -500,7 +519,7 @@ export class FacultyAttendanceService {
           // Resolve which cycle is active on targetDate via the canonical
           // Postgres function — it advances only on working days and skips
           // Sundays/holidays, exactly like the grid's "Today: Cycle N" badge.
-          const { data: cycleNum, error: cycleErr } = await this.supabase.rpc(
+          const { data: cycleNum, error: cycleErr } = await db.rpc(
             'get_cycle_for_date',
             { p_timetable_id: timetable.id, p_date: targetDate }
           );
@@ -624,6 +643,7 @@ export class FacultyAttendanceService {
                 department_name: (timetable.departments as any)?.department_name,
                 semester_name: (timetable.semesters as any)?.semester_name,
                 section_name: `${(timetable.sections as any)?.section_name || ''} - ${groupName}`,
+                staff_is_primary: slot.primary_staff_id === staffId,
                 is_subdivided: true,
                 subdivision_group: {
                   group_order: groupOrder,
@@ -656,7 +676,8 @@ export class FacultyAttendanceService {
               program_name: (timetable.programs as any)?.program_name,
               department_name: (timetable.departments as any)?.department_name,
               semester_name: (timetable.semesters as any)?.semester_name,
-              section_name: (timetable.sections as any)?.section_name || ''
+              section_name: (timetable.sections as any)?.section_name || '',
+              staff_is_primary: slot.primary_staff_id === staffId
             } as any);
           } else if (isAssignedToPractical) {
             // Practical period — emit ONE card (mirrors the admin search path).
@@ -709,7 +730,8 @@ export class FacultyAttendanceService {
               program_name: (timetable.programs as any)?.program_name,
               department_name: (timetable.departments as any)?.department_name,
               semester_name: (timetable.semesters as any)?.semester_name,
-              section_name: (timetable.sections as any)?.section_name || ''
+              section_name: (timetable.sections as any)?.section_name || '',
+              staff_is_primary: slot.primary_staff_id === staffId
             } as any);
           }
         }
@@ -717,7 +739,7 @@ export class FacultyAttendanceService {
 
       // OPTIMIZATION: Batch fetch all course details in a single query
       if (courseIds.size > 0) {
-        const { data: courses } = (await this.supabase
+        const { data: courses } = (await db
           .from('courses')
           .select('id, course_code, course_name')
           .in('id', Array.from(courseIds))) as { data: CourseBasic[] | null; error: any };
@@ -744,7 +766,7 @@ export class FacultyAttendanceService {
       // of one year show as identical cards with no section.
       const unnamedSectionIds = sectionIdsNeedingNames(facultyPeriods as any);
       if (unnamedSectionIds.length > 0) {
-        const { data: sectionRows } = await this.supabase
+        const { data: sectionRows } = await db
           .from('sections')
           .select('id, section_name')
           .in('id', unnamedSectionIds);

@@ -389,9 +389,14 @@ describe('GET /api/cron/hr-salary-revisions', () => {
     const res = await cronRoute.GET(cron('/api/cron/hr-salary-revisions?mode=targets', 'cron-secret'));
     expect(res.status).toBe(200);
     // One call per raise: the one that timed out is reported; the others are still done.
-    expect(await res.json()).toEqual({ ok: false, mode: 'targets', count: 2, done: 3, remaining: 0, failed: ['raise-2'] });
+    // 8 Oct 2026: the schedule record goes first (nothing to record here).
+    expect(await res.json()).toEqual({
+      ok: false, mode: 'targets', count: 2, done: 3, remaining: 0, failed: ['raise-2'],
+      schedule: { needed: 0, recorded: 0, failed: 0 },
+    });
     // Each raise: the attempt is recorded first (its own call), then the run.
     expect(adminCalls.map((c) => c.fn)).toEqual([
+      'fn_hr_target_schedule_needs',
       'fn_hr_salary_revision_targets_due',
       'fn_hr_salary_revision_targets_attempt', 'fn_hr_salary_revision_targets_run_one',
       'fn_hr_salary_revision_targets_attempt', 'fn_hr_salary_revision_targets_run_one',
