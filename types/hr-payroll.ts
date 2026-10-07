@@ -363,6 +363,15 @@ export interface HRSalaryRegisterLine {
   // person's CURRENT category.
   staff_category_name: string | null;
   is_teaching: boolean;
+  // WHERE THE DAYS CAME FROM (2026-10-07). 'manual' = entered by hand by a super
+  // admin / HR Head for someone with no attendance summary
+  // (hr_salary_register_manual_days); pay is still computed by the register's
+  // formula. The reason / who / when are snapshotted for the badge and export.
+  entry_source: SalaryRegisterEntrySource;
+  manual_entry_id: string | null;
+  manual_reason: string | null;
+  manual_entered_by: string | null;
+  manual_entered_at: string | null;
 
   business_working_days: number;
   /**
@@ -508,3 +517,62 @@ export type PayrollDocumentSettingsInput = Omit<
   HRPayrollDocumentSettings,
   'hr_organization_id' | 'institution_id' | 'updated_at'
 >;
+
+export type SalaryRegisterEntrySource = 'biometric' | 'manual';
+
+/**
+ * The days HR types for a person with no attendance summary. Worked days are
+ * NOT here: they are derived (working − leave − on duty − LOP), so an entry
+ * cannot be saved that fails to add up.
+ */
+export interface ManualDaysInput {
+  business_working_days: number;
+  casual_leave_days: number;
+  comp_off_days: number;
+  other_paid_leave_days: number;
+  on_duty_days: number;
+  /** LOP. */
+  unpaid_leave_days: number;
+}
+
+export interface ManualEntryInput extends ManualDaysInput {
+  /** Required only when the person has no salary recorded for the month. */
+  monthly_gross: number | null;
+  reason: string;
+}
+
+/** What the manual-entry form needs to open: the pay in force and any saved entry. */
+export interface ManualEntryContext {
+  line_id: string;
+  staff_name: string;
+  employee_code: string | null;
+  /** The run's working-days basis — the form's default for working days. */
+  working_days_basis: number;
+  /** null = no salary recorded; the form then asks for a monthly gross. */
+  recorded_gross: number | null;
+  allowance: number;
+  epf: number;
+  esi: number;
+  saved: (ManualEntryInput & { updated_at: string | null }) | null;
+}
+
+/** A computed preview (dry run) or the saved line. */
+export interface ManualEntryResult {
+  saved: boolean;
+  figures: {
+    business_working_days: number;
+    worked_days: number;
+    paid_days: number;
+    unpaid_leave_days: number;
+    actual_gross: number;
+    unpaid_leave_deduction: number;
+    epf_deduction: number;
+    esi_deduction: number;
+    tds_deduction: number;
+    total_earnings: number;
+    total_deductions: number;
+    adjustment_amount: number;
+    net_pay: number;
+  };
+  line: HRSalaryRegisterLine | null;
+}

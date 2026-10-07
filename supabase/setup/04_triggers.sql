@@ -2945,6 +2945,55 @@ CREATE TRIGGER trg_hostel_blocks_seed_floors
   AFTER INSERT ON public.hostel_blocks
   FOR EACH ROW EXECUTE FUNCTION public.fn_hostel_blocks_seed_floors();
 
+
+-- Mirrored from supabase/migrations/20271007150000_hr_salary_register_manual_days.sql
+DROP TRIGGER IF EXISTS trg_hr_salary_register_manual_days_touch ON public.hr_salary_register_manual_days;
+CREATE TRIGGER trg_hr_salary_register_manual_days_touch
+  BEFORE UPDATE ON public.hr_salary_register_manual_days
+  FOR EACH ROW EXECUTE FUNCTION public.fn_touch_updated_at();
+
+-- Updated: 2026-10-07 - Target-gated raises: only the Director list changes the
+-- measurement switch 'hr.salary_revision.target_measurement_on' (true or false) and
+-- 'hr.salary_revision.target_rules' (shape checked), each change is logged, and
+-- each period's first marking is recorded in attendance_first_marks.
+-- Source: 20271007180207_hr_salary_revision_target_gated_raises.sql
+DROP TRIGGER IF EXISTS trg_guard_hr_salary_revision_target_rules ON public.platform_policies;
+CREATE TRIGGER trg_guard_hr_salary_revision_target_rules
+  BEFORE INSERT OR UPDATE OR DELETE ON public.platform_policies
+  FOR EACH ROW
+  EXECUTE FUNCTION public.fn_guard_hr_salary_revision_target_rules();
+
+DROP TRIGGER IF EXISTS trg_audit_hr_salary_revision_target_rules ON public.platform_policies;
+CREATE TRIGGER trg_audit_hr_salary_revision_target_rules
+  AFTER INSERT ON public.platform_policies
+  FOR EACH ROW
+  WHEN (NEW.policy_key IN ('hr.salary_revision.target_rules', 'hr.salary_revision.target_measurement_on'))
+  EXECUTE FUNCTION public.fn_audit_hr_salary_revision_target_rules();
+
+-- Round 8: an UPDATE is logged when either the old or the new key is one of
+-- the two settings, so renaming a setting away (it then reads as missing,
+-- i.e. OFF) is on record too.
+DROP TRIGGER IF EXISTS trg_audit_hr_salary_revision_target_rules_update ON public.platform_policies;
+CREATE TRIGGER trg_audit_hr_salary_revision_target_rules_update
+  AFTER UPDATE ON public.platform_policies
+  FOR EACH ROW
+  WHEN (NEW.policy_key IN ('hr.salary_revision.target_rules', 'hr.salary_revision.target_measurement_on') OR OLD.policy_key IN ('hr.salary_revision.target_rules', 'hr.salary_revision.target_measurement_on'))
+  EXECUTE FUNCTION public.fn_audit_hr_salary_revision_target_rules();
+
+DROP TRIGGER IF EXISTS trg_audit_hr_salary_revision_target_rules_delete ON public.platform_policies;
+CREATE TRIGGER trg_audit_hr_salary_revision_target_rules_delete
+  AFTER DELETE ON public.platform_policies
+  FOR EACH ROW
+  WHEN (OLD.policy_key IN ('hr.salary_revision.target_rules', 'hr.salary_revision.target_measurement_on'))
+  EXECUTE FUNCTION public.fn_audit_hr_salary_revision_target_rules();
+
+DROP TRIGGER IF EXISTS trg_zz_student_attendance_first_marks ON public.student_attendance;
+CREATE TRIGGER trg_zz_student_attendance_first_marks
+  AFTER INSERT OR UPDATE OF attendance_data ON public.student_attendance
+  FOR EACH ROW
+  EXECUTE FUNCTION public.fn_record_attendance_first_marks();
+
+
 -- ============================================================================
 -- Updated: 2026-10-07 - HR duty proofs: a file or a second-person check on the
 -- duties that move money or end a job (migration 20271007161123). Rule touch + audit triggers.

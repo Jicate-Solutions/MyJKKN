@@ -30,6 +30,7 @@ import { NextResponse } from 'next/server';
 import { connection } from 'next/server';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
+import { fetchLatestPostMetrics } from '@/lib/services/social/ig-post-lookup';
 import type {
   LoopPost,
   LoopRead,
@@ -350,22 +351,19 @@ async function computeLoop(
   const postIds = postRows.map((p) => p.id);
 
   // ── Latest metric snapshot per post (first-wins reduce, mirrors governance) ─
-  const latestByPost = new Map<string, IgPostMetricRow>();
+  // Read per post: one .in() read over ~627 snapshots a post overflows the
+  // 1,000-row cap and silently drops posts from the window.
+  let latestByPost = new Map<string, IgPostMetricRow>();
   if (postIds.length > 0) {
-    const { data: metricsRaw, error: metErr } = await db
-      .from('ig_post_metrics')
-      .select(
-        'post_id, snapshot_at, reach, impressions, engagement, saves, shares, comments, likes, plays'
-      )
-      .in('post_id', postIds)
-      .order('snapshot_at', { ascending: false });
+    const { latest, error: metErr } = await fetchLatestPostMetrics<IgPostMetricRow>(
+      db,
+      postIds,
+      'post_id, snapshot_at, reach, impressions, engagement, saves, shares, comments, likes, plays'
+    );
     if (metErr) {
       return { ok: false, error: `Failed to read ig_post_metrics: ${metErr.message}`, status: 500 };
     }
-    for (const m of (metricsRaw as IgPostMetricRow[]) ?? []) {
-      // ordered desc → first row seen for a post is its latest snapshot.
-      if (!latestByPost.has(m.post_id)) latestByPost.set(m.post_id, m);
-    }
+    latestByPost = latest;
   }
 
   // ── Build scored posts (sorted by posted_at desc, the window order) ─────────
@@ -526,7 +524,8 @@ export async function GET(request: Request) {
     const accountId = searchParams.get('accountId');
 
     const computed = await computeLoop(supabase as unknown as SupabaseClient, accountId);
-    if (!computed.ok) {
+    // `in` narrows the union; `!computed.ok` does not with strictNullChecks off.
+    if ('error' in computed) {
       return NextResponse.json(
         { success: false, error: computed.error },
         { status: computed.status }
@@ -638,7 +637,8 @@ export async function POST(request: Request) {
 
     // ── Recompute the current read + decide to snapshot ──────────────────────
     const computed = await computeLoop(supabase as unknown as SupabaseClient, body.accountId);
-    if (!computed.ok) {
+    // `in` narrows the union; `!computed.ok` does not with strictNullChecks off.
+    if ('error' in computed) {
       return NextResponse.json(
         { success: false, error: computed.error },
         { status: computed.status }

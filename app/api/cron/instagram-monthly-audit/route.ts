@@ -121,6 +121,10 @@ interface AuditMetrics {
   last_post_at: string | null;
 }
 
+const METRICS_PAGE = 1000;
+// 200k rows: ~30 days of hourly snapshots for ~275 posts.
+const METRICS_MAX_PAGES = 200;
+
 interface PostMetricRow {
   post_id: string;
   snapshot_at: string;
@@ -141,13 +145,26 @@ async function aggregateMetrics(
   // ig_post_metrics has NO account_id column — scope via the ig_posts FK
   // (!inner + filter on the embedded table is intentional here: we WANT to
   // exclude metric rows whose post belongs to another account).
-  const { data: postMetrics } = await supabase
-    .from('ig_post_metrics')
-    .select(
-      'post_id, snapshot_at, reach, impressions, engagement, saves, shares, comments, ig_posts!inner(account_id)'
-    )
-    .eq('ig_posts.account_id', igAccountId)
-    .gte('snapshot_at', cutoff);
+  // Paged newest-first: a month of hourly snapshots runs far past PostgREST's
+  // 1,000-row cap, and a single unordered read kept an arbitrary subset.
+  // Newest-first paging (id breaks snapshot_at ties so pages are stable)
+  // means a row inserted mid-read shifts later rows onto the next page (seen
+  // twice, deduped below) instead of skipping one.
+  const postMetrics: unknown[] = [];
+  for (let page = 0; page < METRICS_MAX_PAGES; page++) {
+    const { data: batch } = await supabase
+      .from('ig_post_metrics')
+      .select(
+        'post_id, snapshot_at, reach, impressions, engagement, saves, shares, comments, ig_posts!inner(account_id)'
+      )
+      .eq('ig_posts.account_id', igAccountId)
+      .gte('snapshot_at', cutoff)
+      .order('snapshot_at', { ascending: false })
+      .order('id', { ascending: false })
+      .range(page * METRICS_PAGE, page * METRICS_PAGE + METRICS_PAGE - 1);
+    postMetrics.push(...(batch ?? []));
+    if (!batch || batch.length < METRICS_PAGE) break;
+  }
 
   // Most recent and oldest account-level metrics for follower delta
   const { data: latestAcct } = await supabase
