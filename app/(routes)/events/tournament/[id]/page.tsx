@@ -704,6 +704,9 @@ export default function TournamentManagePage() {
                   }
                   divisionFormat={d.format}
                   canManage={canManage}
+                  division={d}
+                  divisionLabel={divisionLabel(d)}
+                  entries={entriesByDivision.get(d.id) ?? []}
                 />
                 <DivisionPlacings
                   eventId={id}
