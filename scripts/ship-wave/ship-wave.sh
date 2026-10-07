@@ -1404,7 +1404,10 @@ PY
     merged_files="$run/merged-files.txt"; cp "$pending" "$merged_files" 2>/dev/null || : > "$merged_files"
     merged=$(grep -c . "$merged_files" 2>/dev/null || echo 0); ship=$merged; merged_list=" (batched: $merged file(s) merged this run)"
   elif [ -n "$GOAL" ] && [ "$ship" -gt 0 ] && [ "$apply_ok" -ne 0 ] && [ -z "$NO_DEPLOY" ]; then
-    cat "$merged_files" >> "$pending"; DEPLOY_DEFERRED=1
+    # 2026-10-07: deploy-pending is a SET of paths, not a log. A zero-merge goal round takes the §C main-ahead trigger,
+    # which writes the WHOLE diff since the last deploy into merged_files — and production does not move while a goal
+    # run defers, so every such round re-added the same files: 6 Oct read 56 → 109 → 162 for 53 real files.
+    cat "$merged_files" >> "$pending"; sort -u -o "$pending" "$pending"; DEPLOY_DEFERRED=1
     deploy="deferred — goal runs deploy ONCE at the end ($(grep -c . "$pending") file(s) waiting; migrations already applied)"
     say "  $deploy"
   elif [ "$MODE" = "go" ] && [ -z "$GOAL" ] && [ -s "$pending" ]; then
@@ -1430,7 +1433,7 @@ PY
     # Whenever this round merged something, its files join deploy-pending here, before this branch declines to deploy;
     # the first build that runs (goal end, a plain-go flush, or a lifted stop) carries them.
     if [ -z "${FINAL_DEPLOY:-}" ] && [ "${round_merged:-0}" -gt 0 ] && [ "${round_lines:-0}" -gt 0 ]; then
-      head -n "$round_lines" "$merged_files" >> "$pending"
+      head -n "$round_lines" "$merged_files" >> "$pending"; sort -u -o "$pending" "$pending"   # each path once (see the goal branch)
       say "  this round's $round_merged merge(s) kept in $pending ($round_lines file(s)) — their code ships with the first build that runs"
     fi
     say "  NOT deploying — migration step failed; the previous deploy stays live"; deploy="skipped (migration failed)"
