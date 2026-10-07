@@ -6,6 +6,7 @@ export type PurchaseRequestType = 'restock' | 'new_item' | 'mixed';
 export type PurchaseRequestStatus =
   | 'draft'
   | 'submitted' // = "Requisition" (awaiting Super Admin)
+  | 'returned' // sent back to the requester for changes; resubmit -> submitted
   | 'approved'
   | 'rejected'
   | 'converted' // rolled into an RFQ/PO
@@ -24,6 +25,17 @@ export interface ProcurementPurchaseRequest {
   approved_by: string | null;
   approved_at: string | null;
   rejection_reason: string | null;
+  /** Last "send back for changes": what the approver asked for, who, when, how many times. */
+  returned_reason?: string | null;
+  returned_by?: string | null;
+  returned_at?: string | null;
+  return_count?: number;
+  /** Requester-given label, e.g. which lab the request is for. */
+  title: string | null;
+  /** Chosen by the requester; decides the approval steps. null = old single-approver rule. */
+  category_id?: string | null;
+  /** The department the purchase is FOR — its HOD approves an HOD step. */
+  department_id?: string | null;
   notes: string | null;
   created_at: string;
   updated_at: string;
@@ -31,6 +43,12 @@ export interface ProcurementPurchaseRequest {
   requested_by_profile?: { full_name: string | null } | null;
   approved_by_profile?: { full_name: string | null } | null;
   item_count?: number;
+  /** List view only: what was asked for, so a row reads "Keyboard × 5", not a number. */
+  item_preview?: Array<{ item_name: string; required_quantity: number }>;
+  /** List view only: statuses of the quotation(s) raised from this request. */
+  quote_statuses?: string[];
+  /** List view only: statuses of the purchase orders those quotations produced. */
+  order_statuses?: string[];
 }
 
 export interface ProcurementPurchaseRequestItem {
@@ -74,15 +92,24 @@ export interface CreatePurchaseRequestDto {
   institution_id: string;
   store_id?: string | null;
   domain?: ProcurementDomain; // defaults to 'ims'
+  title?: string | null;
   notes?: string | null;
+  category_id?: string | null;
+  department_id?: string | null;
   /** Per item: domain_item_id set = restock, null = new item — request_type is derived from these, not client-supplied. */
   items: CreatePurchaseRequestItemDto[];
 }
 
 export interface PurchaseRequestFilters {
   institution_id?: string;
+  /** No institution filter: every institution the viewer's RLS allows. */
+  all_institutions?: boolean;
   store_id?: string;
   status?: PurchaseRequestStatus;
+  /** Only purchases raised by this user ("Raised by me"). */
+  requested_by?: string;
+  /** Purchase stage (lib/procurement/purchase-stage.ts) — overrides `status`. */
+  stage?: string;
   request_type?: PurchaseRequestType;
   search?: string;
   page?: number;
@@ -93,10 +120,11 @@ export const PR_STATUS_CONFIG: Record<
   PurchaseRequestStatus,
   { label: string; color: string }
 > = {
-  draft: { label: 'Draft', color: 'gray' },
-  submitted: { label: 'Submitted', color: 'blue' },
-  approved: { label: 'Approved', color: 'green' },
+  draft: { label: 'Not submitted', color: 'gray' },
+  submitted: { label: 'Waiting for approval', color: 'amber' },
+  returned: { label: 'Sent back for changes', color: 'amber' },
+  approved: { label: 'Ready for quotations', color: 'blue' },
   rejected: { label: 'Rejected', color: 'red' },
-  converted: { label: 'Converted', color: 'purple' },
+  converted: { label: 'Collecting quotations', color: 'purple' },
   cancelled: { label: 'Cancelled', color: 'gray' },
 };

@@ -109,13 +109,14 @@ function num(v: unknown): number {
 
 /** Money is stored numeric(12,2); keep every computed figure at 2dp. */
 /** The identity columns every preview row carries, payable or excluded. */
-function baseRow(m: RosterMember) {
+function baseRow(m: RosterMember, paidBy: string | null) {
   return {
     staff_id: m.staff_id,
     employee_code: m.employee_code,
     staff_name: m.staff_name,
     designation: m.designation,
     department_name: m.department_name,
+    paid_by_name: paidBy,
   };
 }
 
@@ -161,6 +162,15 @@ const MONTH_NAMES = [
   'July', 'August', 'September', 'October', 'November', 'December',
 ];
 
+/** The salary read the register uses: the pay in force on a day (20270519090000). */
+export const SALARIES_IN_FORCE_RPC = 'hr_staff_salaries_in_force' as const;
+
+/** The last day of a register month, yyyy-MM-dd (month is 1-12). */
+export function registerMonthEnd(year: number, month: number): string {
+  const last = new Date(Date.UTC(year, month, 0)).getUTCDate();
+  return `${year}-${String(month).padStart(2, '0')}-${String(last).padStart(2, '0')}`;
+}
+
 export function monthLabel(year: number, month: number): string {
   return `${MONTH_NAMES[month - 1] ?? String(month)} ${year}`;
 }
@@ -178,6 +188,25 @@ export interface SalaryRegisterInput {
   month: number;
 }
 
+/**
+ * WHO a register or a close preview lists.
+ *
+ * 'payer'         people THIS organisation pays (hr_staff_payroll). What the issued
+ *                 register is built from: HR reconciles salary per paying
+ *                 institution, wherever the person happens to work.
+ * 'work_location' people who WORK at this organisation's institution, whoever
+ *                 pays them. What the month close is built from: the close
+ *                 freezes the attendance stamped at ONE work location, so the
+ *                 people it freezes are exactly the ones who work there.
+ *
+ * The two used to be mixed in the close preview: payer roster, work-location
+ * day counts. A person paid by Dental but working at Main Office could never have
+ * a projection row at Dental and was reported "No attendance" with a full month of
+ * records sitting under Main Office; and Main Office, which pays nobody, previewed
+ * an empty roster for the people working there.
+ */
+type RosterBy = 'payer' | 'work_location';
+
 interface RosterMember {
   staff_id: string;
   employee_code: string | null;
@@ -187,6 +216,9 @@ interface RosterMember {
   date_of_joining: string | null;
   work_institution_id: string;
   work_institution_name: string | null;
+  /** employment_categories, snapshotted onto the line — splits Teaching / Non-Teaching. */
+  staff_category_name: string | null;
+  is_teaching: boolean;
 }
 
 /** Everything a preflight or a generate needs, loaded once. */
@@ -218,6 +250,13 @@ interface RegisterContext {
   payerUnreadable: boolean;
   /** Active HR staff working at this institution with NO paying institution recorded — on no register. */
   unpaidHere: string[];
+  /**
+   * Work-location mode only: people THIS organisation pays who work at ANOTHER
+   * institution, grouped by where they work. Always empty in payer mode, where
+   * they ARE the roster. Informational — each is verified when their own work
+   * location closes the month.
+   */
+  paidElsewhere: Array<{ institution_name: string; count: number }>;
 }
 
 /** Exported so computeRegisterLine's signature is nameable by its tests. */
@@ -508,6 +547,108 @@ export function computeRegisterLine(input: {
   };
 }
 
+/**
+ * Work-location mode: who PAYS each person on the roster, by name, and how many of
+ * the people THIS organisation pays work somewhere else.
+ *
+ * hr_staff_payroll is gated on hr.payroll.institution.view and returns ZERO ROWS
+ * AND NO ERROR without it, so an empty answer is checked against the permission
+ * rather than read as "nobody is paid by anyone". Unlike the payer-mode roster
+ * this does NOT refuse: the close preview's money never depended on the payer, so
+ * a missing key degrades to a flag and a blank "Paid by", not a blocked screen.
+ */
+async function loadPayerContext(
+  supabase: SupabaseClient,
+  org: { id: string; institution_id: string },
+  staffIds: string[],
+): Promise<{
+  payerByStaff: Map<string, { id: string; name: string }>;
+  payerUnreadable: boolean;
+  paidElsewhere: Array<{ institution_name: string; count: number }>;
+}> {
+  const payerOrgByStaff = new Map<string, string>();
+  for (const ids of chunk(staffIds)) {
+    const { data, error } = await (supabase as any)
+      .from('hr_staff_payroll')
+      .select('staff_id, hr_organization_id')
+      .in('staff_id', ids);
+    if (error) throw new Error(`Failed to load the payer directory: ${getErrorMessage(error)}`);
+    for (const r of (data ?? []) as any[]) {
+      if (r.staff_id && r.hr_organization_id) payerOrgByStaff.set(r.staff_id, r.hr_organization_id);
+    }
+  }
+
+  // Everyone THIS organisation pays, then the ones among them who work elsewhere.
+  const { data: mineRows, error: mineErr } = await (supabase as any)
+    .from('hr_staff_payroll')
+    .select('staff_id')
+    .eq('hr_organization_id', org.id)
+    .limit(5000);
+  if (mineErr) throw new Error(`Failed to load who this institution pays: ${getErrorMessage(mineErr)}`);
+  const mineIds = ((mineRows ?? []) as any[]).map((r) => r.staff_id).filter(Boolean) as string[];
+
+  const elsewhereByInstitution = new Map<string, number>();
+  for (const ids of chunk(mineIds)) {
+    const { data, error } = await (supabase as any)
+      .from('v_hr_staff')
+      .select('id, institution_id')
+      .in('id', ids)
+      .eq('is_active', true)
+      .neq('institution_id', org.institution_id);
+    if (error) throw new Error(`Failed to load where the staff you pay work: ${getErrorMessage(error)}`);
+    for (const r of (data ?? []) as any[]) {
+      elsewhereByInstitution.set(r.institution_id, (elsewhereByInstitution.get(r.institution_id) ?? 0) + 1);
+    }
+  }
+
+  // Names: payer organisations and the work locations of the people paid elsewhere.
+  const payerOrgIds = Array.from(new Set(payerOrgByStaff.values()));
+  const payerNameById = new Map<string, string>();
+  for (const ids of chunk(payerOrgIds)) {
+    const { data, error } = await (supabase as any)
+      .from('hr_organizations')
+      .select('id, name')
+      .in('id', ids);
+    if (error) throw new Error(`Failed to load payer names: ${getErrorMessage(error)}`);
+    for (const o of (data ?? []) as any[]) payerNameById.set(o.id, o.name);
+  }
+
+  const elsewhereIds = Array.from(elsewhereByInstitution.keys());
+  const workNameByInstitution = new Map<string, string>();
+  for (const ids of chunk(elsewhereIds)) {
+    const { data, error } = await (supabase as any)
+      .from('hr_organizations')
+      .select('institution_id, name')
+      .in('institution_id', ids);
+    if (error) throw new Error(`Failed to load work locations: ${getErrorMessage(error)}`);
+    for (const o of (data ?? []) as any[]) workNameByInstitution.set(o.institution_id, o.name);
+  }
+
+  const payerByStaff = new Map<string, { id: string; name: string }>();
+  for (const [staffId, orgId] of payerOrgByStaff) {
+    const name = payerNameById.get(orgId);
+    if (name) payerByStaff.set(staffId, { id: orgId, name });
+  }
+
+  let payerUnreadable = false;
+  if (payerOrgByStaff.size === 0 && staffIds.length > 0) {
+    const { data: canSeePayroll } = await (supabase as any).rpc('user_has_permission', {
+      permission_name: 'hr.payroll.institution.view',
+    });
+    const { data: isSuperAdmin } = await (supabase as any).rpc('is_super_admin');
+    payerUnreadable = !canSeePayroll && !isSuperAdmin;
+  }
+
+  const paidElsewhere = Array.from(elsewhereByInstitution.entries())
+    .map(([institutionId, count]) => ({
+      institution_name: workNameByInstitution.get(institutionId) ?? 'another institution',
+      count,
+    }))
+    .sort((a, b) => b.count - a.count || a.institution_name.localeCompare(b.institution_name));
+
+  return { payerByStaff, payerUnreadable, paidElsewhere };
+}
+
 export class SalaryRegisterService {
   // ───────────────────────────────────────────────────────────────────────
   // Shared loader
@@ -526,8 +667,11 @@ export class SalaryRegisterService {
   private static async loadContext(
     supabase: SupabaseClient,
     input: SalaryRegisterInput,
+    /** See RosterBy. Defaults to 'payer', so preflight and generate are unchanged. */
+    options: { rosterBy?: RosterBy } = {},
   ): Promise<RegisterContext> {
     const { hrOrganizationId, year, month } = input;
+    const rosterBy: RosterBy = options.rosterBy ?? 'payer';
 
     // 1. The paying organisation.
     const { data: org, error: orgErr } = await (supabase as any)
@@ -554,7 +698,9 @@ export class SalaryRegisterService {
     // nobody". Ask directly rather than infer, and refuse.
     const roster: RosterMember[] = [];
     const paidStaffIds: string[] = [];
-    {
+    // Skipped in work-location mode: the roster there is who WORKS at this
+    // institution, so who it pays is not what decides the list.
+    if (rosterBy === 'payer') {
       const { data: payRows, error: payErr } = await (supabase as any)
         .from('hr_staff_payroll')
         .select('staff_id')
@@ -585,10 +731,25 @@ export class SalaryRegisterService {
     //
     // The view is security_invoker, so RLS on staff still applies through it.
     const staffRows: any[] = [];
+    if (rosterBy === 'work_location') {
+      // Everyone in an HR category who works here, paid by anyone. The close
+      // freezes the attendance stamped at THIS institution, so these are the
+      // people whose days it freezes. Same view, same gates as below.
+      const { data, error: staffErr } = await (supabase as any)
+        .from('v_hr_staff')
+        .select('id, staff_id, first_name, last_name, designation, date_of_joining, institution_id, department_id, category_id')
+        .eq('institution_id', org.institution_id)
+        .eq('is_active', true)
+        .limit(5000);
+
+      if (staffErr) throw new Error(`Failed to load team members: ${getErrorMessage(staffErr)}`);
+      staffRows.push(...((data ?? []) as any[]));
+    }
+    // paidStaffIds is empty in work-location mode, so this loop is a no-op there.
     for (const ids of chunk(paidStaffIds)) {
       const { data, error: staffErr } = await (supabase as any)
         .from('v_hr_staff')
-        .select('id, staff_id, first_name, last_name, designation, date_of_joining, institution_id, department_id')
+        .select('id, staff_id, first_name, last_name, designation, date_of_joining, institution_id, department_id, category_id')
         .in('id', ids)
         .eq('is_active', true);
 
@@ -614,6 +775,24 @@ export class SalaryRegisterService {
 
       if (deptErr) throw new Error(`Failed to load departments: ${getErrorMessage(deptErr)}`);
       for (const d of ((deptRows ?? []) as any[])) departmentNameById.set(d.id, d.department_name);
+    }
+
+    // Categories the same way — a few dozen rows, read once. is_teaching splits
+    // the register into its Teaching and Non-Teaching sheets and documents.
+    const categoryIds = Array.from(
+      new Set(staffRows.map((r) => r.category_id).filter(Boolean)),
+    ) as string[];
+    const categoryById = new Map<string, { name: string | null; isTeaching: boolean }>();
+    if (categoryIds.length > 0) {
+      const { data: catRows, error: catErr } = await (supabase as any)
+        .from('employment_categories')
+        .select('id, category_name, is_teaching')
+        .in('id', categoryIds);
+
+      if (catErr) throw new Error(`Failed to load staff categories: ${getErrorMessage(catErr)}`);
+      for (const c of ((catRows ?? []) as any[])) {
+        categoryById.set(c.id, { name: c.category_name ?? null, isTeaching: c.is_teaching === true });
+      }
     }
 
     // Work-location names, for the dependency list and the "Works At" column.
@@ -642,6 +821,8 @@ export class SalaryRegisterService {
         date_of_joining: st.date_of_joining ?? null,
         work_institution_id: st.institution_id,
         work_institution_name: workNameByInstitution.get(st.institution_id) ?? null,
+        staff_category_name: st.category_id ? categoryById.get(st.category_id)?.name ?? null : null,
+        is_teaching: st.category_id ? categoryById.get(st.category_id)?.isTeaching ?? false : false,
       });
     }
 
@@ -696,13 +877,25 @@ export class SalaryRegisterService {
         bankUnreadable: false,
         payerUnreadable: false,
         unpaidHere,
+        paidElsewhere: [],
       };
     }
 
-    // Everyone on the roster is paid by this organisation, by construction.
-    const payerByStaff = new Map<string, { id: string; name: string }>();
-    for (const id of staffIds) payerByStaff.set(id, { id: org.id, name: org.name });
-    const payerUnreadable = false;
+    // Payer mode: everyone on the roster is paid by this organisation, by
+    // construction. Work-location mode: the roster is who works here, so who pays
+    // each person is looked up (and the people paid here who work elsewhere are
+    // counted), because the close preview shows it but no longer derives from it.
+    let payerByStaff = new Map<string, { id: string; name: string }>();
+    let payerUnreadable = false;
+    let paidElsewhere: Array<{ institution_name: string; count: number }> = [];
+    if (rosterBy === 'work_location') {
+      const payers = await loadPayerContext(supabase, org, staffIds);
+      payerByStaff = payers.payerByStaff;
+      payerUnreadable = payers.payerUnreadable;
+      paidElsewhere = payers.paidElsewhere;
+    } else {
+      for (const id of staffIds) payerByStaff.set(id, { id: org.id, name: org.name });
+    }
 
     // 4. The attendance months — one per work location among the people paid
     //    here. Each must be closed before the register can be generated.
@@ -749,7 +942,7 @@ export class SalaryRegisterService {
       }
     }
 
-    // 5. Salaries. superseded_by IS NULL = the currently effective row.
+    // 5. Salaries — the row in force for this month (see below).
     // THE BANDS ARE LOADED WITH throwOnDenied. A slab read that RLS empties looks
     // exactly like "TDS is switched off", and the two demand opposite outcomes:
     // one generates a register with no tax on it, the other must not generate at
@@ -762,14 +955,19 @@ export class SalaryRegisterService {
       string,
       { epf: number; esi: number; allowance: number; tds: number }
     >();
+    // THE PAY IN FORCE FOR THIS MONTH, not the current row. A salary revision
+    // the Director approves starts on the 1st of the NEXT month and is written
+    // on that day (20270519090000); this month's register is often generated
+    // after it, and reading superseded_by IS NULL would pay this month at next
+    // month's rate. hr_staff_salaries_in_force walks back past any row that
+    // starts after the month's last day; for everyone else it returns the same
+    // current row as before. SECURITY INVOKER — the same RLS as the old read.
+    const monthEnd = registerMonthEnd(year, month);
     for (const ids of chunk(staffIds)) {
-      const { data, error } = await (supabase as any)
-        .from('hr_staff_salaries')
-        .select(
-          'staff_id, monthly_gross, eligible_for_pf, epf_amount, eligible_for_esi, esi_amount, allowance_amount'
-        )
-        .in('staff_id', ids)
-        .is('superseded_by', null);
+      const { data, error } = await (supabase as any).rpc(SALARIES_IN_FORCE_RPC, {
+        p_staff_ids: ids,
+        p_on: monthEnd,
+      });
 
       if (error) throw new Error(`Failed to load salaries: ${getErrorMessage(error)}`);
       for (const s of (data ?? []) as any[]) {
@@ -893,6 +1091,7 @@ export class SalaryRegisterService {
       unpaidHere,
       bankUnreadable,
       payerUnreadable,
+      paidElsewhere,
     };
   }
 
@@ -928,7 +1127,14 @@ export class SalaryRegisterService {
     supabase: SupabaseClient,
     input: SalaryRegisterInput,
   ): Promise<SalaryClosePreview> {
-    const ctx = await SalaryRegisterService.loadContext(supabase, input);
+    // WORK-LOCATION roster, not the payer roster. The close freezes the
+    // attendance stamped at THIS institution, and the projection below reads only
+    // that — so the people it can speak for are the ones who work here, whoever
+    // pays them. See RosterBy.
+    const ctx = await SalaryRegisterService.loadContext(supabase, input, {
+      rosterBy: 'work_location',
+    });
+    const paidBy = (staffId: string) => ctx.payerByStaff.get(staffId)?.name ?? null;
     const { year, month } = input;
 
     const { data, error } = await (supabase as any).rpc(
@@ -974,15 +1180,15 @@ export class SalaryRegisterService {
       // Order matters: report the FIRST thing that has to be fixed. A person
       // with neither a salary nor attendance is a salary problem first.
       if (salary === undefined) {
-        excluded.push({ ...baseRow(member), reason: 'no_salary_recorded' });
+        excluded.push({ ...baseRow(member, paidBy(member.staff_id)), reason: 'no_salary_recorded' });
         continue;
       }
       if (salary <= 0) {
-        excluded.push({ ...baseRow(member), reason: 'salary_is_zero' });
+        excluded.push({ ...baseRow(member, paidBy(member.staff_id)), reason: 'salary_is_zero' });
         continue;
       }
       if (!summary) {
-        excluded.push({ ...baseRow(member), reason: 'no_attendance_summary' });
+        excluded.push({ ...baseRow(member, paidBy(member.staff_id)), reason: 'no_attendance_summary' });
         continue;
       }
 
@@ -998,7 +1204,7 @@ export class SalaryRegisterService {
       });
 
       payable.push({
-        ...baseRow(member),
+        ...baseRow(member, paidBy(member.staff_id)),
         working_days: figures.business_working_days,
         paid_days: figures.paid_days,
         unpaid_days: figures.unpaid_leave_days,
@@ -1021,6 +1227,7 @@ export class SalaryRegisterService {
       payable,
       excluded,
       roster_count: ctx.roster.length,
+      paid_elsewhere: ctx.paidElsewhere,
       total_net_pay: round2(payable.reduce((t, r) => t + r.net_pay, 0)),
       unprocessed_days: payable.reduce((t, r) => t + r.unprocessed_days, 0),
       // What the close will freeze. Compared again at close time so a preview
@@ -1280,6 +1487,8 @@ export class SalaryRegisterService {
         paid_by_name: ctx.payerByStaff.get(member.staff_id)?.name ?? null,
         work_institution_id: member.work_institution_id,
         work_institution_name: member.work_institution_name,
+        staff_category_name: member.staff_category_name,
+        is_teaching: member.is_teaching,
       };
 
       // Exclusion order matters: report the FIRST thing HR has to fix, not all
@@ -1707,6 +1916,7 @@ export class SalaryRegisterService {
       total_deductions: num(l.total_deductions),
       adjustment_amount: num(l.adjustment_amount),
       net_pay: num(l.net_pay),
+      is_teaching: l.is_teaching === true,
     } as HRSalaryRegisterLine;
   }
 }

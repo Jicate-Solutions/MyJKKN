@@ -303,15 +303,32 @@ export const ACHIEVEMENT_CATEGORY_LABELS: Record<AchievementCategory, string> = 
 // Constants
 // ============================================================================
 
+// Athletics events are listed one by one so a meet can run each as its own
+// division (2026-10-07, BALAM-2K26). 'Athletics' stays for existing records.
+export const ATHLETICS_EVENTS = [
+  'Athletics - 100 m', 'Athletics - 200 m', 'Athletics - 400 m', 'Athletics - 800 m',
+  'Athletics - 1500 m', 'Athletics - 4 × 100 m Relay', 'Athletics - 4 × 400 m Relay',
+  'Athletics - Long Jump', 'Athletics - Shot Put',
+] as const;
+
 export const JKKN_SPORTS = [
-  'Volleyball', 'Basketball', 'Kho-Kho', 'Kabaddi', 'Handball', 'Badminton',
-  'Football', 'Table Tennis', 'Tennis', 'Hockey',
-  'Wrestling', 'Powerlifting', 'Weightlifting', 'Athletics',
+  'Volleyball', 'Basketball', 'Kho-Kho', 'Kabaddi', 'Handball', 'Throwball', 'Badminton',
+  'Football', 'Table Tennis', 'Tennis', 'Tennikoit', 'Hockey', 'Tug of War',
+  'Wrestling', 'Powerlifting', 'Weightlifting', 'Athletics', ...ATHLETICS_EVENTS,
   'Swimming', 'Chess', 'Carrom', 'Yoga',
 ] as const;
 
-export const TEAM_SPORTS = ['Volleyball', 'Basketball', 'Kho-Kho', 'Kabaddi', 'Handball', 'Badminton', 'Football', 'Hockey'] as const;
-export const INDIVIDUAL_SPORTS = ['Wrestling', 'Powerlifting', 'Weightlifting', 'Athletics', 'Swimming', 'Chess', 'Carrom', 'Table Tennis', 'Tennis', 'Yoga'] as const;
+// Relays and tug of war register a team with a roster.
+export const TEAM_SPORTS = [
+  'Volleyball', 'Basketball', 'Kho-Kho', 'Kabaddi', 'Handball', 'Throwball', 'Badminton', 'Football', 'Hockey',
+  'Tug of War', 'Athletics - 4 × 100 m Relay', 'Athletics - 4 × 400 m Relay',
+] as const;
+export const INDIVIDUAL_SPORTS = [
+  'Wrestling', 'Powerlifting', 'Weightlifting', 'Athletics',
+  'Athletics - 100 m', 'Athletics - 200 m', 'Athletics - 400 m', 'Athletics - 800 m', 'Athletics - 1500 m',
+  'Athletics - Long Jump', 'Athletics - Shot Put',
+  'Swimming', 'Chess', 'Carrom', 'Table Tennis', 'Tennis', 'Tennikoit', 'Yoga',
+] as const;
 
 export const SPORT_LEVELS: { value: SportLevel; label: string }[] = [
   { value: 'intra_college', label: 'Intra-College' },

@@ -36,7 +36,13 @@ import { resolveTiers, type Chip } from '@/lib/navigation/tier-rendering';
 import { findActiveGroup, getNavConfigForPath } from '@/lib/navigation/nav-config';
 import { cn } from '@/lib/utils';
 import { usePermissions } from '@/hooks/use-permissions';
-import { MENU_PERMISSIONS, normalizeRoute } from '@/lib/sidebarMenuLink';
+import {
+  MENU_PERMISSIONS,
+  SUPER_ADMIN_VISIBLE_STUDENT_ROUTES,
+  isStudentPortalRoute,
+  normalizeRoute,
+} from '@/lib/sidebarMenuLink';
+import { useAuth } from '@/hooks/use-auth';
 import { useAdaptiveLabels } from '@/hooks/use-adaptive-labels';
 import { useIsHosteler } from '@/hooks/campus-living/use-is-hosteler';
 import {
@@ -211,6 +217,12 @@ export function AutoTabNav({
   const adaptFn = useAdaptiveLabels();
   const adapt = typeof adaptFn === 'function' ? adaptFn : (label: string) => label;
   const { permissions: rolePermissions, isSuperAdmin, isLoading } = usePermissions();
+  // Student-portal pages (/learners/my-*, class-feedback, ...) carry no
+  // MENU_PERMISSIONS entry by design, so the default-allow below would show
+  // their chips to every staff role. Mirror the sidebar: only students see them.
+  // Unknown profile (still loading) hides nothing, to avoid a flicker.
+  const { profile } = useAuth();
+  const isKnownNonStudent = !!profile && profile.role !== 'student';
   // An appointed School of Influence coordinator holds no cohort.manage key, so
   // every chip of their own programme was filtered away and the tab strip they
   // needed rendered empty (BUG-005799 / BUG-005800). Visibility only — each
@@ -238,6 +250,12 @@ export function AutoTabNav({
   }
 
   const canShowChip = (href: string): boolean => {
+    if (isKnownNonStudent && isStudentPortalRoute(normalizeRoute(href))) {
+      // Super admin keeps the student-lane pages that don't redirect them.
+      const superAdminMayOpen =
+        isSuperAdmin && SUPER_ADMIN_VISIBLE_STUDENT_ROUTES.has(normalizeRoute(href));
+      if (!superAdminMayOpen) return false;
+    }
     if (isLoading) return true;
     if (isSuperAdmin) return true;
     const perm = MENU_PERMISSIONS[normalizeRoute(href)];

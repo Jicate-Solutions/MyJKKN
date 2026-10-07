@@ -32,7 +32,14 @@ import {
 } from '@/components/ui/alert-dialog';
 import { markMeetingOutcome, type MeetingOutcome } from '../actions';
 
-export function MarkOutcomeButtons({ uid }: { uid: string }) {
+// notesClosed (3 Oct 2026): the buttons also sit under a meeting the daily
+// sweep closed because its notes were linked. That booking is ALREADY
+// Completed, so "Mark happened" there does not move it anywhere — it records
+// the person as having confirmed it. The dialog says that instead.
+export const CONFIRM_NOTES_CLOSED_HAPPENED_TEXT =
+  'The booking is already Completed, closed automatically because its notes were linked. This records you as the person who confirmed it happened.';
+
+export function MarkOutcomeButtons({ uid, notesClosed = false }: { uid: string; notesClosed?: boolean }) {
   const [pendingOutcome, setPendingOutcome] = useState<MeetingOutcome | null>(null);
   const [saving, startTransition] = useTransition();
   const router = useRouter();
@@ -96,7 +103,9 @@ export function MarkOutcomeButtons({ uid }: { uid: string }) {
             </AlertDialogTitle>
             <AlertDialogDescription>
               {pendingOutcome === 'completed'
-                ? 'The booking moves to Completed.'
+                ? notesClosed
+                  ? CONFIRM_NOTES_CLOSED_HAPPENED_TEXT
+                  : 'The booking moves to Completed.'
                 : 'The booking moves to No-show, recording that the attendee did not turn up.'}{' '}
               Your name is saved as the person who closed it — not the host&apos;s, if you
               are closing this on their behalf. This is the record of what happened — it

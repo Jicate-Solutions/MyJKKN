@@ -20,6 +20,7 @@ import type {
 } from '@/types/cdc';
 import type { InstitutionSemestersResponse } from '@/app/api/cdc/pickers/institution-semesters/route';
 import type { LearnerNotifyDiagnosis } from '@/lib/services/cdc/drive-notifications';
+import type { CdcDrivePublicRegistration } from '@/lib/services/cdc/drive-public-registration';
 
 const BASE = '/api/cdc';
 
@@ -433,4 +434,59 @@ export function useTransitionCdcDriveWithNotify() {
       qc.invalidateQueries({ queryKey: ['cdc-coordinating-drives'] });
     },
   });
+}
+
+// =====================================================================================
+// Public registration link (no-login page /dr/<token>)
+// =====================================================================================
+
+export interface CdcDrivePublicRegistrationState {
+  /** false when the migration behind the feature has not been applied yet. */
+  available: boolean;
+  error?: string;
+  enabled: boolean;
+  token: string | null;
+  /** Link is on AND the drive is still accepting registrations. */
+  open: boolean;
+  can_enable?: boolean;
+  status?: CdcDriveStatus;
+  registrations: CdcDrivePublicRegistration[];
+}
+
+export function useCdcDrivePublicRegistration(driveId: string | undefined) {
+  return useQuery({
+    queryKey: ['cdc-drive-public-registration', driveId],
+    queryFn: async () => {
+      const res = await fetch(`${BASE}/drives/${driveId}/public-registration`);
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || `Public registration fetch failed: ${res.status}`);
+      }
+      return (await res.json()) as CdcDrivePublicRegistrationState;
+    },
+    enabled: !!driveId,
+  });
+}
+
+export function useSetCdcDrivePublicRegistration(driveId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (enabled: boolean) => {
+      const res = await fetch(`${BASE}/drives/${driveId}/public-registration`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enabled }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error || `Update failed: ${res.status}`);
+      return json as { enabled: boolean; token: string | null; open: boolean };
+    },
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['cdc-drive-public-registration', driveId] });
+    },
+  });
+}
+
+export function cdcDrivePublicRegistrationsExportUrl(driveId: string): string {
+  return `${BASE}/drives/${driveId}/public-registration?format=xlsx`;
 }

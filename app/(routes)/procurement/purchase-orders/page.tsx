@@ -1,20 +1,24 @@
 'use client';
 
 import { useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { useAuth } from '@/hooks/use-auth';
 import { usePermissions } from '@/hooks/use-permissions';
 import { usePurchaseOrders } from '@/hooks/procurement/use-purchase-orders';
 import { useDebounceValue } from '@/hooks/use-debounce-value';
+import { useUserInstitutionAccess } from '@/hooks/use-user-institution-access';
+import { displayRequestNumber } from '@/lib/procurement/display-number';
 import { InstitutionFilter } from '@/components/procurement/institution-filter';
 import { StatusBadge } from '@/components/procurement/status-badge';
+import { ResponsiveList } from '@/components/procurement/responsive-list';
+import { FilterBar } from '@/components/procurement/page-header';
 import { EmptyState } from '@/components/empty-state';
 import { AlertBox } from '@/components/ui/alert-box';
 import { formatDateDMY } from '@/lib/utils/date-format';
 import { PO_STATUS_CONFIG, type PoStatus, type PurchaseOrderFilters } from '@/types/procurement';
-import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { ReceiveSwitcher } from '@/components/procurement/receive-switcher';
 import { Input } from '@/components/ui/input';
 import {
   Select,
@@ -23,15 +27,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table';
-import { Eye, Search, Settings2 } from 'lucide-react';
+import { Search, Settings2 } from 'lucide-react';
 import { BeatLoader } from 'react-spinners';
 
 export default function PurchaseOrdersPage() {
@@ -42,78 +38,84 @@ export default function PurchaseOrdersPage() {
 
   const [search, setSearch] = useState('');
   const debouncedSearch = useDebounceValue(search, 300);
-  const [statusFilter, setStatusFilter] = useState<string>('all');
-  const [institutionId, setInstitutionId] = useState<string | undefined>(undefined);
-  const effectiveInstitution = institutionId ?? profile?.institution_id ?? undefined;
+  const searchParams = useSearchParams();
+  // The Overview status bars link here with ?institution=<id|all>&status=<status>.
+  const [statusFilter, setStatusFilter] = useState<string>(() => searchParams.get('status') ?? 'all');
+  const [institutionId, setInstitutionId] = useState<string | undefined>(
+    // Opens on every college the viewer may see (RLS scopes the rows), as Requests
+    // does: the store team often handles orders for a college other than their profile's.
+    () => searchParams.get('institution') ?? 'all'
+  );
+  // 'all' = every college the viewer may see (RLS scopes the rows). effectiveInstitution
+  // stays a concrete college for anything that creates a document.
+  const allColleges = institutionId === 'all';
+  const effectiveInstitution =
+    (institutionId && !allColleges ? institutionId : undefined) ?? profile?.institution_id ?? undefined;
 
   const filters: PurchaseOrderFilters = {
     search: debouncedSearch || undefined,
     status: statusFilter !== 'all' ? (statusFilter as PoStatus) : undefined,
-    institution_id: effectiveInstitution,
+    institution_id: allColleges ? undefined : effectiveInstitution,
+    all_institutions: allColleges,
   };
 
   const { data: response, isLoading, isError } = usePurchaseOrders(filters);
   const pos = response?.data ?? [];
 
+  // Request numbers restart per college, so "All colleges" also names the college.
+  const { institutions } = useUserInstitutionAccess();
+  const collegeName = (id: string) =>
+    institutions.find((i) => i.institution_id === id)?.institution_name ?? '-';
+
   return (
-    <ContentLayout title="Purchase Orders">
-      <div className="space-y-4 sm:space-y-6">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
-          <div>
-            <h2 className="text-xl sm:text-2xl font-bold tracking-tight">Purchase Orders</h2>
-            <p className="hidden text-muted-foreground sm:block">
-              Generated per awarded vendor. Approve, then send to the vendor.
-            </p>
+    <ContentLayout title="Deliveries">
+      <div className="w-full space-y-5">
+        {/* One toolbar row: which list · search · status · college · PO formats last. */}
+        <FilterBar>
+          <ReceiveSwitcher active="orders" />
+          <div className="relative min-w-[220px] flex-1">
+            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              placeholder="Search purchase no. or PO number"
+              aria-label="Search purchase orders"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="h-9 pl-9"
+            />
           </div>
+          <Select value={statusFilter} onValueChange={setStatusFilter}>
+            <SelectTrigger className="h-9 w-full sm:w-48" aria-label="Status">
+              <SelectValue placeholder="All statuses" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All statuses</SelectItem>
+              {Object.entries(PO_STATUS_CONFIG).map(([key, config]) => (
+                <SelectItem key={key} value={key}>
+                  {config.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <InstitutionFilter
+            value={allColleges ? 'all' : effectiveInstitution}
+            onChange={setInstitutionId}
+            allLabel="All colleges"
+            label={null}
+            className="w-full sm:w-52"
+          />
           {canManageFormats && (
             <Button
               variant="outline"
-              className="shrink-0"
+              className="h-9 w-full sm:w-auto"
               onClick={() => router.push('/procurement/purchase-orders/formats')}
             >
-              <Settings2 className="mr-2 h-4 w-4" />
-              Manage Formats
+              <Settings2 className="mr-1.5 h-4 w-4" />
+              PO formats
             </Button>
           )}
-        </div>
+        </FilterBar>
 
-        <Card>
-          <CardContent className="pt-6">
-            <div className="flex flex-col sm:flex-row gap-3 sm:gap-4">
-              <div className="relative flex-1">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                <Input
-                  placeholder="Search by PO number..."
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                  className="pl-9"
-                />
-              </div>
-              <Select value={statusFilter} onValueChange={setStatusFilter}>
-                <SelectTrigger className="w-full sm:w-[200px]">
-                  <SelectValue placeholder="Status" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All Status</SelectItem>
-                  {Object.entries(PO_STATUS_CONFIG).map(([key, config]) => (
-                    <SelectItem key={key} value={key}>
-                      {config.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <InstitutionFilter
-                value={effectiveInstitution}
-                onChange={setInstitutionId}
-                label={null}
-                className="w-full sm:w-[200px]"
-              />
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardContent className="p-0">
+        <section className="overflow-hidden rounded-xl border bg-background shadow">
             {isLoading ? (
               <div className="flex items-center justify-center py-12">
                 <BeatLoader color="hsl(var(--primary))" size={10} />
@@ -125,51 +127,64 @@ export default function PurchaseOrdersPage() {
             ) : pos.length === 0 ? (
               <EmptyState
                 title="No purchase orders found"
-                description="Purchase orders generated from awarded RFQs will appear here."
+                description="Orders are created when the final approver approves the chosen vendors."
               />
             ) : (
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>PO #</TableHead>
-                    <TableHead>Date</TableHead>
-                    <TableHead>Vendor</TableHead>
-                    <TableHead>Items</TableHead>
-                    <TableHead className="text-right">Total</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead className="text-right">Actions</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {pos.map((po) => (
-                    <TableRow key={po.id}>
-                      <TableCell className="font-medium">{po.po_number}</TableCell>
-                      <TableCell>{formatDateDMY(po.created_at)}</TableCell>
-                      <TableCell>{po.supplier?.name || '-'}</TableCell>
-                      <TableCell>{po.item_count ?? '-'}</TableCell>
-                      <TableCell className="text-right">
-                        ₹{Number(po.total_amount ?? 0).toLocaleString()}
-                      </TableCell>
-                      <TableCell>
-                        <StatusBadge status={po.status} config={PO_STATUS_CONFIG} />
-                      </TableCell>
-                      <TableCell className="text-right">
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          aria-label={`View purchase order ${po.po_number}`}
-                          onClick={() => router.push(`/procurement/purchase-orders/${po.id}`)}
-                        >
-                          <Eye className="h-4 w-4" />
-                        </Button>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
+              <ResponsiveList
+                rows={pos}
+                getRowKey={(po) => po.id}
+                onRowClick={(po) => router.push(`/procurement/purchase-orders/${po.id}`)}
+                rowLabel={(po) => `View order ${po.po_number}`}
+                columns={[
+                  {
+                    key: 'purchase',
+                    header: 'Purchase no.',
+                    mobile: 'title',
+                    cell: (po) => (
+                      <div className="min-w-0">
+                        <div className="font-medium">
+                          {po.purchase_request
+                            ? displayRequestNumber(po.purchase_request.request_number)
+                            : po.po_number}
+                        </div>
+                        {po.purchase_request && (
+                          <div className="text-xs font-normal text-muted-foreground">
+                            Order {po.po_number}
+                          </div>
+                        )}
+                      </div>
+                    ),
+                  },
+                  ...(allColleges
+                    ? [{ key: 'college', header: 'College', cell: (po: (typeof pos)[number]) => collegeName(po.institution_id) }]
+                    : []),
+                  { key: 'date', header: 'Date', cell: (po) => formatDateDMY(po.created_at) },
+                  { key: 'vendor', header: 'Vendor', cell: (po) => po.supplier?.name || '-' },
+                  { key: 'items', header: 'Items', cell: (po) => po.item_count ?? '-' },
+                  {
+                    key: 'total',
+                    header: 'Total',
+                    className: 'md:text-right tabular-nums',
+                    cell: (po) => `₹${Number(po.total_amount ?? 0).toLocaleString('en-IN')}`,
+                  },
+                  {
+                    key: 'status',
+                    header: 'Status',
+                    mobile: 'badge',
+                    cell: (po) => <StatusBadge status={po.status} config={PO_STATUS_CONFIG} />,
+                  },
+                  // The whole row opens the order; this just says so.
+                  {
+                    key: 'open',
+                    header: '',
+                    mobile: 'hidden',
+                    className: 'text-right',
+                    cell: () => <span className="text-xs font-medium text-muted-foreground">Open ›</span>,
+                  },
+                ]}
+              />
             )}
-          </CardContent>
-        </Card>
+        </section>
       </div>
     </ContentLayout>
   );

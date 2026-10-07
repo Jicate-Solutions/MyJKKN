@@ -595,7 +595,7 @@ export function AcademicInformationSection({ form, degreeType }: AcademicInforma
           name="last_school"
           render={({ field }) => (
             <FormItem>
-              <FormLabel>{isPG ? 'College Name & Place' : 'Last School/College Attended'}</FormLabel>
+              <FormLabel>{isPG ? 'College Name & Place *' : 'Last School/College Attended'}</FormLabel>
               <FormControl>
                 <LastSchoolField
                   board={boardOfStudy}
@@ -618,34 +618,125 @@ export function AcademicInformationSection({ form, degreeType }: AcademicInforma
         />
       </div>
 
-      {/* PG-specific fields: Previous Course/Degree + Percentage */}
+      {/* PG: the qualifying degree (2026-09-30). Stored in previous_degree, no
+          longer inside twelfth_marks. Starred fields are required on save for
+          every postgraduate record; entrance exam details are optional. The
+          college is the "College Name & Place" field above. */}
       {isPG && (
         <div className="space-y-4 border-t pt-4">
-          <h3 className="text-lg font-semibold">Previous Qualification</h3>
+          <h3 className="text-lg font-semibold">Previous Degree</h3>
           <div className="grid gap-4 md:grid-cols-2">
             <FormField
               control={form.control}
-              name="twelfth_marks.course_name"
+              name="previous_degree.degree_name"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Previous Course / Degree</FormLabel>
+                  <FormLabel>Degree *</FormLabel>
                   <FormControl>
-                    <Input placeholder="e.g., B.Sc Computer Science" {...field} value={field.value || ''} />
+                    <Input placeholder="e.g., BDS, B.Sc Computer Science" {...field} value={field.value || ''} />
                   </FormControl>
-                  <FormDescription>Enter the UG degree you completed</FormDescription>
                   <FormMessage />
                 </FormItem>
               )}
             />
-
             <FormField
               control={form.control}
-              name="twelfth_marks.percentage"
+              name="previous_degree.university"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Previous Degree Percentage</FormLabel>
+                  <FormLabel>University *</FormLabel>
                   <FormControl>
-                    <Input type="number" placeholder="e.g., 85" {...field} value={field.value || ''} />
+                    <Input placeholder="e.g., The Tamil Nadu Dr. M.G.R. Medical University" {...field} value={field.value || ''} />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            <FormField
+              control={form.control}
+              name="previous_degree.year_of_passing"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Year of Passing *</FormLabel>
+                  <FormControl>
+                    <Input type="number" placeholder="e.g., 2025" {...field} value={field.value || ''} />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            <FormField
+              control={form.control}
+              name="previous_degree.score_type"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Marks given as</FormLabel>
+                  <Select onValueChange={field.onChange} value={field.value || 'percentage'}>
+                    <FormControl>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Percentage or CGPA" />
+                      </SelectTrigger>
+                    </FormControl>
+                    <SelectContent>
+                      <SelectItem value="percentage">Percentage</SelectItem>
+                      <SelectItem value="cgpa">CGPA</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            <FormField
+              control={form.control}
+              name="previous_degree.score"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Degree Marks *</FormLabel>
+                  <FormControl>
+                    <Input type="number" placeholder="e.g., 72.5 or 8.1" {...field} value={field.value || ''} />
+                  </FormControl>
+                  <FormDescription>The final degree percentage or CGPA, as on the mark sheet</FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+          </div>
+          <h4 className="text-base font-medium">Entrance Exam (if any)</h4>
+          <div className="grid gap-4 md:grid-cols-3">
+            <FormField
+              control={form.control}
+              name="previous_degree.entrance_exam"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Exam</FormLabel>
+                  <FormControl>
+                    <Input placeholder="e.g., NEET-MDS, TANCET, GATE" {...field} value={field.value || ''} />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            <FormField
+              control={form.control}
+              name="previous_degree.entrance_score"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Score</FormLabel>
+                  <FormControl>
+                    <Input placeholder="e.g., 412" {...field} value={field.value || ''} />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            <FormField
+              control={form.control}
+              name="previous_degree.entrance_rank"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Rank</FormLabel>
+                  <FormControl>
+                    <Input placeholder="e.g., 1830" {...field} value={field.value || ''} />
                   </FormControl>
                   <FormMessage />
                 </FormItem>

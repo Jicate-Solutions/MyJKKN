@@ -1,7 +1,7 @@
 /**
  * HR Payroll Module — TypeScript Types (T4.3 PR 2)
  *
- * Spec: specs/t4-payroll-design-lock-2026-05-15.md (20 decisions, lock 2026-05-15)
+ * No written spec; the schema lives in the two migrations below.
  * Migration (substrate): 20260628000000_t4_3_payroll_periods_approvals_payslips.sql
  * Migration (RPCs):      20260629000000_t4_3_pr2_payroll_rpcs.sql
  *
@@ -230,6 +230,12 @@ export interface SalaryClosePreviewRow {
   net_pay: number;
   /** Days the evaluator could not judge. Non-zero means fix attendance first. */
   unprocessed_days: number;
+  /**
+   * Which organisation pays this person. The preview lists who WORKS at the
+   * institution being closed, so this can name a different organisation. Null
+   * when no payer is recorded or the caller cannot read hr_staff_payroll.
+   */
+  paid_by_name: string | null;
 }
 
 export interface SalaryClosePreviewExclusion {
@@ -238,6 +244,7 @@ export interface SalaryClosePreviewExclusion {
   staff_name: string;
   designation: string | null;
   department_name: string | null;
+  paid_by_name: string | null;
   reason: SalaryRegisterExclusionReason;
 }
 
@@ -250,7 +257,14 @@ export interface SalaryClosePreview {
   period_basis: number;
   payable: SalaryClosePreviewRow[];
   excluded: SalaryClosePreviewExclusion[];
+  /** People who WORK at this institution — the ones this close freezes. */
   roster_count: number;
+  /**
+   * People this institution PAYS who work at ANOTHER institution, by where they
+   * work. Informational: their attendance is frozen, and their pay verified, when
+   * their own work location closes — not here. Not part of the fingerprint.
+   */
+  paid_elsewhere: Array<{ institution_name: string; count: number }>;
   total_net_pay: number;
   unprocessed_days: number;
   /**
@@ -343,6 +357,12 @@ export interface HRSalaryRegisterLine {
   // lines generated before 2026-09-23.
   work_institution_id: string | null;
   work_institution_name: string | null;
+  // TEACHING OR NOT, snapshotted from employment_categories at generation
+  // (2026-10-07). Splits the register into Teaching / Non-Teaching sheets,
+  // tabs and documents. Lines generated before then were backfilled from the
+  // person's CURRENT category.
+  staff_category_name: string | null;
+  is_teaching: boolean;
 
   business_working_days: number;
   /**
@@ -443,3 +463,48 @@ export interface SalaryRegisterRunDetail {
   organisation_name: string;
   institution_name: string;
 }
+
+/** The two halves a register is split into for the per-category sheets and documents. */
+export type StaffCategoryKey = 'teaching' | 'non_teaching';
+
+/** The two Word documents generated per register, per category. */
+export type PayrollDocumentKind = 'bank_letter' | 'chairperson_approval';
+
+/**
+ * The constants the Bank Letter and Chairperson Approval need that exist
+ * nowhere else in the schema — one row per paying institution
+ * (hr_payroll_document_settings, 2026-10-07).
+ */
+export interface HRPayrollDocumentSettings {
+  hr_organization_id: string;
+  institution_id: string;
+  /** "JKKNCOP" in "JKKNCOP/ AUGUST SALARY/ 2026". */
+  reference_code: string;
+  /** Appended for non-teaching: "JKKNCOP" + "NT" = "JKKNCOPNT". */
+  non_teaching_suffix: string;
+  /** The COLLEGE's bank — the letter's addressee and the cheque's source account. */
+  bank_name: string;
+  bank_branch: string;
+  college_account_number: string;
+  addressee_title: string;
+  approval_salutation: string;
+  submitter_title: string;
+  approver_title: string;
+  updated_at: string | null;
+}
+
+/**
+ * What the settings endpoint answers. `saved: false` means nobody has filled
+ * the form for this institution yet — `settings` then carries SUGGESTED values
+ * (ref code from the staff-code prefix, bank from the staff accounts) so the
+ * form opens pre-filled, but no document may be generated from them.
+ */
+export interface PayrollDocumentSettingsResponse {
+  saved: boolean;
+  settings: HRPayrollDocumentSettings;
+}
+
+export type PayrollDocumentSettingsInput = Omit<
+  HRPayrollDocumentSettings,
+  'hr_organization_id' | 'institution_id' | 'updated_at'
+>;

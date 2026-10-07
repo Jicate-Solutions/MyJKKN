@@ -53,6 +53,10 @@ const SIDEBAR = 'lib/sidebarMenuLink.ts';
  * etc.). This mirrors `NAV_EXCLUDE` in the predecessor script.
  */
 const NAV_EXCLUDE = new Set<string>([
+  // My Pay Changes — the salary revision outcome notice (20270519090000).
+  // Reached from the in-app notice sent at the Director's yes; a team member
+  // has nothing to find there before one, so it has no sidebar row.
+  '/hr/my-pay-changes',
   // Induction Session Catalog — the curated cross-college "best sessions" library.
   // Reached via the "Session catalog" button on the chip-reachable /events/induction
   // landing page (not a tier-strip destination). Gated induction.view in MENU_PERMISSIONS.
@@ -62,6 +66,17 @@ const NAV_EXCLUDE = new Set<string>([
   // (see its `searchParams: { task?: string }`) and shows a "no ticket" state
   // with no task id, so it has no standalone chip surface to be reached from.
   '/campus-walk/fix',
+  // Campus Walk routine check screen. Reached from the bell a routine check
+  // job raises, as `/campus-walk/check?task=<id>` — one specific job, same
+  // shape as the fixer screen above, so no standalone chip surface.
+  '/campus-walk/check',
+  // Campus Walk spot checks (2026-09-30 interview, rulings 1 and 3). Reached
+  // from the two bells that name it — "spot check" to the checker and "failed
+  // twice" to the college head. A sidebar row would be keyed instasolver.view
+  // (principals are not guaranteed projects.view) and so would show a Campus
+  // Walk group to every learner; the page itself refuses anyone but a
+  // principal or the Director.
+  '/campus-walk/spot-checks',
   // Top-bar avatar / bell targets
   '/profile',
   '/notifications',
@@ -117,6 +132,12 @@ const NAV_EXCLUDE = new Set<string>([
   '/staff',
   '/startup-studio',
   '/okr/admin',
+
+  // Retired redirect stubs (2027-04) — the page body is just
+  // redirect('/academic/leave-onduty/...'), kept only so old bookmarks/links
+  // don't 404. No chip should point at them.
+  '/learners/leave-onduty/settings',
+  '/learners/leave-onduty/apply-bulk',
 
   // ────────────────────────────────────────────────────────────
   // 2026-06-10 admin-cluster relocation — admission (counselors +
@@ -199,6 +220,18 @@ const NAV_EXCLUDE = new Set<string>([
   // chip-reachable parent /billing/apportionment list page.
   '/billing/apportionment/rules',
 
+  // InstaSolver chooser lanes — hidden from navigation on 2026-10-01 (owner's
+  // decision) but kept for direct links, e.g. an anonymous complainant's
+  // tracking link. /instasolver itself now redirects to the desk dashboard.
+  '/instasolver/broken',
+  '/instasolver/complaint',
+  '/instasolver/track',
+  // Reached from the chooser's "My complaints" / "My reports" buttons, the
+  // bell, and a room's QR sticker (/r/[token]) — not from the desk's chip row.
+  '/instasolver/my-complaints',
+  '/instasolver/my-reports',
+  '/instasolver/r',
+
   // Academic /new forms
   '/academic/batches/new',
   '/academic/leaves/new',
@@ -269,6 +302,16 @@ const NAV_EXCLUDE = new Set<string>([
   '/procurement/rfqs/[id]/quotations',
   // GRN receiving form — button-invoked ("Create GRN") from the PO detail page
   '/procurement/grn/new',
+  // One purchase = one page: the old Deliveries tab was folded away. These lists still
+  // resolve (links, bookmarks) but every order and delivery opens from its purchase page.
+  '/procurement/purchase-orders',
+  '/procurement/grn',
+  // PO print formats — reached from "Print as → + New format" on the order page.
+  '/procurement/purchase-orders/formats',
+  '/procurement/purchase-orders/formats/new',
+  // "Waiting for my approval" — approvers (HOD, Principal, CAO…) arrive from their
+  // notification or the Overview card; most of them have no Procurement tabs at all.
+  '/procurement/approvals',
 
   // OKR /new + /create wizard forms
   '/okr/elective/new',

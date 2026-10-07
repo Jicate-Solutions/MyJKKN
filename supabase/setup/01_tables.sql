@@ -10395,3 +10395,970 @@ REVOKE ALL ON TABLE public.adoption_reminders FROM anon, PUBLIC;
 REVOKE ALL ON TABLE public.adoption_reminders FROM authenticated;
 GRANT SELECT ON TABLE public.adoption_reminders TO authenticated;
 GRANT ALL    ON TABLE public.adoption_reminders TO service_role;
+
+-- ============================================================================
+-- Bill cancel REQUEST flow (request -> approval flow -> cancel)
+-- Migration: 20260928100000_bill_cancel_request_flow.sql
+-- ============================================================================
+-- ---------------------------------------------------------------------------
+-- 1. Tables
+-- ---------------------------------------------------------------------------
+CREATE SEQUENCE IF NOT EXISTS public.billing_bill_cancel_number_seq;
+
+CREATE TABLE IF NOT EXISTS public.billing_bill_cancel_requests (
+  id                        uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  request_number            text NOT NULL UNIQUE,
+  -- SET NULL, not CASCADE: a super admin may still hard-delete a bill, and the
+  -- history of who asked to cancel it must outlive the row. bill_snapshot
+  -- preserves its identity.
+  bill_id                   uuid REFERENCES public.billing_student_bills(id) ON DELETE SET NULL,
+  institution_id            uuid NOT NULL,
+  student_id                uuid,
+  reason_code               text NOT NULL
+                            CHECK (reason_code IN ('duplicate_bill','raised_in_error','fee_waived',
+                                                   'learner_withdrawn','structure_corrected','other')),
+  reason                    text NOT NULL,
+  -- [{name, drive_file_id, drive_url, mime, size}] -- same shape as
+  -- billing_bill_cancellations.attachments, copied there on approval.
+  attachments               jsonb NOT NULL DEFAULT '[]'::jsonb,
+  bill_snapshot             jsonb NOT NULL DEFAULT '{}'::jsonb,
+  amount                    numeric NOT NULL,
+  status                    text NOT NULL DEFAULT 'pending_approval'
+                            CHECK (status IN ('pending_approval','approved','declined','withdrawn','failed')),
+  -- Identity SNAPSHOTS: a profile can be renamed or deactivated long after the
+  -- fact; the uuid alone cannot answer "who asked / who approved" years later.
+  requested_by              uuid,
+  requested_by_name         text,
+  requested_by_email        text,
+  requested_by_role         text,
+  requested_at              timestamptz NOT NULL DEFAULT now(),
+  decided_by                uuid,
+  decided_by_name           text,
+  decided_by_email          text,
+  decided_by_role           text,
+  decided_by_designation    text,
+  decided_by_is_super_admin boolean,
+  decided_at                timestamptz,
+  decision_notes            text,
+  created_at                timestamptz NOT NULL DEFAULT now(),
+  updated_at                timestamptz NOT NULL DEFAULT now()
+);
+
+-- At most ONE open request per bill.
+CREATE UNIQUE INDEX IF NOT EXISTS uq_bill_cancel_open_per_bill
+  ON public.billing_bill_cancel_requests (bill_id)
+  WHERE status = 'pending_approval';
+CREATE INDEX IF NOT EXISTS idx_bill_cancel_req_status
+  ON public.billing_bill_cancel_requests (status, requested_at DESC);
+CREATE INDEX IF NOT EXISTS idx_bill_cancel_req_institution
+  ON public.billing_bill_cancel_requests (institution_id);
+CREATE INDEX IF NOT EXISTS idx_bill_cancel_req_student
+  ON public.billing_bill_cancel_requests (student_id);
+CREATE INDEX IF NOT EXISTS idx_bill_cancel_req_bill
+  ON public.billing_bill_cancel_requests (bill_id);
+
+CREATE TABLE IF NOT EXISTS public.billing_bill_cancel_request_actions (
+  id                   uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  request_id           uuid NOT NULL
+                       REFERENCES public.billing_bill_cancel_requests(id) ON DELETE CASCADE,
+  action_type          text NOT NULL
+                       CHECK (action_type IN ('requested','approved','declined','withdrawn','failed')),
+  actor_id             uuid,
+  actor_name           text,
+  actor_email          text,
+  actor_role_name      text,
+  actor_is_super_admin boolean,
+  notes                text,
+  created_at           timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_bill_cancel_actions_request
+  ON public.billing_bill_cancel_request_actions (request_id, created_at);
+
+CREATE TABLE IF NOT EXISTS public.billing_bill_cancel_approval_flows (
+  id                uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  -- NULL = group-wide default. A row for a specific institution wins over it.
+  institution_id    uuid REFERENCES public.institutions(id) ON DELETE CASCADE,
+  flow_name         text NOT NULL,
+  approver_role_key text REFERENCES public.custom_roles(role_key)
+                         ON UPDATE CASCADE ON DELETE RESTRICT,
+  approver_user_id  uuid REFERENCES public.profiles(id) ON DELETE RESTRICT,
+  is_active         boolean NOT NULL DEFAULT true,
+  created_at        timestamptz NOT NULL DEFAULT now(),
+  updated_at        timestamptz NOT NULL DEFAULT now(),
+  created_by        uuid REFERENCES public.profiles(id),
+  updated_by        uuid REFERENCES public.profiles(id),
+  CONSTRAINT billing_bill_cancel_flow_one_approver CHECK (
+    (approver_role_key IS NOT NULL)::int + (approver_user_id IS NOT NULL)::int = 1
+  )
+);
+COMMENT ON TABLE public.billing_bill_cancel_approval_flows IS
+  'Who may decide a bill-cancellation request. One active flow per institution, plus an optional group-wide default. No flow = super admin only.';
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_bill_cancel_flow_active_institution
+  ON public.billing_bill_cancel_approval_flows (institution_id)
+  WHERE is_active AND institution_id IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS uq_bill_cancel_flow_active_global
+  ON public.billing_bill_cancel_approval_flows ((institution_id IS NULL))
+  WHERE is_active AND institution_id IS NULL;
+CREATE INDEX IF NOT EXISTS idx_bill_cancel_flow_role
+  ON public.billing_bill_cancel_approval_flows (approver_role_key);
+CREATE INDEX IF NOT EXISTS idx_bill_cancel_flow_user
+  ON public.billing_bill_cancel_approval_flows (approver_user_id);
+
+-- The final audit row points back at the approval that authorised it.
+ALTER TABLE public.billing_bill_cancellations
+  ADD COLUMN IF NOT EXISTS request_id uuid
+  REFERENCES public.billing_bill_cancel_requests(id) ON DELETE SET NULL;
+CREATE INDEX IF NOT EXISTS idx_bill_cancellations_request
+  ON public.billing_bill_cancellations (request_id);
+
+REVOKE ALL ON TABLE public.billing_bill_cancel_requests FROM anon, PUBLIC;
+REVOKE ALL ON TABLE public.billing_bill_cancel_request_actions FROM anon, PUBLIC;
+REVOKE ALL ON TABLE public.billing_bill_cancel_approval_flows FROM anon, PUBLIC;
+REVOKE ALL ON SEQUENCE public.billing_bill_cancel_number_seq FROM anon, PUBLIC;
+
+ALTER TABLE public.billing_bill_cancel_requests ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.billing_bill_cancel_request_actions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.billing_bill_cancel_approval_flows ENABLE ROW LEVEL SECURITY;
+
+
+-- ============================================================================
+-- Updated: 2026-09-29 - Salary revisions: ask -> principal's check -> the Director's yes or no
+-- The four tables and the one-open-request index. Copied from supabase/migrations/20270519090000_hr_salary_revision_requests.sql,
+-- which carries the full reasoning (the Director's 16 rulings of 29 Sep 2026).
+-- ============================================================================
+-- ----------------------------------------------------------------------------
+-- 1. Tables
+-- ----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS public.hr_salary_revision_requests (
+  id                     uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  -- The person whose pay it is.
+  staff_id               uuid NOT NULL REFERENCES public.staff(id) ON DELETE CASCADE,
+  -- Where they worked and in which department WHEN ASKED. Snapshots, so a
+  -- transfer does not move a request into another principal's list.
+  institution_id         uuid NOT NULL REFERENCES public.institutions(id),
+  department_id          uuid REFERENCES public.departments(id) ON DELETE SET NULL,
+
+  asked_by               uuid NOT NULL,
+  asked_as               text NOT NULL
+                           CHECK (asked_as IN ('director', 'hr_head', 'principal', 'hod')),
+  route                  text NOT NULL CHECK (route IN ('direct', 'via_principal')),
+  is_self                boolean NOT NULL DEFAULT false,
+  is_for_senior          boolean NOT NULL DEFAULT false,
+
+  current_monthly_gross  numeric(12,2) NOT NULL CHECK (current_monthly_gross > 0),
+  asked_monthly_gross    numeric(12,2) NOT NULL CHECK (asked_monthly_gross > 0),
+  is_cut                 boolean GENERATED ALWAYS AS (asked_monthly_gross < current_monthly_gross) STORED,
+  reason                 text NOT NULL
+                           CHECK (length(btrim(reason)) BETWEEN 1 AND 2000),
+
+  status                 text NOT NULL CHECK (status IN (
+                           'waiting_principal', 'waiting_director',
+                           'approved', 'applied', 'stopped', 'refused')),
+
+  principal_decided_by   uuid,
+  principal_decided_at   timestamptz,
+  director_decided_by    uuid,
+  director_decided_at    timestamptz,
+
+  final_monthly_gross    numeric(12,2) CHECK (final_monthly_gross > 0),
+  final_is_cut           boolean GENERATED ALWAYS AS (final_monthly_gross < current_monthly_gross) STORED,
+  starts_on              date,
+
+  applied_salary_id      uuid REFERENCES public.hr_staff_salaries(id),
+  applied_at             timestamptz,
+  -- Why an approved revision whose date has come could not be written yet.
+  apply_note             text,
+
+  created_at             timestamptz NOT NULL DEFAULT now(),
+  updated_at             timestamptz NOT NULL DEFAULT now(),
+
+  -- Only an HOD's request goes via the principal.
+  CONSTRAINT hr_srr_via_principal_is_hod
+    CHECK (route = 'direct' OR asked_as = 'hod'),
+  CONSTRAINT hr_srr_waiting_principal_route
+    CHECK (status <> 'waiting_principal' OR route = 'via_principal'),
+  -- A request that went via the principal left that step with a decision.
+  CONSTRAINT hr_srr_principal_decided
+    CHECK (route = 'direct' OR status = 'waiting_principal'
+           OR (principal_decided_by IS NOT NULL AND principal_decided_at IS NOT NULL)),
+  CONSTRAINT hr_srr_stopped_only_via_principal
+    CHECK (status <> 'stopped' OR route = 'via_principal'),
+  CONSTRAINT hr_srr_director_decided
+    CHECK (status NOT IN ('approved', 'applied', 'refused')
+           OR (director_decided_by IS NOT NULL AND director_decided_at IS NOT NULL)),
+  -- A yes always carries the figure and a start on the 1st of a month.
+  CONSTRAINT hr_srr_approved_has_figure_and_start
+    CHECK (status NOT IN ('approved', 'applied')
+           OR (final_monthly_gross IS NOT NULL AND starts_on IS NOT NULL
+               AND EXTRACT(DAY FROM starts_on) = 1)),
+  CONSTRAINT hr_srr_applied_has_salary
+    CHECK ((status = 'applied') = (applied_salary_id IS NOT NULL AND applied_at IS NOT NULL))
+);
+
+-- Updated: 2026-09-30 - 20270524090000: the marker, the band snapshot, the cancelled state.
+ALTER TABLE public.hr_salary_revision_requests
+  ADD COLUMN IF NOT EXISTS asker_is_also_hod boolean NOT NULL DEFAULT false,
+  ADD COLUMN IF NOT EXISTS band_snapshot     jsonb,
+  ADD COLUMN IF NOT EXISTS cancelled_at      timestamptz,
+  ADD COLUMN IF NOT EXISTS cancel_note       text;
+
+COMMENT ON COLUMN public.hr_salary_revision_requests.asker_is_also_hod IS
+  '30 Sep: the asker is the principal AND the head of this department, so there was no separate check; the Director sees it marked.';
+COMMENT ON COLUMN public.hr_salary_revision_requests.band_snapshot IS
+  '30 Sep: the college''s pay band as it stood when asked, so the Director''s screen can say the band changed since. Never sent to a browser.';
+COMMENT ON COLUMN public.hr_salary_revision_requests.cancel_note IS
+  '30 Sep: why an approved raise was cancelled (the person left before its start date).';
+
+-- 'cancelled' joins the statuses. The inline CHECK of 20270519090000 carries
+-- PostgreSQL's default name.
+ALTER TABLE public.hr_salary_revision_requests
+  DROP CONSTRAINT IF EXISTS hr_salary_revision_requests_status_check;
+ALTER TABLE public.hr_salary_revision_requests
+  ADD CONSTRAINT hr_salary_revision_requests_status_check
+  CHECK (status IN ('waiting_principal', 'waiting_director',
+                    'approved', 'applied', 'stopped', 'refused', 'cancelled'));
+ALTER TABLE public.hr_salary_revision_requests
+  DROP CONSTRAINT IF EXISTS hr_srr_cancelled_has_note;
+ALTER TABLE public.hr_salary_revision_requests
+  ADD CONSTRAINT hr_srr_cancelled_has_note
+  CHECK ((status = 'cancelled') = (cancelled_at IS NOT NULL AND cancel_note IS NOT NULL));
+
+-- Updated: 2026-10-01 - 20271007150103: the account a request was about when it
+-- was asked, so "own" and "on the Director list" cannot be dodged by changing
+-- staff.profile_id afterwards (backfilled in the migration), and the stamp on
+-- a decision made under the rulings of 1 Oct 2026.
+ALTER TABLE public.hr_salary_revision_requests
+  ADD COLUMN IF NOT EXISTS subject_profile_id uuid,
+  ADD COLUMN IF NOT EXISTS decided_under_rules boolean NOT NULL DEFAULT false,
+  ADD COLUMN IF NOT EXISTS subject_was_list_member boolean;
+
+COMMENT ON COLUMN public.hr_salary_revision_requests.subject_was_list_member IS
+  '1 Oct 2026: whether the person was on the Director list when it was asked (backfilled for older requests '
+  'from the list as it stood when 20271007150103 was applied). "On the list" means then OR now, so taking '
+  'someone off the list does not open their raise. Migration 20271007150103.';
+
+COMMENT ON COLUMN public.hr_salary_revision_requests.decided_under_rules IS
+  '1 Oct 2026: true when the latest decision on it passed the rulings of 1 Oct 2026 (stamped by approve_one, '
+  'director_decide and college_decide). A stamped yes is always written; only an unstamped (older) yes is '
+  'judged by today''s rules and held back if it breaks them. Migration 20271007150103.';
+
+COMMENT ON COLUMN public.hr_salary_revision_requests.subject_profile_id IS
+  '1 Oct 2026: the account (staff.profile_id) the request was about when it was asked; never changed after. '
+  'Requests asked before 20271007150103 carry the link as it stood when that file was applied. "Own" and '
+  '"on the Director list" match this OR the link as it is now.';
+
+
+-- RULING 10: one open request per person. 'approved' counts as open: until the
+-- new pay is written, a second yes could be applied on top of the first.
+CREATE UNIQUE INDEX IF NOT EXISTS hr_salary_revision_requests_one_open
+  ON public.hr_salary_revision_requests (staff_id)
+  WHERE status IN ('waiting_principal', 'waiting_director', 'approved');
+
+CREATE INDEX IF NOT EXISTS hr_salary_revision_requests_status_idx
+  ON public.hr_salary_revision_requests (status, starts_on);
+CREATE INDEX IF NOT EXISTS hr_salary_revision_requests_institution_idx
+  ON public.hr_salary_revision_requests (institution_id);
+CREATE INDEX IF NOT EXISTS hr_salary_revision_requests_department_idx
+  ON public.hr_salary_revision_requests (department_id);
+CREATE INDEX IF NOT EXISTS hr_salary_revision_requests_asked_by_idx
+  ON public.hr_salary_revision_requests (asked_by);
+
+DROP TRIGGER IF EXISTS trg_hr_salary_revision_requests_updated_at ON public.hr_salary_revision_requests;
+CREATE TRIGGER trg_hr_salary_revision_requests_updated_at
+  BEFORE UPDATE ON public.hr_salary_revision_requests
+  FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+
+COMMENT ON TABLE public.hr_salary_revision_requests IS
+  'A request to change one person''s monthly pay: asked by a principal, an HOD or the HR head; checked by the principal when an HOD asked; decided by the Director. The pay itself is written to hr_staff_salaries only on starts_on. See 20270519090000.';
+
+CREATE TABLE IF NOT EXISTS public.hr_salary_revision_comments (
+  id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  request_id  uuid NOT NULL REFERENCES public.hr_salary_revision_requests(id) ON DELETE CASCADE,
+  author_id   uuid NOT NULL,
+  body        text NOT NULL CHECK (length(btrim(body)) BETWEEN 1 AND 2000),
+  created_at  timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS hr_salary_revision_comments_request_idx
+  ON public.hr_salary_revision_comments (request_id, created_at);
+
+COMMENT ON TABLE public.hr_salary_revision_comments IS
+  'Comments on a salary revision request, seen by whoever can see the request. Never by the person whose pay it is.';
+
+CREATE TABLE IF NOT EXISTS public.hr_salary_revision_decision_notes (
+  id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  request_id  uuid NOT NULL REFERENCES public.hr_salary_revision_requests(id) ON DELETE CASCADE,
+  kind        text NOT NULL CHECK (kind IN ('stopped', 'refused')),
+  reason      text NOT NULL CHECK (length(btrim(reason)) BETWEEN 1 AND 2000),
+  written_by  uuid NOT NULL,
+  created_at  timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT hr_salary_revision_decision_notes_one UNIQUE (request_id, kind)
+);
+
+COMMENT ON TABLE public.hr_salary_revision_decision_notes IS
+  'Why a request was stopped (principal) or refused (Director). RULING 14: only the asker, the principal for an HOD''s request, and the Director see it — narrower than the request itself, hence its own table.';
+
+CREATE TABLE IF NOT EXISTS public.hr_salary_revision_outcomes (
+  id                      uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  request_id              uuid NOT NULL UNIQUE REFERENCES public.hr_salary_revision_requests(id) ON DELETE CASCADE,
+  staff_id                uuid NOT NULL REFERENCES public.staff(id) ON DELETE CASCADE,
+  previous_monthly_gross  numeric(12,2) NOT NULL,
+  new_monthly_gross       numeric(12,2) NOT NULL CHECK (new_monthly_gross > 0),
+  is_cut                  boolean GENERATED ALWAYS AS (new_monthly_gross < previous_monthly_gross) STORED,
+  starts_on               date NOT NULL CHECK (EXTRACT(DAY FROM starts_on) = 1),
+  created_at              timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS hr_salary_revision_outcomes_staff_idx
+  ON public.hr_salary_revision_outcomes (staff_id);
+
+COMMENT ON TABLE public.hr_salary_revision_outcomes IS
+  'What the person whose pay it is may know: the new monthly pay and the day it starts. Written only at the Director''s yes (ruling 5). Nothing about who asked, why, or any refusal.';
+
+-- ============================================================================
+-- 2026-09-30 hostel vacate: dynamic checklist table + request columns
+-- (source of truth: supabase/migrations/20260930240000_hostel_vacate_bill_gate_dynamic_checklist.sql)
+-- ============================================================================
+-- ─── 1. Master checklist (one global list) ─────────────────────────────────
+CREATE TABLE IF NOT EXISTS public.hostel_vacate_checklist_items (
+  id                  uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  item_label          text NOT NULL CHECK (char_length(btrim(item_label)) BETWEEN 3 AND 200),
+  description         text CHECK (description IS NULL OR char_length(description) <= 1000),
+  is_required         boolean NOT NULL DEFAULT true,
+  -- NULL = applies to every vacate reason
+  applies_to_reasons  public.vacate_reason_enum[],
+  sort_order          integer NOT NULL DEFAULT 100,
+  is_active           boolean NOT NULL DEFAULT true,
+  created_by          uuid REFERENCES auth.users(id),
+  updated_by          uuid REFERENCES auth.users(id),
+  created_at          timestamptz NOT NULL DEFAULT now(),
+  updated_at          timestamptz NOT NULL DEFAULT now()
+);
+ALTER TABLE public.hostel_vacate_checklist_items ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON public.hostel_vacate_checklist_items FROM anon;
+
+CREATE INDEX IF NOT EXISTS idx_hvci_active_sort
+  ON public.hostel_vacate_checklist_items (is_active, sort_order);
+CREATE INDEX IF NOT EXISTS idx_hvci_created_by ON public.hostel_vacate_checklist_items (created_by);
+CREATE INDEX IF NOT EXISTS idx_hvci_updated_by ON public.hostel_vacate_checklist_items (updated_by);
+
+DROP TRIGGER IF EXISTS tr_hvci_updated_at ON public.hostel_vacate_checklist_items;
+CREATE TRIGGER tr_hvci_updated_at BEFORE UPDATE ON public.hostel_vacate_checklist_items
+  FOR EACH ROW EXECUTE FUNCTION public.set_hostel_vacate_updated_at();
+
+DROP POLICY IF EXISTS hvci_select ON public.hostel_vacate_checklist_items;
+CREATE POLICY hvci_select ON public.hostel_vacate_checklist_items FOR SELECT TO authenticated
+  USING (
+    (SELECT public.is_super_admin())
+    OR (SELECT public.is_admin())
+    OR (SELECT public.user_has_permission('campus_living.vacate_checklist.manage'))
+    OR (SELECT public.user_has_permission('campus_living.vacate_requests.view'))
+  );
+
+DROP POLICY IF EXISTS hvci_insert ON public.hostel_vacate_checklist_items;
+CREATE POLICY hvci_insert ON public.hostel_vacate_checklist_items FOR INSERT TO authenticated
+  WITH CHECK (
+    (SELECT public.is_super_admin())
+    OR (SELECT public.is_admin())
+    OR (SELECT public.user_has_permission('campus_living.vacate_checklist.manage'))
+  );
+
+DROP POLICY IF EXISTS hvci_update ON public.hostel_vacate_checklist_items;
+CREATE POLICY hvci_update ON public.hostel_vacate_checklist_items FOR UPDATE TO authenticated
+  USING (
+    (SELECT public.is_super_admin())
+    OR (SELECT public.is_admin())
+    OR (SELECT public.user_has_permission('campus_living.vacate_checklist.manage'))
+  )
+  WITH CHECK (
+    (SELECT public.is_super_admin())
+    OR (SELECT public.is_admin())
+    OR (SELECT public.user_has_permission('campus_living.vacate_checklist.manage'))
+  );
+
+-- No DELETE policy: items are deactivated, never deleted, so a request's
+-- frozen copy keeps a valid checklist_item_id.
+
+-- Seed = the six items that used to be hard-coded (now editable).
+INSERT INTO public.hostel_vacate_checklist_items (item_label, is_required, sort_order)
+SELECT v.item_label, v.is_required, v.sort_order
+FROM (VALUES
+  ('Mess dues cleared',                          true,  10),
+  ('Library dues cleared',                       true,  20),
+  ('Room / furniture damage assessment',         true,  30),
+  ('Deposit refund processed by Accounts',       true,  40),
+  ('Room keys returned',                         true,  50),
+  ('Hostel ID card returned',                    false, 60)
+) AS v(item_label, is_required, sort_order)
+WHERE NOT EXISTS (SELECT 1 FROM public.hostel_vacate_checklist_items);
+
+-- ─── 2. Request-side columns ───────────────────────────────────────────────
+ALTER TABLE public.hostel_clearance_items
+  ADD COLUMN IF NOT EXISTS checklist_item_id uuid
+    REFERENCES public.hostel_vacate_checklist_items(id) ON DELETE SET NULL;
+CREATE INDEX IF NOT EXISTS idx_hci_checklist_item ON public.hostel_clearance_items (checklist_item_id);
+
+ALTER TABLE public.hostel_vacate_requests
+  ADD COLUMN IF NOT EXISTS room_snapshot          jsonb,
+  ADD COLUMN IF NOT EXISTS bills_snapshot         jsonb,
+  ADD COLUMN IF NOT EXISTS outstanding_at_approval numeric,
+  ADD COLUMN IF NOT EXISTS approved_by            uuid REFERENCES auth.users(id),
+  ADD COLUMN IF NOT EXISTS approved_at            timestamptz,
+  ADD COLUMN IF NOT EXISTS approval_remarks       text;
+CREATE INDEX IF NOT EXISTS idx_hvr_approved_by ON public.hostel_vacate_requests (approved_by);
+
+-- One open request per allocation.
+CREATE UNIQUE INDEX IF NOT EXISTS hvr_one_open_per_allocation
+  ON public.hostel_vacate_requests (allocation_id)
+  WHERE status IN ('draft', 'pending_parent', 'pending_warden', 'pending_chief', 'pending_dues', 'approved');
+
+
+-- ═══ 2026-10-01: vacate approval chain + room damage + fine bill (20261001100000/110000) ═══
+-- ============================================================================
+-- Hostel vacate: new approval-chain statuses
+-- ============================================================================
+-- Must be its own migration: a freshly added enum value cannot be used in the
+-- same transaction that adds it. The follow-up migration
+-- 20261001110000_hostel_vacate_approval_chain_damage_fine.sql uses them.
+--
+-- Flow: draft -> pending_dues (bills not cleared) -> pending_principal ->
+--       pending_warden -> pending_mess -> pending_cao -> [pending_fine] -> completed
+-- pending_dues already exists and is reused for the automatic bill check.
+-- ============================================================================
+ALTER TYPE public.vacate_request_status_enum ADD VALUE IF NOT EXISTS 'pending_principal';
+ALTER TYPE public.vacate_request_status_enum ADD VALUE IF NOT EXISTS 'pending_mess';
+ALTER TYPE public.vacate_request_status_enum ADD VALUE IF NOT EXISTS 'pending_cao';
+ALTER TYPE public.vacate_request_status_enum ADD VALUE IF NOT EXISTS 'pending_fine';
+
+-- ============================================================================
+-- Hostel vacate: 6-step approval chain + room damage + auto fine bill
+-- ============================================================================
+-- draft -> [submit] -> pending_dues (auto bill check) -> pending_principal
+--       -> pending_warden (checklist + room inspection/damages)
+--       -> pending_mess -> pending_cao
+--       -> pending_fine (only when damage_total > 0) -> completed
+--
+-- Completion (_cl_vacate_finalize) = vacate allocation + free bed + Day Scholar
+-- + clear hostel/mess categories. It runs from the CAO approval (no damage) or
+-- from the trigger below when the fine bill is paid (or cancelled by Accounts).
+--
+-- Every transition is a SECURITY DEFINER RPC that derives the caller from
+-- auth.uid(), checks the step's permission + scope and re-checks the gates in
+-- the database. Direct writes to the vacate tables stay admin / own-draft only.
+-- ============================================================================
+
+
+-- ─── 1. Damage-type master (global list, like the checklist master) ────────
+CREATE TABLE IF NOT EXISTS public.hostel_damage_types (
+  id             uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  name           text NOT NULL CHECK (char_length(btrim(name)) BETWEEN 2 AND 120),
+  default_amount numeric(10,2) NOT NULL DEFAULT 0 CHECK (default_amount >= 0),
+  is_active      boolean NOT NULL DEFAULT true,
+  sort_order     integer NOT NULL DEFAULT 100,
+  created_by     uuid REFERENCES auth.users(id),
+  updated_by     uuid REFERENCES auth.users(id),
+  created_at     timestamptz NOT NULL DEFAULT now(),
+  updated_at     timestamptz NOT NULL DEFAULT now()
+);
+ALTER TABLE public.hostel_damage_types ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON public.hostel_damage_types FROM anon;
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_hdt_name ON public.hostel_damage_types (lower(btrim(name)));
+CREATE INDEX IF NOT EXISTS idx_hdt_active_sort ON public.hostel_damage_types (is_active, sort_order);
+CREATE INDEX IF NOT EXISTS idx_hdt_created_by ON public.hostel_damage_types (created_by);
+CREATE INDEX IF NOT EXISTS idx_hdt_updated_by ON public.hostel_damage_types (updated_by);
+
+DROP TRIGGER IF EXISTS tr_hdt_updated_at ON public.hostel_damage_types;
+CREATE TRIGGER tr_hdt_updated_at BEFORE UPDATE ON public.hostel_damage_types
+  FOR EACH ROW EXECUTE FUNCTION public.set_hostel_vacate_updated_at();
+
+
+
+-- No DELETE policy: types are deactivated, never deleted (damages keep a name snapshot anyway).
+
+INSERT INTO public.hostel_damage_types (name, default_amount, sort_order)
+SELECT v.name, v.amt, v.ord
+FROM (VALUES
+  ('Window / Glass',            500,  10),
+  ('Fan / Light / Switch',      300,  20),
+  ('Cot / Mattress',            1500, 30),
+  ('Cupboard / Furniture',      1000, 40),
+  ('Door / Lock',               800,  50),
+  ('Wall / Paint',              600,  60),
+  ('Other',                     0,    100)
+) AS v(name, amt, ord)
+WHERE NOT EXISTS (SELECT 1 FROM public.hostel_damage_types);
+
+-- ─── 2. Request-side tables / columns ──────────────────────────────────────
+ALTER TABLE public.hostel_vacate_requests
+  ADD COLUMN IF NOT EXISTS room_inspected boolean       NOT NULL DEFAULT false,
+  ADD COLUMN IF NOT EXISTS damage_total   numeric(10,2) NOT NULL DEFAULT 0 CHECK (damage_total >= 0),
+  ADD COLUMN IF NOT EXISTS fine_bill_id   uuid REFERENCES public.billing_student_bills(id) ON DELETE SET NULL;
+CREATE INDEX IF NOT EXISTS idx_hvr_fine_bill ON public.hostel_vacate_requests (fine_bill_id) WHERE fine_bill_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_hvr_dues_learner ON public.hostel_vacate_requests (learner_id) WHERE status = 'pending_dues';
+
+CREATE TABLE IF NOT EXISTS public.hostel_vacate_damages (
+  id                uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  vacate_request_id uuid NOT NULL REFERENCES public.hostel_vacate_requests(id) ON DELETE CASCADE,
+  damage_type_id    uuid REFERENCES public.hostel_damage_types(id) ON DELETE SET NULL,
+  damage_name       text NOT NULL,
+  note              text CHECK (note IS NULL OR char_length(note) <= 500),
+  amount            numeric(10,2) NOT NULL CHECK (amount > 0),
+  recorded_by       uuid REFERENCES auth.users(id),
+  created_at        timestamptz NOT NULL DEFAULT now()
+);
+ALTER TABLE public.hostel_vacate_damages ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON public.hostel_vacate_damages FROM anon;
+CREATE INDEX IF NOT EXISTS idx_hvdm_request ON public.hostel_vacate_damages (vacate_request_id);
+CREATE INDEX IF NOT EXISTS idx_hvdm_type ON public.hostel_vacate_damages (damage_type_id);
+CREATE INDEX IF NOT EXISTS idx_hvdm_recorded_by ON public.hostel_vacate_damages (recorded_by);
+
+CREATE TABLE IF NOT EXISTS public.hostel_vacate_approvals (
+  id                uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  vacate_request_id uuid NOT NULL REFERENCES public.hostel_vacate_requests(id) ON DELETE CASCADE,
+  step              text NOT NULL CHECK (step IN ('bills', 'principal', 'warden', 'mess', 'cao', 'fine')),
+  action            text NOT NULL CHECK (action IN ('approved', 'rejected', 'cancelled', 'system')),
+  actor_id          uuid REFERENCES auth.users(id),
+  remarks           text,
+  acted_at          timestamptz NOT NULL DEFAULT now()
+);
+ALTER TABLE public.hostel_vacate_approvals ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON public.hostel_vacate_approvals FROM anon;
+CREATE INDEX IF NOT EXISTS idx_hva_request ON public.hostel_vacate_approvals (vacate_request_id, acted_at);
+CREATE INDEX IF NOT EXISTS idx_hva_actor ON public.hostel_vacate_approvals (actor_id);
+
+-- Same read rule as the request itself (institution OR block scope, or own).
+
+-- No INSERT/UPDATE/DELETE policies: only the SECURITY DEFINER RPCs write these.
+
+-- One open request per allocation — now including the new statuses.
+DROP INDEX IF EXISTS public.hvr_one_open_per_allocation;
+CREATE UNIQUE INDEX hvr_one_open_per_allocation
+  ON public.hostel_vacate_requests (allocation_id)
+  WHERE status IN ('draft', 'pending_parent', 'pending_warden', 'pending_chief', 'pending_dues', 'approved',
+                   'pending_principal', 'pending_mess', 'pending_cao', 'pending_fine');
+
+-- ─── 3. Fine billing category ──────────────────────────────────────────────
+-- category_name is globally UNIQUE; kind 'penalty' is excluded from the vacate
+-- bill gate (which counts only hostel / mess bills), so the fine never blocks
+-- the very vacate it belongs to.
+INSERT INTO public.billing_categories
+  (category_name, kind, frequency, is_active, description, visible_to_learners, collection_type, applies_to)
+SELECT 'Hostel Damage Fine', 'penalty', 'one-time', true,
+       'Auto-created at CAO approval of a hostel vacate when room damage was recorded',
+       true, 'management', ARRAY['college', 'school']
+WHERE NOT EXISTS (SELECT 1 FROM public.billing_categories WHERE category_name = 'Hostel Damage Fine');
+
+-- ─── 4. Helpers ────────────────────────────────────────────────────────────
+-- Permission key that gates the step a request is currently at.
+
+
+
+-- Step 1 -> 2 when every hostel/mess bill is settled. Used by recheck + trigger.
+
+-- ─── 5. Submit: freeze checklist, hold bed, run the Step-1 bill check ──────
+
+-- Duplicate-open check in create must know the new statuses too.
+
+-- ─── 6. Re-check bills (Step 1 refresh button) ─────────────────────────────
+
+-- ─── 7. Warden: record room inspection (damages) ───────────────────────────
+-- p_lines = [{ "damage_type_id": uuid, "amount": number, "note": text }, ...]
+-- p_no_damage = true  <=> no lines; false <=> at least one line. The warden has
+-- to take an explicit decision either way before approving.
+
+-- ─── 8. Completion (internal) ──────────────────────────────────────────────
+-- Same atomic body the one-step warden approve used to run: vacate the
+-- allocation + free the bed FIRST, then flip the learner to Day Scholar and
+-- clear the hostel/mess categories (trg_allocation_sync_accommodation_type only
+-- acts on active/pending_approval rows). Idempotent for a completed request.
+-- No auth.uid(): it runs from the CAO approval or from the payment trigger.
+
+-- ─── 9. Fine bill (internal, idempotent) ───────────────────────────────────
+
+-- ─── 10. Approve — one RPC, dispatches on the current step ─────────────────
+
+
+-- Manual retry if the fine was settled but completion failed (see trigger).
+
+-- ─── 11. Reject / cancel ───────────────────────────────────────────────────
+
+
+-- ─── 12. Bill-cleared trigger (payments arrive from webhooks, no user) ─────
+-- Fires only when a bill's balance reaches 0 or the bill is cancelled. A failure
+-- here must NEVER roll back the payment, so every action is wrapped: on error
+-- the request just stays where it is (pending_fine can be retried with
+-- fn_cl_vacate_complete_after_fine, pending_dues with the Re-check button).
+
+-- "zz" so it runs after the other row triggers on this table (alphabetical order).
+
+-- ─── 13. Permission grants (merge with ||, never replace) ──────────────────
+DO $$
+DECLARE
+  v_role text;
+  v_hit  int;
+BEGIN
+  FOREACH v_role IN ARRAY ARRAY['principal', 'school_principal'] LOOP
+    UPDATE public.custom_roles
+       SET permissions = COALESCE(permissions, '{}'::jsonb) || jsonb_build_object(
+             'campus_living.vacate_requests.view',              true,
+             'campus_living.vacate_requests.approve_principal', true),
+           updated_at = now()
+     WHERE role_key = v_role;
+    GET DIAGNOSTICS v_hit = ROW_COUNT;
+    IF v_hit = 0 THEN RAISE WARNING 'role % not found; principal vacate keys not granted', v_role; END IF;
+  END LOOP;
+
+  UPDATE public.custom_roles
+     SET permissions = COALESCE(permissions, '{}'::jsonb) || jsonb_build_object(
+           'campus_living.vacate_requests.view',         true,
+           'campus_living.vacate_requests.approve_mess', true),
+         updated_at = now()
+   WHERE role_key = 'mess_operations';
+  GET DIAGNOSTICS v_hit = ROW_COUNT;
+  IF v_hit = 0 THEN RAISE WARNING 'role mess_operations not found; approve_mess not granted'; END IF;
+
+  UPDATE public.custom_roles
+     SET permissions = COALESCE(permissions, '{}'::jsonb) || jsonb_build_object(
+           'campus_living.vacate_requests.view',        true,
+           'campus_living.vacate_requests.approve_cao', true),
+         updated_at = now()
+   WHERE role_key = 'cao';
+  GET DIAGNOSTICS v_hit = ROW_COUNT;
+  IF v_hit = 0 THEN RAISE WARNING 'role cao not found; approve_cao not granted'; END IF;
+
+  FOREACH v_role IN ARRAY ARRAY['hostel_office', 'chief_warden'] LOOP
+    UPDATE public.custom_roles
+       SET permissions = COALESCE(permissions, '{}'::jsonb) || jsonb_build_object(
+             'campus_living.damage_types.manage', true),
+           updated_at = now()
+     WHERE role_key = v_role;
+    GET DIAGNOSTICS v_hit = ROW_COUNT;
+    IF v_hit = 0 THEN RAISE WARNING 'role % not found; damage_types.manage not granted', v_role; END IF;
+  END LOOP;
+END $$;
+
+
+
+-- ============================================================================
+-- Updated: 2026-10-01 - Old InstaSolver site history (migration 20270617094100)
+-- legacy_instasolver_issues + legacy_instasolver_requirements. Service-role
+-- writes only; see the migration header for the full reasoning.
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS public.legacy_instasolver_issues (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  legacy_id INTEGER NOT NULL UNIQUE,
+  legacy_institution TEXT,
+  institution_id UUID REFERENCES public.institutions(id) ON DELETE SET NULL,
+  legacy_category TEXT,
+  clean_category TEXT,
+  legacy_location TEXT,
+  clean_site TEXT,
+  clean_area TEXT,
+  details TEXT,
+  cause TEXT,
+  suggested_fix TEXT,
+  ai_summary TEXT,
+  notes TEXT,
+  severity TEXT,
+  legacy_status TEXT,
+  is_completed BOOLEAN NOT NULL DEFAULT FALSE,
+  is_open BOOLEAN NOT NULL DEFAULT FALSE,
+  reopened BOOLEAN NOT NULL DEFAULT FALSE,
+  reopen_reason TEXT,
+  rejection_reason TEXT,
+  legacy_assigned_to TEXT,
+  photo_url TEXT,
+  completed_photo_url TEXT,
+  reporter_name TEXT,
+  reporter_profile_id UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
+  reported_at TIMESTAMPTZ,
+  reported_at_is_bulk_load BOOLEAN NOT NULL DEFAULT FALSE,
+  completed_at TIMESTAMPTZ,
+  legacy_created_at TIMESTAMPTZ,
+  legacy_updated_at TIMESTAMPTZ,
+  admin_notes JSONB NOT NULL DEFAULT '[]'::jsonb,
+  needs_still_broken_check BOOLEAN NOT NULL DEFAULT FALSE,
+  imported_task_id UUID REFERENCES public.project_tasks(id) ON DELETE SET NULL,
+  task_imported_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_legacy_is_issues_institution ON public.legacy_instasolver_issues (institution_id);
+CREATE INDEX IF NOT EXISTS idx_legacy_is_issues_place ON public.legacy_instasolver_issues (clean_site, clean_area);
+CREATE INDEX IF NOT EXISTS idx_legacy_is_issues_open ON public.legacy_instasolver_issues (is_open) WHERE is_open;
+CREATE INDEX IF NOT EXISTS idx_legacy_is_issues_reporter ON public.legacy_instasolver_issues (reporter_profile_id);
+CREATE INDEX IF NOT EXISTS idx_legacy_is_issues_task ON public.legacy_instasolver_issues (imported_task_id);
+
+CREATE TABLE IF NOT EXISTS public.legacy_instasolver_requirements (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  legacy_id INTEGER NOT NULL UNIQUE,
+  legacy_institution TEXT,
+  institution_id UUID REFERENCES public.institutions(id) ON DELETE SET NULL,
+  legacy_category TEXT,
+  clean_category TEXT,
+  legacy_location TEXT,
+  clean_site TEXT,
+  clean_area TEXT,
+  details TEXT,
+  cause TEXT,
+  suggested_fix TEXT,
+  notes TEXT,
+  priority TEXT,
+  legacy_status TEXT,
+  is_completed BOOLEAN NOT NULL DEFAULT FALSE,
+  reopened BOOLEAN NOT NULL DEFAULT FALSE,
+  reopen_reason TEXT,
+  rejection_reason TEXT,
+  legacy_assigned_to TEXT,
+  photo_url TEXT,
+  completed_photo_url TEXT,
+  reporter_name TEXT,
+  reporter_profile_id UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
+  requested_at TIMESTAMPTZ,
+  requested_at_is_bulk_load BOOLEAN NOT NULL DEFAULT FALSE,
+  completed_at TIMESTAMPTZ,
+  legacy_created_at TIMESTAMPTZ,
+  legacy_updated_at TIMESTAMPTZ,
+  admin_notes JSONB NOT NULL DEFAULT '[]'::jsonb,
+  decision TEXT CHECK (decision IN ('approving', 'approved', 'rejected')),
+  decision_reason TEXT,
+  decided_by UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
+  decided_at TIMESTAMPTZ,
+  decision_claimed_at TIMESTAMPTZ,
+  imported_purchase_request_id UUID REFERENCES public.procurement_purchase_requests(id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_legacy_is_req_pending ON public.legacy_instasolver_requirements (legacy_status, requested_at);
+CREATE INDEX IF NOT EXISTS idx_legacy_is_req_institution ON public.legacy_instasolver_requirements (institution_id);
+CREATE INDEX IF NOT EXISTS idx_legacy_is_req_reporter ON public.legacy_instasolver_requirements (reporter_profile_id);
+CREATE INDEX IF NOT EXISTS idx_legacy_is_req_pr ON public.legacy_instasolver_requirements (imported_purchase_request_id);
+
+
+-- ============================================================================
+-- Updated: 2026-10-02 - Parent password views + sign-out notices (migration 20271002150000)
+-- pp_parent_password_views: one row per super-admin "Show password" click. sign_out_notices: admin sign-out notice, shown once.
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS public.pp_parent_password_views (
+  id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  account_id  UUID NOT NULL REFERENCES public.pp_parent_accounts(id) ON DELETE CASCADE,
+  viewed_by   UUID NOT NULL,
+  viewed_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  result      TEXT NOT NULL CHECK (result IN ('shown', 'changed_by_parent')),
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_pp_parent_password_views_account
+  ON public.pp_parent_password_views (account_id, viewed_at DESC);
+CREATE INDEX IF NOT EXISTS idx_pp_parent_password_views_viewer
+  ON public.pp_parent_password_views (viewed_by, viewed_at DESC);
+
+COMMENT ON TABLE public.pp_parent_password_views IS
+  'One row per super-admin "Show password" click on a parent account (Director ruling 2026-10-02). Stores the outcome, never the password. Written by the service role only.';
+
+-- ---------------------------------------------------------------------------
+-- 2. sign_out_notices
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS public.sign_out_notices (
+  id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id            UUID NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  parent_account_id  UUID NULL REFERENCES public.pp_parent_accounts(id) ON DELETE CASCADE,
+  signed_out_by      UUID NOT NULL,
+  signed_out_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  seen_at            TIMESTAMPTZ NULL,
+  created_at         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  CONSTRAINT sign_out_notices_one_target CHECK (num_nonnulls(user_id, parent_account_id) = 1)
+);
+CREATE INDEX IF NOT EXISTS idx_sign_out_notices_user_unseen
+  ON public.sign_out_notices (user_id) WHERE seen_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_sign_out_notices_parent_unseen
+  ON public.sign_out_notices (parent_account_id) WHERE seen_at IS NULL;
+
+COMMENT ON TABLE public.sign_out_notices IS
+  'An admin signed this person out of all devices; shown once after their next sign-in (Director ruling 2026-10-02). Written by the service role only.';
+
+-- ============================================================================
+-- Hostel vacate: Accounts (Chief Accountant) approval status
+-- ============================================================================
+-- Must be its own migration: a freshly added enum value cannot be used in the
+-- same transaction that adds it. The follow-up migration
+-- 20261001120100_hostel_vacate_accountant_step.sql uses it.
+--
+-- Flow: draft -> pending_dues (bills not cleared) -> pending_accountant ->
+--       pending_principal -> pending_warden -> pending_cao -> [pending_fine]
+--       -> completed. pending_mess stays in the enum for legacy rows only.
+-- ============================================================================
+ALTER TYPE public.vacate_request_status_enum ADD VALUE IF NOT EXISTS 'pending_accountant';
+
+
+-- 20261005120000: clinical duty geotag attendance
+CREATE TABLE public.hr_clinical_duty_sites (
+  id             uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  institution_id uuid NOT NULL REFERENCES public.institutions(id) ON DELETE CASCADE,
+  name           text NOT NULL CHECK (length(btrim(name)) BETWEEN 2 AND 120),
+  lat            numeric(9,6) NOT NULL CHECK (lat BETWEEN -90 AND 90),
+  lng            numeric(9,6) NOT NULL CHECK (lng BETWEEN -180 AND 180),
+  radius_m       integer NOT NULL CHECK (radius_m BETWEEN 30 AND 2000),
+  is_active      boolean NOT NULL DEFAULT true,
+  created_by     uuid REFERENCES auth.users(id),
+  created_at     timestamptz NOT NULL DEFAULT now(),
+  updated_at     timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX hr_clinical_duty_sites_inst_idx ON public.hr_clinical_duty_sites (institution_id) WHERE is_active;
+ALTER TABLE public.hr_clinical_duty_sites ENABLE ROW LEVEL SECURITY;
+
+-- 2. Eligibility ----------------------------------------------------------------
+CREATE TABLE public.hr_clinical_duty_eligibilities (
+  id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  scope_type      text NOT NULL CHECK (scope_type IN ('staff', 'department', 'institution')),
+  employee_id     uuid REFERENCES public.staff(id) ON DELETE CASCADE,
+  department_id   uuid REFERENCES public.departments(id) ON DELETE CASCADE,
+  institution_id  uuid NOT NULL REFERENCES public.institutions(id) ON DELETE CASCADE,
+  status          text NOT NULL DEFAULT 'pending'
+                  CHECK (status IN ('pending', 'approved', 'rejected', 'revoked')),
+  reason          text,
+  valid_from      date NOT NULL DEFAULT CURRENT_DATE,
+  valid_until     date,
+  site_ids        uuid[],            -- NULL = every active site of the institution
+  requested_by    uuid REFERENCES auth.users(id),
+  granted_directly boolean NOT NULL DEFAULT false,
+  decided_by      uuid REFERENCES auth.users(id),
+  decided_at      timestamptz,
+  decision_note   text,
+  revoked_by      uuid REFERENCES auth.users(id),
+  revoked_at      timestamptz,
+  revoke_reason   text,
+  created_at      timestamptz NOT NULL DEFAULT now(),
+  updated_at      timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT hr_cde_scope_chk CHECK (
+    (scope_type = 'staff'       AND employee_id IS NOT NULL AND department_id IS NULL) OR
+    (scope_type = 'department'  AND department_id IS NOT NULL AND employee_id IS NULL) OR
+    (scope_type = 'institution' AND employee_id IS NULL AND department_id IS NULL)),
+  CONSTRAINT hr_cde_dates_chk CHECK (valid_until IS NULL OR valid_until >= valid_from)
+);
+CREATE INDEX hr_cde_employee_idx    ON public.hr_clinical_duty_eligibilities (employee_id)   WHERE employee_id IS NOT NULL;
+CREATE INDEX hr_cde_department_idx  ON public.hr_clinical_duty_eligibilities (department_id) WHERE department_id IS NOT NULL;
+CREATE INDEX hr_cde_institution_idx ON public.hr_clinical_duty_eligibilities (institution_id);
+CREATE INDEX hr_cde_status_idx      ON public.hr_clinical_duty_eligibilities (status, valid_until);
+-- One live request/grant per person: a second pending/approved row for the same
+-- staff would make "approve" ambiguous.
+CREATE UNIQUE INDEX hr_cde_one_live_staff_uniq
+  ON public.hr_clinical_duty_eligibilities (employee_id)
+  WHERE scope_type = 'staff' AND status IN ('pending', 'approved');
+ALTER TABLE public.hr_clinical_duty_eligibilities ENABLE ROW LEVEL SECURITY;
+
+-- 3. Punch audit (immutable; written only by fn_hr_clinical_punch) ---------------
+CREATE TABLE public.hr_clinical_punches (
+  id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  employee_id uuid NOT NULL REFERENCES public.staff(id) ON DELETE CASCADE,
+  work_date   date NOT NULL,
+  punch_type  text NOT NULL CHECK (punch_type IN ('in', 'out')),
+  punched_at  timestamptz NOT NULL DEFAULT now(),
+  site_id     uuid NOT NULL REFERENCES public.hr_clinical_duty_sites(id),
+  lat         numeric(9,6) NOT NULL,
+  lng         numeric(9,6) NOT NULL,
+  accuracy_m  integer NOT NULL,
+  distance_m  integer NOT NULL,
+  CONSTRAINT hr_clinical_punches_one_per_type UNIQUE (employee_id, work_date, punch_type)
+);
+CREATE INDEX hr_clinical_punches_site_idx ON public.hr_clinical_punches (site_id);
+ALTER TABLE public.hr_clinical_punches ENABLE ROW LEVEL SECURITY;
+
+CREATE TRIGGER trg_hr_clinical_duty_sites_updated
+  BEFORE UPDATE ON public.hr_clinical_duty_sites
+  FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
+CREATE TRIGGER trg_hr_cde_updated
+  BEFORE UPDATE ON public.hr_clinical_duty_eligibilities
+  FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
+
+-- 4. Helpers ---------------------------------------------------------------------
+-- Is this person approved for clinical duty on this date? Matches an approved,
+-- in-date row at staff, department or institution level.
+
+-- Mirrored from supabase/migrations/20271005120000_comp_off_claim_batch.sql
+ALTER TABLE public.hr_comp_off_credits
+  ADD COLUMN IF NOT EXISTS claim_batch_id uuid NULL;
+COMMENT ON COLUMN public.hr_comp_off_credits.claim_batch_id IS
+  'Shared by the credit rows of one multi-day claim submission; NULL for a single-day claim or a non-claim credit.';
+CREATE INDEX IF NOT EXISTS idx_hr_comp_off_credits_claim_batch
+  ON public.hr_comp_off_credits (claim_batch_id)
+  WHERE claim_batch_id IS NOT NULL;
+
+-- ===========================================================================
+-- Source: 20261006120000_hr_leave_type_super_admin_delete.sql
+-- ===========================================================================
+CREATE TABLE IF NOT EXISTS public.hr_leave_type_deletions (
+  id                  uuid        PRIMARY KEY DEFAULT gen_random_uuid(),
+  deleted_at          timestamptz NOT NULL DEFAULT now(),
+  deleted_by          uuid,
+  leave_type_id       uuid        NOT NULL,
+  leave_type_name     text        NOT NULL,
+  leave_type_code     text,
+  hr_organization_id  uuid,
+  organization_name   text,
+  was_active          boolean,
+  removed             jsonb       NOT NULL DEFAULT '{}'::jsonb,
+  type_snapshot       jsonb       NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS hr_leave_type_deletions_deleted_at_idx
+  ON public.hr_leave_type_deletions (deleted_at DESC);
+COMMENT ON TABLE public.hr_leave_type_deletions IS
+  'Tombstone of every hr_leave_type_delete_super_admin() commit: who, when, how many rows of each kind went with the type, and the type row itself as jsonb. No foreign keys on purpose. Balances and adjustments are NOT recoverable from it.';
+
+-- ════════════════════════════════════════════════════════════════════════════
+-- Salary Register — category snapshot + payroll document settings
+-- Mirrored from supabase/migrations/20271007120000_hr_payroll_documents.sql
+-- ════════════════════════════════════════════════════════════════════════════
+ALTER TABLE public.hr_salary_register_lines
+  ADD COLUMN IF NOT EXISTS staff_category_name text,
+  ADD COLUMN IF NOT EXISTS is_teaching boolean NOT NULL;
+
+CREATE TABLE IF NOT EXISTS public.hr_payroll_document_settings (
+  id                      uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  hr_organization_id      uuid NOT NULL UNIQUE
+                            REFERENCES public.hr_organizations(id) ON DELETE CASCADE,
+  institution_id          uuid NOT NULL REFERENCES public.institutions(id),
+  reference_code          text NOT NULL,
+  non_teaching_suffix     text NOT NULL DEFAULT 'NT',
+  bank_name               text NOT NULL,
+  bank_branch             text NOT NULL,
+  college_account_number  text NOT NULL,
+  addressee_title         text NOT NULL DEFAULT 'The Manager',
+  approval_salutation     text NOT NULL DEFAULT 'Respected Madam',
+  submitter_title         text NOT NULL DEFAULT 'CAO',
+  approver_title          text NOT NULL DEFAULT 'CHAIRPERSON',
+  created_at              timestamptz NOT NULL DEFAULT now(),
+  updated_at              timestamptz NOT NULL DEFAULT now(),
+  created_by              uuid REFERENCES auth.users(id) ON DELETE SET NULL,
+  updated_by              uuid REFERENCES auth.users(id) ON DELETE SET NULL,
+  CONSTRAINT hr_payroll_doc_settings_reference_code_chk CHECK (length(btrim(reference_code)) BETWEEN 1 AND 40),
+  CONSTRAINT hr_payroll_doc_settings_nt_suffix_chk      CHECK (length(non_teaching_suffix) <= 10),
+  CONSTRAINT hr_payroll_doc_settings_bank_name_chk      CHECK (length(btrim(bank_name)) BETWEEN 1 AND 120),
+  CONSTRAINT hr_payroll_doc_settings_bank_branch_chk    CHECK (length(btrim(bank_branch)) BETWEEN 1 AND 120),
+  CONSTRAINT hr_payroll_doc_settings_account_chk        CHECK (length(btrim(college_account_number)) BETWEEN 1 AND 40),
+  CONSTRAINT hr_payroll_doc_settings_addressee_chk      CHECK (length(btrim(addressee_title)) BETWEEN 1 AND 80),
+  CONSTRAINT hr_payroll_doc_settings_salutation_chk     CHECK (length(btrim(approval_salutation)) BETWEEN 1 AND 80),
+  CONSTRAINT hr_payroll_doc_settings_submitter_chk      CHECK (length(btrim(submitter_title)) BETWEEN 1 AND 60),
+  CONSTRAINT hr_payroll_doc_settings_approver_chk       CHECK (length(btrim(approver_title)) BETWEEN 1 AND 60)
+);
+CREATE INDEX IF NOT EXISTS idx_hr_payroll_doc_settings_institution ON public.hr_payroll_document_settings (institution_id);
+CREATE INDEX IF NOT EXISTS idx_hr_payroll_doc_settings_created_by  ON public.hr_payroll_document_settings (created_by);
+CREATE INDEX IF NOT EXISTS idx_hr_payroll_doc_settings_updated_by  ON public.hr_payroll_document_settings (updated_by);
+
+
+-- Mirrored from supabase/migrations/20271007130000_hostel_floors.sql
+CREATE TABLE IF NOT EXISTS public.hostel_floors (
+  id           uuid        PRIMARY KEY DEFAULT gen_random_uuid(),
+  block_id     uuid        NOT NULL REFERENCES public.hostel_blocks(id) ON DELETE CASCADE,
+  floor_number integer     NOT NULL CHECK (floor_number BETWEEN 0 AND 50),
+  name         text        CHECK (name IS NULL OR char_length(btrim(name)) BETWEEN 1 AND 60),
+  is_active    boolean     NOT NULL DEFAULT true,
+  created_at   timestamptz NOT NULL DEFAULT now(),
+  updated_at   timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT hostel_floors_block_floor_key UNIQUE (block_id, floor_number)
+);
+ALTER TABLE public.hostel_floors ENABLE ROW LEVEL SECURITY;
+-- FK child index: the (block_id, floor) probe run on every floor delete.
+CREATE INDEX IF NOT EXISTS idx_hostel_rooms_block_floor ON public.hostel_rooms (block_id, floor);

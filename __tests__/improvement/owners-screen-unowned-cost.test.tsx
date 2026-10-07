@@ -171,6 +171,7 @@ const fetchMock = vi.fn(async () => ({
   json: async () => ({
     assignments: [
       {
+        id: 'assignment-1',
         role_type: 'department_owner',
         staff_id: 'staff-1',
         holder_note: null,

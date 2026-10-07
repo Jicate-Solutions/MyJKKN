@@ -2796,3 +2796,151 @@ CREATE TRIGGER trg_activate_learner_on_first_present
 AFTER INSERT OR UPDATE OF attendance_data ON public.student_attendance
 FOR EACH ROW
 EXECUTE FUNCTION public.fn_activate_learner_on_first_present();
+
+-- ============================================================================
+-- Bill cancel request history -> user_activity_logs
+-- Migration: 20260928100000_bill_cancel_request_flow.sql
+-- ============================================================================
+DROP TRIGGER IF EXISTS trg_log_bill_cancel_activity ON public.billing_bill_cancel_request_actions;
+CREATE TRIGGER trg_log_bill_cancel_activity
+  AFTER INSERT ON public.billing_bill_cancel_request_actions
+  FOR EACH ROW EXECUTE FUNCTION public._fn_log_bill_cancel_activity();
+
+-- ============================================================================
+-- Only the Director list may write the salary suggestion amounts
+-- Migration: 20270512090000_hr_salary_suggestion_inputs_rpc.sql (section 5)
+-- Added: 2026-09-30 - the Director's ruling: the per-department amounts
+-- (hr.salary_suggestion_rule) are editable ONLY by the Director list
+-- (fn_is_the_director(), #4121). Needs #4121 first. Function in 02_functions.sql.
+-- ============================================================================
+DROP TRIGGER IF EXISTS trg_guard_salary_suggestion_rule_writes ON public.platform_policies;
+CREATE TRIGGER trg_guard_salary_suggestion_rule_writes
+  BEFORE INSERT OR UPDATE OR DELETE ON public.platform_policies
+  FOR EACH ROW
+  EXECUTE FUNCTION public.fn_guard_salary_suggestion_rule_writes();
+
+-- ═══ 2026-10-01: vacate approval chain + room damage + fine bill (20261001100000/110000) ═══
+DROP TRIGGER IF EXISTS trg_zz_vacate_on_bill_cleared ON public.billing_student_bills;
+CREATE TRIGGER trg_zz_vacate_on_bill_cleared
+  AFTER UPDATE OF balance_amount, status ON public.billing_student_bills
+  FOR EACH ROW
+  WHEN (
+    (NEW.balance_amount = 0 AND OLD.balance_amount IS DISTINCT FROM 0)
+    OR (NEW.status IN ('cancelled', 'superseded') AND OLD.status NOT IN ('cancelled', 'superseded'))
+  )
+  EXECUTE FUNCTION public.trg_vacate_on_bill_cleared();
+
+
+-- Mirror of migration 20261020020000_hr_leave_type_default_entitlement_sync.sql
+DROP TRIGGER IF EXISTS trg_hr_leave_types_default_entitlement_sync ON public.hr_leave_types;
+CREATE TRIGGER trg_hr_leave_types_default_entitlement_sync
+  AFTER UPDATE OF default_entitled_days ON public.hr_leave_types
+  FOR EACH ROW
+  WHEN (OLD.default_entitled_days IS DISTINCT FROM NEW.default_entitled_days)
+  EXECUTE FUNCTION public.trg_hr_leave_type_default_entitlement_sync();
+
+
+-- ============================================================================
+-- Updated: 2026-10-02 - Parent password views + sign-out notices (migration 20271002150000)
+-- updated_at triggers for pp_parent_password_views and sign_out_notices.
+-- ============================================================================
+DROP TRIGGER IF EXISTS trg_pp_parent_password_views_updated_at ON public.pp_parent_password_views;
+CREATE TRIGGER trg_pp_parent_password_views_updated_at
+  BEFORE UPDATE ON public.pp_parent_password_views
+  FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
+
+DROP TRIGGER IF EXISTS trg_sign_out_notices_updated_at ON public.sign_out_notices;
+CREATE TRIGGER trg_sign_out_notices_updated_at
+  BEFORE UPDATE ON public.sign_out_notices
+  FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
+-- 20261005100000: reject unfunded leave requests when a balance moves
+DROP TRIGGER IF EXISTS trg_hlme_reject_unfunded ON public.hr_leave_month_entries;
+CREATE TRIGGER trg_hlme_reject_unfunded
+  AFTER INSERT OR UPDATE OF days ON public.hr_leave_month_entries
+  FOR EACH ROW EXECUTE FUNCTION public.hr_trig_reject_unfunded_after_balance_change();
+
+DROP TRIGGER IF EXISTS trg_hlb_reject_unfunded ON public.hr_leave_balances;
+CREATE TRIGGER trg_hlb_reject_unfunded
+  AFTER UPDATE OF used, carried_forward, entitled ON public.hr_leave_balances
+  FOR EACH ROW
+  WHEN (NEW.used > OLD.used
+     OR NEW.carried_forward < OLD.carried_forward
+     OR NEW.entitled < OLD.entitled)
+  EXECUTE FUNCTION public.hr_trig_reject_unfunded_after_balance_change();
+
+-- Updated: 2026-10-01 - only the Director list may change who decides raises for
+-- people on the Director list. Source: 20271007150103_hr_salary_revision_no_self_decision.sql
+DROP TRIGGER IF EXISTS trg_guard_hr_salary_revision_raise_decider ON public.platform_policies;
+CREATE TRIGGER trg_guard_hr_salary_revision_raise_decider
+  BEFORE INSERT OR UPDATE OR DELETE ON public.platform_policies
+  FOR EACH ROW
+  EXECUTE FUNCTION public.fn_guard_hr_salary_revision_raise_decider();
+
+-- Updated: 2026-10-01 - a change to who decides raises for people on the
+-- Director list, by a signed-in person, is written to hr_policy_audit_log.
+-- Source: 20271007150103_hr_salary_revision_no_self_decision.sql
+DROP TRIGGER IF EXISTS trg_audit_hr_salary_revision_raise_decider ON public.platform_policies;
+CREATE TRIGGER trg_audit_hr_salary_revision_raise_decider
+  AFTER INSERT OR UPDATE ON public.platform_policies
+  FOR EACH ROW
+  WHEN (NEW.policy_key = 'hr.salary_revision.list_member_raise_decider_profile_id')
+  EXECUTE FUNCTION public.fn_audit_hr_salary_revision_raise_decider();
+
+-- Updated: 2026-10-01 - Employee Salaries: nobody changes their own pay; the pay
+-- of anyone on the Director list only by the Director himself (Director default).
+-- Source: 20271007150103_hr_salary_revision_no_self_decision.sql
+DROP TRIGGER IF EXISTS trg_hr_staff_salaries_no_own_or_list_pay ON public.hr_staff_salaries;
+CREATE TRIGGER trg_hr_staff_salaries_no_own_or_list_pay
+  BEFORE INSERT OR UPDATE OR DELETE ON public.hr_staff_salaries
+  FOR EACH ROW
+  EXECUTE FUNCTION public.fn_guard_hr_staff_salaries_no_own_or_list_pay();
+
+-- Updated: 2026-10-03 - ONE identity guard on staff (who a record is: its linked
+-- account plus the accounts its emails belong to). Named to fire AFTER
+-- trg_sync_staff_to_profiles. Nobody signed in, super admins included, may
+-- change who their own record or a Director-list member's record is, or who a
+-- record with an open salary revision is, nor create a record that is
+-- themselves or a list member. Source: 20271007150103_hr_salary_revision_no_self_decision.sql
+DROP TRIGGER IF EXISTS trg_zz_staff_identity_raise_guard ON public.staff;
+CREATE TRIGGER trg_zz_staff_identity_raise_guard
+  BEFORE INSERT OR UPDATE ON public.staff
+  FOR EACH ROW
+  EXECUTE FUNCTION public.fn_guard_staff_identity_for_raises();
+
+-- Updated: 2026-10-03 - rule 9: only the Director himself (the decider row) may take
+-- anyone off the Director list, and nobody signed in may take him off; adding is
+-- left to #4121. Source: 20271007150103_hr_salary_revision_no_self_decision.sql
+DROP TRIGGER IF EXISTS trg_guard_director_list_removals_for_raises ON public.platform_policies;
+CREATE TRIGGER trg_guard_director_list_removals_for_raises
+  BEFORE UPDATE OR DELETE ON public.platform_policies
+  FOR EACH ROW
+  WHEN (OLD.policy_key = 'platform.the_director_profile_ids')
+  EXECUTE FUNCTION public.fn_guard_director_list_removals_for_raises();
+
+-- Mirrored from supabase/migrations/20271007120000_hr_payroll_documents.sql
+DROP TRIGGER IF EXISTS trg_hr_payroll_document_settings_touch ON public.hr_payroll_document_settings;
+CREATE TRIGGER trg_hr_payroll_document_settings_touch
+  BEFORE UPDATE ON public.hr_payroll_document_settings
+  FOR EACH ROW EXECUTE FUNCTION public.fn_touch_updated_at();
+
+
+-- Mirrored from supabase/migrations/20271007130000_hostel_floors.sql
+DROP TRIGGER IF EXISTS trg_hostel_floors_updated_at ON public.hostel_floors;
+CREATE TRIGGER trg_hostel_floors_updated_at
+  BEFORE UPDATE ON public.hostel_floors
+  FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
+
+DROP TRIGGER IF EXISTS trg_hostel_floors_identity_guard ON public.hostel_floors;
+CREATE TRIGGER trg_hostel_floors_identity_guard
+  BEFORE UPDATE ON public.hostel_floors
+  FOR EACH ROW EXECUTE FUNCTION public.fn_hostel_floors_identity_guard();
+
+DROP TRIGGER IF EXISTS trg_hostel_floors_sync_total ON public.hostel_floors;
+CREATE TRIGGER trg_hostel_floors_sync_total
+  AFTER INSERT OR DELETE ON public.hostel_floors
+  FOR EACH ROW EXECUTE FUNCTION public.fn_hostel_floors_sync_total();
+
+DROP TRIGGER IF EXISTS trg_hostel_blocks_seed_floors ON public.hostel_blocks;
+CREATE TRIGGER trg_hostel_blocks_seed_floors
+  AFTER INSERT ON public.hostel_blocks
+  FOR EACH ROW EXECUTE FUNCTION public.fn_hostel_blocks_seed_floors();

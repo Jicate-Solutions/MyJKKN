@@ -165,7 +165,10 @@ export async function PUT(
 
     // Step 3: Fetch existing syllabus â€” need board_id + created_by for the
     // creator/chairman edit gate, plus institutions_id for the institution backstop.
-    const { data: existingSyllabus, error: fetchError } = await supabase
+    // Service-role read: the user-scoped SELECT RLS hides rows from creators/
+    // chairmen whose grants drift, turning a permitted edit into a false 404.
+    // Authorization is enforced by the guards below, not by this read.
+    const { data: existingSyllabus, error: fetchError } = await createServiceRoleClient()
       .from('bos_course_syllabi')
       .select('id, institutions_id, board_id, created_by')
       .eq('id', id)

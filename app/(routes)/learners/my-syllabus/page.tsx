@@ -10,6 +10,7 @@
  */
 
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server';
+import { getUserWithRetry } from '@/lib/auth/auth-retry';
 import { redirect } from 'next/navigation';
 import { listApprovedSyllabi } from '@/lib/services/pde-curriculum-service';
 import { SyllabusBrowser } from './_components/syllabus-browser';
@@ -23,9 +24,7 @@ export const navMeta = { label: 'My Learning Pathway' };
 
 export default async function MySyllabusPage() {
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getUserWithRetry(supabase);
   if (!user) redirect('/auth/login');
 
   const adminClient = createServiceRoleClient();

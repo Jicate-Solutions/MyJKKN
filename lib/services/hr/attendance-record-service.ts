@@ -59,6 +59,8 @@ const RECORD_SELECT = `
   second_half_attended,
   institution_id,
   notes,
+  gps_lat,
+  gps_lng,
   status:hr_attendance_status_types ( code, label )
 `;
 

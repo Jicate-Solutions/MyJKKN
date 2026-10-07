@@ -4,10 +4,9 @@ import { useParams, useRouter } from 'next/navigation';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { useAuth } from '@/hooks/use-auth';
 import { usePoFormat, useUpdatePoFormat } from '@/hooks/procurement/use-po-formats';
+import { DetailHeader } from '@/components/procurement/detail-header';
 import { PoFormatForm } from '../../_components/po-format-form';
 import { AlertBox } from '@/components/ui/alert-box';
-import { Button } from '@/components/ui/button';
-import { ArrowLeft } from 'lucide-react';
 import { BeatLoader } from 'react-spinners';
 
 export default function EditPoFormatPage() {
@@ -20,7 +19,7 @@ export default function EditPoFormatPage() {
 
   if (isLoading || !profile?.institution_id) {
     return (
-      <ContentLayout title="Edit PO Format">
+      <ContentLayout title="Edit PO format">
         <div className="flex items-center justify-center py-16">
           <BeatLoader color="hsl(var(--primary))" size={10} />
         </div>
@@ -30,7 +29,7 @@ export default function EditPoFormatPage() {
 
   if (isError) {
     return (
-      <ContentLayout title="Edit PO Format">
+      <ContentLayout title="Edit PO format">
         <div className="py-12">
           <AlertBox type="error" message="Failed to load this format. Please try again." />
         </div>
@@ -39,31 +38,20 @@ export default function EditPoFormatPage() {
   }
   if (!format) {
     return (
-      <ContentLayout title="Edit PO Format">
+      <ContentLayout title="Edit PO format">
         <p className="text-muted-foreground py-12 text-center">Format not found.</p>
       </ContentLayout>
     );
   }
 
   return (
-    <ContentLayout title={`Edit: ${format.name}`}>
-      <div className="space-y-4 sm:space-y-6 max-w-5xl">
-        <div className="flex min-w-0 items-center gap-3">
-          <Button
-            variant="ghost"
-            size="sm"
-            aria-label="Back to PO formats"
-            onClick={() => router.push('/procurement/purchase-orders/formats')}
-          >
-            <ArrowLeft className="h-4 w-4" />
-          </Button>
-          <div className="min-w-0">
-            <h2 className="text-2xl font-bold tracking-tight truncate">{format.name}</h2>
-            <p className="hidden text-muted-foreground sm:block">
-              Define the header, item columns and footer used when a purchase order is printed.
-            </p>
-          </div>
-        </div>
+    <ContentLayout title={`Edit ${format.name}`}>
+      <div className="w-full space-y-5">
+        <DetailHeader
+          backLabel="Back to PO formats"
+          onBack={() => router.push('/procurement/purchase-orders/formats')}
+          title={`Edit ${format.name}`}
+        />
 
         <PoFormatForm
           institutionId={format.institution_id}

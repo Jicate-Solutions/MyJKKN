@@ -34,9 +34,11 @@ function FeesContent() {
     else if (p === 'cancelled') toast.info('Payment was cancelled.');
   }, [search]);
 
-  // Default-select all outstanding bills once loaded.
+  // Default-select all payable outstanding bills once loaded. Future-year bills
+  // locked behind earlier dues (payLockedReason) are never selectable.
   useEffect(() => {
-    if (data?.bills) setSelected(new Set(data.bills.map((b) => b.id)));
+    if (data?.bills)
+      setSelected(new Set(data.bills.filter((b) => !b.payLockedReason).map((b) => b.id)));
   }, [data?.bills]);
 
   const selectedTotal = useMemo(
@@ -97,17 +99,30 @@ function FeesContent() {
       ) : (
         <Card className="divide-y divide-black/5 p-2 dark:divide-white/10">
           {data.bills.map((b) => (
-            <label key={b.id} className="flex items-center gap-3 p-3">
+            <label
+              key={b.id}
+              className={`flex items-center gap-3 p-3 ${b.payLockedReason ? 'opacity-70' : ''}`}
+            >
               <input
                 type="checkbox"
                 checked={selected.has(b.id)}
+                disabled={!!b.payLockedReason}
                 onChange={() => toggle(b.id)}
                 className="h-4 w-4 accent-[#0b6d41]"
               />
               <div className="min-w-0 flex-1">
                 <p className="truncate text-sm font-medium">{b.categoryName || b.description}</p>
-                {b.dueDate && (
-                  <p className="text-xs text-muted-foreground">Due {formatDate(b.dueDate)}</p>
+                {(b.academicYear || b.dueDate) && (
+                  <p className="text-xs text-muted-foreground">
+                    {[b.academicYear && `AY ${b.academicYear}`, b.dueDate && `Due ${formatDate(b.dueDate)}`]
+                      .filter(Boolean)
+                      .join(' · ')}
+                  </p>
+                )}
+                {b.payLockedReason && (
+                  <p className="text-xs font-medium text-amber-700 dark:text-amber-400">
+                    {b.payLockedReason}
+                  </p>
                 )}
               </div>
               <span className="text-sm font-semibold">{formatCurrency(b.balanceAmount)}</span>

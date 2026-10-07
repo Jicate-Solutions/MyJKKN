@@ -3,7 +3,7 @@ export const dynamic = 'force-dynamic';
 import { NextResponse , connection } from 'next/server';
 import { z } from 'zod';
 import { getAuthSession, createServerSupabaseClient } from '@/lib/supabase/server';
-import { ServiceTypeService } from '@/lib/services/service-requests/service-type-service';
+import { ServiceTypeService, FEE_STEP_ERROR } from '@/lib/services/service-requests/service-type-service';
 import { createServiceTypeSchema, type CreateServiceTypeDto } from '@/types/service-request';
 
 export async function GET(request: Request) {
@@ -180,6 +180,10 @@ export async function POST(request: Request) {
 
     if (error instanceof Error && error.message.includes('duplicate')) {
       return NextResponse.json({ error: 'A service type with this slug already exists' }, { status: 409 });
+    }
+
+    if (error instanceof Error && error.message.startsWith(FEE_STEP_ERROR)) {
+      return NextResponse.json({ error: error.message }, { status: 400 });
     }
 
     return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });

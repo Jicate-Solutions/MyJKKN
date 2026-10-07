@@ -204,6 +204,22 @@ export interface LearnerEntry {
   marks: Record<string, number>;
   /** Learner did not sit the assessment — saved as grade 'AAA', not as zeros. */
   is_absent?: boolean;
+  /**
+   * Totals for the round's OTHER components (component code → mark), shown
+   * beside the question grid. Holds what is on screen: a value typed this
+   * session, else the one already saved.
+   */
+  other_marks?: Record<string, number>;
+}
+
+/**
+ * A component of the round that is NOT fed by the question paper — e.g. the
+ * Assignment beside a question-wise Test 1. Keyed in as one total per learner.
+ */
+export interface OtherComponent {
+  code: string;
+  name: string;
+  max_marks: number;
 }
 
 /** A record sent to POST /api/mark-entry/marks. */
@@ -234,6 +250,18 @@ export interface QuestionMarkSyncRecord {
    */
   clear_component_code?: string;
   question_marks: Record<string, QuestionMarksBlock>;
+  /**
+   * The round's other components, written in the same row as plain totals:
+   * component code → mark and its max. They have no breakdown.
+   */
+  other_components?: Record<string, { mark: number; max: number }>;
+  /**
+   * Total already on file for `component_code`. Sent ONLY for a row that carries
+   * no question marks this time (e.g. just the Assignment is being added a week
+   * after the test was keyed in), where the route must not touch that component
+   * but still needs it to state a correct `total_internal_marks`.
+   */
+  carried_component_total?: number;
 }
 
 export interface QuestionMarkSaveRequest {
@@ -292,6 +320,8 @@ export interface MarkEntryDraft {
   entries: Record<string, Record<string, number>>;
   /** student_ids marked absent. Optional so older drafts still parse. */
   absent?: string[];
+  /** student_id → (other component code → mark, null = cleared). Optional for older drafts. */
+  others?: Record<string, Record<string, number | null>>;
   /** Learners keyed in OR marked absent — shown in the restore banner. */
   count: number;
 }
@@ -300,43 +330,66 @@ export interface MarkEntryDraft {
 
 /**
  * Part palette in the paper's own part order (emerald → sky → violet → amber →
- * rose), matching the COE grid so the two screens read identically.
+ * rose) — the same hue order as the COE grid.
+ *
+ * `group` and `header` paint STICKY header cells, so they must stay fully
+ * opaque (no `/NN` alpha) or the scrolling rows show through them.
+ *
+ * This file is listed in tailwind.config.ts `content`. Tailwind only generates
+ * classes it can see in a scanned file; before that entry existed, any class
+ * here that no component happened to use (bg-sky-700) silently rendered as
+ * nothing, which is how Part B's header went transparent.
  */
 export const PART_COLORS = [
   {
-    header: 'bg-emerald-700 text-emerald-50',
-    cell: 'bg-emerald-50/60 dark:bg-emerald-950/30',
-    input: 'border-emerald-300 dark:border-emerald-800',
-    edge: 'border-l-4 border-l-emerald-500',
+    group: 'bg-emerald-100 text-emerald-900 dark:bg-emerald-900 dark:text-emerald-50',
+    header: 'bg-emerald-50 text-emerald-950 dark:bg-emerald-950 dark:text-emerald-100',
+    cell: 'bg-emerald-50/40 dark:bg-emerald-950/20',
+    input: 'border-emerald-200 dark:border-emerald-800',
+    focus: 'focus:border-emerald-500 focus:ring-emerald-500/25',
+    edge: 'border-l-2 border-l-emerald-400',
     chip: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-200',
+    dot: 'bg-emerald-500',
   },
   {
-    header: 'bg-sky-700 text-sky-50',
-    cell: 'bg-sky-50/60 dark:bg-sky-950/30',
-    input: 'border-sky-300 dark:border-sky-800',
-    edge: 'border-l-4 border-l-sky-500',
+    group: 'bg-sky-100 text-sky-900 dark:bg-sky-900 dark:text-sky-50',
+    header: 'bg-sky-50 text-sky-950 dark:bg-sky-950 dark:text-sky-100',
+    cell: 'bg-sky-50/40 dark:bg-sky-950/20',
+    input: 'border-sky-200 dark:border-sky-800',
+    focus: 'focus:border-sky-500 focus:ring-sky-500/25',
+    edge: 'border-l-2 border-l-sky-400',
     chip: 'bg-sky-100 text-sky-800 dark:bg-sky-950 dark:text-sky-200',
+    dot: 'bg-sky-500',
   },
   {
-    header: 'bg-violet-700 text-violet-50',
-    cell: 'bg-violet-50/60 dark:bg-violet-950/30',
-    input: 'border-violet-300 dark:border-violet-800',
-    edge: 'border-l-4 border-l-violet-500',
+    group: 'bg-violet-100 text-violet-900 dark:bg-violet-900 dark:text-violet-50',
+    header: 'bg-violet-50 text-violet-950 dark:bg-violet-950 dark:text-violet-100',
+    cell: 'bg-violet-50/40 dark:bg-violet-950/20',
+    input: 'border-violet-200 dark:border-violet-800',
+    focus: 'focus:border-violet-500 focus:ring-violet-500/25',
+    edge: 'border-l-2 border-l-violet-400',
     chip: 'bg-violet-100 text-violet-800 dark:bg-violet-950 dark:text-violet-200',
+    dot: 'bg-violet-500',
   },
   {
-    header: 'bg-amber-700 text-amber-50',
-    cell: 'bg-amber-50/60 dark:bg-amber-950/30',
-    input: 'border-amber-300 dark:border-amber-800',
-    edge: 'border-l-4 border-l-amber-500',
+    group: 'bg-amber-100 text-amber-900 dark:bg-amber-900 dark:text-amber-50',
+    header: 'bg-amber-50 text-amber-950 dark:bg-amber-950 dark:text-amber-100',
+    cell: 'bg-amber-50/40 dark:bg-amber-950/20',
+    input: 'border-amber-200 dark:border-amber-800',
+    focus: 'focus:border-amber-500 focus:ring-amber-500/25',
+    edge: 'border-l-2 border-l-amber-400',
     chip: 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-200',
+    dot: 'bg-amber-500',
   },
   {
-    header: 'bg-rose-700 text-rose-50',
-    cell: 'bg-rose-50/60 dark:bg-rose-950/30',
-    input: 'border-rose-300 dark:border-rose-800',
-    edge: 'border-l-4 border-l-rose-500',
+    group: 'bg-rose-100 text-rose-900 dark:bg-rose-900 dark:text-rose-50',
+    header: 'bg-rose-50 text-rose-950 dark:bg-rose-950 dark:text-rose-100',
+    cell: 'bg-rose-50/40 dark:bg-rose-950/20',
+    input: 'border-rose-200 dark:border-rose-800',
+    focus: 'focus:border-rose-500 focus:ring-rose-500/25',
+    edge: 'border-l-2 border-l-rose-400',
     chip: 'bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-200',
+    dot: 'bg-rose-500',
   },
 ] as const;
 

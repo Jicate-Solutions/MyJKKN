@@ -14,10 +14,9 @@ import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { format } from 'date-fns';
 import type { HostelRoomWithBedsAndOccupancy } from '@/lib/services/campus-living/hostel-room-service';
+import { floorDisplayName } from '@/lib/utils/floor-label';
 import { formatRoomPurpose, formatTierAccess } from './room-meta';
 
-const FLOOR_LABELS = ['Ground Floor', '1st Floor', '2nd Floor', '3rd Floor'];
-const floorLabel = (f: number) => FLOOR_LABELS[f] ?? `Floor ${f}`;
 
 // Mirrors the statusConfig labels in rooms-columns.tsx.
 const STATUS_LABELS: Record<string, string> = {
@@ -37,6 +36,8 @@ const cap = (s: string | null | undefined) =>
 export interface RoomsPdfContext {
   blockName: string;
   filters: string[]; // human-readable active filters; [] => none
+  /** floor_number → admin-set name (hostel_floors.name); absent = ordinal label. */
+  floorNames?: Record<number, string | null>;
 }
 
 export async function exportRoomsPdf(
@@ -93,7 +94,7 @@ export async function exportRoomsPdf(
   // ── Main table ──────────────────────────────────────────────────────────
   const body = rooms.map((r) => [
     r.room_number ?? '—',
-    floorLabel(r.floor),
+    floorDisplayName(r.floor, ctx.floorNames?.[r.floor]),
     cap(r.room_type),
     cap((r.ac_status ?? '').replace('_', ' ')),
     r.hostel_categories?.name ?? '—',

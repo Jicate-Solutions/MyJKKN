@@ -11,6 +11,7 @@
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import {
   ALL_ROLES_WILDCARD,
+  isFeeStep,
   type ServiceRequest,
   type ServiceRequestStatus,
   type CreateServiceRequestDto,
@@ -20,6 +21,7 @@ import {
   type ServiceRequestAnalytics,
 } from '@/types/service-request';
 import { ServiceRequestTimelineService } from './service-request-timeline-service';
+import { ServiceRequestFeeService } from './service-request-fee-service';
 import { normalizePagination } from './pagination';
 
 const getSupabase = async () => await createServerSupabaseClient() as any;
@@ -265,6 +267,7 @@ export class ServiceRequestService {
 
     if (initialStatus === 'submitted') {
       await this.issueStaffGatePassOnSubmit(request.id, serviceType, userId);
+      await this.raiseFeeIfFirstStep(request.id, serviceType, userId);
     }
 
     const noApprovalSteps = (serviceType.approval_steps || []).length === 0;
@@ -313,6 +316,23 @@ export class ServiceRequestService {
     if (error) {
       console.error('[service-requests] Team-member gate pass issue on submit failed:', error);
     }
+  }
+
+  /**
+   * A type whose FIRST step collects a fee: raise the bill as the request is
+   * submitted. Later fee steps are raised by the approval that leads into
+   * them (ServiceRequestApprovalService.handleApproved). Logged, never thrown.
+   */
+  private static async raiseFeeIfFirstStep(
+    requestId: string,
+    serviceType: any,
+    userId: string
+  ): Promise<void> {
+    const firstStep = (serviceType?.approval_steps || []).find(
+      (s: any) => s.step_order === 1
+    );
+    if (!isFeeStep(firstStep)) return;
+    await ServiceRequestFeeService.syncQuietly(requestId, userId);
   }
 
   /**
@@ -482,6 +502,7 @@ export class ServiceRequestService {
 
     const st = request.service_type;
     await this.issueStaffGatePassOnSubmit(id, st, userId);
+    await this.raiseFeeIfFirstStep(id, st, userId);
 
     const noApprovalSteps = (st?.approval_steps || []).length === 0;
     if (noApprovalSteps && st?.auto_fulfill_on_approval) {

@@ -41,11 +41,19 @@ const SWITCHED_OFF =
 const COULD_NOT_START =
   'AI PDF reading could not be started just now — please enter the prices manually.';
 
-export type ExtractItem = { id: string; item_name: string };
+export type ExtractItem = {
+  id: string;
+  item_name: string;
+  item_spec: string | null;
+  quantity: number | null;
+  unit_label: string | null;
+};
+
+const str = (v: unknown) => (typeof v === 'string' && v.trim() ? v.trim().slice(0, 200) : null);
 
 /**
  * POST /api/procurement/quotations/extract-pdf  (multipart/form-data)
- * Fields: file (PDF), items (JSON array of { id, item_name }), rfq_id
+ * Fields: file (PDF), items (JSON array of { id, item_name, item_spec?, quantity?, unit_label? }), rfq_id
  *
  * Parks the vendor PDF in a private bucket and ENQUEUES a ₹0 Max-lane job that
  * reads it. Returns immediately with { job_id }; the caller polls ./status and
@@ -84,7 +92,14 @@ export async function POST(req: NextRequest) {
     items = Array.isArray(parsed)
       ? parsed
           .filter((i) => i && typeof i.id === 'string' && typeof i.item_name === 'string')
-          .map((i) => ({ id: i.id, item_name: i.item_name }))
+          .map((i) => ({
+            id: i.id,
+            item_name: i.item_name,
+            // The specification ("500 ml") is what the vendor's pack is checked against.
+            item_spec: str(i.item_spec),
+            quantity: Number(i.quantity) > 0 ? Number(i.quantity) : null,
+            unit_label: str(i.unit_label),
+          }))
       : [];
   } catch {
     return NextResponse.json({ error: 'Invalid items payload.' }, { status: 400 });
@@ -165,6 +180,8 @@ export async function POST(req: NextRequest) {
       const message =
         err instanceof Anthropic.RateLimitError
           ? 'The AI reader is busy — please try again in a minute, or enter the prices manually.'
+          : err instanceof Anthropic.BadRequestError && /credit balance/i.test(err.message)
+            ? 'AI reading is paused: the AI account is out of credit (an admin must top it up). Type the prices for now.'
           : err instanceof Anthropic.BadRequestError
             ? 'The AI could not open this PDF — please enter the prices manually.'
             : err instanceof Error && !(err instanceof Anthropic.APIError)

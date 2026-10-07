@@ -120,6 +120,7 @@ export const imsAdapter: ProcurementDomainAdapter = {
       cost_price: line.costPrice,
       total_value: totalValue,
       grn_id: line.grnId,
+      supplier_id: line.supplierId ?? null,
       entry_date: entryDate,
       location_type: 'central_store',
       department_id: null,

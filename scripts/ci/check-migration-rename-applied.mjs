@@ -43,7 +43,10 @@
  *   migration's objects. Much of this repo's SQL reached production by hand
  *   through the Management API, which records nothing. So:
  *
- *       ledger HIT  → applied. Definitive, trust it.
+ *       ledger HIT  → applied. Definitive, trust it — for the file the row
+ *                     NAMES. A row whose `name` is a different file sharing the
+ *                     version is set aside and the objects decide (#4207,
+ *                     2026-10-05). A row with no name still fails.
  *       ledger MISS → says NOTHING. Roughly 96% of this repo's migrations miss.
  *
  *   The load-bearing signal is therefore OBJECT EXISTENCE: does production
@@ -148,7 +151,8 @@ const fixtureIdx = argv.indexOf('--fixture');
  *                    "to":   "supabase/migrations/B.sql",
  *                    "sql":  "CREATE TABLE public.t (...);",   // file body
  *                    "header": "-- RENAME-SAFE: ..." } ],      // optional
- *     "ledger":  ["20260801002300"],                            // applied versions
+ *     "ledger":  ["20260801002300",                             // applied versions,
+ *                 { "version": "20271005090000", "name": "x" }], // or rows with a name
  *     "existing": ["table:public.t", "policy:public.t.p"],      // objects in prod
  *     "credentials": true }                                     // default true
  */
@@ -177,6 +181,17 @@ function versionOf(p) {
   const b = basename(p);
   const u = b.indexOf('_');
   return u === -1 ? b.replace(/\.sql$/, '') : b.slice(0, u);
+}
+
+/**
+ * The name part — everything after the first underscore, without `.sql`. This is
+ * what the Supabase CLI (and scripts/apply-migration-file.mjs) writes into
+ * schema_migrations.name next to the version. Empty when the file has no name.
+ */
+export function nameOf(p) {
+  const b = basename(p).replace(/\.sql$/, '');
+  const u = b.indexOf('_');
+  return u === -1 ? '' : b.slice(u + 1);
 }
 
 /** Prefer jicate/main when the remote exists — a stale origin yields a false pass. */
@@ -460,10 +475,14 @@ END AS present
 FROM wanted w`.trim();
 }
 
-/** Applied-ledger probe. A HIT is definitive; a MISS proves nothing (see header). */
+/**
+ * Applied-ledger probe. A HIT is definitive for the file it NAMES; a MISS proves
+ * nothing (see header). `name` is read so a hit can be checked against the file
+ * being renamed — two files can share one version (PR #4207, 2026-10-05).
+ */
 export function buildLedgerSql(versions) {
   if (versions.length === 0) return null;
-  return `SELECT version FROM supabase_migrations.schema_migrations WHERE version IN (${versions.map(lit).join(', ')})`;
+  return `SELECT version, name FROM supabase_migrations.schema_migrations WHERE version IN (${versions.map(lit).join(', ')})`;
 }
 
 function lit(s) { return `'${String(s).replace(/'/g, "''")}'`; }
@@ -517,10 +536,47 @@ async function runQuery(sql, transport, env) {
  * "5 of 59 objects present" with no account of WHICH five is what made the
  * 2026-09-04 false positive take an evening to diagnose.
  */
-export function verdictFor({ rename, objects, replaced = [], presentSet, ledgerSet, attested, credentials }) {
+export function verdictFor({ rename, objects, replaced = [], presentSet, ledgerSet, ledgerNames, attested, credentials }) {
   if (ledgerSet.has(rename.fromVersion)) {
-    return { level: 'fail', reason: 'ledger-source',
-      detail: `schema_migrations carries version ${rename.fromVersion}. That migration has run; renaming it re-arms it as pending.` };
+    // A ledger hit is definitive for the file it NAMES. Two files can share one
+    // version, and the row names at most one of them (PR #4207, 2026-10-05: the row
+    // for 20271005090000 was a procurement migration, and the renamed
+    // gate_pass_expired_status file had never run). When the recorded name is a
+    // DIFFERENT file, the hit says nothing about this one, so the decision falls
+    // through to this file's own objects. No name recorded → no way to tell →
+    // today's behaviour: fail.
+    // Residual risk: scripts/apply-migration-file.mjs records with ON CONFLICT
+    // (version) DO UPDATE SET name, so when BOTH files sharing a version were
+    // applied, the row names only the last one. Renaming the other then rests on
+    // its objects, which is the same exposure as a ledger miss.
+    // 222 of 3,575 live rows (5 Oct) store the name WITH its version prefix
+    // ("20271005090000_procurement_two_signoffs_guard"); strip it so both forms compare.
+    const recorded = String(ledgerNames?.get(rename.fromVersion) ?? '').trim();
+    const own = [nameOf(rename.from), nameOf(rename.to)].filter(Boolean);
+    // Matching must be LIBERAL, because over-matching only ever fails closed
+    // (we keep today's refusal) while under-matching sets aside a row that is
+    // this file's own and lets an applied migration be re-armed. Live forms that
+    // defeated a strict compare (verified against production, 5–6 Oct 2026):
+    //   * a human annotation after the name — 2 rows read
+    //     "learner_leave_types_backfill (applied by hand 28 Sep; recorded as ...)"
+    //   * a different capitalisation — 2 rows
+    //   * the version prefix — 222 rows; and a prefix need not be THIS version
+    //     (the annotated row above says "recorded as 20260928085422")
+    //   * a path or a .sql suffix, and '-' written for '_'.
+    // So: fold case and '-' to '_', and treat the row as this file's whenever the
+    // file's name appears ANYWHERE in it. A row that is only a fragment of the
+    // file's name ("backfill") is still a different file.
+    const norm = (t) => String(t).toLowerCase().replace(/-/g, '_');
+    const isOwnRow = own.some((o) => norm(recorded).includes(norm(o)));
+    if (!recorded || isOwnRow) {
+      return { level: 'fail', reason: 'ledger-source',
+        detail: `schema_migrations carries version ${rename.fromVersion}${recorded ? ` under name "${recorded}" — this file` : ' (no name recorded, so it cannot be told apart from this file)'}. That migration has run; renaming it re-arms it as pending.` };
+    }
+    const v = verdictFor({ rename, objects, replaced, presentSet,
+      ledgerSet: new Set([...ledgerSet].filter(x => x !== rename.fromVersion)),
+      ledgerNames, attested, credentials });
+    return { ...v,
+      ledgerNote: `schema_migrations carries version ${rename.fromVersion} under name "${recorded}", which is NOT this file ("${nameOf(rename.from)}") — that row belongs to ${rename.fromVersion}_${recorded.replace(new RegExp(`^${rename.fromVersion}_`), '').replace(/\.sql$/, '')}.sql, a different file sharing the version. Decided on this file's own objects instead.` };
   }
   if (ledgerSet.has(rename.toVersion)) {
     return { level: 'fail', reason: 'ledger-target',
@@ -623,10 +679,17 @@ async function main() {
   const credentials = fixture ? (fixture.credentials !== false) : Boolean(transport);
 
   let ledgerSet = new Set();
+  let ledgerNames = new Map();   // version → schema_migrations.name (null when unrecorded)
   let presentSet = new Set();
 
   if (fixture) {
-    ledgerSet = new Set(fixture.ledger || []);
+    // A ledger entry is a bare version string (no name recorded) or
+    // { version, name } — the row as schema_migrations holds it.
+    for (const e of fixture.ledger || []) {
+      const row = typeof e === 'string' ? { version: e, name: null } : e;
+      ledgerSet.add(String(row.version));
+      ledgerNames.set(String(row.version), row.name ?? null);
+    }
     presentSet = new Set((fixture.existing || []).map(o => {
       const i = o.indexOf(':');
       return `${o.slice(0, i)}:${unqualify(o.slice(i + 1))}`;
@@ -638,6 +701,7 @@ async function main() {
     // A transport error must abort, never degrade into "found nothing".
     const ledgerRows = await runQuery(buildLedgerSql(versions), transport, env);
     ledgerSet = new Set(ledgerRows.map(r => String(r.version)));
+    ledgerNames = new Map(ledgerRows.map(r => [String(r.version), r.name ?? null]));
     if (allObjects.length > 0) {
       const rows = await runQuery(buildExistenceSql(allObjects), transport, env);
       for (const r of rows) if (r.present === true || r.present === 't') presentSet.add(`${r.kind}:${r.id}`);
@@ -654,6 +718,7 @@ async function main() {
       replaced: replacedFor.get(r.to),
       presentSet,
       ledgerSet,
+      ledgerNames,
       attested: attestation(bodies.get(r.to) || '', r.fromVersion, r.toVersion),
       credentials,
     });
@@ -668,6 +733,11 @@ async function main() {
           console.log(`      ${DIM}${v.replaced.length} excluded as replaced: ${list(v.replaced)}${RESET}`);
         }
       }
+    }
+    // Always shown, pass or fail: a ledger hit that was set aside must be visible.
+    if (v.ledgerNote) {
+      if (!(VERBOSE || v.level === 'fail')) console.log(`  ${GREEN}✓${RESET} ${basename(r.from)} → ${basename(r.to)}  ${DIM}[${v.reason}]${RESET}`);
+      console.log(`      ${YELLOW}note: ledger-shadowed —${RESET} ${v.ledgerNote}`);
     }
     if (v.level === 'fail') findings.push({ rename: r, verdict: v });
   }
