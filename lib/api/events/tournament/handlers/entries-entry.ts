@@ -35,7 +35,8 @@ export async function PATCH(
   try {
     const { eventId, entryId } = await params;
     const gate = await requireManage(eventId);
-    if (!gate.ok) return gate.res;
+    // `in` narrowing: with strictNullChecks off, `!gate.ok` does not narrow the union.
+    if ('res' in gate) return gate.res;
 
     const body = (await request.json().catch(() => ({}))) as
       & { action?: 'mark_paid'; payment_reference?: string }
@@ -113,7 +114,8 @@ export async function DELETE(
   try {
     const { eventId, entryId } = await params;
     const gate = await requireManage(eventId);
-    if (!gate.ok) return gate.res;
+    // `in` narrowing: with strictNullChecks off, `!gate.ok` does not narrow the union.
+    if ('res' in gate) return gate.res;
 
     const svc = createServiceRoleClient();
 
