@@ -83,7 +83,7 @@ export function IssueList({ rows, selectable, selected, onToggle, onToggleAll, o
       </ul>
 
       {/* Table from md */}
-      <div className="hidden rounded-md border md:block">
+      <div className="scrollbar-slim hidden overflow-x-auto rounded-md border md:block">
         <Table>
           <TableHeader>
             <TableRow>
