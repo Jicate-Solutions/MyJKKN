@@ -318,6 +318,10 @@
       "schedule": "*/5 * * * *"
     },
     {
+      "path": "/api/cron/hr/leave-escalations?secret=${CRON_SECRET}",
+      "schedule": "29 3-14 * * *"
+    },
+    {
       "path": "/api/cron/whats-new-highlight-drafts?secret=${CRON_SECRET}",
       "schedule": "13,43 * * * *"
     },

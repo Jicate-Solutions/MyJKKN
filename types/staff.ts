@@ -641,6 +641,9 @@ export type StaffEventType =
   | 'leave_approved'        // Approver approves → notify requester
   | 'leave_rejected'        // Approver rejects  → notify requester
   | 'leave_revoked'         // An APPROVED decision is taken back → notify requester
+  | 'leave_escalated'       // A step overran escalate_after_hours → notify its approver(s) and the next level
+  | 'comp_off_expiry_nudge' // An undecided comp-off claim's credit expires in 7 / 2 days → notify approver(s)
+  | 'comp_off_lapsed'       // The nightly auto-reject closed a claim → notify the claimant
   | 'eligibility_submitted' // A team member requests eligibility for a gated leave type → notify approver(s)
   | 'eligibility_approved'  // Eligibility granted → notify requester
   | 'eligibility_rejected'  // Eligibility refused → notify requester

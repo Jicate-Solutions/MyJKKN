@@ -429,6 +429,22 @@ export const PLATFORM_OPS_ROUTINES: AIRoutine[] = [
     "notes": "Auth: Bearer or ?secret=. IST math: 07:00 UTC = 12:30 IST (minute_of_day 750)."
   },
   {
+    "id": "hr-comp-off-expiry-nudges",
+    "name": "HR comp-off expiry nudges",
+    "category": "platform-ops",
+    "type": "cron",
+    "schedule": "Daily · 09:17 IST (editable via dispatcher)",
+    "triggerPath": "/api/cron/hr/comp-off-expiry-nudges",
+    "callsClaude": false,
+    "featureKey": null,
+    "featureKeyNote": "Rules-based expiry windows; no model involved.",
+    "whatItDoes": "Nudges the approvers of an undecided comp-off claim 7 days and 2 days before its credit expires, and tells the claimant when the nightly auto-reject has closed their claim. Approvers on approved leave today are skipped.",
+    "configKnobs": "7/2-day windows in lib/hr/leave/deadline-harness.ts. Day/time editable at /admin/ai-routines.",
+    "sideEffects": "SENDS in-app notifications; inserts hr_leave_deadline_nudges rows (one per claim and window) for idempotency. Never changes a claim.",
+    "safeToManualTrigger": true,
+    "notes": "Auth: Bearer or ?secret=. Seeded by 20270613101117_hr_leave_deadline_enforcement.sql at minute_of_day 557 (09:17 IST), after the 00:20 IST auto-reject. Its hourly sibling /api/cron/hr/leave-escalations is a vercel.json cron because the dispatcher cannot run hourly."
+  },
+  {
     "id": "hr-policy-promote-detector",
     "name": "HR policy promotion detector (weekly)",
     "category": "platform-ops",

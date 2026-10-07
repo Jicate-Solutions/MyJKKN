@@ -11549,3 +11549,50 @@ COMMENT ON TABLE public.hr_salary_revision_target_setting_log IS
   'signed in or not (changed_via: signed_in, server_key, console; changed_by NULL unless signed in). Append-only, '
   'written by the trg_audit_hr_salary_revision_target_rules triggers (insert, update incl. a rename away, delete). '
   'Migration 20271007180207.';
+
+
+-- ============================================================================
+-- HR staff harness, lane A — leave deadline enforcement
+-- Updated: 2026-10-01 - mirrors supabase/migrations/20270613101117_hr_leave_deadline_enforcement.sql
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS public.hr_leave_deadline_nudges (
+  id                   uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  kind                 text NOT NULL CHECK (kind IN (
+                         'leave_escalation',
+                         'comp_off_expiry_7d',
+                         'comp_off_expiry_2d',
+                         'comp_off_lapsed')),
+  leave_application_id uuid REFERENCES public.hr_leave_applications(id) ON DELETE CASCADE,
+  comp_off_credit_id   uuid REFERENCES public.hr_comp_off_credits(id) ON DELETE CASCADE,
+  -- 0-based index into approval_chain (the same number as current_step).
+  step_index           integer,
+  due_at               timestamptz,
+  notified_user_ids    uuid[] NOT NULL DEFAULT ARRAY[]::uuid[],
+  -- 'escalated' | 'status_refused' | 'recorded'
+  outcome              text NOT NULL,
+  detail               text,
+  created_at           timestamptz NOT NULL DEFAULT now(),
+  updated_at           timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT hr_leave_deadline_nudges_one_subject
+    CHECK (num_nonnulls(leave_application_id, comp_off_credit_id) = 1),
+  CONSTRAINT hr_leave_deadline_nudges_leave_has_step
+    CHECK (kind <> 'leave_escalation'
+           OR (leave_application_id IS NOT NULL AND step_index IS NOT NULL)),
+  CONSTRAINT hr_leave_deadline_nudges_comp_off_kind
+    CHECK (kind = 'leave_escalation' OR comp_off_credit_id IS NOT NULL)
+);
+
+COMMENT ON TABLE public.hr_leave_deadline_nudges IS
+  'HR staff harness: one row per leave-step escalation or comp-off expiry nudge actually sent, with who was told. Also the idempotency key — a step is escalated, and a claim nudged per window, at most once.';
+
+-- The idempotency keys. ON CONFLICT DO NOTHING in the record functions below
+-- relies on these, so they are unique, not merely indexed.
+CREATE UNIQUE INDEX IF NOT EXISTS hr_leave_deadline_nudges_leave_step_uq
+  ON public.hr_leave_deadline_nudges (leave_application_id, step_index)
+  WHERE kind = 'leave_escalation';
+CREATE UNIQUE INDEX IF NOT EXISTS hr_leave_deadline_nudges_comp_off_uq
+  ON public.hr_leave_deadline_nudges (comp_off_credit_id, kind)
+  WHERE comp_off_credit_id IS NOT NULL;
+
+ALTER TABLE public.hr_leave_deadline_nudges ENABLE ROW LEVEL SECURITY;
+

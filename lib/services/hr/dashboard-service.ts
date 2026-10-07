@@ -196,7 +196,7 @@ export class HRDashboardService {
     let pending = supabase
       .from('hr_leave_applications')
       .select('id', { count: 'exact', head: true })
-      .eq('status', 'pending');
+      .in('status', ['pending', 'escalated']);
     if (hrOrgId) pending = pending.eq('hr_organization_id', hrOrgId);
     const pendingCount = await safeCount(() => pending);
 
@@ -204,7 +204,7 @@ export class HRDashboardService {
     let overdue = supabase
       .from('hr_leave_applications')
       .select('id', { count: 'exact', head: true })
-      .eq('status', 'pending')
+      .in('status', ['pending', 'escalated'])
       .lt('created_at', overdueCutoff);
     if (hrOrgId) overdue = overdue.eq('hr_organization_id', hrOrgId);
     const overdueCount = await safeCount(() => overdue);
@@ -481,7 +481,7 @@ export class HRDashboardService {
     let overdue = supabase
       .from('hr_leave_applications')
       .select('id', { count: 'exact', head: true })
-      .eq('status', 'pending')
+      .in('status', ['pending', 'escalated'])
       .lt('created_at', overdueCutoff);
     if (hrOrgId) overdue = overdue.eq('hr_organization_id', hrOrgId);
     const overdueCount = await safeCount(() => overdue);
@@ -688,14 +688,14 @@ export class HRDashboardService {
                 .from('hr_leave_applications')
                 .select('id', { count: 'exact', head: true })
                 .eq('hr_organization_id', org.id)
-                .eq('status', 'pending')
+                .in('status', ['pending', 'escalated'])
             ),
             safeCount(() =>
               supabase
                 .from('hr_leave_applications')
                 .select('id', { count: 'exact', head: true })
                 .eq('hr_organization_id', org.id)
-                .eq('status', 'pending')
+                .in('status', ['pending', 'escalated'])
                 .lt('created_at', overdueCutoff)
             ),
             safeCount(() =>
