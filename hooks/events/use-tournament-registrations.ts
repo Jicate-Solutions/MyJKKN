@@ -52,9 +52,12 @@ export function useAddSpotEntry(eventId: string) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (dto: CreateSpotEntryDto) => TournamentRegistrationService.addSpotEntry(eventId, dto),
-    onSuccess: () => {
+    onSuccess: (res) => {
       qc.invalidateQueries({ queryKey: KEYS.entries(eventId) });
-      toast.success('Spot entry added');
+      // The same form was already saved (double click / lost response): nothing
+      // new was written, so any change made before resubmitting was not applied.
+      if (res.duplicate) toast('This entry was already saved. Check it in the list before adding it again.', { icon: 'ℹ️' });
+      else toast.success('Spot entry added');
     },
     onError: (e: Error) => toast.error(e.message || 'Failed to add the entry'),
   });

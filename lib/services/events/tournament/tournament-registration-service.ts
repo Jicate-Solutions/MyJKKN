@@ -31,13 +31,13 @@ export class TournamentRegistrationService {
   static async addSpotEntry(
     eventId: string,
     dto: CreateSpotEntryDto
-  ): Promise<{ entry_id: string; access_code: string | null }> {
+  ): Promise<{ entry_id: string; access_code: string | null; duplicate?: boolean }> {
     const res = await fetch(`/api/events/tournament/${eventId}/spot-entry`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(dto),
     });
-    return asJson<{ entry_id: string; access_code: string | null }>(res);
+    return asJson<{ entry_id: string; access_code: string | null; duplicate?: boolean }>(res);
   }
 
   /** Update an entry (seed/status/name/notes). */

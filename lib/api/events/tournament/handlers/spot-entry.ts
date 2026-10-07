@@ -12,6 +12,8 @@
 // The organiser who added it is recorded (events_registrations.registered_by,
 // custom_data.spot_entry, and a note on the entry). Custom registration-form
 // questions are not asked here — they belong to the self-service form.
+// Writes go through fn_tournament_add_spot_entry: one transaction under the
+// division lock, idempotent per request_key, one active entry per learner.
 // A new entry is not placed in an already generated bracket; the organiser
 // places it with "Edit teams" / "Fill bye" (fn_tournament_set_match_side).
 
@@ -26,7 +28,6 @@ import {
   isTeamDivision,
 } from '@/types/tournament';
 import type { CreateSpotEntryDto, EligibilityRules } from '@/types/tournament';
-import { insertEntryWithAccessCode } from '../entry-access-code';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 /** Event statuses that no longer take entries (events status CHECK values). */
@@ -34,33 +35,9 @@ const CLOSED_EVENT_STATUSES = ['draft', 'cancelled', 'post_event', 'archived'];
 const GENDERS = ['male', 'female', 'other'];
 const MEMBER_ROLES = ['captain', 'player', 'substitute', 'coach', 'manager'];
 
-/** The entry already created for this form submission (idempotent retry / double click). */
-async function existingSpotEntry(svc: any, eventId: string, requestKey: string) {
-  const { data: reg } = await svc
-    .from('events_registrations')
-    .select('id')
-    .eq('event_id', eventId)
-    .eq('source', 'tournament_spot')
-    .eq('custom_data->spot_entry->>request_key', requestKey)
-    .maybeSingle();
-  if (!reg) return null;
-  const { data: entry } = await svc
-    .from('tournament_entries')
-    .select('id, access_code')
-    .eq('registration_id', reg.id)
-    .maybeSingle();
-  return entry ? { entry_id: entry.id as string, access_code: (entry.access_code as string | null) ?? null } : null;
-}
-
 /** A trimmed string, or null for blank / non-string input. */
 const str = (v: unknown): string | null =>
   typeof v === 'string' && v.trim() ? v.trim().slice(0, 200) : null;
-
-/** Undo a half-made spot entry; a failed undo is logged, never swallowed silently. */
-async function undo(svc: any, table: string, id: string) {
-  const { error } = await svc.from(table).delete().eq('id', id);
-  if (error) console.error(`[tournament/spot-entry] could not roll back ${table} ${id}:`, error.message);
-}
 
 export async function POST(
   request: NextRequest,
@@ -108,9 +85,6 @@ export async function POST(
 
     const svc = createServiceRoleClient();
 
-    // Same form submitted again (double click, retry): hand back what it made.
-    const again = await existingSpotEntry(svc, eventId, dto.request_key);
-    if (again) return NextResponse.json({ ...again, duplicate: true }, { status: 200 });
 
     const { data: ev } = await (svc as any)
       .from('events')
@@ -203,45 +177,6 @@ export async function POST(
     const elig = checkEligibility(rules, subject);
     if (!elig.ok) return NextResponse.json({ error: elig.reason }, { status: 422 });
 
-    // One active entry per learner per division. A team's learner is its captain
-    // (on the entry); an individual's sits on the registration.
-    if (learner) {
-      let already = false;
-      if (entryType === 'team') {
-        const { data: dup } = await (svc as any)
-          .from('tournament_entries')
-          .select('id')
-          .eq('division_id', dto.division_id)
-          .in('status', ['registered', 'confirmed'])
-          .eq('captain_learner_id', learner.id)
-          .limit(1);
-        already = (dup?.length ?? 0) > 0;
-      } else {
-        const { data: regs } = await (svc as any)
-          .from('events_registrations')
-          .select('id')
-          .eq('event_id', eventId)
-          .eq('learner_id', learner.id);
-        const regIds = (regs ?? []).map((r: { id: string }) => r.id);
-        if (regIds.length) {
-          const { data: inDivision } = await (svc as any)
-            .from('tournament_entries')
-            .select('id')
-            .eq('division_id', dto.division_id)
-            .in('status', ['registered', 'confirmed'])
-            .in('registration_id', regIds)
-            .limit(1);
-          already = (inDivision?.length ?? 0) > 0;
-        }
-      }
-      if (already) {
-        return NextResponse.json(
-          { error: `${regNo} already has an entry in this division` },
-          { status: 409 }
-        );
-      }
-    }
-
     // ---- fee: a spot entry in a fee division is paid at the desk, first ----
     const fee = Number((division.config as any)?.entry_fee ?? 0) || 0;
     const methodLabel = SPOT_ENTRY_PAYMENT_METHODS.find((m) => m.value === dto.payment_method)?.label ?? null;
@@ -273,81 +208,48 @@ export async function POST(
     const institutionId = dto.is_external ? null : (learner?.institution_id ?? null);
     const institutionName = str(dto.institution_name);
 
-    const { data: reg, error: regErr } = await (svc as any)
-      .from('events_registrations')
-      .insert({
-        event_id: eventId,
-        category_id: null,
-        participant_type: dto.is_external ? 'external' : 'internal',
-        participant_name: entryName,
-        participant_phone: str(dto.participant_phone),
-        participant_age: age ?? null,
-        participant_gender: learner?.gender ?? gender,
-        learner_id: entryType === 'individual' ? (learner?.id ?? null) : null,
-        institution_id: institutionId,
-        institution_name: institutionName,
-        status: 'registered',
-        payment_status: fee > 0 ? 'paid' : 'not_required',
-        payment_amount: fee,
-        payment_method: fee > 0 ? 'offline' : null,
-        payment_reference: fee > 0 ? (reference ?? `${methodLabel} at the desk`) : null,
-        source: 'tournament_spot',
-        registered_by: user.id,
-        custom_data: {
-          spot_entry: {
-            request_key: dto.request_key,
-            added_by: user.id,
-            added_by_name: organiserName,
-            fee_method: fee > 0 ? dto.payment_method : null,
-          },
+    // One transaction under the division lock (fn_tournament_add_spot_entry):
+    // the same request_key returns its first entry, a learner already entered in
+    // this division is refused, and registration + entry + roster land together.
+    const { data: made, error: rpcErr } = await (svc as any).rpc('fn_tournament_add_spot_entry', {
+      p_actor: user.id,
+      p_event_id: eventId,
+      p_division_id: dto.division_id,
+      p_request_key: dto.request_key,
+      p_entry_type: entryType,
+      p_entry_name: entryName,
+      p_learner_id: learner?.id ?? null,
+      p_is_external: !!dto.is_external,
+      p_institution_id: institutionId,
+      p_institution_name: institutionName,
+      p_phone: str(dto.participant_phone),
+      p_age: age ?? null,
+      p_gender: learner?.gender ?? gender,
+      p_members: entryType === 'team' ? members : null,
+      p_fee: fee,
+      p_payment_reference: fee > 0 ? (reference ?? `${methodLabel} at the desk`) : null,
+      p_custom_data: {
+        spot_entry: {
+          added_by: user.id,
+          added_by_name: organiserName,
+          fee_method: fee > 0 ? dto.payment_method : null,
         },
-      })
-      .select('id')
-      .single();
-    if (regErr?.code === '23505' && /spot_request_key/i.test(`${regErr.message} ${regErr.details ?? ''}`)) {
-      // The same submission raced in twice; the other one won. Return its entry.
-      const winner = await existingSpotEntry(svc, eventId, dto.request_key);
-      if (winner) return NextResponse.json({ ...winner, duplicate: true }, { status: 200 });
-      return NextResponse.json({ error: 'This entry is already being saved. Reload to see it.' }, { status: 409 });
-    }
-    if (regErr || !reg) {
-      return NextResponse.json({ error: regErr?.message || 'Failed to add the entry' }, { status: 500 });
-    }
-
-    const { entry, accessCode, error: entryErr } = await insertEntryWithAccessCode(
-      svc,
-      {
-        event_id: eventId,
-        division_id: dto.division_id,
-        registration_id: reg.id,
-        entry_type: entryType,
-        entry_name: entryName,
-        institution_id: institutionId,
-        institution_name: institutionName,
-        is_external: !!dto.is_external,
-        captain_learner_id: entryType === 'team' ? (learner?.id ?? null) : null,
-        status: 'registered',
-        notes: `Spot entry added by ${organiserName} on ${today}`,
       },
-      null
-    );
-    if (entryErr || !entry) {
-      await undo(svc, 'events_registrations', reg.id);
-      return NextResponse.json({ error: entryErr?.message || 'Failed to add the entry' }, { status: 500 });
-    }
-
-    if (entryType === 'team' && members.length) {
-      const { error: rosterErr } = await (svc as any).from('tournament_team_members').insert(
-        members.map((m) => ({ entry_id: entry.id, learner_id: null, ...m }))
-      );
-      if (rosterErr) {
-        await undo(svc, 'tournament_entries', entry.id);
-        await undo(svc, 'events_registrations', reg.id);
-        return NextResponse.json({ error: rosterErr.message || 'Failed to save the roster' }, { status: 500 });
+      p_notes: `Spot entry added by ${organiserName} on ${today}`,
+    });
+    if (rpcErr) {
+      if (/learner_already_entered/.test(rpcErr.message ?? '')) {
+        return NextResponse.json(
+          { error: `${regNo} already has an entry in this division` },
+          { status: 409 }
+        );
       }
+      return NextResponse.json({ error: rpcErr.message || 'Failed to add the entry' }, { status: 500 });
     }
-
-    return NextResponse.json({ entry_id: entry.id, access_code: accessCode }, { status: 201 });
+    const result = made as { entry_id: string; access_code: string | null; duplicate: boolean };
+    // duplicate = this exact form was already saved (double click / lost response):
+    // nothing new was written, and the caller is told so rather than "added".
+    return NextResponse.json(result, { status: result.duplicate ? 200 : 201 });
   } catch (err) {
     return NextResponse.json(
       { error: err instanceof Error ? err.message : 'Failed to add the entry' },
