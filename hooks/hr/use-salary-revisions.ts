@@ -9,7 +9,7 @@
  */
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import type { SalaryRevisionRow } from '@/lib/hr/salary-revision';
+import type { HeldApprovalRow, SalaryRevisionRow } from '@/lib/hr/salary-revision';
 
 /** Declared here so this file imports nothing server-side. */
 export interface SuggestionNote {
@@ -60,6 +60,7 @@ export const SALARY_REVISION_KEYS = {
   person: (staffId: string) => ['hr', 'salary-revisions', 'person', staffId] as const,
   detail: (id: string) => ['hr', 'salary-revisions', 'detail', id] as const,
   outcomes: ['hr', 'salary-revisions', 'my-outcomes'] as const,
+  held: ['hr', 'salary-revisions', 'held'] as const,
 };
 
 /** A refusal from the server, with the waiting request's id when there is one. */
@@ -97,6 +98,20 @@ export function useSalaryRevisionList(view: 'mine' | 'college' | 'director' | 'a
     staleTime: 0,
     queryFn: () =>
       call<{ requests: SalaryRevisionListRow[] }>(`/api/hr/salary-revisions?view=${view}`).then((b) => b.requests),
+  });
+}
+
+/**
+ * 1 Oct 2026: yeses given before that day's rules that break them. The
+ * database answers the Director list only; anyone else gets an error, and the
+ * screen shows nothing.
+ */
+export function useHeldApprovals(enabled = true) {
+  return useQuery({
+    queryKey: SALARY_REVISION_KEYS.held,
+    enabled,
+    retry: false,
+    queryFn: () => call<{ held: HeldApprovalRow[] }>('/api/hr/salary-revisions?view=held').then((b) => b.held),
   });
 }
 

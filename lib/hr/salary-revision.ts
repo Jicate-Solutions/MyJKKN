@@ -61,6 +61,40 @@ export interface SalaryRevisionRow {
   apply_note: string | null;
   /** 30 Sep: why an approved raise was cancelled (the person left). */
   cancel_note: string | null;
+  /**
+   * 1 Oct 2026: may THIS viewer give the final yes or no on it now? False for
+   * their own raise, and for a raise for someone on the Director list unless
+   * they are the Director himself (20271007150103). The database refuses anyway.
+   */
+  can_decide: boolean;
+}
+
+/**
+ * 1 Oct 2026, rule 6: a yes given before that day's rulings that breaks them
+ * (fn_hr_salary_revision_held_approvals, Director list only). Read-only:
+ * an approved one is never written to the pay, an applied one was written
+ * before the rules, and nothing about either is changed.
+ */
+export interface HeldApprovalRow {
+  id: string;
+  staff_id: string;
+  person_name: string;
+  staff_code: string | null;
+  status: SalaryRevisionStatus;
+  final_monthly_gross: number | string | null;
+  starts_on: string | null;
+  decided_by: string | null;
+  decided_by_name: string | null;
+  decided_at: string | null;
+  why: string;
+}
+
+/** The database's reason, in the words the approval page shows. */
+export function heldReasonInWords(why: string): string {
+  if (why.startsWith('Nobody can tell')) return 'Linked to no account, so it cannot be checked';
+  return why.startsWith('Approved by the person')
+    ? 'Approved by the person themself'
+    : 'Approved by someone other than the Director';
 }
 
 export const STATUS_LABELS: Record<SalaryRevisionStatus, string> = {

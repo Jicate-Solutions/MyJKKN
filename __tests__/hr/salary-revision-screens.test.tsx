@@ -34,6 +34,7 @@ let listRows: SalaryRevisionListRow[] = [];
 let listEnabled: boolean[] = [];
 let people: RevisionPerson[] = [];
 let detail: unknown = null;
+let held: { data: unknown; error: Error | null } = { data: undefined, error: new Error('Only the Director can see this list.') };
 vi.mock('@/hooks/hr/use-salary-revisions', async (orig) => ({
   ...(await orig<typeof import('@/hooks/hr/use-salary-revisions')>()),
   useSalaryRevisionList: (_view: string, enabled = true) => {
@@ -49,6 +50,7 @@ vi.mock('@/hooks/hr/use-salary-revisions', async (orig) => ({
     isLoading: false,
   }),
   useRevisionDetail: () => ({ data: detail, isLoading: false, error: null }),
+  useHeldApprovals: () => ({ ...held, isLoading: false }),
 }));
 vi.mock('react-hot-toast', () => ({ default: { success: vi.fn(), error: vi.fn() } }));
 vi.mock('next/link', () => ({ default: (p: React.AnchorHTMLAttributes<HTMLAnchorElement>) => <a {...p} /> }));
@@ -72,7 +74,7 @@ const row = (over: Partial<SalaryRevisionListRow>): SalaryRevisionListRow => ({
   asked_monthly_gross: '56500.00', is_cut: false, final_monthly_gross: null, final_is_cut: null, reason: 'Good work',
   status: 'waiting_director', starts_on: null, created_at: '2026-09-29T05:00:00Z', principal_decided_at: null,
   director_decided_at: null, applied_at: null, comment_count: 0,
-  asker_is_also_hod: false, band_changed: false, apply_note: null, cancel_note: null,
+  asker_is_also_hod: false, band_changed: false, apply_note: null, cancel_note: null, can_decide: true,
   suggestion: { verdict: 'suggested', figure: 50000, note: null }, band_warning: null, ...over,
 });
 
@@ -82,6 +84,7 @@ beforeEach(() => {
   listEnabled = [];
   people = [];
   detail = null;
+  held = { data: undefined, error: new Error('Only the Director can see this list.') };
   approveMany.mockReset();
   act.mockReset();
   ask.mockReset();
@@ -132,6 +135,50 @@ describe("the Director's approval list", () => {
     render(<ApprovePage />);
     fireEvent.click(screen.getByRole('checkbox', { name: 'Tick all' }));
     expect(screen.getByRole('button', { name: /Approve ticked \(3\)/ })).toBeEnabled();
+  });
+
+  it('a row he may not decide gets no tick box, says why, and tick all leaves it out (1 Oct 2026)', () => {
+    listRows = [
+      row({ id: 'r1', person_name: 'Member One' }),
+      row({ id: 'r5', person_name: 'His Own', can_decide: false }),
+    ];
+    render(<ApprovePage />);
+    expect(screen.queryByRole('checkbox', { name: 'Tick His Own' })).not.toBeInTheDocument();
+    expect(screen.getByTestId('not-yours')).toHaveTextContent(/Not yours to decide/);
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Tick all' }));
+    fireEvent.click(screen.getByRole('button', { name: /Approve ticked \(1\)/ }));
+    fireEvent.click(within(screen.getByTestId('confirm-bar')).getByRole('button', { name: /Yes, approve/ }));
+    expect(approveMany.mock.calls[0][0]).toEqual(['r1']);
+  });
+
+  it('lists the yeses held back, in plain words, for the Director list (1 Oct 2026)', () => {
+    held = {
+      data: [
+        { id: 'h1', staff_id: 's6', person_name: 'Member Six', staff_code: 'F16', status: 'approved', final_monthly_gross: '33000.00',
+          starts_on: '2026-11-01', decided_by: 'u6', decided_by_name: 'Member Six', decided_at: null,
+          why: 'Approved by the person whose raise it is.' },
+        { id: 'h2', staff_id: 's9', person_name: 'List Member N', staff_code: 'N11', status: 'applied', final_monthly_gross: '66000.00',
+          starts_on: '2026-10-01', decided_by: 'u7', decided_by_name: 'List member I', decided_at: null,
+          why: 'A raise for someone on the Director list, approved by someone other than the Director himself.' },
+        { id: 'h3', staff_id: 's10', person_name: 'No Account W', staff_code: 'W17', status: 'approved', final_monthly_gross: '43000.00',
+          starts_on: '2026-11-01', decided_by: 'u1', decided_by_name: 'Director D', decided_at: null,
+          why: "Nobody can tell whose raise it is: the team member's record is linked to no account." },
+      ],
+      error: null,
+    };
+    render(<ApprovePage />);
+    const section = screen.getByTestId('held-approvals');
+    expect(section).toHaveTextContent('Member Six');
+    expect(section).toHaveTextContent('Approved by the person themself');
+    expect(section).toHaveTextContent('Approved by someone other than the Director');
+    expect(section).toHaveTextContent('New pay not written');
+    expect(section).toHaveTextContent('Already in the pay');
+    expect(section).toHaveTextContent('Linked to no account, so it cannot be checked');
+  });
+
+  it('shows no held-back list to anyone the database refuses it to', () => {
+    render(<ApprovePage />);
+    expect(screen.queryByTestId('held-approvals')).not.toBeInTheDocument();
   });
 
   it('says plainly when the viewer is not the Director, and asks for nothing', () => {
@@ -192,6 +239,14 @@ describe('the ask form', () => {
 describe('the single request view', () => {
   const detailOf = (over: Partial<SalaryRevisionListRow>, note: unknown = null) => ({
     request: row(over), decisionNote: note, comments: [],
+  });
+
+  it('gives no approve / say no on a request the viewer may not decide, and says why (1 Oct 2026)', () => {
+    keys = new Set(['hr.payroll.salary_revision.approve']);
+    detail = detailOf({ status: 'waiting_director', can_decide: false });
+    render(<DetailPage />);
+    expect(screen.queryByTestId('director-actions')).not.toBeInTheDocument();
+    expect(screen.getByTestId('not-yours')).toHaveTextContent(/Not yours to decide/);
   });
 
   it('gives the Director approve / say no only while it waits for him', () => {

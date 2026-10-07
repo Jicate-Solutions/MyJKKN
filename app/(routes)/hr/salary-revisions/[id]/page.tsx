@@ -155,7 +155,14 @@ export default function SalaryRevisionDetailPage() {
                       aria-label='Reason for stopping' placeholder='Why? The head of department will see this.' />
                     <div className='flex gap-2'>
                       <Button size='sm' variant='destructive' disabled={!reason.trim() || act.isPending}
-                        onClick={() => act.mutate({ action: 'college_stop', reason }, { onSuccess: ok('Stopped.'), onError: failed })}>
+                        onClick={() => act.mutate({ action: 'college_stop', reason }, {
+                          // 1 Oct 2026: a raise for someone on the Director list is not
+                          // stopped here; it goes on to the Director with the reason.
+                          onSuccess: (res) => ok(res?.status === 'waiting_director'
+                            ? 'Sent to the Director instead: only the Director himself decides a raise for someone on the Director list. Your reason is with it as a comment.'
+                            : 'Stopped.')(),
+                          onError: failed,
+                        })}>
                         Stop it
                       </Button>
                       <Button size='sm' variant='ghost' onClick={() => setStopping(false)}>Cancel</Button>
@@ -173,7 +180,15 @@ export default function SalaryRevisionDetailPage() {
               </section>
             )}
 
-            {canApprove && r.status === 'waiting_director' && (
+            {/* 1 Oct 2026: never one's own raise; a Director-list member's only for the Director himself. */}
+            {canApprove && r.status === 'waiting_director' && !r.can_decide && (
+              <p className='rounded-md border border-border p-4 text-sm text-muted-foreground' data-testid='not-yours'>
+                Not yours to decide: it is your own raise, or a raise for someone on the Director list,
+                which only the Director himself decides.
+              </p>
+            )}
+
+            {canApprove && r.status === 'waiting_director' && r.can_decide && (
               <section className='space-y-3 rounded-md border border-border p-4' data-testid='director-actions'>
                 <h2 className='font-semibold'>Your decision</h2>
                 {refusing ? (

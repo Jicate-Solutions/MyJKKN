@@ -57,7 +57,17 @@ CREATE TABLE public.staff (
   first_name text, last_name text, staff_id text, designation text, is_active boolean DEFAULT true,
   date_of_joining date, experience_years integer NOT NULL DEFAULT 0,
   has_extended_profile boolean NOT NULL DEFAULT false, qualifications jsonb NOT NULL DEFAULT '[]',
-  research_papers integer NOT NULL DEFAULT 0);
+  research_papers integer NOT NULL DEFAULT 0,
+  -- 1 Oct 2026: the two email columns production has (setup/01_tables.sql).
+  email text, institution_email text,
+  -- 3 Oct 2026: the columns main's sync_staff_to_profiles() reads.
+  phone text, profile_picture text, gender text, role_key text, login_enabled boolean DEFAULT true);
+-- 3 Oct 2026: the profile columns main's sync_staff_to_profiles() writes.
+ALTER TABLE public.profiles
+  ADD COLUMN email text, ADD COLUMN phone_number text, ADD COLUMN avatar_url text,
+  ADD COLUMN department_id uuid, ADD COLUMN gender text, ADD COLUMN designation text,
+  ADD COLUMN is_pre_registered boolean DEFAULT false, ADD COLUMN is_active boolean DEFAULT true,
+  ADD COLUMN is_login_disabled boolean DEFAULT false, ADD COLUMN updated_at timestamptz DEFAULT now();
 -- The view exactly as 20260827210000 defines it.
 CREATE OR REPLACE VIEW public.v_hr_staff
 WITH (security_invoker = true) AS
@@ -106,6 +116,18 @@ CREATE UNIQUE INDEX platform_policies_key_scope_uq ON public.platform_policies
 ALTER TABLE public.platform_policies ENABLE ROW LEVEL SECURITY;
 CREATE POLICY platform_policies_select ON public.platform_policies
   FOR SELECT USING (auth.uid() IS NOT NULL);
+-- 1 Oct 2026: hr_policy_audit_log with the columns and constraints of
+-- 20260601_hr_policy_substrate_extensions (+ 'unpublish' from 20260524084000),
+-- so #4121's and 20271007150103's audit triggers actually write.
+CREATE TABLE public.hr_policy_audit_log (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  policy_id uuid NOT NULL REFERENCES public.platform_policies(id) ON DELETE CASCADE,
+  policy_key text NOT NULL, scope_type text NOT NULL, scope_id uuid,
+  action text NOT NULL CHECK (action IN ('edit_draft', 'publish', 'unpublish', 'classify_change', 'promote_to_global')),
+  old_value jsonb, new_value jsonb,
+  reason text NOT NULL CHECK (length(trim(reason)) > 0),
+  edited_by uuid NOT NULL REFERENCES public.profiles(id),
+  edited_at timestamptz NOT NULL DEFAULT now());
 -- #4121 seeds the Director list from auth.users. No Director account here, so
 -- it seeds an EMPTY list; seed.sql then puts D on it directly (as the SQL
 -- console would), and S stays a super admin who is NOT on it.
