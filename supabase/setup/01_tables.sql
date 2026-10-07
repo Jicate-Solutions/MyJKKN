@@ -11363,6 +11363,193 @@ ALTER TABLE public.hostel_floors ENABLE ROW LEVEL SECURITY;
 -- FK child index: the (block_id, floor) probe run on every floor delete.
 CREATE INDEX IF NOT EXISTS idx_hostel_rooms_block_floor ON public.hostel_rooms (block_id, floor);
 
+
+-- Mirrored from supabase/migrations/20271007150000_hr_salary_register_manual_days.sql
+CREATE TABLE IF NOT EXISTS public.hr_salary_register_manual_days (
+  id                     uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  hr_organization_id     uuid NOT NULL REFERENCES public.hr_organizations(id) ON DELETE CASCADE,
+  institution_id         uuid NOT NULL REFERENCES public.institutions(id),
+  period_year            integer NOT NULL CHECK (period_year BETWEEN 2020 AND 2100),
+  period_month           integer NOT NULL CHECK (period_month BETWEEN 1 AND 12),
+  staff_id               uuid NOT NULL REFERENCES public.staff(id) ON DELETE CASCADE,
+
+  business_working_days  numeric(5,2) NOT NULL,
+  casual_leave_days      numeric(5,2) NOT NULL DEFAULT 0,
+  comp_off_days          numeric(5,2) NOT NULL DEFAULT 0,
+  other_paid_leave_days  numeric(5,2) NOT NULL DEFAULT 0,
+  on_duty_days           numeric(5,2) NOT NULL DEFAULT 0,
+  -- LOP. Worked days are DERIVED (working − the five above), never stored, so a
+  -- row cannot be saved that fails to add up.
+  unpaid_leave_days      numeric(5,2) NOT NULL DEFAULT 0,
+
+  -- Only when the person has NO salary recorded; NULL means "use the salary in
+  -- force", which is the normal case.
+  monthly_gross          numeric(12,2),
+
+  reason                 text NOT NULL,
+
+  created_at             timestamptz NOT NULL DEFAULT now(),
+  updated_at             timestamptz NOT NULL DEFAULT now(),
+  created_by             uuid REFERENCES auth.users(id) ON DELETE SET NULL,
+  updated_by             uuid REFERENCES auth.users(id) ON DELETE SET NULL,
+
+  CONSTRAINT uq_hr_salary_register_manual_days_staff_month
+    UNIQUE (hr_organization_id, period_year, period_month, staff_id),
+  CONSTRAINT hr_srmd_working_days_chk
+    CHECK (business_working_days > 0 AND business_working_days <= 31),
+  CONSTRAINT hr_srmd_days_nonneg_chk
+    CHECK (casual_leave_days >= 0 AND comp_off_days >= 0 AND other_paid_leave_days >= 0
+           AND on_duty_days >= 0 AND unpaid_leave_days >= 0),
+  -- Half-days are real; quarter-days are a typo.
+  CONSTRAINT hr_srmd_half_day_steps_chk
+    CHECK (business_working_days * 2 = trunc(business_working_days * 2)
+           AND casual_leave_days * 2 = trunc(casual_leave_days * 2)
+           AND comp_off_days * 2 = trunc(comp_off_days * 2)
+           AND other_paid_leave_days * 2 = trunc(other_paid_leave_days * 2)
+           AND on_duty_days * 2 = trunc(on_duty_days * 2)
+           AND unpaid_leave_days * 2 = trunc(unpaid_leave_days * 2)),
+  CONSTRAINT hr_srmd_days_fit_month_chk
+    CHECK (casual_leave_days + comp_off_days + other_paid_leave_days + on_duty_days + unpaid_leave_days
+           <= business_working_days),
+  CONSTRAINT hr_srmd_monthly_gross_chk
+    CHECK (monthly_gross IS NULL OR (monthly_gross > 0 AND monthly_gross < 100000000)),
+  CONSTRAINT hr_srmd_reason_chk
+    CHECK (length(btrim(reason)) BETWEEN 3 AND 300)
+);
+CREATE INDEX IF NOT EXISTS idx_hr_srmd_institution ON public.hr_salary_register_manual_days (institution_id);
+CREATE INDEX IF NOT EXISTS idx_hr_srmd_staff       ON public.hr_salary_register_manual_days (staff_id);
+CREATE INDEX IF NOT EXISTS idx_hr_srmd_created_by  ON public.hr_salary_register_manual_days (created_by);
+CREATE INDEX IF NOT EXISTS idx_hr_srmd_updated_by  ON public.hr_salary_register_manual_days (updated_by);
+
+ALTER TABLE public.hr_salary_register_lines
+  ADD COLUMN IF NOT EXISTS entry_source text NOT NULL DEFAULT 'biometric',
+  ADD COLUMN IF NOT EXISTS manual_entry_id uuid
+    REFERENCES public.hr_salary_register_manual_days(id) ON DELETE SET NULL,
+  ADD COLUMN IF NOT EXISTS manual_reason text,
+  ADD COLUMN IF NOT EXISTS manual_entered_by uuid REFERENCES auth.users(id) ON DELETE SET NULL,
+  ADD COLUMN IF NOT EXISTS manual_entered_at timestamptz;
+ALTER TABLE public.hr_salary_register_lines
+  ADD CONSTRAINT ck_hr_salary_register_lines_entry_source
+  CHECK (entry_source IN ('biometric', 'manual'));
+CREATE INDEX IF NOT EXISTS idx_hr_salary_register_lines_manual_entry
+  ON public.hr_salary_register_lines (manual_entry_id);
+CREATE INDEX IF NOT EXISTS idx_hr_salary_register_lines_manual_entered_by
+  ON public.hr_salary_register_lines (manual_entered_by);
+
+-- Updated: 2026-10-07 - Target-gated raises (Director's rulings of 7 Oct 2026): the
+-- server's record of who first marked each period, and the held part of each
+-- approved raise, its months and the principal's flags, keyed by request.
+-- Source: 20271007180207_hr_salary_revision_target_gated_raises.sql
+CREATE TABLE IF NOT EXISTS public.attendance_first_marks (
+  timetable_id      uuid NOT NULL,
+  attendance_date   date NOT NULL,
+  period_name       text NOT NULL,
+  ordinal           integer NOT NULL CHECK (ordinal >= 1),
+  institution_id    uuid,
+  marker_profile_id uuid,
+  first_marked_at   timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (timetable_id, attendance_date, period_name, ordinal)
+);
+
+COMMENT ON TABLE public.attendance_first_marks IS
+  'Default q of 7 Oct 2026 (raise target T1): the server''s record of who FIRST marked each period (timetable, '
+  'day, period name, n-th of that name) and when. Append-only: written once by trg_zz_student_attendance_first_marks, '
+  'never updated or deleted by anyone signed in. marker_profile_id NULL = written by the server key or console '
+  '(never counts). Migration 20271007180207.';
+
+CREATE TABLE IF NOT EXISTS public.hr_salary_revision_target_plans (
+  request_id             uuid PRIMARY KEY REFERENCES public.hr_salary_revision_requests(id) ON DELETE CASCADE,
+  staff_id               uuid NOT NULL REFERENCES public.staff(id) ON DELETE CASCADE,
+  institution_id         uuid NOT NULL,
+  base_monthly_gross     numeric(12,2) NOT NULL,
+  increment_amount       numeric(12,2) NOT NULL,
+  held_amount            numeric(12,2) NOT NULL CHECK (held_amount >= 0),
+  target_role            text,
+  rules                  jsonb NOT NULL,
+  window_start           date NOT NULL CHECK (EXTRACT(DAY FROM window_start) = 1),
+  window_months          integer NOT NULL CHECK (window_months BETWEEN 1 AND 24),
+  state                  text NOT NULL CHECK (state IN ('none', 'awaiting_measurement', 'waiting', 'released', 'paused',
+                                                        'back_to_director', 'held_listed', 'lapsed')),
+  state_reason           text,
+  missed_in_row          integer NOT NULL DEFAULT 0,
+  pending_action         text CHECK (pending_action IN ('release', 'pause', 'resume')),
+  pending_effective_from date,
+  held_paid_from         date,
+  paused_from            date,
+  run_note               text,
+  lapse_note             text,
+  last_run_on            date,
+  failed_nights          integer NOT NULL DEFAULT 0,
+  last_attempt_on        date,
+  created_at             timestamptz NOT NULL DEFAULT now(),
+  updated_at             timestamptz NOT NULL DEFAULT now(),
+  CHECK ((held_amount = 0) = (state = 'none'))
+);
+
+COMMENT ON TABLE public.hr_salary_revision_target_plans IS
+  'Rulings of 7 Oct 2026: one row per Director''s yes. The increment (paid on the start date) and the held part, '
+  'the role''s targets and thresholds as they stood at the yes (rules), and where the held part stands. '
+  'Written only by hr_salary_revision_approve_one and the monthly run. Migration 20271007180207.';
+
+CREATE INDEX IF NOT EXISTS hr_salary_revision_target_plans_staff ON public.hr_salary_revision_target_plans (staff_id);
+CREATE INDEX IF NOT EXISTS hr_salary_revision_target_plans_open ON public.hr_salary_revision_target_plans (state)
+  WHERE state IN ('waiting', 'released', 'paused');
+
+CREATE TABLE IF NOT EXISTS public.hr_salary_revision_target_months (
+  request_id            uuid NOT NULL REFERENCES public.hr_salary_revision_target_plans(request_id) ON DELETE CASCADE,
+  month                 date NOT NULL CHECK (EXTRACT(DAY FROM month) = 1),
+  status                text NOT NULL CHECK (status IN ('in_progress', 'met', 'missed', 'not_counted',
+                                                         'flagged', 'decided_met', 'decided_missed', 'not_measured')),
+  results               jsonb NOT NULL DEFAULT '[]'::jsonb,
+  measured_at           timestamptz,
+  acted                 boolean NOT NULL DEFAULT false,
+  action                text CHECK (action IN ('released', 'paused', 'resumed', 'none')),
+  action_effective_from date,
+  PRIMARY KEY (request_id, month)
+);
+
+COMMENT ON TABLE public.hr_salary_revision_target_months IS
+  'Rulings of 7 Oct 2026: one row per counted month of a held raise: each target''s numerator, denominator and '
+  'met (results), the month''s result, and what the monthly run did about it. Migration 20271007180207.';
+
+CREATE TABLE IF NOT EXISTS public.hr_salary_revision_target_flags (
+  request_id     uuid NOT NULL,
+  month          date NOT NULL,
+  flagged_by     uuid NOT NULL,
+  flagged_at     timestamptz NOT NULL DEFAULT now(),
+  note           text NOT NULL CHECK (length(btrim(note)) > 0),
+  decided_by     uuid,
+  decided_at     timestamptz,
+  counts_as_met  boolean,
+  decision_note  text,
+  PRIMARY KEY (request_id, month),
+  FOREIGN KEY (request_id, month) REFERENCES public.hr_salary_revision_target_months(request_id, month) ON DELETE CASCADE
+);
+
+COMMENT ON TABLE public.hr_salary_revision_target_flags IS
+  'Ruling 5 of 7 Oct 2026: a principal''s flag on a month (with a note) and the Director''s decision on it. '
+  'Never shown to the person whose raise it is. Migration 20271007180207.';
+
+-- Updated: 2026-10-07 - Round 7: every change to either raise setting, by anyone (server key and console too).
+CREATE TABLE IF NOT EXISTS public.hr_salary_revision_target_setting_log (
+  id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  policy_key    text NOT NULL,
+  action        text NOT NULL CHECK (action IN ('insert', 'update', 'delete')),
+  old_value     jsonb,
+  new_value     jsonb,
+  old_is_active boolean,
+  new_is_active boolean,
+  changed_by    uuid,
+  changed_via   text NOT NULL CHECK (changed_via IN ('signed_in', 'server_key', 'console')),
+  changed_at    timestamptz NOT NULL DEFAULT now()
+);
+
+COMMENT ON TABLE public.hr_salary_revision_target_setting_log IS
+  'Round 7 (7 Oct 2026): every change to hr.salary_revision.target_rules and hr.salary_revision.target_measurement_on, '
+  'signed in or not (changed_via: signed_in, server_key, console; changed_by NULL unless signed in). Append-only, '
+  'written by the trg_audit_hr_salary_revision_target_rules triggers (insert, update incl. a rename away, delete). '
+  'Migration 20271007180207.';
+
 -- ===========================================================================
 -- Source: 20271007161139_hr_duty_playbooks_and_lessons.sql (tables, indexes)
 -- HR staff harness — playbooks, the lessons log and credited authorship.

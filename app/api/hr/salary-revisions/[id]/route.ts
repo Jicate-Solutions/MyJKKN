@@ -10,6 +10,14 @@ export const dynamic = 'force-dynamic';
  *      'college_stop'   { reason }                     the principal, reason required
  *      'approve'        { finalMonthlyGross?, note? }  the Director (rulings 3, 12)
  *      'refuse'         { reason }                     the Director, reason required (ruling 14)
+ *      'target_flag'    { month, note }                the principal flags a month (7 Oct 2026, ruling 5)
+ *      'target_decide'  { month, met, note? }          the Director decides a flagged month
+ *      'target_lapse'   { note }                       the Director lapses an earlier held part
+ *
+ * GET also carries `targets`: the held part of the raise and its monthly
+ * numbers (20271007180207), as row level security lets the caller see them.
+ * The person whose raise it is (even if they asked for it) never reads the
+ * tables; they get numbers, state and dates only, no notes or flags (round 7).
  *
  * Every rule is enforced in Postgres (20270519090000); this route only passes
  * the caller's own session through and turns refusals into HTTP answers.
@@ -27,7 +35,11 @@ export const GET = withAuth(
     if (!id || !UUID.test(id)) return NextResponse.json({ error: 'No such request.' }, { status: 404 });
     try {
       const forDirector = await callerIsApprover(auth.supabase);
-      return NextResponse.json(await SalaryRevisionService.get(auth.supabase, id, forDirector));
+      const [detail, targets] = await Promise.all([
+        SalaryRevisionService.get(auth.supabase, id, forDirector),
+        SalaryRevisionService.targets(auth.supabase, id),
+      ]);
+      return NextResponse.json({ ...detail, targets });
     } catch (err) {
       return errorResponse(err, 'get');
     }
@@ -37,6 +49,11 @@ export const GET = withAuth(
 
 function optionalText(value: unknown): string | null {
   return typeof value === 'string' && value.trim() ? value.trim() : null;
+}
+
+/** A month as yyyy-MM-01 (the database counts whole calendar months). */
+function monthOf(value: unknown): string | null {
+  return typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value) ? `${value.slice(0, 7)}-01` : null;
 }
 
 export const POST = withAuth(
@@ -86,6 +103,29 @@ export const POST = withAuth(
               approve: false, finalMonthlyGross: null, reason,
             }),
           });
+        }
+        case 'target_flag': {
+          const month = monthOf(body?.month);
+          const note = optionalText(body?.note);
+          if (!month) return NextResponse.json({ error: 'Which month?' }, { status: 400 });
+          if (!note) return NextResponse.json({ error: 'Write a short note: the Director sees it with the numbers.' }, { status: 400 });
+          await SalaryRevisionService.flagMonth(auth.supabase, id, month, note);
+          return NextResponse.json({ ok: true });
+        }
+        case 'target_decide': {
+          const month = monthOf(body?.month);
+          if (!month) return NextResponse.json({ error: 'Which month?' }, { status: 400 });
+          if (typeof body?.met !== 'boolean') {
+            return NextResponse.json({ error: 'Say whether the month counts as met or missed.' }, { status: 400 });
+          }
+          return NextResponse.json({
+            status: await SalaryRevisionService.decideMonth(auth.supabase, id, month, body.met, optionalText(body?.note)),
+          });
+        }
+        case 'target_lapse': {
+          const note = optionalText(body?.note);
+          if (!note) return NextResponse.json({ error: 'Write a short note: why the held part lapses.' }, { status: 400 });
+          return NextResponse.json({ status: await SalaryRevisionService.lapseHeld(auth.supabase, id, note) });
         }
         default:
           return NextResponse.json({ error: 'Unknown action.' }, { status: 400 });
