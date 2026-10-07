@@ -113,6 +113,12 @@
 --   the hidden small one back. So the all-colleges row of a duty and week
 --   carries has_small_college, and an admin who is neither on the Director list
 --   nor an hr.dashboard.manage holder cannot read it while that flag is set.
+--   The same flag keeps the all-colleges rate off the tower (loop_measurements
+--   is readable by plain admins), and it is also set when items with no
+--   college (G2 / R5 rows with institution_id NULL) have fewer than 3 deciders.
+--   LIMIT: most HR source tables let is_admin() read raw rows under RLS, so an
+--   admin could rebuild these numbers from the sources anyway; this rule only
+--   stops the readings and the tower from revealing them.
 --   LIMIT: the Director list and hr.dashboard.manage holders still see small
 --   readings, and the Director also sees named earned-trust suggestions; put
 --   together, those approach one person's own rate. An hr.dashboard.manage
@@ -866,11 +872,18 @@ BEGIN
                 deciders      = EXCLUDED.deciders,
                 computed_at   = EXCLUDED.computed_at;
 
+  -- Small: a college row with fewer than 3 deciders, OR items with no college
+  -- (G2 forms and R5 candidates may carry institution_id NULL) that count in
+  -- the all-colleges row, get no college row, and have fewer than 3 deciders.
   UPDATE public.hr_duty_tower_readings a
-     SET has_small_college = EXISTS (
-           SELECT 1 FROM public.hr_duty_tower_readings c
-            WHERE c.week_start = a.week_start AND c.duty_code = a.duty_code
-              AND c.institution_id IS NOT NULL AND c.deciders < 3)
+     SET has_small_college =
+           EXISTS (SELECT 1 FROM public.hr_duty_tower_readings c
+                    WHERE c.week_start = a.week_start AND c.duty_code = a.duty_code
+                      AND c.institution_id IS NOT NULL AND c.deciders < 3)
+           OR EXISTS (SELECT 1 FROM _hr_duty_tower_facts f
+                       WHERE f.duty_code = a.duty_code AND f.institution_id IS NULL
+                      GROUP BY f.duty_code
+                     HAVING count(DISTINCT f.actor_id) < 3)
    WHERE a.week_start = p_week_start AND a.institution_id IS NULL;
 
   -- Each person's own 12 weeks, ending with the week just measured, for My
@@ -886,10 +899,14 @@ BEGIN
    WHERE f.actor_id IS NOT NULL
    GROUP BY f.actor_id, f.duty_code;
 
-  -- The tower gets no rate from a reading with fewer than 3 deciders: it
-  -- would be close to one person's own number (SMALL COLLEGES).
+  -- The tower gets no rate from a reading with fewer than 3 deciders, or with a
+  -- small college under it: either would be close to one person's own number
+  -- (SMALL COLLEGES).
   RETURN QUERY
-    SELECT r.duty_code, r.items, CASE WHEN r.deciders >= 3 THEN r.on_time_rate END
+    SELECT r.duty_code, r.items,
+           -- nor while a small college sits under it: the tower's measurement
+           -- is readable by plain admins (subtraction, SMALL COLLEGES)
+           CASE WHEN r.deciders >= 3 AND NOT r.has_small_college THEN r.on_time_rate END
       FROM public.hr_duty_tower_readings r
      WHERE r.week_start = p_week_start AND r.institution_id IS NULL
      ORDER BY r.duty_code;

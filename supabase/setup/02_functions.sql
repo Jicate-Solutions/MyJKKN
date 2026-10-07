@@ -79952,11 +79952,18 @@ BEGIN
                 deciders      = EXCLUDED.deciders,
                 computed_at   = EXCLUDED.computed_at;
 
+  -- Small: a college row with fewer than 3 deciders, OR items with no college
+  -- (G2 forms and R5 candidates may carry institution_id NULL) that count in
+  -- the all-colleges row, get no college row, and have fewer than 3 deciders.
   UPDATE public.hr_duty_tower_readings a
-     SET has_small_college = EXISTS (
-           SELECT 1 FROM public.hr_duty_tower_readings c
-            WHERE c.week_start = a.week_start AND c.duty_code = a.duty_code
-              AND c.institution_id IS NOT NULL AND c.deciders < 3)
+     SET has_small_college =
+           EXISTS (SELECT 1 FROM public.hr_duty_tower_readings c
+                    WHERE c.week_start = a.week_start AND c.duty_code = a.duty_code
+                      AND c.institution_id IS NOT NULL AND c.deciders < 3)
+           OR EXISTS (SELECT 1 FROM _hr_duty_tower_facts f
+                       WHERE f.duty_code = a.duty_code AND f.institution_id IS NULL
+                      GROUP BY f.duty_code
+                     HAVING count(DISTINCT f.actor_id) < 3)
    WHERE a.week_start = p_week_start AND a.institution_id IS NULL;
 
   -- Each person's own 12 weeks, ending with the week just measured, for My
@@ -79972,10 +79979,14 @@ BEGIN
    WHERE f.actor_id IS NOT NULL
    GROUP BY f.actor_id, f.duty_code;
 
-  -- The tower gets no rate from a reading with fewer than 3 deciders: it
-  -- would be close to one person's own number (SMALL COLLEGES).
+  -- The tower gets no rate from a reading with fewer than 3 deciders, or with a
+  -- small college under it: either would be close to one person's own number
+  -- (SMALL COLLEGES).
   RETURN QUERY
-    SELECT r.duty_code, r.items, CASE WHEN r.deciders >= 3 THEN r.on_time_rate END
+    SELECT r.duty_code, r.items,
+           -- nor while a small college sits under it: the tower's measurement
+           -- is readable by plain admins (subtraction, SMALL COLLEGES)
+           CASE WHEN r.deciders >= 3 AND NOT r.has_small_college THEN r.on_time_rate END
       FROM public.hr_duty_tower_readings r
      WHERE r.week_start = p_week_start AND r.institution_id IS NULL
      ORDER BY r.duty_code;

@@ -417,7 +417,8 @@ describe('fn_hr_duty_tower_compute — the weekly reading', () => {
       expect(l1College).toMatchObject({ items: 9, on_time: 7 });
       // three different people decided L1 items, so the tower gets the rate
       expect(l1All!.deciders).toBe(3);
-      expect(first.rows.find((r) => r.duty_code === 'L1').on_time_rate).toBe('0.8000');
+      // ...but a small college sits under L1, so the tower still gets no rate
+      expect(first.rows.find((r) => r.duty_code === 'L1').on_time_rate).toBeNull();
       // one person decided every S3 item: the tower gets no rate from it
       expect(first.rows.find((r) => r.duty_code === 'S3').on_time_rate).toBeNull();
 
@@ -699,5 +700,52 @@ describe('no subtraction: a plain admin cannot rebuild a hidden small college fr
     const r = await as({ uid: SUPER, admin: true }, l1,
       `DELETE FROM public.hr_leave_applications WHERE id = '${LV_SMALL}'; ${compute}`);
     expect(r.rows.map((x) => x.institution_id)).toContain(null);
+  });
+});
+
+describe('the tower never carries a rate the readings would hide', () => {
+  const compute = `SELECT duty_code, on_time_rate FROM public.fn_hr_duty_tower_compute('${WEEK}'::date)`;
+  /** One approved R5 candidate decided by `who` at 10 h, at college `inst` (or none). */
+  const candidate = (inst: string | null, who: string) => `
+    INSERT INTO public.hr_recruitment_candidates
+      (id, institution_id, status, current_step, approval_chain, final_decided_at, submitted_at)
+    VALUES (gen_random_uuid(), ${inst ? `'${inst}'` : 'NULL'}, 'approved', 0,
+            jsonb_build_array(jsonb_build_object('status', 'approved', 'decided_at', '${at(10)}',
+              'decided_by', '${who}', 'escalate_after_hours', 72)),
+            '${at(10)}', '${T0}')`;
+  /** Three R5 candidates at INST, each decided by a different person; plus, optionally, one with no college. */
+  const r5 = (withNoCollege: boolean) =>
+    [candidate(INST, APPROVER), candidate(INST, APPROVER2), candidate(INST, APPROVER3),
+     ...(withNoCollege ? [candidate(null, UPLOADER)] : [])].join(';');
+
+  async function run(setup: string) {
+    await client.query('BEGIN');
+    try {
+      await client.query(setup);
+      const tower = await client.query(compute);
+      const all = await client.query(
+        `SELECT duty_code, has_small_college FROM public.hr_duty_tower_readings
+          WHERE week_start = $1 AND institution_id IS NULL`, [WEEK]);
+      return { tower: tower.rows, all: all.rows };
+    } finally {
+      await client.query('ROLLBACK');
+    }
+  }
+
+  it('L1 has a small college under it: compute returns no rate for L1, and the rate comes back once it is gone', async () => {
+    const withSmall = await run('SELECT 1');
+    expect(withSmall.tower.find((r) => r.duty_code === 'L1').on_time_rate).toBeNull();
+    const without = await run(`DELETE FROM public.hr_leave_applications WHERE id = '${LV_SMALL}'`);
+    expect(without.tower.find((r) => r.duty_code === 'L1').on_time_rate).toBe('0.7778');
+  });
+
+  it('items with no college and fewer than 3 deciders mark the all-colleges row small, and keep its rate off the tower', async () => {
+    const large = await run(r5(false));
+    expect(large.all.find((r) => r.duty_code === 'R5')).toMatchObject({ has_small_college: false });
+    expect(large.tower.find((r) => r.duty_code === 'R5').on_time_rate).toBe('1.0000');
+
+    const withNoCollege = await run(r5(true));
+    expect(withNoCollege.all.find((r) => r.duty_code === 'R5')).toMatchObject({ has_small_college: true });
+    expect(withNoCollege.tower.find((r) => r.duty_code === 'R5').on_time_rate).toBeNull();
   });
 });
