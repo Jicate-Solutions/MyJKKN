@@ -22,6 +22,15 @@
 //   joining_outcome_missing  'offer_issued' and the joining date passed 2 days ago
 //                            with nothing recorded — ONE nudge to the same people.
 //
+// GO-LIVE CUTOFF (Director, 7 Oct 2026: reminders stay on, but no backlog flood)
+//   Every nudge measures a wait that started at some moment — the step began
+//   waiting, the interview took place, the package was fixed, the joining date
+//   came. A wait that started BEFORE go-live is never nudged; one that starts
+//   after is nudged as before. Go-live is the moment migration 20270613101125
+//   applied, stored in the platform_policies row GO_LIVE_POLICY_KEY. If that row
+//   is missing or unreadable, go-live is taken as the run's own `now`, so nothing
+//   older than now is nudged — the cutoff fails toward silence, never a flood.
+//
 // "ONE" is enforced by hr_recruitment_nudges_sent (UNIQUE (kind, ref_key)). A nudge
 // is recorded even when it found nobody to send to: for approval_reminder that is
 // what starts the 48-hour clock, so a step whose role NOBODY holds still reaches the
@@ -53,6 +62,27 @@ export const OFFER_DUE_HOURS = 48;
 export const JOINING_OUTCOME_GRACE_DAYS = 2;
 /** The role that owns a stuck approval once the approver has been reminded. */
 export const HR_HEAD_ROLE_KEY = 'hr_head';
+/** Global platform_policies row the migration seeds with now(): the go-live moment. */
+export const GO_LIVE_POLICY_KEY = 'hr.recruitment.nudges_go_live_at';
+
+/**
+ * The go-live moment from the stored policy value (a JSON timestamp string).
+ * Anything missing or unparseable answers `now`: nothing older than this run
+ * is nudged, so a broken config row can never release the backlog.
+ */
+export function goLiveFromPolicy(value: unknown, now: Date): Date {
+  if (typeof value === 'string') {
+    const t = Date.parse(value);
+    if (!Number.isNaN(t)) return new Date(t);
+  }
+  return now;
+}
+
+/** True when the wait began before go-live, or its start cannot be read. */
+export function startedBeforeGoLive(startIso: string | null | undefined, goLiveAt: Date): boolean {
+  const t = Date.parse(startIso ?? '');
+  return Number.isNaN(t) || t < goLiveAt.getTime();
+}
 
 export type NudgeKind =
   | 'approval_reminder'
@@ -347,12 +377,14 @@ export function selectApprovalNudges(
   sent: Map<string, SentNudge>,
   dir: Directory,
   now: Date,
+  goLiveAt: Date,
 ): Nudge[] {
   const out: Nudge[] = [];
   for (const c of candidates) {
     if (!WAITING_STATUSES.has(c.status)) continue;
     const step = currentPendingStep(c);
     if (!step) continue;
+    if (startedBeforeGoLive(stepWaitingSince(c), goLiveAt)) continue;
 
     const chainLen = c.approval_chain?.length ?? 0;
     const stepNo = c.current_step + 1;
@@ -422,10 +454,12 @@ export function selectScorecardNudges(
   sent: Map<string, SentNudge>,
   dir: Directory,
   now: Date,
+  goLiveAt: Date,
 ): Nudge[] {
   const out: Nudge[] = [];
   for (const iv of interviews) {
     if (iv.status !== 'scheduled' && iv.status !== 'completed') continue;
+    if (startedBeforeGoLive(iv.scheduled_at, goLiveAt)) continue;
     const age = hoursBetween(iv.scheduled_at, now);
     if (age < SCORECARD_DUE_HOURS || age > SCORECARD_LOOKBACK_DAYS * 24) continue;
     const cand = candidateOf.get(iv.candidate_id);
@@ -476,9 +510,11 @@ export function selectOfferNudges(
   sent: Map<string, SentNudge>,
   dir: Directory,
   now: Date,
+  goLiveAt: Date,
 ): Nudge[] {
   const out: Nudge[] = [];
   const today = istDate(now);
+  const goLiveDay = istDate(goLiveAt);
   for (const c of candidates) {
     const creator = c.job_id ? jobCreatorOf.get(c.job_id) ?? null : null;
     const hrEditors = hrEditorsOf.get(institutionKey(c.institution_id)) ?? [];
@@ -487,6 +523,7 @@ export function selectOfferNudges(
       const since = packageFixedAt.get(c.id) ?? c.final_decided_at ?? c.submitted_at;
       const waited = hoursBetween(since, now);
       const refKey = c.id;
+      if (startedBeforeGoLive(since, goLiveAt)) continue;
       if (waited >= OFFER_DUE_HOURS && !sent.has(sentKey('offer_not_issued', refKey))) {
         out.push({
           kind: 'offer_not_issued',
@@ -506,6 +543,8 @@ export function selectOfferNudges(
     if (c.status === 'offer_issued') {
       if (!c.expected_joining_date || c.actual_joining_date) continue;
       const joining = c.expected_joining_date.slice(0, 10);
+      // A joining day that fell before go-live is backlog.
+      if (joining < goLiveDay) continue;
       if (today < addDays(joining, JOINING_OUTCOME_GRACE_DAYS)) continue;
       // Keyed on the date: if HR moves the joining date, the new date is chased once too.
       const refKey = `${c.id}:${joining}`;

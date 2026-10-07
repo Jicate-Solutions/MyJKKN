@@ -15,12 +15,14 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { fanoutNotification } from '@/lib/services/_shared/notifications/notify';
 import {
+  GO_LIVE_POLICY_KEY,
   HR_HEAD_ROLE_KEY,
   SCORECARD_DUE_HOURS,
   SCORECARD_LOOKBACK_DAYS,
   HOUR_MS,
   NUDGE_KINDS,
   buildStepReadyNudge,
+  goLiveFromPolicy,
   indexSent,
   institutionKey,
   scorecardRefKey,
@@ -230,6 +232,36 @@ export async function loadDirectory(
 }
 
 // ---------------------------------------------------------------------------
+// Go-live cutoff
+// ---------------------------------------------------------------------------
+
+/**
+ * The moment the nudges went live (the policy row the migration seeds). A read
+ * error, a missing row or an unreadable value all answer `now` — fail closed,
+ * so nothing that started waiting before this run is nudged.
+ */
+export async function readGoLiveAt(db: Db, now: Date): Promise<Date> {
+  try {
+    const { data, error } = await db
+      .from('platform_policies')
+      .select('value')
+      .eq('policy_key', GO_LIVE_POLICY_KEY)
+      .eq('scope_type', 'global')
+      .is('scope_id', null)
+      .eq('is_active', true)
+      .maybeSingle();
+    if (error) {
+      console.warn('[recruitment-harness] reading the go-live cutoff failed; using now', error);
+      return now;
+    }
+    return goLiveFromPolicy((data as { value?: unknown } | null)?.value, now);
+  } catch (err) {
+    console.warn('[recruitment-harness] go-live cutoff read threw; using now', err);
+    return now;
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Claim, send, release
 // ---------------------------------------------------------------------------
 
@@ -425,10 +457,12 @@ export async function runRecruitmentHarness(db: Db, now: Date = new Date()): Pro
   }
 
   // --- decide -------------------------------------------------------------------
+  // Waits that started before go-live are never nudged (no backlog flood).
+  const goLiveAt = await readGoLiveAt(db, now);
   const selected: Nudge[] = [
-    ...selectApprovalNudges(candidates, sent, dir, now),
-    ...selectScorecardNudges(interviews, submitted, candidateOf, sent, dir, now),
-    ...selectOfferNudges(candidates, packageFixedAt, jobCreatorOf, hrEditorsOf, sent, dir, now),
+    ...selectApprovalNudges(candidates, sent, dir, now, goLiveAt),
+    ...selectScorecardNudges(interviews, submitted, candidateOf, sent, dir, now, goLiveAt),
+    ...selectOfferNudges(candidates, packageFixedAt, jobCreatorOf, hrEditorsOf, sent, dir, now, goLiveAt),
   ];
   // When the HR chase ladder is on and covers R5, it owns approval chasing.
   const { nudges, handedToLadder } = await applyLadderHandoff(db, selected);

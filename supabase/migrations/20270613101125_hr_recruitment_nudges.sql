@@ -36,6 +36,13 @@
 --      route (Mon–Sat 09:15 IST). The registry entry is in
 --      lib/ai-routines/platform-ops.ts (id 'hr-recruitment-nudges').
 --
+--   3. The go-live cutoff (Director, 7 Oct 2026): a global platform_policies row
+--      'hr.recruitment.nudges_go_live_at' holding the moment this migration
+--      applied. The route never nudges a wait that started before it, so the first
+--      run does not flood people with every old item. Seeded only when absent, so a
+--      re-run keeps the original moment. If the row is missing or unreadable the
+--      route uses its own run time instead — nothing old is ever nudged.
+--
 -- ACCESS
 --   RLS on, NO policies, and ALL revoked from anon and authenticated: the table is
 --   written and read only by the service-role client in the cron route. No
@@ -97,7 +104,22 @@ VALUES
   ('hr-recruitment-nudges', true, ARRAY[1,2,3,4,5,6]::smallint[], 555, true)
 ON CONFLICT (routine_id) DO NOTHING;
 
--- ── 3. Guard ─────────────────────────────────────────────────────────────────────
+-- ── 3. The go-live cutoff ────────────────────────────────────────────────────────
+INSERT INTO public.platform_policies
+  (policy_key, scope_type, scope_id, value, description, data_type, is_system, is_active)
+SELECT 'hr.recruitment.nudges_go_live_at', 'global', NULL, to_jsonb(now()),
+       'Recruitment nudges: the moment they went live. A wait that started before this '
+       '(an approval step, an interview, a fixed package, a joining date) is never nudged, '
+       'so switching the nudges on does not send reminders about old items. Set once by '
+       'migration 20270613101125.',
+       'string', true, true
+WHERE NOT EXISTS (
+  SELECT 1 FROM public.platform_policies pp
+   WHERE pp.policy_key = 'hr.recruitment.nudges_go_live_at'
+     AND pp.scope_type = 'global' AND pp.scope_id IS NULL
+);
+
+-- ── 4. Guard ─────────────────────────────────────────────────────────────────────
 DO $$
 BEGIN
   IF to_regclass('public.hr_recruitment_nudges_sent') IS NULL THEN
@@ -109,6 +131,14 @@ BEGIN
   END IF;
   IF NOT EXISTS (SELECT 1 FROM public.ai_routine_schedules WHERE routine_id = 'hr-recruitment-nudges') THEN
     RAISE EXCEPTION 'ai_routine_schedules row hr-recruitment-nudges is missing';
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM public.platform_policies
+     WHERE policy_key = 'hr.recruitment.nudges_go_live_at'
+       AND scope_type = 'global' AND scope_id IS NULL
+       AND jsonb_typeof(value) = 'string'
+  ) THEN
+    RAISE EXCEPTION 'platform_policies row hr.recruitment.nudges_go_live_at is missing';
   END IF;
 END
 $$;

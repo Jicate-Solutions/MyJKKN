@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   buildStepReadyNudge,
+  goLiveFromPolicy,
   indexSent,
   istDate,
   resolveStepApprovers,
@@ -21,6 +22,8 @@ import {
 
 const NOW = new Date('2026-10-10T04:00:00Z'); // 09:30 IST
 const hoursAgo = (h: number) => new Date(NOW.getTime() - h * 3600_000).toISOString();
+/** Go-live well before every fixture, so the older tests see the cutoff as open. */
+const LONG_AGO = new Date('2020-01-01T00:00:00Z');
 
 const COLLEGE_A = 'aaaaaaaa-0000-0000-0000-000000000001';
 const COLLEGE_A_SIBLING = 'aaaaaaaa-0000-0000-0000-000000000002';
@@ -150,11 +153,11 @@ describe('resolveStepApprovers', () => {
 describe('selectApprovalNudges', () => {
   it('says nothing before the step deadline', () => {
     const c = candidate({ submitted_at: hoursAgo(71) });
-    expect(selectApprovalNudges([c], sentOf(), DIR, NOW)).toEqual([]);
+    expect(selectApprovalNudges([c], sentOf(), DIR, NOW, LONG_AGO)).toEqual([]);
   });
 
   it('reminds the step approver once the step deadline has passed', () => {
-    const [n] = selectApprovalNudges([candidate({ submitted_at: hoursAgo(73) })], sentOf(), DIR, NOW);
+    const [n] = selectApprovalNudges([candidate({ submitted_at: hoursAgo(73) })], sentOf(), DIR, NOW, LONG_AGO);
     expect(n.kind).toBe('approval_reminder');
     expect(n.refKey).toBe('cand-1:0');
     expect(n.recipients).toEqual(['hod-a', 'hod-b-granted', 'hod-sibling']);
@@ -166,7 +169,7 @@ describe('selectApprovalNudges', () => {
       submitted_at: hoursAgo(30),
       approval_chain: [{ approver_role: 'hod', status: 'pending', escalate_after_hours: 24 }],
     });
-    expect(selectApprovalNudges([c], sentOf(), DIR, NOW).map((n) => n.kind)).toEqual(['approval_reminder']);
+    expect(selectApprovalNudges([c], sentOf(), DIR, NOW, LONG_AGO).map((n) => n.kind)).toEqual(['approval_reminder']);
   });
 
   it('times a later step from when the previous step was decided, not from submission', () => {
@@ -178,36 +181,36 @@ describe('selectApprovalNudges', () => {
         { approver_role: 'principal', status: 'pending', escalate_after_hours: 72 },
       ],
     });
-    expect(selectApprovalNudges([c], sentOf(), DIR, NOW)).toEqual([]);
+    expect(selectApprovalNudges([c], sentOf(), DIR, NOW, LONG_AGO)).toEqual([]);
   });
 
   it('skips candidates that are no longer waiting for approval', () => {
     for (const status of ['approved', 'rejected', 'withdrawn', 'package_fixed']) {
-      expect(selectApprovalNudges([candidate({ status, submitted_at: hoursAgo(300) })], sentOf(), DIR, NOW)).toEqual([]);
+      expect(selectApprovalNudges([candidate({ status, submitted_at: hoursAgo(300) })], sentOf(), DIR, NOW, LONG_AGO)).toEqual([]);
     }
   });
 
   it('sends only the reminder on the first run for a long-stuck step — the HR Head waits 48 hours more', () => {
-    const out = selectApprovalNudges([candidate({ submitted_at: hoursAgo(24 * 30) })], sentOf(), DIR, NOW);
+    const out = selectApprovalNudges([candidate({ submitted_at: hoursAgo(24 * 30) })], sentOf(), DIR, NOW, LONG_AGO);
     expect(out.map((n) => n.kind)).toEqual(['approval_reminder']);
   });
 
   it('does not repeat the reminder, and holds the escalation until 48 hours after it', () => {
     const c = candidate({ submitted_at: hoursAgo(200) });
     const reminded = { kind: 'approval_reminder' as const, ref_key: 'cand-1:0', sent_at: hoursAgo(47) };
-    expect(selectApprovalNudges([c], sentOf(reminded), DIR, NOW)).toEqual([]);
+    expect(selectApprovalNudges([c], sentOf(reminded), DIR, NOW, LONG_AGO)).toEqual([]);
   });
 
   it('tells the HR Head 48 hours after the reminder, once', () => {
     const c = candidate({ submitted_at: hoursAgo(200) });
     const reminded = { kind: 'approval_reminder' as const, ref_key: 'cand-1:0', sent_at: hoursAgo(49) };
-    const [n] = selectApprovalNudges([c], sentOf(reminded), DIR, NOW);
+    const [n] = selectApprovalNudges([c], sentOf(reminded), DIR, NOW, LONG_AGO);
     expect(n.kind).toBe('approval_escalation');
     expect(n.recipients).toEqual(['hr-head']);
     expect(n.url).toBe('/hr/recruitment/candidates/cand-1');
 
     const escalated = { kind: 'approval_escalation' as const, ref_key: 'cand-1:0', sent_at: hoursAgo(1) };
-    expect(selectApprovalNudges([c], sentOf(reminded, escalated), DIR, NOW)).toEqual([]);
+    expect(selectApprovalNudges([c], sentOf(reminded, escalated), DIR, NOW, LONG_AGO)).toEqual([]);
   });
 
   it('still reaches the HR Head when nobody could decide the step', () => {
@@ -215,11 +218,11 @@ describe('selectApprovalNudges', () => {
       submitted_at: hoursAgo(200),
       approval_chain: [{ approver_role: 'board', status: 'pending', escalate_after_hours: 72 }],
     });
-    const [reminder] = selectApprovalNudges([c], sentOf(), DIR, NOW);
+    const [reminder] = selectApprovalNudges([c], sentOf(), DIR, NOW, LONG_AGO);
     expect(reminder.recipients).toEqual([]);
 
     const recorded = { kind: 'approval_reminder' as const, ref_key: 'cand-1:0', sent_at: hoursAgo(50) };
-    const [escalation] = selectApprovalNudges([c], sentOf(recorded), DIR, NOW);
+    const [escalation] = selectApprovalNudges([c], sentOf(recorded), DIR, NOW, LONG_AGO);
     expect(escalation.kind).toBe('approval_escalation');
     expect(escalation.recipients).toEqual(['hr-head']);
     expect(escalation.body).toContain('reached no one');
@@ -234,7 +237,7 @@ describe('selectApprovalNudges', () => {
       ],
     });
     const oldStep = { kind: 'approval_reminder' as const, ref_key: 'cand-1:0', sent_at: hoursAgo(100) };
-    const [n] = selectApprovalNudges([c], sentOf(oldStep), DIR, NOW);
+    const [n] = selectApprovalNudges([c], sentOf(oldStep), DIR, NOW, LONG_AGO);
     expect(n.kind).toBe('approval_reminder');
     expect(n.refKey).toBe('cand-1:1');
     expect(n.recipients).toEqual(['principal-all']);
@@ -259,11 +262,11 @@ describe('selectScorecardNudges', () => {
   const cands = new Map([['cand-1', { id: 'cand-1', name: 'Priya S', role_title: 'Accountant', status: 'approved' }]]);
 
   it('waits 24 hours after the interview', () => {
-    expect(selectScorecardNudges([interview({ scheduled_at: hoursAgo(23) })], new Set(), cands, sentOf(), DIR, NOW)).toEqual([]);
+    expect(selectScorecardNudges([interview({ scheduled_at: hoursAgo(23) })], new Set(), cands, sentOf(), DIR, NOW, LONG_AGO)).toEqual([]);
   });
 
   it('nudges each panel member whose scorecard is missing, once per person', () => {
-    const out = selectScorecardNudges([interview()], new Set(['iv-1:panel-2']), cands, sentOf(), DIR, NOW);
+    const out = selectScorecardNudges([interview()], new Set(['iv-1:panel-2']), cands, sentOf(), DIR, NOW, LONG_AGO);
     expect(out).toHaveLength(1);
     expect(out[0]).toMatchObject({
       kind: 'scorecard_missing',
@@ -278,7 +281,7 @@ describe('selectScorecardNudges', () => {
       { kind: 'scorecard_missing', ref_key: 'iv-1:panel-1', sent_at: hoursAgo(1) },
       { kind: 'scorecard_missing', ref_key: 'iv-1:panel-2', sent_at: hoursAgo(1) },
     );
-    expect(selectScorecardNudges([interview()], new Set(), cands, sent, DIR, NOW)).toEqual([]);
+    expect(selectScorecardNudges([interview()], new Set(), cands, sent, DIR, NOW, LONG_AGO)).toEqual([]);
   });
 
   it('ignores cancelled and rescheduled interviews, and ones older than the lookback', () => {
@@ -293,17 +296,18 @@ describe('selectScorecardNudges', () => {
       sentOf(),
       DIR,
       NOW,
+      LONG_AGO,
     );
     expect(out).toEqual([]);
   });
 
   it('does not chase a scorecard for a candidate who was rejected or withdrew', () => {
     const rejected = new Map([['cand-1', { id: 'cand-1', name: 'Priya S', role_title: '', status: 'rejected' }]]);
-    expect(selectScorecardNudges([interview()], new Set(), rejected, sentOf(), DIR, NOW)).toEqual([]);
+    expect(selectScorecardNudges([interview()], new Set(), rejected, sentOf(), DIR, NOW, LONG_AGO)).toEqual([]);
   });
 
   it('records a nudge with no recipient for a deactivated panel member, so it is not retried every day', () => {
-    const [n] = selectScorecardNudges([interview({ panel_member_ids: ['panel-gone'] })], new Set(), cands, sentOf(), DIR, NOW);
+    const [n] = selectScorecardNudges([interview({ panel_member_ids: ['panel-gone'] })], new Set(), cands, sentOf(), DIR, NOW, LONG_AGO);
     expect(n.recipients).toEqual([]);
   });
 });
@@ -323,12 +327,12 @@ describe('selectOfferNudges', () => {
   it('waits two days after the package is fixed', () => {
     const c = candidate({ status: 'package_fixed' });
     const fixed = new Map([['cand-1', hoursAgo(47)]]);
-    expect(selectOfferNudges([c], fixed, jobs, editors, sentOf(), DIR, NOW)).toEqual([]);
+    expect(selectOfferNudges([c], fixed, jobs, editors, sentOf(), DIR, NOW, LONG_AGO)).toEqual([]);
   });
 
   it('nudges the job creator when they can still edit recruitment', () => {
     const c = candidate({ status: 'package_fixed', job_id: 'job-editor' });
-    const [n] = selectOfferNudges([c], new Map([['cand-1', hoursAgo(49)]]), jobs, editors, sentOf(), DIR, NOW);
+    const [n] = selectOfferNudges([c], new Map([['cand-1', hoursAgo(49)]]), jobs, editors, sentOf(), DIR, NOW, LONG_AGO);
     expect(n).toMatchObject({
       kind: 'offer_not_issued',
       refKey: 'cand-1',
@@ -340,27 +344,27 @@ describe('selectOfferNudges', () => {
   it('falls back to the college HR editors when the creator cannot act or there is no job', () => {
     for (const job_id of ['job-no-edit', 'job-no-creator', null]) {
       const c = candidate({ status: 'package_fixed', job_id });
-      const [n] = selectOfferNudges([c], new Map([['cand-1', hoursAgo(72)]]), jobs, editors, sentOf(), DIR, NOW);
+      const [n] = selectOfferNudges([c], new Map([['cand-1', hoursAgo(72)]]), jobs, editors, sentOf(), DIR, NOW, LONG_AGO);
       expect(n.recipients).toEqual(['hr-1', 'hr-2']);
     }
   });
 
   it('falls back to the final approval time when no approved package row carries a time', () => {
     const c = candidate({ status: 'package_fixed', final_decided_at: hoursAgo(10), submitted_at: hoursAgo(900) });
-    expect(selectOfferNudges([c], new Map(), jobs, editors, sentOf(), DIR, NOW)).toEqual([]);
+    expect(selectOfferNudges([c], new Map(), jobs, editors, sentOf(), DIR, NOW, LONG_AGO)).toEqual([]);
   });
 
   it('never repeats the offer nudge', () => {
     const c = candidate({ status: 'package_fixed' });
     const sent = sentOf({ kind: 'offer_not_issued', ref_key: 'cand-1', sent_at: hoursAgo(5) });
-    expect(selectOfferNudges([c], new Map([['cand-1', hoursAgo(99)]]), jobs, editors, sent, DIR, NOW)).toEqual([]);
+    expect(selectOfferNudges([c], new Map([['cand-1', hoursAgo(99)]]), jobs, editors, sent, DIR, NOW, LONG_AGO)).toEqual([]);
   });
 
   it('asks for the joining outcome two days after the joining date (India time), keyed on the date', () => {
     // NOW is 10 Oct in India. Joining 8 Oct -> due; 9 Oct -> not yet.
     const due = candidate({ status: 'offer_issued', expected_joining_date: '2026-10-08' });
     const notYet = candidate({ id: 'cand-2', status: 'offer_issued', expected_joining_date: '2026-10-09' });
-    const out = selectOfferNudges([due, notYet], new Map(), jobs, editors, sentOf(), DIR, NOW);
+    const out = selectOfferNudges([due, notYet], new Map(), jobs, editors, sentOf(), DIR, NOW, LONG_AGO);
     expect(out).toHaveLength(1);
     expect(out[0]).toMatchObject({ kind: 'joining_outcome_missing', refKey: 'cand-1:2026-10-08', recipients: ['hr-1', 'hr-2'] });
   });
@@ -368,13 +372,13 @@ describe('selectOfferNudges', () => {
   it('does not ask when the joining is recorded, or there is no joining date', () => {
     const joined = candidate({ status: 'offer_issued', expected_joining_date: '2026-09-01', actual_joining_date: '2026-09-01' });
     const undated = candidate({ id: 'cand-2', status: 'offer_issued' });
-    expect(selectOfferNudges([joined, undated], new Map(), jobs, editors, sentOf(), DIR, NOW)).toEqual([]);
+    expect(selectOfferNudges([joined, undated], new Map(), jobs, editors, sentOf(), DIR, NOW, LONG_AGO)).toEqual([]);
   });
 
   it('asks again only if HR moves the joining date', () => {
     const c = candidate({ status: 'offer_issued', expected_joining_date: '2026-10-01' });
     const sent = sentOf({ kind: 'joining_outcome_missing', ref_key: 'cand-1:2026-09-20', sent_at: hoursAgo(300) });
-    expect(selectOfferNudges([c], new Map(), jobs, editors, sent, DIR, NOW).map((n) => n.refKey)).toEqual(['cand-1:2026-10-01']);
+    expect(selectOfferNudges([c], new Map(), jobs, editors, sent, DIR, NOW, LONG_AGO).map((n) => n.refKey)).toEqual(['cand-1:2026-10-01']);
   });
 });
 
@@ -409,5 +413,80 @@ describe('istDate', () => {
   it('rolls to the next day after 18:30 UTC', () => {
     expect(istDate(new Date('2026-10-01T18:29:00Z'))).toBe('2026-10-01');
     expect(istDate(new Date('2026-10-01T18:31:00Z'))).toBe('2026-10-02');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Go-live cutoff (Director, 7 Oct 2026): no reminders about items from before go-live
+// ---------------------------------------------------------------------------
+
+describe('go-live cutoff', () => {
+  // Go-live 10 days before NOW. Every item below is overdue by its own rule;
+  // only when its wait STARTED decides whether it is nudged.
+  const GO_LIVE = new Date(NOW.getTime() - 10 * 24 * 3600_000);
+  const before = hoursAgo(11 * 24); // a day before go-live
+  const after = hoursAgo(9 * 24); // a day after go-live
+  const cands = new Map([['cand-1', candidate()]]);
+  const jobs = new Map([['job-1', 'creator-editor']]);
+  const editors = new Map<string, string[]>();
+  const interview = (over: Partial<HarnessInterview> = {}): HarnessInterview => ({
+    id: 'iv-1',
+    candidate_id: 'cand-1',
+    round_number: 1,
+    round_name: 'Demo class',
+    scheduled_at: hoursAgo(25),
+    status: 'completed',
+    panel_member_ids: ['panel-1'],
+    ...over,
+  });
+
+  function allKinds(startedAt: string, goLiveAt: Date) {
+    const joining = startedAt.slice(0, 10);
+    return [
+      ...selectApprovalNudges([candidate({ submitted_at: startedAt })], sentOf(), DIR, NOW, goLiveAt),
+      ...selectScorecardNudges([interview({ scheduled_at: startedAt })], new Set(), cands, sentOf(), DIR, NOW, goLiveAt),
+      ...selectOfferNudges(
+        [
+          candidate({ id: 'cand-p', status: 'package_fixed', job_id: 'job-1' }),
+          candidate({ id: 'cand-j', status: 'offer_issued', expected_joining_date: joining, actual_joining_date: null }),
+        ],
+        new Map([['cand-p', startedAt]]),
+        jobs, editors, sentOf(), DIR, NOW, goLiveAt,
+      ),
+    ].map((n) => n.kind).sort();
+  }
+
+  const EVERY_KIND = ['approval_reminder', 'joining_outcome_missing', 'offer_not_issued', 'scorecard_missing'];
+
+  it('(a) an item that started waiting BEFORE go-live gets no reminder', () => {
+    expect(allKinds(before, GO_LIVE)).toEqual([]);
+  });
+
+  it('(b) an item that started waiting AFTER go-live is reminded as before', () => {
+    expect(allKinds(after, GO_LIVE)).toEqual(EVERY_KIND);
+  });
+
+  it('(b) a later approval step of an old candidate counts from when THAT step began', () => {
+    const c = candidate({
+      submitted_at: hoursAgo(30 * 24),
+      current_step: 1,
+      approval_chain: [
+        { approver_role: 'hod', status: 'approved', decided_at: after },
+        { approver_role: 'principal', status: 'pending', escalate_after_hours: 72 },
+      ],
+    });
+    expect(selectApprovalNudges([c], sentOf(), DIR, NOW, GO_LIVE).map((n) => n.kind)).toEqual(['approval_reminder']);
+  });
+
+  it('(c) with the cutoff row missing or unreadable, go-live is NOW and old items get none', () => {
+    for (const stored of [undefined, null, 'not a date', 42, {}]) {
+      expect(goLiveFromPolicy(stored, NOW)).toEqual(NOW);
+      expect(allKinds(before, goLiveFromPolicy(stored, NOW))).toEqual([]);
+      expect(allKinds(after, goLiveFromPolicy(stored, NOW))).toEqual([]);
+    }
+  });
+
+  it('reads the timestamp Postgres stores with to_jsonb(now())', () => {
+    expect(goLiveFromPolicy('2026-10-07T10:55:12.123456+00:00', NOW).toISOString()).toBe('2026-10-07T10:55:12.123Z');
   });
 });
