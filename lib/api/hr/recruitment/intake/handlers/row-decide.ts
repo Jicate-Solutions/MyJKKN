@@ -1,4 +1,4 @@
-// POST /api/hr/recruitment/intake/rows/:id/decide  { action, job_id? }
+// POST /api/hr/recruitment/intake/op?op=row-decide&id=:id  { action, job_id? }
 //   → { row, rule, rule_error }
 // Records a person's decision. Correcting where a CVViZ title goes teaches a
 // match rule credited to them (rule); if that lesson could not be kept the

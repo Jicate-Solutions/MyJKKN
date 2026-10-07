@@ -1,8 +1,8 @@
 // Reading up to MAX_EXTRACTIONS_PER_BATCH (24) resumes, three at a time, can take
 // minutes; the cap is sized so even the worst case fits the 300 s maxDuration set on
-// app/api/hr/recruitment/intake/[...path]/route.ts (lib/hr/intake/limits.ts).
+// app/api/hr/recruitment/intake/op/route.ts (lib/hr/intake/limits.ts).
 
-// POST /api/hr/recruitment/intake/batches/:id/prepare
+// POST /api/hr/recruitment/intake/op?op=batch-prepare&id=:id
 //   PrepareRequest { uploaded: { name, path }[] } → { batch, rows }
 // Expands any .zip, pairs files with the export's rows, reads the resumes,
 // proposes one action per row and marks the batch 'ready'. Calling it again on

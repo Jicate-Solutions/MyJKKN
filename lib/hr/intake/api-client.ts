@@ -14,12 +14,21 @@ import type {
   DecideRequest,
   IntakeBatch,
   IntakeMatchRule,
+  IntakeOp,
   IntakeOpenJob,
   IntakeRow,
   UploadUrlResponse,
 } from '@/types/hr-intake';
 
 export const INTAKE_API_BASE = '/api/hr/recruitment/intake';
+
+/**
+ * The path under INTAKE_API_BASE for one op on one record. These calls go to the
+ * static op route (?op=&id=), not to an [id] folder: route budget.
+ */
+export function intakeOpPath(op: IntakeOp, id: string): string {
+  return `/op?op=${encodeURIComponent(op)}&id=${encodeURIComponent(id)}`;
+}
 
 /** A college the uploader may choose, sent by the server when it needs one. */
 export interface IntakeCollegeChoice {
@@ -159,7 +168,7 @@ export async function listIntakeColleges(): Promise<IntakeColleges> {
 
 export async function getIntakeBatch(batchId: string): Promise<IntakeBatchDetail> {
   return call(
-    `/batches/${encodeURIComponent(batchId)}`,
+    intakeOpPath('batch', batchId),
     undefined,
     (b): b is IntakeBatchDetail =>
       isObj(b) && isObj(b.batch) && Array.isArray(b.rows) && Array.isArray(b.open_jobs),
@@ -224,7 +233,7 @@ export async function createIntakeBatch(input: {
   const uploaded: { name: string; path: string }[] = [];
   if (input.resumes.length > 0) {
     const urls = await call(
-      `/batches/${encodeURIComponent(batchId)}/upload-urls`,
+      intakeOpPath('batch-upload-urls', batchId),
       jsonInit('POST', {
         files: input.resumes.map((f) => ({ name: f.name, size: f.size, type: f.type })),
       }),
@@ -247,7 +256,7 @@ export async function createIntakeBatch(input: {
 
   progress('reading', 0, 1);
   const prepared = await call(
-    `/batches/${encodeURIComponent(batchId)}/prepare`,
+    intakeOpPath('batch-prepare', batchId),
     jsonInit('POST', { uploaded }),
     (b): b is { batch: IntakeBatch; rows: IntakeRow[] } =>
       isObj(b) && isObj(b.batch) && Array.isArray(b.rows),
@@ -264,7 +273,7 @@ export interface DecideOutcome {
 
 export async function decideIntakeRow(rowId: string, req: DecideRequest): Promise<DecideOutcome> {
   const body = await call(
-    `/rows/${encodeURIComponent(rowId)}/decide`,
+    intakeOpPath('row-decide', rowId),
     jsonInit('POST', { action: req.action, job_id: req.job_id ?? null }),
     (b): b is { row: IntakeRow; rule_error?: string | null } => isObj(b) && isObj(b.row),
   );
@@ -276,7 +285,7 @@ export async function applyIntakeBatch(
   rowIds?: string[],
 ): Promise<ApplyResult[]> {
   const body = await call(
-    `/batches/${encodeURIComponent(batchId)}/apply`,
+    intakeOpPath('batch-apply', batchId),
     jsonInit('POST', rowIds ? { row_ids: rowIds } : {}),
     (b): b is { results: ApplyResult[] } => isObj(b) && Array.isArray(b.results),
   );
@@ -286,7 +295,7 @@ export async function applyIntakeBatch(
 /** Throws a batch away (its rows and resume copies). Filed applications stay. */
 export async function discardIntakeBatch(batchId: string): Promise<void> {
   await call(
-    `/batches/${encodeURIComponent(batchId)}`,
+    intakeOpPath('batch', batchId),
     { method: 'DELETE' },
     (b): b is { ok: true } => isObj(b) && b.ok === true,
   );
@@ -303,7 +312,7 @@ export async function listIntakeRules(): Promise<IntakeMatchRule[]> {
 
 export async function deleteIntakeRule(ruleId: string): Promise<void> {
   await call(
-    `/rules/${encodeURIComponent(ruleId)}`,
+    intakeOpPath('rule', ruleId),
     { method: 'DELETE' },
     (b): b is { ok: true } => isObj(b) && b.ok === true,
   );

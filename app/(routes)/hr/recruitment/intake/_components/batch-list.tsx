@@ -36,7 +36,7 @@ export function BatchList() {
       {data.map((b) => (
         <li key={b.id}>
           <Link
-            href={`/hr/recruitment/intake/${b.id}`}
+            href={`/hr/recruitment/intake/batch?batchId=${encodeURIComponent(b.id)}`}
             className="flex items-center justify-between gap-3 p-4 transition hover:bg-muted/40"
           >
             <div className="min-w-0 space-y-0.5">

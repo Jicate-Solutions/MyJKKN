@@ -189,7 +189,7 @@ describe('BatchReview', () => {
   function serve(rows: IntakeRow[], extra?: Handler) {
     handler = (url, init) => {
       const method = init?.method ?? 'GET';
-      if (method === 'GET' && url.endsWith('/batches/b1')) {
+      if (method === 'GET' && url.endsWith('/op?op=batch&id=b1')) {
         return json({ batch: BATCH, rows, open_jobs: JOBS });
       }
       const r = extra?.(url, init);
@@ -200,7 +200,7 @@ describe('BatchReview', () => {
 
   it('Accept on a card posts one decision for that row', async () => {
     serve([ROW1, ROW2], (url, init) => {
-      if (url.endsWith('/rows/r1/decide')) {
+      if (url.endsWith('/op?op=row-decide&id=r1')) {
         const body = JSON.parse(String(init?.body));
         return json({
           row: { ...ROW1, decision: { ...body, decided_by: 'u1', decided_by_name: 'Priya S', decided_at: '2026-10-01T00:00:00Z', corrected: false } },
@@ -212,8 +212,8 @@ describe('BatchReview', () => {
     const card = await screen.findByRole('article', { name: /Candidate 1: Anitha K/ });
     fireEvent.click(within(card).getByRole('button', { name: 'Accept' }));
 
-    await waitFor(() => expect(callsTo('/rows/r1/decide')).toHaveLength(1));
-    expect(JSON.parse(String(callsTo('/rows/r1/decide')[0][1]?.body))).toEqual({
+    await waitFor(() => expect(callsTo('/op?op=row-decide&id=r1')).toHaveLength(1));
+    expect(JSON.parse(String(callsTo('/op?op=row-decide&id=r1')[0][1]?.body))).toEqual({
       action: 'file_under_job',
       job_id: 'job-1',
     });
@@ -222,7 +222,7 @@ describe('BatchReview', () => {
 
   it('Change job says it will be remembered and credited, then posts the chosen job', async () => {
     serve([ROW1], (url, init) => {
-      if (url.endsWith('/rows/r1/decide')) {
+      if (url.endsWith('/op?op=row-decide&id=r1')) {
         const body = JSON.parse(String(init?.body));
         return json({ row: { ...ROW1, decision: { ...body, decided_by: 'u1', decided_by_name: 'Priya S', decided_at: '2026-10-01T00:00:00Z', corrected: true } } });
       }
@@ -239,8 +239,8 @@ describe('BatchReview', () => {
     expect(within(card).queryByRole('button', { name: /Assistant Manager/ })).toBeNull();
     fireEvent.click(within(card).getByRole('button', { name: /Hostel Warden/ }));
 
-    await waitFor(() => expect(callsTo('/rows/r1/decide')).toHaveLength(1));
-    expect(JSON.parse(String(callsTo('/rows/r1/decide')[0][1]?.body))).toEqual({
+    await waitFor(() => expect(callsTo('/op?op=row-decide&id=r1')).toHaveLength(1));
+    expect(JSON.parse(String(callsTo('/op?op=row-decide&id=r1')[0][1]?.body))).toEqual({
       action: 'file_under_job',
       job_id: 'job-2',
     });
@@ -258,7 +258,7 @@ describe('BatchReview', () => {
     const b = { ...ROW3, decision };
     // ROW2 is undecided: it must not be sent.
     serve([a, ROW2, b], (url) =>
-      url.endsWith('/batches/b1/apply')
+      url.endsWith('/op?op=batch-apply&id=b1')
         ? json({
             results: [
               { row_id: 'r1', ok: true, application_id: 'app-1', error: null },
@@ -273,7 +273,7 @@ describe('BatchReview', () => {
     const results = await screen.findByRole('region', { name: 'Filing results' });
     expect(within(results).getByText(/Filed 1 of 2\./)).toBeTruthy();
     expect(within(results).getByText(/Chitra K \(card 3\): This job closed yesterday/)).toBeTruthy();
-    expect(JSON.parse(String(callsTo('/batches/b1/apply')[0][1]?.body))).toEqual({ row_ids: ['r1', 'r3'] });
+    expect(JSON.parse(String(callsTo('/op?op=batch-apply&id=b1')[0][1]?.body))).toEqual({ row_ids: ['r1', 'r3'] });
   });
 
   it('numbers a same-upload duplicate by its card', async () => {
@@ -344,9 +344,9 @@ describe('RulesList', () => {
     expect(screen.getByText(/used 7 times/)).toBeTruthy();
 
     fireEvent.click(screen.getByRole('button', { name: /Delete rule/ }));
-    expect(callsTo('/rules/rule-1', 'DELETE')).toHaveLength(0);
+    expect(callsTo('/op?op=rule&id=rule-1', 'DELETE')).toHaveLength(0);
     fireEvent.click(screen.getByRole('button', { name: 'Yes, delete' }));
-    await waitFor(() => expect(callsTo('/rules/rule-1', 'DELETE')).toHaveLength(1));
+    await waitFor(() => expect(callsTo('/op?op=rule&id=rule-1', 'DELETE')).toHaveLength(1));
   });
 });
 
@@ -355,20 +355,20 @@ describe('Discard an upload (review fix M5)', () => {
     nav.push.mockClear();
     handler = (url, init) => {
       const method = init?.method ?? 'GET';
-      if (method === 'GET' && url.endsWith('/batches/b1')) return json({ batch: BATCH, rows: [ROW1], open_jobs: JOBS });
-      if (method === 'DELETE' && url.endsWith('/batches/b1')) return json({ ok: true, removed_files: 1 });
+      if (method === 'GET' && url.endsWith('/op?op=batch&id=b1')) return json({ batch: BATCH, rows: [ROW1], open_jobs: JOBS });
+      if (method === 'DELETE' && url.endsWith('/op?op=batch&id=b1')) return json({ ok: true, removed_files: 1 });
       return json({ error: `unexpected ${method} ${url}` }, 500);
     };
     renderWithQuery(<BatchReview batchId="b1" />);
     fireEvent.click(await screen.findByRole('button', { name: /Discard this upload/ }));
-    expect(callsTo('/batches/b1', 'DELETE')).toHaveLength(0);
+    expect(callsTo('/op?op=batch&id=b1', 'DELETE')).toHaveLength(0);
     const group = screen.getByRole('group', { name: 'Confirm discard' });
     fireEvent.click(within(group).getByRole('button', { name: 'Keep it' }));
     expect(screen.queryByRole('group', { name: 'Confirm discard' })).toBeNull();
 
     fireEvent.click(screen.getByRole('button', { name: /Discard this upload/ }));
     fireEvent.click(screen.getByRole('button', { name: 'Yes, discard' }));
-    await waitFor(() => expect(callsTo('/batches/b1', 'DELETE')).toHaveLength(1));
+    await waitFor(() => expect(callsTo('/op?op=batch&id=b1', 'DELETE')).toHaveLength(1));
     await waitFor(() => expect(nav.push).toHaveBeenCalledWith('/hr/recruitment/intake'));
   });
 });
@@ -387,7 +387,7 @@ describe('Upload form: a college picker only when the server asks for one (revie
         }
         return json({ batch: { ...BATCH, id: 'b9', status: 'preparing' } }, 201);
       }
-      if (url.endsWith('/batches/b9/prepare')) return json({ batch: { ...BATCH, id: 'b9' }, rows: [] });
+      if (url.endsWith('/op?op=batch-prepare&id=b9')) return json({ batch: { ...BATCH, id: 'b9' }, rows: [] });
       // The list says one home college; the server then asks anyway (e.g. the home college was removed).
       if (url.endsWith('/institutions')) return json({ institutions: [{ id: 'c1', name: 'Arts Demo College' }], home_institution_id: 'c1' });
       return json({ error: `unexpected ${url}` }, 500);
@@ -411,7 +411,7 @@ describe('Upload form: a college picker only when the server asks for one (revie
 
     fireEvent.change(picker, { target: { value: 'c2' } });
     fireEvent.click(screen.getByRole('button', { name: 'Upload and review' }));
-    await waitFor(() => expect(nav.push).toHaveBeenCalledWith('/hr/recruitment/intake/b9'));
+    await waitFor(() => expect(nav.push).toHaveBeenCalledWith('/hr/recruitment/intake/batch?batchId=b9'));
     expect(posted[1].get('institution_id')).toBe('c2');
   });
 });
@@ -421,7 +421,7 @@ describe('A closed or still-preparing upload shows no live card buttons (follow-
     it(`${status}: no decision buttons, filing is off, and the page says why`, async () => {
       handler = (url, init) => {
         const method = init?.method ?? 'GET';
-        if (method === 'GET' && url.endsWith('/batches/b1')) {
+        if (method === 'GET' && url.endsWith('/op?op=batch&id=b1')) {
           return json({ batch: { ...BATCH, status }, rows: [ROW1, ROW3], open_jobs: JOBS });
         }
         return json({ error: `unexpected ${method} ${url}` }, 500);
@@ -441,7 +441,7 @@ describe('A closed or still-preparing upload shows no live card buttons (follow-
 
   it('ready: the buttons are there', async () => {
     handler = (url, init) => {
-      if ((init?.method ?? 'GET') === 'GET' && url.endsWith('/batches/b1')) return json({ batch: BATCH, rows: [ROW1], open_jobs: JOBS });
+      if ((init?.method ?? 'GET') === 'GET' && url.endsWith('/op?op=batch&id=b1')) return json({ batch: BATCH, rows: [ROW1], open_jobs: JOBS });
       return json({ error: 'unexpected' }, 500);
     };
     renderWithQuery(<BatchReview batchId="b1" />);
@@ -471,7 +471,7 @@ describe('Upload form: any college this person can reach (Director ruling, 1 Oct
         posted.push(init?.body as FormData);
         return json({ batch: { ...BATCH, id: 'b9', status: 'preparing' } }, 201);
       }
-      if (url.endsWith('/batches/b9/prepare')) return json({ batch: { ...BATCH, id: 'b9' }, rows: [] });
+      if (url.endsWith('/op?op=batch-prepare&id=b9')) return json({ batch: { ...BATCH, id: 'b9' }, rows: [] });
       return json({ error: `unexpected ${method} ${url}` }, 500);
     };
   }
@@ -488,7 +488,7 @@ describe('Upload form: any college this person can reach (Director ruling, 1 Oct
     fireEvent.change(screen.getByLabelText(/The CVViZ export/), { target: { files: [exportFile()] } });
     fireEvent.change(picker, { target: { value: 'c2' } });
     fireEvent.click(screen.getByRole('button', { name: 'Upload and review' }));
-    await waitFor(() => expect(nav.push).toHaveBeenCalledWith('/hr/recruitment/intake/b9'));
+    await waitFor(() => expect(nav.push).toHaveBeenCalledWith('/hr/recruitment/intake/batch?batchId=b9'));
     expect(posted[0].get('institution_id')).toBe('c2');
   });
 
@@ -504,7 +504,7 @@ describe('Upload form: any college this person can reach (Director ruling, 1 Oct
     expect(screen.queryByLabelText(/Which college is this upload for/)).toBeNull();
     fireEvent.change(screen.getByLabelText(/The CVViZ export/), { target: { files: [exportFile()] } });
     fireEvent.click(screen.getByRole('button', { name: 'Upload and review' }));
-    await waitFor(() => expect(nav.push).toHaveBeenCalledWith('/hr/recruitment/intake/b9'));
+    await waitFor(() => expect(nav.push).toHaveBeenCalledWith('/hr/recruitment/intake/batch?batchId=b9'));
     expect(posted[0].get('institution_id')).toBeNull();
   });
 });

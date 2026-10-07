@@ -1,4 +1,4 @@
-// DELETE /api/hr/recruitment/intake/rules/:id → { ok: true }
+// DELETE /api/hr/recruitment/intake/op?op=rule&id=:id → { ok: true }
 
 import { NextResponse, connection } from 'next/server';
 import type { NextRequest } from 'next/server';

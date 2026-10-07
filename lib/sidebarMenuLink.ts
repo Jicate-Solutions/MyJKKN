@@ -705,7 +705,7 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/hr/recruitment/submit': 'hr.recruitment.create',
   // Bring in Candidates — the CVViZ intake helper (2026-10-01). Uploading and
   // filing candidates is a create action, so the whole subtree (review cards at
-  // /intake/[batchId] resolve here by longest prefix) needs hr.recruitment.create.
+  // /intake/batch?batchId= resolve here by longest prefix) needs hr.recruitment.create.
   '/hr/recruitment/intake': 'hr.recruitment.create',
   '/hr/recruitment/intake/rules': 'hr.recruitment.create',
   '/hr/recruitment/my': 'hr.recruitment.view',

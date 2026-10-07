@@ -1,5 +1,5 @@
-// GET    /api/hr/recruitment/intake/batches/:id → { batch, rows, open_jobs, skipped_files }
-// DELETE /api/hr/recruitment/intake/batches/:id → { ok: true, removed_files }
+// GET    /api/hr/recruitment/intake/op?op=batch&id=:id → { batch, rows, open_jobs, skipped_files }
+// DELETE /api/hr/recruitment/intake/op?op=batch&id=:id → { ok: true, removed_files }
 //        Discards the batch: its rows and resume copies. Applications already
 //        filed from it stay. Only the uploader, or a super admin.
 

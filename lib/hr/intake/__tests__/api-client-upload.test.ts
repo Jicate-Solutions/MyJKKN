@@ -23,13 +23,13 @@ describe('createIntakeBatch', () => {
     vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
       calls.push({ url, init });
       if (url.endsWith('/batches')) return json({ batch: { ...batch, status: 'preparing' } }, 201);
-      if (url.endsWith('/upload-urls')) {
+      if (url.includes('op=batch-upload-urls&')) {
         const { files } = JSON.parse(String(init?.body));
         return json({ uploads: files.map((f: { name: string }, i: number) => ({
           name: f.name, path: `b1/file-${i}.pdf`, signed_url: 'https://x', token: `t${i}`, content_type: 'application/pdf',
         })) });
       }
-      if (url.endsWith('/prepare')) return json({ batch, rows: [] });
+      if (url.includes('op=batch-prepare&')) return json({ batch, rows: [] });
       return json({ error: 'unexpected' }, 500);
     }));
     const uploaded: string[] = [];
@@ -62,7 +62,7 @@ describe('createIntakeBatch', () => {
       return url.endsWith('/batches') ? json({ batch: { ...batch, status: 'preparing' } }, 201) : json({ batch, rows: [] });
     }));
     await createIntakeBatch({ exportFile: new File(['h'], 'e.csv'), resumes: [], uploader: async () => { throw new Error('must not upload'); } });
-    expect(urls.map((u) => u.split('/').pop())).toEqual(['batches', 'prepare']);
+    expect(urls.map((u) => u.split('/').pop()?.split('&')[0])).toEqual(['batches', 'op?op=batch-prepare']);
   });
 
   it('stops with a plain error when a storage upload fails, and never prepares', async () => {
@@ -78,7 +78,7 @@ describe('createIntakeBatch', () => {
       resumes: [new File(['a'], 'one.pdf')],
       uploader: async () => { throw new IntakeApiClientError('Could not upload one.pdf: denied', 0); },
     })).rejects.toThrow('Could not upload one.pdf');
-    expect(urls.some((u) => u.endsWith('/prepare'))).toBe(false);
+    expect(urls.some((u) => u.includes('op=batch-prepare&'))).toBe(false);
   });
 });
 

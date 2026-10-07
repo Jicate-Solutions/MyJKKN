@@ -16,6 +16,21 @@
 
 export type IntakeSource = 'cvviz_export';
 
+/**
+ * Calls that name one record go to the STATIC route /api/hr/recruitment/intake/op
+ * as ?op=<IntakeOp>&id=<id> (route budget). Each op stands for the old folder:
+ * batch = batches/[id], batch-apply = batches/[id]/apply, batch-prepare =
+ * batches/[id]/prepare, batch-upload-urls = batches/[id]/upload-urls,
+ * row-decide = rows/[id]/decide, rule = rules/[id].
+ */
+export type IntakeOp =
+  | 'batch'
+  | 'batch-apply'
+  | 'batch-prepare'
+  | 'batch-upload-urls'
+  | 'row-decide'
+  | 'rule';
+
 export type IntakeBatchStatus = 'preparing' | 'ready' | 'closed';
 
 export interface IntakeBatch {
@@ -162,6 +177,8 @@ export interface IntakeOpenJob {
 // ---------------------------------------------------------------------------
 // API contract (routes under /api/hr/recruitment/intake)
 // ---------------------------------------------------------------------------
+// A path with :id is served by the static op route: /batches/:id/apply is called as
+// /op?op=batch-apply&id=:id (IntakeOp above; lib/hr/intake/api-client.ts intakeOpPath).
 // POST   /batches                 multipart: `export` only (one .csv/.xlsx/.tsv, ≤ 5 MB)
 //                                 → 201 { batch: IntakeBatch }   (status 'preparing'; rows parsed, nothing proposed yet)
 // POST   /batches/:id/upload-urls UploadUrlRequest → UploadUrlResponse

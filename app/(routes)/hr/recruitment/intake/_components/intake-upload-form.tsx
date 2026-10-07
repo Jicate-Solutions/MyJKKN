@@ -87,7 +87,7 @@ export function IntakeUploadForm() {
                 : 'Reading the resumes and preparing each candidate… this can take a minute.',
           ),
       });
-      router.push(`/hr/recruitment/intake/${batch.id}`);
+      router.push(`/hr/recruitment/intake/batch?batchId=${encodeURIComponent(batch.id)}`);
     } catch (e) {
       // Shown below from create.error. A "choose a college" answer also brings the choices;
       // the picker goes back to the home college rather than keep a refused one.

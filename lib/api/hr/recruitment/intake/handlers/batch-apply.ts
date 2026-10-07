@@ -1,7 +1,7 @@
 // Each filed row is a Drive upload; a large batch takes a while (300 s
-// maxDuration on app/api/hr/recruitment/intake/[...path]/route.ts).
+// maxDuration on app/api/hr/recruitment/intake/op/route.ts).
 
-// POST /api/hr/recruitment/intake/batches/:id/apply  { row_ids?: string[] }
+// POST /api/hr/recruitment/intake/op?op=batch-apply&id=:id  { row_ids?: string[] }
 //   → { results: { row_id, ok, application_id, error }[] }
 // Files the rows decided "file under job" through the careers path. Each row
 // succeeds or fails on its own; a row already filed reports its application.

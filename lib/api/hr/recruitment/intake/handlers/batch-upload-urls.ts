@@ -1,4 +1,4 @@
-// POST /api/hr/recruitment/intake/batches/:id/upload-urls
+// POST /api/hr/recruitment/intake/op?op=batch-upload-urls&id=:id
 //   UploadUrlRequest { files: { name, size, type }[] }  (≤ 100, each ≤ 10 MB; pdf/doc/docx/jpg/png/zip)
 //   → UploadUrlResponse { uploads: { name, path, signed_url, token, content_type }[] }
 // Each resume then goes straight to the private 'hr-intake' bucket with
