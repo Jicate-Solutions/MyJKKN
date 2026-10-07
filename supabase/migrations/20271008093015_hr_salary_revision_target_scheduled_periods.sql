@@ -112,6 +112,18 @@
 --                                              time box; the missing-day pass always lists
 --                                              one person's days
 --
+-- REVIEW ROUND 9 (8 Oct 2026, round-4 money review), fixed here; probes
+-- probe-settled-wait-off.sql (RV4-*, R9-W3) and R9-W2 in probe-schedule.sql:
+--   W1 the window-over count had no lower      the count reads only the window's own        RV4-A1, RV4-A2,
+--      bound: months written as not measured   months (window_start to its last month)     RV4-A2b, RV4-B
+--      while a part waited for measurement
+--      (OFF) counted as window months
+--   W2 today's and stale days could fill the   a share of the ROWS (a quarter, at most 50) R9-W2
+--      row limit, so no missing day was        is kept for the missing-day pass
+--      listed for many nights
+--   W3 a finished month final by its status    its keys are not worked out: it is passed    R9-W3
+--      still had its keys worked out           over before them
+--
 -- THE CONTRACT between the nightly job and the measure
 --   lib/services/hr/salary-revision/scheduled-periods-recorder.ts, run by
 --   /api/cron/hr-salary-revisions?mode=targets BEFORE the measure, asks
@@ -293,7 +305,7 @@ BEGIN
       ('public.hr_salary_revision_target_classify(uuid, jsonb, date)',
        ARRAY['0eac67dcaecb3d25f5f397ed3a3c10a4|true|search_path=public', 'e4679c8456521dc0096c9b7bdd21627c|true|search_path=public']),
       ('public.hr_salary_revision_targets_run_one(uuid, date, integer)',
-       ARRAY['7cbbb8dbe04a7deb5c80414700d2e0d3|true|search_path=public', 'fd6a408aade31b0d7c1d8d17a3722c11|true|search_path=public'])) x(fn, ok)
+       ARRAY['7cbbb8dbe04a7deb5c80414700d2e0d3|true|search_path=public', 'baca735d34acf573c74be5d43ed81bbd|true|search_path=public'])) x(fn, ok)
   LOOP
     SELECT md5(btrim(replace(p.prosrc, E'\r', ''), E' \t\n')) || '|' || p.prosecdef::text || '|'
            || COALESCE(array_to_string(p.proconfig, ','), '')
@@ -665,10 +677,15 @@ DECLARE
   v_r       record;
   v_pass    integer;
   v_first   boolean;  -- round 8 (U5): the first person of a pass
+  v_keep    integer;  -- 8 Oct 2026 (round 9, W2): rows kept back for the missing-day pass
 BEGIN
   IF v_left = 0 THEN
     RETURN;
   END IF;
+  -- 8 Oct 2026 (round 9, W2): a share of the ROWS is kept for the missing-day
+  -- pass (a quarter, at most 50, at least 1 once two rows are asked for):
+  -- today's days and the stale days together never fill the whole limit.
+  v_keep := CASE WHEN v_left >= 2 THEN LEAST(50, GREATEST(1, v_left / 4)) ELSE 0 END;
   -- Today, for everyone not yet recorded today (recorded on the day itself).
   RETURN QUERY
     SELECT r.staff_id, p_today, x.ids, 'live'::text, public.hr_target_schedule_holiday_key(x.ids, p_today)
@@ -677,7 +694,7 @@ BEGIN
      WHERE NOT EXISTS (SELECT 1 FROM public.hr_target_scheduled_periods sp
                         WHERE sp.staff_id = r.staff_id AND sp.day = p_today)
      ORDER BY r.staff_id
-     LIMIT v_left;
+     LIMIT v_left - v_keep;
   GET DIAGNOSTICS v_got = ROW_COUNT;
   v_left := v_left - v_got;
   -- Round 7 (B1): pass 1 lists the days whose holidays changed, for everyone;
@@ -685,7 +702,9 @@ BEGIN
   -- Round 8 (U5): pass 1 works out keys only for days that have a row, and
   -- stops at HALF the time box, so pass 2 always has the other half; pass 2
   -- always goes on until it has listed one person's missing days, whatever
-  -- time is left, so a night is never spent on stale days alone.
+  -- time is left. 8 Oct 2026 (round 9, W2): and pass 2 always has the rows
+  -- kept back above, so (with two rows or more asked for) a night is never
+  -- spent on today's and stale days alone: missing days are listed too.
   FOR v_pass IN 1..2 LOOP
     v_first := true;
     FOR v_r IN
@@ -694,6 +713,7 @@ BEGIN
        ORDER BY md5(r.staff_id::text || p_today::text), r.staff_id
     LOOP
       EXIT WHEN v_left <= 0;
+      EXIT WHEN v_pass = 1 AND v_left <= v_keep;  -- 8 Oct 2026 (round 9, W2)
       EXIT WHEN v_pass = 1 AND p_budget_ms IS NOT NULL AND clock_timestamp() - v_started > make_interval(secs => p_budget_ms / 2000.0);
       EXIT WHEN v_pass = 2 AND NOT v_first
                 AND p_budget_ms IS NOT NULL AND clock_timestamp() - v_started > make_interval(secs => p_budget_ms / 1000.0);
@@ -706,7 +726,7 @@ BEGIN
                      AND (sp.day BETWEEN v_r.from_day AND v_r.to_day OR sp.day = p_today)) j
            WHERE j.holiday_key IS DISTINCT FROM j.key_now
            ORDER BY j.day DESC
-           LIMIT v_left;
+           LIMIT v_left - v_keep;
       ELSE
         -- Today not yet recorded is listed above, as 'live'.
         RETURN QUERY
@@ -736,7 +756,8 @@ COMMENT ON FUNCTION public.hr_target_schedule_needs(date, integer, integer) IS
   'hr_target_scheduled_periods, each with the day''s holiday key worked out now: today for everyone, then every '
   'person''s days whose approved holidays changed, then missing days newest first (round 7, B1). Stops working out '
   'further people once p_budget_ms has passed: the stale-day pass at half of it, the missing-day pass once it has '
-  'listed one person''s days (round 8, U5). Migration 20271008093015.';
+  'listed one person''s days (round 8, U5). A share of the rows (a quarter, at most 50) is kept for missing days, '
+  'so today''s and stale days never fill the whole limit (round 9, W2). Migration 20271008093015.';
 
 -- Default ww: one day's periods for one person, as the resolver gave them,
 -- kept in the exact shape of the contract (anything else is refused).
@@ -1438,6 +1459,17 @@ BEGIN
         SELECT g::date FROM generate_series(v_from, LEAST(v_cur_m, v_last), interval '1 month') g
       LOOP
         EXIT WHEN v_stop IS NOT NULL AND v_m >= v_stop;
+        SELECT * INTO v_row FROM public.hr_salary_revision_target_months
+         WHERE request_id = v_p.request_id AND month = v_m;
+        v_found := FOUND;
+        v_flagged := v_found AND v_row.status = 'flagged';
+        v_again := v_found AND v_row.status = 'missed';
+        -- 8 Oct 2026 (round 9, W3): a finished month final by its status (met,
+        -- Director-decided, not measured, not counted: settled whatever its
+        -- keys, hr_salary_revision_target_month_settled) is passed over BEFORE
+        -- its keys are worked out (each key reads every day of the month).
+        CONTINUE WHEN v_m < v_cur_m AND v_found
+                  AND v_row.status IN ('met', 'decided_met', 'decided_missed', 'not_measured', 'not_counted');
         -- 8 Oct 2026 (round 8, U3): the keys of the days this month's measure
         -- reads (from the Monday of the week that holds the 1st, default rr,
         -- round 6 finding 5), worked out ONCE, before the days are checked.
@@ -1447,11 +1479,6 @@ BEGIN
                     v_p.staff_id, date_trunc('week', v_m)::date, (v_m + interval '1 month' - interval '1 day')::date);
         v_hkey := public.hr_salary_revision_target_holiday_key(
                     v_p.staff_id, date_trunc('week', v_m)::date, (v_m + interval '1 month' - interval '1 day')::date);
-        SELECT * INTO v_row FROM public.hr_salary_revision_target_months
-         WHERE request_id = v_p.request_id AND month = v_m;
-        v_found := FOUND;
-        v_flagged := v_found AND v_row.status = 'flagged';
-        v_again := v_found AND v_row.status = 'missed';
         IF v_m < v_cur_m THEN
           CONTINUE WHEN public.hr_salary_revision_target_month_settled(v_p.request_id, v_p.staff_id, v_m, v_lkey, v_hkey);
           -- 8 Oct 2026 (default oo): not settled, so every day it reads (the
@@ -1599,9 +1626,15 @@ BEGIN
       -- one, one left by the cap): the last month is then not counted, so the
       -- count below falls short and the part stays waiting. Waiting, it stays
       -- in hr_target_schedule_ranges, so its days are recorded again (RV3-P4).
+      -- 8 Oct 2026 (round 9, W1): only the window's own months are counted
+      -- (window_start to v_last). The months a part waited for measurement
+      -- while it was OFF are written as not measured (acted) BEFORE its window:
+      -- counted, they sent the part back to the Director a month early (the
+      -- release it earned lost) or, too many, never (RV4-A1, A2, B).
       IF v_p.state = 'waiting' AND v_cur_m > v_last
          AND (SELECT count(*) FROM public.hr_salary_revision_target_months mo
-               WHERE mo.request_id = v_p.request_id AND mo.month <= v_last AND mo.acted) = v_p.window_months THEN
+               WHERE mo.request_id = v_p.request_id AND mo.month >= v_p.window_start AND mo.month <= v_last
+                 AND mo.acted) = v_p.window_months THEN
         UPDATE public.hr_salary_revision_target_plans
            SET state = 'back_to_director', state_reason = 'window_over', updated_at = now()
          WHERE request_id = v_p.request_id;

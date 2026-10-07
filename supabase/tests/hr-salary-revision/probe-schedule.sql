@@ -290,6 +290,15 @@ SELECT t.check('R6-9 listing the days stops at its time box: with none left no s
      FROM public.hr_target_schedule_needs(:'today', 100000, 0) n GROUP BY n.reason) x));
 SELECT t.check('R8-U5 with no time left the missing-day pass still lists one person''s missing days: a night is never spent on stale days alone',
   (SELECT count(DISTINCT n.staff_id) FROM public.hr_target_schedule_needs(:'today', 100000, 0) n WHERE n.reason = 'missing') = 1);
+-- 8 Oct 2026, round 9 (W2): a share of the ROWS is kept for the missing-day
+-- pass. With 8 rows asked for, 2 are kept: F8's 15 stale days alone would fill
+-- all 8, and no missing day would be listed.
+SELECT t.check('R9-W2 a small row limit (8): the stale days never fill it, the missing-day pass gets the rows kept for it (2)',
+  (SELECT count(*) FROM public.hr_target_schedule_needs(:'today', 8) n) <= 8
+  AND EXISTS (SELECT 1 FROM public.hr_target_schedule_needs(:'today', 8) n WHERE n.reason = 'holidays_changed')
+  AND (SELECT count(*) FROM public.hr_target_schedule_needs(:'today', 8) n WHERE n.reason = 'missing') >= 1,
+  (SELECT string_agg(reason || '=' || c, ' ') FROM (SELECT n.reason, count(*) AS c
+     FROM public.hr_target_schedule_needs(:'today', 8) n GROUP BY n.reason) x));
 INSERT INTO public.hr_target_scheduled_periods SELECT * FROM r8_gone;
 DROP TABLE r8_gone;
 

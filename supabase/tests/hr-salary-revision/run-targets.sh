@@ -21,7 +21,7 @@
 #      function hand-edited live stops it (the drift check); it re-applies;
 #   6. probe-schedule.sql (findings 1-6, the coverage wait, the record's rules),
 #      every line PASS, and one mutation control per finding;
-#   7. (rounds 7-8) probe-order.sql, probe-stale.sql and probe-settled-*.sql,
+#   7. (rounds 7-9) probe-order.sql, probe-stale.sql and probe-settled-*.sql,
 #      each after probe-schedule.sql on its own database, each with its controls.
 # Run: bash supabase/tests/hr-salary-revision/run-targets.sh   (PORT= to move it)
 # FINGERPRINTS=1 prints the drift check's fingerprints (main's and this file's)
@@ -202,8 +202,8 @@ echo "   total: $(grep -c '^PASS' "$WORK/sched.txt") PASS, $(grep -c '^FAIL' "$W
 # 8 Oct 2026, review round 7: the money review's probes (B1-B4), and round 8:
 # the round-3 reviews' probes (probe-settled-*.sql: one rule for calendar
 # order, U1-U4), each on its own database, after probe-schedule.sql.
-for pf in probe-order.sql probe-stale.sql probe-settled-stale.sql probe-settled-off.sql probe-settled-window.sql probe-settled-flag.sql probe-settled-cap.sql probe-settled-race.sql; do
-  echo "== PROBE (rounds 7-8: $pf, after probe-schedule.sql)"
+for pf in probe-order.sql probe-stale.sql probe-settled-stale.sql probe-settled-off.sql probe-settled-window.sql probe-settled-flag.sql probe-settled-cap.sql probe-settled-race.sql probe-settled-wait-off.sql probe-settled-wait-off-b.sql; do
+  echo "== PROBE (rounds 7-9: $pf, after probe-schedule.sql)"
   build "$MIG" targets || exit 1
   probe_after_sched "$pf" | tee "$WORK/$pf.txt" | sed 's/^/   /'
   echo "   total: $(grep -c '^PASS' "$WORK/$pf.txt") PASS, $(grep -c 'FAIL' "$WORK/$pf.txt") FAIL, $(grep -c 'ERROR' "$WORK/$pf.txt") ERROR"
@@ -780,4 +780,17 @@ mutate_file probe-settled-cap.sql "R7 U4: the per-call month cap" \
 mutate_file probe-settled-cap.sql "R8 U4: nothing at or after the month the cap left is acted on" \
   's/^            v_stop := v_m;  -- the cap$/            NULL;/' \
   'R8-U4b nothing at or after the month the cap left is acted on: M6, already counted, is not acted on'
+# 8 Oct 2026, review round 9 (the round-4 money review): one control per fix.
+mutate_file probe-settled-wait-off.sql "R9 W1: the window counts only its own months (lower bound)" \
+  's/ AND mo\.month >= v_p\.window_start AND mo\.month <= v_last$/ AND mo.month <= v_last/' \
+  'RV4-A2 the window must not go back to the Director while m8'
+mutate_file probe-settled-wait-off-b.sql "R9b W1: the natural window after an OFF wait" \
+  's/ AND mo\.month >= v_p\.window_start AND mo\.month <= v_last$/ AND mo.month <= v_last/' \
+  'RV4-B natural 6-month window'
+mutate_sched "R10 W2: rows kept back for the missing-day pass" \
+  's/^  v_keep := CASE WHEN v_left >= 2 THEN LEAST\(50, GREATEST\(1, v_left \/ 4\)\) ELSE 0 END;$/  v_keep := 0;/' \
+  'R9-W2 a small row limit (8)'
+mutate_file probe-settled-wait-off.sql "R11 W3: a final month's keys are not worked out" \
+  '/^        CONTINUE WHEN v_m < v_cur_m AND v_found$/{N;d;}' \
+  'R9-W3 finished months final by their status'
 echo "== mutation controls: $CAUGHT caught, $MISSED not caught"
