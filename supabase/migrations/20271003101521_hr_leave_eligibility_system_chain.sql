@@ -735,6 +735,8 @@ CREATE TRIGGER trg_hle_system_chain
 --    * A decision is recorded under the decider's own name: decided_by, the
 --      step's decided_by, and every decision entry the caller adds. Entries by
 --      other people stay exactly as they were.
+--    * A step with quorum 'all' moves the request on (next step or approved)
+--      only when everyone on it has approved, as isQuorumMet() in the app.
 -- ----------------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION public.hr_trig_leave_eligibility_guard_update()
 RETURNS trigger
@@ -752,6 +754,9 @@ DECLARE
   v_final  int;
   v_old    jsonb;
   v_new    jsonb;
+  v_by     text[];
+  v_pinned text[];
+  v_slots  int;
   c_decision_keys CONSTANT text[] := ARRAY['decisions', 'status', 'decided_at', 'decided_by', 'comment'];
   c_revoke_cols   CONSTANT text[] := ARRAY['status', 'revoked_by', 'revoked_at', 'revoke_reason', 'updated_at', 'updated_by'];
   c_adjust_cols   CONSTANT text[] := ARRAY['valid_from', 'valid_until', 'entitled_days', 'updated_at', 'updated_by'];
@@ -925,6 +930,33 @@ BEGIN
               AND NOT (CASE WHEN jsonb_typeof(v_old -> 'decisions') = 'array'
                             THEN v_old -> 'decisions' ELSE '[]'::jsonb END) @> jsonb_build_array(t.d)) THEN
       RAISE EXCEPTION 'A decision that moves a request is recorded in full under the name of the person making it.'
+        USING ERRCODE = '42501';
+    END IF;
+  END IF;
+
+  -- A step whose quorum is not 'any' (quorum 'all') moves the request on —
+  -- to the next step, or to approved — only when everyone on it has approved:
+  -- the same rule as isQuorumMet() in lib/hr/leave/approval-chain.ts, which
+  -- the app applies first (applyDecision). Every pinned person must have an
+  -- approve decision on the step, and every other (role) slot is covered by
+  -- one more distinct approver. Without this an approver writing the row
+  -- directly could clear an 'all' step alone (W12 review, 7 Oct 2026).
+  IF (NEW.current_step IS DISTINCT FROM OLD.current_step OR NEW.status = 'approved')
+     AND COALESCE(v_new ->> 'quorum', 'any') <> 'any' THEN
+    SELECT COALESCE(array_agg(DISTINCT lower(t.d ->> 'by')), ARRAY[]::text[]) INTO v_by
+    FROM jsonb_array_elements(CASE WHEN jsonb_typeof(v_new -> 'decisions') = 'array'
+                                   THEN v_new -> 'decisions' ELSE '[]'::jsonb END) AS t(d)
+    WHERE t.d ->> 'decision' = 'approved'
+      AND NULLIF(t.d ->> 'by', '') IS NOT NULL;
+    SELECT COALESCE(array_agg(lower(a.approver_user_id::text)) FILTER (WHERE a.approver_user_id IS NOT NULL), ARRAY[]::text[]),
+           count(*)::int
+      INTO v_pinned, v_slots
+    FROM public.fn_leave_step_approvers(v_new) AS a;
+    IF cardinality(v_by) = 0
+       OR NOT (v_pinned <@ v_by)
+       OR (SELECT count(*) FROM unnest(v_by) AS b(x) WHERE NOT (b.x = ANY (v_pinned)))
+            < v_slots - cardinality(v_pinned) THEN
+      RAISE EXCEPTION 'Everyone on this step must approve before the request moves on.'
         USING ERRCODE = '42501';
     END IF;
   END IF;

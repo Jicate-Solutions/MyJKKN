@@ -1714,3 +1714,110 @@ describe('review round 6 follow-ups', () => {
     expect(r.error).toMatch(/can only record a decision/);
   });
 });
+
+describe('quorum all is enforced in the database too (W12 review, 7 Oct 2026)', () => {
+  const ROW = id(991);
+  const QUORUM_MSG = 'Everyone on this step must approve before the request moves on.';
+  // One step naming two people, as a parallel flow builds it, then HR's final step.
+  const twoOf = (quorum: 'all' | 'any', decisions: unknown[] = []) => ({
+    step_order: 1, approver_role: 'hr_approver', approver_user_id: null, quorum,
+    approvers: [{ approver_role: null, approver_user_id: P_HOD }, { approver_role: null, approver_user_id: P_HRHEAD }],
+    decisions, status: 'pending',
+  });
+  const chainOf = (step0: unknown) => [step0, roleStep(2, 'hr_head', true)];
+  const finalOnly = (quorum: 'all' | 'any', decisions: unknown[] = []) => [{ ...twoOf(quorum, decisions), step_type: 'final' }];
+  /** The app's decide(): the caller's decision is ADDED next to the others. */
+  const addMine = (by: string, opts: { advance: boolean; grant?: boolean }) => `
+    UPDATE public.hr_leave_eligibilities SET
+      approval_chain = jsonb_set(approval_chain, ARRAY[current_step::text],
+        (approval_chain -> current_step) || jsonb_build_object(
+          'decisions', COALESCE(approval_chain -> current_step -> 'decisions', '[]'::jsonb)
+                       || jsonb_build_array(jsonb_build_object('by', '${by}', 'at', now()::text, 'decision', 'approved', 'comment', NULL)),
+          'decided_at', now()::text, 'decided_by', '${by}', 'comment', NULL)),
+      current_step = current_step + ${opts.advance ? 1 : 0},
+      status = '${opts.grant ? 'approved' : 'pending'}',
+      decided_by = '${by}', decided_at = now(), updated_at = now()
+    WHERE id = '${ROW}' RETURNING status, current_step`;
+  const hrheadApproved = { by: P_HRHEAD, at: '2026-10-07', decision: 'approved', comment: null };
+
+  it('one of two approvers cannot advance an all step alone', async () => {
+    const r = await tx([{ sql: legacy(ROW, S_ASKER, chainOf(twoOf('all'))) }, { who: HOD, sql: addMine(P_HOD, { advance: true }) }]);
+    expect(r.error).toBe(QUORUM_MSG);
+  });
+
+  it('…nor grant a final all step alone', async () => {
+    const r = await tx([{ sql: legacy(ROW, S_ASKER, finalOnly('all')) }, { who: HOD, sql: addMine(P_HOD, { advance: false, grant: true }) }]);
+    expect(r.error).toBe(QUORUM_MSG);
+  });
+
+  it('…nor does a super admin who is not on the step clear it alone', async () => {
+    const r = await tx([{ sql: legacy(ROW, S_ASKER, chainOf(twoOf('all'))) },
+      { who: { ...HR2, super: true }, sql: addMine(P_HR2, { advance: true }) }]);
+    expect(r.error).toBe(QUORUM_MSG);
+  });
+
+  it('recording one approval without moving the request is fine', async () => {
+    const r = await tx([{ sql: legacy(ROW, S_ASKER, chainOf(twoOf('all'))) }, { who: HOD, sql: addMine(P_HOD, { advance: false }) }]);
+    expect(r.error).toBeNull();
+    expect(r.rows[1]).toEqual([{ status: 'pending', current_step: 0 }]);
+  });
+
+  it('both approvers: the second one advances it, or grants a final step', async () => {
+    let r = await tx([
+      { sql: legacy(ROW, S_ASKER, chainOf(twoOf('all'))) },
+      { who: HRHEAD, sql: addMine(P_HRHEAD, { advance: false }) },
+      { who: HOD, sql: addMine(P_HOD, { advance: true }) },
+    ]);
+    expect(r.error).toBeNull();
+    expect(r.rows[2]).toEqual([{ status: 'pending', current_step: 1 }]);
+    r = await tx([
+      { sql: legacy(ROW, S_ASKER, finalOnly('all', [hrheadApproved])) },
+      { who: HOD, sql: addMine(P_HOD, { advance: false, grant: true }) },
+    ]);
+    expect(r.error).toBeNull();
+    expect(r.rows[1]).toEqual([{ status: 'approved', current_step: 0 }]);
+  });
+
+  it('a rejection by the other approver does not count towards all', async () => {
+    const r = await tx([
+      { sql: legacy(ROW, S_ASKER, chainOf(twoOf('all', [{ ...hrheadApproved, decision: 'rejected' }]))) },
+      { who: HOD, sql: addMine(P_HOD, { advance: true }) },
+    ]);
+    expect(r.error).toBe(QUORUM_MSG);
+  });
+
+  it('a role slot is covered by one more distinct approver', async () => {
+    const step0 = { ...twoOf('all'), approvers: [{ approver_role: null, approver_user_id: P_HOD }, { approver_role: 'hr_head', approver_user_id: null }] };
+    const alone = await tx([{ sql: legacy(ROW, S_ASKER, chainOf(step0)) }, { who: HOD, sql: addMine(P_HOD, { advance: true }) }]);
+    expect(alone.error).toBe(QUORUM_MSG);
+    const covered = await tx([
+      { sql: legacy(ROW, S_ASKER, chainOf({ ...step0, decisions: [hrheadApproved] })) },
+      { who: HOD, sql: addMine(P_HOD, { advance: true }) },
+    ]);
+    expect(covered.error).toBeNull();
+  });
+
+  it('one person approving twice covers one slot, not two', async () => {
+    const step0 = { ...twoOf('all'), approvers: [{ approver_role: 'hod', approver_user_id: null }, { approver_role: 'hod', approver_user_id: null }] };
+    const twice = `
+      UPDATE public.hr_leave_eligibilities SET
+        approval_chain = jsonb_set(approval_chain, '{0}', (approval_chain -> 0) || jsonb_build_object(
+          'decisions', jsonb_build_array(
+            jsonb_build_object('by', '${P_HOD}', 'at', now()::text, 'decision', 'approved', 'comment', NULL),
+            jsonb_build_object('by', '${P_HOD}', 'at', now()::text, 'decision', 'approved', 'comment', 'again')),
+          'decided_at', now()::text, 'decided_by', '${P_HOD}', 'comment', NULL)),
+        current_step = 1, decided_by = '${P_HOD}', decided_at = now(), updated_at = now()
+      WHERE id = '${ROW}' RETURNING status, current_step`;
+    const r = await tx([{ sql: legacy(ROW, S_ASKER, chainOf(step0)) }, { who: HOD, sql: twice }]);
+    expect(r.error).toBe(QUORUM_MSG);
+  });
+
+  it('any steps are unchanged: one approver advances or grants', async () => {
+    let r = await tx([{ sql: legacy(ROW, S_ASKER, chainOf(twoOf('any'))) }, { who: HOD, sql: addMine(P_HOD, { advance: true }) }]);
+    expect(r.error).toBeNull();
+    expect(r.rows[1]).toEqual([{ status: 'pending', current_step: 1 }]);
+    r = await tx([{ sql: legacy(ROW, S_ASKER, finalOnly('any')) }, { who: HOD, sql: addMine(P_HOD, { advance: false, grant: true }) }]);
+    expect(r.error).toBeNull();
+    expect(r.rows[1]).toEqual([{ status: 'approved', current_step: 0 }]);
+  });
+});
