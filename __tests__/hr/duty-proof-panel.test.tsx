@@ -137,3 +137,33 @@ describe('validateSecondCheck', () => {
     expect(validateSecondCheck({ result: 'corrected', correctedAmount: 10, note: 'Rate is wrong here' })).toBeNull();
   });
 });
+
+// Follow-up to the #4226 review (20271008110105).
+describe('review fixes — the panel and the badge', () => {
+  it('a note typed under "the amount is wrong" is not sent when the checker switches to "the amount is right"', () => {
+    render(<DutyProofPanel duty="L4" />);
+    fireEvent.click(within(rowFor('₹7,200')).getByRole('button', { name: /check amount/i }));
+    fireEvent.click(screen.getByLabelText('The amount is wrong'));
+    fireEvent.change(screen.getByLabelText('The right amount (₹)'), { target: { value: '6500' } });
+    fireEvent.change(screen.getByLabelText('What is wrong'), { target: { value: 'Rate should be the basic pay per day' } });
+    fireEvent.click(screen.getByLabelText('The amount is right'));
+    fireEvent.click(screen.getByRole('button', { name: 'Record check' }));
+    expect(mutateAsync).toHaveBeenCalledWith({
+      duty: 'L4', itemId: OTHER, result: 'confirmed', correctedAmount: null, note: null,
+    });
+  });
+
+  it('a check that went stale (the item is listed again) does not say "Checked by"', () => {
+    response = {
+      gaps: [{ item_id: OTHER, done_at: '2026-10-04T10:00:00Z', institution_id: 'i1', amount: 8000, caller_is_doer: false }],
+      proofs: [{
+        id: 'p1', duty_code: 'L4', item_id: OTHER, kind: 'second_check', storage_path: null, file_name: null,
+        recorded_by: 'u2', recorded_by_name: 'Arun Kumar', recorded_at: '2026-10-05T10:00:00Z',
+        check_result: 'confirmed', corrected_amount: null, check_note: null,
+      }],
+    };
+    render(<DutyProofBadge duty="L4" itemId={OTHER} />);
+    expect(screen.queryByText('Checked by Arun Kumar')).toBeNull();
+    expect(screen.getByText('Second check needed again')).toBeTruthy();
+  });
+});

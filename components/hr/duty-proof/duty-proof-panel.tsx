@@ -124,7 +124,9 @@ function SecondCheckDialog({ duty, gap, onClose }: { duty: DutyProofCode; gap: D
         itemId: gap.item_id,
         result,
         correctedAmount: result === 'corrected' ? Number(amount) : null,
-        note: note.trim() || null,
+        // The note box is shown only for a correction: a note typed there and
+        // then abandoned by switching to "right" is not sent.
+        note: result === 'corrected' ? note.trim() || null : null,
       });
       toast.success(result === 'confirmed' ? 'Amount confirmed' : 'Correction recorded; HR will fix the amount by hand');
       onClose();

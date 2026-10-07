@@ -12275,3 +12275,17 @@ CREATE INDEX IF NOT EXISTS idx_hr_intake_match_rules_job
 CREATE UNIQUE INDEX IF NOT EXISTS ux_hr_memos_triggered_by_event
   ON public.hr_memos (triggered_by_event_id)
   WHERE triggered_by_event_id IS NOT NULL;
+
+-- ============================================================================
+-- Updated: 2026-10-08 - HR duty proofs review fixes (follow-up to #4226)
+-- Source: supabase/migrations/20271008110105_hr_duty_proofs_review_fixes.sql
+-- hr_duty_proofs.checked_amount / decider_id: what a second check checked.
+-- ============================================================================
+ALTER TABLE public.hr_duty_proofs
+  ADD COLUMN IF NOT EXISTS checked_amount numeric,
+  ADD COLUMN IF NOT EXISTS decider_id     uuid;
+
+COMMENT ON COLUMN public.hr_duty_proofs.checked_amount IS
+  'Second check only (20271008110105): the item''s amount when it was checked. When the item''s amount differs now, the check is stale and the item needs a new check.';
+COMMENT ON COLUMN public.hr_duty_proofs.decider_id IS
+  'Second check only (20271008110105): who decided the item when it was checked (L4 approved_by, G6 completed_by). When that differs now, the check is stale.';
