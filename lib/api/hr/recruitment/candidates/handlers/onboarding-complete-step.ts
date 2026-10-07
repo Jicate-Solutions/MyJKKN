@@ -91,8 +91,10 @@ export async function POST(
 
     const isSuperAdmin = !!profile?.is_super_admin;
     const profileRole = (profile?.role as string | undefined) ?? '';
+    // Types only: PostgREST infers the embed as an array, but a many-to-one
+    // `!inner` embed returns one object at runtime.
     const userRoleKeys: string[] = Array.isArray(userRoles)
-      ? userRoles
+      ? (userRoles as unknown as Array<{ custom_roles?: { role_key?: string } | null }>)
           .map((r: { custom_roles?: { role_key?: string } | null }) => r?.custom_roles?.role_key)
           .filter((k): k is string => typeof k === 'string')
       : [];

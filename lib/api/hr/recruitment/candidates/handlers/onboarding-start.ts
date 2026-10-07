@@ -212,8 +212,10 @@ export async function POST(
         // Resolve the staff member's auth user ID from their email
         let staffUserId: string | undefined;
 
-        if (candidate.user_profile_id) {
-          staffUserId = candidate.user_profile_id as string;
+        // Types only: user_profile_id is not on HRRecruitmentCandidate.
+        const candidateProfileId = (candidate as { user_profile_id?: string | null }).user_profile_id;
+        if (candidateProfileId) {
+          staffUserId = candidateProfileId as string;
         } else if (candidate.email) {
           const { data: profile } = await serviceSupabase
             .from('profiles')
