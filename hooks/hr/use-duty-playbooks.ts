@@ -65,7 +65,7 @@ export function useDecidePlaybookProposal() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: ({ id, ...input }: PlaybookDecideInput & { id: string }) =>
-      call<{ id: string }>(`/api/hr/playbooks/${id}/decide`, { method: 'POST', body: JSON.stringify(input) }),
+      call<{ id: string }>('/api/hr/playbooks/decide', { method: 'POST', body: JSON.stringify({ id, ...input }) }),
     onSuccess: () => qc.invalidateQueries({ queryKey: KEY }),
   });
 }
@@ -74,7 +74,7 @@ export function useRetirePlaybookLine() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: ({ id, note }: { id: string; note: string }) =>
-      call<{ id: string }>(`/api/hr/playbooks/lines/${id}/retire`, { method: 'POST', body: JSON.stringify({ note }) }),
+      call<{ id: string }>('/api/hr/playbooks/lines/retire', { method: 'POST', body: JSON.stringify({ id, note }) }),
     onSuccess: () => qc.invalidateQueries({ queryKey: KEY }),
   });
 }

@@ -1,10 +1,12 @@
 export const dynamic = 'force-dynamic';
 
 /**
- * POST /api/hr/playbooks/[id]/decide — the HR head accepts or declines a
+ * POST /api/hr/playbooks/decide — the HR head accepts or declines a
  * proposed playbook line.
  *
- * Body: { decision: 'accept' | 'decline', edited_text?: string, note?: string }
+ * Body: { id, decision: 'accept' | 'decline', edited_text?: string, note?: string }
+ * The proposal id rides in the body, not an [id] segment: a static path costs
+ * nothing against the Vercel route budget (scripts/ci/check-route-budget.sh).
  *
  * fn_hr_playbook_decide enforces: the hr.harness.playbooks.manage key (or super
  * admin); the proposal must still be waiting; nobody decides their own
@@ -21,18 +23,18 @@ import { PlaybookError, playbookService } from '@/lib/services/hr/playbooks/play
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-export async function POST(req: NextRequest, context: { params: Promise<{ id: string }> }) {
+export async function POST(req: NextRequest) {
   try {
     const supabase = await createServerSupabaseClient();
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return NextResponse.json({ error: 'Please sign in.' }, { status: 401 });
 
-    const { id } = await context.params;
+    const body = (await req.json().catch(() => null)) as
+      | { id?: unknown; decision?: unknown; edited_text?: unknown; note?: unknown }
+      | null;
+    const id = typeof body?.id === 'string' ? body.id : '';
     if (!UUID.test(id)) return NextResponse.json({ error: 'Unknown proposal.' }, { status: 400 });
 
-    const body = (await req.json().catch(() => null)) as
-      | { decision?: unknown; edited_text?: unknown; note?: unknown }
-      | null;
     if (!body || (body.decision !== 'accept' && body.decision !== 'decline')) {
       return NextResponse.json({ error: "decision must be 'accept' or 'decline'." }, { status: 400 });
     }
