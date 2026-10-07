@@ -11549,3 +11549,14 @@ COMMENT ON TABLE public.hr_salary_revision_target_setting_log IS
   'signed in or not (changed_via: signed_in, server_key, console; changed_by NULL unless signed in). Append-only, '
   'written by the trg_audit_hr_salary_revision_target_rules triggers (insert, update incl. a rename away, delete). '
   'Migration 20271007180207.';
+
+
+
+-- ============================================================================
+-- Updated: 2026-10-03 - Leave eligibility: whose row it is, kept on the row.
+-- Mirror of supabase/migrations/20271003101521_hr_leave_eligibility_system_chain.sql (column)
+-- ============================================================================
+ALTER TABLE public.hr_leave_eligibilities ADD COLUMN IF NOT EXISTS subject_profile_id uuid;
+
+COMMENT ON COLUMN public.hr_leave_eligibilities.subject_profile_id IS
+  'Whose eligibility this is, fixed at insert (staff link, else the one account matching the staff email or institution email). Migration 20271003101521.';

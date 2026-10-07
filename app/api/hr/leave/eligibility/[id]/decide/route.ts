@@ -75,18 +75,12 @@ export async function POST(
         try {
           const serviceSupabase = createServiceRoleClient();
 
-          // created_by is set by the request route; a row HR granted directly
-          // has none and is never decided here, but the staff link is the
-          // safer answer than silently notifying nobody.
-          let applicantUserId: string | null = saved.created_by;
-          if (!applicantUserId) {
-            const { data: staffRow } = await serviceSupabase
-              .from('staff')
-              .select('profile_id')
-              .eq('id', saved.employee_id)
-              .maybeSingle();
-            applicantUserId = (staffRow as { profile_id?: string | null } | null)?.profile_id ?? null;
-          }
+          // The person the request is FOR, not whoever filed it: HR can file
+          // on someone's behalf, and created_by is then HR.
+          const applicantUserId = await LeaveEligibilityService.decidedNoticeRecipient(
+            serviceSupabase,
+            saved
+          );
           if (!applicantUserId) {
             console.warn('[hr/leave/eligibility/decide] no applicant user to notify', { id });
             return;
