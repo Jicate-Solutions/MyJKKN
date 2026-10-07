@@ -695,6 +695,6 @@ export const PLATFORM_OPS_ROUTINES: AIRoutine[] = [
     "configKnobs": "Thresholds are constants in lib/hr/recruitment/harness-selection.ts, except each approval step's own escalate_after_hours, which is frozen into the candidate's chain from the approval flow. Day/time editable at /admin/ai-routines.",
     "sideEffects": "SENDS in-app notifications (notifications + user_notifications, category 'staff', kind 'work_item'); writes one hr_recruitment_nudges_sent row per nudge, which is what makes every nudge fire only once.",
     "safeToManualTrigger": false,
-    "notes": "Rules-based, no LLM. Auth: Bearer or ?secret=. Idempotent: each nudge is claimed in hr_recruitment_nudges_sent (UNIQUE (kind, ref_key)) before sending and released if the send fails, so a re-run sends nothing twice. The step-ready notice (next approver told the moment a step is approved) is NOT this routine — it is sent by the approve route. Migration 20270522090000; IST slot 09:15 (minute_of_day 555, days {1..6})."
+    "notes": "Rules-based, no LLM. Auth: Bearer or ?secret=. Idempotent: each nudge is claimed in hr_recruitment_nudges_sent (UNIQUE (kind, ref_key)) before sending and released if the send fails, so a re-run sends nothing twice. The step-ready notice (next approver told the moment a step is approved) is NOT this routine — it is sent by the approve route. Migration 20270613101125; IST slot 09:15 (minute_of_day 555, days {1..6})."
   }
 ];

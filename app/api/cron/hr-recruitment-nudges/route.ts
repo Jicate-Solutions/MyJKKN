@@ -26,7 +26,7 @@
 //
 // Idempotent: every nudge is claimed in hr_recruitment_nudges_sent
 // (UNIQUE (kind, ref_key)) before it is sent, so a re-run or an overlapping
-// run sends nothing twice. Migration 20270522090000.
+// run sends nothing twice. Migration 20270613101125.
 // =====================================================================
 
 export const dynamic = 'force-dynamic';

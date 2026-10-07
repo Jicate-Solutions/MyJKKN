@@ -11256,7 +11256,7 @@ COMMENT ON TABLE public.hr_leave_type_deletions IS
 
 -- =====================================================================================
 -- Updated: 2026-10-01 - HR staff harness (R5/R6/R8): hr_recruitment_nudges_sent
--- Migration: 20270522090000_hr_recruitment_nudges.sql
+-- Migration: 20270613101125_hr_recruitment_nudges.sql
 -- One row per recruitment nudge ever due (approval reminder / escalation, missing
 -- scorecard, offer not issued, joining outcome missing). Claimed BEFORE the send;
 -- UNIQUE (kind, ref_key) makes every nudge fire once. Service role only.

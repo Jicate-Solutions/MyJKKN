@@ -2868,7 +2868,7 @@ CREATE TRIGGER trg_hlb_reject_unfunded
      OR NEW.entitled < OLD.entitled)
   EXECUTE FUNCTION public.hr_trig_reject_unfunded_after_balance_change();
 
--- Updated: 2026-10-01 - HR staff harness (migration 20270522090000_hr_recruitment_nudges.sql)
+-- Updated: 2026-10-01 - HR staff harness (migration 20270613101125_hr_recruitment_nudges.sql)
 DROP TRIGGER IF EXISTS hr_recruitment_nudges_sent_updated_at ON public.hr_recruitment_nudges_sent;
 CREATE TRIGGER hr_recruitment_nudges_sent_updated_at
   BEFORE UPDATE ON public.hr_recruitment_nudges_sent
