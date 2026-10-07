@@ -136,8 +136,16 @@ export function CandidatesFiltersPanel({
     if (!value.institution) return fromRows;
     const merged = new Map(collegeDepartments.map((o) => [o.value, o.label]));
     for (const o of fromRows) if (!merged.has(o.value)) merged.set(o.value, o.label);
+    // Candidate count per department, so a department nobody has applied to
+    // yet reads "Cardiac Technology (0)" rather than looking broken when picked.
+    const counts = new Map<string, number>();
+    for (const r of inCollege) {
+      const d = r.job?.department_id;
+      if (d) counts.set(d, (counts.get(d) ?? 0) + 1);
+    }
     return Array.from(merged, ([v, l]) => ({ value: v, label: l }))
-      .sort((a, b) => a.label.localeCompare(b.label));
+      .sort((a, b) => a.label.localeCompare(b.label))
+      .map((o) => ({ ...o, label: `${o.label} (${counts.get(o.value) ?? 0})` }));
   }, [inCollege, value.institution, collegeDepartments]);
   const jobOptions = useMemo(
     () => distinct(inCollege, (r) => r.job?.id, (r) =>
