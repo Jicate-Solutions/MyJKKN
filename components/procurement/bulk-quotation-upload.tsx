@@ -18,13 +18,14 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Upload, X, Loader2, Plus, MoreHorizontal } from 'lucide-react';
+import { Upload, X, Loader2, Plus, MoreHorizontal, AlertTriangle } from 'lucide-react';
 import { toast } from 'sonner';
 import { useAuth } from '@/hooks/use-auth';
 import { useVendorsForSelect } from '@/hooks/procurement/use-rfqs';
 import { useCreateQuotation, useCreateVendor } from '@/hooks/procurement/use-quotations';
 import { ProcurementQuotationService } from '@/lib/services/procurement/quotation-service';
 import { readQuotationPdf, type ExtractResult } from '@/lib/procurement/read-quotation-pdf';
+import { checkQuotationMath } from '@/lib/procurement/quotation-math';
 import { matchVendor, normalizeGstin } from '@/lib/procurement/vendor-match';
 import { namesShareAWord } from '@/lib/procurement/item-name-match';
 import { comparePacks, isMeasuredUnit, parsePack, qtyWithPack, requestedPack, type PackCheck } from '@/lib/procurement/pack-size';
@@ -88,6 +89,8 @@ interface Row {
   warranty: string;
   lines: ReadLine[];
   choices: Record<string, Choice | undefined>;
+  /** Where the reading disagrees with the quotation's own printed numbers. */
+  readIssues: string[];
 }
 
 type RfqItem = RfqWithDetails['items'][number];
@@ -248,6 +251,7 @@ export function BulkQuotationUpload({
       deliveryDays: result.delivery_days ? String(result.delivery_days) : '',
       paymentTerms: result.payment_terms ?? '',
       warranty: result.warranty ?? '',
+      readIssues: [...(result.read_notes ?? []), ...checkQuotationMath(result).issues],
     });
   };
 
@@ -270,6 +274,7 @@ export function BulkQuotationUpload({
       warranty: '',
       lines: [],
       choices: {},
+      readIssues: [],
     }));
     setRows((prev) => [...prev, ...fresh]);
     setSelectedKey((k) => k ?? fresh[0].key);
@@ -717,6 +722,19 @@ export function BulkQuotationUpload({
                   </div>
                 ) : (
                   <>
+                    {selected.readIssues.length > 0 && (
+                      <div className="mx-5 mt-4 flex items-start gap-2 rounded-xl bg-secondary/20 px-3 py-2 text-sm">
+                        <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
+                        <div>
+                          <p className="font-medium">The reading does not match this quotation&apos;s own numbers</p>
+                          <ul className="list-disc pl-4 text-xs text-muted-foreground">
+                            {selected.readIssues.map((m) => (
+                              <li key={m}>{m}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      </div>
+                    )}
                     {many && (
                       <div className="px-5 pt-4">
                         <p className="font-semibold">{vendorName(selected)}</p>
