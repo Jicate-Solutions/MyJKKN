@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { RefreshCw } from 'lucide-react';
+import { Activity, AlertTriangle, CalendarClock, Clock, Hand, Inbox, RefreshCw, RotateCcw, Zap, type LucideIcon } from 'lucide-react';
 import { PageBreadcrumb } from '@/components/navigation';
 import { PageHeader } from '@/components/page-header';
 import { AccessGate } from '@/components/instasolver/access-gate';
@@ -16,20 +16,25 @@ import { PRIORITY_META, PRIORITY_VALUES } from '@/lib/instasolver/constants';
 import { cn } from '@/lib/utils';
 import type { Priority, Workload } from '@/types/instasolver';
 import { MembersTable, TeamsTable } from './workload-tables';
+import { StatCard, type Accent } from '@/components/instasolver/stat-card';
 
 const OPEN_DAY_OPTIONS = [3, 7, 30];
 
 type SummaryKey = keyof Workload['summary'];
 
-const SUMMARY_CARDS: { key: SummaryKey; label: string; hint: string; tone?: 'danger' | 'warning' }[] = [
-  { key: 'active', label: 'Active', hint: 'Assigned or in progress' },
-  { key: 'awaiting_triage', label: 'Awaiting triage', hint: 'Waiting for a decision', tone: 'warning' },
-  { key: 'unclaimed', label: 'Unclaimed', hint: 'With a team, nobody has picked up', tone: 'warning' },
-  { key: 'critical', label: 'Critical', hint: 'Reported as critical', tone: 'danger' },
-  { key: 'urgent', label: 'Urgent', hint: 'Prioritised as urgent', tone: 'danger' },
-  { key: 'ageing_7d', label: 'Open 7+ days', hint: 'Open for a week or more', tone: 'warning' },
-  { key: 'ageing_30d', label: 'Open 30+ days', hint: 'Open for a month or more', tone: 'warning' },
-  { key: 'reopened', label: 'Reopened', hint: 'Came back after completion', tone: 'warning' }
+// The 8 figure cards — the dashboard card style in Workload's own colours.
+// `list` is the issue list the card opens (the open-work statuses, narrowed);
+// a card with no exact list keeps the dashboard's hover lift without a link.
+const ACTIVE = 'status=assigned,in_progress';
+const SUMMARY_CARDS: { key: SummaryKey; label: string; hint: string; accent: Accent; icon: LucideIcon; list?: string }[] = [
+  { key: 'active', label: 'Active', hint: 'Assigned or in progress', accent: 'teal', icon: Activity, list: ACTIVE },
+  { key: 'awaiting_triage', label: 'Awaiting triage', hint: 'Waiting for a decision', accent: 'orange', icon: Inbox, list: 'status=pending' },
+  { key: 'unclaimed', label: 'Unclaimed', hint: 'With a team, nobody has picked up', accent: 'cyan', icon: Hand },
+  { key: 'critical', label: 'Critical', hint: 'Reported as critical', accent: 'rose', icon: AlertTriangle, list: `severity=critical&${ACTIVE}` },
+  { key: 'urgent', label: 'Urgent', hint: 'Prioritised as urgent', accent: 'fuchsia', icon: Zap, list: `priority=urgent&${ACTIVE}` },
+  { key: 'ageing_7d', label: 'Open 7+ days', hint: 'Open for a week or more', accent: 'purple', icon: Clock },
+  { key: 'ageing_30d', label: 'Open 30+ days', hint: 'Open for a month or more', accent: 'pink', icon: CalendarClock },
+  { key: 'reopened', label: 'Reopened', hint: 'Came back after completion', accent: 'lime', icon: RotateCcw }
 ];
 
 export function WorkloadClient() {
@@ -151,26 +156,22 @@ function WorkloadDesk() {
       ) : (
         <>
           <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-            {SUMMARY_CARDS.map((c) => {
-              const value = data.summary[c.key];
-              return (
-                <Card key={c.key}>
-                  <CardContent className="p-4">
-                    <p className="text-xs text-muted-foreground">{c.label}</p>
-                    <p
-                      className={cn(
-                        'text-2xl font-semibold tabular-nums',
-                        value > 0 && c.tone === 'danger' && 'text-red-700 dark:text-red-300',
-                        value > 0 && c.tone === 'warning' && 'text-amber-700 dark:text-amber-300'
-                      )}
-                    >
-                      {value}
-                    </p>
-                    <p className="mt-0.5 text-[11px] text-muted-foreground">{c.hint}</p>
-                  </CardContent>
-                </Card>
-              );
-            })}
+            {SUMMARY_CARDS.map((c) => (
+              <StatCard
+                key={c.key}
+                label={c.label}
+                value={data.summary[c.key]}
+                hint={c.hint}
+                icon={c.icon}
+                accent={c.accent}
+                href={
+                  c.list
+                    ? `/instasolver/issues?${c.list}${institutionId === 'all' ? '' : `&institution=${institutionId}`}`
+                    : undefined
+                }
+                interactive
+              />
+            ))}
           </div>
 
           <section className="space-y-2">

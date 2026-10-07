@@ -45,6 +45,7 @@ function booking(over: Record<string, unknown> = {}) {
     id: 'b1',
     uid: 'uid1',
     status: 'completed',
+    outcome_marked_by: 'host',
     start_time: PAST_START,
     end_time: PAST_END,
     attendee_name: 'Kavya R',
@@ -136,6 +137,14 @@ describe('loadMeetingRecord — where the people come from', () => {
     expect(noteRead?.select).not.toMatch(/raw|transcript_url|recording_url|audio_url|video_url/);
   });
 
+  it('reads who closed the meeting, so the PDF can tell a notes-closed meeting from a held one', async () => {
+    const { client, calls } = fakeClient(tables({ meeting_bookings: { data: booking({ outcome_marked_by: 'notes' }), error: null } }));
+    const record = await loadMeetingRecord(client, 'uid1');
+    expect(record?.outcomeMarkedBy).toBe('notes');
+    const bookingRead = calls.find((c) => c.table === 'meeting_bookings');
+    expect(bookingRead?.select.split(',').map((c) => c.trim())).toContain('outcome_marked_by');
+  });
+
   it('does not read participants when there is no note', async () => {
     const { client, calls } = fakeClient(tables({ meeting_notes: { data: null, error: null } }));
     const record = await loadMeetingRecord(client, 'uid1');
@@ -162,6 +171,7 @@ describe('loadMeetingRecord — where the people come from', () => {
 describe('isMeetingRecordReady — the button rule, repeated', () => {
   const base = {
     uid: 'u',
+    outcomeMarkedBy: null,
     meetingTypeTitle: null,
     attendeeName: null,
     attendeeEmail: null,
@@ -279,5 +289,24 @@ describe('GET /api/meetings/record/{uid}', () => {
     expect(doc).not.toContain('@');
     expect(doc).not.toContain('<a ');
     expect(opts).toEqual({ footerText: 'MyJKKN meeting record - booking uid1' });
+  });
+
+  it('200 for a notes-closed meeting says it closed automatically, never "Held"', async () => {
+    server.client = fakeClient(
+      tables({ meeting_bookings: { data: booking({ status: 'completed', outcome_marked_by: 'notes' }), error: null } }),
+    ).client;
+    const res = await get();
+    expect(res.status).toBe(200);
+    const doc = (render.mock.calls[0][0] as string).replace(/<style>[\s\S]*?<\/style>/, '');
+    expect(doc).toContain('Closed automatically — notes linked');
+    expect(doc).not.toMatch(/Held/);
+  });
+
+  it('200 for a meeting its host marked as happened still says "Held"', async () => {
+    server.client = fakeClient(tables()).client;
+    const res = await get();
+    expect(res.status).toBe(200);
+    const doc = (render.mock.calls[0][0] as string).replace(/<style>[\s\S]*?<\/style>/, '');
+    expect(doc).toContain('· Held</p>');
   });
 });
