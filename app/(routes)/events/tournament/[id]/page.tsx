@@ -354,8 +354,9 @@ export default function TournamentManagePage() {
   // which nobody enters. Only divisions in use — an active entry or a fixture —
   // are shown; organisers can reveal the empty ones (e.g. to add a spot entry).
   const [showEmptyDivisions, setShowEmptyDivisions] = useState(false);
+  // Active = registered / confirmed: what the draw and the match pickers use.
   const activeEntryCount = (divisionId: string) =>
-    (entriesByDivision.get(divisionId) ?? []).filter((e) => e.status !== 'withdrawn').length;
+    (entriesByDivision.get(divisionId) ?? []).filter((e) => e.status === 'registered' || e.status === 'confirmed').length;
   const divisionsInUse = useMemo(
     () => divisions.filter((d) => activeEntryCount(d.id) > 0 || (matchesByDivision.get(d.id)?.length ?? 0) > 0),
     // eslint-disable-next-line react-hooks/exhaustive-deps

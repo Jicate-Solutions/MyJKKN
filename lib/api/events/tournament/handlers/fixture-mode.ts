@@ -1,10 +1,10 @@
 // POST /api/events/tournament/[eventId]/fixture-mode
 // Switch a division between auto-generated and manual fixtures
 // (fn_tournament_set_fixture_mode, migration 20271007170000).
-//   { division_id, mode: 'manual' }  — refused once any result is recorded;
-//                                      the drawn matches stay, unlinked.
+//   { division_id, mode: 'manual' }  — the drawn round-1 matches stay, unlinked.
 //   { division_id, mode: 'auto' }    — clears manual mode and regenerates the
-//                                      bracket (deletes this division's matches).
+//                                      bracket in the same transaction.
+// Both are refused once any result is recorded in the division.
 // Called with the user's SESSION client so the RPCs' own permission guards run.
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -49,24 +49,14 @@ export async function POST(
       .maybeSingle();
     if (!division) return NextResponse.json({ error: 'Division not found for this tournament' }, { status: 404 });
 
-    const { error } = await (auth as any).rpc('fn_tournament_set_fixture_mode', {
+    // 'auto' regenerates inside the same transaction, so a draw that fails
+    // (e.g. fewer than 2 entries) leaves the division in manual mode.
+    const { data, error } = await (auth as any).rpc('fn_tournament_set_fixture_mode', {
       p_division_id: dto.division_id,
       p_mode: dto.mode,
     });
     if (error) return NextResponse.json({ error: error.message }, { status: 422 });
-
-    if (dto.mode === 'auto') {
-      const { data: created, error: genErr } = await auth.rpc('fn_generate_fixtures', {
-        p_division_id: dto.division_id,
-        p_regenerate: true,
-      });
-      if (genErr) {
-        // The mode is already auto; say why the draw itself failed (e.g. < 2 entries).
-        return NextResponse.json({ error: genErr.message, mode: 'auto' }, { status: 422 });
-      }
-      return NextResponse.json({ mode: 'auto', matches_created: created ?? 0 });
-    }
-    return NextResponse.json({ mode: 'manual' });
+    return NextResponse.json(data ?? { mode: dto.mode });
   } catch (err) {
     return NextResponse.json(
       { error: err instanceof Error ? err.message : 'Failed to change the fixture mode' },

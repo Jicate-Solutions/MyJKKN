@@ -466,7 +466,14 @@ export function DivisionFixtures({
             </Button>
           )}
           {canManage && isManual && (
-            <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => setModeTo('auto')}>
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-7 text-xs"
+              disabled={hasResult}
+              onClick={() => setModeTo('auto')}
+              title={hasResult ? 'Results are already recorded in this division' : 'Delete these matches and draw a bracket'}
+            >
               <GitBranch className="mr-1 h-3 w-3" /> Auto-generate instead
             </Button>
           )}

@@ -226,9 +226,9 @@ export function FixtureModeDialog({
           <DialogDescription>
             {to === 'manual'
               ? matchCount > 0
-                ? 'You will add, edit and delete every match yourself. The current round-1 pairings stay as a starting point; the empty later-round slots are removed, and winners no longer move on automatically.'
+                ? 'You will add, edit and delete every match yourself. The current round-1 pairings stay as a starting point; the later-round slots waiting for winners are removed, and winners no longer move on automatically.'
                 : 'You will add every match yourself, round by round.'
-              : `This deletes all ${matchCount} match${matchCount === 1 ? '' : 'es'} in this division, including any results, and draws a new bracket.`}
+              : `This deletes all ${matchCount} match${matchCount === 1 ? '' : 'es'} in this division and draws a new bracket.`}
           </DialogDescription>
         </DialogHeader>
         <DialogFooter>

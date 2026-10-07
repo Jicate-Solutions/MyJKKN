@@ -117,7 +117,12 @@ export function useSaveManualMatch(eventId: string) {
       qc.invalidateQueries({ queryKey: KEYS.matches(eventId) });
       toast.success(v.matchId ? 'Match updated' : 'Match added');
     },
-    onError: (e: Error) => toast.error(e.message || 'Failed to save the match'),
+    onError: (e: Error) => {
+      // A stale-side refusal means the list on screen is old: refresh it so the
+      // next try starts from what is really there.
+      qc.invalidateQueries({ queryKey: KEYS.matches(eventId) });
+      toast.error(e.message || 'Failed to save the match');
+    },
   });
 }
 
@@ -135,7 +140,10 @@ export function useDeleteManualMatch(eventId: string) {
       qc.invalidateQueries({ queryKey: KEYS.matches(eventId) });
       toast.success('Match deleted');
     },
-    onError: (e: Error) => toast.error(e.message || 'Failed to delete the match'),
+    onError: (e: Error) => {
+      qc.invalidateQueries({ queryKey: KEYS.matches(eventId) });
+      toast.error(e.message || 'Failed to delete the match');
+    },
   });
 }
 
