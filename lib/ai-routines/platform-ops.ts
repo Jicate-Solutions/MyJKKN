@@ -715,6 +715,22 @@ export const PLATFORM_OPS_ROUTINES: AIRoutine[] = [
     "notes": "Idempotent per ISO week (IST calendar): notifications.idempotency_key walkin-claims-weekly-note:<week>:<user>, and the email is gated on that row being new, so a re-run in the same week sends nothing. Auth: CRON_SECRET, Bearer ONLY (constant-time). Migration 20270610100000."
   },
   {
+    "id": "hr-duty-chase",
+    "name": "HR harness — duty chase ladder + weekly late lists",
+    "category": "platform-ops",
+    "type": "cron",
+    "schedule": "Daily · 10:15 IST (editable via dispatcher)",
+    "triggerPath": "/api/cron/hr-duty-chase",
+    "callsClaude": false,
+    "featureKey": null,
+    "featureKeyNote": "Rules-based ladder over HR queues (lib/services/hr/duty-harness); no model involved.",
+    "whatItDoes": "Walks the chase ladder for every enabled HR duty in hr_duty_definitions: a due item nudges its owner in-app, two working days late its owner's supervisor, four working days late it joins the HR head's weekly late list; on the digest weekday the Director gets one digest of late items per desk (never per person). Nobody on approved leave, no night run, no holiday; a 'blocked, because…' mark parks the item and moves it up one step. SHIPS SWITCHED OFF — until the Director flips platform_policies 'hr.harness.chase.enabled' every run is a recorded preview that sends nothing.",
+    "configKnobs": "platform_policies hr.harness.chase.enabled (master switch, default false), hr.harness.chase.max_messages_per_run (volume fuse, default 50), max_owners_per_item (5), working_hours (09:00-18:00 IST), weekly_off_days ([0] = Sunday), digest_weekday (1 = Monday), hr_head_role_keys (['hr_head']). Per duty: due rule, ladder rungs and enabled flag in hr_duty_definitions. Day/time editable at /admin/ai-routines.",
+    "sideEffects": "Switched off: one hr_duty_chase_runs row per run, nothing else. Switched on: hr_duty_chase_ledger rows (one per item per rung reached), in-app notifications to owners/supervisors, and once a week the HR head list and the Director digest. A run over the fuse sends nothing and alerts the Director alone.",
+    "safeToManualTrigger": false,
+    "notes": "Migration 20270613101207. Idempotent per rung (ledger UNIQUE + notification idempotency key) and per ISO week for the weekly lists, but it messages people once switched on, so manual runs are marked unsafe. Auth: CRON_SECRET Bearer only. Slot 10:15 IST (minute_of_day 615), every day; the route itself skips weekly-off days and runs outside working hours."
+  },
+  {
     "id": "hr-recruitment-nudges",
     "name": "HR recruitment nudges — approvals, scorecards, offers",
     "category": "platform-ops",
