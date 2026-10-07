@@ -109,7 +109,10 @@ export function readHarnessPolicies(raw: Record<string, unknown>): HarnessPolici
   const offDays = arr(raw[HARNESS_POLICY_KEYS.weeklyOffDays]).filter(
     (d): d is number => Number.isInteger(d) && (d as number) >= 0 && (d as number) <= 6
   );
-  const weekday = Number(raw[HARNESS_POLICY_KEYS.digestWeekday]);
+  // null and '' would coerce to 0 (Sunday, the weekly off) and the lists would
+  // never go out; only a real value counts.
+  const rawWeekday = raw[HARNESS_POLICY_KEYS.digestWeekday];
+  const weekday = rawWeekday === null || rawWeekday === '' ? NaN : Number(rawWeekday);
   const roleKeys = arr(raw[HARNESS_POLICY_KEYS.hrHeadRoleKeys]).filter(
     (k): k is string => typeof k === 'string' && k.trim() !== ''
   );
@@ -183,15 +186,46 @@ export interface ChaseRunRecord {
   errors: string[];
 }
 
+/**
+ * Rows one source adapter loads per run (oldest first). When a source hits
+ * it, the run cannot tell "left the queue" from "beyond the cap", so it does
+ * not close any ledger rows for that duty that run.
+ */
+export const SOURCE_LOAD_LIMIT = 500;
+
+/**
+ * How long a run may work before it stops starting new work. The route's
+ * maxDuration and the dispatcher's wait are both 120 s; the rest is left for
+ * the run record to be written. Rungs left over go out on the next run.
+ */
+export const RUN_BUDGET_MS = 100_000;
+
+/** An HR head and where they can see: every college, or their own. */
+export interface HrHeadHolder {
+  userId: string;
+  scopeAll: boolean;
+  institutionId: string | null;
+}
+
 export interface ChaseDeps {
   now: () => Date;
   loadPolicies(): Promise<Record<string, unknown>>;
   loadDefinitions(): Promise<DutyDefinition[]>;
-  /** null = this build has no source adapter for the duty. */
-  collectItems(def: DutyDefinition): Promise<WaitingItem[] | null>;
+  /**
+   * null = this build has no source adapter for the duty. `truncated` = the
+   * source returned SOURCE_LOAD_LIMIT rows, so more may be waiting.
+   */
+  collectItems(def: DutyDefinition): Promise<{ items: WaitingItem[]; truncated: boolean } | null>;
   loadHolidayKeys(institutionIds: string[], fromISO: string, toISO: string): Promise<Set<string>>;
   /** item key -> rung keys already reached (ledger). */
   loadReachedRungs(items: WaitingItem[]): Promise<Map<string, Set<string>>>;
+  /**
+   * item key -> (rung key -> ledger id) for rungs that were claimed with
+   * recipients but whose send never finished (no notification id): the send
+   * threw, or the run was stopped between the claim and the send. The run
+   * sends these again; the notification's idempotency key stops a double send.
+   */
+  loadUnsentRungs(items: WaitingItem[]): Promise<Map<string, Map<string, string>>>;
   /** item key -> the active blocked mark. */
   loadBlockedMarks(items: WaitingItem[]): Promise<Map<string, BlockedMark>>;
   resolveOwners(def: DutyDefinition, item: WaitingItem): Promise<string[]>;
@@ -199,7 +233,7 @@ export interface ChaseDeps {
   resolveSupervisors(profileIds: string[]): Promise<Map<string, string[]>>;
   /** profile ids on approved leave covering `todayISO`. Throws on error. */
   loadOnLeave(profileIds: string[], todayISO: string): Promise<Set<string>>;
-  resolveHrHeads(roleKeys: string[]): Promise<string[]>;
+  resolveHrHeads(roleKeys: string[]): Promise<HrHeadHolder[]>;
   resolveDirectors(): Promise<string[]>;
   loadInstitutionNames(ids: string[]): Promise<Map<string, string>>;
   weeklyListsAlreadySent(isoWeek: string): Promise<boolean>;
@@ -234,6 +268,8 @@ interface PlannedRung {
   item: WaitingItem;
   claim: LedgerClaim;
   message: OutgoingMessage | null;
+  /** Set when this rung was claimed by an earlier run but never sent. */
+  resumeLedgerId: string | null;
 }
 
 export interface ChaseRunResult extends ChaseRunRecord {
@@ -290,8 +326,13 @@ function messageFor(
  * One run. Never throws: every failure is recorded on the run row and in the
  * returned result, so the dispatcher's last_status and the run log agree.
  */
-export async function runHrDutyChase(deps: ChaseDeps): Promise<ChaseRunResult> {
+export async function runHrDutyChase(
+  deps: ChaseDeps,
+  opts: { budgetMs?: number } = {}
+): Promise<ChaseRunResult> {
   const now = deps.now();
+  const budgetMs = opts.budgetMs ?? RUN_BUDGET_MS;
+  const outOfTime = () => deps.now().getTime() - now.getTime() > budgetMs;
   const todayISO = istDate(now);
   const isoWeek = isoWeekLabel(todayISO);
   const errors: string[] = [];
@@ -348,7 +389,7 @@ export async function runHrDutyChase(deps: ChaseDeps): Promise<ChaseRunResult> {
   try {
     // 2. Duties and their waiting items.
     const defs = (await deps.loadDefinitions()).filter((d) => d.enabled);
-    const byDuty = new Map<string, { def: DutyDefinition; items: WaitingItem[] }>();
+    const byDuty = new Map<string, { def: DutyDefinition; items: WaitingItem[]; truncated: boolean }>();
     const perDuty: Record<string, Record<string, number>> = {};
     for (const def of defs) {
       perDuty[def.code] = { waiting: 0, due: 0, planned: 0, skipped_holiday: 0 };
@@ -357,12 +398,14 @@ export async function runHrDutyChase(deps: ChaseDeps): Promise<ChaseRunResult> {
         continue;
       }
       try {
-        const items = await deps.collectItems(def);
-        if (items === null) {
+        const collected = await deps.collectItems(def);
+        if (collected === null) {
           perDuty[def.code].no_source_adapter = 1;
           continue;
         }
-        byDuty.set(def.code, { def, items });
+        const { items, truncated } = collected;
+        byDuty.set(def.code, { def, items, truncated });
+        if (truncated) perDuty[def.code].truncated = 1;
         perDuty[def.code].waiting = items.length;
         result.itemsSeen += items.length;
       } catch (e: any) {
@@ -380,8 +423,9 @@ export async function runHrDutyChase(deps: ChaseDeps): Promise<ChaseRunResult> {
     );
     const cal: HarnessCalendar = { weeklyOffDays: policies.weeklyOffDays, holidayKeys };
 
-    const [reached, blockedMarks] = await Promise.all([
+    const [reached, unsent, blockedMarks] = await Promise.all([
       deps.loadReachedRungs(allItems),
+      deps.loadUnsentRungs(allItems),
       deps.loadBlockedMarks(allItems)
     ]);
 
@@ -431,6 +475,11 @@ export async function runHrDutyChase(deps: ChaseDeps): Promise<ChaseRunResult> {
     }
 
     for (const c of candidates) {
+      if (outOfTime()) {
+        throw new Error(
+          `ran out of time working out owners (${budgetMs / 1000}s); nothing was claimed or sent this run`
+        );
+      }
       const owners = (await deps.resolveOwners(c.def, c.item)).filter(
         (id) => id && id !== c.item.subjectProfileId
       );
@@ -487,10 +536,24 @@ export async function runHrDutyChase(deps: ChaseDeps): Promise<ChaseRunResult> {
         continue;
       }
 
-      // Send only when the item stands on a rung it has not reached before.
-      const already = reached.get(itemKey(c.item)) ?? new Set<string>();
+      // A supervisor away on leave today is a passing reason: claiming the
+      // rung now would mean they are never told once they are back. Leave it
+      // unclaimed (the item is on the HR head's list today) and try again.
+      if (rung.audience !== 'hr_head' && who.reroute === 'supervisor_on_leave') {
+        perDuty[c.def.code].waiting_on_supervisor_return =
+          (perDuty[c.def.code].waiting_on_supervisor_return ?? 0) + 1;
+        continue;
+      }
+
+      // Send only when the item stands on a rung it has not reached before —
+      // or on a rung an earlier run claimed but never managed to send.
+      const unsentHere = unsent.get(itemKey(c.item)) ?? new Map<string, string>();
+      const already = new Set(
+        [...(reached.get(itemKey(c.item)) ?? new Set<string>())].filter((k) => !unsentHere.has(k))
+      );
       const alreadyIdx = Math.max(-1, ...[...already].map((k) => rungs.findIndex((r) => r.key === k)));
       if (c.rungIdx <= alreadyIdx) continue;
+      const resumeLedgerId = unsentHere.get(rung.key) ?? null;
 
       const claim: LedgerClaim = {
         dutyCode: c.def.code,
@@ -510,7 +573,7 @@ export async function runHrDutyChase(deps: ChaseDeps): Promise<ChaseRunResult> {
       };
       const message =
         who.recipientIds.length > 0 ? messageFor(c.def, c.item, claim, c.blocked?.reason ?? null) : null;
-      planned.push({ def: c.def, item: c.item, claim, message });
+      planned.push({ def: c.def, item: c.item, claim, message, resumeLedgerId });
       perDuty[c.def.code].planned += who.recipientIds.length;
     }
     detail.reroutes = reroutes;
@@ -530,26 +593,53 @@ export async function runHrDutyChase(deps: ChaseDeps): Promise<ChaseRunResult> {
       ]);
       const hrHeadList = buildHrHeadList(standings);
       const digest = buildDirectorDigest(standings);
-      const hrHeadsAway = await deps.loadOnLeave(hrHeads, todayISO);
-      const hrHeadsPresent = hrHeads.filter((id) => !hrHeadsAway.has(id));
+      // One holder may hold the role twice; any 'all' grant means every college.
+      const reachOf = new Map<string, HrHeadHolder>();
+      for (const h of hrHeads) {
+        const prev = reachOf.get(h.userId);
+        reachOf.set(h.userId, prev ? { ...prev, scopeAll: prev.scopeAll || h.scopeAll } : h);
+      }
+      const hrHeadsAway = await deps.loadOnLeave([...reachOf.keys()], todayISO);
+      const hrHeadsPresent = [...reachOf.values()].filter((h) => !hrHeadsAway.has(h.userId));
+      // An HR head sees only their own college's people, unless their role
+      // reaches every college. An item with no college goes to the latter only.
+      // One list per reach, so a list never carries another college's names.
+      const groups = new Map<string, string[]>();
+      for (const h of hrHeadsPresent) {
+        const reach = h.scopeAll ? '*' : h.institutionId;
+        if (!reach) continue;
+        groups.set(reach, [...(groups.get(reach) ?? []), h.userId]);
+      }
+      const reachedItems = new Set<number>();
+      for (const [reach, ids] of [...groups.entries()].sort(([a], [b]) => a.localeCompare(b))) {
+        const mine = standings
+          .map((s, i) => ({ s, i }))
+          .filter(({ s }) => reach === '*' || s.institutionId === reach);
+        const list = buildHrHeadList(mine.map(({ s }) => s));
+        if (list.length === 0) continue;
+        for (const { s, i } of mine) if (s.audience === 'hr_head') reachedItems.add(i);
+        weeklyMessages.push({
+          recipientIds: [...new Set(ids)].sort(),
+          title: `HR late list — week ${isoWeek}`,
+          body: renderHrHeadList(list),
+          url: '/hr',
+          idempotencyKey: `hr-duty:hr-head-list:${isoWeek}:${reach === '*' ? 'all' : reach}`,
+          category: 'hr:duty-chase-weekly',
+          metadata: { iso_week: isoWeek, items: list.length, source: 'cron:hr-duty-chase' }
+        });
+      }
+      const unreached = hrHeadList.length - reachedItems.size;
       detail.weekly = {
         hr_head_list_items: hrHeadList.length,
         hr_head_recipients: hrHeadsPresent.length,
+        hr_head_lists: weeklyMessages.length,
         digest_desks: digest.length,
         director_recipients: directors.length
       };
-      if (hrHeadsPresent.length > 0 && hrHeadList.length > 0) {
-        weeklyMessages.push({
-          recipientIds: hrHeadsPresent,
-          title: `HR late list — week ${isoWeek}`,
-          body: renderHrHeadList(hrHeadList),
-          url: '/hr',
-          idempotencyKey: `hr-duty:hr-head-list:${isoWeek}`,
-          category: 'hr:duty-chase-weekly',
-          metadata: { iso_week: isoWeek, items: hrHeadList.length, source: 'cron:hr-duty-chase' }
-        });
-      } else if (hrHeadList.length > 0) {
-        errors.push('weekly: the HR head late list has items but no HR head could be reached');
+      if (unreached > 0) {
+        errors.push(
+          `weekly: ${unreached} item${unreached === 1 ? '' : 's'} on the HR head late list reached no HR head for that college`
+        );
       }
       if (directors.length > 0) {
         weeklyMessages.push({
@@ -611,35 +701,69 @@ export async function runHrDutyChase(deps: ChaseDeps): Promise<ChaseRunResult> {
 
     // 6. Carry out the plan. Claim first, so two overlapping runs cannot both
     //    send the same rung; the notification's idempotency key is a second guard.
-    for (const p of planned) {
+    //    A claim whose send fails stays without a notification id, and the
+    //    next run sends it again (loadUnsentRungs).
+    let stoppedAt = -1;
+    for (let n = 0; n < planned.length; n++) {
+      const p = planned[n];
+      if (outOfTime()) {
+        stoppedAt = n;
+        break;
+      }
       try {
-        const claim = await deps.claimLedger(p.claim);
-        if (claim.status === 'exists') continue;
+        let ledgerId: string | null = p.resumeLedgerId;
+        if (!ledgerId) {
+          const claim = await deps.claimLedger(p.claim);
+          if (claim.status === 'exists') continue;
+          ledgerId = claim.id ?? null;
+        }
         let notificationId: string | null = null;
         if (p.message) {
           const out = await deps.send(p.message);
           result.sentDeliveries += out.notified;
           notificationId = out.notificationId ?? null;
         }
-        if (claim.id) await deps.finishLedger(claim.id, notificationId);
+        if (ledgerId) await deps.finishLedger(ledgerId, notificationId);
       } catch (e: any) {
         errors.push(`send ${p.claim.dutyCode} ${p.claim.itemId}: ${e?.message ?? String(e)}`);
       }
     }
+    if (stoppedAt >= 0) {
+      detail.deadline = { not_started: planned.length - stoppedAt };
+      errors.push(
+        `ran out of time: ${planned.length - stoppedAt} planned rung(s) were left for the next run`
+      );
+    }
+    let weeklyFailures = 0;
     for (const m of weeklyMessages) {
+      if (outOfTime()) {
+        weeklyFailures++;
+        errors.push(`weekly send: ran out of time; left for the next run`);
+        continue;
+      }
       try {
         const out = await deps.send(m);
         result.sentDeliveries += out.notified;
       } catch (e: any) {
+        weeklyFailures++;
         errors.push(`weekly send: ${e?.message ?? String(e)}`);
       }
     }
-    result.weeklyListsSent = result.weeklyListsDue && weeklyMessages.length > 0;
+    // Only a week whose lists all went out counts as sent; otherwise the next
+    // run tries again (the idempotency keys stop a list going twice).
+    result.weeklyListsSent = result.weeklyListsDue && weeklyMessages.length > 0 && weeklyFailures === 0;
 
     // Items that left their queue close their ledger rows (the on-time record
-    // the duty tower will read later). Only for duties whose collection worked.
+    // the duty tower will read later). Only for duties whose collection worked
+    // and was complete: a source cut off at SOURCE_LOAD_LIMIT cannot tell an
+    // item that left from one beyond the cap.
     let cleared = 0;
-    for (const [code, { items }] of byDuty) {
+    const clearSkipped: string[] = [];
+    for (const [code, { items, truncated }] of byDuty) {
+      if (truncated || outOfTime()) {
+        clearSkipped.push(code);
+        continue;
+      }
       try {
         cleared += await deps.resolveCleared(code, new Set(items.map(itemKey)));
       } catch (e: any) {
@@ -647,6 +771,7 @@ export async function runHrDutyChase(deps: ChaseDeps): Promise<ChaseRunResult> {
       }
     }
     detail.cleared = cleared;
+    if (clearSkipped.length > 0) detail.clear_skipped = clearSkipped;
 
     result.outcome = planned.length === 0 && weeklyMessages.length === 0 ? 'nothing_due' : 'sent';
     return finish(result);
