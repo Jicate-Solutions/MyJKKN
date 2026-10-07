@@ -40,7 +40,7 @@ vi.mock('@/lib/services/hr/intake/intake-service', async (orig) => ({
   accessibleInstitutions: (...a: unknown[]) => m.accessible(...a),
 }));
 
-import { DELETE as discardOne, GET as getOne } from '@/app/api/hr/recruitment/intake/batches/[id]/route';
+import { DELETE as discardOne, GET as getOne } from '@/lib/api/hr/recruitment/intake/handlers/batch';
 import { POST as postBatch } from '@/app/api/hr/recruitment/intake/batches/route';
 
 const call = () => getOne(new Request('http://x/api') as never, { params: Promise.resolve({ id: 'b-1' }) });

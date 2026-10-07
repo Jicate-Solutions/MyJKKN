@@ -1,5 +1,3 @@
-export const dynamic = 'force-dynamic';
-
 // GET    /api/hr/recruitment/intake/batches/:id → { batch, rows, open_jobs, skipped_files }
 // DELETE /api/hr/recruitment/intake/batches/:id → { ok: true, removed_files }
 //        Discards the batch: its rows and resume copies. Applications already
@@ -8,7 +6,7 @@ export const dynamic = 'force-dynamic';
 import { NextResponse, connection } from 'next/server';
 import type { NextRequest } from 'next/server';
 import { discardBatch, getBatch } from '@/lib/services/hr/intake/intake-service';
-import { intakeContext, intakeErrorResponse } from '../../_lib/context';
+import { intakeContext, intakeErrorResponse } from '@/app/api/hr/recruitment/intake/_lib/context';
 
 export async function GET(_request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   await connection();

@@ -1,5 +1,3 @@
-export const dynamic = 'force-dynamic';
-
 // POST /api/hr/recruitment/intake/rows/:id/decide  { action, job_id? }
 //   → { row, rule, rule_error }
 // Records a person's decision. Correcting where a CVViZ title goes teaches a
@@ -10,7 +8,7 @@ import { NextResponse, connection } from 'next/server';
 import type { NextRequest } from 'next/server';
 import type { DecideRequest } from '@/types/hr-intake';
 import { decide } from '@/lib/services/hr/intake/intake-service';
-import { intakeContext, intakeErrorResponse, readJson } from '../../../_lib/context';
+import { intakeContext, intakeErrorResponse, readJson } from '@/app/api/hr/recruitment/intake/_lib/context';
 
 export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   await connection();

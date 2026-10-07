@@ -1,5 +1,3 @@
-export const dynamic = 'force-dynamic';
-
 // POST /api/hr/recruitment/intake/batches/:id/upload-urls
 //   UploadUrlRequest { files: { name, size, type }[] }  (≤ 100, each ≤ 10 MB; pdf/doc/docx/jpg/png/zip)
 //   → UploadUrlResponse { uploads: { name, path, signed_url, token, content_type }[] }
@@ -11,7 +9,7 @@ import { NextResponse, connection } from 'next/server';
 import type { NextRequest } from 'next/server';
 import type { UploadUrlRequest } from '@/types/hr-intake';
 import { createUploadUrls } from '@/lib/services/hr/intake/intake-service';
-import { intakeContext, intakeErrorResponse, readJson } from '../../../_lib/context';
+import { intakeContext, intakeErrorResponse, readJson } from '@/app/api/hr/recruitment/intake/_lib/context';
 
 export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   await connection();

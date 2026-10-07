@@ -1,7 +1,6 @@
-export const dynamic = 'force-dynamic';
 // Reading up to MAX_EXTRACTIONS_PER_BATCH (24) resumes, three at a time, can take
-// minutes; the cap is sized so even the worst case fits this limit (lib/hr/intake/limits.ts).
-export const maxDuration = 300;
+// minutes; the cap is sized so even the worst case fits the 300 s maxDuration set on
+// app/api/hr/recruitment/intake/[...path]/route.ts (lib/hr/intake/limits.ts).
 
 // POST /api/hr/recruitment/intake/batches/:id/prepare
 //   PrepareRequest { uploaded: { name, path }[] } → { batch, rows }
@@ -14,7 +13,7 @@ import type { NextRequest } from 'next/server';
 import type { PrepareRequest, ResumeExtractor } from '@/types/hr-intake';
 import { prepareBatch } from '@/lib/services/hr/intake/intake-service';
 import { createResumeExtractor } from '@/lib/hr/intake/resume-extract';
-import { intakeContext, intakeErrorResponse, readJson } from '../../../_lib/context';
+import { intakeContext, intakeErrorResponse, readJson } from '@/app/api/hr/recruitment/intake/_lib/context';
 
 export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   await connection();

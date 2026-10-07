@@ -1,11 +1,9 @@
-export const dynamic = 'force-dynamic';
-
 // DELETE /api/hr/recruitment/intake/rules/:id → { ok: true }
 
 import { NextResponse, connection } from 'next/server';
 import type { NextRequest } from 'next/server';
 import { deleteRule } from '@/lib/services/hr/intake/intake-service';
-import { intakeContext, intakeErrorResponse } from '../../_lib/context';
+import { intakeContext, intakeErrorResponse } from '@/app/api/hr/recruitment/intake/_lib/context';
 
 export async function DELETE(_request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   await connection();

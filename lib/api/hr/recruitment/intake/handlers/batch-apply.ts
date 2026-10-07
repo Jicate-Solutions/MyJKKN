@@ -1,6 +1,5 @@
-export const dynamic = 'force-dynamic';
-// Each filed row is a Drive upload; a large batch takes a while.
-export const maxDuration = 300;
+// Each filed row is a Drive upload; a large batch takes a while (300 s
+// maxDuration on app/api/hr/recruitment/intake/[...path]/route.ts).
 
 // POST /api/hr/recruitment/intake/batches/:id/apply  { row_ids?: string[] }
 //   → { results: { row_id, ok, application_id, error }[] }
@@ -10,7 +9,7 @@ export const maxDuration = 300;
 import { NextResponse, connection } from 'next/server';
 import type { NextRequest } from 'next/server';
 import { apply } from '@/lib/services/hr/intake/intake-service';
-import { intakeContext, intakeErrorResponse, readJson } from '../../../_lib/context';
+import { intakeContext, intakeErrorResponse, readJson } from '@/app/api/hr/recruitment/intake/_lib/context';
 
 export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   await connection();
