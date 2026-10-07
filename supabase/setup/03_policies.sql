@@ -11960,3 +11960,90 @@ CREATE POLICY hr_salary_revision_target_setting_log_service_role ON public.hr_sa
   FOR SELECT TO service_role USING (true);
 REVOKE ALL ON public.hr_salary_revision_target_setting_log FROM anon, PUBLIC, authenticated, service_role;
 GRANT SELECT ON public.hr_salary_revision_target_setting_log TO authenticated, service_role;
+
+
+-- Updated: 2026-10-07 - HR duty tower and earned-trust reliability signal (migration 20271007161151_hr_duty_tower_and_reliability.sql)
+ALTER TABLE public.hr_duty_tower_duties       ENABLE ROW LEVEL SECURITY;
+
+ALTER TABLE public.hr_duty_tower_duties_audit ENABLE ROW LEVEL SECURITY;
+
+REVOKE ALL ON public.hr_duty_tower_duties       FROM anon, PUBLIC;
+
+REVOKE ALL ON public.hr_duty_tower_duties_audit FROM anon, PUBLIC;
+
+GRANT SELECT, INSERT, UPDATE ON public.hr_duty_tower_duties TO authenticated;
+
+GRANT SELECT ON public.hr_duty_tower_duties_audit TO authenticated;
+
+GRANT ALL ON public.hr_duty_tower_duties, public.hr_duty_tower_duties_audit TO service_role;
+
+DROP POLICY IF EXISTS hr_duty_tower_duties_read ON public.hr_duty_tower_duties;
+
+CREATE POLICY hr_duty_tower_duties_read ON public.hr_duty_tower_duties
+  FOR SELECT USING ((SELECT auth.uid()) IS NOT NULL);
+
+DROP POLICY IF EXISTS hr_duty_tower_duties_write ON public.hr_duty_tower_duties;
+
+CREATE POLICY hr_duty_tower_duties_write ON public.hr_duty_tower_duties
+  FOR ALL USING (public.is_super_admin())
+  WITH CHECK (public.is_super_admin());
+
+DROP POLICY IF EXISTS hr_duty_tower_duties_audit_read ON public.hr_duty_tower_duties_audit;
+
+CREATE POLICY hr_duty_tower_duties_audit_read ON public.hr_duty_tower_duties_audit
+  FOR SELECT USING (public.is_super_admin() OR public.is_admin());
+
+ALTER TABLE public.hr_duty_tower_readings ENABLE ROW LEVEL SECURITY;
+
+REVOKE ALL ON public.hr_duty_tower_readings FROM anon, PUBLIC, authenticated;
+
+GRANT SELECT ON public.hr_duty_tower_readings TO authenticated;
+
+GRANT ALL ON public.hr_duty_tower_readings TO service_role;
+
+DROP POLICY IF EXISTS hr_duty_tower_readings_select ON public.hr_duty_tower_readings;
+
+CREATE POLICY hr_duty_tower_readings_select ON public.hr_duty_tower_readings
+  FOR SELECT USING (
+    public.fn_is_the_director() IS TRUE
+    OR (public.user_has_permission('hr.dashboard.manage')
+        AND (institution_id IS NULL OR public.role_has_institution_access(institution_id)))
+    -- every other admin sees only readings with at least 3 deciders, and not
+    -- the all-colleges row while any college row under it is small (else
+    -- all-colleges minus the visible colleges = the hidden one)
+    OR (deciders >= 3
+        AND (institution_id IS NOT NULL OR NOT has_small_college)
+        AND (public.is_super_admin() OR public.is_admin()))
+  );
+
+ALTER TABLE public.hr_duty_person_records ENABLE ROW LEVEL SECURITY;
+
+REVOKE ALL ON public.hr_duty_person_records FROM anon, PUBLIC, authenticated;
+
+GRANT ALL ON public.hr_duty_person_records TO service_role;
+
+ALTER TABLE public.hr_trust_switch_log ENABLE ROW LEVEL SECURITY;
+
+REVOKE ALL ON public.hr_trust_switch_log FROM anon, PUBLIC, authenticated;
+
+GRANT SELECT ON public.hr_trust_switch_log TO authenticated;
+
+GRANT ALL ON public.hr_trust_switch_log TO service_role;
+
+DROP POLICY IF EXISTS hr_trust_switch_log_select ON public.hr_trust_switch_log;
+
+CREATE POLICY hr_trust_switch_log_select ON public.hr_trust_switch_log
+  FOR SELECT USING (public.fn_is_the_director() OR public.is_super_admin());
+
+ALTER TABLE public.hr_trust_suggestions ENABLE ROW LEVEL SECURITY;
+
+REVOKE ALL ON public.hr_trust_suggestions FROM anon, PUBLIC, authenticated;
+
+GRANT SELECT ON public.hr_trust_suggestions TO authenticated;
+
+GRANT ALL ON public.hr_trust_suggestions TO service_role;
+
+DROP POLICY IF EXISTS hr_trust_suggestions_select ON public.hr_trust_suggestions;
+
+CREATE POLICY hr_trust_suggestions_select ON public.hr_trust_suggestions
+  FOR SELECT USING (public.fn_is_the_director() IS TRUE);

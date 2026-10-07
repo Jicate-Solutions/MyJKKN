@@ -2993,3 +2993,30 @@ CREATE TRIGGER trg_zz_student_attendance_first_marks
   FOR EACH ROW
   EXECUTE FUNCTION public.fn_record_attendance_first_marks();
 
+
+
+-- Updated: 2026-10-07 - HR duty tower and earned-trust reliability signal (migration 20271007161151_hr_duty_tower_and_reliability.sql)
+DROP TRIGGER IF EXISTS hr_duty_tower_duties_touch_trg ON public.hr_duty_tower_duties;
+
+CREATE TRIGGER hr_duty_tower_duties_touch_trg
+  BEFORE UPDATE ON public.hr_duty_tower_duties
+  FOR EACH ROW EXECUTE FUNCTION public.fn_hr_duty_tower_duties_touch();
+
+DROP TRIGGER IF EXISTS hr_duty_tower_duties_audit_trg ON public.hr_duty_tower_duties;
+
+CREATE TRIGGER hr_duty_tower_duties_audit_trg
+  AFTER INSERT OR UPDATE ON public.hr_duty_tower_duties
+  FOR EACH ROW EXECUTE FUNCTION public.fn_hr_duty_tower_duties_audit();
+
+DROP TRIGGER IF EXISTS trg_guard_hr_duty_tower_duties_writes ON public.hr_duty_tower_duties;
+
+CREATE TRIGGER trg_guard_hr_duty_tower_duties_writes
+  BEFORE INSERT OR UPDATE OR DELETE ON public.hr_duty_tower_duties
+  FOR EACH ROW EXECUTE FUNCTION public.fn_guard_hr_duty_tower_duties_writes();
+
+DROP TRIGGER IF EXISTS trg_guard_hr_trust_policy_writes ON public.platform_policies;
+
+CREATE TRIGGER trg_guard_hr_trust_policy_writes
+  BEFORE INSERT OR UPDATE OR DELETE ON public.platform_policies
+  FOR EACH ROW
+  EXECUTE FUNCTION public.fn_guard_hr_trust_policy_writes();
