@@ -54,6 +54,10 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { logger } from '@/lib/utils/enhanced-logger';
 import {
+  fetchLatestPostMetrics,
+  igPermalinkLikePattern,
+} from '@/lib/services/social/ig-post-lookup';
+import {
   isPresentAtEnd,
   isEngagedFromGates,
 } from '@/lib/services/ai-pulse/live-session-service';
@@ -652,38 +656,42 @@ export class AiPulsePdeBridgeService {
         new Set(igSubs.map((s) => s.shortcode).filter(Boolean))
       ) as string[];
 
+      // One exact, case-sensitive read per shortcode (`_` is a LIKE
+      // wildcard and shortcodes are case-sensitive).
       const postByShortcode = new Map<string, any>();
       if (shortcodes.length > 0) {
-        const orFilter = shortcodes
-          .map((sc) => `permalink.ilike.%/${sc}%`)
-          .join(',');
-        const { data: posts, error: postsErr } = await sb
-          .from('ig_posts')
-          .select('id, permalink, posted_at')
-          .or(orFilter);
-        if (postsErr) throw new Error(`ig_posts match: ${postsErr.message}`);
-        for (const p of (posts ?? []) as any[]) {
-          const sc = extractIgShortcode(p.permalink);
-          if (sc) postByShortcode.set(sc, p);
+        const results = await Promise.all(
+          shortcodes.map((sc) =>
+            sb
+              .from('ig_posts')
+              .select('id, permalink, posted_at')
+              .like('permalink', igPermalinkLikePattern(sc))
+              .limit(1)
+          )
+        );
+        for (const { data: posts, error: postsErr } of results) {
+          if (postsErr) throw new Error(`ig_posts match: ${postsErr.message}`);
+          for (const p of (posts ?? []) as any[]) {
+            const sc = extractIgShortcode(p.permalink);
+            if (sc) postByShortcode.set(sc, p);
+          }
         }
       }
 
+      // Latest snapshot read per post: ~627 snapshots a post overflow one
+      // .in() read's 1,000-row cap and silently drop posts.
       const postIds = Array.from(postByShortcode.values()).map((p) => p.id);
       const latestReachByPost = new Map<string, number>();
       if (postIds.length > 0) {
-        const { data: metrics, error: metricsErr } = await sb
-          .from('ig_post_metrics')
-          .select('post_id, snapshot_at, reach')
-          .in('post_id', postIds)
-          .order('snapshot_at', { ascending: false });
+        const { latest, error: metricsErr } = await fetchLatestPostMetrics<{
+          post_id: string;
+          reach: number | null;
+        }>(sb, postIds, 'post_id, snapshot_at, reach');
         if (metricsErr) {
           throw new Error(`ig_post_metrics read: ${metricsErr.message}`);
         }
-        for (const m of (metrics ?? []) as any[]) {
-          if (
-            !latestReachByPost.has(m.post_id) &&
-            typeof m.reach === 'number'
-          ) {
+        for (const m of latest.values()) {
+          if (typeof m.reach === 'number') {
             latestReachByPost.set(m.post_id, m.reach);
           }
         }

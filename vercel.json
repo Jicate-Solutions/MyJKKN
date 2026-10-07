@@ -26,6 +26,10 @@
       "schedule": "47 3 * * 1"
     },
     {
+      "path": "/api/cron/hr-salary-revisions?mode=targets",
+      "schedule": "37 17 * * *"
+    },
+    {
       "path": "/api/cron/ims-pos-device-sweep?secret=${CRON_SECRET}",
       "schedule": "*/5 * * * *"
     },
