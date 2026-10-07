@@ -12281,3 +12281,20 @@ CREATE POLICY hr_intake_match_rules_select ON public.hr_intake_match_rules
         AND institution_id IS NOT NULL
         AND public.role_has_institution_access(institution_id))
   );
+
+
+-- Updated: 2026-10-08 - HR memo detector ledgers readable by super admins only
+-- (migration 20271008110108, follow-up to #4151 review finding 3; was
+-- is_super_admin() OR is_admin() with no college scope, from 20270613101223).
+-- Full definition here because these two policies were not mirrored before.
+ALTER TABLE public.hr_memo_detector_runs ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS hr_memo_detector_runs_select ON public.hr_memo_detector_runs;
+CREATE POLICY hr_memo_detector_runs_select ON public.hr_memo_detector_runs
+  FOR SELECT TO authenticated
+  USING ((SELECT public.is_super_admin()));
+
+ALTER TABLE public.hr_memo_nudges ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS hr_memo_nudges_select ON public.hr_memo_nudges;
+CREATE POLICY hr_memo_nudges_select ON public.hr_memo_nudges
+  FOR SELECT TO authenticated
+  USING ((SELECT public.is_super_admin()));
