@@ -216,8 +216,11 @@ export async function GET(req: NextRequest) {
       pages: CLAIM_PAGE_LIMIT,
       rows: claims.length,
     });
+    const limit = (CLAIM_PAGE_SIZE * CLAIM_PAGE_LIMIT).toLocaleString('en-IN');
     return deny(
-      `There are more than ${(CLAIM_PAGE_SIZE * CLAIM_PAGE_LIMIT).toLocaleString('en-IN')} claims to read, so the board cannot be shown in full. Choose one institution and try again.`,
+      institutionId
+        ? `This institution has more than ${limit} claims, which is more than the board can show in full. Ask the MyJKKN team to raise the limit.`
+        : `There are more than ${limit} claims to read, so the board cannot be shown in full. Choose one institution and try again.`,
       500
     );
   }

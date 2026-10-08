@@ -177,6 +177,16 @@ describe('the board pages past the 1,000-row cap', () => {
     expect(claimReads).toHaveLength(51); // 50 full pages + one probe
   });
 
+  it('past the limit for one chosen institution, it does not say to choose one institution', async () => {
+    claimsTable = makeClaims(50 * 1000 + 1, 'I2');
+    const { GET } = await import('@/app/api/social/learner-credit/route');
+    const res = await GET(get('?institution_id=I2'));
+    expect(res.status).toBe(500);
+    const body = await res.json();
+    expect(body.error).toMatch(/This institution has more than/);
+    expect(body.error).not.toMatch(/Choose one institution/);
+  });
+
   it('exactly 50,000 claims is the limit, not past it: the board is shown', async () => {
     claimsTable = makeClaims(50 * 1000);
     const { GET } = await import('@/app/api/social/learner-credit/route');
