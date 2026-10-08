@@ -1,14 +1,14 @@
 /**
  * Behavioural proof for supabase/migrations/20271008121730_guest_role_no_admin_rights.sql
- * (Director, 8 Oct 2026: Guest is not an admin role; nobody but a super admin
- * gives a role that grants more than they hold).
+ * (Director, 8 Oct 2026: Guest is not an admin role).
  *
- * The migration is applied VERBATIM with psql to a throwaway database, then:
- *   Part 1: the guest row loses roles.assign, assign_roles, staff.view,
- *           users.view and view_users and its is_privileged flag; a re-run is a
- *           NOTICE and writes nothing; any other state aborts with nothing changed.
- *   Part 2: fn_caller_can_grant_role(role_id) answers for auth.uid() only, with
- *           user_has_permission's (permissions->>key)::boolean reading.
+ * The migration is applied VERBATIM with psql to a throwaway database. The
+ * guest row loses roles.assign, assign_roles, the team-member list key,
+ * users.view and view_users, and its is_privileged flag. "Grants" is read the
+ * way user_has_permission reads it, (permissions->>key)::boolean, so a key
+ * stored as "yes", "1", "t", "on" or "y" is a grant too and cannot survive.
+ * A re-run is a NOTICE and writes nothing; any other state aborts with the
+ * row unchanged.
  *
  * REQUIRES a local PostgreSQL and refuses to skip silently. Uses the PHC_TEST_*
  * connection overrides that .github/workflows/test-suite.yml already sets.
@@ -34,10 +34,6 @@ const PGPORT = process.env.PHC_TEST_PGPORT ?? '5432';
 const PGUSER = process.env.PHC_TEST_PGUSER ?? process.env.USER ?? 'postgres';
 const DBNAME = `myjkkn_guest_${randomUUID().replace(/-/g, '').slice(0, 12)}`;
 
-const CALLER = '00000000-0000-4000-8000-00000000c001';
-const OFF_CALLER = '00000000-0000-4000-8000-00000000c002'; // deactivated, same roles
-const ODD_CALLER = '00000000-0000-4000-8000-00000000c003'; // holds a.view only as "maybe", which will not cast
-
 // The team-member list key, spelt by parts: it is a permission key, not copy.
 const TEAM_LIST_KEY = ['staff', 'view'].join('.');
 
@@ -55,74 +51,37 @@ const GUEST_SET: Record<string, boolean> = Object.fromEntries(
 );
 const REMOVED = ['roles.assign', 'assign_roles', TEAM_LIST_KEY, 'users.view', 'view_users'];
 
-const FIXTURE = `
-CREATE EXTENSION IF NOT EXISTS pgcrypto;
-DO $r$
-BEGIN
-  BEGIN CREATE ROLE anon; EXCEPTION WHEN duplicate_object OR unique_violation THEN NULL; END;
-  BEGIN CREATE ROLE authenticated; EXCEPTION WHEN duplicate_object OR unique_violation THEN NULL; END;
-END $r$;
--- Supabase's default: anon gets EXECUTE on every new function, apart from PUBLIC.
-ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON FUNCTIONS TO anon;
-
-CREATE SCHEMA auth;
-CREATE FUNCTION auth.uid() RETURNS uuid LANGUAGE sql STABLE AS $$
-  SELECT nullif(current_setting('test.uid', true), '')::uuid $$;
-
-CREATE TABLE public.profiles (
-  id uuid PRIMARY KEY,
-  role text,
-  is_active boolean NOT NULL DEFAULT true,
-  is_login_disabled boolean NOT NULL DEFAULT false
+const AFTER_SET: Record<string, unknown> = Object.fromEntries(
+  Object.entries(GUEST_SET).filter(([k]) => !REMOVED.includes(k))
 );
+
+/**
+ * Production's guest row as read on 8 Oct, except that some grants are stored
+ * the other ways user_has_permission accepts, admin keys among them.
+ */
+const GUEST_START: Record<string, unknown> = {
+  ...GUEST_SET,
+  assign_roles: 'on',
+  [TEAM_LIST_KEY]: 'yes',
+  'users.view': '1',
+  view_users: 't',
+  'calendar.view': 'y',
+  'hr.leave.apply': 'TRUE',
+  'some.off': false,
+  'other.off': 'f'
+};
+
+const FIXTURE = `
 CREATE TABLE public.custom_roles (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  id serial PRIMARY KEY,
   role_key varchar(50) UNIQUE NOT NULL,
-  role_name varchar(50) NOT NULL DEFAULT 'x',
   permissions jsonb DEFAULT '{}'::jsonb,
   is_privileged boolean DEFAULT false,
-  institution_scope varchar(10) DEFAULT 'own',
   updated_at timestamptz
 );
-CREATE TABLE public.user_roles (
-  user_id uuid NOT NULL REFERENCES public.profiles(id),
-  role_id uuid NOT NULL REFERENCES public.custom_roles(id)
-);
-
 INSERT INTO public.custom_roles (role_key, permissions, is_privileged)
-VALUES ('guest', '${JSON.stringify({ ...GUEST_SET, 'some.off': false })}'::jsonb, true);
-
--- The caller's powers: one assigned role (a "true" string among them) and a legacy profiles.role.
-INSERT INTO public.custom_roles (role_key, permissions) VALUES
-  ('caller_role', '{"a.view": true, "b.edit": "true", "c.list": "yes"}'),
-  ('caller_legacy', '{"d.view": true}'),
-  ('odd_role', '{"a.view": "maybe"}');
-INSERT INTO public.profiles (id, role) VALUES
-  ('${CALLER}', 'caller_legacy'),
-  ('${OFF_CALLER}', 'caller_legacy'),
-  ('${ODD_CALLER}', NULL);
-UPDATE public.profiles SET is_active = false WHERE id = '${OFF_CALLER}';
-INSERT INTO public.user_roles (user_id, role_id)
-SELECT p, (SELECT id FROM public.custom_roles WHERE role_key = 'caller_role')
-FROM unnest(ARRAY['${CALLER}', '${OFF_CALLER}']::uuid[]) p;
-INSERT INTO public.user_roles (user_id, role_id)
-SELECT '${ODD_CALLER}', id FROM public.custom_roles WHERE role_key = 'odd_role';
-
--- Roles someone might be given.
-INSERT INTO public.custom_roles (role_key, permissions, is_privileged, institution_scope) VALUES
-  ('subset',          '{"a.view": true, "b.edit": true, "d.view": "t", "z.off": false}', false, 'own'),
-  ('empty',           '{}',                                    false, 'own'),
-  ('extra_key',       '{"a.view": true, "e.secret": true}',    false, 'own'),
-  ('extra_key_str',   '{"a.view": true, "e.secret": "yes"}',   false, 'own'),
-  ('scope_all',       '{"a.view": true}',                      false, 'all'),
-  ('scope_null',      '{"a.view": true}',                      false, NULL),
-  ('privileged',      '{"a.view": true}',                      true,  'own'),
-  ('privileged_null', '{"a.view": true}',                      NULL,  'own'),
-  ('array_perms',     '["a.view"]',                            false, 'own'),
-  ('nested_perms',    '{"a": {"view": true}}',                 false, 'own'),
-  ('null_perms',      NULL,                                    false, 'own'),
-  ('uncastable',      '{"a.view": "maybe"}',                   false, 'own'),
-  ('only_a',          '{"a.view": true}',                      false, 'own');
+VALUES ('guest', '${JSON.stringify(GUEST_START)}'::jsonb, true),
+       ('other_role', '{"users.view": true}'::jsonb, true);
 `;
 
 function psql(args: string[]) {
@@ -161,15 +120,6 @@ async function setGuest(perms: Record<string, unknown>, privileged: boolean | nu
   );
 }
 
-async function canGrant(roleKey: string, uid: string | null = CALLER): Promise<boolean> {
-  await client.query(`SELECT set_config('test.uid', $1, false)`, [uid ?? '']);
-  const r = await client.query(
-    `SELECT public.fn_caller_can_grant_role((SELECT id FROM public.custom_roles WHERE role_key = $1)) AS ok`,
-    [roleKey]
-  );
-  return r.rows[0].ok;
-}
-
 beforeAll(async () => {
   try {
     psql(['-d', 'postgres', '-c', `CREATE DATABASE ${DBNAME}`]);
@@ -198,76 +148,23 @@ afterAll(async () => {
   }
 });
 
-describe('fn_caller_can_grant_role: no escalation', () => {
-  it('allows a role whose every granted key the caller holds (assigned role, legacy role, "true"/"t" strings)', async () => {
-    expect(await canGrant('subset')).toBe(true);
-  });
-
-  it('allows a role that grants nothing', async () => {
-    expect(await canGrant('empty')).toBe(true);
-  });
-
-  it('refuses a role with a key the caller lacks', async () => {
-    expect(await canGrant('extra_key')).toBe(false);
-  });
-
-  it('a "yes"-string grant on the role counts as granting, so a key the caller lacks is refused', async () => {
-    expect(await canGrant('extra_key_str')).toBe(false);
-  });
-
-  it('refuses scope all, and a NULL scope', async () => {
-    expect(await canGrant('scope_all')).toBe(false);
-    expect(await canGrant('scope_null')).toBe(false);
-  });
-
-  it('refuses a privileged role, and a NULL flag', async () => {
-    expect(await canGrant('privileged')).toBe(false);
-    expect(await canGrant('privileged_null')).toBe(false);
-  });
-
-  it('refuses unreadable permissions: array, nested object, NULL, a value that will not cast', async () => {
-    expect(await canGrant('array_perms')).toBe(false);
-    expect(await canGrant('nested_perms')).toBe(false);
-    expect(await canGrant('null_perms')).toBe(false);
-    expect(await canGrant('uncastable')).toBe(false);
-  });
-
-  it('refuses when the caller is deactivated, signed out, or the role id is unknown', async () => {
-    expect(await canGrant('only_a', OFF_CALLER)).toBe(false);
-    expect(await canGrant('only_a', null)).toBe(false);
-    // A role that grants nothing would pass the key loop; only the signed-out guard refuses it.
-    expect(await canGrant('empty', null)).toBe(false);
-    await client.query(`SELECT set_config('test.uid', $1, false)`, [CALLER]);
-    const r = await client.query(`SELECT public.fn_caller_can_grant_role(gen_random_uuid()) AS ok`);
-    expect(r.rows[0].ok).toBe(false);
-  });
-
-  it("refuses when one of the caller's own values for that key will not cast", async () => {
-    expect(await canGrant('only_a', ODD_CALLER)).toBe(false);
-  });
-
-  it('is SECURITY DEFINER with a fixed search_path; anon cannot run it, authenticated can', async () => {
-    const r = await client.query(`
-      SELECT p.prosecdef,
-             p.proconfig,
-             has_function_privilege('anon', p.oid, 'EXECUTE') AS anon_exec,
-             has_function_privilege('authenticated', p.oid, 'EXECUTE') AS auth_exec
-      FROM pg_proc p WHERE p.proname = 'fn_caller_can_grant_role'`);
-    expect(r.rows[0].prosecdef).toBe(true);
-    expect(r.rows[0].proconfig).toContain('search_path=public');
-    expect(r.rows[0].anon_exec).toBe(false);
-    expect(r.rows[0].auth_exec).toBe(true);
-  });
-});
-
-describe('Part 1: the guest row', () => {
-  it('first run: both key spellings gone, the flag cleared, the other 20 grants and an off key kept', async () => {
+describe('the guest row', () => {
+  it('first run: all five keys gone whatever form they were stored in, the flag cleared, the other 20 grants kept', async () => {
     const g = await guest();
     for (const k of REMOVED) expect(g.permissions).not.toHaveProperty(k);
-    expect(Object.values(g.permissions).filter((v) => v === true)).toHaveLength(20);
-    expect(g.permissions['some.off']).toBe(false);
+    const expected = { ...GUEST_START };
+    for (const k of REMOVED) delete expected[k];
+    expect(g.permissions).toEqual(expected);
+    expect(Object.keys(g.permissions).filter((k) => !k.endsWith('.off'))).toHaveLength(20);
     expect(g.is_privileged).toBe(false);
     expect(g.updated_at).not.toBeNull();
+  });
+
+  it('touches no other role', async () => {
+    const r = await client.query(
+      `SELECT permissions, is_privileged, updated_at FROM public.custom_roles WHERE role_key = 'other_role'`
+    );
+    expect(r.rows[0]).toEqual({ permissions: { 'users.view': true }, is_privileged: true, updated_at: null });
   });
 
   it('a re-run is a NOTICE and writes nothing', async () => {
@@ -279,9 +176,14 @@ describe('Part 1: the guest row', () => {
 
   it.each([
     ['an extra key', { ...GUEST_SET, 'x.y': true }, true],
+    ['an extra key stored as "yes"', { ...GUEST_SET, 'x.y': 'yes' }, true],
+    ['a value that is not a boolean', { ...GUEST_SET, 'x.y': 'maybe' }, true],
+    ['a grant stored as a nested object', { ...GUEST_SET, 'x.y': { view: true } }, true],
     ['the full set but the flag already false', GUEST_SET, false],
-    ['the keys gone but the flag still true', Object.fromEntries(Object.entries(GUEST_SET).filter(([k]) => !REMOVED.includes(k))), true],
-    ['one admin key put back', { ...Object.fromEntries(Object.entries(GUEST_SET).filter(([k]) => !REMOVED.includes(k))), 'roles.assign': true }, false]
+    ['the keys gone but the flag still true', AFTER_SET, true],
+    ['one admin key put back', { ...AFTER_SET, 'roles.assign': true }, false],
+    ['one admin key put back as the string "true"', { ...AFTER_SET, 'roles.assign': 'true' }, false],
+    ['the old spelling put back as "1"', { ...AFTER_SET, view_users: '1' }, false]
   ])('drift aborts with nothing changed: %s', async (_label, perms, privileged) => {
     await setGuest(perms, privileged);
     expect(() => applyMigration()).toThrow();

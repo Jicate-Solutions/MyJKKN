@@ -1,18 +1,14 @@
 /**
- * POST /api/users/roles/assign — who may assign which role to whom (Director, 8 Oct 2026).
+ * POST /api/users/roles/assign is for super admins only (Director, 8 Oct 2026:
+ * "Admins need not give any role. We have enough super admins.").
  *
- * The caller check stays on the PRIMARY role (plus the is_super_admin flag)
- * until migration 20271008121730 takes roles.assign off guest; widening it
- * first would let guest holders through. On top of that, refusals that hold
- * whoever the caller is:
- *   (a) nobody assigns a role to themselves;
- *   (b) only a super admin changes the roles of someone with admin powers;
- *   (c) anyone but a super admin gives only a role that grants nothing they
- *       do not hold (fn_caller_can_grant_role; its SQL is proven in
- *       guest-role-no-admin-rights.pg.test.ts, here it is faked).
- * Any check that cannot run refuses with 500.
+ *   - Super admin = the is_super_admin flag, asked as the caller's session.
+ *     No role key opens the route: administrator, payment_audit_admin and
+ *     guest callers are refused, whatever their roles grant.
+ *   - Nobody gives a role to themselves, super admins included.
+ *   - Any check that cannot run refuses with 500 and assigns nothing.
  *
- * Auth, the caller's reads and the service-role reads/writes are faked; only
+ * Auth, the caller's session and the service-role reads/writes are faked; only
  * the route's gate is under test.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -20,28 +16,21 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 const CALLER = 'caller-1';
 const TARGET = 'target-1';
 
-type Role = {
-  id: string;
-  role_key: string;
-  role_name: string;
-  is_privileged: boolean | null;
-  institution_scope: string;
-  permissions: unknown;
-};
-
 // The caller's own session.
-let callerRole: string | null = 'counselor';
+let callerRole: string | null = 'administrator';
 let callerIsSuperFlag = false;
-let rolePermsByKey: Record<string, Record<string, unknown>> = {};
+// What the caller's primary role grants. The route must never read it.
+const ROLE_PERMS: Record<string, Record<string, unknown>> = {
+  administrator: { 'roles.assign': true, 'users.edit': true },
+  payment_audit_admin: { 'roles.assign': true },
+  guest: { 'roles.assign': true, assign_roles: true },
+  super_admin: { 'roles.assign': true }
+};
 // Service-role view.
-let roles: Record<string, Role> = {};
-let target: Record<string, unknown> | null = null;
-let targetRoleKeys: string[] = [];
-// Fault injection: table/rpc name → error.
+const ROLES: Record<string, { id: string; role_key: string; role_name: string }> = {
+  ['faculty']: { id: 'r-faculty', role_key: 'faculty', role_name: 'Faculty' }
+};
 let failing: Set<string> = new Set();
-// What fn_caller_can_grant_role answers, and which role ids it was asked about.
-let canGrant: boolean | null = true;
-let grantAsked: unknown[] = [];
 const inserted: { table: string; row: unknown }[] = [];
 
 const ERR = { message: 'boom' };
@@ -77,31 +66,26 @@ vi.mock('@/lib/supabase/server', () => ({
   createClient: () =>
     Promise.resolve({
       auth: { getUser: () => Promise.resolve({ data: { user: { id: CALLER } }, error: null }) },
-      rpc: (fn: string, args?: { p_role_id?: string }) => {
+      rpc: (fn: string, args?: { permission_name?: string }) => {
         if (failing.has(`rpc:${fn}`)) return Promise.resolve({ data: null, error: ERR });
         if (fn === 'is_super_admin') return Promise.resolve({ data: callerIsSuperFlag, error: null });
-        if (fn === 'fn_caller_can_grant_role') {
-          grantAsked.push(args?.p_role_id);
-          return Promise.resolve({ data: canGrant, error: null });
-        }
+        // If the route ever asks by permission key again, answer as the roles would.
+        if (fn === 'user_has_permission')
+          return Promise.resolve({ data: ROLE_PERMS[callerRole ?? '']?.[args?.permission_name ?? ''] === true, error: null });
         return Promise.resolve({ data: null, error: { message: `unexpected rpc ${fn}` } });
       },
       from: (table: string) =>
-        query(`caller:${table}`, (filter) => {
-          if (table === 'profiles') return { role: callerRole, full_name: 'Caller' };
-          if (table === 'custom_roles') {
-            const p = rolePermsByKey[filter as string];
-            return p ? { permissions: p } : null;
-          }
+        query(`caller:${table}`, () => {
+          if (table === 'profiles') return { role: callerRole, full_name: 'Caller', is_super_admin: callerIsSuperFlag };
+          if (table === 'custom_roles') return { permissions: ROLE_PERMS[callerRole ?? ''] ?? {} };
           return null;
         })
     }),
   createServiceRoleClient: () => ({
     from: (table: string) =>
       query(table, (filter) => {
-        if (table === 'custom_roles') return roles[filter as string] ?? null;
-        if (table === 'profiles') return filter === TARGET ? target : null;
-        if (table === 'user_roles') return targetRoleKeys.map((k) => ({ custom_roles: roles[k] ?? null }));
+        if (table === 'custom_roles') return ROLES[filter as string] ?? null;
+        if (table === 'profiles') return filter === TARGET ? { id: TARGET, full_name: 'Target', email: 't@x' } : null;
         return null;
       })
   })
@@ -127,185 +111,65 @@ function post(roleKey: string, userId = TARGET) {
 
 const assigned = () => inserted.filter((i) => i.table === 'user_roles');
 
-function role(key: string, over: Partial<Role> = {}): Role {
-  return {
-    id: `r-${key}`,
-    role_key: key,
-    role_name: key,
-    is_privileged: false,
-    institution_scope: 'own',
-    permissions: { 'calendar.view': true },
-    ...over
-  };
+function asSuperAdmin() {
+  callerRole = 'super_admin';
+  callerIsSuperFlag = true;
 }
 
 beforeEach(() => {
-  callerRole = 'counselor';
+  callerRole = 'administrator';
   callerIsSuperFlag = false;
-  rolePermsByKey = { counselor: { 'roles.assign': true } };
   failing = new Set();
-  canGrant = true;
-  grantAsked = [];
   inserted.length = 0;
-  target = { id: TARGET, full_name: 'Target', email: 't@x', role: 'driver', is_super_admin: false };
-  targetRoleKeys = ['driver'];
-  roles = {
-    driver: role('driver'),
-    librarian: role('librarian'),
-    super_admin: role('super_admin', { is_privileged: true, institution_scope: 'all' }),
-    hr_admin: role('hr_admin', { is_privileged: true }),
-    unflagged: role('unflagged', { is_privileged: null }),
-    all_colleges: role('all_colleges', { institution_scope: 'all' }),
-    nested_users: role('nested_users', { permissions: { users: { view: true } } }),
-    payroll_approver: role('payroll_approver', { permissions: { 'hr.payroll.salary.approve': true } }),
-    settings_editor: role('settings_editor', { permissions: ['settings.general.edit'] })
-  };
 });
 
-describe('allowed paths', () => {
-  it('a primary role granting roles.assign gives an ordinary role to an ordinary person', async () => {
-    const res = await post('librarian');
-    expect(res.status).toBe(200);
-    expect(assigned()).toHaveLength(1);
-  });
+describe('super admins only', () => {
+  it.each([['administrator'], ['payment_audit_admin'], ['guest']])(
+    'refuses a %s caller, whose role grants roles.assign',
+    async (role) => {
+      callerRole = role;
+      const res = await post('faculty');
+      expect(res.status).toBe(403);
+      expect(assigned()).toHaveLength(0);
+    }
+  );
 
-  it('a super admin gives a privileged role to an ordinary person', async () => {
+  it('refuses a caller whose legacy role says super_admin but who lacks the flag', async () => {
     callerRole = 'super_admin';
-    callerIsSuperFlag = true;
-    const res = await post('hr_admin');
+    callerIsSuperFlag = false;
+    const res = await post('faculty');
+    expect(res.status).toBe(403);
+    expect(assigned()).toHaveLength(0);
+  });
+
+  it("a super admin assigns the 'faculty' role", async () => {
+    asSuperAdmin();
+    const res = await post('faculty');
     expect(res.status).toBe(200);
-    expect(assigned()).toHaveLength(1);
+    expect(assigned()).toEqual([
+      { table: 'user_roles', row: { user_id: TARGET, role_id: 'r-faculty', is_primary: false, assigned_by: CALLER } }
+    ]);
   });
 });
 
-describe('caller check stays primary-role only', () => {
-  it('regression guard: a caller whose primary role lacks roles.assign (e.g. guest held as a second role) is refused', async () => {
-    callerRole = 'driver';
-    const res = await post('librarian');
-    expect(res.status).toBe(403);
-    expect(assigned()).toHaveLength(0);
-  });
-});
-
-describe('(a) self-assignment', () => {
-  it('refuses assigning a role to yourself, even for a super admin', async () => {
-    callerRole = 'super_admin';
-    callerIsSuperFlag = true;
-    const res = await post('librarian', CALLER);
-    expect(res.status).toBe(403);
-    expect(assigned()).toHaveLength(0);
-  });
-});
-
-describe('(b) a target with admin powers', () => {
-  it('refuses a non-super-admin when the target has the super admin flag', async () => {
-    target = { ...target!, is_super_admin: true };
-    const res = await post('librarian');
-    expect(res.status).toBe(403);
-    expect(assigned()).toHaveLength(0);
-  });
-
-  it.each([
-    ['the super admin flag', () => { target = { ...target!, is_super_admin: true }; }],
-    ['a privileged second role', () => { targetRoleKeys = ['driver', 'hr_admin']; }],
-    ['the legacy administrator role', () => { target = { ...target!, role: 'administrator' }; }]
-  ])('lets a super admin change the roles of a target with %s', async (_label, arrange) => {
-    arrange();
-    callerRole = 'super_admin';
-    callerIsSuperFlag = true;
-    const res = await post('librarian');
-    expect(res.status).toBe(200);
-    expect(assigned()).toHaveLength(1);
-  });
-
-  it('refuses when the target holds a privileged role as a second role', async () => {
-    targetRoleKeys = ['driver', 'hr_admin'];
-    const res = await post('librarian');
-    expect(res.status).toBe(403);
-    expect(assigned()).toHaveLength(0);
-  });
-
-  it("refuses when the target's legacy role is administrator", async () => {
-    target = { ...target!, role: 'administrator' };
-    const res = await post('librarian');
-    expect(res.status).toBe(403);
-    expect(assigned()).toHaveLength(0);
-  });
-});
-
-describe('(c) no escalation for anyone but a super admin', () => {
-  it('refuses when fn_caller_can_grant_role says no, and asks about the resolved role id', async () => {
-    canGrant = false;
-    const res = await post('librarian');
-    expect(res.status).toBe(403);
-    expect(grantAsked).toEqual(['r-librarian']);
-    expect(assigned()).toHaveLength(0);
-  });
-
-  it('refuses when the check answers null (fails closed)', async () => {
-    canGrant = null;
-    const res = await post('librarian');
-    expect(res.status).toBe(403);
-    expect(assigned()).toHaveLength(0);
-  });
-
-  it('a super admin is not asked: unrestricted apart from self-assign', async () => {
-    callerRole = 'super_admin';
-    callerIsSuperFlag = true;
-    canGrant = false;
-    const res = await post('hr_admin');
-    expect(res.status).toBe(200);
-    expect(grantAsked).toHaveLength(0);
-  });
-
-  it('an administrator gives a normal role to someone holding guest once guest is not privileged', async () => {
-    callerRole = 'administrator';
-    rolePermsByKey = { administrator: { 'roles.assign': true } };
-    roles.guest = role('guest', { is_privileged: false });
-    targetRoleKeys = ['guest'];
-    const res = await post('librarian');
-    expect(res.status).toBe(200);
-    expect(assigned()).toHaveLength(1);
-  });
-
-  it('while guest is still flagged privileged, that same person is treated as admin-powered (fails closed until the migration)', async () => {
-    callerRole = 'administrator';
-    rolePermsByKey = { administrator: { 'roles.assign': true } };
-    roles.guest = role('guest', { is_privileged: true });
-    targetRoleKeys = ['guest'];
-    const res = await post('librarian');
-    expect(res.status).toBe(403);
-  });
-});
-
-describe('caller gate reads roles.assign like user_has_permission', () => {
-  it.each([['true'], ['t'], ['YES'], [' on '], ['1'], [1]])('counts %j as granted', async (v) => {
-    rolePermsByKey = { counselor: { 'roles.assign': v as never } };
-    const res = await post('librarian');
-    expect(res.status).toBe(200);
-  });
-
-  it.each([['false'], ['maybe'], ['o'], [{ assign: true }], [0], [null]])('does not count %j', async (v) => {
-    rolePermsByKey = { counselor: { 'roles.assign': v as never } };
-    const res = await post('librarian');
+describe('self-assignment', () => {
+  it('refuses a super admin giving a role to themselves', async () => {
+    asSuperAdmin();
+    const res = await post('faculty', CALLER);
     expect(res.status).toBe(403);
     expect(assigned()).toHaveLength(0);
   });
 });
 
 describe('fail closed', () => {
-  it.each([
-    ['rpc:is_super_admin'],
-    ['caller:profiles'],
-    ['caller:custom_roles'],
-    ['custom_roles'],
-    ['profiles'],
-    ['user_roles'],
-    ['rpc:fn_caller_can_grant_role']
-  ])('returns 500 and assigns nothing when %s errors', async (which) => {
-    failing.add(which);
-    const res = await post('librarian');
-    expect(res.status).toBe(500);
-    expect(assigned()).toHaveLength(0);
-  });
+  it.each([['rpc:is_super_admin'], ['custom_roles'], ['profiles']])(
+    'returns 500 and assigns nothing when %s errors',
+    async (which) => {
+      asSuperAdmin();
+      failing.add(which);
+      const res = await post('faculty');
+      expect(res.status).toBe(500);
+      expect(assigned()).toHaveLength(0);
+    }
+  );
 });

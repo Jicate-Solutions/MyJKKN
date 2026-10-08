@@ -6,7 +6,7 @@ export const dynamic = 'force-dynamic';
 // the user_roles INSERT RLS policy checks profiles.role IN ('super_admin','admin'),
 // while the permissions-audit page/search gates admit 'administrator'. A browser
 // insert could pass the UI gate yet be RLS-blocked. Doing the write here with the
-// service-role client behind an explicit roles.assign check gives one audited path
+// service-role client behind an explicit super-admin check gives one audited path
 // and sidesteps that admin/administrator spelling mismatch.
 //
 // Grant model: MyJKKN access is role-based — this assigns the WHOLE role (additive,
@@ -28,33 +28,12 @@ if (process.env.VAPID_PUBLIC_KEY && process.env.VAPID_PRIVATE_KEY) {
   );
 }
 
-const ADMIN_ROLE_KEYS = ['super_admin', 'administrator', 'admin'];
-
-type RoleRow = {
-  role_key?: string | null;
-  is_privileged?: boolean | null;
-};
-
 function checkFailed(error: unknown) {
   console.error('[roles/assign] check failed:', error);
   return NextResponse.json(
     { error: 'Could not check this request. Nothing was changed.' },
     { status: 500 }
   );
-}
-
-/**
- * The same answer as user_has_permission's `(permissions->>key)::boolean`:
- * PostgreSQL's boolean input (t, true, y, yes, on, 1 and unambiguous
- * prefixes, any case, spaces trimmed). A value that would not cast is false.
- */
-function grantsKey(permissions: unknown, key: string): boolean {
-  if (!permissions || typeof permissions !== 'object' || Array.isArray(permissions)) return false;
-  const v = (permissions as Record<string, unknown>)[key];
-  if (v === true) return true;
-  if (typeof v !== 'string' && typeof v !== 'number') return false;
-  const t = String(v).trim().toLowerCase();
-  return ['t', 'tr', 'tru', 'true', 'y', 'ye', 'yes', 'on', '1'].includes(t);
 }
 
 export async function POST(request: NextRequest) {
@@ -80,51 +59,40 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // ── Gate: roles.assign on the caller's PRIMARY role + super-admin flag ──
-    // Kept primary-role only on purpose (2026-10-08). Widening to every role
-    // the caller holds (user_has_permission) would let the 27 guest holders
-    // through if this code went live before migration 20271008121730 takes
-    // roles.assign off guest. Widen it once that migration is applied.
+    // ── Gate: super admins only (Director, 8 Oct 2026) ──
+    // "Admins need not give any role. We have enough super admins." Super admin
+    // means the is_super_admin flag, asked as the caller's own session; no
+    // role key, primary or otherwise, opens this route.
     //
-    // #4254 edits these same lines. Whichever PR merges second keeps BOTH rule
-    // sets: #4254's callerIsSuperAdmin + refuseRoleChange, and this PR's
-    // refusals below + 500 when any check cannot run.
-    const { data: callerProfile, error: callerErr } = await supabase
-      .from('profiles')
-      .select('role, full_name')
-      .eq('id', user.id)
-      .single();
+    // #4254 also edits this file and the other role-writing routes
+    // (/api/users/[id]/role, /api/users/bulk-role-update, ...). Whichever PR
+    // merges second keeps BOTH: this super-admin-only gate, the self-assign
+    // refusal and the 500-on-error below, plus #4254's refuseRoleChange. The
+    // other role-writing routes move to the same super-admin-only rule after
+    // #4254 merges.
     const superResult = await supabase.rpc('is_super_admin');
-    if (callerErr || superResult.error) {
-      return checkFailed(callerErr || superResult.error);
-    }
-    // Super admin = the is_super_admin flag, nothing else.
-    const callerIsSuperAdmin = superResult.data === true;
-
-    let allowed = callerIsSuperAdmin;
-    if (!allowed && callerProfile?.role) {
-      const { data: callerRole, error: callerRoleErr } = await supabase
-        .from('custom_roles')
-        .select('permissions')
-        .eq('role_key', callerProfile.role)
-        .maybeSingle();
-      if (callerRoleErr) return checkFailed(callerRoleErr);
-      allowed = grantsKey(callerRole?.permissions, 'roles.assign');
-    }
-    if (!allowed) {
+    if (superResult.error) return checkFailed(superResult.error);
+    if (superResult.data !== true) {
       return NextResponse.json(
-        { error: 'You do not have permission to assign roles (roles.assign required).' },
+        { error: 'Only a super admin can give roles.' },
         { status: 403 }
       );
     }
 
-    // (a) Nobody assigns a role to themselves, super admins included.
+    // Nobody gives a role to themselves, super admins included.
     if (userId === user.id) {
       return NextResponse.json(
-        { error: 'You cannot change your own roles; ask a super admin.' },
+        { error: 'You cannot change your own roles; ask another super admin.' },
         { status: 403 }
       );
     }
+
+    // Name for the notification only; not a check.
+    const { data: callerProfile } = await supabase
+      .from('profiles')
+      .select('full_name')
+      .eq('id', user.id)
+      .maybeSingle();
 
     // ── Service-role client for the writes (bypasses the user_roles INSERT RLS mismatch) ──
     const admin = createServiceRoleClient();
@@ -139,62 +107,18 @@ export async function POST(request: NextRequest) {
     if (!role) {
       return NextResponse.json({ error: `Role '${roleKey}' not found` }, { status: 404 });
     }
-
-    // (c) No escalation. The insert below uses the service-role client, which
-    // skips every database guard. Anyone but a super admin may give only a
-    // role that is not privileged, not every-college, and grants nothing the
-    // caller does not hold (fn_caller_can_grant_role, asked as the caller).
-    if (!callerIsSuperAdmin) {
-      const { data: canGrant, error: grantErr } = await supabase.rpc('fn_caller_can_grant_role', {
-        p_role_id: (role as { id: string }).id
-      });
-      if (grantErr) return checkFailed(grantErr);
-      if (canGrant !== true) {
-        return NextResponse.json(
-          {
-            error:
-              'You can give only a role whose access you already hold yourself, that is not an admin role and does not reach every college.'
-          },
-          { status: 403 }
-        );
-      }
-    }
     const roleId = (role as { id: string }).id;
     const roleName = (role as { role_name?: string }).role_name || roleKey;
 
     // Confirm the target user exists.
     const { data: target, error: targetErr } = await admin
       .from('profiles')
-      .select('id, full_name, email, role, is_super_admin')
+      .select('id, full_name, email')
       .eq('id', userId)
       .maybeSingle();
     if (targetErr) return checkFailed(targetErr);
     if (!target) {
       return NextResponse.json({ error: 'Target user not found' }, { status: 404 });
-    }
-
-    // (b) Only a super admin changes the roles of someone with admin powers
-    // (Director, 1 Oct): a super admin flag, a legacy admin role, or any role
-    // held that is privileged.
-    const { data: targetRoles, error: targetRolesErr } = await admin
-      .from('user_roles')
-      .select('custom_roles(role_key, is_privileged)')
-      .eq('user_id', userId);
-    if (targetRolesErr) return checkFailed(targetRolesErr);
-    const t = target as { role?: string | null; is_super_admin?: boolean | null };
-    const targetHasAdminPowers =
-      t.is_super_admin === true ||
-      ADMIN_ROLE_KEYS.includes(t.role ?? '') ||
-      ((targetRoles ?? []) as { custom_roles: RoleRow | RoleRow[] | null }[]).some((ur) =>
-        (Array.isArray(ur.custom_roles) ? ur.custom_roles : [ur.custom_roles]).some(
-          (r) => r != null && (r.is_privileged !== false || ADMIN_ROLE_KEYS.includes(r.role_key ?? ''))
-        )
-      );
-    if (!callerIsSuperAdmin && targetHasAdminPowers) {
-      return NextResponse.json(
-        { error: 'This person has admin powers. Only a super admin can change their roles.' },
-        { status: 403 }
-      );
     }
     const targetName = (target as { full_name?: string }).full_name || 'The user';
 
