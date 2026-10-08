@@ -27,7 +27,8 @@ export function toDutyProofError(err: { code?: string; message?: string } | null
   const message = err?.message || 'Something went wrong';
   switch (err?.code) {
     case '42501': return new DutyProofError(message, 403);
-    case '23505': return new DutyProofError(message, 409);
+    case '23505':
+    case '40001': return new DutyProofError(message, 409);
     case '22023':
     case '23514': return new DutyProofError(message, 400);
     default: return new DutyProofError(message, 500);
@@ -89,12 +90,16 @@ export const DutyProofService = {
     }));
   },
 
-  /** Record a second check. Never changes the item itself. */
+  /**
+   * Record a second check. Never changes the item itself. Refused with a 409
+   * when the item's amount is no longer the one the checker was shown.
+   */
   async recordSecondCheck(supabase: SupabaseClient, input: DutyProofSecondCheckInput): Promise<string> {
     const { data, error } = await supabase.rpc('fn_hr_duty_proof_second_check', {
       p_duty: input.duty,
       p_item_id: input.itemId,
       p_result: input.result,
+      p_expected_amount: input.expectedAmount,
       p_corrected_amount: input.result === 'corrected' ? input.correctedAmount ?? null : null,
       p_note: input.note ?? null,
     });

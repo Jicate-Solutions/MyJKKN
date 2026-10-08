@@ -78,6 +78,8 @@ export interface DutyProofSecondCheckInput {
   duty: DutyProofCode;
   itemId: string;
   result: DutyProofCheckResult;
+  /** The amount the checker was shown (the gap's amount; null when none is recorded). */
+  expectedAmount: number | null;
   correctedAmount?: number | null;
   note?: string | null;
 }

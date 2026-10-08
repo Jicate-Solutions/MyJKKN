@@ -2,11 +2,13 @@ export const dynamic = 'force-dynamic';
 
 /**
  * POST /api/hr/duty-proofs/check — record a second check on a done item.
- * Body: { duty, itemId, result: 'confirmed'|'corrected', correctedAmount?, note? }
+ * Body: { duty, itemId, result: 'confirmed'|'corrected', expectedAmount, correctedAmount?, note? }
  *
  * fn_hr_duty_proof_second_check refuses the item's own approver, a caller
  * without the duty's key in that college, and a correction with no amount or
  * note. A correction is a recorded disagreement: the item is never changed.
+ * expectedAmount is the amount the checker was shown (null when none is
+ * recorded); when the item's amount differs now the check is refused (409).
  */
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
@@ -36,10 +38,17 @@ export async function POST(request: NextRequest) {
     if (result !== 'confirmed' && result !== 'corrected') {
       return NextResponse.json({ error: 'result must be confirmed or corrected' }, { status: 400 });
     }
+    const rawExpected = body?.expectedAmount;
+    if (rawExpected === undefined || (rawExpected !== null && (typeof rawExpected !== 'number' || !Number.isFinite(rawExpected)))) {
+      return NextResponse.json({ error: 'This screen is out of date. Reload the page and check again.' }, { status: 400 });
+    }
+    const expectedAmount = rawExpected as number | null;
     const invalid = validateSecondCheck({ result, correctedAmount, note });
     if (invalid) return NextResponse.json({ error: invalid }, { status: 400 });
 
-    const id = await DutyProofService.recordSecondCheck(supabase, { duty, itemId, result, correctedAmount, note });
+    const id = await DutyProofService.recordSecondCheck(supabase, {
+      duty, itemId, result, expectedAmount, correctedAmount, note,
+    });
     return NextResponse.json({ data: { id } }, { status: 201 });
   } catch (err) {
     if (err instanceof DutyProofError) {

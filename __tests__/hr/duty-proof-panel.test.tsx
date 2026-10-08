@@ -83,7 +83,7 @@ describe('DutyProofPanel — second check on leave encashment (L4)', () => {
     expect(send.disabled).toBe(false);
     fireEvent.click(send);
     expect(mutateAsync).toHaveBeenCalledWith({
-      duty: 'L4', itemId: OTHER, result: 'corrected', correctedAmount: 6500,
+      duty: 'L4', itemId: OTHER, result: 'corrected', expectedAmount: 7200, correctedAmount: 6500,
       note: 'Rate should be the basic pay per day',
     });
   });
@@ -149,8 +149,20 @@ describe('review fixes — the panel and the badge', () => {
     fireEvent.click(screen.getByLabelText('The amount is right'));
     fireEvent.click(screen.getByRole('button', { name: 'Record check' }));
     expect(mutateAsync).toHaveBeenCalledWith({
-      duty: 'L4', itemId: OTHER, result: 'confirmed', correctedAmount: null, note: null,
+      duty: 'L4', itemId: OTHER, result: 'confirmed', expectedAmount: 7200, correctedAmount: null, note: null,
     });
+  });
+
+  // Review round 5 (MEDIUM): the database checks the amount against the one
+  // the checker was shown, so the panel must send the amount in the dialog.
+  it('sends the amount shown in the dialog, so a changed amount is refused rather than confirmed', () => {
+    render(<DutyProofPanel duty="L4" />);
+    fireEvent.click(within(rowFor('₹7,200')).getByRole('button', { name: /check amount/i }));
+    expect(screen.getByText(/for ₹7,200\. Is this amount right\?/)).toBeTruthy();
+    fireEvent.click(screen.getByLabelText('The amount is right'));
+    fireEvent.click(screen.getByRole('button', { name: 'Record check' }));
+    expect(mutateAsync).toHaveBeenCalledTimes(1);
+    expect(mutateAsync.mock.calls[0][0]).toMatchObject({ itemId: OTHER, expectedAmount: 7200 });
   });
 
   it('a check that went stale (the item is listed again) does not say "Checked by"', () => {

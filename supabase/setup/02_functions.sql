@@ -84764,7 +84764,7 @@ GRANT  EXECUTE ON FUNCTION public.fn_hr_playbook_decide(uuid, text, text, text) 
 -- ============================================================================
 -- Updated: 2026-10-08 - HR duty proofs review fixes (follow-up to #4226)
 -- Source: supabase/migrations/20271008110105_hr_duty_proofs_review_fixes.sql
--- fn_hr_duty_proof_try_timestamptz (new), fn_hr_duty_proof_done_items, fn_hr_duty_proof_second_check, fn_hr_duty_proof_gaps (replaced).
+-- fn_hr_duty_proof_try_timestamptz and the six-argument fn_hr_duty_proof_second_check (new), fn_hr_duty_proof_done_items, fn_hr_duty_proof_gaps and the five-argument fn_hr_duty_proof_second_check (replaced; the five-argument one now refuses every call).
 -- ============================================================================
 CREATE OR REPLACE FUNCTION public.fn_hr_duty_proof_try_timestamptz(p_value text)
 RETURNS timestamptz
@@ -84862,12 +84862,16 @@ END $$;
 REVOKE EXECUTE ON FUNCTION public.fn_hr_duty_proof_done_items(text, uuid) FROM anon, PUBLIC, authenticated;
 
 -- ----------------------------------------------------------------------------
--- 1 + 7. Record a second check
+-- 1 + 7 + 1c. Record a second check, against the amount the checker was shown
 -- ----------------------------------------------------------------------------
+-- p_expected_amount has NO default, and comes before the two that do, so a
+-- call without it never resolves here (nor is it ambiguous with the retired
+-- five-argument function below).
 CREATE OR REPLACE FUNCTION public.fn_hr_duty_proof_second_check(
   p_duty text,
   p_item_id uuid,
   p_result text,
+  p_expected_amount numeric,
   p_corrected_amount numeric DEFAULT NULL,
   p_note text DEFAULT NULL
 )
@@ -84912,6 +84916,19 @@ BEGIN
     RAISE EXCEPTION 'The right amount must be between 0 and 9,999,999,999.99' USING ERRCODE = '22023';
   END IF;
 
+  -- 1c. Lock the rows the item's amount and decider are read from, BEFORE
+  --     reading them (FOR SHARE cannot run inside the STABLE reader). An edit
+  --     committed while this check is being recorded waits for it; an edit
+  --     already in progress is waited for, and its new amount is read below.
+  --     Locked rows are released when the call's transaction ends.
+  IF p_duty = 'L4' THEN
+    PERFORM 1 FROM public.hr_leave_encashments e WHERE e.id = p_item_id FOR SHARE;
+  ELSIF p_duty = 'G6' THEN
+    PERFORM 1 FROM public.hr_offboarding_step_completions sc
+     WHERE sc.case_id = p_item_id AND sc.step_key = 'final_settlement' FOR SHARE;
+    PERFORM 1 FROM public.hr_fnf_calculations f WHERE f.case_id = p_item_id FOR SHARE;
+  END IF;
+
   -- 2 + 3. The item, from its own table, and it must be done.
   SELECT * INTO v_item FROM public.fn_hr_duty_proof_done_items(p_duty, p_item_id) d LIMIT 1;
   IF NOT FOUND THEN
@@ -84939,6 +84956,16 @@ BEGIN
   IF v_uid = ANY (v_item.doer_ids) THEN
     RAISE EXCEPTION 'You decided this item or it pays you; another team member must check it'
       USING ERRCODE = '42501';
+  END IF;
+
+  -- 1c. The amount the checker was shown must still be the item's amount,
+  --     compared in rupees and paise (what the screen shows; the item's own
+  --     amount can carry more decimals than a browser number keeps). NULL
+  --     matches NULL (a G6 case with no approved F&F yet). Otherwise the
+  --     check would be recorded against a figure the checker never saw.
+  IF round(p_expected_amount, 2) IS DISTINCT FROM round(v_item.amount, 2) THEN
+    RAISE EXCEPTION 'The amount changed after you opened this check. Reload the page and check the new amount.'
+      USING ERRCODE = '40001';
   END IF;
 
   -- 5b. 2026-10-08: an active check whose amount or decider no longer matches
@@ -84974,8 +85001,29 @@ BEGIN
   RETURN v_id;
 END $$;
 
-REVOKE EXECUTE ON FUNCTION public.fn_hr_duty_proof_second_check(text, uuid, text, numeric, text) FROM anon, PUBLIC;
-GRANT  EXECUTE ON FUNCTION public.fn_hr_duty_proof_second_check(text, uuid, text, numeric, text) TO authenticated;
+REVOKE EXECUTE ON FUNCTION public.fn_hr_duty_proof_second_check(text, uuid, text, numeric, numeric, text) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_hr_duty_proof_second_check(text, uuid, text, numeric, numeric, text) TO authenticated;
+
+-- 1c. The five-argument function cannot be told what the checker was shown,
+--     so it refuses every call, and nobody signed in may call it. Its body
+--     is replaced; the function itself stays.
+CREATE OR REPLACE FUNCTION public.fn_hr_duty_proof_second_check(
+  p_duty text,
+  p_item_id uuid,
+  p_result text,
+  p_corrected_amount numeric DEFAULT NULL,
+  p_note text DEFAULT NULL
+)
+RETURNS uuid
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+  RAISE EXCEPTION 'This screen is out of date. Reload the page and check again.' USING ERRCODE = '40001';
+END $$;
+
+REVOKE EXECUTE ON FUNCTION public.fn_hr_duty_proof_second_check(text, uuid, text, numeric, text) FROM anon, PUBLIC, authenticated;
 
 -- ----------------------------------------------------------------------------
 -- 1 + 9. Done items still missing their proof

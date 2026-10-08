@@ -16,7 +16,7 @@ import { execFileSync } from 'child_process';
 import path from 'path';
 import { randomUUID } from 'crypto';
 import { Client } from 'pg';
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 
 const REPO = path.resolve(__dirname, '..', '..');
 const MIG = (f: string) => path.join(REPO, 'supabase/migrations', f);
@@ -168,8 +168,14 @@ async function as(who: Who, sql: string) {
   }
 }
 
-const check = (duty: string, item: string, result: string, amount: string = 'NULL', note: string = 'NULL') =>
-  `SELECT public.fn_hr_duty_proof_second_check('${duty}', '${item}', '${result}', ${amount}, ${note}) AS id`;
+// The amount the checker was shown: by default the seeded item's (L4 5000,
+// G6 92000.00). Review round 5: the function refuses a check whose shown
+// amount is no longer the item's.
+const SHOWN: Record<string, string> = { L4: '5000', G6: '92000' };
+const check = (duty: string, item: string, result: string, amount: string = 'NULL', note: string = 'NULL',
+               shown: string = SHOWN[duty] ?? 'NULL') =>
+  `SELECT public.fn_hr_duty_proof_second_check(p_duty => '${duty}', p_item_id => '${item}', p_result => '${result}',
+     p_expected_amount => ${shown}, p_corrected_amount => ${amount}, p_note => ${note}) AS id`;
 const PROOFS = `SELECT duty_code, kind, recorded_by, check_result, corrected_amount::text AS amount FROM public.hr_duty_proofs`;
 
 beforeAll(async () => {
@@ -449,20 +455,21 @@ describe('hr_duty_proofs — who sees and who writes', () => {
     const r = await client.query(`SELECT
       has_function_privilege('anon', 'public.fn_hr_duty_proof_can_view(text, uuid)', 'EXECUTE') AS can_view,
       has_function_privilege('anon', 'public.fn_hr_duty_proof_can_view_object(text)', 'EXECUTE') AS can_view_object,
-      has_function_privilege('anon', 'public.fn_hr_duty_proof_second_check(text, uuid, text, numeric, text)', 'EXECUTE') AS second_check,
+      has_function_privilege('anon', 'public.fn_hr_duty_proof_second_check(text, uuid, text, numeric, numeric, text)', 'EXECUTE') AS second_check,
+      has_function_privilege('anon', 'public.fn_hr_duty_proof_second_check(text, uuid, text, numeric, text)', 'EXECUTE') AS second_check_old,
       has_function_privilege('anon', 'public.fn_hr_duty_proof_attach_file(text, uuid, text, text)', 'EXECUTE') AS attach_file,
       has_function_privilege('anon', 'public.fn_hr_duty_proof_gaps(text, date)', 'EXECUTE') AS gaps,
       has_function_privilege('authenticated', 'public.fn_hr_duty_proof_done_items(text, uuid)', 'EXECUTE') AS done_items,
       has_function_privilege('authenticated', 'public.fn_hr_duty_proof_rules_audit()', 'EXECUTE') AS audit_trigger`);
     expect(r.rows[0]).toEqual({
-      can_view: false, can_view_object: false, second_check: false, attach_file: false,
+      can_view: false, can_view_object: false, second_check: false, second_check_old: false, attach_file: false,
       gaps: false, done_items: false, audit_trigger: false,
     });
   });
 
   it('signed-in users can call the four public functions', async () => {
     const r = await client.query(`SELECT
-      has_function_privilege('authenticated', 'public.fn_hr_duty_proof_second_check(text, uuid, text, numeric, text)', 'EXECUTE') AS a,
+      has_function_privilege('authenticated', 'public.fn_hr_duty_proof_second_check(text, uuid, text, numeric, numeric, text)', 'EXECUTE') AS a,
       has_function_privilege('authenticated', 'public.fn_hr_duty_proof_attach_file(text, uuid, text, text)', 'EXECUTE') AS b,
       has_function_privilege('authenticated', 'public.fn_hr_duty_proof_gaps(text, date)', 'EXECUTE') AS c,
       has_function_privilege('authenticated', 'public.fn_hr_duty_proof_can_view(text, uuid)', 'EXECUTE') AS d`);
@@ -515,7 +522,7 @@ describe('review fixes (20271008110105) — follow-up to #4226', () => {
   it('a new check on a stale item keeps the old check as revoked history and records the new one', async () => {
     const r = await as({ perms: L4_KEY, after: CHECKED,
       setup: `${proofRow('5000', APPROVER)}; UPDATE public.hr_leave_encashments SET total_amount = 6000 WHERE id = '${ENC}'` },
-    check('L4', ENC, 'confirmed'));
+    check('L4', ENC, 'confirmed', 'NULL', 'NULL', '6000'));
     expect(r.error).toBeNull();
     expect(r.after).toEqual([
       { recorded_by: SETTLER, check_result: 'confirmed', check_note: null, checked: '5000', decider_id: APPROVER, revoked: true },
@@ -613,6 +620,52 @@ describe('review fixes (20271008110105) — follow-up to #4226', () => {
   });
 });
 
+// Review round 5 (deep review on fe32dafcd2, MEDIUM): a check is recorded only
+// against the amount the checker was shown. The two-session race is proven at
+// the end of this file.
+describe('review round 5: a check is recorded only against the amount the checker was shown', () => {
+  it('a check sent with an amount that is no longer the encashment\'s is refused (40001), not recorded against the new one', async () => {
+    const r = await as({ perms: L4_KEY,
+      setup: `UPDATE public.hr_leave_encashments SET total_amount = 9000 WHERE id = '${ENC}'` },
+    check('L4', ENC, 'confirmed'));
+    expect(r.error).toMatch(/The amount changed after you opened this check/);
+  });
+
+  it('a correction is refused the same way', async () => {
+    const r = await as({ perms: L4_KEY },
+      check('L4', ENC, 'corrected', '4500', `'Rate should be 900 per day'`, '7200'));
+    expect(r.error).toMatch(/The amount changed after you opened this check/);
+  });
+
+  it('G6: a check sent with an F&F amount that is no longer the latest approved one is refused', async () => {
+    const r = await as({ perms: G6_KEY }, check('G6', CASE_SETTLE, 'confirmed', 'NULL', 'NULL', '80000'));
+    expect(r.error).toMatch(/The amount changed after you opened this check/);
+  });
+
+  it('compared in rupees and paise: an amount with more decimals than a browser number keeps still matches, and the exact amount is saved', async () => {
+    const r = await as({ perms: L4_KEY, after: `SELECT checked_amount::text AS checked FROM public.hr_duty_proofs`,
+      setup: `UPDATE public.hr_leave_encashments SET total_amount = 7233.333333333333333 WHERE id = '${ENC}'` },
+    check('L4', ENC, 'confirmed', 'NULL', 'NULL', '7233.333333333333'));
+    expect(r.error).toBeNull();
+    expect(r.after).toEqual([{ checked: '7233.333333333333333' }]);
+  });
+
+  it('the old five-argument call, which cannot say what was shown, is not callable by anyone signed in', async () => {
+    const r = await as({ perms: L4_KEY },
+      `SELECT public.fn_hr_duty_proof_second_check(p_duty => 'L4', p_item_id => '${ENC}', p_result => 'confirmed') AS id`);
+    expect(r.error).toMatch(/permission denied for function fn_hr_duty_proof_second_check/);
+  });
+
+  it('and refuses even its owner', async () => {
+    await client.query('BEGIN');
+    try {
+      await expect(client.query(
+        `SELECT public.fn_hr_duty_proof_second_check('L4', '${ENC}', 'confirmed', NULL::numeric, NULL::text)`))
+        .rejects.toThrow(/This screen is out of date/);
+    } finally { await client.query('ROLLBACK'); }
+  });
+});
+
 // Review round 4 (deep review on 1dddf340c1, MEDIUM): checks recorded BEFORE
 // 20271008110105 have no checked_amount / decider_id. A legacy 'corrected'
 // check must stay the item's current proof (the "amount is wrong" flag), not
@@ -625,6 +678,10 @@ describe('20271008110105 applied over checks recorded before it', () => {
   const ENC_FIXED = '00000000-0000-4000-8000-00000000e102';
   const ENC_CONFIRMED = '00000000-0000-4000-8000-00000000e103';
   const ENC_REVOKED = '00000000-0000-4000-8000-00000000e104';
+  // Review round 5 (LOW): items that changed AFTER their correction.
+  const ENC_CHANGED = '00000000-0000-4000-8000-00000000e105';    // amount edited to a third value
+  const ENC_REAPPROVED = '00000000-0000-4000-8000-00000000e106'; // approved again
+  const CASE_REFNF = '00000000-0000-4000-8000-00000000f105';     // G6: F&F approved again
   let pre: Client;
 
   beforeAll(async () => {
@@ -653,7 +710,35 @@ describe('20271008110105 applied over checks recorded before it', () => {
         ('L4', 'hr_leave_encashments', '${ENC_CONFIRMED}', '${INST_A}', 'second_check', '${SETTLER}', 'confirmed',
          NULL, NULL, NULL, NULL),
         ('L4', 'hr_leave_encashments', '${ENC_REVOKED}', '${INST_A}', 'second_check', '${SETTLER}', 'corrected',
-         4500, 'Rate should be 900 per day', now(), '${SETTLER}');`]);
+         4500, 'Rate should be 900 per day', now(), '${SETTLER}');
+      -- Corrected a day ago; the item changed after that.
+      INSERT INTO public.hr_leave_encashments
+        (id, employee_id, hr_organization_id, leave_type_id, days_encashed, per_diem_rate, total_amount,
+         status, approved_by, approved_at, updated_at)
+      VALUES
+        ('${ENC_CHANGED}', '${STAFF_PAYEE}', '${ORG_A}', gen_random_uuid(), 5, 1000, 6000, 'approved', '${APPROVER}',
+         now() - interval '2 days', now()),
+        ('${ENC_REAPPROVED}', '${STAFF_PAYEE}', '${ORG_A}', gen_random_uuid(), 5, 1000, 5000, 'approved', '${APPROVER}',
+         now(), now() - interval '2 days');
+      INSERT INTO public.hr_offboarding_cases (id, staff_id, institution_id, reason, separation_type, termination_approval_chain)
+      VALUES ('${CASE_REFNF}', '${STAFF_LEAVER}', '${INST_A}', 'Termination after inquiry', 'termination', '[]'::jsonb);
+      INSERT INTO public.hr_offboarding_step_completions (case_id, step_key, step_index, completed_by, completed_at)
+      VALUES ('${CASE_REFNF}', 'final_settlement', 5, '${SETTLER}', now() - interval '2 days');
+      INSERT INTO public.hr_fnf_calculations
+        (case_id, gratuity, calculated_by, approved_by, approved_at, calculated_at, created_at)
+      VALUES ('${CASE_REFNF}', 80000, '${CALCULATOR}', '${APPROVER}', now() - interval '2 days', now() - interval '2 days',
+              now() - interval '2 days'),
+             ('${CASE_REFNF}', 70000, '${CALCULATOR}', '${APPROVER}', now(), now(), now());
+      INSERT INTO public.hr_duty_proofs
+        (duty_code, item_table, item_id, institution_id, kind, recorded_by, check_result, corrected_amount,
+         check_note, recorded_at)
+      VALUES
+        ('L4', 'hr_leave_encashments', '${ENC_CHANGED}', '${INST_A}', 'second_check', '${CHECKER}', 'corrected',
+         4500, 'Rate should be 900 per day', now() - interval '1 day'),
+        ('L4', 'hr_leave_encashments', '${ENC_REAPPROVED}', '${INST_A}', 'second_check', '${CHECKER}', 'corrected',
+         4500, 'Rate should be 900 per day', now() - interval '1 day'),
+        ('G6', 'hr_offboarding_cases', '${CASE_REFNF}', '${INST_A}', 'second_check', '${CHECKER}', 'corrected',
+         1000, 'Gratuity should be on basic pay only', now() - interval '1 day');`]);
     psql(['-d', DB2, '-f', REVIEW_FIXES]);
     pre = new Client({ host: PGHOST, port: Number(PGPORT), user: PGUSER, database: DB2 });
     await pre.connect();
@@ -711,6 +796,24 @@ describe('20271008110105 applied over checks recorded before it', () => {
     expect(r.rows.map((x) => x.item_id)).toEqual(expect.arrayContaining([ENC_CONFIRMED, ENC_REVOKED]));
   });
 
+  // Review round 5 (LOW): "as of now" is what the correction saw only when the
+  // item has not changed since. Otherwise it stays stale and is listed again.
+  it('an encashment edited after its correction (to a third, still-wrong amount) is not back-filled and is listed for a new check', async () => {
+    expect(await row(ENC_CHANGED)).toEqual([{ check_result: 'corrected', checked: null, decider_id: null, revoked: false }]);
+    const r = await asChecker(`SELECT item_id FROM public.fn_hr_duty_proof_gaps('L4', NULL)`);
+    expect(r.rows.map((x) => x.item_id)).toContain(ENC_CHANGED);
+  });
+
+  it('an encashment approved again after its correction is not back-filled and is listed for a new check', async () => {
+    expect(await row(ENC_REAPPROVED)).toEqual([{ check_result: 'corrected', checked: null, decider_id: null, revoked: false }]);
+    const r = await asChecker(`SELECT item_id FROM public.fn_hr_duty_proof_gaps('L4', NULL)`);
+    expect(r.rows.map((x) => x.item_id)).toContain(ENC_REAPPROVED);
+  });
+
+  it('G6: a settlement whose F&F was approved again after its correction is not back-filled', async () => {
+    expect(await row(CASE_REFNF)).toEqual([{ check_result: 'corrected', checked: null, decider_id: null, revoked: false }]);
+  });
+
   it('a second run of the file changes nothing', async () => {
     await pre.query('BEGIN');
     try {
@@ -723,3 +826,100 @@ describe('20271008110105 applied over checks recorded before it', () => {
   });
 });
 
+// Review round 5 (deep review on fe32dafcd2, MEDIUM): two real sessions. The
+// rows here are COMMITTED (a second session cannot see an uncommitted seed),
+// in a college no other test reads, and this describe stays last in the file.
+describe('a second check racing an edit to the amount (two sessions)', () => {
+  const INST_C = '00000000-0000-4000-8000-00000000b003';
+  const ORG_C = '00000000-0000-4000-8000-00000000c003';
+  const ENC_RACE = '00000000-0000-4000-8000-00000000e201';
+  let editor: Client;
+  let checker: Client;
+  let checkerPid: number;
+  const connect = async () => {
+    const c = new Client({ host: PGHOST, port: Number(PGPORT), user: PGUSER, database: DBNAME });
+    await c.connect();
+    return c;
+  };
+
+  beforeAll(async () => {
+    await client.query(`INSERT INTO public.hr_organizations VALUES ('${ORG_C}', '${INST_C}')`);
+    await client.query(
+      `INSERT INTO public.hr_leave_encashments
+         (id, employee_id, hr_organization_id, leave_type_id, days_encashed, per_diem_rate, total_amount,
+          status, approved_by, approved_at)
+       VALUES ('${ENC_RACE}', '${STAFF_PAYEE}', '${ORG_C}', gen_random_uuid(), 5, 1000, 5000, 'approved', '${APPROVER}', now())`);
+    editor = await connect();
+    checker = await connect();
+    checkerPid = (await checker.query('SELECT pg_backend_pid() AS pid')).rows[0].pid;
+  });
+  afterAll(async () => {
+    await editor?.end();
+    await checker?.end();
+  });
+  beforeEach(async () => {
+    await client.query(`UPDATE public.hr_leave_encashments SET total_amount = 5000 WHERE id = '${ENC_RACE}'`);
+  });
+
+  // The checker's dialog showed 5000.
+  async function startCheck() {
+    await checker.query('BEGIN');
+    await checker.query(
+      `SELECT set_config('test.uid', $1, true), set_config('test.perms', $2, true),
+              set_config('test.insts', $3, true), set_config('test.super', 'off', true)`,
+      [CHECKER, L4_KEY, INST_C]);
+    await checker.query('SET LOCAL ROLE authenticated');
+    return checker.query(check('L4', ENC_RACE, 'confirmed', 'NULL', 'NULL', '5000'))
+      .then(() => null, (e: { code?: string; message: string }) => e);
+  }
+
+  async function checkerIsWaitingOnALock() {
+    for (let i = 0; i < 50; i++) {
+      const r = await client.query(
+        `SELECT wait_event_type FROM pg_stat_activity WHERE pid = $1`, [checkerPid]);
+      if (r.rows[0]?.wait_event_type === 'Lock') return true;
+      await new Promise((res) => setTimeout(res, 50));
+    }
+    return false;
+  }
+
+  const recorded = async () => (await client.query(
+    `SELECT count(*)::int AS n FROM public.hr_duty_proofs WHERE item_id = $1`, [ENC_RACE])).rows[0].n;
+
+  it('an amount edit already in progress when the check arrives is waited for; the check then sees 9000 and is refused', async () => {
+    await editor.query('BEGIN');
+    await editor.query(`UPDATE public.hr_leave_encashments SET total_amount = 9000 WHERE id = '${ENC_RACE}'`);
+    const pending = startCheck();
+    try {
+      expect(await checkerIsWaitingOnALock()).toBe(true);
+    } finally {
+      await editor.query('COMMIT');
+    }
+    const err = await pending;
+    await checker.query('ROLLBACK');
+    expect(err?.code).toBe('40001');
+    expect(await recorded()).toBe(0);
+  });
+
+  it('an amount edit committed after the dialog opened (it showed 5000) refuses the check instead of recording it against 9000', async () => {
+    await editor.query(`UPDATE public.hr_leave_encashments SET total_amount = 9000 WHERE id = '${ENC_RACE}'`);
+    const err = await startCheck();
+    await checker.query('ROLLBACK');
+    expect(err?.code).toBe('40001');
+    expect(await recorded()).toBe(0);
+  });
+
+  it('while a check is being recorded, an edit to the amount waits for it', async () => {
+    const err = await startCheck();
+    expect(err).toBeNull();
+    await editor.query('BEGIN');
+    try {
+      await editor.query(`SET LOCAL lock_timeout = '300ms'`);
+      await expect(editor.query(`UPDATE public.hr_leave_encashments SET total_amount = 9000 WHERE id = '${ENC_RACE}'`))
+        .rejects.toMatchObject({ code: '55P03' });
+    } finally {
+      await editor.query('ROLLBACK');
+      await checker.query('ROLLBACK');
+    }
+  });
+});

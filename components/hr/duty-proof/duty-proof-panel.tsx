@@ -123,6 +123,9 @@ function SecondCheckDialog({ duty, gap, onClose }: { duty: DutyProofCode; gap: D
         duty,
         itemId: gap.item_id,
         result,
+        // The amount shown in this dialog: the database refuses the check if
+        // the item's amount has changed since.
+        expectedAmount: gap.amount,
         correctedAmount: result === 'corrected' ? Number(amount) : null,
         // The note box is shown only for a correction: a note typed there and
         // then abandoned by switching to "right" is not sent.
