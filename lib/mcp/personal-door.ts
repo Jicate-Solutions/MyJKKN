@@ -264,7 +264,11 @@ async function runScheduleTool(
 
   // Link invitees who are MyJKKN people, the same way the Schedule page does
   // when someone is picked from the list. Unknown addresses stay plain emails.
-  const emails = args.attendees.map((p) => p.email.toLowerCase());
+  // Both the lowercased and the as-typed address: profiles.email is matched
+  // exactly here, and not every stored address is lowercase.
+  const emails = [
+    ...new Set(args.attendees.flatMap((p) => [p.email.toLowerCase(), p.email])),
+  ];
   const { data: known } = await db
     .from('profiles')
     .select('id, email')

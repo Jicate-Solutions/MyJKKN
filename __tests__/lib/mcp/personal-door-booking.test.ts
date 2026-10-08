@@ -22,6 +22,7 @@ const KEY_ID = 'key-book-1';
 let keyRow: Record<string, unknown> | null = null;
 let grantRow: Record<string, unknown> | null = null;
 const tablesRead: string[] = [];
+const inValues: string[] = [];
 function makeServiceClient() {
   return {
     rpc: vi.fn(),
@@ -32,7 +33,7 @@ function makeServiceClient() {
       b.eq = vi.fn(() => b);
       b.update = vi.fn(() => ({ eq: vi.fn(async () => ({ error: null })) }));
       if (table === 'profiles') {
-        b.in = vi.fn(() => ({
+        b.in = vi.fn((_col: string, values: string[]) => (inValues.push(...values), {
           eq: vi.fn(async () => ({
             data: [{ id: KNOWN_PERSON, email: 'Viswanathan.S@jkkn.ac.in' }],
             error: null,
@@ -121,6 +122,7 @@ const GOOD_ARGS = {
 beforeEach(() => {
   vi.clearAllMocks();
   tablesRead.length = 0;
+  inValues.length = 0;
   resetRateLimiter();
   keyRow = {
     id: KEY_ID,
@@ -189,6 +191,10 @@ describe('booking', () => {
     expect(input.attendees).toEqual([
       { email: 'viswanathan.s@jkkn.ac.in', name: 'Viswanathan S', profileId: KNOWN_PERSON },
     ]);
+    // looked up both lowercased and as typed
+    const typed = await readRpc(await book({ ...GOOD_ARGS, attendees: [{ email: 'Viswanathan.S@jkkn.ac.in' }] }));
+    expect(typed.result.isError).toBeFalsy();
+    expect(inValues).toEqual(expect.arrayContaining(['viswanathan.s@jkkn.ac.in', 'Viswanathan.S@jkkn.ac.in']));
     const text = JSON.parse(res.result.content[0].text);
     expect(text).toMatchObject({ booked: true, uid: 'u1', meet_link: 'https://meet.google.com/x', warning: null });
   });
