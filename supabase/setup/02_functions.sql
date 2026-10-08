@@ -10999,8 +10999,8 @@ GRANT EXECUTE ON FUNCTION fn_notification_is_for_user(JSONB, UUID) TO authentica
 
 -- ============================================================================
 -- Updated: 2026-09-30 - fn_is_the_director() (migration 20270520090000_the_director_list.sql)
--- Placed HERE, before fn_get_policy(), because fn_get_policy below calls it
--- and is LANGUAGE sql (its body is checked when it is created). The rest of
+-- Placed HERE, early, because LANGUAGE sql functions later in this file call
+-- it and a sql body is checked when it is created. The rest of
 -- the Director list (guard + audit triggers) is at the end of this file.
 -- Needs public.profiles and public.platform_policies (01_tables.sql) and
 -- auth.uid(); nothing else.
@@ -11074,19 +11074,16 @@ BEGIN
       -- stay admin-only, exactly as in the table rule.
       RETURN (
         SELECT pp.value FROM platform_policies pp
-        WHERE pp.policy_key = p_key AND (p_key IS DISTINCT FROM 'platform.the_director_profile_ids' OR (SELECT public.is_super_admin()) OR (SELECT public.fn_is_the_director())) AND pp.is_active = true
+        WHERE pp.policy_key = p_key AND pp.is_active = true
           AND pp.scope_type = 'institution' AND pp.scope_id = p_scope_id
         LIMIT 1
       );
     END IF;
   END IF;
 
-  -- Updated: 2026-10-08 - the Director list is readable only by super admins
-  -- and listed people (migration 20270520090000 section 7 patches the live body
-  -- in place, adding the same guard after every "policy_key = p_key").
   RETURN (
   SELECT value FROM platform_policies
-  WHERE policy_key = p_key AND (p_key IS DISTINCT FROM 'platform.the_director_profile_ids' OR (SELECT public.is_super_admin()) OR (SELECT public.fn_is_the_director())) AND is_active = true
+  WHERE policy_key = p_key AND is_active = true
     AND (
       (scope_type='institution' AND scope_id=p_scope_id)
       OR (scope_type='global' AND scope_id IS NULL)
@@ -75179,8 +75176,8 @@ GRANT EXECUTE ON FUNCTION public.fn_learner_bill_year_visible(uuid, date) TO aut
 -- ============================================================================
 -- ----------------------------------------------------------------------------
 -- 1. fn_is_the_director() is defined EARLIER in this file, just before
---    fn_get_policy(), because fn_get_policy (LANGUAGE sql, body checked
---    when created) calls it; replaying this file in order needs it first.
+--    fn_get_policy(), because LANGUAGE sql functions in this file call it
+--    (a sql body is checked when created); replaying in order needs it first.
 --    Search 'the_director_profile_ids'.
 -- ----------------------------------------------------------------------------
 
@@ -75377,8 +75374,12 @@ CREATE TRIGGER trg_audit_the_director_list
 -- 7. fn_get_policy() and fn_internship_evaluate_policy() are patched IN PLACE by
 --    the migration (pg_get_functiondef + one guard after each
 --    "policy_key = p_key"), so production-only fixes and Draft #4111's body are
---    kept. The guard is also written into this file's own fn_get_policy copy
---    above (search 'the_director_profile_ids'). The internship reader has no
+--    kept. Updated 2026-10-08: this file's own fn_get_policy copy is NOT
+--    patched; it stays byte-identical to 20270506090000's body, which
+--    __tests__/hr/pay-policies-restricted-migration.test.ts requires. The guard
+--    lives in the database body only. If 20270506090000 is (re)applied after
+--    this migration it replaces the body WITHOUT the guard; re-applying
+--    20270520090000 (idempotent) puts it back. The internship reader has no
 --    copy in this file. See the migration's section 7 for the exact DO block.
 -- ----------------------------------------------------------------------------
 
