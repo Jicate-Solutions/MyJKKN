@@ -8,7 +8,14 @@ import {
   recordChatCall,
   resolveChatModel,
 } from '@/lib/services/platform/ai-clients/chat';
-import { buildCompareFacts, renderFactsForPrompt } from '@/lib/procurement/quotation-compare-facts';
+import {
+  attachVendorHistory,
+  buildCompareFacts,
+  renderFactsForPrompt,
+  type VendorHistory,
+} from '@/lib/procurement/quotation-compare-facts';
+import { buildVendorHistory } from '@/lib/procurement/vendor-history';
+import type { RatingMeans, VendorKpis } from '@/lib/procurement/vendor-score';
 import {
   QUOTATION_COMPARE_CHAT_FEATURE,
   SUGGEST_AWARDS_TOOL,
@@ -16,7 +23,7 @@ import {
   validateSuggestion,
 } from '@/lib/procurement/quotation-compare-agent';
 import { istBusinessDate, istDayBounds } from '@/lib/utils/date-format';
-import type { QuotationWithItems } from '@/types/procurement';
+import type { ItemVendorRating, QuotationWithItems } from '@/types/procurement';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -45,7 +52,7 @@ async function loadRfq(rfqId: string) {
   const [{ data: items }, { data: quotations }] = await Promise.all([
     db
       .from('procurement_rfq_items')
-      .select('id, item_name, item_spec, quantity, unit_label')
+      .select('id, item_name, item_spec, quantity, unit_label, domain_item_id')
       .eq('rfq_id', rfqId)
       .order('created_at', { ascending: true }),
     db
@@ -70,6 +77,37 @@ async function loadRfq(rfqId: string) {
     items: (items ?? []).map((i) => ({ ...i, quantity: Number(i.quantity) })),
     quotations: withItems,
   };
+}
+
+/**
+ * Each quoting vendor's past-delivery record (vendor rating loop). Best effort: a
+ * failure here must never stop the assistant answering about the quotes.
+ */
+async function loadVendorHistory(
+  supplierIds: string[],
+  items: { item_name: string; domain_item_id: string | null }[],
+): Promise<Map<string, VendorHistory>> {
+  try {
+    const db = await createClient();
+    const itemIds = [...new Set(items.map((i) => i.domain_item_id).filter((x): x is string => !!x))];
+    const [kpis, means, ratings] = await Promise.all([
+      db.rpc('procurement_vendor_kpis', { p_supplier_ids: supplierIds }),
+      db.rpc('procurement_rating_means'),
+      itemIds.length
+        ? db.rpc('procurement_item_vendor_ratings', { p_item_ids: itemIds })
+        : Promise.resolve({ data: [], error: null }),
+    ]);
+    if (kpis.error || means.error || ratings.error) return new Map();
+    const names = new Map(items.filter((i) => i.domain_item_id).map((i) => [i.domain_item_id as string, i.item_name]));
+    return buildVendorHistory(
+      (kpis.data ?? []) as VendorKpis[],
+      ((means.data as RatingMeans[] | null)?.[0] ?? { delivery_mean: null, item_mean: null }),
+      (ratings.data ?? []) as ItemVendorRating[],
+      names,
+    );
+  } catch {
+    return new Map();
+  }
 }
 
 /** GET — the RFQ's saved conversation, oldest first. */
@@ -190,7 +228,13 @@ export async function POST(req: NextRequest, ctx: RouteCtx) {
   }
 
   // ── Prompt ────────────────────────────────────────────────────────────────
-  const facts = buildCompareFacts({ ...loaded.rfq, items: loaded.items }, loaded.quotations);
+  const facts = attachVendorHistory(
+    buildCompareFacts({ ...loaded.rfq, items: loaded.items }, loaded.quotations),
+    await loadVendorHistory(
+      [...new Set(loaded.quotations.map((q) => q.supplier_id))],
+      loaded.items,
+    ),
+  );
   const system = buildSystemPrompt(renderFactsForPrompt(facts));
 
   const { data: past } = await admin

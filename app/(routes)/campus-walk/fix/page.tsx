@@ -38,6 +38,7 @@ import { PageHeader } from '@/components/page-header';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server';
+import { readJoinedReports } from '@/lib/campus-walk/joined-reports';
 import { FixClient, type ApprovalState, type FixTicket } from './_components/fix-client';
 
 export const dynamic = 'force-dynamic';
@@ -67,7 +68,7 @@ function Shell({ children }: { children: React.ReactNode }) {
       <div className="mt-4">
         <PageHeader
           title="Close a campus job"
-          description="Show the finished work and send it for approval."
+          description="Send a photo of the finished work. The photo closes the job."
         />
       </div>
       {children}
@@ -338,7 +339,15 @@ export default async function CampusWalkFixPage({ searchParams }: PageProps) {
     }
   }
 
-  const wanted = [problemPath, fixPath].filter((p): p is string => Boolean(p));
+  // Extra reports people added from the QR sticker ("Add to the open report").
+  // The fixer must see every note and photo, not only the first report's.
+  const joined = readJoinedReports(metadata);
+
+  const wanted = [
+    problemPath,
+    fixPath,
+    ...joined.map((r) => r.photoStoragePath),
+  ].filter((p): p is string => Boolean(p));
   const signed = new Map<string, string>();
   if (wanted.length > 0) {
     const { data: urls } = await admin.storage
@@ -369,6 +378,13 @@ export default async function CampusWalkFixPage({ searchParams }: PageProps) {
     isBlocked: Boolean(task.is_blocked),
     problemPhotoUrl: problemPath ? (signed.get(problemPath) ?? null) : null,
     fixPhotoUrl: fixPath ? (signed.get(fixPath) ?? null) : null,
+    // Note, time and photo only — never who sent it (D10).
+    joinedReports: joined.map((r) => ({
+      note: r.note,
+      at: r.at,
+      photoUrl: r.photoStoragePath ? (signed.get(r.photoStoragePath) ?? null) : null,
+      photoMissing: Boolean(r.photoStoragePath) && !signed.get(r.photoStoragePath as string),
+    })),
     fix: metadata.fix
       ? {
           submittedAt: (metadata.fix.submitted_at as string | null) ?? null,
@@ -377,6 +393,8 @@ export default async function CampusWalkFixPage({ searchParams }: PageProps) {
           approvalState,
           approvalNote: (metadata.fix.approval?.note as string | null) ?? null,
           decidedAt: (metadata.fix.approval?.decided_at as string | null) ?? null,
+          autoClosed: metadata.fix.approval?.auto === true,
+          reopenedByReporter: metadata.fix.approval?.reopened_by_reporter === true,
         }
       : null,
     blocked: metadata.blocked
@@ -484,6 +502,9 @@ async function MyOpenJobs({
                   )}
                   {t.is_blocked && <Badge variant="outline">Held up</Badge>}
                   {t.status_key === 'review' && <Badge variant="outline">Waiting for approval</Badge>}
+                  {meta.fix?.approval?.reopened_by_reporter === true && t.status_key !== 'review' && (
+                    <Badge variant="destructive">Reported not fixed</Badge>
+                  )}
                 </div>
                 <p className="font-medium leading-snug">{t.title}</p>
                 <p className="text-xs text-muted-foreground">

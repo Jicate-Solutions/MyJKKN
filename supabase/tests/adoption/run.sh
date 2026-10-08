@@ -21,7 +21,8 @@ build() {
            "$ROOT"/supabase/migrations/20260916190200_adoption_metrics.sql \
            "$ROOT"/supabase/migrations/20260918230000_adoption_term_cadence.sql \
            "$ROOT"/supabase/migrations/20270324090000_adoption_daily_ask_and_remind.sql \
-           "$ROOT"/supabase/migrations/20270404090000_adoption_tick_syncs_usage_first.sql; do
+           "$ROOT"/supabase/migrations/20270404090000_adoption_tick_syncs_usage_first.sql \
+           "$ROOT"/supabase/migrations/20270720090000_adoption_remind_signed_in_only.sql; do
     psql -d "$DB" -v ON_ERROR_STOP=1 -q -f "$f"; done
 }
 
@@ -36,6 +37,14 @@ psql -d "$DB" -v ON_ERROR_STOP=1 -f "$HERE/20_daily_tick.sql" 2>&1 | grep -E "FA
 # Migration E.1 (2026-09-27): the daily run copies usage in before it reads it.
 build
 psql -d "$DB" -v ON_ERROR_STOP=1 -f "$HERE/22_tick_syncs_first.sql" 2>&1 | grep -E "FAIL|ERROR|TICK SYNCS FIRST SCENARIOS PASSED"
+
+# Migration E.2 (2026-10-02): reminders only to people who signed in lately.
+build
+psql -d "$DB" -v ON_ERROR_STOP=1 -f "$HERE/23_remind_signed_in.sql" 2>&1 | grep -E "FAIL|ERROR|REMIND SIGNED-IN SCENARIOS PASSED"
+
+# Register, October queue (2026-10-08): 20 unwired rows, applied twice, message nobody.
+build
+psql -d "$DB" -v ON_ERROR_STOP=1 -f "$HERE/24_register_oct_queue.sql" 2>&1 | grep -E "FAIL|ERROR|OCT QUEUE REGISTER SCENARIOS PASSED"
 
 # Review 4 (2026-09-25): two simultaneous Ask-why presses cannot overspend the day's budget.
 bash "$HERE/21_concurrency.sh" "$DB"

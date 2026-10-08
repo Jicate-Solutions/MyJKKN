@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { ProfileForm } from './_components/profile-form';
+import { SignOutEverywhereCard } from './_components/sign-out-everywhere-card';
 import { StaffGateQr } from '@/components/gate-security/staff-gate-qr';
 import { useAuth } from '@/hooks/use-auth';
 import { INSTITUTIONS, ROLE_LABELS } from '@/lib/constants/permissions';
@@ -314,6 +315,8 @@ export default function ProfilePage() {
 
             {/* Team members: personal gate QR + recent IN/OUT (renders nothing for others) */}
             <StaffGateQr />
+
+            <SignOutEverywhereCard />
           </>
         )}
       </div>

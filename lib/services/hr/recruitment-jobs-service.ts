@@ -167,6 +167,12 @@ export class RecruitmentJobsService {
       salary_currency: payload.salary_currency ?? 'INR',
       salary_duration: (payload.salary_duration ?? 'per_month') as SalaryDuration,
       display_salary: payload.display_salary ?? false,
+      // Website SEO (2026-10-06) — <head> of jkkn.ac.in/careers/<job> only.
+      seo_title: payload.seo_title ?? null,
+      seo_description: payload.seo_description ?? null,
+      seo_keywords: payload.seo_keywords ?? [],
+      seo_og_image: payload.seo_og_image ?? null,
+      seo_noindex: payload.seo_noindex ?? false,
       status: payload.status ?? 'draft',
       is_public: payload.is_public ?? false,
       posted_at: payload.posted_at ?? null,

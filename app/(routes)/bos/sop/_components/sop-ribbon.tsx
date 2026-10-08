@@ -227,7 +227,8 @@ export function SopRibbon(props: SopRibbonProps) {
       }
       return n;
     };
-    editor.commands.setContent(replaceInTree(doc) as never);
+    // v3 emits an update from setContent by default; v2 did not.
+    editor.commands.setContent(replaceInTree(doc) as never, { emitUpdate: false });
   };
 
   return (

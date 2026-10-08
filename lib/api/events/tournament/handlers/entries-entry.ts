@@ -35,7 +35,8 @@ export async function PATCH(
   try {
     const { eventId, entryId } = await params;
     const gate = await requireManage(eventId);
-    if (!gate.ok) return gate.res;
+    // `in` narrowing: with strictNullChecks off, `!gate.ok` does not narrow the union.
+    if ('res' in gate) return gate.res;
 
     const body = (await request.json().catch(() => ({}))) as
       & { action?: 'mark_paid'; payment_reference?: string }
@@ -74,7 +75,12 @@ export async function PATCH(
     if (body.entry_name !== undefined) patch.entry_name = body.entry_name;
     if (body.seed !== undefined) patch.seed = body.seed;
     if (body.status !== undefined) patch.status = body.status;
-    if (body.final_rank !== undefined) patch.final_rank = body.final_rank;
+    if (body.final_rank !== undefined) {
+      if (body.final_rank !== null && !(Number.isInteger(body.final_rank) && body.final_rank >= 1)) {
+        return NextResponse.json({ error: 'final_rank must be a whole number from 1, or null' }, { status: 400 });
+      }
+      patch.final_rank = body.final_rank;
+    }
     if (body.notes !== undefined) patch.notes = body.notes;
 
     if (Object.keys(patch).length === 0) {
@@ -108,7 +114,8 @@ export async function DELETE(
   try {
     const { eventId, entryId } = await params;
     const gate = await requireManage(eventId);
-    if (!gate.ok) return gate.res;
+    // `in` narrowing: with strictNullChecks off, `!gate.ok` does not narrow the union.
+    if ('res' in gate) return gate.res;
 
     const svc = createServiceRoleClient();
 

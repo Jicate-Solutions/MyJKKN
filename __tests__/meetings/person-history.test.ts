@@ -89,6 +89,13 @@ describe('outcome is never claimed more confidently than the record allows', () 
     expect(deriveOutcome({ status: 'completed', outcomeMarkedBy: 'system' })).toBe('not_recorded');
   });
 
+  it('says NOTES LINKED — never HAPPENED — when the daily sweep closed it because notes are linked', () => {
+    // 'notes' is the fourth legal value (Director, 2 Oct 2026). A linked note is
+    // a record, not a person saying the meeting took place.
+    expect(deriveOutcome({ status: 'completed', outcomeMarkedBy: 'notes' })).toBe('notes_linked');
+    expect(outcomeLabel('notes_linked')).toBe('Closed automatically — notes linked');
+  });
+
   it('says HAPPENED only when a person recorded it', () => {
     expect(deriveOutcome({ status: 'completed', outcomeMarkedBy: 'host' })).toBe('happened');
     expect(deriveOutcome({ status: 'completed', outcomeMarkedBy: 'admin' })).toBe('happened');

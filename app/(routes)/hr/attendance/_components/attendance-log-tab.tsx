@@ -23,6 +23,7 @@ import {
   formatDuration,
   STATUS_TOKENS,
   type AttendanceDay,
+  type AttendanceRecord,
 } from '@/types/hr-attendance';
 
 import { AttendanceTokenBadge, tonesFor } from './attendance-legend';
@@ -141,6 +142,31 @@ function TimeOffCell({ day }: { day: AttendanceDay }) {
   );
 }
 
+function ClinicalSource({ record }: { record: AttendanceRecord }) {
+  const hasGps = typeof record.gps_lat === 'number' && typeof record.gps_lng === 'number';
+  return (
+    <span className="flex flex-wrap items-center gap-1.5">
+      <Badge
+        variant="outline"
+        className="border-sky-300 font-normal text-sky-700 dark:border-sky-800 dark:text-sky-400"
+        title={record.notes ?? undefined}
+      >
+        Clinical duty
+      </Badge>
+      {hasGps && (
+        <a
+          href={`https://www.google.com/maps?q=${record.gps_lat},${record.gps_lng}`}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-[11px] text-primary underline-offset-2 hover:underline"
+        >
+          Open in Maps
+        </a>
+      )}
+    </span>
+  );
+}
+
 function LogRow({ day }: { day: AttendanceDay }) {
   /** Past day with no record yet — nothing to correct until the import lands. */
   const awaitingImport = !day.isFuture && day.token === 'AEYP';
@@ -172,6 +198,7 @@ function LogRow({ day }: { day: AttendanceDay }) {
             {day.tokenDetail && (
               <span className="text-[11px] text-muted-foreground">{day.tokenDetail}</span>
             )}
+            {day.record?.source === 'clinical_geotag' && <ClinicalSource record={day.record} />}
           </span>
         )}
       </TableCell>

@@ -50,6 +50,17 @@ export type IdCardPrintJob = {
   result: { success: boolean; error_message: string | null } | null;
 };
 
+/**
+ * GET /api/id-cards/jobs for a signed-in USER (the Print Queue page): the row
+ * plus display names. The agent path keeps the bare row.
+ */
+export type IdCardPrintJobListed = IdCardPrintJob & {
+  learner_name: string | null;
+  template_name: string | null;
+  /** result.error_message lifted out for the table. */
+  result_message: string | null;
+};
+
 // Pickup response shape (POST /api/id-cards/jobs/:id/pickup) — the claimed job
 // row PLUS the duplex hint. `has_back` tells the print bridge whether the
 // job's template has a configured back side (back_layout_json non-null), i.e.
@@ -58,6 +69,16 @@ export type IdCardPrintJob = {
 // keep printing fronts only, so shipping this is dark by construction.
 export type IdCardPrintJobPickup = IdCardPrintJob & {
   has_back: boolean;
+  /**
+   * How each face is meant to be printed (additive, 2026-10-01). The bridge
+   * drives the printer through the Evolis SDK, which ignores the Front/Back
+   * combination saved in Evolis Premium Suite and prints BOTH faces in colour
+   * unless the session is told otherwise — two ribbon sets per card. `back:
+   * 'monochrome'` is the instruction to print the back from the same set's
+   * black panel (SDK duplex type colour/mono, "YMCO / K"). Absent `back` ⇔
+   * front-only card.
+   */
+  print_plan: { front: 'color'; back?: 'monochrome' };
 };
 
 /**

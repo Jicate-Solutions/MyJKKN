@@ -48,6 +48,7 @@ import {
   switchSourceMode,
 } from '@/lib/services/meetings/meeting-mode-switch';
 import { EndRecordingButton } from './_components/end-recording-button';
+import { DownloadRecordButton } from './_components/download-record-button';
 import { CancelBookingButton } from './_components/cancel-booking-button';
 import { RescheduleBookingButton } from './_components/reschedule-booking-button';
 import { SwitchToOnlineButton } from './_components/switch-to-online-button';
@@ -66,6 +67,7 @@ import {
 } from './_components/interview-link-section';
 import { InterviewFlagsCard } from './_components/interview-flags-card';
 import { MeetingNoteText } from './_components/meeting-note-text';
+import { OutcomeRecordedLine } from './_components/outcome-recorded-line';
 import { loadInterviewFlags } from './interview-flags-data';
 
 const BREADCRUMB_ITEMS = [
@@ -351,14 +353,19 @@ export default async function MeetingDetailPage({ params }: DetailPageProps) {
     booking.status === 'confirmed' &&
     new Date(booking.start_time).getTime() < Date.now();
   const isHost = !!user && user.id === booking.host_profile_id;
+  // A meeting the daily sweep closed because its notes were linked can still be
+  // corrected by a person (3 Oct 2026) — fn_meeting_mark_outcome accepts it.
+  const isNotesClosed =
+    booking.status === 'completed' && booking.outcome_marked_by === 'notes';
   // Only ask the database about super-admin when the answer could change
   // anything: a host already qualifies, and nobody qualifies on a booking that
-  // is not both open and started.
+  // is neither open-and-started nor notes-closed.
   const { data: isSuperAdmin } =
-    isOpenAndStarted && !!user && !isHost
+    (isOpenAndStarted || isNotesClosed) && !!user && !isHost
       ? await supabase.rpc('is_super_admin')
       : { data: false };
-  const canMark = isOpenAndStarted && (isHost || !!isSuperAdmin);
+  const canActOnOutcome = isHost || !!isSuperAdmin;
+  const canMark = isOpenAndStarted && canActOnOutcome;
 
   // Mode switch (2026-08-19, widened 2026-08-21). Three independent questions:
   //   • canSwitchToOnline — may the host turn this booking into a Google Meet?
@@ -424,6 +431,8 @@ export default async function MeetingDetailPage({ params }: DetailPageProps) {
     !isCancelled &&
     !isPast &&
     switchRequestState(booking, meetingType?.min_notice_min) === 'pending';
+
+  const canDownloadRecord = isPast && (!!meetingNote || actionItems.length > 0);
 
   const answers: Record<string, string> =
     booking.answers && typeof booking.answers === 'object' && !Array.isArray(booking.answers)
@@ -492,20 +501,14 @@ export default async function MeetingDetailPage({ params }: DetailPageProps) {
             ) : null}
             {/* An assumed outcome is not an observed one — say which this is,
                 and name the person whenever the record knows who they were.
-                Rows marked before 20260926010000 carry only the actor kind, so
-                for those the name is unavailable rather than wrong: they fall
-                back to naming the kind, never to guessing a person. */}
-            {booking.outcome_marked_by ? (
-              <p className="text-xs text-muted-foreground">
-                {booking.outcome_marked_by === 'system'
-                  ? 'Closed automatically before 21 August 2026 — nobody confirmed it took place.'
-                  : markedByName
-                    ? `Closed by ${markedByName}.`
-                    : booking.outcome_marked_by === 'host'
-                      ? 'Recorded by the host.'
-                      : 'Recorded by an administrator.'}
-              </p>
-            ) : null}
+                The wording for each kind lives in OutcomeRecordedLine. */}
+            <OutcomeRecordedLine
+              markedBy={booking.outcome_marked_by as string | null}
+              markedByName={markedByName}
+              status={booking.status as string}
+              uid={booking.uid}
+              canAct={canActOnOutcome}
+            />
           </CardContent>
         </Card>
 
@@ -551,6 +554,14 @@ export default async function MeetingDetailPage({ params }: DetailPageProps) {
             </CardContent>
           </Card>
         ) : null}
+
+        {/* The finished record as a document someone can keep or forward.
+            Only for a meeting that is over AND has something to put in it —
+            a note or at least one follow-up; the route repeats this rule. The
+            route re-reads everything as this viewer. The PDF also lists who
+            was on the call (names only, no email addresses or links), which
+            this page does not show. */}
+        {canDownloadRecord ? <DownloadRecordButton uid={booking.uid} /> : null}
 
         {/* Only rendered when there is something to show or something the
             viewer may do. A meeting that is not an interview, seen by somebody
@@ -770,8 +781,8 @@ export default async function MeetingDetailPage({ params }: DetailPageProps) {
             <CardContent className="space-y-3">
               <p className="text-sm text-muted-foreground">
                 Nothing is recorded until you say so. Until you do, this meeting stays
-                under Awaiting you on your meetings list. It is no longer closed
-                automatically after seven days.
+                under Awaiting you on your meetings list. If its notes are linked, it
+                closes on its own seven days after it ends; otherwise it waits for you.
               </p>
               <MarkOutcomeButtons uid={booking.uid} />
             </CardContent>

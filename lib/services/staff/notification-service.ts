@@ -253,7 +253,7 @@ export class StaffNotificationService {
     return this.dispatch(supabase, {
       title: approved ? 'Leave Eligibility Approved' : 'Leave Eligibility Rejected',
       message: approved
-        ? `You are now eligible for ${leaveTypeName}. It appears in your Apply Leave list and needs no document.${tail}`
+        ? `You are now eligible for ${leaveTypeName}. It now appears in your Apply Leave list.${tail}`
         : `Your eligibility request for ${leaveTypeName} was not approved.${tail} You can request again with the document asked for.`,
       userIds: [applicantUserId],
       eventType: approved ? 'eligibility_approved' : 'eligibility_rejected',

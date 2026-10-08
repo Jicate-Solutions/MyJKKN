@@ -7,6 +7,7 @@
 // chain ships with the workflow-engine PR; for now this lists every
 // submission the caller can see via RLS.
 // =====================================================================
+import { DutyPlaybookCard } from '@/components/hr/duty-playbook/duty-playbook-card';
 import Link from 'next/link';
 import { Inbox, FileText, AlertTriangle } from 'lucide-react';
 
@@ -62,6 +63,7 @@ export default async function HrFormsInboxPage() {
           { label: 'Inbox' },
         ]}
       />
+      <DutyPlaybookCard duty="G2" className="mb-6" />
       <InboxContent />
     </ContentLayout>
   );

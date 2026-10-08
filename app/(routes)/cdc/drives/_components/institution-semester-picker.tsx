@@ -45,6 +45,7 @@ import type {
   CdcDriveDegreeSemesterTarget,
   CdcDriveInstitutionSemesterTarget,
   CdcDriveInstitutionSemesters,
+  CdcDriveTargetGender,
 } from "@/types/cdc";
 
 export interface PickerInstitution {
@@ -67,6 +68,8 @@ interface Props {
    * institution are pre-ticked once the options load, so the two places agree.
    */
   fallbackProgramIds?: string[];
+  /** The drive-level "Open to" choice; a block shows it until it sets its own. */
+  driveGender?: CdcDriveTargetGender;
 }
 
 /** One degree block as rendered: its programs and its semester range. */
@@ -83,7 +86,17 @@ interface UiGroup {
 interface GroupPick {
   programs: string[];
   orders: number[];
+  /** Block's own gender; undefined = follow the drive-level choice. */
+  gender?: CdcDriveTargetGender;
+  /** Gender per ticked program (programs.id → gender); absent = follow the block. */
+  programGenders?: Record<string, CdcDriveTargetGender>;
 }
+
+const GENDER_OPTIONS: Array<{ value: CdcDriveTargetGender; label: string }> = [
+  { value: "all", label: "Both" },
+  { value: "male", label: "Male" },
+  { value: "female", label: "Female" },
+];
 
 const OTHER_KEY = "__OTHER__";
 
@@ -97,6 +110,7 @@ export function InstitutionSemesterPicker({
   onTargetingChange,
   disabled,
   fallbackProgramIds,
+  driveGender = "all",
 }: Props) {
   const {
     data: semData,
@@ -213,7 +227,12 @@ export function InstitutionSemesterPicker({
     const picks = new Map<string, GroupPick>();
     if (entry?.degree_semesters?.length) {
       for (const g of entry.degree_semesters) {
-        picks.set(g.key, { programs: g.program_ids, orders: g.semester_orders });
+        picks.set(g.key, {
+          programs: g.program_ids,
+          orders: g.semester_orders,
+          gender: g.gender,
+          programGenders: g.program_genders,
+        });
       }
       return picks;
     }
@@ -239,12 +258,26 @@ export function InstitutionSemesterPicker({
     const degree_semesters: CdcDriveDegreeSemesterTarget[] = [];
     for (const g of groups) {
       const p = picks.get(g.key);
-      if (!p || (p.programs.length === 0 && p.orders.length === 0)) continue;
+      if (
+        !p ||
+        (p.programs.length === 0 && p.orders.length === 0 && p.gender === undefined)
+      )
+        continue;
       degree_semesters.push({
         key: g.key,
         program_ids: Array.from(new Set(p.programs)),
         all_program_ids: g.allIds,
         semester_orders: Array.from(new Set(p.orders)).sort((a, b) => a - b),
+        ...(p.gender !== undefined ? { gender: p.gender } : {}),
+        ...(() => {
+          // Only ticked programs can carry their own gender.
+          const kept = Object.fromEntries(
+            Object.entries(p.programGenders ?? {}).filter(([id]) =>
+              p.programs.includes(id),
+            ),
+          );
+          return Object.keys(kept).length > 0 ? { program_genders: kept } : {};
+        })(),
       });
     }
     if (degree_semesters.length === 0) {
@@ -287,6 +320,8 @@ export function InstitutionSemesterPicker({
   function toggleGroupOrder(instId: string, key: string, order: number) {
     const cur = picksFor(instId).get(key) ?? { programs: [], orders: [] };
     setGroupPick(instId, key, {
+      gender: cur.gender,
+      programGenders: cur.programGenders,
       programs: cur.programs,
       orders: cur.orders.includes(order)
         ? cur.orders.filter((o) => o !== order)
@@ -299,11 +334,67 @@ export function InstitutionSemesterPicker({
     const cur = picksFor(instId).get(key) ?? { programs: [], orders: [] };
     const on = optionIds.some((id) => cur.programs.includes(id));
     setGroupPick(instId, key, {
+      gender: cur.gender,
+      programGenders: cur.programGenders,
       orders: cur.orders,
       programs: on
         ? cur.programs.filter((id) => !optionIds.includes(id))
         : [...cur.programs, ...optionIds],
     });
+  }
+
+  /** Tick every program of a block (or untick them all when all are ticked). */
+  function toggleAllGroupPrograms(instId: string, g: UiGroup) {
+    const cur = picksFor(instId).get(g.key) ?? { programs: [], orders: [] };
+    const all = g.programs.flatMap((o) => o.ids);
+    const allOn = g.programs.every((o) =>
+      o.ids.some((id) => cur.programs.includes(id)),
+    );
+    setGroupPick(instId, g.key, {
+      gender: cur.gender,
+      programGenders: cur.programGenders,
+      orders: cur.orders,
+      programs: allOn ? [] : all,
+    });
+  }
+
+  /** Gender for ONE ticked program (all its duplicate master ids). Picking the block's value clears it. */
+  function setProgramGender(
+    instId: string,
+    key: string,
+    optionIds: string[],
+    gender: CdcDriveTargetGender,
+  ) {
+    const cur = picksFor(instId).get(key) ?? { programs: [], orders: [] };
+    const next = { ...(cur.programGenders ?? {}) };
+    const blockGender = cur.gender ?? driveGender;
+    for (const id of optionIds) {
+      if (gender === blockGender) delete next[id];
+      else next[id] = gender;
+    }
+    setGroupPick(instId, key, { ...cur, programGenders: next });
+  }
+
+  /** Block-level gender. Picking the drive-level value again clears the override. */
+  function setGroupGender(instId: string, key: string, gender: CdcDriveTargetGender) {
+    const cur = picksFor(instId).get(key) ?? { programs: [], orders: [] };
+    setGroupPick(instId, key, {
+      programs: cur.programs,
+      orders: cur.orders,
+      programGenders: cur.programGenders,
+      gender: gender === driveGender ? undefined : gender,
+    });
+  }
+
+  function addAllInstitutions() {
+    const missing = institutions.filter((i) => !selectedInstitutions.includes(i.id));
+    if (missing.length === 0) return;
+    onSelectedInstitutionsChange([...selectedInstitutions, ...missing.map((i) => i.id)]);
+    onTargetingChange([
+      ...targeting,
+      ...missing.map((i) => ({ institution_id: i.id, semester_orders: [], program_ids: [] })),
+    ]);
+    // Left collapsed: opening every institution at once is a very long page.
   }
 
   function addInstitution(id: string) {
@@ -332,6 +423,8 @@ export function InstitutionSemesterPicker({
         if (!src) continue;
         const cur = picks.get(g.key) ?? { programs: [], orders: [] };
         picks.set(g.key, {
+          gender: cur.gender,
+          programGenders: cur.programGenders,
           programs: cur.programs,
           orders: src.orders.filter((o) => g.orders.includes(o)),
         });
@@ -362,7 +455,17 @@ export function InstitutionSemesterPicker({
             : p.orders.length === 0
               ? " · all semesters"
               : ` · Sem ${[...p.orders].sort((a, b) => a - b).join(", ")}`;
-        return `${g.key === OTHER_KEY ? "Other" : g.key}: ${progText}${semText}`;
+        const perProgram = Object.keys(p.programGenders ?? {}).some((id) =>
+          p.programs.includes(id),
+        );
+        const genderText = perProgram
+          ? " · gender per program"
+          : p.gender === undefined
+            ? ""
+            : p.gender === "all"
+              ? " · both genders"
+              : ` · ${p.gender} only`;
+        return `${g.key === OTHER_KEY ? "Other" : g.key}: ${progText}${semText}${genderText}`;
       })
       .join("  |  ");
   }
@@ -449,9 +552,21 @@ export function InstitutionSemesterPicker({
                 ))}
               </SelectContent>
             </Select>
+            {available.length > 0 ? (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={disabled}
+                onClick={addAllInstitutions}
+              >
+                Add all institutions ({available.length})
+              </Button>
+            ) : null}
             <p className="text-xs text-muted-foreground">
               Choosing an institution opens its programs and semesters below.
-              Add as many as the drive needs.
+              Add as many as the drive needs. An institution with nothing
+              ticked includes all of its programs and semesters.
             </p>
           </div>
         )}
@@ -465,7 +580,10 @@ export function InstitutionSemesterPicker({
             Programs &amp; semesters per institution
           </p>
           <p className="text-xs text-muted-foreground mb-3">
-            Each block (UG, PG …) has its own programs and semesters. Tick
+            Each block (UG, PG …) has its own programs, semesters and gender
+            (Both / Male / Female — it follows &ldquo;Open to&rdquo; above until you
+            change it). A ticked program gets its own Both / Male / Female switch
+            next to it. Tick
             nothing to include every learner of the institution. Once a block
             has a tick, only ticked blocks are included; inside a block, no
             program ticked means all its programs and no semester ticked means
@@ -581,45 +699,141 @@ export function InstitutionSemesterPicker({
                                 <GraduationCap className="h-3.5 w-3.5 text-muted-foreground" />
                                 {g.label}
                               </p>
-                              {active ? (
-                                <Button
-                                  type="button"
-                                  variant="ghost"
-                                  size="sm"
-                                  disabled={disabled}
-                                  onClick={() =>
-                                    setGroupPick(instId, g.key, {
-                                      programs: [],
-                                      orders: [],
-                                    })
-                                  }
+                              <div className="flex items-center gap-2">
+                                <div
+                                  className="inline-flex overflow-hidden rounded-md border"
+                                  role="radiogroup"
+                                  aria-label={`${g.label} — open to`}
                                 >
-                                  Clear
-                                </Button>
-                              ) : null}
+                                  {GENDER_OPTIONS.map((opt) => {
+                                    const on =
+                                      (pick?.gender ?? driveGender) === opt.value;
+                                    return (
+                                      <button
+                                        key={opt.value}
+                                        type="button"
+                                        role="radio"
+                                        aria-checked={on}
+                                        disabled={disabled}
+                                        onClick={() =>
+                                          setGroupGender(instId, g.key, opt.value)
+                                        }
+                                        className={cn(
+                                          "px-2.5 py-1 text-[11px] font-medium transition-colors",
+                                          on
+                                            ? "bg-primary text-primary-foreground"
+                                            : "bg-background hover:bg-muted text-foreground",
+                                        )}
+                                      >
+                                        {opt.label}
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+                                {active ? (
+                                  <Button
+                                    type="button"
+                                    variant="ghost"
+                                    size="sm"
+                                    disabled={disabled}
+                                    onClick={() =>
+                                      setGroupPick(instId, g.key, {
+                                        programs: [],
+                                        orders: [],
+                                      })
+                                    }
+                                  >
+                                    Clear
+                                  </Button>
+                                ) : null}
+                              </div>
                             </div>
 
-                            <p className="text-[11px] font-medium text-muted-foreground mb-1.5">
-                              Programs
-                            </p>
+                            <div className="mb-1.5 flex items-center justify-between gap-2">
+                              <p className="text-[11px] font-medium text-muted-foreground">
+                                Programs
+                              </p>
+                              {g.programs.length > 1 ? (
+                                <button
+                                  type="button"
+                                  disabled={disabled}
+                                  onClick={() => toggleAllGroupPrograms(instId, g)}
+                                  className="text-[11px] font-medium text-primary hover:underline"
+                                >
+                                  {g.programs.every((o) =>
+                                    o.ids.some((id) => pick?.programs.includes(id)),
+                                  )
+                                    ? "Unselect all"
+                                    : "Select all"}
+                                </button>
+                              ) : null}
+                            </div>
                             {g.programs.length === 0 ? (
                               <p className="text-xs text-muted-foreground mb-2">
                                 No active programs listed for this block.
                               </p>
                             ) : (
                               <div className="flex flex-wrap gap-2 mb-2">
-                                {g.programs.map((opt) =>
-                                  chip(
+                                {g.programs.map((opt) => {
+                                  const on =
+                                    !!pick &&
+                                    opt.ids.some((id) => pick.programs.includes(id));
+                                  const programChip = chip(
                                     opt.value,
                                     opt.label,
-                                    !!pick &&
-                                      opt.ids.some((id) =>
-                                        pick.programs.includes(id),
-                                      ),
-                                    () =>
-                                      toggleGroupProgram(instId, g.key, opt.ids),
-                                  ),
-                                )}
+                                    on,
+                                    () => toggleGroupProgram(instId, g.key, opt.ids),
+                                  );
+                                  if (!on) return programChip;
+                                  // A ticked program carries its own Both / Male / Female.
+                                  const blockGender = pick?.gender ?? driveGender;
+                                  const own = opt.ids
+                                    .map((id) => pick?.programGenders?.[id])
+                                    .find((v) => v !== undefined);
+                                  const current = own ?? blockGender;
+                                  return (
+                                    <span
+                                      key={opt.value}
+                                      className="inline-flex items-center gap-1"
+                                    >
+                                      {programChip}
+                                      <span
+                                        className="inline-flex overflow-hidden rounded-full border"
+                                        role="radiogroup"
+                                        aria-label={`${opt.label} — open to`}
+                                      >
+                                        {GENDER_OPTIONS.map((go) => (
+                                          <button
+                                            key={go.value}
+                                            type="button"
+                                            role="radio"
+                                            aria-checked={current === go.value}
+                                            title={`${opt.label}: ${go.label}`}
+                                            disabled={disabled}
+                                            onClick={() =>
+                                              setProgramGender(
+                                                instId,
+                                                g.key,
+                                                opt.ids,
+                                                go.value,
+                                              )
+                                            }
+                                            className={cn(
+                                              "px-2 py-1 text-[10px] font-semibold transition-colors",
+                                              current === go.value
+                                                ? own !== undefined
+                                                  ? "bg-amber-500 text-white"
+                                                  : "bg-primary/80 text-primary-foreground"
+                                                : "bg-background hover:bg-muted text-muted-foreground",
+                                            )}
+                                          >
+                                            {go.label}
+                                          </button>
+                                        ))}
+                                      </span>
+                                    </span>
+                                  );
+                                })}
                               </div>
                             )}
 
@@ -660,7 +874,35 @@ export function InstitutionSemesterPicker({
 export function describeTargeting(
   targeting: CdcDriveInstitutionSemesters,
   institutionCount: number,
+  /** Overrides the saved gender (the drive form passes its unsaved choice). */
+  genderOverride?: CdcDriveTargetGender,
 ): string {
+  const gender =
+    genderOverride ??
+    targeting.find((t) => t.gender === "male" || t.gender === "female")
+      ?.gender ??
+    "all";
+  // A block may set its own gender; then no single value describes the drive.
+  const effective = new Set<CdcDriveTargetGender>();
+  targeting.forEach((t) => {
+    const groups = t.degree_semesters ?? [];
+    if (groups.length === 0) effective.add(gender);
+    else
+      groups.forEach((g) => {
+        const own = Object.values(g.program_genders ?? {});
+        own.forEach((v) => effective.add(v));
+        // The block's own value still applies to programs without a choice.
+        const targeted = g.program_ids.length > 0 ? g.program_ids : g.all_program_ids;
+        if (own.length < targeted.length) effective.add(g.gender ?? gender);
+      });
+  });
+  const single = effective.size === 1 ? Array.from(effective)[0] : null;
+  const genderText =
+    effective.size > 1
+      ? " · gender set per program / block"
+      : single && single !== "all"
+        ? ` · ${single} only`
+        : "";
   const orders = new Set<number>();
   targeting.forEach((t) => t.semester_orders.forEach((o) => orders.add(o)));
   const semText =
@@ -669,8 +911,22 @@ export function describeTargeting(
       : `Semester ${Array.from(orders)
           .sort((a, b) => a - b)
           .join(", ")}`;
-  const programRestricted = targeting.some(
-    (t) => (t.program_ids?.length ?? 0) > 0,
+  // Degree-wise entries carry the WHOLE block in program_ids when no program
+  // is ticked, so "selected programs" must come from the ticks themselves.
+  const programTicked = targeting.some((t) =>
+    t.degree_semesters?.length
+      ? t.degree_semesters.some((g) => g.program_ids.length > 0)
+      : (t.program_ids?.length ?? 0) > 0,
   );
-  return `${institutionCount} institution${institutionCount === 1 ? "" : "s"} · ${programRestricted ? "selected programs" : "all programs"} · ${semText}`;
+  const blockKeys = Array.from(
+    new Set(
+      targeting.flatMap((t) => (t.degree_semesters ?? []).map((g) => g.key)),
+    ),
+  ).filter((k) => !k.startsWith("__"));
+  const programText = programTicked
+    ? "selected programs"
+    : blockKeys.length > 0
+      ? `all ${blockKeys.join(" + ")} programs`
+      : "all programs";
+  return `${institutionCount} institution${institutionCount === 1 ? "" : "s"} · ${programText} · ${semText}${genderText}`;
 }

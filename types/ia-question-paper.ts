@@ -43,6 +43,9 @@ export interface IaTemplatePart {
   option_count?: number | null;
   capture_co: boolean;
   capture_klevel: boolean;
+  /** False = the template forbids splitting this part's questions into i. / ii. …
+   *  Absent on older COE deployments — treat anything but `false` as allowed. */
+  allow_split?: boolean | null;
   part_max_marks: number;
   display_order: number;
   is_active: boolean;
@@ -108,7 +111,13 @@ export interface IaPaperQuestionOption {
  * payloads are dropped server-side.
  */
 export interface IaQuestionImage {
+  /** A public `https` URL (legacy bucket figure), or COE's authenticated proxy
+   *  path `/api/examiner/question-paper/file/<id>` for a private Drive figure. */
   url: string;
+  /** Google Drive file id of a COE-uploaded (private) figure. MUST round-trip
+   *  through a MyJKKN save untouched — COE's renderer resolves the bytes from it. */
+  drive_file_id?: string | null;
+  drive_url?: string | null;
   /** Object path inside the public `question-images` bucket
    *  (`<paperId>/<uuid>.<ext>`). Kept so a later replace/remove can DELETE the
    *  object instead of orphaning it. */
@@ -138,6 +147,10 @@ export interface IaSubQuestion {
   co_code: string | null;
   k_level: string | null;
   image?: IaQuestionImage | null;
+  /** Answer key for THIS sub-division, authored in COE. MyJKKN has no answer-key
+   *  UI yet, but the fields must round-trip through a save untouched. */
+  answer_key?: string | null;
+  answer_key_image?: IaQuestionImage | null;
   display_order: number;
 }
 

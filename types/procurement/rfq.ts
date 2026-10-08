@@ -35,6 +35,8 @@ export interface ProcurementRfq {
   award_approved_by: string | null;
   award_approved_at: string | null;
   award_rejection_reason: string | null;
+  /** Why a Watch-grade vendor was still chosen (shown to the approver). */
+  award_watch_reason?: string | null;
   notes: string | null;
   created_at: string;
   updated_at: string;
@@ -82,6 +84,8 @@ export interface RfqWithDetails extends ProcurementRfq {
 
 export interface RfqFilters {
   institution_id?: string;
+  /** No institution filter: every institution the viewer's RLS allows. */
+  all_institutions?: boolean;
   store_id?: string;
   status?: RfqStatus;
   search?: string;

@@ -47,6 +47,7 @@ import { normBiometricCode } from '@/lib/hr/biometric/normalize-code';
 import {
   fetchApprovedPermissions, permissionKey, type PermissionsByStaffDay,
 } from '@/lib/hr/biometric/fetch-permissions';
+import { fetchLockedMonthKeys, lockedMonthKey } from '@/lib/hr/attendance/locked-periods';
 import { evaluateDay, type AttendanceVerdict } from '@/lib/hr/biometric/evaluate-day';
 import {
   applyHolidayToStatusCode,
@@ -965,9 +966,30 @@ export async function POST(request: NextRequest) {
         pendingOnMarkedDays.staff = seenStaff.size;
       }
     }
+
+    // Closed months are left out, not written and refused: see locked-periods.ts.
+    // One machine carries several institutions, and each closes on its own.
+    let lockedSkipped = 0;
+    if (dateFrom && dateTo) {
+      const lockedKeys = await fetchLockedMonthKeys(
+        session,
+        [...new Set(records.map((r) => r.institution_id as string).filter(Boolean))],
+        dateFrom,
+        dateTo,
+      );
+      if (lockedKeys.size > 0) {
+        const open = records.filter(
+          (r) => !lockedKeys.has(lockedMonthKey(r.institution_id as string, String(r.work_date))),
+        );
+        lockedSkipped = records.length - open.length;
+        records.splice(0, records.length, ...open);
+      }
+    }
+
     const base = {
       success: true,
       dry_run: dryRun,
+      locked_skipped: lockedSkipped,
       institution: { id: machine.id, name: machine.name, code: machine.counselling_code, matched_by: resolution.matchedBy },
       month_label: report.monthLabel,
       date_from: dateFrom,
@@ -1037,7 +1059,10 @@ export async function POST(request: NextRequest) {
     }
 
     // ---- Commit (session client -> RLS enforces) ----------------------------
+    // A failed chunk must NOT return before the leave re-stamp below: earlier
+    // chunks already overwrote their LEAVE / HALF_DAY stamps.
     let written = 0;
+    let writeError: string | null = null;
     for (let i = 0; i < records.length; i += 500) {
       const chunk = records.slice(i, i + 500);
       const { data: up, error: upErr } = await session
@@ -1046,10 +1071,8 @@ export async function POST(request: NextRequest) {
         .select('id');
       if (upErr) {
         console.error('[hr/attendance/import] upsert error:', upErr);
-        return NextResponse.json(
-          { error: 'Import write failed', message: upErr.message, written },
-          { status: 500 },
-        );
+        writeError = upErr.message;
+        break;
       }
       written += up?.length ?? chunk.length;
     }
@@ -1090,6 +1113,13 @@ export async function POST(request: NextRequest) {
         }
         leaveRestamped += (restamped as number | null) ?? 0;
       }
+    }
+
+    if (writeError) {
+      return NextResponse.json(
+        { error: 'Import write failed', message: writeError, written, leave_restamped: leaveRestamped },
+        { status: 500 },
+      );
     }
 
     let exceptionsWritten = 0;

@@ -15,6 +15,9 @@ import {
   LayoutDashboard, AppWindow, Files, UsersRound, Wallet, ScrollText,
   Target, HeartPulse, Lightbulb, BookOpenCheck, Vote, Trophy, User,
   ShoppingCart,
+  // InstaSolver desk submenu icons (2026-10-01)
+  WandSparkles, LayoutPanelLeft, Siren, ShoppingBasket, ListTodo, PackageSearch,
+  ListFilter, Drill, Weight, ChartPie, HardHat, SlidersHorizontal,
 } from 'lucide-react';
 import { MENU_PERMISSIONS, GetPages } from '@/lib/sidebarMenuLink';
 import type { PageEntry } from './types';
@@ -685,7 +688,21 @@ export const ICON_MAP: Record<string, LucideIcon> = {
   LayoutDashboard, AppWindow, Files, UsersRound, Wallet, ScrollText,
   Target, HeartPulse, Lightbulb, BookOpenCheck, Vote, Trophy, User,
   ShoppingCart,
+  // InstaSolver desk submenu icons (2026-10-01)
+  WandSparkles, LayoutPanelLeft, Siren, ShoppingBasket, ListTodo, PackageSearch,
+  ListFilter, Drill, Weight, ChartPie, HardHat, SlidersHorizontal,
 };
+
+/**
+ * Modules whose sidebar submenus show the `icon` declared on each Submenu
+ * instead of inheriting the parent row's icon. Opt-in, because 15 other modules
+ * declare submenu icons today that have never been displayed; switching them on
+ * wholesale would silently change those menus. Add a module's anchor href here
+ * (and its icons to ICON_MAP) to opt in.
+ */
+const MODULES_WITH_OWN_SUBMENU_ICONS = new Set<string>([
+  '/instasolver' // 2026-10-01 — one distinct icon per InstaSolver desk screen
+]);
 
 function getIconName(icon: LucideIcon): string {
   for (const [name, comp] of Object.entries(ICON_MAP)) {
@@ -701,7 +718,7 @@ interface RawMenuItem {
   href: string;
   label: string;
   icon: LucideIcon;
-  submenus: Array<{ href: string; label: string }>;
+  submenus: Array<{ href: string; label: string; icon?: LucideIcon }>;
 }
 
 interface RawMenuGroup {
@@ -745,15 +762,18 @@ function buildRegistry(): PageEntry[] {
           const enrichment = PAGE_ENRICHMENTS[sub.href];
           const permission = MENU_PERMISSIONS[sub.href];
 
-          // Try to find icon — submenus inherit parent icon
+          // Try to find icon — submenus inherit parent icon, except in modules
+          // that opted in to their own per-row icons (see the set below).
+          const subIcon =
+            sub.icon && MODULES_WITH_OWN_SUBMENU_ICONS.has(menu.href) ? sub.icon : menu.icon;
           registry.push({
             path: sub.href,
             title: sub.label,
             keywords: enrichment?.keywords || generateDefaultKeywords(sub.label, moduleName),
             description: enrichment?.description || `${sub.label} in ${group.groupLabel || 'Overview'}`,
             module: group.groupLabel || 'Overview',
-            icon: menu.icon,
-            iconName: getIconName(menu.icon),
+            icon: subIcon,
+            iconName: getIconName(subIcon),
             permission: permission || undefined,
             parentPath: menu.href,
           });

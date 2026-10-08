@@ -17,11 +17,13 @@
  */
 
 import type { SupabaseClient } from '@supabase/supabase-js';
-import type {
-  CdcDrive,
-  CdcDriveDegreeSemesterTarget,
-  CdcDriveInstitutionSemesterTarget,
-  CdcDriveInstitutionSemesters,
+import {
+  CDC_DRIVE_GENDER_DB_VALUE,
+  type CdcDrive,
+  type CdcDriveDegreeSemesterTarget,
+  type CdcDriveInstitutionSemesterTarget,
+  type CdcDriveInstitutionSemesters,
+  type CdcDriveTargetGender,
 } from '@/types/cdc';
 
 const TARGET_LIFECYCLE = ['active', 'graduated'];
@@ -44,6 +46,9 @@ export function normalizeInstitutionSemesters(
     const inst = (entry as { institution_id?: unknown }).institution_id;
     if (typeof inst !== 'string' || !allowed.has(inst) || seen.has(inst)) continue;
     const degreeGroups = normalizeDegreeGroups((entry as { degree_semesters?: unknown }).degree_semesters);
+    const gender = normalizeGender((entry as { gender?: unknown }).gender);
+    // Only written when restricted, so untouched drives keep their exact shape.
+    const genderPart = gender === 'all' ? {} : { gender };
     seen.add(inst);
     if (degreeGroups.length > 0) {
       // Degree-wise entry: the flat lists are DERIVED (union) so the coarse
@@ -53,16 +58,74 @@ export function normalizeInstitutionSemesters(
         ? []
         : Array.from(new Set(degreeGroups.flatMap((g) => g.semester_orders))).sort((a, b) => a - b);
       const programs = Array.from(new Set(degreeGroups.flatMap(effectiveGroupPrograms)));
-      out.push({ institution_id: inst, semester_orders: orders, program_ids: programs, degree_semesters: degreeGroups });
+      out.push({ institution_id: inst, semester_orders: orders, program_ids: programs, degree_semesters: degreeGroups, ...genderPart });
       continue;
     }
     out.push({
       institution_id: inst,
       semester_orders: normalizeOrders((entry as { semester_orders?: unknown }).semester_orders),
       program_ids: normalizeUuids((entry as { program_ids?: unknown }).program_ids),
+      ...genderPart,
     });
   }
   return out;
+}
+
+function normalizeGender(raw: unknown): CdcDriveTargetGender {
+  return raw === 'male' || raw === 'female' ? raw : 'all';
+}
+
+/** Gender an institution entry is restricted to ('all' when unrestricted). */
+export function entryGender(entry: Pick<CdcDriveInstitutionSemesterTarget, 'gender'> | undefined | null): CdcDriveTargetGender {
+  return normalizeGender(entry?.gender);
+}
+
+/** The drive's gender restriction, for summaries (entries all carry the same value). */
+export function driveTargetGender(drive: Pick<CdcDrive, 'institution_semesters'>): CdcDriveTargetGender {
+  const genders = new Set<CdcDriveTargetGender>();
+  for (const e of drive.institution_semesters ?? []) entryGenders(e).forEach((g) => genders.add(g));
+  if (genders.size !== 1) return 'all'; // nothing targeted, or it differs per block
+  return Array.from(genders)[0];
+}
+
+/** Gender a degree block is open to: its own choice, else the entry's drive-level one. */
+export function groupGender(
+  entry: Pick<CdcDriveInstitutionSemesterTarget, 'gender'>,
+  group: Pick<CdcDriveDegreeSemesterTarget, 'gender'>
+): CdcDriveTargetGender {
+  return group.gender === 'male' || group.gender === 'female' || group.gender === 'all' ? group.gender : entryGender(entry);
+}
+
+/** Gender one program of a block is open to: its own choice, else the block's. */
+export function programGender(
+  entry: Pick<CdcDriveInstitutionSemesterTarget, 'gender'>,
+  group: Pick<CdcDriveDegreeSemesterTarget, 'gender' | 'program_genders'>,
+  programId: string
+): CdcDriveTargetGender {
+  return group.program_genders?.[programId] ?? groupGender(entry, group);
+}
+
+/** Every distinct gender an entry targets (per program / per degree block, or the entry's own). */
+export function entryGenders(entry: CdcDriveInstitutionSemesterTarget): CdcDriveTargetGender[] {
+  const groups = entry.degree_semesters ?? [];
+  if (groups.length === 0) return [entryGender(entry)];
+  const out = new Set<CdcDriveTargetGender>();
+  for (const g of groups) {
+    for (const pid of effectiveGroupPrograms(g)) out.add(programGender(entry, g, pid));
+  }
+  return Array.from(out);
+}
+
+function genderValueMatches(target: CdcDriveTargetGender, learnerGender: string | null | undefined): boolean {
+  if (target === 'all') return true;
+  return (learnerGender ?? '').trim().toLowerCase() === CDC_DRIVE_GENDER_DB_VALUE[target].toLowerCase();
+}
+
+/** Does a learners_profiles.gender value satisfy the entry's gender restriction? */
+export function genderMatches(entry: Pick<CdcDriveInstitutionSemesterTarget, 'gender'>, learnerGender: string | null | undefined): boolean {
+  const g = entryGender(entry);
+  if (g === 'all') return true;
+  return (learnerGender ?? '').trim().toLowerCase() === CDC_DRIVE_GENDER_DB_VALUE[g].toLowerCase();
 }
 
 function normalizeOrders(raw: unknown): number[] {
@@ -99,6 +162,18 @@ function normalizeDegreeGroups(raw: unknown): CdcDriveDegreeSemesterTarget[] {
       all_program_ids: normalizeUuids((g as { all_program_ids?: unknown }).all_program_ids),
       semester_orders: normalizeOrders((g as { semester_orders?: unknown }).semester_orders),
     };
+    const rawGender = (g as { gender?: unknown }).gender;
+    if (rawGender === 'male' || rawGender === 'female' || rawGender === 'all') group.gender = rawGender;
+    const rawProgramGenders = (g as { program_genders?: unknown }).program_genders;
+    if (rawProgramGenders && typeof rawProgramGenders === 'object' && !Array.isArray(rawProgramGenders)) {
+      const kept: Record<string, CdcDriveTargetGender> = {};
+      const targeted = new Set(effectiveGroupPrograms(group));
+      for (const [pid, val] of Object.entries(rawProgramGenders as Record<string, unknown>)) {
+        if (!UUID_RE.test(pid) || !targeted.has(pid)) continue;
+        if (val === 'male' || val === 'female' || val === 'all') kept[pid] = val;
+      }
+      if (Object.keys(kept).length > 0) group.program_genders = kept;
+    }
     // A group that resolves to no programs can match nobody — drop it.
     if (effectiveGroupPrograms(group).length === 0) continue;
     seen.add(key);
@@ -119,17 +194,26 @@ export function effectiveGroupPrograms(g: CdcDriveDegreeSemesterTarget): string[
 export function entryMiss(
   entry: CdcDriveInstitutionSemesterTarget,
   programId: string | null | undefined,
-  semesterOrder: number | null | undefined
-): 'program' | 'semester' | null {
+  semesterOrder: number | null | undefined,
+  /** learners_profiles.gender. `undefined` = caller did not load it → gender is NOT checked. */
+  gender?: string | null
+): 'program' | 'semester' | 'gender' | null {
   const groups = entry.degree_semesters ?? [];
   if (groups.length > 0) {
-    const mine = programId ? groups.filter((g) => effectiveGroupPrograms(g).includes(programId)) : [];
-    if (mine.length === 0) return 'program';
+    const inProgram = programId ? groups.filter((g) => effectiveGroupPrograms(g).includes(programId)) : [];
+    if (inProgram.length === 0) return 'program';
+    // Gender is decided per program, then per block, then the drive-level choice.
+    const mine =
+      gender === undefined
+        ? inProgram
+        : inProgram.filter((g) => genderValueMatches(programGender(entry, g, programId as string), gender));
+    if (mine.length === 0) return 'gender';
     const semOk = mine.some(
       (g) => g.semester_orders.length === 0 || (semesterOrder != null && g.semester_orders.includes(semesterOrder))
     );
     return semOk ? null : 'semester';
   }
+  if (gender !== undefined && !genderMatches(entry, gender)) return 'gender';
   if (entry.program_ids && entry.program_ids.length > 0 && (!programId || !entry.program_ids.includes(programId))) {
     return 'program';
   }
@@ -169,6 +253,8 @@ export interface LearnerTargetingInput {
   semester_order: number | null;
   /** learners_profiles.program_id — only consulted when the institution entry lists program_ids. */
   program_id?: string | null;
+  /** learners_profiles.gender — consulted when the drive is restricted to one gender. */
+  gender?: string | null;
 }
 
 /**
@@ -185,18 +271,19 @@ export function isLearnerTargeted(
     (e) => e.institution_id === learner.institution_id
   );
   if (!entry) return false;
-  return entryMiss(entry, learner.program_id, learner.semester_order) === null;
+  // A gender-restricted drive must never match a learner whose gender was not loaded.
+  return entryMiss(entry, learner.program_id, learner.semester_order, learner.gender ?? null) === null;
 }
 
 /** Which part of the targeting rejected the learner (for learner-facing copy + diagnosis). */
 export function learnerTargetingMiss(
   drive: Pick<CdcDrive, 'institutions' | 'institution_semesters'>,
   learner: LearnerTargetingInput
-): 'institution' | 'program' | 'semester' | null {
+): 'institution' | 'program' | 'semester' | 'gender' | null {
   if (!learner.institution_id || !drive.institutions.includes(learner.institution_id)) return 'institution';
   const entry = (drive.institution_semesters ?? []).find((e) => e.institution_id === learner.institution_id);
   if (!entry) return 'institution';
-  return entryMiss(entry, learner.program_id, learner.semester_order);
+  return entryMiss(entry, learner.program_id, learner.semester_order, learner.gender ?? null);
 }
 
 // ------------------------------------------------------------------------
@@ -274,7 +361,7 @@ export async function resolveTargetLearners(
   for (const entry of targeting) {
     if (entry.program_ids && entry.program_ids.length > 0) programIdsByInst.set(entry.institution_id, entry.program_ids);
   }
-  type LearnerHit = { id: string; institution_id: string; semester_id: string | null; program_id: string | null };
+  type LearnerHit = { id: string; institution_id: string; semester_id: string | null; program_id: string | null; gender: string | null };
   const learners: LearnerHit[] = [];
   // Every (institution × semester-chunk) read is independent → one parallel wave.
   const learnerJobs: Array<Promise<LearnerHit[]>> = [];
@@ -282,17 +369,26 @@ export async function resolveTargetLearners(
     if (semesterIds !== 'ALL' && semesterIds.length === 0) continue;
     const groups = semesterIds === 'ALL' ? [null] : chunk(semesterIds, IN_CHUNK);
     const programIds = programIdsByInst.get(institutionId) ?? null;
+    // Gender is filtered IN THE QUERY, so a learner outside it is never even read.
+    // When blocks of one institution differ (UG female, PG both) the query
+    // cannot express it, so those are narrowed per learner just below — still
+    // before anyone is notified.
+    const instEntry = targeting.find((e) => e.institution_id === institutionId);
+    const instGenders = instEntry ? entryGenders(instEntry) : (['all'] as CdcDriveTargetGender[]);
+    const genderKey: CdcDriveTargetGender = instGenders.length === 1 ? instGenders[0] : 'all';
+    const genderValue = genderKey === 'all' ? null : CDC_DRIVE_GENDER_DB_VALUE[genderKey];
     for (const group of groups) {
       learnerJobs.push(
         (async () => {
           let q = service
             .from('learners_profiles')
-            .select('id, institution_id, semester_id, program_id')
+            .select('id, institution_id, semester_id, program_id, gender')
             .eq('institution_id', institutionId)
             .in('lifecycle_status', TARGET_LIFECYCLE)
             .limit(20000);
           if (group) q = q.in('semester_id', group);
           if (programIds) q = q.in('program_id', programIds);
+          if (genderValue) q = q.eq('gender', genderValue);
           const { data, error } = await q;
           if (error) throw error;
           return (data ?? []).map((row) => ({
@@ -300,6 +396,7 @@ export async function resolveTargetLearners(
             institution_id: row.institution_id as string,
             semester_id: (row.semester_id as string | null) ?? null,
             program_id: (row.program_id as string | null) ?? null,
+            gender: (row.gender as string | null) ?? null,
           }));
         })()
       );
@@ -313,7 +410,7 @@ export async function resolveTargetLearners(
       const entry = entryByInst.get(l.institution_id);
       if (entry?.degree_semesters?.length) {
         const order = l.semester_id ? orderBySemesterId.get(l.semester_id) ?? null : null;
-        if (entryMiss(entry, l.program_id, order) !== null) continue;
+        if (entryMiss(entry, l.program_id, order, l.gender) !== null) continue;
       }
       learners.push(l);
     }

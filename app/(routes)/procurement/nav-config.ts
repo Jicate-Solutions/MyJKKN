@@ -3,19 +3,14 @@ import type { ModuleNavConfig } from '@/lib/navigation/nav-config';
 /**
  * Procurement — in-page tab bar (AutoTabNav).
  *
- * Three working tabs, in the order the work happens
- * (docs/procurement/simplified-flow-spec.md):
- *   Requests — what someone needs
- *   Purchase — vendor quotations, AI comparison, Super Admin approval
- *   Receive  — approved orders waiting for delivery, then goods receipts
- *
- * The URLs are unchanged (/rfqs, /purchase-orders, /grn) so bookmarks, the
- * permission map in lib/sidebarMenuLink.ts and deep links keep working; only the
- * grouping a user sees changed. Receive covers two routes, so it lists both in
- * matchPaths and the pages share a ReceiveSwitcher.
- *
- * Per-tab visibility is NOT declared here — AutoTabNav.canShowChip() gates each tab
- * by its MENU_PERMISSIONS entry (lib/sidebarMenuLink.ts).
+ * One purchase = one page (/procurement/requests/[id]); the tabs are just the ways in:
+ *   Overview   — what is waiting at each step, per college
+ *   Requests   — every request and the stage it is at; people who only raise
+ *                requests open on their own, to follow what happened to each
+ *   Quotations — requests at the quoting / comparing / final-approval stage
+ * Orders and deliveries open from the purchase page, so /purchase-orders and /grn
+ * count as the Quotations tab. Per-tab visibility is gated by AutoTabNav.canShowChip()
+ * from MENU_PERMISSIONS (lib/sidebarMenuLink.ts), not here.
  */
 const config: ModuleNavConfig = {
   module: 'procurement',
@@ -36,13 +31,13 @@ const config: ModuleNavConfig = {
       label: 'Quotations',
       icon: 'FileSearch',
       href: '/procurement/rfqs',
-      matchPaths: ['/procurement/rfqs'],
+      matchPaths: ['/procurement/rfqs', '/procurement/purchase-orders', '/procurement/grn'],
     },
     {
-      label: 'Deliveries',
-      icon: 'PackageCheck',
-      href: '/procurement/purchase-orders',
-      matchPaths: ['/procurement/purchase-orders', '/procurement/grn'],
+      label: 'Approval flows',
+      icon: 'GitBranch',
+      href: '/procurement/approval-flows',
+      matchPaths: ['/procurement/approval-flows'],
     },
   ],
 };

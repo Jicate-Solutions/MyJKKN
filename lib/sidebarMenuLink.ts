@@ -64,7 +64,6 @@ import {
   CircleDot,
   TrendingUp,
   Wrench,
-  LifeBuoy,
   FileBarChart2,
   History,
   Sparkles,
@@ -116,6 +115,18 @@ import {
   SearchCheck,
   BadgeCheck,
   Presentation,
+  LayoutPanelLeft,
+  Siren,
+  ShoppingBasket,
+  ListTodo,
+  PackageSearch,
+  ListFilter,
+  Drill,
+  Weight,
+  ChartPie,
+  HardHat,
+  SlidersHorizontal,
+  WandSparkles,
 } from 'lucide-react';
 import { CustomRole } from '@/types/auth';
 // The single answer to "which MENU_PERMISSIONS values are not permission keys".
@@ -311,6 +322,7 @@ export const MENU_PERMISSIONS: MenuPermissions = {
 
   // AI Assistant
   '/ai-query': 'ai_query.view', // AI Query System access
+  '/ai-query/connect': 'ai_query.view', // Personal keys for outside AIs that accept a custom MCP server with a bearer key (Claude Code, Claude Desktop, Gemini CLI, Zoho Zia)
 
   // ======================================================================
   // InstaSolver — the ONE front door for "something is wrong here".
@@ -326,7 +338,41 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/instasolver': 'instasolver.view',
   '/instasolver/broken': 'instasolver.view',
   '/instasolver/complaint': 'instasolver.view',
+  '/instasolver/my-complaints': 'instasolver.view',
   '/instasolver/track/[token]': 'instasolver.view',
+  // The InstaSolver desk (MYJKKN-MODULE-SPEC.md, PRD D-9): issues and
+  // requirements with CAO triage, maintenance teams and reporter confirmation.
+  // The role-specific screens carry their own keys (migration
+  // 20270510090300) so the sidebar shows each person only their rows. The keys
+  // are usability; the database (instasolver_my_access + RLS) still decides
+  // who may actually triage, work a job or read analytics.
+  '/instasolver/dashboard': 'instasolver.view',
+  '/instasolver/issues': 'instasolver.view',
+  '/instasolver/issues/new': 'instasolver.view',
+  '/instasolver/issues/[id]': 'instasolver.view',
+  '/instasolver/requirements': 'instasolver.view',
+  '/instasolver/requirements/new': 'instasolver.view',
+  '/instasolver/requirements/[id]': 'instasolver.view',
+  '/instasolver/triage': 'instasolver.triage',
+  '/instasolver/work': 'instasolver.work',
+  '/instasolver/workload': 'instasolver.triage',
+  '/instasolver/analytics': 'instasolver.analytics',
+  '/instasolver/admin': 'instasolver.triage',
+  '/instasolver/admin/teams': 'instasolver.triage',
+  '/instasolver/admin/categories': 'instasolver.triage',
+  // The page a room's or an item's QR sticker opens (scan to report).
+  '/instasolver/r/[token]': 'instasolver.view',
+  // The old InstaSolver site's purchase requests left at 'Pending MD Approval'
+  // (Director ruling 30 Sep 2026). Super admin only — the page refuses anyone
+  // else and shows requesters' names.
+  '/instasolver/old-purchase-requests': 'super_admin',
+  // The reporter's own list — "fixed" / "Not fixed" (Director, 2026-09-30).
+  '/instasolver/my-reports': 'instasolver.view',
+  // Spot checks (2026-09-30 interview, rulings 1 and 3) — for college heads
+  // and the Director, reached from their bells. instasolver.view (every
+  // login) because principals are not guaranteed projects.view; the page
+  // itself refuses everyone who is not a principal or the Director.
+  '/campus-walk/spot-checks': 'instasolver.view',
 
   // Profile
   '/profile': 'view_profile', // All users should be able to view their own profile
@@ -502,6 +548,12 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // Its counterpart /my-photo has NO entry here on purpose — see the sidebar
   // row below and the page header.
   '/hr/staff-photos': 'hr.staff_photo.review',
+  // HR duty playbooks (20271007161139). Reached from the "How this is done" card
+  // on each HR duty screen; no sidebar row. Written out so the tier-2 coverage
+  // gate sees it, with the SAME key it already resolved to by longest prefix
+  // ('/hr' -> 'hr.view'), so who can open it does not change. The Proposals tab
+  // inside checks hr.harness.playbooks.manage itself.
+  '/hr/playbooks': 'hr.view',
   '/hr/employees': 'hr.employees.view',
   '/hr/employees/[id]': 'hr.employees.view',
   // WHO PAYS each team member. This entry is load-bearing, not decorative:
@@ -522,6 +574,13 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // hr_manager holds, quietly opening tax configuration to a wider audience than
   // the salaries it is derived from.
   '/hr/payroll/tds-slabs': 'hr.payroll.salary.view',
+  // Pay against the band. Same key as Employee Salaries for the same reason the
+  // TDS bands share it: this page shows what every person earns, so it cannot be
+  // narrower, and there is nothing here that is not already on that screen. An
+  // entry is mandatory rather than tidy — longest-prefix resolution would
+  // otherwise hand it to '/hr/payroll' -> 'hr.payroll.institution.view', which
+  // hr_manager holds, and publish everybody's pay to a wider audience.
+  '/hr/payroll/pay-band-check': 'hr.payroll.salary.view',
   // WHERE THE MONEY LANDS. A third key again, not a reuse of the salary one:
   // the amount and the destination are separate decisions, and the destination
   // is the field a change to redirects real money.
@@ -531,11 +590,32 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // once — the union of the three above, which is a wider grant than any of
   // them individually.
   '/hr/payroll/register': 'hr.payroll.register.view',
+  // SALARY REVISIONS (2026-09-29, 20270519090000) — ask, check, approve. Not
+  // under /hr/payroll on purpose: principals and heads of department ask from
+  // here, and longest-prefix resolution would hand /hr/payroll/* to
+  // hr.payroll.institution.view, which they do not hold. Each page names its own
+  // key; WHO may ask for WHOM is decided in Postgres, not by these keys alone.
+  '/hr/salary-revisions': 'hr.payroll.salary_revision.ask',
+  '/hr/salary-revisions/ask': 'hr.payroll.salary_revision.ask',
+  '/hr/salary-revisions/[id]': 'hr.payroll.salary_revision.ask',
+  '/hr/salary-revisions/college-check': 'hr.payroll.salary_revision.college_check',
+  '/hr/salary-revisions/approve': 'hr.payroll.salary_revision.approve',
+  // The outcome notice a team member reaches from the bell after the
+  // Director's yes (ruling 5). EVERY team member must be able to open it, and
+  // most roles hold no HR key (test.faculty's role has no hr.view), so it uses
+  // the universal signed-in sentinel `view_profile` — see the /my-desk note
+  // below. Safe because hr_salary_revision_outcomes' RLS returns only the
+  // caller's own rows; there is no sidebar link (reached from the bell).
+  '/hr/my-pay-changes': 'view_profile',
   // Closing an attendance month. Its own key, NOT the self-service
   // '/hr/attendance' one: 22 roles hold hr.attendance.view_self, and without an
   // entry here longest-prefix resolution would hand all of them the ability to
   // freeze an institution-month.
   '/hr/attendance/close': 'hr.attendance.period.view',
+  // Clinical duty: who may punch from off-campus sites, and where. Without its
+  // own entry the '/hr/attendance' prefix (hr.attendance.view_self, 22+ roles)
+  // would admit every staff member to the approvals screen.
+  '/hr/attendance/clinical': 'hr.attendance.clinical.manage',
   // The hub at /hr/payroll only redirects to the page above, but it needs its
   // own entry: without one the longest-prefix match falls through to '/hr' →
   // 'hr.view', so anyone in HR could open it and be denied one redirect later.
@@ -629,6 +709,11 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/hr/recruitment': 'hr.recruitment.view',
   '/hr/recruitment/jobs': 'hr.recruitment.view',
   '/hr/recruitment/submit': 'hr.recruitment.create',
+  // Bring in Candidates — the CVViZ intake helper (2026-10-01). Uploading and
+  // filing candidates is a create action, so the whole subtree (review cards at
+  // /intake/batch?batchId= resolve here by longest prefix) needs hr.recruitment.create.
+  '/hr/recruitment/intake': 'hr.recruitment.create',
+  '/hr/recruitment/intake/rules': 'hr.recruitment.create',
   '/hr/recruitment/my': 'hr.recruitment.view',
   '/hr/recruitment/candidates': 'hr.recruitment.view',
   '/hr/recruitment/interviews': 'hr.recruitment.view',
@@ -653,6 +738,11 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/hr/admin/payroll': 'hr.dashboard.view',
   '/hr/admin/performance-reviews': 'hr.dashboard.view',
   '/hr/admin/policies': 'hr.dashboard.view',
+  // The salary suggestion rule holds rupee amounts per year of experience. The
+  // page itself is super-admin only; this entry stops longest-prefix resolution
+  // handing it to '/hr/admin/policies' -> 'hr.dashboard.view', which far more
+  // roles hold. The salary key is the narrowest one that already exists.
+  '/hr/admin/policies/salary-suggestion': 'hr.payroll.salary.manage',
   '/hr/admin/promotions': 'hr.dashboard.view',
   '/hr/admin/recruitment-approval-flows': 'hr.dashboard.view',
   '/hr/admin/recruitment-maintenance': 'hr.dashboard.view',
@@ -723,6 +813,18 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // without a way to reach this the fixer's proof photo sits in `review`
   // forever and the loop never closes.
   '/campus-walk/review': 'projects.view',
+  // The Monday report card (Director ruling 2026-09-30). Mapped explicitly so
+  // it is not hidden-by-default, but this key is NOT the gate: the page itself
+  // lets in the Director, super admins and each college's principal (for their
+  // own college) — see resolveReportCardViewer in
+  // lib/campus-walk/report-card-run.ts. Principals reach it from the Monday bell.
+  '/campus-walk/report-card': 'projects.view',
+  // The fixes board (D9, departments only) — open to every team member by the
+  // Director's ruling of 2026-09-30. Its own key so it can be granted without
+  // projects.view; the page re-checks it server-side (gateFixesBoard). The
+  // walking and coverage boards stay under '/campus-walk' and the email
+  // allow-list. Also covers the board's CSV download (…/fixes/csv).
+  '/campus-walk/scoreboard/fixes': 'campus_walk.fix_board.view',
   '/academic/parent-portal': 'academic.parent_portal.manage',
   '/academic/years': 'academic.years.view',
   '/academic/leave-calendar': 'academic.leaves.view',
@@ -1112,6 +1214,10 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/resource-management/maintenance': 'resources.maintenance.view',
   '/resource-management/analytics': 'resources.analytics.view',
   '/resource-management/analytics-dashboard': 'resources.analytics.view',
+  // InstaSolver QR stickers: preparing a sheet may write a missing sticker
+  // code, so it needs edit. Suggested places creates resources, so create.
+  '/resource-management/qr-stickers': 'resources.resources.edit',
+  '/resource-management/suggested-places': 'resources.resources.create',
   '/audit-trail': 'audit.view',
 
   // Service Requests
@@ -1181,6 +1287,10 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // commission machinery, matching its RPC.
   '/admission/consultants/payout-readiness': 'admission.consultants.commissions.view',
   '/admission/consultants/reconciliation': 'admission.consultants.commissions.view',
+  // Added 2026-09-28 — commission payment approval workflow (mirrors billing refunds).
+  '/admission/consultants/commission-payments': 'admission.consultants.commissions.view',
+  '/admission/consultants/commission-payments/[id]': 'admission.consultants.commissions.view',
+  '/admission/consultants/commission-approvals': 'admission.consultants.commissions.configure',
   '/admission/consultants/referrals': 'admission.consultants.referrals.view',
   // Added 2026-08-10 — read-only review worklist for agency credits that need a
   // human look. Gated on the enquiry-desk read permission, matching its RPC.
@@ -1443,6 +1553,10 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/campus-living/my-hostel/premium/pick-room': 'campus_living.premium.pick_room',
   '/campus-living/my-hostel/premium/invite-roommate': 'campus_living.premium.invite_roommate',
   '/campus-living/vacate-requests': 'campus_living.vacate_requests.view',
+  // Warden / hostel office raising a request for a resident (2026-09-30).
+  '/campus-living/vacate-requests/new': 'campus_living.vacate_requests.submit_on_behalf',
+  '/campus-living/settings/vacate-checklist': 'campus_living.vacate_checklist.manage',
+  '/campus-living/settings/damage-types': 'campus_living.damage_types.manage',
   '/campus-living/attendance': 'campus_living.attendance.view',
   // '/campus-living/leave' retired to a redirect (2027-04) — see
   // '/learners/leave-onduty/settings' / '/learners/leave-onduty/my-applications'.
@@ -1874,6 +1988,8 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/procurement/grn': 'procurement.view',
   '/procurement/grn/[id]': 'procurement.view',
   '/procurement/grn/new': 'procurement.grn_create',
+  '/procurement/approval-flows': 'super_admin', // Super admin only - approval steps per purchase category
+  '/procurement/approvals': 'procurement.view', // approvers without procurement.view reach it via the layout gate
   '/meetings': 'meetings.view',
   // Universal Booking sub-surfaces (reconcile 2026-06-19) — gate each by its
   // module permission so the sidebar submenus render per-role.
@@ -1890,6 +2006,10 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // own participation, so a separate key would add role-config burden without
   // adding protection.
   '/meetings/my-bookings': 'meetings.view',
+  // "My Follow-ups" — follow-ups the signed-in user hosts or owns. Same gate
+  // as My Meetings: the page reads only the caller's own rows (explicit
+  // host-or-owner filter), so a separate key would add no protection.
+  '/meetings/action-items': 'meetings.view',
   // Host-initiated scheduling. Same gate as the rest of the module: the page
   // can only ever book the SIGNED-IN user's own calendar, so a separate key
   // would add a role-config burden without adding any protection.
@@ -2214,6 +2334,19 @@ export function navPathAllowed(
  *   - `/documents` section — no `app/(routes)/documents` page exists on
  *     prod; flagged during PR #409 sweep.
  */
+/**
+ * Billing pages that live under the sidebar's "Settings" menu (group-wide config
+ * and oversight pages). Shared by that menu's `active` predicate and by the
+ * Colleges menu, which must EXCLUDE them so only one row highlights.
+ */
+const BILLING_SETTINGS_PREFIXES = [
+  '/billing/categories',
+  '/billing/reports',
+  '/billing/analytics',
+  '/billing/activities',
+  '/billing/payment-accounts',
+] as const;
+
 export function GetPages(pathname: string): MenuGroup[] {
   return [
     {
@@ -2233,22 +2366,115 @@ export function GetPages(pathname: string): MenuGroup[] {
           // institution shares, and reporting a broken tap should never be a
           // scavenger hunt down the sidebar.
           //
-          // NO SUBMENUS, deliberately. Decision I3 is "one button whose first
-          // screen asks what kind" — the chooser page IS the submenu. Hanging
-          // the three lanes here would also break the sidebar filter: a parent
-          // with submenus renders only when one of its children is permitted,
-          // and the lanes carry their own destination keys.
+          // Submenus (2026-10-01): the InstaSolver desk's screens, in the same
+          // order as the standalone app's menu (C:\jkkn_instasolver
+          // lib/constants/navigation.ts), so people who used
+          // instasolver.jkkn.ac.in find everything where it was. Each row has
+          // its own icon, none reused elsewhere in this sidebar, so the
+          // InstaSolver rows are recognisable at a glance.
+          // The 14-09 chooser at /instasolver (broken / complaint / track, My
+          // complaints, QR reports) stays as it is on main; the desk's screens
+          // are the submenus below. The chooser's lanes are not listed here
+          // (owner's decision 2026-10-01) but every one of them still works.
+          //
+          // Each row's MENU_PERMISSIONS key decides visibility:
+          // instasolver.view (everyone), .triage (CAO), .work (team-member
+          // roles), .analytics (Principal, CAO). Super Admin sees all. The
+          // parent shows because Dashboard is instasolver.view.
           href: '/instasolver',
           label: 'InstaSolver',
           active: pathname === '/instasolver' || pathname.startsWith('/instasolver/'),
-          icon: LifeBuoy,
-          submenus: []
+          // A wand with sparkles: "report it and it gets solved" — the
+          // instant-fix promise in the name (2026-10-01, replaces LifeBuoy).
+          icon: WandSparkles,
+          submenus: [
+            {
+              href: '/instasolver/dashboard',
+              label: 'Dashboard',
+              active: pathname === '/instasolver/dashboard',
+              icon: LayoutPanelLeft
+            },
+            {
+              href: '/instasolver/issues/new',
+              label: 'Report an issue',
+              active: pathname === '/instasolver/issues/new',
+              icon: Siren
+            },
+            {
+              href: '/instasolver/requirements/new',
+              label: 'Request an item',
+              active: pathname === '/instasolver/requirements/new',
+              icon: ShoppingBasket
+            },
+            {
+              href: '/instasolver/issues',
+              label: 'Issues',
+              active:
+                pathname === '/instasolver/issues' ||
+                (pathname.startsWith('/instasolver/issues/') && pathname !== '/instasolver/issues/new'),
+              icon: ListTodo
+            },
+            {
+              href: '/instasolver/requirements',
+              label: 'Requirements',
+              active:
+                pathname === '/instasolver/requirements' ||
+                (pathname.startsWith('/instasolver/requirements/') &&
+                  pathname !== '/instasolver/requirements/new'),
+              icon: PackageSearch
+            },
+            {
+              href: '/instasolver/triage',
+              label: 'Triage queue',
+              active: pathname === '/instasolver/triage',
+              icon: ListFilter
+            },
+            {
+              href: '/instasolver/work',
+              label: 'My work',
+              active: pathname === '/instasolver/work',
+              icon: Drill
+            },
+            {
+              href: '/instasolver/workload',
+              label: 'Workload',
+              active: pathname === '/instasolver/workload',
+              icon: Weight
+            },
+            {
+              href: '/instasolver/analytics',
+              label: 'Analytics',
+              active: pathname === '/instasolver/analytics',
+              icon: ChartPie
+            },
+            {
+              href: '/instasolver/admin/teams',
+              label: 'Maintenance teams',
+              active: pathname === '/instasolver/admin/teams',
+              icon: HardHat
+            },
+            {
+              href: '/instasolver/admin',
+              label: 'Administration',
+              active: pathname === '/instasolver/admin' || pathname === '/instasolver/admin/categories',
+              icon: SlidersHorizontal
+            }
+          ]
         },
         {
           href: '/ai-query',
           label: 'AI Assistant',
           active: pathname === '/ai-query',
           icon: Sparkles,
+          submenus: []
+        },
+        {
+          // Personal keys for outside AIs that accept a custom MCP server with
+          // a bearer key, through the MCP door. Same gate as the AI Assistant.
+          href: '/ai-query/connect',
+          label: 'Connect an outside AI',
+          active: pathname.startsWith('/ai-query/connect'),
+          icon: Key,
           submenus: []
         },
         {
@@ -2361,6 +2587,17 @@ export function GetPages(pathname: string): MenuGroup[] {
           label: "Director's Desk",
           active: pathname === '/director-desk' || pathname.startsWith('/director-desk/'),
           icon: ClipboardCheck,
+          submenus: []
+        },
+        {
+          // Old InstaSolver purchase requests — the Director's approve / reject
+          // list for what the old site left at 'Pending MD Approval' (ruling
+          // 30 Sep 2026). Super admin via MENU_PERMISSIONS. Also the literal
+          // href check-nav-reachability.ts needs to reach the page.
+          href: '/instasolver/old-purchase-requests',
+          label: 'Old Purchase Requests',
+          active: pathname === '/instasolver/old-purchase-requests',
+          icon: ClipboardList,
           submenus: []
         },
         {
@@ -2837,13 +3074,24 @@ export function GetPages(pathname: string): MenuGroup[] {
           active:
             pathname.startsWith('/campus-living/residents')
             || pathname.startsWith('/campus-living/blocks')
-            || pathname.startsWith('/campus-living/wardens')
-            || pathname.startsWith('/campus-living/vacate-requests'),
+            || pathname.startsWith('/campus-living/wardens'),
           icon: UsersRound,
           submenus: [
             { href: '/campus-living/residents', label: 'Residents', active: pathname.startsWith('/campus-living/residents') },
             { href: '/campus-living/blocks', label: 'Blocks', active: pathname.startsWith('/campus-living/blocks') },
             { href: '/campus-living/wardens', label: 'Wardens', active: pathname.startsWith('/campus-living/wardens') },
+          ]
+        },
+        {
+          // Approval-queue pages for non-hostel approvers (principal, CAO, …).
+          // Kept out of "Residents & Rooms" so a role holding only
+          // campus_living.vacate_requests.view sees just this row. Row shows
+          // when any submenu is allowed (see gating note above).
+          href: '/campus-living/vacate-requests',
+          label: 'Requests',
+          active: pathname.startsWith('/campus-living/vacate-requests'),
+          icon: ClipboardList,
+          submenus: [
             { href: '/campus-living/vacate-requests', label: 'Vacate Requests', active: pathname.startsWith('/campus-living/vacate-requests') },
           ]
         },
@@ -2938,26 +3186,22 @@ export function GetPages(pathname: string): MenuGroup[] {
           ]
         },
         {
+          // Maintenance + Safety & Wellness share one row (mirrors the
+          // "Facility" tab group in nav-config.ts) to keep the section under
+          // the sidebar validator's 15-row cap after "Requests" was added.
           href: '/campus-living/maintenance',
-          label: 'Maintenance',
-          active: pathname.startsWith('/campus-living/maintenance'),
+          label: 'Facility',
+          active:
+            pathname.startsWith('/campus-living/maintenance')
+            || pathname.startsWith('/campus-living/safety')
+            || pathname.startsWith('/campus-living/wellness')
+            || pathname.startsWith('/campus-living/health'),
           icon: Wrench,
           submenus: [
             { href: '/campus-living/maintenance', label: 'Maintenance', active: pathname === '/campus-living/maintenance' },
             { href: '/campus-living/maintenance/preventive', label: 'Preventive', active: pathname === '/campus-living/maintenance/preventive' },
             { href: '/campus-living/maintenance/preventive/tasks', label: 'Preventive Tasks', active: pathname.startsWith('/campus-living/maintenance/preventive/tasks') },
             { href: '/campus-living/maintenance/contracts', label: 'Contracts', active: pathname.startsWith('/campus-living/maintenance/contracts') },
-          ]
-        },
-        {
-          href: '/campus-living/safety',
-          label: 'Safety & Wellness',
-          active:
-            pathname.startsWith('/campus-living/safety')
-            || pathname.startsWith('/campus-living/wellness')
-            || pathname.startsWith('/campus-living/health'),
-          icon: Shield,
-          submenus: [
             { href: '/campus-living/safety', label: 'Safety', active: pathname === '/campus-living/safety' },
             { href: '/campus-living/safety/incidents', label: 'Incidents', active: pathname.startsWith('/campus-living/safety/incidents') },
             { href: '/campus-living/safety/inspections', label: 'Inspections', active: pathname.startsWith('/campus-living/safety/inspections') },
@@ -3054,6 +3298,8 @@ export function GetPages(pathname: string): MenuGroup[] {
             { href: '/campus-living/settings/maintenance-sla', label: 'Maintenance SLA', active: pathname.startsWith('/campus-living/settings/maintenance-sla') },
             { href: '/campus-living/settings/notification-rules', label: 'Notification Rules', active: pathname.startsWith('/campus-living/settings/notification-rules') },
             { href: '/campus-living/settings/curfew', label: 'Curfew Policies', active: pathname.startsWith('/campus-living/settings/curfew') },
+            { href: '/campus-living/settings/vacate-checklist', label: 'Vacate Checklist', active: pathname.startsWith('/campus-living/settings/vacate-checklist') },
+            { href: '/campus-living/settings/damage-types', label: 'Damage Types', active: pathname.startsWith('/campus-living/settings/damage-types') },
           ]
         },
         {
@@ -3218,6 +3464,18 @@ export function GetPages(pathname: string): MenuGroup[] {
               href: '/admission/consultants/payouts',
               label: 'Payouts',
               active: pathname === '/admission/consultants/payouts'
+            },
+            {
+              // Added 2026-09-28 — rate-card commission payments raised from the
+              // consultant's Commission Structure tab and their approval flow.
+              href: '/admission/consultants/commission-payments',
+              label: 'Commission Payments',
+              active: pathname.startsWith('/admission/consultants/commission-payments')
+            },
+            {
+              href: '/admission/consultants/commission-approvals',
+              label: 'Commission Approvals',
+              active: pathname === '/admission/consultants/commission-approvals'
             },
             {
               // Added 2026-08-17 — sits next to Payouts because it answers the
@@ -3630,6 +3888,8 @@ export function GetPages(pathname: string): MenuGroup[] {
           submenus: [
             { href: '/hr/recruitment', label: 'Dashboard', active: pathname === '/hr/recruitment' },
             { href: '/hr/recruitment/jobs', label: 'Job Postings', active: pathname.startsWith('/hr/recruitment/jobs') },
+            { href: '/hr/recruitment/candidates', label: 'All Candidates', active: pathname.startsWith('/hr/recruitment/candidates') },
+            { href: '/hr/recruitment/intake', label: 'Bring in Candidates', active: pathname.startsWith('/hr/recruitment/intake') },
             { href: '/hr/recruitment/submit', label: 'Apply for Jobs', active: pathname === '/hr/recruitment/submit' },
             { href: '/hr/recruitment/my', label: 'My Submissions', active: pathname === '/hr/recruitment/my' },
             { href: '/hr/recruitment/approvals', label: 'Approvals', active: pathname === '/hr/recruitment/approvals' },
@@ -3676,6 +3936,7 @@ export function GetPages(pathname: string): MenuGroup[] {
           label: 'Attendance & Time',
           active:
             pathname.startsWith('/hr/attendance/close')
+            || pathname.startsWith('/hr/attendance/clinical')
             || pathname.startsWith('/hr/admin/shift-timings')
             || pathname.startsWith('/hr/admin/work-patterns'),
           icon: Clock,
@@ -3685,6 +3946,7 @@ export function GetPages(pathname: string): MenuGroup[] {
             // and /hr/attendance itself belongs to Self Service.
             { href: '/hr/attendance?view=all', label: 'All Attendance', active: false },
             { href: '/hr/attendance/close', label: 'Month Close', active: pathname.startsWith('/hr/attendance/close') },
+            { href: '/hr/attendance/clinical', label: 'Clinical Duty', active: pathname.startsWith('/hr/attendance/clinical') },
             { href: '/hr/admin/shift-timings', label: 'Shift Timings', active: pathname.startsWith('/hr/admin/shift-timings') },
             { href: '/hr/admin/work-patterns', label: 'Work Patterns', active: pathname.startsWith('/hr/admin/work-patterns') },
           ]
@@ -3711,6 +3973,10 @@ export function GetPages(pathname: string): MenuGroup[] {
             // configuration FOR that screen, and the TDS column there is derived
             // from them rather than stored per person.
             { href: '/hr/payroll/tds-slabs', label: 'TDS Bands', active: pathname.startsWith('/hr/payroll/tds-slabs') },
+            // Reads the salary and the pay-scale policy together and reports who
+            // sits outside their band. Immediately after the two screens it
+            // derives from, and on the same key as the salaries it reads.
+            { href: '/hr/payroll/pay-band-check', label: 'Pay Band Check', active: pathname.startsWith('/hr/payroll/pay-band-check') },
             // Gates on hr.payroll.bank.view — hr_head alone, plus the Super
             // Administrator via is_super_admin().
             { href: '/hr/payroll/bank-accounts', label: 'Bank Accounts', active: pathname.startsWith('/hr/payroll/bank-accounts') },
@@ -3722,6 +3988,22 @@ export function GetPages(pathname: string): MenuGroup[] {
             // The /hr/admin/payroll hub (periods, preview) — payroll setup,
             // listed with payroll rather than under an "Admin" row.
             { href: '/hr/admin/payroll', label: 'Payroll Setup', active: pathname.startsWith('/hr/admin/payroll') },
+          ]
+        },
+        {
+          // Salary Revisions (2026-09-29) — its own row, not a Payroll child:
+          // principals and heads of department use it and hold none of the
+          // Payroll row's keys, and the row anchor must land somewhere they can
+          // open. Ask → the principal's check (HOD requests) → the Director.
+          href: '/hr/salary-revisions',
+          label: 'Salary Revisions',
+          active: pathname.startsWith('/hr/salary-revisions'),
+          icon: Wallet,
+          submenus: [
+            { href: '/hr/salary-revisions', label: 'Salary Revision Requests', active: pathname === '/hr/salary-revisions' },
+            { href: '/hr/salary-revisions/ask', label: 'Ask for a Salary Revision', active: pathname === '/hr/salary-revisions/ask' },
+            { href: '/hr/salary-revisions/college-check', label: "Principal's Check", active: pathname.startsWith('/hr/salary-revisions/college-check') },
+            { href: '/hr/salary-revisions/approve', label: 'Approve Salary Revisions', active: pathname.startsWith('/hr/salary-revisions/approve') },
           ]
         },
         {
@@ -4009,7 +4291,8 @@ export function GetPages(pathname: string): MenuGroup[] {
             pathname === '/billing' ||
             (pathname.startsWith('/billing/') &&
               !pathname.startsWith('/billing/transport') &&
-              !pathname.startsWith('/billing/school-fees')),
+              !pathname.startsWith('/billing/school-fees') &&
+              !BILLING_SETTINGS_PREFIXES.some((prefix) => pathname.startsWith(prefix))),
           icon: GraduationCap,
           submenus: [
             { href: '/billing/schedule', label: 'Schedule · All Bills', active: pathname === '/billing/schedule' },
@@ -4024,19 +4307,11 @@ export function GetPages(pathname: string): MenuGroup[] {
             { href: '/billing/apportionment', label: 'Apportionment', active: pathname.startsWith('/billing/apportionment') },
             { href: '/billing/invoices', label: 'Invoices', active: pathname.startsWith('/billing/invoices') },
             { href: '/billing/late-charges', label: 'Late Charges', active: pathname.startsWith('/billing/late-charges') },
-            // ── Group-wide, not college-only ──────────────────────────────
-            // These six serve schools too and deliberately have no second row
-            // under Schools: one href in two menus highlights both at once.
-            // Categories IS the school fee-head master (school-fee-head-service
-            // reads billing_categories, collapsed to global in 20260428000001),
-            // and the school counter writes billing_receipt_items, so Receipts
-            // lists school payments as well.
-            { href: '/billing/categories', label: 'Categories', active: pathname.startsWith('/billing/categories') },
+            // Receipts is group-wide too (the school counter writes
+            // billing_receipt_items, so it lists school payments) but is daily
+            // work, not configuration, so it stays here. The other group-wide
+            // pages moved to the Settings menu below (2026-10-01).
             { href: '/billing/receipts', label: 'Receipts', active: pathname.startsWith('/billing/receipts') },
-            { href: '/billing/reports', label: 'Reports', active: pathname.startsWith('/billing/reports') },
-            { href: '/billing/analytics', label: 'Analytics', active: pathname.startsWith('/billing/analytics') },
-            { href: '/billing/activities', label: 'Activities', active: pathname.startsWith('/billing/activities') },
-            { href: '/billing/payment-accounts', label: 'Payment Gateway Accounts', active: pathname.startsWith('/billing/payment-accounts') },
           ]
         },
         {
@@ -4074,6 +4349,26 @@ export function GetPages(pathname: string): MenuGroup[] {
             // Sits after Generate because that is the order of the work: raise
             // the year's bills, then take money against them.
             { href: '/billing/school-fees/collect', label: 'School Bill Payment', active: pathname.startsWith('/billing/school-fees/collect') },
+          ]
+        },
+        {
+          // Group-wide configuration and oversight pages that serve colleges AND
+          // schools. They used to sit at the bottom of the Colleges list, which
+          // had grown past 17 rows. One href lives in exactly one menu, and the
+          // Colleges `active` predicate above excludes these prefixes, so only
+          // one row highlights. Categories IS the school fee-head master
+          // (school-fee-head-service reads billing_categories, collapsed to
+          // global in 20260428000001).
+          href: '/billing/categories',
+          label: 'Settings',
+          active: BILLING_SETTINGS_PREFIXES.some((prefix) => pathname.startsWith(prefix)),
+          icon: Settings,
+          submenus: [
+            { href: '/billing/categories', label: 'Categories', active: pathname.startsWith('/billing/categories') },
+            { href: '/billing/reports', label: 'Reports', active: pathname.startsWith('/billing/reports') },
+            { href: '/billing/analytics', label: 'Analytics', active: pathname.startsWith('/billing/analytics') },
+            { href: '/billing/activities', label: 'Activities', active: pathname.startsWith('/billing/activities') },
+            { href: '/billing/payment-accounts', label: 'Payment Gateway Accounts', active: pathname.startsWith('/billing/payment-accounts') },
           ]
         }
       ]
@@ -4136,10 +4431,10 @@ export function GetPages(pathname: string): MenuGroup[] {
           icon: ShoppingCart,
           submenus: [
             { href: '/procurement', label: 'Overview', active: pathname === '/procurement' },
-            // Same three working tabs as app/(routes)/procurement/nav-config.ts.
+            // Same tabs as app/(routes)/procurement/nav-config.ts; orders and deliveries
+            // open from the purchase page, so they count as Quotations.
             { href: '/procurement/requests', label: 'Requests', active: pathname.startsWith('/procurement/requests') },
-            { href: '/procurement/rfqs', label: 'Quotations', active: pathname.startsWith('/procurement/rfqs') },
-            { href: '/procurement/purchase-orders', label: 'Deliveries', active: pathname.startsWith('/procurement/purchase-orders') || pathname.startsWith('/procurement/grn') },
+            { href: '/procurement/rfqs', label: 'Quotations', active: ['/procurement/rfqs', '/procurement/purchase-orders', '/procurement/grn'].some((p) => pathname.startsWith(p)) },
           ]
         }
       ]
@@ -4164,6 +4459,8 @@ export function GetPages(pathname: string): MenuGroup[] {
             { href: '/resource-management/reservations/approvals', label: 'Reservations · Approvals', active: pathname.startsWith('/resource-management/reservations/approvals') },
             { href: '/resource-management/reservations/calendar', label: 'Reservations · Calendar', active: pathname === '/resource-management/reservations/calendar' },
             { href: '/resource-management/maintenance', label: 'Maintenance', active: pathname.startsWith('/resource-management/maintenance') },
+            { href: '/resource-management/qr-stickers', label: 'QR Stickers', active: pathname === '/resource-management/qr-stickers' },
+            { href: '/resource-management/suggested-places', label: 'Suggested Places', active: pathname === '/resource-management/suggested-places' },
           ]
         }
       ]
@@ -4276,6 +4573,14 @@ export function GetPages(pathname: string): MenuGroup[] {
               href: '/campus-walk/review',
               label: 'Awaiting approval',
               active: pathname.startsWith('/campus-walk/review')
+            },
+            {
+              // The fixes board only — never the walking/coverage boards (G2).
+              // Its own key, so a team member without projects.view still sees
+              // the Campus Walk group with just this one row in it.
+              href: '/campus-walk/scoreboard/fixes',
+              label: 'Fixes scoreboard',
+              active: pathname.startsWith('/campus-walk/scoreboard/fixes')
             }
           ]
         }
@@ -4349,6 +4654,7 @@ export function GetPages(pathname: string): MenuGroup[] {
           submenus: [
             { href: '/meetings', label: 'Home', active: pathname === '/meetings' },
             { href: '/meetings/my-bookings', label: 'My Meetings', active: pathname.startsWith('/meetings/my-bookings') },
+            { href: '/meetings/action-items', label: 'My Follow-ups', active: pathname.startsWith('/meetings/action-items') },
             { href: '/meetings/schedule', label: 'Schedule a Meeting', active: pathname.startsWith('/meetings/schedule') },
             { href: '/meetings/availability', label: 'My Availability & Page', active: pathname.startsWith('/meetings/availability') },
             { href: '/meetings/manage', label: 'Meeting Types', active: pathname.startsWith('/meetings/manage') },

@@ -1,7 +1,8 @@
 'use client';
 
-// Warden / chief warden / hostel office queue of vacate requests.
-// Filter by status (pending stages) and reason. Click row to open detail.
+// Queue of vacate requests for every approver in the chain (principal, warden,
+// mess in-charge, CAO) and the hostel office. RLS decides which rows each role
+// sees. Filter by stage and reason. Click row to open detail.
 
 import { useState } from 'react';
 import Link from 'next/link';
@@ -19,10 +20,9 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { useAuth } from '@/hooks/use-auth';
-import { usePermissions } from '@/hooks/use-permissions';
 import { useVacateRequests } from '@/hooks/campus-living/use-hostel-vacate';
 import { ArrowRight, Loader2, Search, FileText } from 'lucide-react';
+import { VACATE_STATUS_LABELS } from '@/types/hostel-vacate';
 import type { VacateRequestStatus, VacateReason } from '@/types/hostel-vacate';
 
 const statusVariant: Record<
@@ -31,31 +31,28 @@ const statusVariant: Record<
 > = {
   draft: 'outline',
   pending_parent: 'secondary',
+  pending_dues: 'secondary',
+  pending_accountant: 'default',
+  pending_principal: 'default',
   pending_warden: 'default',
+  pending_mess: 'default',
+  pending_cao: 'default',
+  pending_fine: 'secondary',
   pending_chief: 'default',
-  pending_dues: 'default',
   approved: 'default',
   completed: 'success',
   rejected: 'destructive',
   cancelled: 'outline',
 };
 
-const statusLabel: Record<VacateRequestStatus, string> = {
-  draft: 'Draft',
-  pending_parent: 'Parent OTP',
-  pending_warden: 'Warden',
-  pending_chief: 'Chief Warden',
-  pending_dues: 'Dues',
-  approved: 'Approved',
-  completed: 'Completed',
-  rejected: 'Rejected',
-  cancelled: 'Cancelled',
-};
+const statusLabel = VACATE_STATUS_LABELS;
 
 export default function VacateRequestsQueuePage() {
-  const { profile } = useAuth();
-  const { isSuperAdmin } = usePermissions();
-  const institutionId = isSuperAdmin ? '' : profile?.institution_id ?? '';
+  // No client-side institution filter: a warden's access is a BLOCK grant (their
+  // profile institution owns no block), so filtering on profile.institution_id
+  // hid every request from them. RLS (view key + institution-or-block scope)
+  // decides which rows come back.
+  const institutionId = '';
 
   const [statusFilter, setStatusFilter] = useState<VacateRequestStatus | 'all' | 'active'>('active');
   const [reasonFilter, setReasonFilter] = useState<VacateReason | 'all'>('all');
@@ -106,17 +103,23 @@ export default function VacateRequestsQueuePage() {
         <div>
           <h1 className='text-2xl font-bold py-1'>Vacate Requests</h1>
           <p className='text-sm text-muted-foreground'>
-            Review and act on student / staff hostel vacate submissions. Your actions will
-            advance the approval chain.
+            Bills are checked automatically, then the request goes to the Principal, the Warden
+            (checklist and room inspection), the Mess In-charge and the CAO. Any damage is billed as a
+            fine; once it is paid the bed is released and the learner becomes a Day Scholar. To raise a
+            request for a resident, open their allocation.
           </p>
         </div>
 
         {/* KPI row */}
         <div className='grid grid-cols-2 sm:grid-cols-4 gap-3'>
-          <KpiTile label='Parent OTP pending' value={counts.pending_parent ?? 0} variant='secondary' />
-          <KpiTile label='Warden action' value={counts.pending_warden ?? 0} variant='default' />
-          <KpiTile label='Chief warden action' value={counts.pending_chief ?? 0} variant='default' />
-          <KpiTile label='Dues clearance' value={counts.pending_dues ?? 0} variant='default' />
+          <KpiTile label='Bills pending' value={counts.pending_dues ?? 0} variant='secondary' />
+          <KpiTile
+            label='With approvers'
+            value={(counts.pending_accountant ?? 0) + (counts.pending_principal ?? 0) + (counts.pending_warden ?? 0) + (counts.pending_mess ?? 0) + (counts.pending_cao ?? 0)}
+            variant='default'
+          />
+          <KpiTile label='Awaiting fine' value={counts.pending_fine ?? 0} variant='secondary' />
+          <KpiTile label='Vacated' value={counts.completed ?? 0} variant='success' />
         </div>
 
         {/* Filters */}
@@ -131,18 +134,20 @@ export default function VacateRequestsQueuePage() {
             />
           </div>
           <Select value={statusFilter} onValueChange={(v) => setStatusFilter(v as typeof statusFilter)}>
-            <SelectTrigger className='w-[180px]'>
+            <SelectTrigger className='w-[220px]'>
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
               <SelectItem value='active'>Active (not closed)</SelectItem>
               <SelectItem value='all'>All statuses</SelectItem>
-              <SelectItem value='pending_parent'>Parent OTP</SelectItem>
-              <SelectItem value='pending_warden'>Warden</SelectItem>
-              <SelectItem value='pending_chief'>Chief Warden</SelectItem>
-              <SelectItem value='pending_dues'>Dues</SelectItem>
-              <SelectItem value='approved'>Approved</SelectItem>
-              <SelectItem value='completed'>Completed</SelectItem>
+              <SelectItem value='draft'>Draft</SelectItem>
+              <SelectItem value='pending_dues'>Bills pending</SelectItem>
+              <SelectItem value='pending_accountant'>With Accounts</SelectItem>
+              <SelectItem value='pending_principal'>With Principal</SelectItem>
+              <SelectItem value='pending_warden'>With Warden</SelectItem>
+              <SelectItem value='pending_cao'>With CAO</SelectItem>
+              <SelectItem value='pending_fine'>Awaiting fine payment</SelectItem>
+              <SelectItem value='completed'>Vacated</SelectItem>
               <SelectItem value='rejected'>Rejected</SelectItem>
               <SelectItem value='cancelled'>Cancelled</SelectItem>
             </SelectContent>

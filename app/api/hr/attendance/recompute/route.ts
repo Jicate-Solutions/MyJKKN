@@ -47,6 +47,7 @@ import {
 } from '@/lib/hr/attendance/holiday-dates';
 import { fetchApprovedPermissions, permissionKey } from '@/lib/hr/biometric/fetch-permissions';
 import { createServiceRoleClient } from '@/lib/supabase/server';
+import { fetchLockedMonthKeys, lockedMonthKey, restampSpans } from '@/lib/hr/attendance/locked-periods';
 import type { ResolvedShiftTiming } from '@/types/hr-shift-timings';
 
 /** fn_resolve_shift_timings_bulk refuses a span wider than this. */
@@ -145,17 +146,31 @@ export async function POST(request: NextRequest) {
       .limit(20000);
     if (institutionId) q = q.eq('institution_id', institutionId);
 
-    const { data: records, error: recErr } = await q;
+    const { data: loaded, error: recErr } = await q;
     if (recErr) {
       console.error('[hr/attendance/recompute] record load error:', recErr);
       return NextResponse.json({ error: 'Load failed', message: recErr.message }, { status: 500 });
     }
 
-    if (!records || records.length === 0) {
+    // Closed months are left out, not written and refused: see locked-periods.ts.
+    const lockedKeys = await fetchLockedMonthKeys(
+      session,
+      [...new Set((loaded ?? []).map((r) => r.institution_id as string | null).filter((v): v is string => !!v))],
+      from,
+      to,
+    );
+    const records = (loaded ?? []).filter(
+      (r) => !r.institution_id || !lockedKeys.has(lockedMonthKey(r.institution_id as string, String(r.work_date))),
+    );
+    const lockedSkipped = (loaded?.length ?? 0) - records.length;
+
+    if (records.length === 0) {
       return NextResponse.json({
         success: true, dry_run: dryRun, examined: 0, changed: 0,
-        unresolvable: 0, transitions: {}, changes: [],
-        message: 'No biometric attendance records in that range.',
+        unresolvable: 0, transitions: {}, changes: [], locked_skipped: lockedSkipped,
+        message: lockedSkipped > 0
+          ? `All ${lockedSkipped} day(s) in that range belong to closed months; reopen a month to recompute it.`
+          : 'No biometric attendance records in that range.',
       });
     }
 
@@ -344,6 +359,7 @@ export async function POST(request: NextRequest) {
       unresolvable,
       transitions,
       changes,
+      locked_skipped: lockedSkipped,
     };
 
     // Only a DRY RUN returns early. "Nothing to update" deliberately falls
@@ -365,8 +381,12 @@ export async function POST(request: NextRequest) {
     // Update by id, not upsert: an upsert would need every NOT NULL column
     // (employee_id, hr_organization_id, work_date, source) restated, and any
     // one omitted would be nulled out rather than left alone.
+    // A failed write must NOT return before the leave re-stamp below: the rows
+    // already rewritten have lost their LEAVE / HALF_DAY stamps, and only the
+    // re-stamp puts them back.
     let written = 0;
-    for (let i = 0; i < updates.length; i += CHUNK) {
+    let writeError: string | null = null;
+    for (let i = 0; i < updates.length && !writeError; i += CHUNK) {
       const chunk = updates.slice(i, i + CHUNK);
       const results = await Promise.all(
         chunk.map((u) => {
@@ -377,10 +397,8 @@ export async function POST(request: NextRequest) {
       for (const { data, error } of results) {
         if (error) {
           console.error('[hr/attendance/recompute] update error:', error);
-          return NextResponse.json(
-            { ...base, error: 'Recompute write failed', message: error.message, written },
-            { status: 500 },
-          );
+          writeError ??= error.message;
+          continue;
         }
         written += data?.length ?? 0;
       }
@@ -398,38 +416,51 @@ export async function POST(request: NextRequest) {
     // matches its stored status produces no update, but may still have lost its
     // leave stamp to an earlier recompute. Re-stamping the whole examined range
     // heals those too.
+    //
+    // Per open MONTH, not over the request's whole range: a range reaching into
+    // a closed month is refused by the lock trigger and re-stamps nothing.
     let leaveRestamped = 0;
-    const restampInstitutions = [
-      ...new Set(
-        (records as Array<Record<string, unknown>>)
-          .map((r) => r.institution_id as string | null)
-          .filter((v): v is string => !!v),
-      ),
-    ];
-    for (const instId of restampInstitutions) {
+    let restampFailed = false;
+    for (const span of restampSpans(
+      records as Array<{ institution_id: string | null; work_date: string }>,
+    )) {
       const { data: restamped, error: restampErr } = await session.rpc(
         'fn_restamp_leave_attendance',
-        { p_institution_id: instId, p_from: from, p_to: to },
+        { p_institution_id: span.institutionId, p_from: span.from, p_to: span.to },
       );
       // Not fatal: the recompute that just landed is still correct for everyone
       // without approved leave. Surfaced in the response so a partial is visible
       // rather than assumed.
       if (restampErr) {
         console.error('[hr/attendance/recompute] leave re-stamp failed:', restampErr);
+        restampFailed = true;
         continue;
       }
       leaveRestamped += (restamped as number | null) ?? 0;
+    }
+
+    if (writeError) {
+      return NextResponse.json(
+        {
+          ...base, success: false, written, leave_restamped: leaveRestamped,
+          error: 'Recompute write failed', message: writeError,
+        },
+        { status: 500 },
+      );
     }
 
     return NextResponse.json({
       ...base,
       written,
       leave_restamped: leaveRestamped,
+      leave_restamp_failed: restampFailed,
       message:
         `Recomputed ${written} day(s) of ${records.length} examined` +
         (leaveRestamped > 0
-          ? `; ${leaveRestamped} day(s) re-stamped from approved leave.`
-          : '.'),
+          ? `; ${leaveRestamped} day(s) re-stamped from approved leave`
+          : '') +
+        (lockedSkipped > 0 ? `; ${lockedSkipped} day(s) in closed months left untouched` : '') +
+        (restampFailed ? '. WARNING: approved leave could not be re-applied to every day.' : '.'),
     });
   } catch (error) {
     console.error('[hr/attendance/recompute] unexpected error:', error);

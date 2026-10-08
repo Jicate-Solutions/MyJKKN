@@ -144,7 +144,8 @@ export function InternalMarksFiltersComponent({ institutionId, filters, onFilter
     () =>
       baseCourses.map((c) => ({
         course_code: c.course_code,
-        course_name: courseInfoMap.get(c.course_code)?.course_name ?? c.course_name ?? '',
+        // `||`, not `??`: an empty name from one source must fall through to the next.
+        course_name: courseInfoMap.get(c.course_code)?.course_name || c.course_name || '',
         course_offering_id: '', // Not used in new flow; reserved for type compat
       })),
     [baseCourses, courseInfoMap]
@@ -428,12 +429,10 @@ export function InternalMarksFiltersComponent({ institutionId, filters, onFilter
                             filters.course_code === c.course_code ? 'opacity-100' : 'opacity-0'
                           )}
                         />
-                        <div className='min-w-0'>
-                          <span className='font-mono text-xs font-medium'>{c.course_code}</span>
+                        <div className='min-w-0 whitespace-normal text-xs'>
+                          <span className='font-mono font-medium'>{c.course_code}</span>
                           {c.course_name && (
-                            <span className='block text-xs text-muted-foreground whitespace-normal'>
-                              {c.course_name}
-                            </span>
+                            <span className='text-muted-foreground'> - {c.course_name}</span>
                           )}
                         </div>
                       </CommandItem>

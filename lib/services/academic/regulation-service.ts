@@ -290,10 +290,11 @@ export class RegulationService {
       );
 
       // Apply institution filter based on user permissions
-      if (!isSuperAdmin && userInstitutionId) {
-        query = query.eq('institution_id', userInstitutionId);
-      } else if (filters.institution_id) {
+      if (filters.institution_id) {
+        // An explicitly selected institution wins (RLS still gates the rows)
         query = query.eq('institution_id', filters.institution_id);
+      } else if (!isSuperAdmin && userInstitutionId) {
+        query = query.eq('institution_id', userInstitutionId);
       }
 
       // Apply search filter

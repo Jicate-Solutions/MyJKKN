@@ -288,10 +288,12 @@ export function DashboardFilters({
                   Active filters:
                 </span>
 
-                {filters.dateRange && (
+                {filters.dateRange?.from && (
                   <Badge variant='secondary' className='gap-1'>
-                    Date: {format(filters.dateRange.from!, 'MMM dd')} -{' '}
-                    {format(filters.dateRange.to!, 'MMM dd')}
+                    {/* The first click of a range sets only `from`; formatting the
+                        missing `to` threw "Invalid time value" and crashed the page. */}
+                    Date: {format(filters.dateRange.from, 'MMM dd')}
+                    {filters.dateRange.to && <> - {format(filters.dateRange.to, 'MMM dd')}</>}
                     <X
                       className='h-3 w-3 cursor-pointer'
                       onClick={clearDateRange}

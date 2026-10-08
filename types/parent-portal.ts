@@ -128,6 +128,13 @@ export interface FeeBill {
   balanceAmount: number;
   dueDate?: string;
   status?: string;
+  /** Trimmed academic_years.academic_year_name, when the bill carries one. */
+  academicYear?: string;
+  /**
+   * Set while a bill of an OLDER academic year still has a balance —
+   * it cannot be selected for online payment until those are cleared.
+   */
+  payLockedReason?: string;
 }
 
 export interface FeeReceipt {

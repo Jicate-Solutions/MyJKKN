@@ -80,6 +80,7 @@ import type { StaffSalaryDirectoryRow } from '@/lib/services/hr/payroll/staff-sa
 import { SalaryDirectoryDataTable } from './_components/salary-directory-data-table';
 import { SalaryImportDialog } from './_components/salary-import-dialog';
 import { EditSalaryDialog } from './_components/edit-salary-dialog';
+import { SalarySuggestionSheet } from './_components/salary-suggestion-sheet';
 import { downloadSalaryTemplate } from './_components/salary-template-export';
 import {
   DEFAULT_SALARY_FILTERS,
@@ -223,7 +224,7 @@ function SalaryHistorySheet({
 export default function EmployeeSalariesPage() {
   // canAccess(module, action) is the shape this hook exports, and it already
   // short-circuits for a super admin.
-  const { canAccess, isLoading: permsLoading } = usePermissions();
+  const { canAccess, isSuperAdmin, isLoading: permsLoading } = usePermissions();
   const canView = canAccess('hr.payroll.salary', 'view');
   const canManage = canAccess('hr.payroll.salary', 'manage');
 
@@ -233,6 +234,16 @@ export default function EmployeeSalariesPage() {
   const [importOpen, setImportOpen] = useState(false);
   const [editRow, setEditRow] = useState<StaffSalaryDirectoryRow | null>(null);
   const [historyRow, setHistoryRow] = useState<StaffSalaryDirectoryRow | null>(null);
+  const [suggestRow, setSuggestRow] = useState<StaffSalaryDirectoryRow | null>(null);
+  // Set only by "Use this figure"; cleared whenever the Edit dialog closes, so
+  // opening Update salary from the row menu afterwards starts from the pay in force.
+  const [editPrefill, setEditPrefill] = useState<number | null>(null);
+
+  const handleUseFigure = useCallback((row: StaffSalaryDirectoryRow, monthlyGross: number) => {
+    setSuggestRow(null);
+    setEditPrefill(monthlyGross);
+    setEditRow(row);
+  }, []);
 
   const list = useMemo(() => rows ?? [], [rows]);
   const inScope = useMemo(
@@ -450,6 +461,7 @@ export default function EmployeeSalariesPage() {
             canManage={canManage}
             onEdit={setEditRow}
             onViewHistory={setHistoryRow}
+            onSuggest={setSuggestRow}
             onBulkTemplate={handleTemplate}
           />
         </>
@@ -463,7 +475,21 @@ export default function EmployeeSalariesPage() {
 
       <EditSalaryDialog
         row={editRow}
-        onOpenChange={(open) => { if (!open) setEditRow(null); }}
+        prefillMonthlyGross={editPrefill}
+        onOpenChange={(open) => {
+          if (!open) {
+            setEditRow(null);
+            setEditPrefill(null);
+          }
+        }}
+      />
+
+      <SalarySuggestionSheet
+        row={suggestRow}
+        canManage={canManage}
+        canEditRule={isSuperAdmin}
+        onUseFigure={handleUseFigure}
+        onOpenChange={(open) => { if (!open) setSuggestRow(null); }}
       />
 
       <SalaryHistorySheet

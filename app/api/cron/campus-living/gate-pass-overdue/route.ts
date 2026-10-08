@@ -94,6 +94,25 @@ export async function GET(request: NextRequest) {
     );
   }
 
+  // Leave-linked passes never scanned OUT inside their 12-hour window. Written as
+  // 'expired', never 'overdue': the learner is still inside, not missing. The gate
+  // already refuses these (valid_until check in gate_record_movement); this only
+  // makes the status honest for the queues and the learner's own screen.
+  const { data: expiredData, error: expireError } = await db
+    .from('hostel_gate_passes')
+    .update({ status: 'expired' })
+    .eq('status', 'issued')
+    .lt('valid_until', now)
+    .select('id');
+
+  if (expireError) {
+    console.error(`${LOG} expiry sweep failed`, expireError.message);
+    return NextResponse.json(
+      { ok: false, error: expireError.message, duration_ms: Date.now() - startTime },
+      { status: 500 },
+    );
+  }
+
   const flipped = (data ?? []) as Array<{
     id: string;
     learner_id: string;
@@ -113,6 +132,7 @@ export async function GET(request: NextRequest) {
     ok: true,
     swept_at: now,
     marked_overdue: flipped.length,
+    marked_expired: (expiredData ?? []).length,
     passes: flipped.map((p) => ({
       id: p.id,
       pass_number: p.pass_number,

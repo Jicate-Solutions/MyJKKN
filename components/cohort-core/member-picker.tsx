@@ -45,6 +45,8 @@ export interface MemberPickerProps {
   roles?: string[];
   /** Hide users already added (e.g. current roster member_refs). */
   excludeIds?: string[];
+  /** Only team members — hide every profile linked to a learner record. */
+  teamMembersOnly?: boolean;
   placeholder?: string;
   disabled?: boolean;
   className?: string;
@@ -78,10 +80,11 @@ function useMemberDirectorySearch(params: {
   institutionId?: string;
   roles?: string[];
   excludeIds?: string[];
+  teamMembersOnly?: boolean;
   minChars: number;
   limit: number;
 }) {
-  const { term, institutionId, roles, excludeIds, minChars, limit } = params;
+  const { term, institutionId, roles, excludeIds, teamMembersOnly, minChars, limit } = params;
   const [results, setResults] = useState<MemberPickerResult[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -116,6 +119,7 @@ function useMemberDirectorySearch(params: {
 
         if (institutionId) query = query.eq('institution_id', institutionId);
         if (roles && roles.length > 0) query = query.in('role', roles);
+        if (teamMembersOnly) query = query.is('learner_id', null);
 
         const { data, error: qErr } = await query;
         if (cancelled || reqId !== reqIdRef.current) return;
@@ -138,7 +142,7 @@ function useMemberDirectorySearch(params: {
     };
     // excludeIds/roles are arrays — join to a stable dep so identity changes don't loop.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [debounced, institutionId, (roles ?? []).join(','), (excludeIds ?? []).join(','), minChars, limit]);
+  }, [debounced, institutionId, (roles ?? []).join(','), (excludeIds ?? []).join(','), teamMembersOnly, minChars, limit]);
 
   return { results, loading, error };
 }
@@ -150,6 +154,7 @@ export function MemberPicker({
   institutionId,
   roles,
   excludeIds,
+  teamMembersOnly,
   placeholder = 'Search users by name or email…',
   disabled = false,
   className,
@@ -165,6 +170,7 @@ export function MemberPicker({
     institutionId,
     roles,
     excludeIds,
+    teamMembersOnly,
     minChars,
     limit,
   });

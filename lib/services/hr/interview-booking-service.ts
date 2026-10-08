@@ -107,14 +107,13 @@ export interface InterviewHost {
 }
 
 /**
- * The host and meeting type interviews book onto, from the
- * hr.recruitment.interview_booking.host policy row. Returns null when the
- * setting is missing, the page is not bookable (private, auto-hidden, Google
- * disconnected) or the meeting type does not exist or is hidden — the link then
- * shows "not open yet" instead of a broken form.
+ * The hr.recruitment.interview_booking.host policy row, lower-cased, or null
+ * when it is missing or incomplete. Any client that may call fn_get_policy.
  */
-export async function resolveInterviewHost(serviceDb: SupabaseClient): Promise<InterviewHost | null> {
-  const { data, error } = await serviceDb.rpc('fn_get_policy', {
+export async function readInterviewHostSetting(
+  db: SupabaseClient,
+): Promise<InterviewHostSetting | null> {
+  const { data, error } = await db.rpc('fn_get_policy', {
     p_key: POLICY_KEYS.HR_INTERVIEW_BOOKING_HOST,
     p_scope_id: null,
   });
@@ -123,11 +122,31 @@ export async function resolveInterviewHost(serviceDb: SupabaseClient): Promise<I
     return null;
   }
   const setting = data as Partial<InterviewHostSetting> | null;
-  const handle = typeof setting?.handle === 'string' ? setting.handle.trim() : '';
-  const typeSlug = typeof setting?.type_slug === 'string' ? setting.type_slug.trim() : '';
+  const handle = typeof setting?.handle === 'string' ? setting.handle.trim().toLowerCase() : '';
+  const typeSlug =
+    typeof setting?.type_slug === 'string' ? setting.type_slug.trim().toLowerCase() : '';
   if (!handle || !typeSlug) return null;
+  return { handle, type_slug: typeSlug };
+}
 
-  const host = await PublicHostService.resolveBookableHost(serviceDb, handle);
+/**
+ * The host and meeting type interviews book onto, from the
+ * hr.recruitment.interview_booking.host policy row. Returns null when the
+ * setting is missing, the page is not bookable (private, auto-hidden, Google
+ * disconnected) or the meeting type does not exist or is inactive — the link
+ * then shows "not open yet" instead of a broken form. A HIDDEN type is fine.
+ */
+export async function resolveInterviewHost(serviceDb: SupabaseClient): Promise<InterviewHost | null> {
+  const setting = await readInterviewHostSetting(serviceDb);
+  if (!setting) return null;
+  const { handle, type_slug: typeSlug } = setting;
+
+  // The interview type may be HIDDEN (Director 29 Sep 2026, #28): hidden keeps
+  // it off /meet/<handle>, where it could be booked without the candidate
+  // questions, while this link can still book it.
+  const host = await PublicHostService.resolveBookableHost(serviceDb, handle, {
+    alsoHiddenSlug: typeSlug,
+  });
   if (!host) return null;
   const meetingType = host.meetingTypes.find((t) => t.slug === typeSlug);
   if (!meetingType) return null;

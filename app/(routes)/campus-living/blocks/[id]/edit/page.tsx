@@ -1,6 +1,7 @@
 'use client';
 
 import { use, useEffect, useState } from 'react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
@@ -94,7 +95,6 @@ export default function EditBlockPage({ params }: { params: Promise<{ id: string
           name: formData.name,
           code: formData.code,
           hostel_type: formData.hostel_type as 'boys' | 'girls' | 'mixed',
-          total_floors: parseInt(formData.total_floors) || 0,
           address: formData.address || null,
           contact_phone: formData.contact_phone || null,
           curfew_time_weekday: formData.curfew_time_weekday || null,
@@ -197,17 +197,21 @@ export default function EditBlockPage({ params }: { params: Promise<{ id: string
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="total_floors">Number of Floors *</Label>
-                <Input
-                  id="total_floors"
-                  type="number"
-                  placeholder="e.g., 4"
-                  min={1}
-                  max={20}
-                  value={formData.total_floors}
-                  onChange={(e) => handleInputChange('total_floors', e.target.value)}
-                  required
-                />
+                {/* total_floors is derived from hostel_floors (a DB trigger keeps it in
+                    sync), so it is not editable here — sending it would overwrite the
+                    real count with a stale number. */}
+                <Label htmlFor="total_floors">Number of Floors</Label>
+                <div className="flex h-9 items-center justify-between gap-3 rounded-md border border-input bg-muted/40 px-3 text-sm">
+                  <span id="total_floors" className="font-medium tabular-nums">
+                    {formData.total_floors || 0}
+                  </span>
+                  <Link
+                    href={`/campus-living/blocks/${id}?tab=floors`}
+                    className="text-xs text-primary underline-offset-2 hover:underline"
+                  >
+                    Manage floors
+                  </Link>
+                </div>
               </div>
 
               <div className="space-y-2">

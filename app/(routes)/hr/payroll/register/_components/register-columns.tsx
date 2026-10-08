@@ -22,7 +22,7 @@
 
 import Link from 'next/link';
 import type { ColumnDef } from '@tanstack/react-table';
-import { Eye, MoreHorizontal, PencilLine } from 'lucide-react';
+import { ClipboardPen, Eye, MoreHorizontal, PencilLine } from 'lucide-react';
 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -107,6 +107,11 @@ export interface RegisterColumnActions {
   /** Where "View details" goes. Built by the caller, which knows the run id. */
   detailHref: (line: HRSalaryRegisterLine) => string;
   onAdjust: (line: HRSalaryRegisterLine) => void;
+  /**
+   * Open the hand-entered-days dialog — for a row excluded for want of an
+   * attendance summary (no biometric record), or one already entered by hand.
+   */
+  onManualEntry: (line: HRSalaryRegisterLine) => void;
   /** Whether the viewer holds hr.payroll.register.manage. */
   canManage: boolean;
   /** A superseded run is history; its figures must not be edited. */
@@ -207,13 +212,28 @@ export function getRegisterColumns(
     },
     {
       id: 'status',
-      accessorFn: (l) => (l.is_included ? 'Paid' : 'Excluded'),
+      accessorFn: (l) => (l.is_included ? (l.entry_source === 'manual' ? 'Paid · Manual' : 'Paid') : 'Excluded'),
       size: 190,
       header: ({ column }) => <DataTableColumnHeader column={column} title="Status" />,
       cell: ({ row }) => {
         const l = row.original;
         if (l.is_included) {
-          return <Badge variant="secondary" className="font-normal">Paid</Badge>;
+          return (
+            <span className="flex items-center gap-1">
+              <Badge variant="secondary" className="font-normal">Paid</Badge>
+              {/* Days typed by hand, not read from biometric attendance. The
+                  reason travels in the tooltip and in the workbook's Remarks. */}
+              {l.entry_source === 'manual' && (
+                <Badge
+                  variant="outline"
+                  className="border-sky-300 font-normal text-sky-700 dark:border-sky-800 dark:text-sky-400"
+                  title={`Entered by hand${l.manual_reason ? ` — ${l.manual_reason}` : ''}${l.manual_entered_at ? ` · ${new Date(l.manual_entered_at).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' })}` : ''}`}
+                >
+                  Manual
+                </Badge>
+              )}
+            </span>
+          );
         }
         return (
           <Badge
@@ -439,6 +459,18 @@ export function getRegisterColumns(
                   Adjust
                 </DropdownMenuItem>
               )}
+              {/* Days by hand: only where there were no biometric days to begin
+                  with. A salary-reason exclusion HAS attendance — its fix is a
+                  salary record and a regeneration, so it gets no Edit here. */}
+              {actions.canManage &&
+                !actions.isSuperseded &&
+                (l.entry_source === 'manual' ||
+                  (!l.is_included && l.exclusion_reason === 'no_attendance_summary')) && (
+                  <DropdownMenuItem onClick={() => actions.onManualEntry(l)}>
+                    <ClipboardPen className="mr-2 h-4 w-4" />
+                    {l.entry_source === 'manual' ? 'Edit details' : 'Enter details'}
+                  </DropdownMenuItem>
+                )}
             </DropdownMenuContent>
           </DropdownMenu>
         );
