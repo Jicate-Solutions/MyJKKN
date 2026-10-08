@@ -54,14 +54,21 @@ SELECT t.check('RV4-A2b once the day is recorded, m8 is met and releases the hel
   (SELECT state = 'released' FROM public.hr_salary_revision_target_plans WHERE request_id = :'req'), t.dump(:'req'));
 
 -- R9-W3 (8 Oct 2026, round 9): a paid part whose finished months are all final
--- by status (met): the run works out the keys only for the month in progress,
+-- by status: the run works out the keys only for the month in progress,
 -- not for each final month (each key reads every day of the month).
 DELETE FROM public.hr_salary_revision_target_months WHERE request_id = :'req';
 UPDATE public.hr_salary_revision_target_plans
    SET state = 'released', window_start = :'m6', window_months = 4, missed_in_row = 0, last_run_on = NULL, run_note = NULL
  WHERE request_id = :'req';
+-- Round 11 (ruling (a)): once paid, the run reads only the current run of
+-- misses (after the last met month acted on), so the three finished months
+-- final by their status are ones the run passes over INSIDE that run: not
+-- counted, not measured and Director-decided missed (met months now lie
+-- before the run and are never read at all).
 INSERT INTO public.hr_salary_revision_target_months (request_id, month, status, results, measured_at, acted, action)
-SELECT :'req', g::date, 'met', '[]'::jsonb, now(), true, 'none'
+SELECT :'req', g::date,
+       CASE g::date WHEN :'m6'::date THEN 'not_counted' WHEN :'m7'::date THEN 'not_measured' ELSE 'decided_missed' END,
+       '[]'::jsonb, now(), true, 'none'
   FROM generate_series(:'m6'::date, :'m8'::date, interval '1 month') g;
 BEGIN;
 SET LOCAL track_functions = 'all';
@@ -70,7 +77,7 @@ SELECT COALESCE((SELECT calls FROM pg_stat_xact_user_functions WHERE schemaname 
        COALESCE((SELECT calls FROM pg_stat_xact_user_functions WHERE schemaname = 'public' AND funcname = 'hr_salary_revision_target_leave_key'), 0) AS w3_l \gset
 COMMIT;
 SELECT t.info('W3 run m9+1: ' || t.dump(:'req') || ' holiday_key calls=' || :'w3_h' || ' leave_key calls=' || :'w3_l');
-SELECT t.check('R9-W3 finished months final by their status (met) are passed over before their keys are worked out: the keys are worked out once, for the month in progress only',
+SELECT t.check('R9-W3 finished months final by their status (not counted, not measured, Director-decided) are passed over before their keys are worked out: the keys are worked out once, for the month in progress only',
   :'w3_h'::int = 1 AND :'w3_l'::int = 1
   AND (SELECT status = 'in_progress' FROM public.hr_salary_revision_target_months WHERE request_id = :'req' AND month = :'m9'),
   'holiday_key calls ' || :'w3_h' || ', leave_key calls ' || :'w3_l' || ' | ' || t.dump(:'req'));

@@ -779,9 +779,13 @@ mutate_file probe-settled-off.sql "R4 U2: OFF closes only this month" \
 mutate_file probe-settled-race.sql "R5 U3: the keys stored are the ones from before the days were checked" \
   "s/^        VALUES \(v_p\.request_id, v_m, v_status, COALESCE\(v_res, '\[\]'::jsonb\), now\(\), v_lkey, v_hkey\)$/        VALUES (v_p.request_id, v_m, v_status, COALESCE(v_res, '[]'::jsonb), now(), public.hr_salary_revision_target_leave_key(v_p.staff_id, date_trunc('week', v_m)::date, (v_m + interval '1 month' - interval '1 day')::date), public.hr_salary_revision_target_holiday_key(v_p.staff_id, date_trunc('week', v_m)::date, (v_m + interval '1 month' - interval '1 day')::date))/" \
   'R8-U3 a holiday approved between the keys and the measure: the month keeps the keys from before, so it is not settled and is measured again once its days are recorded again'
+# Round 11 (ruling (a)): once paid, the run reads the whole run of misses, so a
+# flagged month after the last met month is inside the loop (U4a is now held by
+# the loop's own B3 stop). The query before the loop is the only stop for a
+# flagged month OLDER than the last met month acted on (U4c).
 mutate_file probe-settled-flag.sql "R6 U4: an older flagged month stops every later month" \
   "s/AND mo\.status = 'flagged' AND mo\.month < LEAST\(v_from, v_cur_m\);$/AND false;/" \
-  'R8-U4a a flagged month older than the months measured once paid, not yet decided, stops every later month: M6-M8 not counted, no pause, and the note says so'
+  'R8-U4c a flagged month the Director has not decided, older than the last met month acted on, still stops every later month'
 mutate_file probe-settled-cap.sql "R7 U4: the per-call month cap" \
   's/^          IF v_measured >= p_max_months THEN$/          IF false THEN/' \
   'R8-U4b with a cap of one month per call only M4 is counted (met, the misses in a row reset); M5 after it is left for the next call'
@@ -865,6 +869,6 @@ mutate_file probe-rulings.sql "I1 ruling (i): switched off, it still counts" \
   's/^   WHERE COALESCE\(t\.is_template, false\) = false$/   WHERE t.is_active IS TRUE AND COALESCE(t.is_template, false) = false/' \
   '(i) a wrongly made timetable switched off still counts'
 mutate_file probe-rulings.sql "I2 ruling (i): deleted by HR, it no longer counts" \
-  "s/^    JOIN public\.timetables t ON t\.id::text = e->>'timetable_id'$/    LEFT JOIN public.timetables t ON t.id::text = e->>'timetable_id'/; s/^    JOIN public\.timetables t ON t\.id = r\.timetable_id$/    LEFT JOIN public.timetables t ON t.id = r.timetable_id/" \
+  "s/^    JOIN public\.timetables t ON t\.id::text = e->>'timetable_id'$/    LEFT JOIN public.timetables t ON t.id::text = e->>'timetable_id'/; s/^    JOIN public\.timetables t ON t\.id = r\.timetable_id$/    LEFT JOIN public.timetables t ON t.id = r.timetable_id/; s/^  SELECT t\.id AS timetable_id, dd\.d, dd\.in_month,/  SELECT (e->>'timetable_id')::uuid AS timetable_id, dd.d, dd.in_month,/" \
   '(i) deleted by HR: none of its periods count any more'
 echo "== mutation controls: $CAUGHT caught, $MISSED not caught"

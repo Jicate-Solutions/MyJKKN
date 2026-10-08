@@ -131,12 +131,19 @@ CREATE TEMP TABLE f2 AS SELECT * FROM public.hr_salary_revision_target_measure(:
 SELECT t.check('F2 the periods of a cycle timetable and a batch timetable, as the app''s resolver recorded them, count',
   (SELECT denominator = t.days_in(:'m1') + 10 FROM f2 WHERE target = 't1'),
   (SELECT denominator::text || ' expected ' || (t.days_in(:'m1') + 10) FROM f2 WHERE target = 't1'));
-SELECT t.check('F2 a period where they are only a co-teacher is recorded, not counted (default tt)',
-  (SELECT public.hr_target_schedule_record(:'sF11', :'m1', periods || jsonb_build_array(jsonb_build_object(
+-- 8 Oct 2026 (round 11, ruling (d)): the co-teacher period is recorded in its
+-- own statement first. Recorded inside the check's statement, the measure (a
+-- STABLE function) read the record as it was before that write, so the check
+-- passed whatever the main-teacher rule said.
+SELECT public.hr_target_schedule_record(:'sF11', :'m1', periods || jsonb_build_array(jsonb_build_object(
             'timetable_id', '00000000-0000-0000-0000-0000000aa201', 'slot_id', 'c2', 'period_name', 'Cycle 2',
-            'course_id', :'C11', 'start_time', '11:00', 'end_time', '12:00', 'is_primary', false)), 'probe', :'m1') = 3
-     FROM public.hr_target_scheduled_periods WHERE staff_id = :'sF11' AND day = :'m1')
-  AND (SELECT denominator = t.days_in(:'m1') + 10 FROM public.hr_salary_revision_target_measure(:'sF11', :'m1', :'T') WHERE target = 't1'));
+            'course_id', :'C11', 'start_time', '11:00', 'end_time', '12:00', 'is_primary', false)), 'probe', :'m1') AS f2_co
+  FROM public.hr_target_scheduled_periods WHERE staff_id = :'sF11' AND day = :'m1' \gset
+SELECT t.check('F2 a period where they are only a co-teacher is recorded, not counted (default tt)',
+  :'f2_co'::int = 3
+  AND (SELECT jsonb_array_length(periods) = 3 FROM public.hr_target_scheduled_periods WHERE staff_id = :'sF11' AND day = :'m1')
+  AND (SELECT denominator = t.days_in(:'m1') + 10 FROM public.hr_salary_revision_target_measure(:'sF11', :'m1', :'T') WHERE target = 't1'),
+  (SELECT denominator::text || ' expected ' || (t.days_in(:'m1') + 10) FROM public.hr_salary_revision_target_measure(:'sF11', :'m1', :'T') WHERE target = 't1'));
 
 -- ── F3. A holiday approved after the day was recorded ───────────────────────
 -- F8 has a raise asked for (so the job records F8's last 90 days). The 5th day
