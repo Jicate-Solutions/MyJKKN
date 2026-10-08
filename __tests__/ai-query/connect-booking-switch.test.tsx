@@ -22,7 +22,7 @@ const rpc = vi.fn(async (fn: string, args?: Record<string, unknown>) => {
 });
 vi.mock('@/lib/supabase/client', () => ({ createClientSupabaseClient: () => ({ rpc }) }));
 vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
-vi.mock('next/link', () => ({ default: ({ children, href }: { children: React.ReactNode; href: string }) => <a href={href}>{children}</a> }));
+vi.mock('next/link', () => ({ default: (p: any) => <a href={p.href}>{p.children}</a> }));
 
 import { ConnectOutsideAi } from '@/app/(routes)/ai-query/connect/_components/connect-outside-ai';
 
