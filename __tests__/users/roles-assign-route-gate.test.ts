@@ -18,7 +18,7 @@ const TARGET = 'target-1';
 
 // The caller's own session.
 let callerRole: string | null = 'administrator';
-let callerIsSuperFlag = false;
+let callerIsSuperFlag: unknown = false;
 // What the caller's primary role grants. The route must never read it.
 const ROLE_PERMS: Record<string, Record<string, unknown>> = {
   administrator: { 'roles.assign': true, 'users.edit': true },
@@ -149,6 +149,14 @@ describe('super admins only', () => {
     expect(assigned()).toEqual([
       { table: 'user_roles', row: { user_id: TARGET, role_id: 'r-faculty', is_primary: false, assigned_by: CALLER } }
     ]);
+  });
+
+  it.each([['true'], [1], [null]])('treats an is_super_admin answer of %j as no', async (answer) => {
+    callerRole = 'super_admin';
+    callerIsSuperFlag = answer;
+    const res = await post('faculty');
+    expect(res.status).toBe(403);
+    expect(assigned()).toHaveLength(0);
   });
 });
 
