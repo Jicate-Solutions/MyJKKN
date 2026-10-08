@@ -173,6 +173,8 @@ export const BOOKING_LIMITS = {
   MAX_DAYS_AHEAD: 366,
   /** How long the door waits for the booking before saying "check the inbox". */
   BOOKING_TIMEOUT_MS: 25_000,
+  /** How long the steps BEFORE booking (reserve, link invitees, re-check) may take. */
+  PREPARE_TIMEOUT_MS: 15_000,
 } as const;
 const MAX_ATTENDEES = BOOKING_LIMITS.MAX_ATTENDEES;
 /** Invitees at these domains are JKKN people; anyone else is "outside". */
@@ -248,10 +250,34 @@ export function indiaLocalToIso(local: unknown): string | null {
 }
 
 /** The first `max` letters (grapheme clusters) of `text`. */
+type GraphemeSegmenter = new (l?: string, o?: { granularity: string }) => {
+  segment(t: string): Iterable<{ segment: string }>;
+};
+const Segmenter = (Intl as unknown as { Segmenter?: GraphemeSegmenter }).Segmenter;
+/** No letter is longer than this many UTF-16 units (bounds the work on hostile input). */
+const MAX_UNITS_PER_LETTER = 16;
+
+/** The letters (grapheme clusters) of `text`, stopping after `limit` of them. */
+function letters(text: string, limit: number): string[] {
+  // Never segment more raw text than `limit` letters could possibly need.
+  const head = text.slice(0, limit * MAX_UNITS_PER_LETTER);
+  const out: string[] = [];
+  const it = Segmenter ? new Segmenter(undefined, { granularity: 'grapheme' }).segment(head) : head;
+  for (const part of it as Iterable<string | { segment: string }>) {
+    out.push(typeof part === 'string' ? part : part.segment);
+    if (out.length >= limit) break;
+  }
+  return out;
+}
+
 export function cutToLetters(text: string, max: number): string {
-  const Seg = (Intl as unknown as { Segmenter?: new (l?: string, o?: { granularity: string }) => { segment(t: string): Iterable<{ segment: string }> } }).Segmenter;
-  const parts = Seg ? Array.from(new Seg(undefined, { granularity: 'grapheme' }).segment(text), (x) => x.segment) : Array.from(text);
-  return parts.slice(0, max).join('');
+  return letters(text, max).join('');
+}
+
+/** True when `text` has more than `max` letters as people see them. */
+export function longerThanLetters(text: string, max: number): boolean {
+  if (text.length <= max) return false; // fewer UTF-16 units than max means fewer letters too
+  return text.length > max * MAX_UNITS_PER_LETTER || letters(text, max + 1).length > max;
 }
 
 /** Checks and shapes the outside AI's arguments. Throws ToolArgsError in plain words. */
@@ -259,8 +285,8 @@ export function parseScheduleArgs(input: Record<string, unknown> | undefined): S
   const a = input ?? {};
   const title = typeof a.title === 'string' ? a.title.trim() : '';
   if (!title) throw new ToolArgsError('Give the meeting a title.');
-  if (title.length > BOOKING_LIMITS.MAX_TITLE) {
-    throw new ToolArgsError(`The title can be at most ${BOOKING_LIMITS.MAX_TITLE} characters.`);
+  if (longerThanLetters(title, BOOKING_LIMITS.MAX_TITLE)) {
+    throw new ToolArgsError(`The title can be at most ${BOOKING_LIMITS.MAX_TITLE} letters.`);
   }
   const startIso = indiaLocalToIso(a.start_local);
   if (!startIso) throw new ToolArgsError('start_local must be India time as YYYY-MM-DDTHH:MM.');
@@ -309,12 +335,12 @@ export function parseScheduleArgs(input: Record<string, unknown> | undefined): S
   }
   const text = (v: unknown) => (typeof v === 'string' && v.trim() ? v.trim() : null);
   const note = text(a.note);
-  if (note && note.length > BOOKING_LIMITS.MAX_NOTE) {
-    throw new ToolArgsError(`The note can be at most ${BOOKING_LIMITS.MAX_NOTE} characters.`);
+  if (note && longerThanLetters(note, BOOKING_LIMITS.MAX_NOTE)) {
+    throw new ToolArgsError(`The note can be at most ${BOOKING_LIMITS.MAX_NOTE} letters.`);
   }
   const locationText = text(a.location_text);
-  if (locationText && locationText.length > BOOKING_LIMITS.MAX_TITLE) {
-    throw new ToolArgsError(`location_text can be at most ${BOOKING_LIMITS.MAX_TITLE} characters.`);
+  if (locationText && longerThanLetters(locationText, BOOKING_LIMITS.MAX_TITLE)) {
+    throw new ToolArgsError(`location_text can be at most ${BOOKING_LIMITS.MAX_TITLE} letters.`);
   }
   return {
     title,
@@ -400,6 +426,14 @@ async function releaseBookingSlot(db: SupabaseClient, reservationId: string): Pr
     await db.rpc('fn_ai_booking_release', { p_reservation_id: reservationId });
   } catch {
     // A failed release only means the slot stays counted until it ages out.
+  }
+}
+
+/** The steps before booking ran out of time; nothing was booked. */
+export class PrepareTimeout extends Error {
+  constructor() {
+    super('prepare timed out');
+    this.name = 'PrepareTimeout';
   }
 }
 
@@ -516,13 +550,21 @@ async function runScheduleTool(
 
   const db = createServiceRoleClient() as unknown as SupabaseClient;
 
-  const reservationId = await reserveBookingSlot(db, keyId, ownerId, args.attendees.length);
+  // Everything before booking runs under its own deadline, so a stuck lock or
+  // a slow database is answered (and audited) well inside maxDuration.
+  const prepareDeadline = Date.now() + BOOKING_LIMITS.PREPARE_TIMEOUT_MS;
+  const inTime = <T,>(p: Promise<T>) =>
+    withDeadline(p, Math.max(1, prepareDeadline - Date.now())).catch((err) => {
+      throw err instanceof BookingTimeout ? new PrepareTimeout() : err;
+    });
+
+  const reservationId = await inTime(reserveBookingSlot(db, keyId, ownerId, args.attendees.length));
 
   // Link invitees who are MyJKKN people, as the Schedule page does when someone
   // is picked from its list. Unknown or ambiguous addresses stay plain emails.
   let attendees: ScheduleAttendee[];
   try {
-    attendees = await linkInvitees(db, ownerId, args.attendees);
+    attendees = await inTime(linkInvitees(db, ownerId, args.attendees));
   } catch (err) {
     // Nothing has been booked yet: give the slot back.
     await releaseBookingSlot(db, reservationId);
@@ -530,8 +572,19 @@ async function runScheduleTool(
   }
 
   // Last check before anything is written: the owner may have switched booking
-  // off, or turned the key off, since the slot was reserved.
-  if (!(await stillAllowedToBook(db, keyId, ownerId))) {
+  // off, or turned the key off, since the slot was reserved. This narrows the
+  // window to the moment between this read and the booking's own insert; it
+  // does not close it (HostSchedulingService is shared with the Schedule page
+  // and takes no grant). A switch-off in that sub-second gap still lets one
+  // booking through, on the owner's own calendar.
+  let allowed = false;
+  try {
+    allowed = await inTime(stillAllowedToBook(db, keyId, ownerId));
+  } catch (err) {
+    await releaseBookingSlot(db, reservationId);
+    throw err;
+  }
+  if (!allowed) {
     await releaseBookingSlot(db, reservationId);
     throw new DoorRefusal('Booking was switched off for this key, so nothing was booked.');
   }
@@ -759,6 +812,10 @@ export async function handlePersonalKeyRequest(req: Request, token: string): Pro
         if (err instanceof DoorRefusal) {
           audit(name, 403, startTime);
           return mcpError(err.message);
+        }
+        if (err instanceof PrepareTimeout) {
+          audit(name, 504, startTime);
+          return mcpError('MyJKKN was too slow to start the booking, so nothing was booked. Try again in a minute.');
         }
         if (err instanceof BookingTimeout) {
           audit(name, 504, startTime);

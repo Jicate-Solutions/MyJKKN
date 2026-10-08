@@ -400,6 +400,32 @@ describe('booking reservations (atomic limits)', () => {
     expect(r).toEqual({ ok: false, reason: 'attempts', limit: 3 });
   });
 
+  it('deleting a key keeps its reservations counted for the owner', async () => {
+    await db.query('RESET ROLE');
+    const before = (await db.query(`SELECT count(*)::int AS n FROM public.ai_booking_reservations WHERE owner_id = $1`, [S])).rows[0].n;
+    const tmp = (await db.query(
+      `INSERT INTO public.api_keys (name, key_value) VALUES ('tmp admin key', 'tmp-hash') RETURNING id`
+    )).rows[0].id;
+    await db.query(`INSERT INTO public.ai_booking_reservations (key_id, owner_id, invitees) VALUES ($1, $2, 1)`, [tmp, S]);
+    await db.query(`DELETE FROM public.api_keys WHERE id = $1`, [tmp]);
+    const after = await db.query(
+      `SELECT count(*)::int AS n, count(*) FILTER (WHERE key_id IS NULL)::int AS orphaned FROM public.ai_booking_reservations WHERE owner_id = $1`,
+      [S]
+    );
+    expect(after.rows[0].n).toBe(before + 1);
+    expect(after.rows[0].orphaned).toBe(1);
+    // put the count back so the invitee-limit test below sees the same total
+    await db.query(`UPDATE public.ai_booking_reservations SET released = true WHERE key_id IS NULL AND owner_id = $1`, [S]);
+  });
+
+  it('the reserve function carries its own lock and statement time limits', async () => {
+    await db.query('RESET ROLE');
+    const r = await db.query(
+      `SELECT proconfig FROM pg_proc WHERE proname = 'fn_ai_booking_reserve'`
+    );
+    expect(r.rows[0].proconfig).toEqual(expect.arrayContaining(['lock_timeout=5s', 'statement_timeout=10s']));
+  });
+
   it('refuses past the per-day invitee limit for the owner', async () => {
     const [{ r }] = await asService(reserve(keyS, S, 148, 100, 100, 150)); // 3 already live + 148 > 150
     expect(r).toEqual({ ok: false, reason: 'invitees_per_day', limit: 150 });
@@ -427,6 +453,9 @@ describe('booking reservations (atomic limits)', () => {
       const second = await secondP;
       expect(second).toEqual({ ok: false, reason: 'per_hour', limit: 4 });
     } finally {
+      // a failed assertion above must not leave either session inside BEGIN
+      await db.query('ROLLBACK').catch(() => {});
+      await other.query('ROLLBACK').catch(() => {});
       await db.query('RESET ROLE').catch(() => {});
       await other.end();
     }

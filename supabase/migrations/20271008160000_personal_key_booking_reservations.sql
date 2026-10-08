@@ -19,6 +19,11 @@
 -- Depends on 20271008150000 (ai_personal_key_booking_grants). Refuses to run
 -- without it.
 --
+-- Growth: every attempt adds one row and nothing prunes it yet. The attempts
+-- cap (3x the hourly booking limit per key, one booking key per owner) bounds
+-- it to a few thousand rows a day at worst; a cleanup job is a follow-up
+-- (a DELETE in a migration needs the Director's allow-destructive).
+--
 -- ORDER: this file OWNS the locked body of fn_ai_personal_key_set_booking. The
 -- ship wave applies versions in order (150000 then 160000) and never re-runs an
 -- applied version, which leaves the lock in place. If 20271008150000 were ever
@@ -45,7 +50,9 @@ END $$;
 -- Service role only: the door calls it after the key and owner are verified.
 CREATE TABLE IF NOT EXISTS public.ai_booking_reservations (
   id         uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  key_id     uuid NOT NULL REFERENCES public.api_keys(id) ON DELETE CASCADE,
+  -- SET NULL, not CASCADE: deleting a key must not lower the owner's 24-hour
+  -- invitation count (owner_id and invitees stay).
+  key_id     uuid REFERENCES public.api_keys(id) ON DELETE SET NULL,
   owner_id   uuid NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
   invitees   integer NOT NULL CHECK (invitees >= 1),
   released   boolean NOT NULL DEFAULT false,
@@ -77,6 +84,10 @@ LANGUAGE plpgsql
 VOLATILE
 SECURITY DEFINER
 SET search_path = public
+-- A stuck lock or a slow read answers within seconds, well inside the door's
+-- deadline, instead of holding the request until the platform kills it.
+SET lock_timeout = '5s'
+SET statement_timeout = '10s'
 AS $$
 DECLARE
   v_hour     integer;
@@ -197,6 +208,7 @@ LANGUAGE plpgsql
 VOLATILE
 SECURITY DEFINER
 SET search_path = public
+SET lock_timeout = '5s'
 AS $$
 DECLARE
   v_owner uuid := auth.uid();

@@ -383,8 +383,8 @@ describe('deep review fixes (8 Oct)', () => {
   });
 
   it.each([
-    [{ title: 'x'.repeat(201) }, /title can be at most 200/],
-    [{ note: 'x'.repeat(2001) }, /note can be at most 2000/],
+    [{ title: 'x'.repeat(201) }, /title can be at most 200 letters/],
+    [{ note: 'x'.repeat(2001) }, /note can be at most 2000 letters/],
     [{ start_local: '2099-10-08T15:30' }, /more than a year away/],
     [{ attendees: [{ email: 'a*@jkkn.ac.in' }] }, /valid email address/],
   ])('refuses %j', async (bad, msg) => {
@@ -412,6 +412,37 @@ describe('deep review fixes (8 Oct)', () => {
     expect(res.result.content[0].text).toMatch(/switched off for this key, so nothing was booked/);
     expect(scheduleDirect).not.toHaveBeenCalled();
     expect(released()).toEqual([{ p_reservation_id: 'res-1' }]);
+  });
+
+  it('counts the title by letters, so a Tamil title of 200 letters is accepted', async () => {
+    const title = 'கு'.repeat(200); // 400 UTF-16 units, 200 letters
+    let res = await readRpc(await book({ ...GOOD_ARGS, title }));
+    expect(res.result.isError).toBeFalsy();
+    res = await readRpc(await book({ ...GOOD_ARGS, title: title + 'கு' }));
+    expect(res.result.content[0].text).toMatch(/at most 200 letters/);
+  });
+
+  it('a multi-megabyte name is cut quickly, never fully processed', async () => {
+    const huge = 'கு'.repeat(2_000_000);
+    const t0 = Date.now();
+    await readRpc(await book({ ...GOOD_ARGS, attendees: [{ email: 'a@jkkn.ac.in', name: huge }] }));
+    expect(Date.now() - t0).toBeLessThan(2000);
+    expect(scheduleDirect.mock.calls[0][1].attendees[0].name).toBe('கு'.repeat(120));
+  });
+
+  it('a stuck step before booking is answered in time, and nothing is booked', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      serviceRpc.mockImplementationOnce(() => new Promise(() => {})); // reserve never returns
+      const pending = book(GOOD_ARGS).then(readRpc);
+      await vi.advanceTimersByTimeAsync(15_001);
+      const res = await pending;
+      expect(res.result.content[0].text).toMatch(/too slow to start the booking, so nothing was booked/);
+      expect(scheduleDirect).not.toHaveBeenCalled();
+      expect(logApiUsage.mock.calls.at(-1)![0]).toMatchObject({ statusCode: 504 });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('cuts a very long attendee name rather than refusing', async () => {
