@@ -812,7 +812,10 @@ export async function runHrDutyChase(
       }
     }
     if (stoppedAt >= 0) {
-      detail.deadline = { not_started: planned.length - stoppedAt };
+      detail.deadline = {
+        ...((detail.deadline as Record<string, unknown> | undefined) ?? {}),
+        not_started: planned.length - stoppedAt
+      };
       errors.push(
         `ran out of time: ${planned.length - stoppedAt} planned rung(s) were left for the next run`
       );

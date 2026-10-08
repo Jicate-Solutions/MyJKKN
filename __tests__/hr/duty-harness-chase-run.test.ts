@@ -504,6 +504,9 @@ describe('HR chase run — review follow-ups (#4152)', () => {
       tickMs: 1_000
     });
     const r = await runHrDutyChase(w.deps, { budgetMs: 1_500 });
+    // Owners stop at t = 2 s (past 80% of 1.5 s): a is worked out, b and c wait.
+    // Claims stop at t = 3 s: a is planned but not started. Both are logged.
+    expect(r.detail.deadline).toEqual({ owners_unresolved: 2, not_started: 1 });
     expect(w.claims).toHaveLength(0);
     expect(w.sent).toHaveLength(0);
     expect(w.runs).toHaveLength(1);
