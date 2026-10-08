@@ -224,8 +224,9 @@ describe('#4 a failed profile read on POST is a 500, not "not a learner account"
 });
 
 describe('#9 deciding a claim', () => {
-  it('only updates a pending claim, and answers 409 when nothing matched', async () => {
+  it('only updates a pending claim, and answers 409 when the claim is already decided', async () => {
     results['session:ig_learner_post_claims:update'] = { data: null, error: null };
+    results['session:ig_learner_post_claims:read'] = { data: { id: 'C1', status: 'confirmed' }, error: null };
     const { PATCH } = await import('@/app/api/social/learner-credit/route');
     const res = await PATCH(req('PATCH', { claim_id: 'C1', status: 'rejected' }));
 
@@ -233,7 +234,23 @@ describe('#9 deciding a claim', () => {
     expect(upd.ops).toContainEqual(['eq', 'id', 'C1']);
     expect(upd.ops).toContainEqual(['eq', 'status', 'pending']);
     expect(res.status).toBe(409);
-    expect((await res.json()).error).toMatch(/already decided/i);
+    expect((await res.json()).error).toMatch(/already confirmed/i);
+  });
+
+  it('answers 404, not "already decided", for a claim the caller cannot see or that does not exist', async () => {
+    results['session:ig_learner_post_claims:update'] = { data: null, error: null };
+    results['session:ig_learner_post_claims:read'] = { data: null, error: null };
+    const { PATCH } = await import('@/app/api/social/learner-credit/route');
+    const res = await PATCH(req('PATCH', { claim_id: 'C404', status: 'rejected' }));
+    expect(res.status).toBe(404);
+    expect((await res.json()).error).not.toMatch(/already/i);
+  });
+
+  it('answers 500 when the follow-up lookup itself fails', async () => {
+    results['session:ig_learner_post_claims:update'] = { data: null, error: null };
+    results['session:ig_learner_post_claims:read'] = { data: null, error: { message: 'boom' } };
+    const { PATCH } = await import('@/app/api/social/learner-credit/route');
+    expect((await PATCH(req('PATCH', { claim_id: 'C1', status: 'rejected' }))).status).toBe(500);
   });
 
   it('maps the database guard (23514) to 409 and self-review (42501) to 403', async () => {

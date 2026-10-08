@@ -458,7 +458,22 @@ export async function PATCH(req: NextRequest) {
     return deny(error.message, 400);
   }
   if (!data) {
-    return deny('This claim was already decided, or you cannot decide it.', 409);
+    // Nothing matched a pending claim. Tell the three cases apart: the claim
+    // is visible and already decided (409), or it is not visible to this
+    // caller at all — no such claim, or not theirs to see (404).
+    const { data: seen, error: seenError } = await db
+      .from('ig_learner_post_claims')
+      .select('id, status')
+      .eq('id', body.claim_id)
+      .maybeSingle();
+    if (seenError) {
+      logger.error(MODULE, 'claim lookup after decision failed', seenError);
+      return deny('Could not check that claim just now. Try again shortly.', 500);
+    }
+    if (!seen) {
+      return deny('That claim does not exist, or you are not allowed to see it.', 404);
+    }
+    return deny(`This claim was already ${seen.status}. A decision is final.`, 409);
   }
 
   return NextResponse.json({ success: true, claim: data });
