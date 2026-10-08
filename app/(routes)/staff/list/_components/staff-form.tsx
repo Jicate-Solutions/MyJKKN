@@ -415,6 +415,16 @@ export function StaffForm({ staff, isEditing }: StaffFormProps) {
     [bankHistory]
   );
   const initialPayerOrgId = currentPayer?.hr_organization_id ?? null;
+  // What the salary fields were pre-filled with (edit), or null when there is
+  // no salary on record. Used to skip re-sending an unchanged or date-only
+  // salary, and by the Office tab to say so.
+  const initialOfficeSalary = useMemo(
+    () =>
+      isEditing && currentSalary
+        ? officeValuesFromRecords(initialPayerOrgId, currentSalary, null).salary
+        : null,
+    [isEditing, currentSalary, initialPayerOrgId]
+  );
 
   // Edit: pre-fill once from what is on record.
   const officePrefilledRef = useRef(false);
@@ -834,9 +844,7 @@ export function StaffForm({ staff, isEditing }: StaffFormProps) {
           isEditing ? initialPayerOrgId : null,
           // What the salary fields were pre-filled with, so an unchanged past
           // start date is not re-sent (the database refuses past starts).
-          isEditing && currentSalary
-            ? officeValuesFromRecords(initialPayerOrgId, currentSalary, null).salary
-            : null,
+          initialOfficeSalary,
           // Only the Director list's salary changes are sent.
           canEditSalary
         );
@@ -1949,6 +1957,8 @@ export function StaffForm({ staff, isEditing }: StaffFormProps) {
           categoryExcludedFromHr={(selectedCategory as any)?.included_in_hr === false}
           loadFailed={officeLoadFailed}
           canEditSalary={canEditSalary}
+          initialSalary={initialOfficeSalary}
+          initialPayerOrgId={isEditing ? initialPayerOrgId : null}
         />
       )
     }

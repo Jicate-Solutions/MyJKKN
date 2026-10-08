@@ -15,6 +15,7 @@ import {
 } from '@/lib/hr/payroll/salary-start-date';
 import {
   emptyOfficeValues,
+  isDateOnlySalaryChange,
   salaryWritePlan,
   type OfficeSalaryValues,
 } from '@/lib/hr/payroll/staff-office';
@@ -123,5 +124,45 @@ describe('team member form: which date the salary is sent with', () => {
       send: true,
       effectiveFrom: '2026-10-05',
     });
+  });
+});
+
+describe('team member form: a change of the start date alone (2026-10-08 ruling)', () => {
+  it('is not sent, whether the new date is today, later, or the old one was in the past', () => {
+    const initial = salary();
+    for (const d of ['2026-09-30', '2026-10-01', '2026-12-15']) {
+      expect(salaryWritePlan(salary({ effective_from: d }), initial, false, MIDDAY)).toEqual({
+        send: false,
+        effectiveFrom: d,
+      });
+    }
+  });
+
+  it('a new date with any figure, flag or note changed is a change, sent from that date', () => {
+    const initial = salary();
+    for (const over of [
+      { monthly_gross: '7100' },
+      { eligible_for_pf: true },
+      { allowance_amount: '500' },
+      { notes: 'Revised' },
+    ] as Array<Partial<OfficeSalaryValues>>) {
+      expect(
+        salaryWritePlan(salary({ ...over, effective_from: '2026-10-15' }), initial, false, MIDDAY)
+      ).toEqual({ send: true, effectiveFrom: '2026-10-15' });
+    }
+  });
+
+  it('a new date with a change of payer is sent (the payer is on the salary row)', () => {
+    expect(salaryWritePlan(salary({ effective_from: '2026-10-15' }), salary(), true, MIDDAY)).toEqual({
+      send: true,
+      effectiveFrom: '2026-10-15',
+    });
+  });
+
+  it('isDateOnlySalaryChange: only when the date differs and nothing else does', () => {
+    expect(isDateOnlySalaryChange(salary({ effective_from: '2026-10-15' }), salary())).toBe(true);
+    expect(isDateOnlySalaryChange(salary(), salary())).toBe(false);
+    expect(isDateOnlySalaryChange(salary({ effective_from: '2026-10-15', monthly_gross: '8000' }), salary())).toBe(false);
+    expect(isDateOnlySalaryChange(salary({ effective_from: '2026-10-15' }), null)).toBe(false);
   });
 });

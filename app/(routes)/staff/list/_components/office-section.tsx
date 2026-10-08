@@ -34,7 +34,12 @@ import {
   SelectValue
 } from '@/components/ui/select';
 import { usePayrollOrganizations } from '@/hooks/hr/use-staff-payroll';
-import { OVERTIME_LEVELS, SALARY_STRUCTURES } from '@/lib/hr/payroll/staff-office';
+import {
+  OVERTIME_LEVELS,
+  SALARY_STRUCTURES,
+  isDateOnlySalaryChange,
+  type OfficeSalaryValues
+} from '@/lib/hr/payroll/staff-office';
 
 interface OfficeSectionProps {
   form: UseFormReturn<any>;
@@ -48,6 +53,10 @@ interface OfficeSectionProps {
    * fields read-only. Defaults to false: a missing answer never opens them.
    */
   canEditSalary?: boolean;
+  /** Edit only: the salary on record the fields were pre-filled with; null = none. */
+  initialSalary?: OfficeSalaryValues | null;
+  /** Edit only: the payer on record. */
+  initialPayerOrgId?: string | null;
 }
 
 const ELIGIBILITY: Array<{ name: string; label: string }> = [
@@ -64,11 +73,24 @@ export function OfficeSection({
   categoryExcludedFromHr,
   isEditing,
   loadFailed,
-  canEditSalary = false
+  canEditSalary = false,
+  initialSalary = null,
+  initialPayerOrgId = null
 }: OfficeSectionProps) {
   const { data: payrollOrgs = [], isLoading: orgsLoading } = usePayrollOrganizations();
   const pfOn = form.watch('office.salary.eligible_for_pf');
   const esiOn = form.watch('office.salary.eligible_for_esi');
+  // 2026-10-08 (Director's ruling): a new start date with the same figures is
+  // not a change and is not saved (saveStaffOffice sends nothing). Said here,
+  // as on Employee Salaries.
+  const watchedSalary = form.watch('office.salary') as OfficeSalaryValues | undefined;
+  const watchedPayer = (form.watch('office.payer_org_id') as string | undefined) ?? '';
+  const dateOnlyChange =
+    canEditSalary &&
+    isEditing &&
+    !!watchedSalary &&
+    watchedPayer.trim() === (initialPayerOrgId ?? '') &&
+    isDateOnlySalaryChange(watchedSalary, initialSalary);
 
   const text = (
     name: string,
@@ -271,6 +293,12 @@ export function OfficeSection({
           )}
         />
         </fieldset>
+        {dateOnlyChange && (
+          <p className='text-xs text-muted-foreground' data-testid='nothing-changed'>
+            Nothing has changed from the figure in force, so the salary will not be saved. A new
+            start date with the same figures is not a change.
+          </p>
+        )}
       </div>
 
       {/* Bank account */}

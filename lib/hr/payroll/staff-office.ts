@@ -169,6 +169,26 @@ const SALARY_FIELDS: Array<keyof OfficeSalaryValues> = [
 ];
 
 /**
+ * Only the start date differs from what is on record (2026-10-08).
+ *
+ * Director's ruling: a new start date with the same figures is not a change,
+ * and is not saved. Employee Salaries already refuses it; this is the same
+ * rule for the team member form. Every salary field except the start date is
+ * a figure here, notes included, as on Employee Salaries. A change of payer is
+ * not a date-only change (the payer is written on the salary row too).
+ */
+export function isDateOnlySalaryChange(
+  current: OfficeSalaryValues,
+  initial: OfficeSalaryValues | null
+): boolean {
+  if (!initial) return false;
+  return (
+    current.effective_from.trim() !== initial.effective_from.trim() &&
+    SALARY_FIELDS.every((k) => k === 'effective_from' || current[k] === initial[k])
+  );
+}
+
+/**
  * Whether to write the salary, and from which date (2026-09-30).
  *
  * The database refuses a salary change that starts before today in India, and
@@ -179,6 +199,8 @@ const SALARY_FIELDS: Array<keyof OfficeSalaryValues> = [
  *
  *  - Edit, nothing in the salary changed and the payer did not change: no write
  *    at all (the database would have answered "identical, nothing to do").
+ *  - Edit, only the start date changed and the payer did not change: no write
+ *    either (Director's ruling, see isDateOnlySalaryChange). The form says so.
  *  - The start date was left as pre-filled (edit), or is blank, or was filled
  *    from a date of joining that has already passed (new staff): if it is
  *    before today, the change starts on the 1st of next month instead.
@@ -197,6 +219,10 @@ export function salaryWritePlan(
   now: Date = new Date()
 ): { send: boolean; effectiveFrom: string } {
   if (initial && !payerChanged && SALARY_FIELDS.every((k) => current[k] === initial[k])) {
+    return { send: false, effectiveFrom: current.effective_from };
+  }
+  // 2026-10-08: only the start date changed. Not a change; nothing is sent.
+  if (!payerChanged && isDateOnlySalaryChange(current, initial)) {
     return { send: false, effectiveFrom: current.effective_from };
   }
   const date = current.effective_from.trim();

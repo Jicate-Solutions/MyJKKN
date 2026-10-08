@@ -233,3 +233,78 @@ describe('OfficeSection salary fields', () => {
     expect(gross.matches(':disabled')).toBe(false);
   });
 });
+
+// ---------------------------------------------------------------------------
+// 5. A new start date with the same figures is not a change (2026-10-08)
+// ---------------------------------------------------------------------------
+// Director's ruling: a date-only change is not saved. Employee Salaries already
+// refuses it; the team member form's Office tab must neither send it nor stay
+// silent about it.
+function onRecord() {
+  const o = filledOffice();
+  o.salary.effective_from = '2099-01-01';
+  return o.salary;
+}
+
+function DateHarness({ effectiveFrom, gross = '9000', payer = 'org-new' }: {
+  effectiveFrom: string;
+  gross?: string;
+  payer?: string;
+}) {
+  const office = filledOffice();
+  office.payer_org_id = payer;
+  office.salary.effective_from = effectiveFrom;
+  office.salary.monthly_gross = gross;
+  const form = useForm({ defaultValues: { office } });
+  return (
+    <Form {...form}>
+      <form>
+        <OfficeSection
+          form={form as never}
+          isEditing
+          canEditSalary
+          initialSalary={onRecord()}
+          initialPayerOrgId='org-new'
+        />
+      </form>
+    </Form>
+  );
+}
+
+describe('team member form: a date-only salary change', () => {
+  it('is not sent; payer and bank are unaffected', async () => {
+    const office = filledOffice();
+    office.salary.effective_from = '2099-02-01';
+    const res = await saveStaffOffice({} as never, 'staff-1', office, 'org-new', onRecord(), true);
+    expect(setSalary).not.toHaveBeenCalled();
+    expect(setPayer).not.toHaveBeenCalled();
+    expect(res).toEqual({ failures: [], savedAny: false });
+  });
+
+  it('a new date with a new figure is still sent, from that date', async () => {
+    const office = filledOffice();
+    office.salary.effective_from = '2099-02-01';
+    office.salary.monthly_gross = '9500';
+    await saveStaffOffice({} as never, 'staff-1', office, 'org-new', onRecord(), true);
+    expect(setSalary).toHaveBeenCalledTimes(1);
+    expect(setSalary.mock.calls[0][1]).toMatchObject({ monthlyGross: 9500, effectiveFrom: '2099-02-01' });
+  });
+
+  it('the Office tab says nothing has changed when only the date differs', () => {
+    render(<DateHarness effectiveFrom='2099-02-01' />);
+    expect(screen.getByTestId('nothing-changed').textContent).toContain(
+      'Nothing has changed from the figure in force, so the salary will not be saved.'
+    );
+  });
+
+  it('no note when the date is as on record, when a figure changed too, or when the payer changed', () => {
+    const { unmount } = render(<DateHarness effectiveFrom='2099-01-01' />);
+    expect(screen.queryByTestId('nothing-changed')).toBeNull();
+    unmount();
+    const second = render(<DateHarness effectiveFrom='2099-02-01' gross='9500' />);
+    expect(screen.queryByTestId('nothing-changed')).toBeNull();
+    second.unmount();
+    render(<DateHarness effectiveFrom='2099-02-01' payer='org-other' />);
+    expect(screen.queryByTestId('nothing-changed')).toBeNull();
+  });
+});
