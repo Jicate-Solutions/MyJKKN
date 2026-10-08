@@ -109,10 +109,15 @@ export function readHarnessPolicies(raw: Record<string, unknown>): HarnessPolici
   const offDays = arr(raw[HARNESS_POLICY_KEYS.weeklyOffDays]).filter(
     (d): d is number => Number.isInteger(d) && (d as number) >= 0 && (d as number) <= 6
   );
-  // null and '' would coerce to 0 (Sunday, the weekly off) and the lists would
-  // never go out; only a real value counts.
+  // null, '', ' ' and false would all coerce to 0 (Sunday, the weekly off) and
+  // the lists would never go out; only an integer or a digit string counts.
   const rawWeekday = raw[HARNESS_POLICY_KEYS.digestWeekday];
-  const weekday = rawWeekday === null || rawWeekday === '' ? NaN : Number(rawWeekday);
+  const weekday =
+    typeof rawWeekday === 'number'
+      ? rawWeekday
+      : typeof rawWeekday === 'string' && /^\s*\d+\s*$/.test(rawWeekday)
+        ? Number(rawWeekday)
+        : NaN;
   const roleKeys = arr(raw[HARNESS_POLICY_KEYS.hrHeadRoleKeys]).filter(
     (k): k is string => typeof k === 'string' && k.trim() !== ''
   );
@@ -200,6 +205,54 @@ export const SOURCE_LOAD_LIMIT = 500;
  */
 export const RUN_BUDGET_MS = 100_000;
 
+/**
+ * Working out owners stops at this share of the budget, so the items whose
+ * owners are known are still planned and sent in the time that is left.
+ */
+export const OWNER_PHASE_SHARE = 0.8;
+
+/**
+ * The run row is written after the budget; it gets its own cap so a hung
+ * write cannot hold the route past the dispatcher's 120 s wait.
+ */
+export const RECORD_RUN_CAP_MS = 10_000;
+
+/**
+ * Every database or notification call races the time left in the budget
+ * (wall clock). A hung call is abandoned with an error instead of holding the
+ * run until the platform kills it before the run row is written. A send that
+ * finishes after it was abandoned is healed by the next run: the rung stays
+ * unsent, and the notification's idempotency key returns the same row.
+ */
+function withDeadline(deps: ChaseDeps, budgetMs: number, recordRunMs: number): ChaseDeps {
+  const startedAt = Date.now();
+  const race = <T>(label: string, capMs: number, p: Promise<T>): Promise<T> => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const timeout = new Promise<never>((_, reject) => {
+      timer = setTimeout(
+        () => reject(new Error(`${label}: no answer within the run's time budget`)),
+        Math.max(0, capMs)
+      );
+    });
+    return Promise.race([p, timeout]).finally(() => clearTimeout(timer));
+  };
+  const remaining = () => budgetMs - (Date.now() - startedAt);
+  const wrapped: Record<string, unknown> = {};
+  for (const [name, fn] of Object.entries(deps)) {
+    if (typeof fn !== 'function' || name === 'now') {
+      wrapped[name] = fn;
+      continue;
+    }
+    wrapped[name] = (...args: unknown[]) =>
+      race(
+        name,
+        name === 'recordRun' ? recordRunMs : remaining(),
+        Promise.resolve().then(() => (fn as (...a: unknown[]) => Promise<unknown>).apply(deps, args))
+      );
+  }
+  return wrapped as unknown as ChaseDeps;
+}
+
 /** An HR head and where they can see: every college, or their own. */
 export interface HrHeadHolder {
   userId: string;
@@ -239,6 +292,11 @@ export interface ChaseDeps {
   weeklyListsAlreadySent(isoWeek: string): Promise<boolean>;
   /** 'claimed' = new row; 'exists' = another run already reached this rung. */
   claimLedger(row: LedgerClaim): Promise<{ status: 'claimed' | 'exists'; id?: string }>;
+  /**
+   * After a send that did not throw. null = nobody was told (no recipients
+   * now, or the notification layer skipped it): the store records that, so
+   * the rung does not come back as unsent on every run. Throws on error.
+   */
   finishLedger(id: string, notificationId: string | null): Promise<void>;
   send(msg: OutgoingMessage): Promise<{ notified: number; notificationId?: string }>;
   /** Stamp ledger rows of items that are no longer waiting. */
@@ -327,12 +385,14 @@ function messageFor(
  * returned result, so the dispatcher's last_status and the run log agree.
  */
 export async function runHrDutyChase(
-  deps: ChaseDeps,
-  opts: { budgetMs?: number } = {}
+  rawDeps: ChaseDeps,
+  opts: { budgetMs?: number; recordRunMs?: number } = {}
 ): Promise<ChaseRunResult> {
-  const now = deps.now();
   const budgetMs = opts.budgetMs ?? RUN_BUDGET_MS;
-  const outOfTime = () => deps.now().getTime() - now.getTime() > budgetMs;
+  const deps = withDeadline(rawDeps, budgetMs, opts.recordRunMs ?? RECORD_RUN_CAP_MS);
+  const now = deps.now();
+  const elapsed = () => deps.now().getTime() - now.getTime();
+  const outOfTime = () => elapsed() > budgetMs;
   const todayISO = istDate(now);
   const isoWeek = isoWeekLabel(todayISO);
   const errors: string[] = [];
@@ -474,12 +534,13 @@ export async function runHrDutyChase(
       }
     }
 
+    // Owners are worked out one item at a time. When that runs long, stop and
+    // carry out the plan for the items already worked out: the rest wait for
+    // the next run. They are left out entirely — with no owner worked out they
+    // would wrongly land on the HR head's list as "no owner".
+    let ownersResolved = 0;
     for (const c of candidates) {
-      if (outOfTime()) {
-        throw new Error(
-          `ran out of time working out owners (${budgetMs / 1000}s); nothing was claimed or sent this run`
-        );
-      }
+      if (elapsed() > budgetMs * OWNER_PHASE_SHARE) break;
       const owners = (await deps.resolveOwners(c.def, c.item)).filter(
         (id) => id && id !== c.item.subjectProfileId
       );
@@ -490,6 +551,16 @@ export async function runHrDutyChase(
       } else {
         c.owners = unique;
       }
+      ownersResolved++;
+    }
+    const ownersUnresolved = candidates.length - ownersResolved;
+    if (ownersUnresolved > 0) {
+      candidates.splice(ownersResolved);
+      detail.deadline = { owners_unresolved: ownersUnresolved };
+      errors.push(
+        `ran out of time working out owners: ${ownersUnresolved} item(s) were left for the next run, ` +
+          'and the weekly lists wait for a complete run'
+      );
     }
 
     // 3. Supervisors and leave — for every owner and supervisor in play.
@@ -581,7 +652,10 @@ export async function runHrDutyChase(
     // Weekly lists: on the digest weekday, or the first run after it in the
     // same Monday-to-Sunday week (a holiday or a missed run does not lose the
     // week), and once per ISO week.
+    // A run that could not work out every owner has an incomplete picture, so
+    // its lists would be too; the next run in the same week sends them.
     result.weeklyListsDue =
+      ownersUnresolved === 0 &&
       weeklyListsDueToday(todayISO, policies.digestWeekday) &&
       !(await deps.weeklyListsAlreadySent(isoWeek));
 
@@ -593,22 +667,28 @@ export async function runHrDutyChase(
       ]);
       const hrHeadList = buildHrHeadList(standings);
       const digest = buildDirectorDigest(standings);
-      // One holder may hold the role twice; any 'all' grant means every college.
-      const reachOf = new Map<string, HrHeadHolder>();
+      // One holder may hold the role more than once: every grant counts. Any
+      // 'all' grant means every college (and only the all-college list, so
+      // they are not sent the same names twice); otherwise each of their
+      // colleges.
+      const reachOf = new Map<string, Set<string>>();
       for (const h of hrHeads) {
-        const prev = reachOf.get(h.userId);
-        reachOf.set(h.userId, prev ? { ...prev, scopeAll: prev.scopeAll || h.scopeAll } : h);
+        const set = reachOf.get(h.userId) ?? new Set<string>();
+        if (h.scopeAll) set.add('*');
+        else if (h.institutionId) set.add(h.institutionId);
+        reachOf.set(h.userId, set);
       }
       const hrHeadsAway = await deps.loadOnLeave([...reachOf.keys()], todayISO);
-      const hrHeadsPresent = [...reachOf.values()].filter((h) => !hrHeadsAway.has(h.userId));
-      // An HR head sees only their own college's people, unless their role
+      const hrHeadsPresent = [...reachOf.keys()].filter((u) => !hrHeadsAway.has(u));
+      // An HR head sees only their own colleges' people, unless their role
       // reaches every college. An item with no college goes to the latter only.
       // One list per reach, so a list never carries another college's names.
-      const groups = new Map<string, string[]>();
-      for (const h of hrHeadsPresent) {
-        const reach = h.scopeAll ? '*' : h.institutionId;
-        if (!reach) continue;
-        groups.set(reach, [...(groups.get(reach) ?? []), h.userId]);
+      const groups = new Map<string, Set<string>>();
+      for (const userId of hrHeadsPresent) {
+        const reaches = reachOf.get(userId)!;
+        for (const reach of reaches.has('*') ? ['*'] : [...reaches]) {
+          groups.set(reach, (groups.get(reach) ?? new Set<string>()).add(userId));
+        }
       }
       const reachedItems = new Set<number>();
       for (const [reach, ids] of [...groups.entries()].sort(([a], [b]) => a.localeCompare(b))) {
@@ -619,7 +699,7 @@ export async function runHrDutyChase(
         if (list.length === 0) continue;
         for (const { s, i } of mine) if (s.audience === 'hr_head') reachedItems.add(i);
         weeklyMessages.push({
-          recipientIds: [...new Set(ids)].sort(),
+          recipientIds: [...ids].sort(),
           title: `HR late list — week ${isoWeek}`,
           body: renderHrHeadList(list),
           url: '/hr',
@@ -702,7 +782,10 @@ export async function runHrDutyChase(
     // 6. Carry out the plan. Claim first, so two overlapping runs cannot both
     //    send the same rung; the notification's idempotency key is a second guard.
     //    A claim whose send fails stays without a notification id, and the
-    //    next run sends it again (loadUnsentRungs).
+    //    next run sends it again (loadUnsentRungs). A resumed rung is not
+    //    claimed again: its key is one per rung for ever, and notifications
+    //    has a UNIQUE index on idempotency_key, so two runs resuming it at once
+    //    still make one notification (the second gets the first's id back).
     let stoppedAt = -1;
     for (let n = 0; n < planned.length; n++) {
       const p = planned[n];

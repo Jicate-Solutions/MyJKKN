@@ -84,6 +84,12 @@ interface World {
   failSend?: (msg: OutgoingMessage) => boolean;
   /** Milliseconds the clock moves on each now() call after the first. */
   tickMs?: number;
+  /** After this many owner look-ups, the clock jumps forward by jumpMs. */
+  slowOwners?: { afterCalls: number; jumpMs: number };
+  /** Dependencies that never answer. */
+  hang?: Array<keyof ChaseDeps>;
+  /** Sends that never answer. */
+  hangSend?: (msg: OutgoingMessage) => boolean;
 }
 
 function fakeDeps(w: World) {
@@ -98,6 +104,7 @@ function fakeDeps(w: World) {
   const ledger = new Map<string, { claim: LedgerClaim; notificationId: string | null }>();
   let clock = (w.now ?? MONDAY_1015).getTime();
   let firstNow = true;
+  let ownerCalls = 0;
   const deps: ChaseDeps = {
     now: () => {
       if (!firstNow) clock += w.tickMs ?? 0;
@@ -129,7 +136,11 @@ function fakeDeps(w: World) {
       return out;
     },
     loadBlockedMarks: async () => new Map(Object.entries(w.blocked ?? {})),
-    resolveOwners: async () => w.owners ?? ['owner-1'],
+    resolveOwners: async () => {
+      ownerCalls++;
+      if (w.slowOwners && ownerCalls === w.slowOwners.afterCalls) clock += w.slowOwners.jumpMs;
+      return w.owners ?? ['owner-1'];
+    },
     resolveSupervisors: async (ids) =>
       new Map(ids.map((id) => [id, (w.supervisors ?? { 'owner-1': ['sup-1'] })[id] ?? []])),
     loadOnLeave: async (ids) => new Set(ids.filter((id) => (w.onLeave ?? []).includes(id))),
@@ -151,11 +162,15 @@ function fakeDeps(w: World) {
       ledger.set(id, { claim: row, notificationId: null });
       return { status: 'claimed', id };
     },
+    // As db-deps does: null = nobody was told, so the row names nobody.
     finishLedger: async (id, notificationId) => {
       const row = ledger.get(id);
-      if (row && notificationId) row.notificationId = notificationId;
+      if (!row) return;
+      if (notificationId) row.notificationId = notificationId;
+      else row.claim = { ...row.claim, recipientIds: [] };
     },
     send: async (msg) => {
+      if (w.hangSend?.(msg)) return new Promise(() => {});
       if (w.failSend?.(msg)) throw new Error('notification service down');
       sent.push(msg);
       return { notified: msg.recipientIds.length, notificationId: `n-${sent.length}` };
@@ -168,6 +183,7 @@ function fakeDeps(w: World) {
       runs.push(r);
     }
   };
+  for (const name of w.hang ?? []) (deps as any)[name] = () => new Promise(() => {});
   return { deps, sent, claims, runs, calls, ledger, world: w };
 }
 
@@ -481,14 +497,13 @@ describe('HR chase run — review follow-ups (#4152)', () => {
     expect(w.runs).toHaveLength(1);
   });
 
-  it('finding 5: running out of time while working out owners claims nothing and still records the run', async () => {
+  it('finding 5: with no time left at all, nothing is claimed and the run is still recorded', async () => {
     const w = fakeDeps({
       items: [item('a', DUE_TODAY), item('b', TWO_LATE), item('c', DUE_TODAY)],
       weeklySent: true,
       tickMs: 1_000
     });
     const r = await runHrDutyChase(w.deps, { budgetMs: 1_500 });
-    expect(r.outcome).toBe('failed');
     expect(w.claims).toHaveLength(0);
     expect(w.sent).toHaveLength(0);
     expect(w.runs).toHaveLength(1);
@@ -500,5 +515,129 @@ describe('HR chase run — review follow-ups (#4152)', () => {
       expect(readHarnessPolicies({ [HARNESS_POLICY_KEYS.digestWeekday]: v }).digestWeekday).toBe(1);
     }
     expect(readHarnessPolicies({ [HARNESS_POLICY_KEYS.digestWeekday]: 0 }).digestWeekday).toBe(0);
+  });
+});
+
+describe('HR chase run — second review follow-ups (#4262)', () => {
+  const FOUR_LATE = '2026-09-28T04:30:00Z';
+
+  it('R2 finding 1: an HR head with grants for two colleges gets both colleges on their list', async () => {
+    const w = fakeDeps({
+      items: [
+        item('eng', FOUR_LATE),
+        item('nur', FOUR_LATE, { institutionId: INST_B, label: 'Person nur — photo to review' })
+      ],
+      hrHeads: [
+        { userId: 'hrhead-two', scopeAll: false, institutionId: INST },
+        { userId: 'hrhead-two', scopeAll: false, institutionId: INST_B }
+      ]
+    });
+    const r = await runHrDutyChase(w.deps);
+    const lists = w.sent.filter(
+      (m) => m.idempotencyKey.startsWith('hr-duty:hr-head-list:') && m.recipientIds.includes('hrhead-two')
+    );
+    const bodies = lists.map((m) => m.body).join('\n');
+    expect(bodies).toContain('Person eng');
+    expect(bodies).toContain('Person nur');
+    // Each list still carries one college only.
+    for (const m of lists) expect(m.body.includes('Person eng') && m.body.includes('Person nur')).toBe(false);
+    expect(r.errors.join(' ')).not.toContain('reached no HR head');
+  });
+
+  it('R2 finding 1: an HR head with an every-college grant gets one list, not the same names twice', async () => {
+    const w = fakeDeps({
+      items: [item('eng', FOUR_LATE)],
+      hrHeads: [
+        { userId: 'hrhead-x', scopeAll: false, institutionId: INST },
+        { userId: 'hrhead-x', scopeAll: true, institutionId: null }
+      ]
+    });
+    await runHrDutyChase(w.deps);
+    const lists = w.sent.filter(
+      (m) => m.idempotencyKey.startsWith('hr-duty:hr-head-list:') && m.recipientIds.includes('hrhead-x')
+    );
+    expect(lists).toHaveLength(1);
+    expect(lists[0].idempotencyKey).toMatch(/:all$/);
+  });
+
+  it('R2 finding 3 (checked, holds): a rerouted item on the HR head list counts as reached', async () => {
+    const w = fakeDeps({ items: [item('b', TWO_LATE)], onLeave: ['sup-1'] });
+    const r = await runHrDutyChase(w.deps);
+    expect(w.sent.some((m) => m.idempotencyKey.startsWith('hr-duty:hr-head-list:'))).toBe(true);
+    expect(r.errors.join(' ')).not.toContain('reached no HR head');
+  });
+
+  it('R2 finding 2: a resumed rung with nobody left to tell is closed, not planned on every run', async () => {
+    let down = true;
+    const w = fakeDeps({
+      items: [item('a', DUE_TODAY)],
+      weeklySent: true,
+      failSend: (m) => down && m.category === 'hr:duty-chase'
+    });
+    await runHrDutyChase(w.deps);
+    expect(w.claims).toHaveLength(1);
+    // Next run: the owner is on leave and has no supervisor, so nobody is told.
+    down = false;
+    w.world.onLeave = ['owner-1'];
+    w.world.supervisors = {};
+    await runHrDutyChase(w.deps);
+    expect(w.sent).toHaveLength(0);
+    // The run after that has nothing left to plan for the rung.
+    const r3 = await runHrDutyChase(w.deps);
+    expect(r3.outcome).toBe('nothing_due');
+    expect(w.claims).toHaveLength(1);
+  });
+
+  it('R2 finding 5: running out of time on owners carries out the plan for the owners already known', async () => {
+    const w = fakeDeps({
+      items: [item('a', DUE_TODAY), item('b', DUE_TODAY), item('c', DUE_TODAY)],
+      // Third look-up happens after 85 s, past the owner phase (80 s of 100 s).
+      slowOwners: { afterCalls: 2, jumpMs: 85_000 }
+    });
+    const r = await runHrDutyChase(w.deps);
+    expect(r.outcome).toBe('sent');
+    expect(w.claims.map((c) => c.itemId)).toEqual(['a', 'b']);
+    expect(w.sent.filter((m) => m.category === 'hr:duty-chase')).toHaveLength(2);
+    expect(r.detail.deadline).toEqual({ owners_unresolved: 1 });
+    expect(r.errors.join(' ')).toContain('ran out of time working out owners');
+    // A partial picture sends no weekly lists; the next run in the week does.
+    expect(r.weeklyListsDue).toBe(false);
+    expect(w.sent.some((m) => m.category === 'hr:duty-chase-weekly')).toBe(false);
+    expect(w.runs).toHaveLength(1);
+  });
+
+  it('R2 finding 6: a call that never answers is abandoned within the budget and the run is recorded', async () => {
+    const w = fakeDeps({ items: [item('a', DUE_TODAY)], weeklySent: true, hang: ['loadHolidayKeys'] });
+    const r = await runHrDutyChase(w.deps, { budgetMs: 50 });
+    expect(r.outcome).toBe('failed');
+    expect(r.errors.join(' ')).toContain('loadHolidayKeys: no answer');
+    expect(w.runs).toHaveLength(1);
+  });
+
+  it('R2 finding 6: a hung send is abandoned, recorded as an error, and left unsent for the next run', async () => {
+    const w = fakeDeps({
+      items: [item('a', DUE_TODAY)],
+      weeklySent: true,
+      hangSend: (m) => m.category === 'hr:duty-chase'
+    });
+    const r = await runHrDutyChase(w.deps, { budgetMs: 50 });
+    expect(r.errors.join(' ')).toContain('send: no answer');
+    expect(w.runs).toHaveLength(1);
+    expect([...w.ledger.values()][0].notificationId).toBeNull();
+  });
+
+  it('R2 finding 6: a run row write that never answers does not hold the run', async () => {
+    const w = fakeDeps({ items: [], weeklySent: true, hang: ['recordRun'] });
+    const r = await runHrDutyChase(w.deps, { recordRunMs: 50 });
+    expect(r.errors.join(' ')).toContain('recordRun: no answer');
+  });
+
+  it('R2 finding 7: a blank or boolean digest weekday falls back to Monday', () => {
+    const read = (v: unknown) => readHarnessPolicies({ [HARNESS_POLICY_KEYS.digestWeekday]: v }).digestWeekday;
+    for (const v of [' ', '\t', false, true, '1.5', 1.5, 'abc', [], {}]) expect(read(v)).toBe(1);
+    expect(read(3)).toBe(3);
+    expect(read('3')).toBe(3);
+    expect(read(' 2 ')).toBe(2);
+    expect(read(0)).toBe(0);
   });
 });

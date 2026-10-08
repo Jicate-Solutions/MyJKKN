@@ -53,6 +53,8 @@ import {
 
 /** Rows one source may load per run. The volume fuse is the real bound. */
 const LOAD_LIMIT = SOURCE_LOAD_LIMIT;
+/** How long a claimed rung whose send keeps failing is retried. */
+export const UNSENT_RETRY_DAYS = 7;
 /** Ids per PostgREST `.in()` — the list travels in the URL. */
 const IN_CHUNK = 100;
 const DIRECTOR_LIST_KEY = 'platform.the_director_profile_ids';
@@ -585,12 +587,16 @@ export function createHarnessDbDeps(db: SupabaseClient = createServiceRoleClient
     async loadUnsentRungs(items) {
       const out = new Map<string, Map<string, string>>();
       const ids = [...new Set(items.map((i) => i.itemId))];
+      // A send that keeps failing is retried for UNSENT_RETRY_DAYS, then left:
+      // the item still climbs the ladder, and the run log has every failure.
+      const since = new Date(Date.now() - UNSENT_RETRY_DAYS * 86_400_000).toISOString();
       for (const batch of chunk(ids)) {
         const { data, error } = await db
           .from('hr_duty_chase_ledger')
           .select('id, duty_code, item_id, stage_key, step_key, notified_profile_ids')
           .is('notification_id', null)
           .is('resolved_at', null)
+          .gte('created_at', since)
           .in('item_id', batch);
         if (error) throw new Error(`ledger (unsent): ${error.message}`);
         for (const r of (data ?? []) as any[]) {
@@ -791,8 +797,12 @@ export function createHarnessDbDeps(db: SupabaseClient = createServiceRoleClient
     },
 
     async finishLedger(id, notificationId) {
-      if (!notificationId) return;
-      await db.from('hr_duty_chase_ledger').update({ notification_id: notificationId }).eq('id', id);
+      // No notification id after a send that did not fail = nobody was told
+      // (the rung has nobody to tell any more, or the notification layer
+      // skipped it). Record exactly that, so the rung is not "unsent" for ever.
+      const patch = notificationId ? { notification_id: notificationId } : { notified_profile_ids: [] };
+      const { error } = await db.from('hr_duty_chase_ledger').update(patch).eq('id', id);
+      if (error) throw new Error(`ledger (finish): ${error.message}`);
     },
 
     async send(msg) {
