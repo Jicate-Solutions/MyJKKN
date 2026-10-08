@@ -2,8 +2,8 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { FormActionBar } from '@/components/procurement/form-action-bar';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
@@ -39,8 +39,10 @@ export function PoFormatForm({ institutionId, createdBy, initial, onSave }: PoFo
   );
   const [termsDefault, setTermsDefault] = useState(initial?.terms_and_conditions_default ?? '');
   const [saving, setSaving] = useState(false);
+  const [triedSave, setTriedSave] = useState(false);
 
   const handleSave = async () => {
+    setTriedSave(true);
     if (!name.trim()) {
       toast.error('Please enter a format name');
       return;
@@ -74,22 +76,22 @@ export function PoFormatForm({ institutionId, createdBy, initial, onSave }: PoFo
   };
 
   return (
-    <div className="space-y-4 sm:space-y-6 max-w-5xl">
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Format Details</CardTitle>
-        </CardHeader>
-        <CardContent className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
+    <div className="space-y-5">
+      <section className="overflow-hidden rounded-xl border bg-background shadow">
+        <h2 className="border-b px-5 py-3 text-base font-semibold">Format details</h2>
+        <div className="p-5 grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
           <div className="space-y-2">
             <Label htmlFor="format-name">
-              Name <span className="text-red-500">*</span>
+              Name <span className="text-destructive">*</span>
             </Label>
             <Input
               id="format-name"
               placeholder="e.g. Dental/General Supplier"
               value={name}
               onChange={(e) => setName(e.target.value)}
+              aria-invalid={triedSave && !name.trim()}
             />
+            {triedSave && !name.trim() && <p className="text-xs text-destructive">Give the format a name.</p>}
           </div>
           <div className="space-y-2">
             <Label htmlFor="format-description">Description</Label>
@@ -100,54 +102,53 @@ export function PoFormatForm({ institutionId, createdBy, initial, onSave }: PoFo
               onChange={(e) => setDescription(e.target.value)}
             />
           </div>
-        </CardContent>
-      </Card>
+        </div>
+      </section>
 
-      <Card>
-        <CardContent className="pt-6">
+      <section className="overflow-hidden rounded-xl border bg-background shadow">
+        <div className="p-5">
           <HeaderFieldsEditor fields={headerFields} onChange={setHeaderFields} />
-        </CardContent>
-      </Card>
+        </div>
+      </section>
 
-      <Card>
-        <CardContent className="pt-6">
+      <section className="overflow-hidden rounded-xl border bg-background shadow">
+        <div className="p-5">
           <ItemColumnsEditor columns={itemColumns} onChange={setItemColumns} />
-        </CardContent>
-      </Card>
+        </div>
+      </section>
 
-      <Card>
-        <CardContent className="pt-6">
+      <section className="overflow-hidden rounded-xl border bg-background shadow">
+        <div className="p-5">
           <FooterColumnsEditor columns={footerColumns} onChange={setFooterColumns} />
-        </CardContent>
-      </Card>
+        </div>
+      </section>
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Default Terms &amp; Conditions</CardTitle>
-        </CardHeader>
-        <CardContent>
+      <section className="overflow-hidden rounded-xl border bg-background shadow">
+        <h2 className="border-b px-5 py-3 text-base font-semibold">Default terms &amp; conditions</h2>
+        <div className="p-5">
           <Textarea
             placeholder="Free-text terms & conditions shown by default on purchase orders using this format (editable per order)..."
             value={termsDefault}
             onChange={(e) => setTermsDefault(e.target.value)}
             rows={4}
           />
-        </CardContent>
-      </Card>
+        </div>
+      </section>
 
-      <div className="flex flex-col gap-2 sm:flex-row sm:justify-end sm:gap-3">
+      <FormActionBar>
         <Button
-          variant="outline"
+          variant="ghost"
+          className="h-11 sm:h-9"
           onClick={() => router.push('/procurement/purchase-orders/formats')}
           disabled={saving}
         >
           Cancel
         </Button>
-        <Button onClick={handleSave} disabled={saving}>
+        <Button className="h-11 px-5 sm:h-9" onClick={handleSave} disabled={saving}>
           {saving && <BeatLoader color="#fff" size={8} className="mr-2" />}
-          {initial ? 'Update Format' : 'Create Format'}
+          {initial ? 'Save changes' : 'Create format'}
         </Button>
-      </div>
+      </FormActionBar>
     </div>
   );
 }

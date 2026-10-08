@@ -69,6 +69,16 @@ export type IdCardPrintJobListed = IdCardPrintJob & {
 // keep printing fronts only, so shipping this is dark by construction.
 export type IdCardPrintJobPickup = IdCardPrintJob & {
   has_back: boolean;
+  /**
+   * How each face is meant to be printed (additive, 2026-10-01). The bridge
+   * drives the printer through the Evolis SDK, which ignores the Front/Back
+   * combination saved in Evolis Premium Suite and prints BOTH faces in colour
+   * unless the session is told otherwise — two ribbon sets per card. `back:
+   * 'monochrome'` is the instruction to print the back from the same set's
+   * black panel (SDK duplex type colour/mono, "YMCO / K"). Absent `back` ⇔
+   * front-only card.
+   */
+  print_plan: { front: 'color'; back?: 'monochrome' };
 };
 
 /**

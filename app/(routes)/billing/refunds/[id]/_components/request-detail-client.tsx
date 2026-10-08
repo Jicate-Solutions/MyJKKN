@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { format } from 'date-fns';
 import { AlertTriangle, Download } from 'lucide-react';
 import { BeatLoader } from 'react-spinners';
+import { toast } from 'react-hot-toast';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -19,6 +20,7 @@ import { getErrorMessage } from '@/lib/utils';
 import { generateRefundRequestPdf } from '@/lib/utils/billing/refund-request-pdf';
 import { RequestTimeline } from './request-timeline';
 import { StageActionPanel } from './stage-action-panel';
+import { ReapplyFlowButton } from './reapply-flow-button';
 import { DisburseForm } from './disburse-form';
 import type { RefundRequest } from '@/types/billing-refund-workflow';
 
@@ -59,6 +61,7 @@ export function RequestDetailClient({ id }: Props) {
 
   const [roleIds, setRoleIds] = useState<string[]>([]);
   const [institutionName, setInstitutionName] = useState('');
+  const [exporting, setExporting] = useState(false);
 
   const myUserId = profile?.id;
 
@@ -100,6 +103,22 @@ export function RequestDetailClient({ id }: Props) {
   const canActOnStage = isSuperAdmin || matches(stage ?? undefined);
   const canDisburse = request.status === 'pending_disbursement' && (isSuperAdmin || matches(request.flow_snapshot.disburser));
 
+  // Mirrors fn_reapply_refund_flow: super admin, still at stage 0, nothing approved yet.
+  const canReapplyFlow = isSuperAdmin && request.status === 'pending_review'
+    && request.current_stage_index === 0
+    && !request.actions?.some((a) => a.action_type === 'approved');
+
+  const handleExportPdf = async () => {
+    setExporting(true);
+    try {
+      await generateRefundRequestPdf(request);
+    } catch (e) {
+      toast.error(getErrorMessage(e));
+    } finally {
+      setExporting(false);
+    }
+  };
+
   const declineAction = request.actions?.find((a) => a.action_type === 'declined');
   const disburseAction = request.actions?.find((a) => a.action_type === 'disbursed');
 
@@ -117,9 +136,9 @@ export function RequestDetailClient({ id }: Props) {
             Total refund: ₹{request.total_refund_amount.toLocaleString('en-IN')}
           </p>
         </div>
-        <Button variant='outline' onClick={() => generateRefundRequestPdf(request)}>
+        <Button variant='outline' onClick={handleExportPdf} disabled={exporting}>
           <Download className='h-4 w-4 mr-2' />
-          Export PDF
+          {exporting ? 'Preparing PDF…' : 'Export PDF'}
         </Button>
       </div>
 
@@ -167,8 +186,9 @@ export function RequestDetailClient({ id }: Props) {
 
           {/* Timeline */}
           <Card>
-            <CardHeader>
+            <CardHeader className='flex flex-row items-center justify-between space-y-0'>
               <CardTitle>Timeline</CardTitle>
+              {canReapplyFlow && <ReapplyFlowButton requestId={request.id} />}
             </CardHeader>
             <CardContent>
               <RequestTimeline

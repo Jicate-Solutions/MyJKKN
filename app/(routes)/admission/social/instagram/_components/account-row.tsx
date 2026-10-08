@@ -7,6 +7,7 @@ import { TableCell, TableRow } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import type { IgAccount, IgAccountStatus } from '@/services/instagram-service';
+import { AccountRunnerCell } from './account-runner-cell';
 
 const STATUS_BADGE: Record<
   IgAccountStatus,
@@ -42,9 +43,12 @@ function relativeTime(iso: string | null): string {
 
 interface AccountRowProps {
   account: IgAccount;
+  /** Viewer holds social.instagram.manage — may name who runs the account. */
+  canManage?: boolean;
+  onRunnerSaved?: () => void;
 }
 
-export function AccountRow({ account }: AccountRowProps) {
+export function AccountRow({ account, canManage = false, onRunnerSaved }: AccountRowProps) {
   const status = STATUS_BADGE[account.status] ?? STATUS_BADGE.error;
 
   return (
@@ -68,6 +72,18 @@ export function AccountRow({ account }: AccountRowProps) {
       {/* Department */}
       <TableCell className="text-sm text-muted-foreground">
         {account.department_name ?? '—'}
+      </TableCell>
+
+      {/* Runs this account */}
+      <TableCell>
+        <AccountRunnerCell
+          accountId={account.id}
+          username={account.username}
+          runnerId={account.connected_by ?? null}
+          runnerName={account.connected_by_name ?? null}
+          canManage={canManage}
+          onSaved={onRunnerSaved}
+        />
       </TableCell>
 
       {/* Account Type */}

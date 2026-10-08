@@ -46,6 +46,13 @@ interface LeaveTypeRowActionsProps {
   onActivate: (t: HRLeaveType) => Promise<void> | void;
   /** ASKS THE PAGE to open its delete confirmation. Does not delete. */
   onDelete: (t: HRLeaveType) => void;
+  /**
+   * profiles.is_super_admin — the SAME predicate hr_leave_type_delete_super_admin()
+   * gates on, so the menu never offers what the RPC would refuse.
+   */
+  isSuperAdmin: boolean;
+  /** ASKS THE PAGE to open the super-admin delete confirmation. Does not delete. */
+  onSuperDelete: (t: HRLeaveType) => void;
 }
 
 export function LeaveTypeRowActions({
@@ -58,6 +65,8 @@ export function LeaveTypeRowActions({
   onArchive,
   onActivate,
   onDelete,
+  isSuperAdmin,
+  onSuperDelete,
 }: LeaveTypeRowActionsProps) {
   const [isActivating, setIsActivating] = useState(false);
   const handleActivate = async () => {
@@ -117,18 +126,34 @@ export function LeaveTypeRowActions({
               Archive
             </DropdownMenuItem>
           ) : (
-            <>
-              {/* Activate needs no confirmation: it is the exact inverse of
-                  Archive, destroys nothing, and is itself undoable. */}
-              <DropdownMenuItem onClick={() => void handleActivate()} disabled={isActivating}>
-                {isActivating
-                  ? <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  : <ArchiveRestore className="mr-2 h-4 w-4" />}
-                Activate
-              </DropdownMenuItem>
-              {/* Delete is offered ONLY on an archived row, so removing a type
-                  is always archive-then-delete and never one click from the
-                  list staff are applying against. */}
+            /* Activate needs no confirmation: it is the exact inverse of
+               Archive, destroys nothing, and is itself undoable. */
+            <DropdownMenuItem onClick={() => void handleActivate()} disabled={isActivating}>
+              {isActivating
+                ? <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                : <ArchiveRestore className="mr-2 h-4 w-4" />}
+              Activate
+            </DropdownMenuItem>
+          )}
+          {isSuperAdmin ? (
+            /* A super admin may delete from ANY row, active or archived, and the
+               dialog behind this is the one that names what goes with it
+               (balances, adjustments) and refuses on applications. It replaces
+               the item below rather than sitting beside it: two "Delete
+               permanently" entries with different rules would be a trap. */
+            <DropdownMenuItem
+              // Deferred for the same reason as Archive above.
+              onClick={() => setTimeout(() => onSuperDelete(leaveType), 0)}
+              className="text-destructive"
+            >
+              <Trash2 className="mr-2 h-4 w-4" />
+              Delete permanently
+            </DropdownMenuItem>
+          ) : (
+            /* Everyone else: offered ONLY on an archived row, so removing a type
+               is always archive-then-delete and never one click from the list
+               staff are applying against. */
+            !leaveType.is_active && (
               <DropdownMenuItem
                 // Deferred for the same reason as Archive above.
                 onClick={() => setTimeout(() => onDelete(leaveType), 0)}
@@ -137,7 +162,7 @@ export function LeaveTypeRowActions({
                 <Trash2 className="mr-2 h-4 w-4" />
                 Delete permanently
               </DropdownMenuItem>
-            </>
+            )
           )}
         </DropdownMenuContent>
     </DropdownMenu>

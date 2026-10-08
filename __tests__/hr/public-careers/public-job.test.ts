@@ -46,7 +46,7 @@ describe('toPublicJob', () => {
     expect(Object.keys(toPublicJob(ROW)).sort()).toEqual([
       'city', 'closes_at', 'country', 'department', 'description', 'education_level',
       'id', 'institution', 'job_code', 'job_type', 'max_experience_years', 'min_experience_years',
-      'positions_open', 'posted_at', 'qualifications', 'role_category', 'salary', 'skills',
+      'positions_open', 'posted_at', 'qualifications', 'role_category', 'salary', 'seo', 'skills',
       'state', 'title',
     ]);
   });
@@ -71,5 +71,36 @@ describe('toPublicJob', () => {
     expect(j.qualifications).toEqual([]);
     expect(j.department).toBeNull();
     expect(j.institution).toBeNull();
+  });
+});
+
+describe('toPublicJob seo', () => {
+  it('is empty (null/false) when HR set no SEO — the website then builds its own', () => {
+    expect(toPublicJob(ROW).seo).toEqual({ title: null, description: null, keywords: [], og_image: null, noindex: false });
+  });
+  it('passes the seo_* columns through, trimmed', () => {
+    const j = toPublicJob({
+      ...ROW,
+      seo_title: '  CCTV Monitoring Operator Job in Komarapalayam | JKKN ',
+      seo_description: 'Hiring a CCTV operator.',
+      seo_keywords: [' CCTV operator job ', '', 'Komarapalayam'],
+      seo_og_image: 'https://example.com/og.jpg',
+      seo_noindex: true,
+    });
+    expect(j.seo).toEqual({
+      title: 'CCTV Monitoring Operator Job in Komarapalayam | JKKN',
+      description: 'Hiring a CCTV operator.',
+      keywords: ['CCTV operator job', 'Komarapalayam'],
+      og_image: 'https://example.com/og.jpg',
+      noindex: true,
+    });
+  });
+  it('never changes the visible title or description', () => {
+    const j = toPublicJob({ ...ROW, seo_title: 'SEO only', seo_description: 'SEO only' });
+    expect(j.title).toBe(ROW.title);
+    expect(j.description).toBe(ROW.description);
+  });
+  it('treats blank seo text as not set', () => {
+    expect(toPublicJob({ ...ROW, seo_title: '   ', seo_description: '' }).seo.title).toBeNull();
   });
 });

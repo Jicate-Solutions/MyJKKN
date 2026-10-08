@@ -133,7 +133,8 @@ export class CiaMarksService {
     for (const c of courses) {
       if (c.course_code) {
         map.set(c.course_code, {
-          course_name: c.course_name ?? '',
+          // COE's /api/v1/courses mapper renames the column to `course_title`.
+          course_name: c.course_name || c.course_title || '',
           internal_max_mark: c.internal_max_mark ?? 0,
         });
       }
@@ -160,13 +161,25 @@ export class CiaMarksService {
 
   /**
    * Derives student list from registrations for a specific course.
+   *
+   * Registration STATUS is deliberately not a condition: a regular registration
+   * row is enough. CIA marks are keyed in while COE is still approving exam
+   * registrations, so an Approved-only rule left whole classes (60 Pending rows
+   * for EC3551, Nov-Dec 2026) showing "0 learners". Pass `statuses` only if a
+   * caller genuinely needs to narrow it.
    */
   static getLearnersFromRegistrations(
     registrations: ExamRegistration[],
-    courseCode: string
+    courseCode: string,
+    statuses?: readonly string[]
   ): LearnerForMarkEntry[] {
     return registrations
-      .filter((r) => r.course_code === courseCode && r.registration_status === 'Approved' && r.is_regular)
+      .filter(
+        (r) =>
+          r.course_code === courseCode &&
+          r.is_regular &&
+          (!statuses || statuses.includes(r.registration_status))
+      )
       .map((r) => ({
         id: r.student_id,
         register_number: r.stu_register_no,

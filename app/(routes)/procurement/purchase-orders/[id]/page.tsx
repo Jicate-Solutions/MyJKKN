@@ -13,67 +13,60 @@ import {
   useCancelPO,
   useUpdatePoDocumentFields,
   useUpdatePoItemExtraFields,
-  useUpdatePoItemPrice,
+  useMarkPoSent,
+  useApplyPoItemExtraToAll,
 } from '@/hooks/procurement/use-purchase-orders';
-import { usePoFormats } from '@/hooks/procurement/use-po-formats';
-import { useUpdateImsSupplier } from '@/hooks/ims/use-ims-settings';
-import { PO_STATUS_CONFIG, type ProcurementPoFormat } from '@/types/procurement';
 import { downloadPurchaseOrderPdf } from '@/lib/procurement/purchase-order-pdf';
 import { downloadPurchaseOrderDocx } from '@/lib/procurement/purchase-order-docx';
 import { StatusBadge } from '@/components/procurement/status-badge';
-import { ResponsiveList } from '@/components/procurement/responsive-list';
-import {
-  DocumentHeader,
-  type DocAction,
-  type DocPrimaryAction,
-} from '@/components/procurement/document-header';
+import { DetailHeader } from '@/components/procurement/detail-header';
+import { ORDER_STATUS_CONFIG } from '@/components/procurement/orders-section';
+import { type DocAction, type DocPrimaryAction } from '@/components/procurement/document-header';
 import { formatDateDMY } from '@/lib/utils/date-format';
-import { STANDARD_PO_FORMAT } from '@/lib/procurement/po-document-model';
+import { displayRequestNumber } from '@/lib/procurement/display-number';
+import {
+  STANDARD_PO_FORMAT,
+  suggestedHeaderValues,
+  catalogExtra,
+  resolvePoDocumentModel,
+  PO_REQUIRED_FIELDS,
+} from '@/lib/procurement/po-document-model';
+import { PoDocumentPreview, type PoPreviewEdit } from '@/components/procurement/po-document-preview';
 import { AlertBox } from '@/components/ui/alert-box';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
-import { Checkbox } from '@/components/ui/checkbox';
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
+import { poGstTotal } from '@/lib/procurement/po-document-model';
 import {
-  Dialog,
-  DialogContent,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
-import { FileDown, FileText, Send, Check, X, PackageCheck, Ban, Plus } from 'lucide-react';
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import { FileDown, FileText, Send, Check, X, ChevronDown } from 'lucide-react';
 import { BeatLoader } from 'react-spinners';
 import { toast } from 'sonner';
 import { errorMessage } from '@/lib/utils/supabase-error';
 
-/** item_extra.<key> -> <key> */
-function extraFieldKey(source: string): string {
-  return source.startsWith('item_extra.') ? source.slice('item_extra.'.length) : source;
-}
+/** What the printed order can't go out without. Everything else may stay blank. */
+const REQUIRED_KEYS = new Set(Object.keys(PO_REQUIRED_FIELDS));
+/** Boxes printed in the footer group (the rest are header_values). */
+const FOOTER_KEYS = new Set(['special_note']);
 
-/** Free-entry header/footer field defs (source header_values.x or footer_values.x) an active format declares. */
-function freeEntryFields(format: ProcurementPoFormat | null | undefined) {
-  if (!format) return { header: [], footer: [] };
-  const header = format.header_fields.filter((f) => f.source.startsWith('header_values.'));
-  const footer = format.footer_columns.flatMap((group) =>
-    group.freeText
-      ? group.source && group.source.startsWith('footer_values.')
-        ? [{ key: group.source.slice('footer_values.'.length), label: group.title, source: group.source }]
-        : []
-      : (group.fields || []).filter((f) => f.source.startsWith('footer_values.'))
-  );
-  return { header, footer };
-}
+/** item_extra.<key> -> <key> */
+const extraFieldKey = (source: string) =>
+  source.startsWith('item_extra.') ? source.slice('item_extra.'.length) : source;
 
 export default function PurchaseOrderDetailPage() {
   const router = useRouter();
@@ -83,107 +76,53 @@ export default function PurchaseOrderDetailPage() {
   const { canAccess, isSuperAdmin } = usePermissions();
   const canApprove = isSuperAdmin || canAccess('procurement', 'po_approve');
   const canCreate = isSuperAdmin || canAccess('procurement', 'po_create');
-  const canReceive = isSuperAdmin || canAccess('procurement', 'grn_create');
 
   const { data: po, isLoading, isError } = usePurchaseOrder(id);
   const submitPO = useSubmitPO();
   const approvePO = useApprovePO();
   const rejectPO = useRejectPO();
   const cancelPO = useCancelPO();
+  // Cancelling an order cannot be undone, so it asks first (as cancelling a request does).
+  const [cancelOpen, setCancelOpen] = useState(false);
   const updateDocFields = useUpdatePoDocumentFields();
+  const markSent = useMarkPoSent();
   const updateItemExtra = useUpdatePoItemExtraFields();
-  const updateItemPrice = useUpdatePoItemPrice();
-  const updateSupplier = useUpdateImsSupplier();
-
-  const { data: formats } = usePoFormats(po?.institution_id, { activeOnly: true });
-  const [setAsVendorDefault, setSetAsVendorDefault] = useState(false);
+  const applyToAll = useApplyPoItemExtraToAll();
 
   const [rejectOpen, setRejectOpen] = useState(false);
   const [rejectReason, setRejectReason] = useState('');
 
-  // Document formatting (format/header/footer/T&C/item extras) is presentational only — it never
-  // touches quantities, prices, or totals — so unlike the workflow actions (approve/send/cancel),
-  // it's never status-gated; only permission-gated (canCreate), same as the rest of this page.
-  const hasSavedDocDetails =
-    Object.keys(po?.header_field_values || {}).length > 0 ||
-    Object.keys(po?.footer_field_values || {}).length > 0 ||
-    !!po?.terms_and_conditions;
-  const activeFormat = po?.po_format ?? null;
-  // No custom format = the standard paper-PO layout, whose fill-in fields are editable too.
-  const docFormat = activeFormat ?? STANDARD_PO_FORMAT;
-  const { header: headerFieldDefs, footer: footerFieldDefs } = freeEntryFields(docFormat);
-  const itemExtraColumns = docFormat.item_columns.filter((c) => c.source.startsWith('item_extra.'));
-
+  // The blanks on the order, typed straight into the preview. They start from the
+  // vendor's quotation (number, date, delivery, payment, warranty), then what the
+  // last order to this vendor printed. Saved values win.
   const [headerValues, setHeaderValues] = useState<Record<string, string>>({});
   const [footerValues, setFooterValues] = useState<Record<string, string>>({});
-  const [termsText, setTermsText] = useState('');
-
-  // Re-derive the editable document fields whenever the loaded PO or its
-  // selected format changes, without a useEffect (adjusting state during
-  // render, per https://react.dev/learn/you-might-not-need-an-effect).
-  const syncKey = po ? `${po.id}:${po.po_format_id ?? ''}` : undefined;
-  const [lastSyncKey, setLastSyncKey] = useState<string | undefined>(undefined);
-  if (po && syncKey !== lastSyncKey) {
-    setLastSyncKey(syncKey);
-    setHeaderValues(po.header_field_values || {});
+  // What was last written, so a blur with nothing changed doesn't save again.
+  const [lastSaved, setLastSaved] = useState('');
+  // HSN / GST typed on a line, kept here too so Download prints them even while the save is in flight.
+  const [itemEdits, setItemEdits] = useState<Record<string, Record<string, string>>>({});
+  const [syncedId, setSyncedId] = useState<string | undefined>(undefined);
+  if (po && po.id !== syncedId) {
+    setSyncedId(po.id);
+    const saved = Object.fromEntries(
+      Object.entries(po.header_field_values || {}).filter(([, v]) => String(v ?? '').trim())
+    );
+    const suggested = Object.fromEntries(Object.entries(suggestedHeaderValues(po)).map(([k, v]) => [k, v.value]));
+    setHeaderValues({ ...suggested, ...saved });
     setFooterValues(po.footer_field_values || {});
-    setTermsText(po.terms_and_conditions ?? po.po_format?.terms_and_conditions_default ?? '');
+    setLastSaved(JSON.stringify([po.header_field_values || {}, po.footer_field_values || {}]));
   }
 
-  const handleFormatChange = (formatId: string) => {
-    const resolvedId = formatId === 'none' ? null : formatId;
-    run(async () => {
-      await updateDocFields.mutateAsync({ id, patch: { po_format_id: resolvedId } });
-      if (setAsVendorDefault && po) {
-        await updateSupplier.mutateAsync({
-          id: po.supplier_id,
-          data: { default_po_format_id: resolvedId },
-        });
-      }
-    }, setAsVendorDefault ? 'Format applied and saved as vendor default' : 'Document format updated');
-  };
-
-  const handleToggleSetAsDefault = (checked: boolean) => {
-    setSetAsVendorDefault(checked);
-    if (checked && po?.po_format_id) {
-      run(
-        () =>
-          updateSupplier.mutateAsync({
-            id: po.supplier_id,
-            data: { default_po_format_id: po.po_format_id },
-          }),
-        'Saved as vendor default'
-      );
-    }
-  };
-
-  const handleSaveDocumentDetails = () => {
-    run(
-      () =>
-        updateDocFields.mutateAsync({
-          id,
-          patch: {
-            header_field_values: headerValues,
-            footer_field_values: footerValues,
-            terms_and_conditions: termsText.trim() || null,
-          },
-        }),
-      'Document details saved'
-    );
-  };
-
-  const handleItemExtraBlur = (itemId: string, key: string, value: string) => {
-    updateItemExtra.mutateAsync({ poId: id, itemId, extraFields: { [key]: value } }).catch((e) => {
-      toast.error(errorMessage(e, 'Failed to save field'));
+  /** Save the typed blanks, if anything changed since the last save. Quietly: it runs on every blur. */
+  const saveBlanks = async () => {
+    if (!canCreate) return;
+    const snapshot = JSON.stringify([headerValues, footerValues]);
+    if (snapshot === lastSaved) return;
+    await updateDocFields.mutateAsync({
+      id,
+      patch: { header_field_values: headerValues, footer_field_values: footerValues },
     });
-  };
-
-  const handleItemPriceBlur = (itemId: string, value: string) => {
-    const unitPrice = Number(value);
-    if (!(unitPrice >= 0)) return;
-    updateItemPrice.mutateAsync({ poId: id, itemId, unitPrice }).catch((e) => {
-      toast.error(errorMessage(e, 'Failed to save price'));
-    });
+    setLastSaved(snapshot);
   };
 
   if (isLoading) {
@@ -214,8 +153,7 @@ export default function PurchaseOrderDetailPage() {
 
   // One workflow action at a time — a second click while the first is in
   // flight would try the same transition from a state the PO has already left.
-  const transitionBusy =
-    submitPO.isPending || approvePO.isPending || cancelPO.isPending || rejectPO.isPending;
+  const transitionBusy = submitPO.isPending || approvePO.isPending || cancelPO.isPending || rejectPO.isPending;
 
   const run = async (fn: () => Promise<unknown>, ok: string) => {
     try {
@@ -226,7 +164,6 @@ export default function PurchaseOrderDetailPage() {
     }
   };
 
-  const canCreateGrn = ['sent', 'approved', 'partially_received'].includes(po.status) && canReceive;
   const canCancel = (po.status === 'draft' || po.status === 'pending_approval') && canCreate;
 
   let primary: DocPrimaryAction | null = null;
@@ -246,303 +183,240 @@ export default function PurchaseOrderDetailPage() {
       disabled: transitionBusy,
       onClick: () => run(() => approvePO.mutateAsync({ id, userId: profile!.id }), 'Purchase order approved'),
     };
-  } else if (canCreateGrn) {
-    primary = {
-      key: 'create-grn',
-      label: 'Record delivery',
-      icon: PackageCheck,
-      onClick: () => router.push(`/procurement/grn/new?po=${po.id}`),
-    };
   }
 
   const reject: DocAction | null =
     po.status === 'pending_approval' && canApprove
-      ? { key: 'reject', label: 'Reject', icon: X, onClick: () => setRejectOpen(true) }
+      ? {
+          key: 'reject',
+          label: 'Reject',
+          icon: X,
+          onClick: () => setRejectOpen(true),
+        }
       : null;
 
-  const actions: DocAction[] = [];
-  if (canCancel) {
-    actions.push({
-      key: 'cancel',
-      label: 'Cancel PO',
-      disabled: transitionBusy,
-      icon: Ban,
-      destructive: true,
-      confirm: {
-        title: `Cancel ${po.po_number}?`,
-        description: 'The purchase order stops here and cannot be reopened.',
-        confirmLabel: 'Cancel PO',
-      },
-      onClick: () => run(() => cancelPO.mutateAsync({ id, userId: profile!.id }), 'Purchase order cancelled'),
-    });
-  }
+  const purchase = po.purchase_request;
+
+  const docFormat = po.po_format ?? STANDARD_PO_FORMAT;
+  const extraCols = docFormat.item_columns.filter((c) => c.source.startsWith('item_extra.'));
+  // The order exactly as it will print, with what's typed here.
+  const livePo = {
+    ...po,
+    header_field_values: headerValues,
+    footer_field_values: footerValues,
+    items: po.items.map((it) =>
+      itemEdits[it.id] ? { ...it, extra_fields: { ...(it.extra_fields ?? {}), ...itemEdits[it.id] } } : it
+    ),
+  };
+  const liveModel = resolvePoDocumentModel(livePo);
+  const missing = [...REQUIRED_KEYS].filter((k) => !String(headerValues[k] ?? '').trim());
+
+  const extraOf = (i: number, key: string) => {
+    const col = extraCols.find((c) => c.key === key);
+    const it = livePo.items[i];
+    return col && it ? { it, k: extraFieldKey(col.source) } : null;
+  };
+  /** A line has no value of its own and none from the quotation / item master. */
+  const isBlank = (i: number, key: string) => {
+    const x = extraOf(i, key);
+    if (!x) return false;
+    const own = x.it.extra_fields?.[x.k];
+    return (own === undefined || own === '') && !catalogExtra(x.it, x.k);
+  };
+  const rememberItemEdit = (itemId: string, k: string, value: string) =>
+    setItemEdits((prev) => ({ ...prev, [itemId]: { ...(prev[itemId] ?? {}), [k]: value } }));
+
+  const edit: PoPreviewEdit | undefined = canCreate
+    ? {
+        value: (k) => (FOOTER_KEYS.has(k) ? footerValues[k] : headerValues[k]) ?? '',
+        onChange: (k, v) => (FOOTER_KEYS.has(k) ? setFooterValues : setHeaderValues)((prev) => ({ ...prev, [k]: v })),
+        onCommit: () => {
+          saveBlanks().catch((e) => toast.error(errorMessage(e, 'Could not save')));
+        },
+        required: REQUIRED_KEYS,
+        itemKeys: new Set(extraCols.map((c) => c.key)),
+        itemValue: (i, key) => {
+          const x = extraOf(i, key);
+          if (!x) return '';
+          const own = x.it.extra_fields?.[x.k];
+          return String(own !== undefined && own !== '' ? own : (catalogExtra(x.it, x.k) ?? ''));
+        },
+        // From the vendor's quotation (or item master): printed as is. Only a blank is typed.
+        itemEditable: (i, key) => {
+          const x = extraOf(i, key);
+          if (!x) return false;
+          const own = x.it.extra_fields?.[x.k];
+          return (own !== undefined && own !== '') || !catalogExtra(x.it, x.k);
+        },
+        onItemCommit: (i, key, value) => {
+          const x = extraOf(i, key);
+          if (!x) return;
+          rememberItemEdit(x.it.id, x.k, value);
+          updateItemExtra
+            .mutateAsync({ poId: id, itemId: x.it.id, extraFields: { [x.k]: value } })
+            .catch((e) => toast.error(errorMessage(e, 'Could not save')));
+        },
+        // Only the lines still blank: never over a value typed or taken from the quotation.
+        onApplyAll: (key, value) => {
+          const col = extraCols.find((c) => c.key === key);
+          if (!col) return;
+          const itemIds = livePo.items.filter((_, i) => isBlank(i, key)).map((it) => it.id);
+          if (!itemIds.length) {
+            toast.info(`Every line already has ${col.label}`);
+            return;
+          }
+          for (const itemId of itemIds) rememberItemEdit(itemId, extraFieldKey(col.source), value);
+          applyToAll
+            .mutateAsync({ poId: id, itemIds, extraFields: { [extraFieldKey(col.source)]: value } })
+            .then(() => toast.success(`${col.label} ${value} on ${itemIds.length} items`))
+            .catch((e) => toast.error(errorMessage(e, 'Could not save')));
+        },
+      }
+    : undefined;
+
+  // Download = what's on screen, saved first so a reprint matches.
+  const download = async (as: 'pdf' | 'word') => {
+    // Only someone who can fill the blanks is held back by them; a reader just downloads.
+    if (canCreate && missing.length > 0) {
+      toast.error(`Fill ${missing.map((k) => PO_REQUIRED_FIELDS[k]).join(', ')} first`);
+      return;
+    }
+    try {
+      await saveBlanks();
+      await (as === 'pdf' ? downloadPurchaseOrderPdf(livePo) : downloadPurchaseOrderDocx(livePo));
+      // Downloaded by the store to send to the vendor: the order is now "sent".
+      // A reader downloading to look leaves it as it is.
+      if (canCreate && po.status === 'approved') {
+        markSent.mutate(po.id, {
+          onError: (e) => toast.error(errorMessage(e, 'Could not mark the order as sent')),
+        });
+      }
+    } catch (e) {
+      toast.error(errorMessage(e, 'Could not prepare the order'));
+    }
+  };
 
   return (
-    <ContentLayout title={po.po_number}>
-      <div className="space-y-3">
-        <DocumentHeader
-          compact
-          onBack={() => router.push('/procurement/purchase-orders')}
-          backLabel="Back to purchase orders"
-          title={po.po_number}
-          status={<StatusBadge status={po.status} config={PO_STATUS_CONFIG} />}
-          next={
+    <ContentLayout title={purchase ? displayRequestNumber(purchase.request_number) : po.po_number}>
+      <div className="w-full space-y-5">
+        <DetailHeader
+          backLabel={purchase ? 'Back to the purchase' : 'Purchase orders'}
+          onBack={() => router.push(purchase ? `/procurement/requests/${purchase.id}` : '/procurement/purchase-orders')}
+          title={`Order to ${po.supplier?.name ?? 'vendor'}`}
+          badge={<StatusBadge status={po.status} config={ORDER_STATUS_CONFIG} />}
+          meta={
             <>
-              {po.supplier?.name ?? po.supplier_id} ·{' '}
-              <span className="font-semibold text-foreground tabular-nums">
-                ₹{Number(po.total_amount).toLocaleString()}
-              </span>
+              {po.po_number}
+              {purchase ? ` · ${displayRequestNumber(purchase.request_number)}` : ''}
+              {` · ${po.items.length} item${po.items.length === 1 ? '' : 's'} · `}
+              {/* Same figure as this order's card on the purchase page: amount + GST. */}
+              <b className="tabular-nums text-foreground">
+                ₹{(Math.round((Number(po.total_amount ?? 0) + poGstTotal(po)) * 100) / 100).toLocaleString('en-IN')}
+              </b>
+              {poGstTotal(po) > 0 ? ' incl. GST' : ''}
               {po.created_at ? ` · ${formatDateDMY(po.created_at)}` : ''}
             </>
           }
-          primary={primary}
-          reject={reject}
-          actions={actions}
+          actions={
+            (reject || primary) && (
+              <>
+                {reject && (
+                  <Button
+                    variant="outline"
+                    className="h-11 border-destructive/30 text-destructive hover:bg-destructive/10 hover:text-destructive sm:h-9"
+                    onClick={reject.onClick}
+                    disabled={transitionBusy}
+                  >
+                    Reject
+                  </Button>
+                )}
+                {primary && (
+                  <Button className="h-11 px-5 sm:h-9" onClick={primary.onClick} disabled={primary.disabled}>
+                    {primary.icon && <primary.icon className="mr-1.5 h-4 w-4" />}
+                    {primary.label}
+                  </Button>
+                )}
+              </>
+            )
+          }
         />
 
-        {/* Document toolbar — print format, library tag and downloads in one slim row. */}
-        <Card>
-          <CardContent className="flex flex-wrap items-center gap-x-3 gap-y-2 px-3 py-2">
-            {canCreate ? (
-              <>
-                <div className="flex items-center gap-2">
-                  <Label className="text-xs font-normal text-muted-foreground">Print as</Label>
-                  <Select value={po.po_format_id ?? 'none'} onValueChange={handleFormatChange}>
-                    <SelectTrigger className="h-8 w-[170px] text-xs">
-                      <SelectValue placeholder="Standard" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="none">Standard</SelectItem>
-                      {(formats ?? []).map((f) => (
-                        <SelectItem key={f.id} value={f.id}>
-                          {f.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                {(formats ?? []).length === 0 ? (
-                  <button
-                    type="button"
-                    onClick={() => router.push('/procurement/purchase-orders/formats/new')}
-                    className="flex items-center gap-0.5 text-xs text-primary hover:underline"
-                  >
-                    <Plus className="h-3 w-3" />
-                    New format
-                  </button>
-                ) : (
-                  <label className="flex cursor-pointer items-center gap-1.5 text-xs text-muted-foreground">
-                    <Checkbox
-                      checked={setAsVendorDefault}
-                      onCheckedChange={(c) => handleToggleSetAsDefault(!!c)}
-                    />
-                    Use for {po.supplier?.name ?? 'this vendor'} always
-                  </label>
-                )}
-                <span className="hidden h-5 w-px bg-border sm:block" />
-                {/* Accreditation classification — tagged POs auto-emit NAAC library
-                    purchase-bill evidence once approved (DB trigger, Wave 2D). */}
-                <label
-                  className="flex cursor-pointer items-center gap-1.5 text-xs text-muted-foreground"
-                  title="Counts as NAAC accreditation evidence once approved"
-                >
-                  <Checkbox
-                    checked={!!po.is_library_resource}
-                    onCheckedChange={(c) =>
-                      run(
-                        () => updateDocFields.mutateAsync({ id, patch: { is_library_resource: !!c } }),
-                        c
-                          ? 'Tagged as library purchase — counts as accreditation evidence once approved'
-                          : 'Library purchase tag removed'
-                      )
-                    }
-                  />
-                  Library purchase
-                </label>
-              </>
-            ) : (
-              <>
-                <span className="text-xs text-muted-foreground">
-                  Prints as <span className="font-medium text-foreground">{activeFormat?.name ?? 'Standard'}</span>
-                </span>
-                {po.is_library_resource && <Badge variant="secondary">Library purchase</Badge>}
-              </>
-            )}
-            <div className="ml-auto flex gap-1.5">
-              <Button variant="outline" size="sm" className="h-8 px-2.5 text-xs" onClick={() => downloadPurchaseOrderPdf(po)}>
-                <FileDown className="mr-1 h-3.5 w-3.5" />
-                PDF
-              </Button>
-              <Button variant="outline" size="sm" className="h-8 px-2.5 text-xs" onClick={() => downloadPurchaseOrderDocx(po)}>
-                <FileText className="mr-1 h-3.5 w-3.5" />
-                Word
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
-
         {po.status === 'rejected' && po.rejection_reason && (
-          <Card className="border-destructive/40">
-            <CardContent className="pt-6">
-              <p className="text-sm">
-                <span className="font-medium text-destructive">Rejected: </span>
-                {po.rejection_reason}
-              </p>
-            </CardContent>
-          </Card>
+          <p className="rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">
+            Rejected: {po.rejection_reason}
+          </p>
         )}
 
-        {(canCreate && (headerFieldDefs.length > 0 || footerFieldDefs.length > 0)) || hasSavedDocDetails ? (
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">Details printed on the PO</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              {canCreate ? (
-                <>
-                  {headerFieldDefs.length > 0 && (
-                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                      {headerFieldDefs.map((f) => {
-                        const key = f.source.slice('header_values.'.length);
-                        return (
-                          <div key={f.key} className="space-y-1">
-                            <Label className="text-xs">{f.label}</Label>
-                            <Input
-                              value={headerValues[key] ?? ''}
-                              onChange={(e) => setHeaderValues((prev) => ({ ...prev, [key]: e.target.value }))}
-                            />
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
-                  {footerFieldDefs.length > 0 && (
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                      {footerFieldDefs.map((f) => (
-                        <div key={f.key} className="space-y-1">
-                          <Label className="text-xs">{f.label}</Label>
-                          <Input
-                            value={footerValues[f.key] ?? ''}
-                            onChange={(e) => setFooterValues((prev) => ({ ...prev, [f.key]: e.target.value }))}
-                          />
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                  <div className="space-y-1">
-                    <Label className="text-xs">Terms &amp; Conditions</Label>
-                    <Textarea value={termsText} onChange={(e) => setTermsText(e.target.value)} rows={3} />
-                  </div>
-                  <div className="flex justify-end">
-                    <Button size="sm" onClick={handleSaveDocumentDetails} disabled={updateDocFields.isPending}>
-                      Save Document Details
-                    </Button>
-                  </div>
-                </>
-              ) : (
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm">
-                  {Object.entries(po.header_field_values || {}).map(([k, v]) => (
-                    <p key={k}><span className="text-muted-foreground">{k}: </span>{v}</p>
-                  ))}
-                  {Object.entries(po.footer_field_values || {}).map(([k, v]) => (
-                    <p key={k}><span className="text-muted-foreground">{k}: </span>{v}</p>
-                  ))}
-                  {po.terms_and_conditions && (
-                    <p className="sm:col-span-2">
-                      <span className="text-muted-foreground">Terms &amp; Conditions: </span>
-                      {po.terms_and_conditions}
-                    </p>
-                  )}
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        ) : null}
+        {/* The order itself (blanks are typed in place and save on their own), with
+            its Download bar underneath, like every other section's footer. */}
+        <section className="overflow-hidden rounded-xl border bg-background shadow">
+          <PoDocumentPreview model={liveModel} edit={edit} />
+          <div className="flex flex-wrap items-center justify-end gap-2 border-t bg-muted/30 px-5 py-3">
+            <span className="mr-auto text-sm text-muted-foreground">
+              {canCreate && missing.length > 0
+                ? `Fill ${missing.map((k) => PO_REQUIRED_FIELDS[k]).join(', ')} before downloading.`
+                : canCreate && po.status === 'approved'
+                  ? 'Downloading marks the order as sent to the vendor.'
+                  : null}
+            </span>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                {/* Filled only when sending it is the next step; otherwise the header's
+                    action is the one main button on the screen. */}
+                <Button
+                  className="h-11 w-full px-5 sm:h-9 sm:w-auto"
+                  variant={po.status === 'approved' && missing.length === 0 ? 'default' : 'outline'}
+                >
+                  <FileDown className="mr-1.5 h-4 w-4" />
+                  Download
+                  <ChevronDown className="ml-1 h-4 w-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" side="top">
+                <DropdownMenuItem onClick={() => download('pdf')}>
+                  <FileDown className="mr-2 h-4 w-4" />
+                  PDF
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => download('word')}>
+                  <FileText className="mr-2 h-4 w-4" />
+                  Word
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
+        </section>
 
-        <Card className="overflow-hidden">
-          <CardContent className="p-0">
-            <ResponsiveList
-              rows={po.items}
-              getRowKey={(it) => it.id}
-              columns={[
-                {
-                  key: 'item',
-                  header: 'Item',
-                  mobile: 'title',
-                  cell: (it) => (
-                    <>
-                      {it.item_name}
-                      {it.item_spec && (
-                        <span className="text-xs font-normal text-muted-foreground"> · {it.item_spec}</span>
-                      )}
-                    </>
-                  ),
-                },
-                {
-                  key: 'ordered',
-                  header: 'Ordered',
-                  className: 'text-right',
-                  cell: (it) => `${it.ordered_quantity} ${it.unit_label || ''}`,
-                },
-                {
-                  key: 'received',
-                  header: 'Received',
-                  className: 'text-right',
-                  cell: (it) => it.received_quantity,
-                },
-                {
-                  key: 'price',
-                  header: 'Price',
-                  className: 'text-right',
-                  cell: (it) =>
-                    po.status === 'draft' && canCreate ? (
-                      <Input
-                        type="number"
-                        min={0}
-                        defaultValue={String(it.unit_price)}
-                        onBlur={(e) => handleItemPriceBlur(it.id, e.target.value)}
-                        className="h-10 w-full text-right md:ml-auto md:h-8 md:w-28"
-                      />
-                    ) : (
-                      `₹${Number(it.unit_price).toLocaleString()}`
-                    ),
-                },
-                {
-                  key: 'total',
-                  header: 'Amount',
-                  className: 'text-right',
-                  cell: (it) => `₹${Number(it.line_total).toLocaleString()}`,
-                },
-                ...itemExtraColumns.map((c) => {
-                  const key = extraFieldKey(c.source);
-                  return {
-                    key: c.key,
-                    header: c.label,
-                    className: 'text-right',
-                    cell: (it: (typeof po.items)[number]) =>
-                      canCreate ? (
-                        <Input
-                          defaultValue={String(it.extra_fields?.[key] ?? '')}
-                          onBlur={(e) => handleItemExtraBlur(it.id, key, e.target.value)}
-                          className="h-10 w-full text-right md:ml-auto md:h-8 md:w-28"
-                        />
-                      ) : (
-                        it.extra_fields?.[key] ?? '-'
-                      ),
-                  };
-                }),
-              ]}
-            />
-            <div className="flex flex-wrap justify-end gap-x-6 gap-y-1 border-t bg-muted/30 px-4 py-2 text-xs text-muted-foreground tabular-nums">
-              <span>Subtotal ₹{Number(po.subtotal).toLocaleString()}</span>
-              <span>Tax ₹{Number(po.tax_amount).toLocaleString()}</span>
-              <span className="text-sm text-foreground">
-                Total <b>₹{Number(po.total_amount).toLocaleString()}</b>
-              </span>
-            </div>
-          </CardContent>
-        </Card>
+        {canCancel && (
+          <p className="text-center text-sm text-muted-foreground">
+            <button
+              type="button"
+              className="hover:underline"
+              disabled={transitionBusy}
+              onClick={() => setCancelOpen(true)}
+            >
+              Cancel this order
+            </button>
+          </p>
+        )}
       </div>
+
+      <AlertDialog open={cancelOpen} onOpenChange={setCancelOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Cancel {po.po_number}?</AlertDialogTitle>
+            <AlertDialogDescription>The order to {po.supplier?.name ?? 'the vendor'} stops here and cannot be reopened.</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Keep it</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => void run(() => cancelPO.mutateAsync({ id, userId: profile!.id }), 'Purchase order cancelled')}
+            >
+              Cancel order
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* Reject dialog */}
       <Dialog open={rejectOpen} onOpenChange={setRejectOpen}>
@@ -565,10 +439,15 @@ export default function PurchaseOrderDetailPage() {
             <Button
               variant="destructive"
               className="w-full sm:w-auto"
-              disabled={!rejectReason.trim()}
+              disabled={!rejectReason.trim() || rejectPO.isPending}
               onClick={async () => {
                 await run(
-                  () => rejectPO.mutateAsync({ id, userId: profile!.id, reason: rejectReason }),
+                  () =>
+                    rejectPO.mutateAsync({
+                      id,
+                      userId: profile!.id,
+                      reason: rejectReason,
+                    }),
                   'Purchase order rejected'
                 );
                 setRejectOpen(false);

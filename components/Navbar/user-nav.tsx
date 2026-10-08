@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { LogOut, Sun, Moon, Monitor, Download, Star, QrCode } from 'lucide-react';
+import { LogOut, Sun, Moon, Monitor, Download, Star, QrCode, MonitorSmartphone } from 'lucide-react';
 import { useTheme } from 'next-themes';
 import { useAuth } from '@/hooks/use-auth';
 import { AuthService } from '@/lib/auth/auth-service';
@@ -21,6 +21,14 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger
 } from '@/components/ui/dropdown-menu';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle
+} from '@/components/ui/dialog';
+import { SignOutEverywhereConfirm } from '@/components/auth/sign-out-everywhere-confirm';
 import { JkknQrDialog } from '@/components/identity/jkkn-qr-dialog';
 import { useMyJkknId } from '@/hooks/use-my-jkkn-id';
 import { UserRoleAssignment } from '@/types/auth';
@@ -57,6 +65,9 @@ export function UserNav() {
   const { data: myJkknId } = useMyJkknId(profile?.id);
   const [menuOpen, setMenuOpen] = useState(false);
   const [qrOpen, setQrOpen] = useState(false);
+  // "Sign out of all devices" (Director ruling 2026-10-01) — next to "Sign
+  // out", where people already look, including in the installed app.
+  const [signOutAllOpen, setSignOutAllOpen] = useState(false);
 
   // Radix keeps its own focus/overlay state machine per layer: opening the
   // dialog inside the menu's close pass leaves pointer-events trapped on
@@ -65,6 +76,12 @@ export function UserNav() {
   const openMyQr = () => {
     setMenuOpen(false);
     setTimeout(() => setQrOpen(true), 0);
+  };
+
+  // Same Radix sequencing as openMyQr: close the menu first, then the dialog.
+  const openSignOutAll = () => {
+    setMenuOpen(false);
+    setTimeout(() => setSignOutAllOpen(true), 0);
   };
 
   // Prevent hydration mismatch for theme
@@ -275,8 +292,34 @@ export function UserNav() {
           <LogOut className='mr-2 h-4 w-4' />
           Sign out
         </DropdownMenuItem>
+
+        <DropdownMenuItem
+          className='text-red-600 cursor-pointer'
+          onSelect={(e) => {
+            e.preventDefault();
+            openSignOutAll();
+          }}
+        >
+          <MonitorSmartphone className='mr-2 h-4 w-4' />
+          Sign out of all devices
+        </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
+
+    <Dialog open={signOutAllOpen} onOpenChange={setSignOutAllOpen}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Sign out of all devices</DialogTitle>
+          <DialogDescription>
+            Lost your phone, or signed in on a shared computer? End every login
+            to your account in one step.
+          </DialogDescription>
+        </DialogHeader>
+        {signOutAllOpen && (
+          <SignOutEverywhereConfirm onCancel={() => setSignOutAllOpen(false)} />
+        )}
+      </DialogContent>
+    </Dialog>
 
     {myJkknId && (
       <JkknQrDialog

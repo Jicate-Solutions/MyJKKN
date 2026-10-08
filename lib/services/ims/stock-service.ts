@@ -12,6 +12,17 @@ import type {
   UpdateBatchDto,
 } from '@/types/ims';
 
+/** A–Z the way people read it: case-insensitive, numbers in order, spaces ignored. */
+const byName = (a: string | null | undefined, b: string | null | undefined) => {
+  // Leading digits/punctuation are skipped so "2-ETHYL HEXANOL" files under E.
+  const letters = (s: string | null | undefined) => (s ?? '').trim().replace(/^[^A-Za-z]+/, '');
+  const opts = { sensitivity: 'base', numeric: true } as const;
+  return (
+    letters(a).localeCompare(letters(b), 'en', opts) ||
+    (a ?? '').trim().localeCompare((b ?? '').trim(), 'en', opts)
+  );
+};
+
 export class ImsStockService {
   private static get supabase() {
     // IMS tables are not yet in the Supabase-generated Database type.
@@ -86,12 +97,12 @@ export class ImsStockService {
       const page = filters.page || 1;
       const limit = filters.limit || 20;
       const from = (page - 1) * limit;
-      const to = from + limit - 1;
 
-      // Low-stock crosses a join boundary (quantity vs item.reorder_level), so fetch
-      // every row and filter here. PostgREST caps a response at 1000 rows, so read in
-      // chunks rather than trusting one unbounded request.
-      if (filters.low_stock_only) {
+      // Items are listed A–Z by name (people look a chemical up by name). The name is
+      // on the joined item, which PostgREST cannot sort the parent rows by, and the
+      // low-stock rule crosses the join too — so read the rows in chunks (PostgREST
+      // caps a response at 1000), then filter, sort and page here.
+      {
         const CHUNK = 1000;
         const allData: any[] = [];
         for (let offset = 0; ; offset += CHUNK) {
@@ -103,15 +114,16 @@ export class ImsStockService {
           if (!chunk || chunk.length < CHUNK) break;
         }
 
-        // Same rule as ims_store_reorder_list: a configured reorder level, and what is
-        // actually on the shelf at or below it.
-        const filtered = allData
-          .filter((s: any) => {
-            const reorder = s.item?.reorder_level || 0;
-            const onHand = s.available_quantity ?? s.current_quantity ?? 0;
-            return s.item && reorder > 0 && onHand <= reorder;
-          })
-          .sort((a: any, b: any) => String(b.updated_at).localeCompare(String(a.updated_at)));
+        // Low stock: same rule as ims_store_reorder_list — a configured reorder level,
+        // and what is actually on the shelf at or below it.
+        const filtered = (filters.low_stock_only
+          ? allData.filter((s: any) => {
+              const reorder = s.item?.reorder_level || 0;
+              const onHand = s.available_quantity ?? s.current_quantity ?? 0;
+              return s.item && reorder > 0 && onHand <= reorder;
+            })
+          : allData
+        ).sort((a: any, b: any) => byName(a.item?.name, b.item?.name));
         const paginated = filtered.slice(from, from + limit);
         return {
           data: paginated as ImsStockSummary[],
@@ -124,21 +136,6 @@ export class ImsStockService {
         };
       }
 
-      const { data, error, count } = await buildQuery()
-        .range(from, to)
-        .order('updated_at', { ascending: false });
-
-      if (error) throw error;
-
-      return {
-        data: (data || []) as ImsStockSummary[],
-        metadata: {
-          total: count || 0,
-          page,
-          limit,
-          totalPages: count ? Math.ceil(count / limit) : 0,
-        },
-      };
     } catch (error) {
       console.error('[ImsStockService] Error in getStockSummary:', error);
       throw error;
@@ -173,6 +170,25 @@ export class ImsStockService {
         query = query.eq('store_id', filters.store_id);
       } else if (filters.institution_id) {
         query = query.eq('institution_id', filters.institution_id);
+      }
+
+      // Search by item name or batch number (BUG-005902). Server-side, because
+      // the list is paged. An embedded column cannot sit inside a parent or(),
+      // so matching item ids are looked up first.
+      const term = filters.search?.replace(/[,()*%\\"]/g, ' ').trim();
+      if (term) {
+        const { data: matchedItems } = await this.supabase
+          .from('ims_items')
+          .select('id')
+          .ilike('name', `%${term}%`)
+          .limit(500);
+        const itemIds = ((matchedItems ?? []) as Array<{ id: string }>).map((i) => i.id);
+        query = query.or(
+          [
+            `batch_number.ilike."*${term}*"`,
+            ...(itemIds.length > 0 ? [`item_id.in.(${itemIds.join(',')})`] : []),
+          ].join(',')
+        );
       }
 
       if (filters.expiring_within_days) {

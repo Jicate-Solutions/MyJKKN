@@ -6,9 +6,13 @@
 // waiting on the signed-in person: hires to sign off, refunds to approve,
 // leave to approve, meeting triggers to decide, grievances to assign, hires to
 // bring on board (salary agreed, or the offer issued and the person not yet
-// joined — widened from salary-agreed-only by migration 20261202090000). The
-// computing happens in one RPC, fn_my_desk_waiting(); nothing here re-derives a
-// queue. This file only decides what a person reads off the result.
+// joined — widened from salary-agreed-only by migration 20261202090000), and
+// since migration 20270613101149 eleven HR queues (comp-off claims, leave
+// eligibility, attendance corrections, month close, salary revisions, payroll
+// periods, photos, documents, promotions, terminations, onboarding steps),
+// each row carrying its stored deadline when the queue has one. The computing
+// happens in one RPC, fn_my_desk_waiting(); nothing here re-derives a queue.
+// This file only decides what a person reads off the result.
 //
 // THE ONE RULE, borrowed from ./desk.ts (readabilityVerdict):
 //
@@ -30,25 +34,45 @@ export const WAITING_SOURCES = [
   'leave',
   'meeting_trigger',
   'grievance',
-  // Appended, never inserted: this list also fixes the order the "checked N
-  // queues (…)" sentence reads in, and an addition must not re-word the five
-  // that were already there.
+  // Appended, never inserted: an addition must not re-order the ones that
+  // were already there.
   'offer',
+  // HR queues added by migration 20270613101149 (HR staff harness, step 1:
+  // one morning brief). Each mirrors the "who can act" rule of its own
+  // screen — see that migration's header for the rule each one copies.
+  //
+  // Five HR queues are deliberately NOT here — short time off (already inside
+  // 'leave'), leave encashment (no screen can approve one), attendance
+  // exceptions (nothing ever resolves one), HR forms (no "your step" rule)
+  // and appraisals (the HoD's write is refused). The migration header says
+  // why for each.
+  'comp_off',
+  'leave_eligibility',
+  'regularisation',
+  'attendance_close',
+  'salary_revision',
+  'payroll_period',
+  'staff_photo',
+  'employee_document',
+  'promotion',
+  'termination',
+  'onboarding_step',
 ] as const;
 
 export type WaitingSource = (typeof WAITING_SOURCES)[number];
 
 /**
- * One row of fn_my_desk_waiting() (migration 20261018030000, which supersedes
- * 20261018020000), exactly as the contract names it:
+ * One row of fn_my_desk_waiting() (newest definition: migration
+ * 20270613101149), exactly as the contract names it:
  *   RETURNS TABLE(source text, item_id uuid, title text, detail text,
  *                 amount numeric, waiting_since timestamptz, age_days integer,
- *                 href text)   ORDER BY waiting_since ASC   LIMIT 500
- * `amount` is RUPEES (numeric), never paise. `href` is one of
- * /hr/recruitment/approvals · /billing/refunds · /hr/leave/approvals ·
- * /meetings/triggers · /learners-council/issues ·
- * /hr/recruitment/approvals/<job_id> — or /hr/recruitment/candidates/<id> when
- * the candidate carries no job_id (the only per-row href, used by `offer`).
+ *                 href text, due_at timestamptz)
+ *   ORDER BY waiting_since ASC   LIMIT 500
+ * `amount` is RUPEES (numeric), never paise. `href` is always a site-relative
+ * path to the page where the act already lives — a module page, or a per-row
+ * page (/hr/recruitment/approvals/<job_id>, /hr/recruitment/candidates/<id>,
+ * /hr/admin/promotions/<id>, /hr/admin/terminations/<id>/review,
+ * /hr/admin/payroll/periods/<id>) — and is still passed through safeHref.
  */
 export interface WaitingRow {
   source: WaitingSource | string;
@@ -62,6 +86,12 @@ export interface WaitingRow {
   age_days: number;
   /** The module page where the action already exists. */
   href: string;
+  /**
+   * The STORED deadline for this item, or null when the queue stores none
+   * (added by migration 20270613101149). Never invented on this page: a
+   * missing value means "no deadline is recorded", not "no rush".
+   */
+  due_at?: string | null;
 }
 
 /** The RPC caps its answer here (LIMIT 500, no truncation flag); at the cap, the list is a floor. */
@@ -116,6 +146,19 @@ const SOURCE_WORDS: Record<WaitingSource, SourceWords> = {
   // `queue` must stay distinct from recruitment's 'hires', or the all-clear
   // sentence would name the same queue twice.
   offer: { label: 'Hires to bring on board', verb: 'Start onboarding', queue: 'onboarding' },
+  // HR queues (migration 20270613101149). Every `queue` word is distinct —
+  // the uniqueness test holds the whole list to that.
+  comp_off: { label: 'Comp-off claims to decide', verb: 'Decide', queue: 'comp-off claims' },
+  leave_eligibility: { label: 'Leave eligibility to decide', verb: 'Decide', queue: 'leave eligibility' },
+  regularisation: { label: 'Attendance corrections to approve', verb: 'Approve', queue: 'attendance corrections' },
+  attendance_close: { label: 'Attendance months to close', verb: 'Close the month', queue: 'month close' },
+  salary_revision: { label: 'Salary revisions to decide', verb: 'Decide', queue: 'salary revisions' },
+  payroll_period: { label: 'Payroll periods to move on', verb: 'Review', queue: 'payroll periods' },
+  staff_photo: { label: 'Photos to review', verb: 'Review', queue: 'photos' },
+  employee_document: { label: 'Documents to verify', verb: 'Verify', queue: 'documents' },
+  promotion: { label: 'Promotions to score or decide', verb: 'Review', queue: 'promotions' },
+  termination: { label: 'Termination steps', verb: 'Decide', queue: 'terminations' },
+  onboarding_step: { label: 'Onboarding steps for you', verb: 'Complete', queue: 'onboarding steps' },
 };
 
 const OTHER_WORDS: SourceWords = { label: 'Other', verb: 'Open', queue: 'other' };
@@ -251,6 +294,60 @@ export function rowAgeDays(row: WaitingRow, now: Date | number | string): number
 }
 
 // ---------------------------------------------------------------------------
+// Due — the stored deadline, read on the same one clock
+// ---------------------------------------------------------------------------
+
+export type DueTone = 'overdue' | 'soon' | 'later';
+
+export interface DueLabel {
+  words: string;
+  tone: DueTone;
+}
+
+const HOUR_MS = 3_600_000;
+
+/**
+ * "overdue 3 days", "overdue", "due in 5 hours", "due in 2 days" — or null
+ * when the row carries no usable deadline, in which case the page shows no
+ * due chip at all (never a made-up one).
+ *
+ * Same clock as the age chip: `now` is the moment the answer arrived.
+ *   overdue — the deadline has passed. Whole days past it; under a day reads
+ *             just "overdue".
+ *   soon    — due within the next 24 hours: "due in N hours" (at least 1).
+ *   later   — further out: "due in N days", floored.
+ */
+export function dueLabel(
+  dueAt: string | null | undefined,
+  now: Date | number | string,
+): DueLabel | null {
+  const due = toMs(dueAt);
+  const at = toMs(now);
+  if (Number.isNaN(due) || Number.isNaN(at) || at <= 0) return null;
+  const diff = due - at;
+  if (diff < 0) {
+    const days = Math.floor(-diff / DAY_MS);
+    return {
+      words: days === 0 ? 'overdue' : `overdue ${days} day${days === 1 ? '' : 's'}`,
+      tone: 'overdue',
+    };
+  }
+  if (diff < DAY_MS) {
+    const hours = Math.max(1, Math.floor(diff / HOUR_MS));
+    return { words: `due in ${hours} hour${hours === 1 ? '' : 's'}`, tone: 'soon' };
+  }
+  const days = Math.floor(diff / DAY_MS);
+  return { words: `due in ${days} day${days === 1 ? '' : 's'}`, tone: 'later' };
+}
+
+/** Theme-paired chip colours (design-system/MASTER.md §6 status badges). */
+export function dueChipClasses(tone: DueTone): string {
+  if (tone === 'overdue') return 'border-red-300 text-red-600 dark:border-red-900 dark:text-red-400';
+  if (tone === 'soon') return 'border-amber-300 text-amber-700 dark:border-amber-900 dark:text-amber-400';
+  return 'border-muted-foreground/30 text-muted-foreground';
+}
+
+// ---------------------------------------------------------------------------
 // Ordering
 // ---------------------------------------------------------------------------
 
@@ -290,6 +387,85 @@ export function groupBySource(rows: unknown): WaitingGroup[] {
     groups.push({ source, rows: [...list].sort((a, b) => sinceMs(a) - sinceMs(b)) });
   }
   return groups.sort((a, b) => sinceMs(a.rows[0]) - sinceMs(b.rows[0]));
+}
+
+// ---------------------------------------------------------------------------
+// Areas — how 20+ queues stay readable on a phone
+// ---------------------------------------------------------------------------
+//
+// With six queues a heading per queue was fine. With seventeen, a phone
+// would scroll past a wall of one-row headings. So the page groups by AREA
+// (a handful of fixed headings, always in the same order so a reader learns
+// where to look), and each row names its own queue in a small label.
+// Inside an area the oldest item is first, whatever queue it came from.
+
+export const WAITING_AREAS = [
+  'Recruitment',
+  'Leave',
+  'Attendance',
+  'Payroll',
+  'Team member records',
+  'Governance',
+  'Other',
+] as const;
+
+export type WaitingArea = (typeof WAITING_AREAS)[number];
+
+const SOURCE_AREA: Record<WaitingSource, WaitingArea> = {
+  recruitment: 'Recruitment',
+  offer: 'Recruitment',
+  onboarding_step: 'Recruitment',
+  leave: 'Leave',
+  comp_off: 'Leave',
+  leave_eligibility: 'Leave',
+  regularisation: 'Attendance',
+  attendance_close: 'Attendance',
+  salary_revision: 'Payroll',
+  payroll_period: 'Payroll',
+  staff_photo: 'Team member records',
+  employee_document: 'Team member records',
+  promotion: 'Governance',
+  termination: 'Governance',
+  refund: 'Other',
+  meeting_trigger: 'Other',
+  grievance: 'Other',
+};
+
+/** The area a row belongs to. A queue this page has never heard of is "Other". */
+export function areaOf(source: string | null | undefined): WaitingArea {
+  const key = typeof source === 'string' ? source : '';
+  return (SOURCE_AREA as Record<string, WaitingArea | undefined>)[key] ?? 'Other';
+}
+
+export interface AreaGroup {
+  area: WaitingArea;
+  rows: WaitingRow[];
+}
+
+/**
+ * Groups by area, in the fixed WAITING_AREAS order, skipping empty areas.
+ * Inside an area the oldest item is first (an unparsable date sorts last).
+ * Like groupBySource, a payload that is not a list groups to nothing, and a
+ * row that is not an object is skipped rather than thrown on.
+ */
+export function groupByArea(rows: unknown): AreaGroup[] {
+  if (!Array.isArray(rows)) return [];
+  const byArea = new Map<WaitingArea, WaitingRow[]>();
+  for (const row of rows as unknown[]) {
+    if (!row || typeof row !== 'object') continue;
+    const area = areaOf(sourceKey(row as WaitingRow));
+    const list = byArea.get(area);
+    if (list) list.push(row as WaitingRow);
+    else byArea.set(area, [row as WaitingRow]);
+  }
+  const groups: AreaGroup[] = [];
+  for (const area of WAITING_AREAS) {
+    const list = byArea.get(area);
+    if (list && list.length) {
+      groups.push({ area, rows: [...list].sort((a, b) => sinceMs(a) - sinceMs(b)) });
+    }
+  }
+  return groups;
 }
 
 /** The largest age in the list on the one clock, or null for an empty one. */
@@ -344,9 +520,14 @@ export function summaryLine(rows: readonly WaitingRow[], checkedAt: Date | numbe
   return [count, age, `checked ${checkedAtWords(checkedAt)}`].filter(Boolean).join(' · ');
 }
 
-/** The queues that were checked, in the words a reader would use. */
+/**
+ * The queues that were checked, in words a reader would use. With 17 queues
+ * the sentence names the AREAS, not every queue, so it still fits a phone:
+ * "17 queues (recruitment, leave, attendance, payroll, team member records,
+ * governance, other)".
+ */
 export function queuesChecked(): string {
-  const names = WAITING_SOURCES.map((s) => SOURCE_WORDS[s].queue).join(', ');
+  const names = WAITING_AREAS.map((a) => a.toLowerCase()).join(', ');
   return `${WAITING_SOURCES.length} queues (${names})`;
 }
 

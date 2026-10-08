@@ -16,7 +16,23 @@
  * the exact sha256 that route already computes for the photo's
  * content-addressed storage path.
  *
- * ── WHY A CONTENT HASH, NOT FUZZY/TEXT MATCHING ─────────────────────────
+ * ── TWO CHECKS LIVE HERE, FOR TWO DIFFERENT QUESTIONS ───────────────────
+ *   1. findLikelyDuplicate() — "did these exact photo bytes arrive twice in
+ *      the last few minutes?" Retransmission. Flags, never merges. The whole
+ *      explanation below is about this one.
+ *   2. findOpenReportToJoin() — "is somebody else's OPEN report already about
+ *      this same problem at this same place?" Director's ruling, 2026-09-30
+ *      interview (2): "several people report the same problem → it JOINS that
+ *      job instead of creating a new one". This IS text matching, on purpose,
+ *      and it supersedes the paragraph below for InstaSolver's broken-thing
+ *      intake ONLY. It is deliberately narrow — same college, same place
+ *      after normalising, an OPEN job, filed within 14 days, and a similar
+ *      description — because a wrong join hides a report. D7 ("same as
+ *      before" for a problem that came BACK after being fixed) is unchanged:
+ *      a closed job is never joined, so a recurrence is still a new report.
+ *      See the block above findOpenReportToJoin() for the threshold.
+ *
+ * ── WHY A CONTENT HASH, NOT FUZZY/TEXT MATCHING (check 1) ───────────────
  * lib/campus-walk/repeats.ts's own header locks Campus Walk's doctrine for
  * "is this the same PROBLEM as before": no fuzzy text similarity, no
  * photo-hash comparison, no auto-matching — only the Director, standing
@@ -247,4 +263,155 @@ export function findLikelyDuplicate(input: DuplicateCheckInput): DuplicateCheckR
     matchedAt: best.createdAt,
     ageMs: best.ageMs
   };
+}
+
+// ============================================================================
+// Check 2 — "join the open report" (Director, 2026-09-30 interview, ruling 2).
+//
+// A new broken-thing report JOINS an existing job when ALL of these hold:
+//   · same college (institution id, exact);
+//   · the SAME place once both are normalised by normaliseLocation() —
+//     lower case, punctuation gone, words in any order ("Block A washroom" ==
+//     "washroom, block a"). Exact equality after that, never "close enough":
+//     "Room 101" and "Room 102" must stay two jobs;
+//   · the job is still OPEN (not done, cancelled or archived);
+//   · the job was filed within the last JOIN_WINDOW_DAYS (14) days;
+//   · the two descriptions are similar: describeOverlap() >= JOIN_MIN_OVERLAP
+//     AND they share at least two meaningful words (sharesEnoughWords), unless
+//     both are the same single word. One shared word is not enough: "AC not
+//     working" is just {ac}, and must not swallow "AC leaking water".
+//
+// THE THRESHOLD. describeOverlap() is the overlap coefficient of the two
+// descriptions' meaningful words: |shared| / |smaller set|, after dropping
+// filler words ("the", "is", "not", "working", …) and trimming simple endings
+// ("leaking" -> "leak"). 0.6 means at least 3 of every 5 meaningful words in
+// the shorter description also appear in the longer one:
+//   "tap leaking"  vs "the tap is leaking all day"  -> 1.0  joins
+//   "fan broken"   vs "light broken"                -> 0.5  stays apart
+// The place has already had to match exactly, so this only has to tell two
+// different faults in the same room apart, not two rooms.
+// ============================================================================
+
+export const JOIN_WINDOW_DAYS = 14;
+export const JOIN_MIN_OVERLAP = 0.6;
+/** And at least this many meaningful words in common — see sharesEnoughWords. */
+export const JOIN_MIN_SHARED_WORDS = 2;
+
+/** Status keys that mean the job is finished — never joined. */
+export const JOIN_CLOSED_STATUSES = ['done', 'cancelled', 'archived'] as const;
+
+const FILLER_WORDS = new Set([
+  'the', 'a', 'an', 'is', 'are', 'was', 'were', 'be', 'been', 'it', 'its', 'this', 'that', 'there',
+  'and', 'or', 'but', 'of', 'in', 'on', 'at', 'to', 'for', 'from', 'with', 'near', 'by', 'has', 'have',
+  'not', 'no', 'very', 'all', 'day', 'days', 'since', 'still', 'please', 'working', 'work', 'properly',
+  'problem', 'issue', 'some', 'any', 'too', 'also', 'again', 'here', 'we', 'i', 'my', 'our', 'can', 'cannot',
+]);
+
+function words(text: string): string[] {
+  return String(text ?? '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .split(' ')
+    .filter(Boolean);
+}
+
+/** Lower case, punctuation gone, words sorted — so word order does not matter. */
+export function normaliseLocation(location: string): string {
+  return words(location)
+    .filter((w) => w !== 'the')
+    .sort()
+    .join(' ');
+}
+
+function stem(word: string): string {
+  if (word.length > 5 && word.endsWith('ing')) return word.slice(0, -3);
+  if (word.length > 4 && word.endsWith('ed')) return word.slice(0, -2);
+  if (word.length > 4 && word.endsWith('es')) return word.slice(0, -2);
+  if (word.length > 3 && word.endsWith('s') && !word.endsWith('ss')) return word.slice(0, -1);
+  return word;
+}
+
+function meaningfulWords(text: string): Set<string> {
+  return new Set(words(text).filter((w) => !FILLER_WORDS.has(w)).map(stem));
+}
+
+/**
+ * Whether two descriptions share enough meaningful words to be one fault:
+ * at least JOIN_MIN_SHARED_WORDS of them, unless BOTH come down to the same
+ * single word ("Light not working" / "light not working properly").
+ * The overlap coefficient alone let one shared word decide — "AC not working"
+ * ({ac}) joined "AC leaking water", and "Light not working" joined "Light
+ * switch gives electric shock" (repair round, 1 Oct).
+ */
+export function sharesEnoughWords(a: string, b: string): boolean {
+  const wa = meaningfulWords(a);
+  const wb = meaningfulWords(b);
+  let shared = 0;
+  for (const w of wa) if (wb.has(w)) shared += 1;
+  if (shared >= JOIN_MIN_SHARED_WORDS) return true;
+  return wa.size === 1 && wb.size === 1 && shared === 1;
+}
+
+/** Overlap coefficient of two descriptions' meaningful words, 0..1. */
+export function describeOverlap(a: string, b: string): number {
+  const wa = meaningfulWords(a);
+  const wb = meaningfulWords(b);
+  const smaller = Math.min(wa.size, wb.size);
+  if (smaller === 0) return 0;
+  let shared = 0;
+  for (const w of wa) if (wb.has(w)) shared += 1;
+  return shared / smaller;
+}
+
+export interface OpenReportCandidate {
+  taskId: string;
+  institutionId: string | null;
+  /** metadata.location — the typed "Where is it?" line. */
+  location: string | null;
+  description: string | null;
+  statusKey: string;
+  createdAt: string;
+}
+
+export interface JoinMatch {
+  taskId: string;
+  overlap: number;
+}
+
+/**
+ * The open report a new one should join, or null. Pure. When more than one
+ * qualifies, the most similar wins, then the most recent.
+ */
+export function findOpenReportToJoin(input: {
+  institutionId: string | null;
+  location: string;
+  description: string;
+  candidates: OpenReportCandidate[];
+  now?: number;
+}): JoinMatch | null {
+  if (!input.institutionId) return null;
+  const place = normaliseLocation(input.location);
+  if (!place) return null;
+  const now = input.now ?? Date.now();
+  const oldest = now - JOIN_WINDOW_DAYS * 86_400_000;
+
+  let best: (JoinMatch & { createdAtMs: number }) | null = null;
+  for (const c of input.candidates) {
+    if (c.institutionId !== input.institutionId) continue;
+    if ((JOIN_CLOSED_STATUSES as readonly string[]).includes(c.statusKey)) continue;
+    const createdAtMs = Date.parse(c.createdAt);
+    if (!Number.isFinite(createdAtMs) || createdAtMs < oldest || createdAtMs > now) continue;
+    if (!c.location || normaliseLocation(c.location) !== place) continue;
+    const overlap = describeOverlap(input.description, c.description ?? '');
+    if (overlap < JOIN_MIN_OVERLAP) continue;
+    if (!sharesEnoughWords(input.description, c.description ?? '')) continue;
+    if (
+      !best ||
+      overlap > best.overlap ||
+      (overlap === best.overlap && createdAtMs > best.createdAtMs)
+    ) {
+      best = { taskId: c.taskId, overlap, createdAtMs };
+    }
+  }
+  return best ? { taskId: best.taskId, overlap: best.overlap } : null;
 }

@@ -24,7 +24,9 @@ const KNOWN_ITEM_SOURCES: { value: string; label: string }[] = [
   { value: 'row_index', label: 'S.No (row number)' },
   { value: 'item.item_name', label: 'Item Name' },
   { value: 'item.item_spec', label: 'Specification' },
+  { value: 'calc.item_description', label: 'Item Name + Specification' },
   { value: 'item.ordered_quantity', label: 'Quantity' },
+  { value: 'calc.qty_with_unit', label: 'Quantity with pack (2 × 500 ml)' },
   { value: 'item.unit_label', label: 'Unit' },
   { value: 'item.unit_price', label: 'Rate / Unit Price' },
   { value: 'item.line_total', label: 'Amount' },
@@ -180,7 +182,7 @@ export function ItemColumnsEditor({ columns, onChange }: ItemColumnsEditorProps)
                   </div>
 
                   <div className="lg:col-span-1 flex items-end justify-end">
-                    <Button type="button" variant="ghost" size="icon" className="h-10 w-10 text-red-500 hover:text-red-700 sm:h-8 sm:w-8" aria-label="Remove column" onClick={() => removeColumn(index)}>
+                    <Button type="button" variant="ghost" size="icon" className="h-10 w-10 text-destructive hover:text-destructive sm:h-8 sm:w-8" aria-label="Remove column" onClick={() => removeColumn(index)}>
                       <Trash2 className="h-4 w-4" />
                     </Button>
                   </div>

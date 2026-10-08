@@ -15,6 +15,14 @@ import {
   type LearnerForMarkEntry,
 } from '@/types/internal-marks';
 import { FROZEN_LEFT, FROZEN_W } from '@/types/mark-entry';
+import {
+  downloadDirectTemplate,
+  parseDirectUpload,
+  type MarksImportIssue,
+  type MarksImportResult,
+  type TemplateLearner,
+} from '@/lib/utils/mark-entry/marks-excel';
+import { MarksExcelActions, MarksImportIssues } from './marks-excel-actions';
 
 interface Props {
   institutionId: string;
@@ -24,6 +32,8 @@ interface Props {
   learners: LearnerForMarkEntry[];
   maxInternalMarks: number;
   canEnter: boolean;
+  /** Names the Excel template; the sheet works without it. */
+  courseCode?: string;
   /** Shown when the round is question-wise but no paper exists. */
   fallbackNotice?: string;
 }
@@ -46,9 +56,12 @@ export function DirectEntryTab({
   learners,
   maxInternalMarks,
   canEnter,
+  courseCode,
   fallbackNotice,
 }: Props) {
   const [values, setValues] = useState<Record<string, Record<string, number>>>({});
+  /** Why the last Excel upload was refused. Empty = nothing to show. */
+  const [importIssues, setImportIssues] = useState<MarksImportIssue[]>([]);
   const submitMutation = useSubmitCiaMarks();
 
   // Memoised: it feeds handleSave's dependency list, and a fresh array literal
@@ -142,6 +155,24 @@ export function DirectEntryTab({
     );
   }
 
+  // The template carries whatever is on screen, so a download → edit → upload
+  // round-trip never loses marks that were already keyed in.
+  const templateLearners: TemplateLearner[] = rows.map(({ learner, marks }) => ({
+    id: learner.id,
+    register_number: learner.register_number,
+    name: learner.name,
+    marks,
+  }));
+
+  /** A clean upload only fills the grid — Save still runs the normal write path. */
+  const applyImport = (result: MarksImportResult) => {
+    setValues((prev) => {
+      const next = { ...prev };
+      for (const row of result.rows) next[row.learnerId] = row.marks;
+      return next;
+    });
+  };
+
   return (
     <div className='space-y-4'>
       {fallbackNotice && (
@@ -151,25 +182,56 @@ export function DirectEntryTab({
         </Alert>
       )}
 
-      <div className='rounded-lg border bg-background'>
+      <MarksImportIssues issues={importIssues} onDismiss={() => setImportIssues([])} />
+
+      <div className='overflow-hidden rounded-xl border bg-card shadow-sm'>
+        <div className='flex flex-wrap items-center justify-between gap-2 border-b px-4 py-2.5'>
+          <p className='text-sm font-medium'>
+            {rows.length} learner{rows.length === 1 ? '' : 's'}
+            <span className='font-normal text-muted-foreground'>
+              {' '}
+              · {components.length} component{components.length === 1 ? '' : 's'}
+            </span>
+          </p>
+          <div className='flex items-center gap-2'>
+            <MarksExcelActions
+              canUpload={canEnter}
+              disabled={rows.length === 0}
+              onDownload={() =>
+                downloadDirectTemplate({
+                  courseCode,
+                  roundName: round.round_name,
+                  components,
+                  maxInternalMarks,
+                  learners: templateLearners,
+                })
+              }
+              onParse={(file) =>
+                parseDirectUpload(file, { components, maxInternalMarks, learners: templateLearners })
+              }
+              onImported={applyImport}
+              onIssues={setImportIssues}
+            />
+          </div>
+        </div>
         <div className='isolate min-w-0 max-h-[70vh] overflow-auto'>
           <table className='border-separate border-spacing-0 text-sm' style={{ tableLayout: 'fixed' }}>
             <thead>
               <tr>
                 <th
-                  className='sticky top-0 z-40 border-b bg-slate-800 px-2 py-1.5 text-left text-xs font-medium text-slate-50'
+                  className='sticky top-0 z-40 border-b bg-slate-50 px-2 py-1.5 text-left text-[11px] font-semibold uppercase tracking-wide text-slate-600 dark:bg-slate-900 dark:text-slate-300'
                   style={{ left: FROZEN_LEFT.sno, width: FROZEN_W.sno, minWidth: FROZEN_W.sno, maxWidth: FROZEN_W.sno }}
                 >
                   S.No
                 </th>
                 <th
-                  className='sticky top-0 z-40 border-b bg-slate-800 px-2 py-1.5 text-left text-xs font-medium text-slate-50'
+                  className='sticky top-0 z-40 border-b bg-slate-50 px-2 py-1.5 text-left text-[11px] font-semibold uppercase tracking-wide text-slate-600 dark:bg-slate-900 dark:text-slate-300'
                   style={{ left: FROZEN_LEFT.register, width: FROZEN_W.register, minWidth: FROZEN_W.register, maxWidth: FROZEN_W.register }}
                 >
                   Register Number
                 </th>
                 <th
-                  className='sticky top-0 z-40 border-b bg-slate-800 px-2 py-1.5 text-left text-xs font-medium text-slate-50'
+                  className='sticky top-0 z-40 border-b bg-slate-50 px-2 py-1.5 text-left text-[11px] font-semibold uppercase tracking-wide text-slate-600 dark:bg-slate-900 dark:text-slate-300'
                   style={{ left: FROZEN_LEFT.name, width: FROZEN_W.name, minWidth: FROZEN_W.name, maxWidth: FROZEN_W.name }}
                 >
                   Name of the Learner
@@ -177,19 +239,19 @@ export function DirectEntryTab({
                 {components.map((c) => (
                   <th
                     key={c.code}
-                    className='sticky top-0 z-30 border-b bg-slate-700 px-2 py-1.5 text-center text-xs font-medium text-slate-50'
+                    className='sticky top-0 z-30 border-b border-l bg-slate-50 px-2 py-1.5 text-center text-xs font-semibold text-slate-700 dark:bg-slate-900 dark:text-slate-200'
                     style={{ width: 110, minWidth: 110, maxWidth: 110 }}
                   >
                     <div>{c.name}</div>
-                    <div className='text-[10px] opacity-80'>Max: {c.max_marks}</div>
+                    <div className='text-[10px] font-normal opacity-70'>out of {c.max_marks}</div>
                   </th>
                 ))}
                 <th
-                  className='sticky top-0 z-30 border-b bg-indigo-800 px-2 py-1.5 text-center text-xs font-medium text-indigo-50'
+                  className='sticky top-0 z-30 border-b border-l bg-indigo-50 px-2 py-1.5 text-center text-xs font-semibold text-indigo-950 dark:bg-indigo-950 dark:text-indigo-100'
                   style={{ width: 90, minWidth: 90, maxWidth: 90 }}
                 >
                   <div>Total</div>
-                  <div className='text-[10px] opacity-80'>Max: {maxInternalMarks}</div>
+                  <div className='text-[10px] font-normal opacity-70'>out of {maxInternalMarks}</div>
                 </th>
               </tr>
             </thead>
@@ -197,21 +259,21 @@ export function DirectEntryTab({
               {rows.map(({ learner, marks, total }, i) => {
                 const over = maxInternalMarks > 0 && total > maxInternalMarks;
                 return (
-                  <tr key={learner.id} className='even:bg-muted/30'>
+                  <tr key={learner.id} className='group'>
                     <td
-                      className='sticky z-20 border-b bg-background px-2 py-1 text-center text-xs text-muted-foreground'
+                      className='sticky z-20 border-b bg-background px-2 py-1 group-hover:bg-muted text-center text-xs text-muted-foreground'
                       style={{ left: FROZEN_LEFT.sno, width: FROZEN_W.sno, minWidth: FROZEN_W.sno, maxWidth: FROZEN_W.sno }}
                     >
                       {i + 1}
                     </td>
                     <td
-                      className='sticky z-20 border-b bg-background px-2 py-1 font-mono text-xs'
+                      className='sticky z-20 border-b bg-background px-2 py-1 group-hover:bg-muted font-mono text-xs'
                       style={{ left: FROZEN_LEFT.register, width: FROZEN_W.register, minWidth: FROZEN_W.register, maxWidth: FROZEN_W.register }}
                     >
                       {learner.register_number}
                     </td>
                     <td
-                      className='sticky z-20 border-b bg-background px-2 py-1 text-xs'
+                      className='sticky z-20 border-b bg-background px-2 py-1 group-hover:bg-muted text-xs'
                       style={{ left: FROZEN_LEFT.name, width: FROZEN_W.name, minWidth: FROZEN_W.name, maxWidth: FROZEN_W.name }}
                     >
                       {learner.name}
@@ -222,7 +284,7 @@ export function DirectEntryTab({
                       return (
                         <td
                           key={c.code}
-                          className='border-b px-2 py-1 text-center'
+                          className='border-b border-l px-2 py-1 text-center group-hover:bg-muted/60'
                           style={{ width: 110, minWidth: 110, maxWidth: 110 }}
                         >
                           <input
@@ -236,8 +298,9 @@ export function DirectEntryTab({
                             aria-label={`${learner.register_number} ${c.name}`}
                             onChange={(e) => handleChange(learner.id, c.code, e.target.value)}
                             className={cn(
-                              'h-8 w-20 rounded border bg-background text-center text-xs',
-                              'focus:outline-none focus:ring-2 focus:ring-primary/40',
+                              'h-8 w-20 rounded-md border bg-background text-center text-xs font-medium tabular-nums shadow-sm transition-colors',
+                              'focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/25',
+                              '[appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none',
                               invalid && 'border-red-500 text-red-600 ring-1 ring-red-500'
                             )}
                           />
@@ -245,7 +308,7 @@ export function DirectEntryTab({
                       );
                     })}
                     <td
-                      className='border-b bg-indigo-50/70 px-2 py-1 text-center dark:bg-indigo-950/40'
+                      className='border-b border-l bg-indigo-50/70 px-2 py-1 text-center dark:bg-indigo-950/40'
                       style={{ width: 90, minWidth: 90, maxWidth: 90 }}
                     >
                       <span

@@ -16,16 +16,22 @@ import {
 import { validateLineForVerify } from '@/lib/services/procurement/three-way-match';
 import { GRN_STATUS_CONFIG, GRN_MATCH_CONFIG, type ProcurementGrnReplacement } from '@/types/procurement';
 import { formatDateDMY, formatDateTimeDMY } from '@/lib/utils/date-format';
+import { displayRequestNumber } from '@/lib/procurement/display-number';
 import { StatusBadge } from '@/components/procurement/status-badge';
 import { ResponsiveList } from '@/components/procurement/responsive-list';
+import { DetailHeader } from '@/components/procurement/detail-header';
 import {
-  DocumentHeader,
-  type DocAction,
-  type DocPrimaryAction,
-} from '@/components/procurement/document-header';
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { EmptyState } from '@/components/empty-state';
 import { AlertBox } from '@/components/ui/alert-box';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -37,10 +43,14 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { CheckCircle2, AlertTriangle, PackagePlus, Ban } from 'lucide-react';
+import { CheckCircle2, AlertTriangle, PackagePlus } from 'lucide-react';
 import { BeatLoader } from 'react-spinners';
 import { toast } from 'sonner';
 import { errorMessage } from '@/lib/utils/supabase-error';
+import { DeliveryRatingRow } from '@/components/procurement/delivery-rating-row';
+
+// Same set the rating RPCs accept.
+const RATEABLE_GRN_STATUSES: string[] = ['partially_accepted', 'replacement_requested', 'accepted', 'completed'];
 
 export default function GrnDetailPage() {
   const router = useRouter();
@@ -54,6 +64,8 @@ export default function GrnDetailPage() {
   const { data: replacements = [] } = useReplacements(id);
   const verifyGrn = useVerifyGrn();
   const cancelGrn = useCancelGrn();
+  // Cancelling asks first, from a link at the bottom (as on the purchase and order pages).
+  const [cancelOpen, setCancelOpen] = useState(false);
   const receiveReplacement = useReceiveReplacement(id);
   const updateItem = useUpdateGrnItem(id);
 
@@ -100,7 +112,7 @@ export default function GrnDetailPage() {
   if (isError) {
     return (
       <ContentLayout title="Goods Received">
-        <div className="py-6">
+        <div className="py-12">
           <AlertBox type="error" message="Failed to load this delivery record. Please try again." />
         </div>
       </ContentLayout>
@@ -125,21 +137,6 @@ export default function GrnDetailPage() {
 
   const pending = grn.status === 'pending_verification';
 
-  // Whether stock has actually moved is the question a receiver has on this page,
-  // and only the badge answered it — in one word, ambiguously.
-  const STATUS_HINT: Record<string, string> = {
-    draft: 'Not yet submitted for verification.',
-    pending_verification:
-      'Nothing has reached inventory yet. Verifying checks this against the purchase order and the invoice, then posts the accepted quantities.',
-    partially_accepted:
-      'Accepted quantities are in inventory. Rejected lines were excluded and are not stock.',
-    replacement_requested:
-      'Accepted quantities are in inventory. Rejected goods are awaiting a replacement delivery.',
-    accepted: 'Verified. Accepted quantities have been posted to inventory.',
-    completed: 'Verified and complete. Accepted quantities are in inventory.',
-    cancelled: 'Cancelled. Nothing from this receipt reached inventory.',
-  };
-  const statusHint = STATUS_HINT[grn.status];
   const hasMismatch = grn.items.some((i) => i.mismatch_flag);
 
   // Chemical lines still missing batch/expiry (using the effective, possibly-edited values)
@@ -154,58 +151,47 @@ export default function GrnDetailPage() {
     })
   );
 
-  let primary: DocPrimaryAction | null = null;
-  if (pending && canVerify) {
-    primary = {
-      key: 'verify',
-      label: 'Check & add to stock',
-      icon: CheckCircle2,
-      disabled: verifyGrn.isPending || chemicalBlocks.length > 0,
-      onClick: () =>
-        run(
-          () => verifyGrn.mutateAsync({ id, userId: profile!.id }),
-          'Delivery verified — accepted stock added to inventory.'
-        ),
-    };
-  }
-
-  const actions: DocAction[] = [];
-  if (pending) {
-    actions.push({
-      key: 'cancel',
-      label: 'Cancel delivery',
-      icon: Ban,
-      destructive: true,
-      confirm: {
-        title: `Cancel ${grn.grn_number}?`,
-        description: 'Nothing is posted to inventory and this delivery cannot be reopened.',
-        confirmLabel: 'Cancel delivery',
-      },
-      onClick: () => run(() => cancelGrn.mutateAsync({ id }), 'Delivery cancelled'),
-    });
-  }
+  const purchase = grn.purchase_request;
+  const canVerifyNow = pending && canVerify;
+  const verify = () =>
+    run(
+      () => verifyGrn.mutateAsync({ id, userId: profile!.id }),
+      'Delivery verified — accepted stock added to inventory.'
+    );
 
   return (
-    <ContentLayout title={grn.grn_number}>
-      <div className="space-y-4 sm:space-y-6 max-w-5xl">
-        <DocumentHeader
-          onBack={() => router.push('/procurement/grn')}
-          backLabel="Back to deliveries"
-          title={grn.grn_number}
-          status={<StatusBadge status={grn.status} config={GRN_STATUS_CONFIG} />}
-          next={
+    <ContentLayout title={purchase ? displayRequestNumber(purchase.request_number) : grn.grn_number}>
+      <div className="w-full space-y-5">
+        <DetailHeader
+          backLabel={purchase ? 'Back to the purchase' : 'Back to deliveries'}
+          onBack={() => router.push(purchase ? `/procurement/requests/${purchase.id}#orders` : '/procurement/grn')}
+          title={`Delivery from ${grn.supplier?.name ?? 'vendor'}`}
+          badge={<StatusBadge status={grn.status} config={GRN_STATUS_CONFIG} />}
+          meta={
             <>
-              {statusHint && <span className="font-medium text-foreground">{statusHint} </span>}
-              {grn.purchase_order?.po_number ?? ''} · {grn.supplier?.name ?? grn.supplier_id}
+              {grn.grn_number}
+              {purchase ? ` · ${displayRequestNumber(purchase.request_number)}` : ''}
+              {grn.purchase_order ? ` · Order ${grn.purchase_order.po_number}` : ''}
+              {grn.created_at ? ` · ${formatDateDMY(grn.created_at)}` : ''}
+              {pending ? ' · not in stock until checked' : ''}
             </>
           }
-          primary={primary}
-          actions={actions}
+          actions={
+            canVerifyNow && (
+              <Button
+                className="h-11 px-5 sm:h-9"
+                disabled={verifyGrn.isPending || chemicalBlocks.length > 0}
+                onClick={verify}
+              >
+                <CheckCircle2 className="mr-1.5 h-4 w-4" />
+                Check &amp; add to stock
+              </Button>
+            )
+          }
         />
 
         {/* Invoice + receipt meta */}
-        <Card>
-          <CardContent className="grid gap-3 sm:gap-4 pt-6 sm:grid-cols-2 lg:grid-cols-4 text-sm">
+        <section className="grid gap-3 rounded-xl border bg-background px-5 py-4 text-sm shadow sm:grid-cols-2 sm:gap-4 lg:grid-cols-4">
             <div>
               <p className="text-muted-foreground">Invoice #</p>
               <p className="font-medium">{grn.invoice_number || '—'}</p>
@@ -219,27 +205,26 @@ export default function GrnDetailPage() {
             <div>
               <p className="text-muted-foreground">Invoice amount</p>
               <p className="font-medium">
-                {grn.invoice_amount != null ? `₹${Number(grn.invoice_amount).toLocaleString()}` : '—'}
+                {grn.invoice_amount != null ? `₹${Number(grn.invoice_amount).toLocaleString('en-IN')}` : '—'}
               </p>
             </div>
             <div>
               <p className="text-muted-foreground">Received by</p>
               <p className="font-medium">{grn.received_by_profile?.full_name || '—'}</p>
             </div>
-          </CardContent>
-        </Card>
+        </section>
 
         {/* Verify warnings */}
         {pending && (hasMismatch || chemicalBlocks.length > 0) && (
           <div className="space-y-2">
             {hasMismatch && (
-              <span className="flex items-center gap-1.5 text-sm text-amber-600">
+              <span className="flex items-center gap-1.5 text-sm text-foreground">
                 <AlertTriangle className="h-4 w-4" />
                 A line has a quantity or price mismatch — review before verifying.
               </span>
             )}
             {chemicalBlocks.length > 0 && (
-              <div className="flex items-start gap-1.5 text-sm text-red-600">
+              <div className="flex items-start gap-1.5 text-sm text-destructive">
                 <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
                 <span>
                   Verify is blocked until chemical items have a batch number and expiry date.
@@ -251,15 +236,11 @@ export default function GrnDetailPage() {
         )}
 
         {/* Three-way match table */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Matches order and invoice ({grn.items.length} lines)</CardTitle>
-            <p className="hidden text-sm text-muted-foreground sm:block">
-              Each line compares three numbers: what the order still expects, what the supplier
-              invoiced, and what was physically counted. Only the accepted quantity becomes stock.
-            </p>
-          </CardHeader>
-          <CardContent className="p-0 overflow-x-auto">
+        <section className="overflow-hidden rounded-xl border bg-background shadow">
+          <h2 className="border-b px-5 py-3 text-base font-semibold">
+            Matches order and invoice ({grn.items.length} line{grn.items.length === 1 ? '' : 's'})
+          </h2>
+          <div className="overflow-x-auto">
             <ResponsiveList
               rows={grn.items}
               getRowKey={(it) => it.id}
@@ -277,7 +258,7 @@ export default function GrnDetailPage() {
                         </Badge>
                       )}
                       {it.replacement_required && (
-                        <span className="block text-xs font-normal text-orange-600">Replacement requested</span>
+                        <span className="block text-xs font-normal text-foreground">Replacement requested</span>
                       )}
                       {Number(it.missing_quantity) > 0 && (
                         <span className="block text-xs font-normal text-muted-foreground">
@@ -322,7 +303,7 @@ export default function GrnDetailPage() {
                   header: 'Invoice ₹',
                   className: 'text-right text-xs',
                   cell: (it) =>
-                    it.invoice_unit_price != null ? `₹${Number(it.invoice_unit_price).toLocaleString()}` : '—',
+                    it.invoice_unit_price != null ? `₹${Number(it.invoice_unit_price).toLocaleString('en-IN')}` : '—',
                 },
                 {
                   key: 'batch',
@@ -332,7 +313,7 @@ export default function GrnDetailPage() {
                     pending ? (
                       <div className="space-y-1 min-w-[150px]">
                         <Input
-                          className="h-10 text-xs md:h-7"
+                          className="h-10 text-xs md:h-9"
                           placeholder="Batch no."
                           value={effBatch(it)}
                           onChange={(e) =>
@@ -342,7 +323,7 @@ export default function GrnDetailPage() {
                         />
                         <Input
                           type="date"
-                          className="h-10 text-xs md:h-7"
+                          className="h-10 text-xs md:h-9"
                           value={effExpiry(it)}
                           onChange={(e) => {
                             setEdits((p) => ({ ...p, [it.id]: { ...p[it.id], expiry_date: e.target.value } }));
@@ -378,22 +359,19 @@ export default function GrnDetailPage() {
                 },
               ]}
             />
-          </CardContent>
-        </Card>
+          </div>
+        </section>
 
         {/* Replacements — rejected lines awaiting a replacement delivery */}
         {replacements.length > 0 && (
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">Replacements</CardTitle>
-            </CardHeader>
-            <CardContent className="p-0">
+          <section className="overflow-hidden rounded-xl border bg-background shadow">
+            <h2 className="border-b px-5 py-3 text-base font-semibold">Replacements</h2>
               <ResponsiveList
                 rows={replacements}
                 getRowKey={(r) => r.id}
                 mobileFooter={(r) =>
                   r.status === 'pending' && canVerify ? (
-                    <Button variant="outline" size="sm" className="h-10 sm:h-8" onClick={() => openReceive(r)}>
+                    <Button variant="outline" className="h-10 sm:h-9" onClick={() => openReceive(r)}>
                       <PackagePlus className="mr-2 h-4 w-4" />
                       Receive
                     </Button>
@@ -412,9 +390,13 @@ export default function GrnDetailPage() {
                     header: 'Status',
                     mobile: 'badge',
                     cell: (r) => (
-                      <Badge variant={r.status === 'received' ? 'default' : 'outline'}>
-                        {r.status === 'received' ? 'Received' : 'Pending'}
-                      </Badge>
+                      <StatusBadge
+                        status={r.status === 'received' ? 'received' : 'pending'}
+                        config={{
+                          received: { label: 'Received', color: 'green' },
+                          pending: { label: 'Waiting for replacement', color: 'amber' },
+                        }}
+                      />
                     ),
                   },
                   {
@@ -436,7 +418,7 @@ export default function GrnDetailPage() {
                     className: 'text-right',
                     cell: (r) =>
                       r.status === 'pending' && canVerify && (
-                        <Button variant="outline" size="sm" className="h-10 sm:h-8" onClick={() => openReceive(r)}>
+                        <Button variant="outline" className="h-10 sm:h-9" onClick={() => openReceive(r)}>
                           <PackagePlus className="mr-2 h-4 w-4" />
                           Receive
                         </Button>
@@ -444,8 +426,7 @@ export default function GrnDetailPage() {
                   },
                 ]}
               />
-            </CardContent>
-          </Card>
+          </section>
         )}
 
         {grn.verified_at && (
@@ -454,7 +435,40 @@ export default function GrnDetailPage() {
             {formatDateTimeDMY(grn.verified_at)}.
           </p>
         )}
+
+        {/* Store admin's delivery rating — feeds the vendor score */}
+        {profile?.id &&
+          RATEABLE_GRN_STATUSES.includes(grn.status) &&
+          (isSuperAdmin || profile.id === grn.verified_by || profile.id === grn.received_by) && (
+            <DeliveryRatingRow grnId={grn.id} userId={profile.id} />
+          )}
+
+        {pending && (
+          <p className="text-center text-sm text-muted-foreground">
+            <button type="button" className="hover:underline" onClick={() => setCancelOpen(true)}>
+              Cancel this delivery
+            </button>
+          </p>
+        )}
       </div>
+
+      <AlertDialog open={cancelOpen} onOpenChange={setCancelOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Cancel {grn.grn_number}?</AlertDialogTitle>
+            <AlertDialogDescription>Nothing is posted to inventory and this delivery cannot be reopened.</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Keep it</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => void run(() => cancelGrn.mutateAsync({ id }), 'Delivery cancelled')}
+            >
+              Cancel delivery
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* Receive-replacement dialog */}
       <Dialog open={!!repTarget} onOpenChange={(o) => !o && setRepTarget(null)}>
@@ -471,7 +485,7 @@ export default function GrnDetailPage() {
               </p>
             </div>
             {repTarget?.grn_item?.is_chemical && (
-              <div className="rounded-md bg-amber-50 dark:bg-amber-950/30 p-2 text-xs text-amber-700 dark:text-amber-400">
+              <div className="rounded-md bg-secondary/20 p-2 text-xs text-foreground">
                 Chemical item — batch number and expiry date are required to post to inventory.
               </div>
             )}

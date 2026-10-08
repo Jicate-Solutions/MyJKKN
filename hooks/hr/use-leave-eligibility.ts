@@ -36,16 +36,26 @@ export function useMyLeaveEligibilities(employeeId: string | undefined) {
   });
 }
 
-/** The admin list for one institution. */
-export function useLeaveEligibilities(
-  hrOrgId: string | undefined,
+/**
+ * The admin list across EVERY organisation the caller may read.
+ *
+ * Not scoped to the caller's own organisation: RLS already limits a super admin
+ * to everything and an HR Head to the institutions they have access to, so the
+ * list is whatever the database returns. Scoping it to the viewer's home
+ * organisation (as this used to) hid every decision made anywhere else.
+ *
+ * @param enabled false until the caller is known to manage leave types, so a
+ *   plain member of staff does not fire a request for a list they cannot see.
+ */
+export function useAllLeaveEligibilities(
+  enabled: boolean,
   status?: LeaveEligibilityStatus
 ) {
   const supabase = createClientSupabaseClient();
   return useQuery({
-    queryKey: [KEY, 'org', hrOrgId, status ?? 'any'],
-    queryFn: () => LeaveEligibilityService.listForOrg(supabase, hrOrgId!, status),
-    enabled: Boolean(hrOrgId),
+    queryKey: [KEY, 'all', status ?? 'any'],
+    queryFn: () => LeaveEligibilityService.listForOrg(supabase, null, status),
+    enabled,
   });
 }
 

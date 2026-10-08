@@ -10,13 +10,22 @@
 //
 // ONE READ, ONE FUNCTION
 // ----------------------
-// fn_my_desk_waiting() (migration 20261018020000, zero arguments, scoped on
-// auth.uid(), ORDER BY waiting_since ASC, LIMIT 500) does the whole
-// computation — which hires are pinned to me, which refunds, which leave
-// requests, which meeting triggers, which grievances — and returns them
-// already ordered oldest-first. Nothing here re-derives a queue, and the five
-// queues it covers are named in the sentence it prints when the answer is
-// empty, so "nothing waiting" always says what was looked at.
+// fn_my_desk_waiting() (newest definition: migration 20270613101149, zero
+// arguments, scoped on auth.uid(), ORDER BY waiting_since ASC, LIMIT 500)
+// does the whole computation — hires, refunds, leave, meeting triggers,
+// grievances, and since 20270613101149 eleven HR queues (comp-off claims,
+// leave eligibility, attendance corrections, month close, salary revisions,
+// payroll periods, photos, documents, promotions, terminations, onboarding
+// steps) — and returns them
+// already ordered oldest-first. Nothing here re-derives a queue.
+//
+// GROUPED BY AREA
+// ---------------
+// Seventeen queues are grouped under seven fixed area headings (Recruitment,
+// Leave, Attendance, Payroll, Team member records, Governance, Other — see
+// groupByArea), oldest first inside each; every row names its own queue in a
+// small label, and shows the STORED deadline (due_at) beside its age when the
+// queue records one.
 //
 // A FAILED CALL IS NOT AN EMPTY DESK — AND NEITHER IS A PAUSED ONE
 // ----------------------------------------------------------------
@@ -43,7 +52,7 @@
 import { useMemo } from 'react';
 import Link from 'next/link';
 import { useQuery } from '@tanstack/react-query';
-import { AlertCircle, ArrowUpRight, Clock, Inbox, WifiOff } from 'lucide-react';
+import { AlertCircle, ArrowUpRight, CalendarClock, Clock, Inbox, WifiOff } from 'lucide-react';
 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -57,9 +66,11 @@ import {
   ageWords,
   countWords,
   describeError,
+  dueChipClasses,
+  dueLabel,
   emptyVerdict,
   formatRupees,
-  groupBySource,
+  groupByArea,
   renderState,
   rowAgeDays,
   safeHref,
@@ -107,13 +118,33 @@ function AgeChip({ ageDays }: { ageDays: number | null }) {
   );
 }
 
+/**
+ * The stored deadline, next to the age chip. Rendered only when the row
+ * carries one: no deadline recorded means no chip, never a guessed one.
+ */
+function DueChip({ dueAt, now }: { dueAt: string | null | undefined; now: number }) {
+  const due = dueLabel(dueAt, now);
+  if (!due) return null;
+  return (
+    <span
+      className={`inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-xs font-medium ${dueChipClasses(due.tone)}`}
+    >
+      <CalendarClock className="h-3 w-3" />
+      {due.words}
+    </span>
+  );
+}
+
 function WaitingItem({ row, now }: { row: WaitingRow; now: number }) {
   const words = sourceWords(row.source);
   const href = safeHref(row.href);
   return (
     <li className="rounded-lg border p-3">
-      <div className="flex flex-wrap items-center gap-2">
+      {/* Which queue this row came from — the area heading above is broader. */}
+      <p className="text-xs font-medium text-muted-foreground">{words.label}</p>
+      <div className="mt-1 flex flex-wrap items-center gap-2">
         <AgeChip ageDays={rowAgeDays(row, now)} />
+        <DueChip dueAt={row.due_at} now={now} />
         {typeof row.amount === 'number' ? (
           <span className="text-sm font-semibold tabular-nums">{formatRupees(row.amount)}</span>
         ) : null}
@@ -146,7 +177,7 @@ export function WaitingOnYou({ userId }: { userId: string | undefined }) {
     () => (Array.isArray(query.data) ? query.data : []),
     [query.data],
   );
-  const groups = useMemo(() => groupBySource(rows), [rows]);
+  const groups = useMemo(() => groupByArea(rows), [rows]);
 
   // React Query stamps this when the answer arrived. It is the one clock: the
   // "checked HH:MM" stamp and every age on the page read from it. It is only
@@ -209,26 +240,23 @@ export function WaitingOnYou({ userId }: { userId: string | undefined }) {
           </p>
         ) : (
           <div className="space-y-5">
-            {groups.map((group) => {
-              const words = sourceWords(group.source);
-              return (
-                <section key={group.source} aria-label={words.label}>
-                  <h3 className="mb-2 flex items-center gap-2 text-base font-semibold">
-                    {words.label}
-                    <Badge variant="outline">{group.rows.length}</Badge>
-                  </h3>
-                  <ol className="space-y-2">
-                    {group.rows.map((row, i) => (
-                      <WaitingItem
-                        key={`${group.source}:${row.item_id ?? i}`}
-                        row={row}
-                        now={checkedAt}
-                      />
-                    ))}
-                  </ol>
-                </section>
-              );
-            })}
+            {groups.map((group) => (
+              <section key={group.area} aria-label={group.area}>
+                <h3 className="mb-2 flex items-center gap-2 text-base font-semibold">
+                  {group.area}
+                  <Badge variant="outline">{group.rows.length}</Badge>
+                </h3>
+                <ol className="space-y-2">
+                  {group.rows.map((row, i) => (
+                    <WaitingItem
+                      key={`${String(row.source)}:${row.item_id ?? ''}:${i}`}
+                      row={row}
+                      now={checkedAt}
+                    />
+                  ))}
+                </ol>
+              </section>
+            ))}
           </div>
         )}
       </CardContent>

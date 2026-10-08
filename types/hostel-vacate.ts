@@ -1,12 +1,13 @@
 // Types for the Hostel Vacate workflow.
 //
 // Flow (2026-10-01):
-//   draft -> pending_dues (automatic bill check) -> pending_principal ->
-//   pending_warden (checklist + room damages) -> pending_mess -> pending_cao ->
+//   draft -> pending_dues (automatic bill check) -> pending_accountant ->
+//   pending_principal -> pending_warden (checklist + room damages) -> pending_cao ->
 //   [pending_fine, only when damages were recorded] -> completed
 // with rejected / cancelled as exits. Each approval is fn_cl_vacate_advance; the
 // final vacate (_cl_vacate_finalize) runs at the CAO step, or when the fine bill
-// is settled. pending_parent / pending_chief / approved are legacy enum values
+// is settled. pending_mess (retired Mess clearance step), pending_parent /
+// pending_chief / approved are legacy enum values
 // that no new request enters; they stay in the union so old rows still render.
 
 import type { HostelResidentType } from './hostel-residents';
@@ -17,6 +18,7 @@ export type VacateRequestStatus =
   | 'pending_warden'
   | 'pending_chief'
   | 'pending_dues'
+  | 'pending_accountant'
   | 'pending_principal'
   | 'pending_mess'
   | 'pending_cao'
@@ -26,9 +28,9 @@ export type VacateRequestStatus =
   | 'rejected'
   | 'cancelled';
 
-export type VacateStep = 'bills' | 'principal' | 'warden' | 'mess' | 'cao' | 'fine';
+export type VacateStep = 'bills' | 'accountant' | 'principal' | 'warden' | 'mess' | 'cao' | 'fine';
 
-/** The six steps in order, with the permission key that gates each approver step. */
+/** The steps in order (Mess clearance is retired and not listed), with the permission key that gates each approver step. */
 export const VACATE_STEPS: {
   step: VacateStep;
   label: string;
@@ -36,9 +38,9 @@ export const VACATE_STEPS: {
   permission: string | null;
 }[] = [
   { step: 'bills', label: 'Bills cleared', status: 'pending_dues', permission: null },
+  { step: 'accountant', label: 'Accounts', status: 'pending_accountant', permission: 'campus_living.vacate_requests.approve_accountant' },
   { step: 'principal', label: 'Principal', status: 'pending_principal', permission: 'campus_living.vacate_requests.approve_principal' },
   { step: 'warden', label: 'Warden & room check', status: 'pending_warden', permission: 'campus_living.vacate_requests.approve_warden' },
-  { step: 'mess', label: 'Mess clearance', status: 'pending_mess', permission: 'campus_living.vacate_requests.approve_mess' },
   { step: 'cao', label: 'CAO', status: 'pending_cao', permission: 'campus_living.vacate_requests.approve_cao' },
   { step: 'fine', label: 'Fine paid', status: 'pending_fine', permission: null },
 ];
@@ -47,9 +49,10 @@ export const VACATE_STATUS_LABELS: Record<VacateRequestStatus, string> = {
   draft: 'Draft',
   pending_parent: 'Pending parent (legacy)',
   pending_dues: 'Bills pending',
+  pending_accountant: 'With Accounts',
   pending_principal: 'With Principal',
   pending_warden: 'With Warden',
-  pending_mess: 'With Mess In-charge',
+  pending_mess: 'With Mess In-charge (retired step)',
   pending_cao: 'With CAO',
   pending_fine: 'Awaiting fine payment',
   pending_chief: 'Pending chief warden (legacy)',

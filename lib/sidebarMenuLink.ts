@@ -64,7 +64,6 @@ import {
   CircleDot,
   TrendingUp,
   Wrench,
-  LifeBuoy,
   FileBarChart2,
   History,
   Sparkles,
@@ -116,6 +115,18 @@ import {
   SearchCheck,
   BadgeCheck,
   Presentation,
+  LayoutPanelLeft,
+  Siren,
+  ShoppingBasket,
+  ListTodo,
+  PackageSearch,
+  ListFilter,
+  Drill,
+  Weight,
+  ChartPie,
+  HardHat,
+  SlidersHorizontal,
+  WandSparkles,
 } from 'lucide-react';
 import { CustomRole } from '@/types/auth';
 // The single answer to "which MENU_PERMISSIONS values are not permission keys".
@@ -311,6 +322,7 @@ export const MENU_PERMISSIONS: MenuPermissions = {
 
   // AI Assistant
   '/ai-query': 'ai_query.view', // AI Query System access
+  '/ai-query/connect': 'ai_query.view', // Personal keys for outside AIs that accept a custom MCP server with a bearer key (Claude Code, Claude Desktop, Gemini CLI, Zoho Zia)
 
   // ======================================================================
   // InstaSolver — the ONE front door for "something is wrong here".
@@ -326,7 +338,41 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/instasolver': 'instasolver.view',
   '/instasolver/broken': 'instasolver.view',
   '/instasolver/complaint': 'instasolver.view',
+  '/instasolver/my-complaints': 'instasolver.view',
   '/instasolver/track/[token]': 'instasolver.view',
+  // The InstaSolver desk (MYJKKN-MODULE-SPEC.md, PRD D-9): issues and
+  // requirements with CAO triage, maintenance teams and reporter confirmation.
+  // The role-specific screens carry their own keys (migration
+  // 20270510090300) so the sidebar shows each person only their rows. The keys
+  // are usability; the database (instasolver_my_access + RLS) still decides
+  // who may actually triage, work a job or read analytics.
+  '/instasolver/dashboard': 'instasolver.view',
+  '/instasolver/issues': 'instasolver.view',
+  '/instasolver/issues/new': 'instasolver.view',
+  '/instasolver/issues/[id]': 'instasolver.view',
+  '/instasolver/requirements': 'instasolver.view',
+  '/instasolver/requirements/new': 'instasolver.view',
+  '/instasolver/requirements/[id]': 'instasolver.view',
+  '/instasolver/triage': 'instasolver.triage',
+  '/instasolver/work': 'instasolver.work',
+  '/instasolver/workload': 'instasolver.triage',
+  '/instasolver/analytics': 'instasolver.analytics',
+  '/instasolver/admin': 'instasolver.triage',
+  '/instasolver/admin/teams': 'instasolver.triage',
+  '/instasolver/admin/categories': 'instasolver.triage',
+  // The page a room's or an item's QR sticker opens (scan to report).
+  '/instasolver/r/[token]': 'instasolver.view',
+  // The old InstaSolver site's purchase requests left at 'Pending MD Approval'
+  // (Director ruling 30 Sep 2026). Super admin only — the page refuses anyone
+  // else and shows requesters' names.
+  '/instasolver/old-purchase-requests': 'super_admin',
+  // The reporter's own list — "fixed" / "Not fixed" (Director, 2026-09-30).
+  '/instasolver/my-reports': 'instasolver.view',
+  // Spot checks (2026-09-30 interview, rulings 1 and 3) — for college heads
+  // and the Director, reached from their bells. instasolver.view (every
+  // login) because principals are not guaranteed projects.view; the page
+  // itself refuses everyone who is not a principal or the Director.
+  '/campus-walk/spot-checks': 'instasolver.view',
 
   // Profile
   '/profile': 'view_profile', // All users should be able to view their own profile
@@ -502,6 +548,12 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // Its counterpart /my-photo has NO entry here on purpose — see the sidebar
   // row below and the page header.
   '/hr/staff-photos': 'hr.staff_photo.review',
+  // HR duty playbooks (20271007161139). Reached from the "How this is done" card
+  // on each HR duty screen; no sidebar row. Written out so the tier-2 coverage
+  // gate sees it, with the SAME key it already resolved to by longest prefix
+  // ('/hr' -> 'hr.view'), so who can open it does not change. The Proposals tab
+  // inside checks hr.harness.playbooks.manage itself.
+  '/hr/playbooks': 'hr.view',
   '/hr/employees': 'hr.employees.view',
   '/hr/employees/[id]': 'hr.employees.view',
   // WHO PAYS each team member. This entry is load-bearing, not decorative:
@@ -560,6 +612,10 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // entry here longest-prefix resolution would hand all of them the ability to
   // freeze an institution-month.
   '/hr/attendance/close': 'hr.attendance.period.view',
+  // Clinical duty: who may punch from off-campus sites, and where. Without its
+  // own entry the '/hr/attendance' prefix (hr.attendance.view_self, 22+ roles)
+  // would admit every staff member to the approvals screen.
+  '/hr/attendance/clinical': 'hr.attendance.clinical.manage',
   // The hub at /hr/payroll only redirects to the page above, but it needs its
   // own entry: without one the longest-prefix match falls through to '/hr' →
   // 'hr.view', so anyone in HR could open it and be denied one redirect later.
@@ -653,6 +709,11 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/hr/recruitment': 'hr.recruitment.view',
   '/hr/recruitment/jobs': 'hr.recruitment.view',
   '/hr/recruitment/submit': 'hr.recruitment.create',
+  // Bring in Candidates — the CVViZ intake helper (2026-10-01). Uploading and
+  // filing candidates is a create action, so the whole subtree (review cards at
+  // /intake/batch?batchId= resolve here by longest prefix) needs hr.recruitment.create.
+  '/hr/recruitment/intake': 'hr.recruitment.create',
+  '/hr/recruitment/intake/rules': 'hr.recruitment.create',
   '/hr/recruitment/my': 'hr.recruitment.view',
   '/hr/recruitment/candidates': 'hr.recruitment.view',
   '/hr/recruitment/interviews': 'hr.recruitment.view',
@@ -752,6 +813,18 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // without a way to reach this the fixer's proof photo sits in `review`
   // forever and the loop never closes.
   '/campus-walk/review': 'projects.view',
+  // The Monday report card (Director ruling 2026-09-30). Mapped explicitly so
+  // it is not hidden-by-default, but this key is NOT the gate: the page itself
+  // lets in the Director, super admins and each college's principal (for their
+  // own college) — see resolveReportCardViewer in
+  // lib/campus-walk/report-card-run.ts. Principals reach it from the Monday bell.
+  '/campus-walk/report-card': 'projects.view',
+  // The fixes board (D9, departments only) — open to every team member by the
+  // Director's ruling of 2026-09-30. Its own key so it can be granted without
+  // projects.view; the page re-checks it server-side (gateFixesBoard). The
+  // walking and coverage boards stay under '/campus-walk' and the email
+  // allow-list. Also covers the board's CSV download (…/fixes/csv).
+  '/campus-walk/scoreboard/fixes': 'campus_walk.fix_board.view',
   '/academic/parent-portal': 'academic.parent_portal.manage',
   '/academic/years': 'academic.years.view',
   '/academic/leave-calendar': 'academic.leaves.view',
@@ -1141,6 +1214,10 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/resource-management/maintenance': 'resources.maintenance.view',
   '/resource-management/analytics': 'resources.analytics.view',
   '/resource-management/analytics-dashboard': 'resources.analytics.view',
+  // InstaSolver QR stickers: preparing a sheet may write a missing sticker
+  // code, so it needs edit. Suggested places creates resources, so create.
+  '/resource-management/qr-stickers': 'resources.resources.edit',
+  '/resource-management/suggested-places': 'resources.resources.create',
   '/audit-trail': 'audit.view',
 
   // Service Requests
@@ -1911,6 +1988,8 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/procurement/grn': 'procurement.view',
   '/procurement/grn/[id]': 'procurement.view',
   '/procurement/grn/new': 'procurement.grn_create',
+  '/procurement/approval-flows': 'super_admin', // Super admin only - approval steps per purchase category
+  '/procurement/approvals': 'procurement.view', // approvers without procurement.view reach it via the layout gate
   '/meetings': 'meetings.view',
   // Universal Booking sub-surfaces (reconcile 2026-06-19) — gate each by its
   // module permission so the sidebar submenus render per-role.
@@ -1927,6 +2006,10 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // own participation, so a separate key would add role-config burden without
   // adding protection.
   '/meetings/my-bookings': 'meetings.view',
+  // "My Follow-ups" — follow-ups the signed-in user hosts or owns. Same gate
+  // as My Meetings: the page reads only the caller's own rows (explicit
+  // host-or-owner filter), so a separate key would add no protection.
+  '/meetings/action-items': 'meetings.view',
   // Host-initiated scheduling. Same gate as the rest of the module: the page
   // can only ever book the SIGNED-IN user's own calendar, so a separate key
   // would add a role-config burden without adding any protection.
@@ -2283,22 +2366,115 @@ export function GetPages(pathname: string): MenuGroup[] {
           // institution shares, and reporting a broken tap should never be a
           // scavenger hunt down the sidebar.
           //
-          // NO SUBMENUS, deliberately. Decision I3 is "one button whose first
-          // screen asks what kind" — the chooser page IS the submenu. Hanging
-          // the three lanes here would also break the sidebar filter: a parent
-          // with submenus renders only when one of its children is permitted,
-          // and the lanes carry their own destination keys.
+          // Submenus (2026-10-01): the InstaSolver desk's screens, in the same
+          // order as the standalone app's menu (C:\jkkn_instasolver
+          // lib/constants/navigation.ts), so people who used
+          // instasolver.jkkn.ac.in find everything where it was. Each row has
+          // its own icon, none reused elsewhere in this sidebar, so the
+          // InstaSolver rows are recognisable at a glance.
+          // The 14-09 chooser at /instasolver (broken / complaint / track, My
+          // complaints, QR reports) stays as it is on main; the desk's screens
+          // are the submenus below. The chooser's lanes are not listed here
+          // (owner's decision 2026-10-01) but every one of them still works.
+          //
+          // Each row's MENU_PERMISSIONS key decides visibility:
+          // instasolver.view (everyone), .triage (CAO), .work (team-member
+          // roles), .analytics (Principal, CAO). Super Admin sees all. The
+          // parent shows because Dashboard is instasolver.view.
           href: '/instasolver',
           label: 'InstaSolver',
           active: pathname === '/instasolver' || pathname.startsWith('/instasolver/'),
-          icon: LifeBuoy,
-          submenus: []
+          // A wand with sparkles: "report it and it gets solved" — the
+          // instant-fix promise in the name (2026-10-01, replaces LifeBuoy).
+          icon: WandSparkles,
+          submenus: [
+            {
+              href: '/instasolver/dashboard',
+              label: 'Dashboard',
+              active: pathname === '/instasolver/dashboard',
+              icon: LayoutPanelLeft
+            },
+            {
+              href: '/instasolver/issues/new',
+              label: 'Report an issue',
+              active: pathname === '/instasolver/issues/new',
+              icon: Siren
+            },
+            {
+              href: '/instasolver/requirements/new',
+              label: 'Request an item',
+              active: pathname === '/instasolver/requirements/new',
+              icon: ShoppingBasket
+            },
+            {
+              href: '/instasolver/issues',
+              label: 'Issues',
+              active:
+                pathname === '/instasolver/issues' ||
+                (pathname.startsWith('/instasolver/issues/') && pathname !== '/instasolver/issues/new'),
+              icon: ListTodo
+            },
+            {
+              href: '/instasolver/requirements',
+              label: 'Requirements',
+              active:
+                pathname === '/instasolver/requirements' ||
+                (pathname.startsWith('/instasolver/requirements/') &&
+                  pathname !== '/instasolver/requirements/new'),
+              icon: PackageSearch
+            },
+            {
+              href: '/instasolver/triage',
+              label: 'Triage queue',
+              active: pathname === '/instasolver/triage',
+              icon: ListFilter
+            },
+            {
+              href: '/instasolver/work',
+              label: 'My work',
+              active: pathname === '/instasolver/work',
+              icon: Drill
+            },
+            {
+              href: '/instasolver/workload',
+              label: 'Workload',
+              active: pathname === '/instasolver/workload',
+              icon: Weight
+            },
+            {
+              href: '/instasolver/analytics',
+              label: 'Analytics',
+              active: pathname === '/instasolver/analytics',
+              icon: ChartPie
+            },
+            {
+              href: '/instasolver/admin/teams',
+              label: 'Maintenance teams',
+              active: pathname === '/instasolver/admin/teams',
+              icon: HardHat
+            },
+            {
+              href: '/instasolver/admin',
+              label: 'Administration',
+              active: pathname === '/instasolver/admin' || pathname === '/instasolver/admin/categories',
+              icon: SlidersHorizontal
+            }
+          ]
         },
         {
           href: '/ai-query',
           label: 'AI Assistant',
           active: pathname === '/ai-query',
           icon: Sparkles,
+          submenus: []
+        },
+        {
+          // Personal keys for outside AIs that accept a custom MCP server with
+          // a bearer key, through the MCP door. Same gate as the AI Assistant.
+          href: '/ai-query/connect',
+          label: 'Connect an outside AI',
+          active: pathname.startsWith('/ai-query/connect'),
+          icon: Key,
           submenus: []
         },
         {
@@ -2411,6 +2587,17 @@ export function GetPages(pathname: string): MenuGroup[] {
           label: "Director's Desk",
           active: pathname === '/director-desk' || pathname.startsWith('/director-desk/'),
           icon: ClipboardCheck,
+          submenus: []
+        },
+        {
+          // Old InstaSolver purchase requests — the Director's approve / reject
+          // list for what the old site left at 'Pending MD Approval' (ruling
+          // 30 Sep 2026). Super admin via MENU_PERMISSIONS. Also the literal
+          // href check-nav-reachability.ts needs to reach the page.
+          href: '/instasolver/old-purchase-requests',
+          label: 'Old Purchase Requests',
+          active: pathname === '/instasolver/old-purchase-requests',
+          icon: ClipboardList,
           submenus: []
         },
         {
@@ -3701,6 +3888,8 @@ export function GetPages(pathname: string): MenuGroup[] {
           submenus: [
             { href: '/hr/recruitment', label: 'Dashboard', active: pathname === '/hr/recruitment' },
             { href: '/hr/recruitment/jobs', label: 'Job Postings', active: pathname.startsWith('/hr/recruitment/jobs') },
+            { href: '/hr/recruitment/candidates', label: 'All Candidates', active: pathname.startsWith('/hr/recruitment/candidates') },
+            { href: '/hr/recruitment/intake', label: 'Bring in Candidates', active: pathname.startsWith('/hr/recruitment/intake') },
             { href: '/hr/recruitment/submit', label: 'Apply for Jobs', active: pathname === '/hr/recruitment/submit' },
             { href: '/hr/recruitment/my', label: 'My Submissions', active: pathname === '/hr/recruitment/my' },
             { href: '/hr/recruitment/approvals', label: 'Approvals', active: pathname === '/hr/recruitment/approvals' },
@@ -3747,6 +3936,7 @@ export function GetPages(pathname: string): MenuGroup[] {
           label: 'Attendance & Time',
           active:
             pathname.startsWith('/hr/attendance/close')
+            || pathname.startsWith('/hr/attendance/clinical')
             || pathname.startsWith('/hr/admin/shift-timings')
             || pathname.startsWith('/hr/admin/work-patterns'),
           icon: Clock,
@@ -3756,6 +3946,7 @@ export function GetPages(pathname: string): MenuGroup[] {
             // and /hr/attendance itself belongs to Self Service.
             { href: '/hr/attendance?view=all', label: 'All Attendance', active: false },
             { href: '/hr/attendance/close', label: 'Month Close', active: pathname.startsWith('/hr/attendance/close') },
+            { href: '/hr/attendance/clinical', label: 'Clinical Duty', active: pathname.startsWith('/hr/attendance/clinical') },
             { href: '/hr/admin/shift-timings', label: 'Shift Timings', active: pathname.startsWith('/hr/admin/shift-timings') },
             { href: '/hr/admin/work-patterns', label: 'Work Patterns', active: pathname.startsWith('/hr/admin/work-patterns') },
           ]
@@ -4240,10 +4431,10 @@ export function GetPages(pathname: string): MenuGroup[] {
           icon: ShoppingCart,
           submenus: [
             { href: '/procurement', label: 'Overview', active: pathname === '/procurement' },
-            // Same three working tabs as app/(routes)/procurement/nav-config.ts.
+            // Same tabs as app/(routes)/procurement/nav-config.ts; orders and deliveries
+            // open from the purchase page, so they count as Quotations.
             { href: '/procurement/requests', label: 'Requests', active: pathname.startsWith('/procurement/requests') },
-            { href: '/procurement/rfqs', label: 'Quotations', active: pathname.startsWith('/procurement/rfqs') },
-            { href: '/procurement/purchase-orders', label: 'Deliveries', active: pathname.startsWith('/procurement/purchase-orders') || pathname.startsWith('/procurement/grn') },
+            { href: '/procurement/rfqs', label: 'Quotations', active: ['/procurement/rfqs', '/procurement/purchase-orders', '/procurement/grn'].some((p) => pathname.startsWith(p)) },
           ]
         }
       ]
@@ -4268,6 +4459,8 @@ export function GetPages(pathname: string): MenuGroup[] {
             { href: '/resource-management/reservations/approvals', label: 'Reservations · Approvals', active: pathname.startsWith('/resource-management/reservations/approvals') },
             { href: '/resource-management/reservations/calendar', label: 'Reservations · Calendar', active: pathname === '/resource-management/reservations/calendar' },
             { href: '/resource-management/maintenance', label: 'Maintenance', active: pathname.startsWith('/resource-management/maintenance') },
+            { href: '/resource-management/qr-stickers', label: 'QR Stickers', active: pathname === '/resource-management/qr-stickers' },
+            { href: '/resource-management/suggested-places', label: 'Suggested Places', active: pathname === '/resource-management/suggested-places' },
           ]
         }
       ]
@@ -4380,6 +4573,14 @@ export function GetPages(pathname: string): MenuGroup[] {
               href: '/campus-walk/review',
               label: 'Awaiting approval',
               active: pathname.startsWith('/campus-walk/review')
+            },
+            {
+              // The fixes board only — never the walking/coverage boards (G2).
+              // Its own key, so a team member without projects.view still sees
+              // the Campus Walk group with just this one row in it.
+              href: '/campus-walk/scoreboard/fixes',
+              label: 'Fixes scoreboard',
+              active: pathname.startsWith('/campus-walk/scoreboard/fixes')
             }
           ]
         }
@@ -4453,6 +4654,7 @@ export function GetPages(pathname: string): MenuGroup[] {
           submenus: [
             { href: '/meetings', label: 'Home', active: pathname === '/meetings' },
             { href: '/meetings/my-bookings', label: 'My Meetings', active: pathname.startsWith('/meetings/my-bookings') },
+            { href: '/meetings/action-items', label: 'My Follow-ups', active: pathname.startsWith('/meetings/action-items') },
             { href: '/meetings/schedule', label: 'Schedule a Meeting', active: pathname.startsWith('/meetings/schedule') },
             { href: '/meetings/availability', label: 'My Availability & Page', active: pathname.startsWith('/meetings/availability') },
             { href: '/meetings/manage', label: 'Meeting Types', active: pathname.startsWith('/meetings/manage') },

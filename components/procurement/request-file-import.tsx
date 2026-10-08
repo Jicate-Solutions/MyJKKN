@@ -24,6 +24,7 @@ import {
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { FileUp, Loader2, Sparkles } from 'lucide-react';
 import { toast } from 'sonner';
+import { parsePack } from '@/lib/procurement/pack-size';
 
 export type ImportedRow = CreatePurchaseRequestItemDto & { is_new: boolean };
 
@@ -160,7 +161,9 @@ export function RequestFileImport({
     const newCount = rows.filter((r) => r.is_new).length;
     toast.success(
       `${rows.length} item${rows.length === 1 ? '' : 's'} added` +
-        (newCount ? ` — give a reason for the ${newCount} new item${newCount === 1 ? '' : 's'}` : '')
+        // The form has no per-request reason box any more ("What is it for?" sits above),
+        // so just say how many lines are new to the catalogue.
+        (newCount ? ` (${newCount} new to the catalogue)` : '')
     );
   };
 
@@ -180,7 +183,7 @@ export function RequestFileImport({
       <Button
         variant="ghost"
         size="sm"
-        className="mt-1 text-primary"
+        className="text-primary"
         disabled={!ctx.institutionId}
         title="Excel, CSV, PDF, Word, or a photo of a list — AI reads the items"
         onClick={() => inputRef.current?.click()}
@@ -218,17 +221,21 @@ export function RequestFileImport({
               </p>
               <div className="max-h-[55vh] overflow-auto rounded-md border">
                 <table className="w-full text-sm">
-                  <thead className="sticky top-0 bg-muted/80 text-left text-xs text-muted-foreground backdrop-blur">
+                  {/* Phones: each row stacks (tick · name, then the pick and the qty under it). */}
+                  <thead className="sticky top-0 hidden bg-muted/80 text-left text-xs text-muted-foreground backdrop-blur sm:table-header-group">
                     <tr>
                       <th className="w-8 px-2 py-2" />
                       <th className="px-2 py-2 font-medium">In your file</th>
                       <th className="px-2 py-2 font-medium">Add as</th>
-                      <th className="w-20 px-2 py-2 font-medium">Qty</th>
+                      <th className="w-24 px-2 py-2 font-medium">Qty × pack</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y">
                     {lines.map((l, i) => (
-                      <tr key={i} className={l.include ? '' : 'opacity-50'}>
+                      <tr
+                        key={i}
+                        className={`grid grid-cols-[2rem_minmax(0,1fr)] gap-y-1.5 py-1.5 sm:table-row sm:py-0 ${l.include ? '' : 'opacity-50'}`}
+                      >
                         <td className="px-2 py-1.5 align-top">
                           <Checkbox
                             className="mt-1"
@@ -245,9 +252,9 @@ export function RequestFileImport({
                             </span>
                           )}
                         </td>
-                        <td className="px-2 py-1.5 align-top">
+                        <td className="col-start-2 px-2 align-top sm:py-1.5">
                           <Select value={l.choice} onValueChange={(v) => update(i, { choice: v })}>
-                            <SelectTrigger className="h-8 text-xs">
+                            <SelectTrigger className="h-9 text-xs">
                               <SelectValue />
                             </SelectTrigger>
                             <SelectContent>
@@ -261,22 +268,28 @@ export function RequestFileImport({
                             </SelectContent>
                           </Select>
                         </td>
-                        <td className="px-2 py-1.5 align-top">
+                        <td className="col-start-2 flex items-center gap-2 px-2 align-top sm:table-cell sm:py-1.5">
                           <Input
                             type="number"
                             min={1}
-                            className="h-8 text-sm"
+                            className="h-9 w-24 text-sm sm:w-full"
                             aria-label={`Quantity of ${l.item_name}`}
                             value={l.quantity}
                             onChange={(e) => update(i, { quantity: Number(e.target.value) })}
                           />
+                          {/* "1" alone reads as 1 gram when the unit is g — say what one unit is. */}
+                          {parsePack(l.spec) && (
+                            <span className="whitespace-nowrap text-xs font-medium text-primary sm:mt-1 sm:block">
+                              × {parsePack(l.spec)?.label}
+                            </span>
+                          )}
                         </td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
               </div>
-              {note && <p className="text-xs text-amber-700 dark:text-amber-400">{note}</p>}
+              {note && <p className="text-xs text-foreground">{note}</p>}
             </div>
           )}
 
@@ -285,11 +298,11 @@ export function RequestFileImport({
               <span className="text-xs text-muted-foreground">
                 {chosen.length} of {lines.length} selected · {inCatalog} from catalog · {chosen.length - inCatalog} new
               </span>
-              <div className="flex gap-2">
-                <Button variant="outline" size="sm" onClick={() => setOpen(false)}>
+              <div className="grid grid-cols-2 gap-2 sm:flex">
+                <Button variant="ghost" className="h-9" onClick={() => setOpen(false)}>
                   Cancel
                 </Button>
-                <Button size="sm" disabled={chosen.length === 0} onClick={add}>
+                <Button className="h-9" disabled={chosen.length === 0} onClick={add}>
                   Add {chosen.length} item{chosen.length === 1 ? '' : 's'}
                 </Button>
               </div>

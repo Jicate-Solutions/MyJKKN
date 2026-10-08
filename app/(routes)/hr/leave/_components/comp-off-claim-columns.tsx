@@ -40,6 +40,9 @@ export interface CompOffClaimActions {
   onReject: (row: CompOffClaimTableRow) => void;
   /** Opens the revoke confirmation for an APPROVED claim. */
   onRevoke: (row: CompOffClaimTableRow) => void;
+  /** Bulk-approve / reject every pending day of this row's multi-day claim. */
+  onApproveBatch: (row: CompOffClaimTableRow) => void;
+  onRejectBatch: (row: CompOffClaimTableRow) => void;
   /** True while any decision is in flight — disables every row at once. */
   isPending: boolean;
   /** Local (IST) YYYY-MM-DD — the date the expiry rules are judged on. */
@@ -128,7 +131,19 @@ export function getCompOffClaimColumns(a: CompOffClaimActions): ColumnDef<CompOf
     {
       accessorKey: 'worked_date',
       header: ({ column }) => <DataTableColumnHeader column={column} title="Worked date" />,
-      cell: ({ row }) => fmtClaimDate(row.original.worked_date),
+      cell: ({ row }) => {
+        const pos = row.original.batch_position;
+        return (
+          <div className="flex flex-col items-start gap-0.5">
+            <span>{fmtClaimDate(row.original.worked_date)}</span>
+            {pos && (
+              <Badge variant="outline" className="px-1.5 py-0 text-[10px] font-normal">
+                Day {pos.index} of {pos.total}
+              </Badge>
+            )}
+          </div>
+        );
+      },
       size: 120,
       minSize: 110,
     },
@@ -372,6 +387,27 @@ export function CompOffClaimRowActions({
                 <X className="mr-2 h-4 w-4" />
                 Reject…
               </DropdownMenuItem>
+              {row.batch_position && (
+                <>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem
+                    disabled={actions.isPending}
+                    onSelect={later(actions.onApproveBatch)}
+                    className="text-emerald-700 focus:text-emerald-700"
+                  >
+                    <Check className="mr-2 h-4 w-4" />
+                    Approve all {row.batch_position.total} days…
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    disabled={actions.isPending}
+                    onSelect={later(actions.onRejectBatch)}
+                    className="text-destructive focus:text-destructive"
+                  >
+                    <X className="mr-2 h-4 w-4" />
+                    Reject all {row.batch_position.total} days…
+                  </DropdownMenuItem>
+                </>
+              )}
             </>
           )}
         </DropdownMenuContent>

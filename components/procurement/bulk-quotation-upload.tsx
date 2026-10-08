@@ -15,18 +15,20 @@ import {
   Select,
   SelectContent,
   SelectItem,
-  SelectSeparator,
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Upload, FileText, X, Loader2, Check, Plus } from 'lucide-react';
+import { Upload, X, Loader2, Plus, MoreHorizontal, AlertTriangle } from 'lucide-react';
 import { toast } from 'sonner';
 import { useAuth } from '@/hooks/use-auth';
 import { useVendorsForSelect } from '@/hooks/procurement/use-rfqs';
 import { useCreateQuotation, useCreateVendor } from '@/hooks/procurement/use-quotations';
+import { ProcurementQuotationService } from '@/lib/services/procurement/quotation-service';
 import { readQuotationPdf, type ExtractResult } from '@/lib/procurement/read-quotation-pdf';
+import { checkQuotationMath } from '@/lib/procurement/quotation-math';
 import { matchVendor, normalizeGstin } from '@/lib/procurement/vendor-match';
 import { namesShareAWord } from '@/lib/procurement/item-name-match';
+import { comparePacks, isMeasuredUnit, parsePack, qtyWithPack, requestedPack, type PackCheck } from '@/lib/procurement/pack-size';
 import { errorMessage } from '@/lib/utils/supabase-error';
 import { cn } from '@/lib/utils';
 import type { RfqWithDetails } from '@/types/procurement';
@@ -37,9 +39,11 @@ import type { RfqWithDetails } from '@/types/procurement';
  *
  * The review is built around what was ASKED FOR, not around the PDF: for every
  * requested item the question is "what did this vendor quote for it?", answered by
- * picking one of the lines the AI read from the PDF (pre-picked where the AI
- * matched it), typing a price, or "not in this quote". Lines the vendor quoted that
- * nobody asked for are simply ignored. Nothing is saved until Save.
+ * picking the line(s) the AI read from the PDF (pre-picked where the AI matched
+ * them), typing a price, or "not in this quote". A set asked for as one item
+ * ("Computer × 5") is often quoted as its parts — CPU, RAM, monitor… — so one item
+ * may take several lines, and its unit price is their sum. Lines the vendor quoted
+ * that nobody asked for are simply ignored. Nothing is saved until Save.
  */
 
 type RowStatus = 'reading' | 'ready' | 'failed' | 'saving' | 'saved';
@@ -49,15 +53,23 @@ interface ReadLine {
   idx: number;
   name: string;
   price: number;
+  /** The pack this price is for, as the vendor printed it ("100 ml"). '' = not printed. */
+  pack: string;
   manufacturer: string;
   quality_grade: string;
   concentration: string;
   other_specs: string;
+  /** GST rate / HSN printed on this line — carried to the PO so nobody types them. */
+  gst_percent: number | null;
+  hsn: string;
 }
 
-/** The answer for one requested item. undefined = not answered yet. */
+/**
+ * The answer for one requested item. undefined = not answered yet.
+ * `idxs` holds one line for a plain item, or every part of a set (never empty).
+ */
 type Choice =
-  | { kind: 'line'; idx: number; confirmed: boolean }
+  | { kind: 'line'; idxs: number[]; confirmed: boolean }
   | { kind: 'custom'; price: string }
   | { kind: 'none' };
 
@@ -70,27 +82,63 @@ interface Row {
   newVendor: { name: string; gstin: string; phone: string; email: string; address: string; contact: string };
   vendorNote?: string;
   quoteNumber: string;
+  quoteDate: string;
+  validityDate: string;
   deliveryDays: string;
   paymentTerms: string;
+  warranty: string;
   lines: ReadLine[];
   choices: Record<string, Choice | undefined>;
+  /** Where the reading disagrees with the quotation's own printed numbers. */
+  readIssues: string[];
 }
+
+type RfqItem = RfqWithDetails['items'][number];
+
+/** How a quoted line's pack relates to what was asked for. */
+const packCheckOf = (it: RfqItem, l: ReadLine | undefined): PackCheck =>
+  comparePacks(requestedPack(it), l ? parsePack(l.pack) : null, {
+    soldByMeasure: !!it.is_chemical || isMeasuredUnit(it.unit_label),
+  });
+
+/** "1 × 500 ml" when the pack is known, else "20 Nos". */
+const askedLabel = (it: RfqItem) => {
+  const p = requestedPack(it);
+  const q = Number(it.quantity);
+  return p ? `${q} × ${p.label}` : qtyWithPack(q, it);
+};
+
+/** The one value every entry shares, else null. */
+const sameOf = <T,>(xs: (T | null)[]): T | null =>
+  xs.length && xs[0] != null && xs.every((x) => x === xs[0]) ? xs[0] : null;
+
+const round2 = (n: number) => Math.round(n * 100) / 100;
 
 const READ_CONCURRENCY = 3;
 const NEW_VENDOR = '__new__';
 const rupees = (n: number) => `₹${n.toLocaleString('en-IN', { maximumFractionDigits: 2 })}`;
 const emptyVendor = () => ({ name: '', gstin: '', phone: '', email: '', address: '', contact: '' });
+const linesOf = (r: Row, c: Choice | undefined): ReadLine[] =>
+  c?.kind === 'line' ? r.lines.filter((l) => c.idxs.includes(l.idx)) : [];
+/** Lines already given to some requested item. */
+const usedIdxs = (choices: Row['choices']) =>
+  new Set(Object.values(choices).flatMap((c) => (c?.kind === 'line' ? c.idxs : [])));
 
 export function BulkQuotationUpload({
   rfq,
   quotedSupplierIds,
   open,
   onOpenChange,
+  files,
+  onFilesTaken,
 }: {
   rfq: RfqWithDetails;
   quotedSupplierIds: Set<string>;
   open: boolean;
   onOpenChange: (o: boolean) => void;
+  /** PDFs the page already picked (its button opens the file picker directly). */
+  files?: File[] | null;
+  onFilesTaken?: () => void;
 }) {
   const { profile } = useAuth();
   const { data: allVendors = [] } = useVendorsForSelect(rfq.institution_id);
@@ -100,6 +148,8 @@ export function BulkQuotationUpload({
   const [rows, setRows] = useState<Row[]>([]);
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  /** The last step before saving: every item with the qty and pack it is saved for. */
+  const [reviewing, setReviewing] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   // Reads finish asynchronously; the ref lets them match against the current list.
   const vendorsRef = useRef(allVendors);
@@ -123,32 +173,48 @@ export function BulkQuotationUpload({
         idx,
         name: line.item_name || 'Unnamed line',
         price,
+        // Older reads (and the office runner) have no `pack`; the size is then
+        // usually in the specs or in the line's own name ("Molisch Reagent 100ml").
+        pack: line.pack || parsePack(line.other_specs)?.label || parsePack(line.item_name)?.label || '',
         manufacturer: line.manufacturer ?? '',
         quality_grade: line.quality_grade ?? '',
         concentration: line.concentration ?? '',
         other_specs: line.other_specs ?? '',
+        gst_percent: typeof line.gst_percent === 'number' ? line.gst_percent : null,
+        hsn: line.hsn ?? '',
       });
       // The AI's own match pre-picks the line; an unsure match still needs a look.
-      if (line.rfq_item_id && !choices[line.rfq_item_id]) {
+      if (line.rfq_item_id) {
         // Shown as a match only when the AI was sure AND the names share a word —
         // "Keyboard" ← "POE INJECTOR 48V" stays an AI guess for a person to check,
         // whichever reader (office runner, direct, cached) produced it.
-        const asked = rfq.items.find((it) => it.id === line.rfq_item_id)?.item_name ?? '';
-        const sure = !line.uncertain && namesShareAWord(asked, line.item_name || '');
-        choices[line.rfq_item_id] = { kind: 'line', idx, confirmed: sure };
+        const askedItem = rfq.items.find((it) => it.id === line.rfq_item_id);
+        // A pack that can't be put on the requested footing (500 ml solution for
+        // 500 g of the solid) is never accepted silently, however sure the AI was.
+        const sure =
+          !line.uncertain &&
+          namesShareAWord(askedItem?.item_name ?? '', line.item_name || '') &&
+          !!askedItem &&
+          packCheckOf(askedItem, lines[lines.length - 1]).kind !== 'mismatch';
+        const prev = choices[line.rfq_item_id];
+        // Several lines for one item = the parts of a set. Their sum becomes the
+        // price, so a person always looks once — the AI may equally have tagged
+        // two alternative offers for the same item, which must not be added up.
+        choices[line.rfq_item_id] =
+          prev?.kind === 'line'
+            ? { kind: 'line', idxs: [...prev.idxs, idx], confirmed: false }
+            : { kind: 'line', idxs: [idx], confirmed: sure };
       }
     }
 
     // Items the AI left unmatched: suggest the first quote line that shares a word
     // with the item's name — as a guess to confirm, never as a match.
-    const usedIdx = new Set(
-      Object.values(choices).flatMap((ch) => (ch?.kind === 'line' ? [ch.idx] : []))
-    );
+    const usedIdx = usedIdxs(choices);
     for (const it of rfq.items) {
       if (choices[it.id]) continue;
       const hit = lines.find((l) => !usedIdx.has(l.idx) && namesShareAWord(it.item_name, l.name));
       if (hit) {
-        choices[it.id] = { kind: 'line', idx: hit.idx, confirmed: false };
+        choices[it.id] = { kind: 'line', idxs: [hit.idx], confirmed: false };
         usedIdx.add(hit.idx);
       }
     }
@@ -180,12 +246,16 @@ export function BulkQuotationUpload({
       newVendor,
       vendorNote,
       quoteNumber: result.quote_number ?? '',
+      quoteDate: result.quote_date ?? '',
+      validityDate: result.validity_date ?? '',
       deliveryDays: result.delivery_days ? String(result.delivery_days) : '',
       paymentTerms: result.payment_terms ?? '',
+      warranty: result.warranty ?? '',
+      readIssues: [...(result.read_notes ?? []), ...checkQuotationMath(result).issues],
     });
   };
 
-  const addFiles = (files: FileList | null) => {
+  const addFiles = (files: FileList | File[] | null) => {
     if (!files?.length) return;
     const pdfs = [...files].filter((f) => f.type === 'application/pdf' || f.name.toLowerCase().endsWith('.pdf'));
     if (pdfs.length < files.length) toast.warning('Only PDF files can be read — other files were skipped.');
@@ -197,13 +267,18 @@ export function BulkQuotationUpload({
       vendorId: '',
       newVendor: emptyVendor(),
       quoteNumber: '',
+      quoteDate: '',
+      validityDate: '',
       deliveryDays: '',
       paymentTerms: '',
+      warranty: '',
       lines: [],
       choices: {},
+      readIssues: [],
     }));
     setRows((prev) => [...prev, ...fresh]);
     setSelectedKey((k) => k ?? fresh[0].key);
+    setReviewing(false);
 
     // Read a few at a time so a stack of PDFs doesn't flood the reader.
     const queue = [...fresh];
@@ -219,21 +294,51 @@ export function BulkQuotationUpload({
     for (let i = 0; i < Math.min(READ_CONCURRENCY, fresh.length); i++) void worker();
   };
 
+  // Files chosen on the page arrive here; read them as if dropped in.
+  useEffect(() => {
+    if (open && files?.length) {
+      addFiles(files);
+      onFilesTaken?.();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, files]);
+
+
+
   const priceOf = (r: Row, itemId: string): number | null => {
     const c = r.choices[itemId];
     if (!c || c.kind === 'none') return null;
     if (c.kind === 'custom') return Number(c.price) > 0 ? Number(c.price) : null;
-    return r.lines.find((l) => l.idx === c.idx)?.price ?? null;
+    // One of each part per set: the set's unit price is the parts' unit prices added up.
+    const parts = linesOf(r, c);
+    if (parts.length !== 1) return parts.length ? parts.reduce((s, l) => s + l.price, 0) : null;
+    // One line: put its price on the requested pack — ₹135 for 100 ml of a 500 ml
+    // requirement is ₹675, not ₹135.
+    const it = rfq.items.find((x) => x.id === itemId);
+    const chk = it ? packCheckOf(it, parts[0]) : null;
+    return chk?.kind === 'scaled' ? round2(parts[0].price * chk.factor) : parts[0].price;
+  };
+
+  /**
+   * What the saved price stands on, kept with the quote so Compare & award shows it:
+   * "Quoted 100 ml @ ₹135 — ×5 for 500 ml". Empty when the packs match or are unknown.
+   */
+  const packNote = (it: RfqItem, c: Choice | undefined, line: ReadLine | undefined): string => {
+    if (c?.kind !== 'line' || !line) return '';
+    const chk = packCheckOf(it, line);
+    const asked = requestedPack(it)?.label;
+    if (chk.kind === 'scaled') return `Quoted ${line.pack} @ ${rupees(line.price)} — ×${chk.factor} for ${asked}`;
+    if (chk.kind === 'mismatch') return `Quoted ${line.pack}, asked ${asked} — accepted by reviewer`;
+    return '';
   };
 
   /** Items still waiting for an answer: unanswered, an unconfirmed AI guess, or a blank typed price. */
+  // The one thing that needs a person: an AI match it was unsure of. A price left
+  // empty is simply "not quoted by this vendor" — no separate choice to make.
   const toCheck = (r: Row) =>
     rfq.items.filter((it) => {
       const c = r.choices[it.id];
-      if (!c) return true;
-      if (c.kind === 'line') return !c.confirmed;
-      if (c.kind === 'custom') return !(Number(c.price) > 0);
-      return false;
+      return c?.kind === 'line' && !c.confirmed;
     }).length;
 
   // Per-PDF status, computed live — drives the left list, the footer and Save.
@@ -279,7 +384,8 @@ export function BulkQuotationUpload({
     if (!profile?.id) return;
     setSaving(true);
     let ok = 0;
-    let noPdf = 0;
+    const pdfJobs: Array<{ quotationId: string; file: File }> = [];
+    const savedKeys = new Set<string>();
     for (const r of savable) {
       patch(r.key, { status: 'saving' });
       try {
@@ -300,38 +406,22 @@ export function BulkQuotationUpload({
           patch(r.key, { vendorId: created.id }); // a retry must not create it twice
         }
 
-        let document_url: string | null = null;
-        let document_file_id: string | null = null;
-        try {
-          const fd = new FormData();
-          fd.append('file', r.file);
-          fd.append('institutionId', rfq.institution_id);
-          fd.append('rfqNumber', rfq.rfq_number);
-          const res = await fetch('/api/procurement/quotations/upload', { method: 'POST', body: fd });
-          const body = await res.json().catch(() => ({}));
-          if (res.ok && body?.attachment) {
-            document_url = body.attachment.url;
-            document_file_id = body.attachment.driveFileId;
-          } else {
-            noPdf++;
-          }
-        } catch {
-          noPdf++; // the PDF is a nice-to-have; the prices are what matter — but say so
-        }
-
-        await createQuotation.mutateAsync({
+        const created = await createQuotation.mutateAsync({
           dto: {
             institution_id: rfq.institution_id,
             rfq_id: rfq.id,
             supplier_id: supplierId,
             vendor_quote_number: r.quoteNumber || null,
+            quote_date: r.quoteDate || null,
+            validity_date: r.validityDate || null,
             delivery_time_days: r.deliveryDays ? Number(r.deliveryDays) : null,
             payment_terms: r.paymentTerms || null,
-            document_url,
-            document_file_id,
+            warranty: r.warranty || null,
+            document_url: null,
+            document_file_id: null,
             items: rfq.items.map((it) => {
-              const c = r.choices[it.id];
-              const line = c?.kind === 'line' ? r.lines.find((l) => l.idx === c.idx) : undefined;
+              const parts = linesOf(r, r.choices[it.id]);
+              const line = parts.length === 1 ? parts[0] : undefined;
               return {
                 rfq_item_id: it.id,
                 unit_price: priceOf(r, it.id), // null = not quoted
@@ -339,32 +429,71 @@ export function BulkQuotationUpload({
                 manufacturer: line?.manufacturer || null,
                 quality_grade: line?.quality_grade || null,
                 concentration: line?.concentration || null,
-                other_specs: line?.other_specs || null,
+                // A set's parts share one rate when the vendor printed one; else leave it for the PO.
+                gst_percent: sameOf(parts.map((p) => p.gst_percent)),
+                hsn: line?.hsn || null,
+                // A set keeps its breakdown, so the comparison still shows what the price buys.
+                other_specs:
+                  parts.length > 1
+                    ? `Set of ${parts.length} parts: ${parts.map((p) => `${p.name} ${rupees(p.price)}`).join('; ')}`
+                    : [packNote(it, r.choices[it.id], line), line?.other_specs].filter(Boolean).join(' · ') || null,
               };
             }),
           },
           userId: profile.id,
         });
         patch(r.key, { status: 'saved' });
+        savedKeys.add(r.key);
         ok++;
+        pdfJobs.push({ quotationId: created.id, file: r.file });
       } catch (e) {
         patch(r.key, { status: 'ready', error: errorMessage(e, 'Could not save') });
       }
     }
     setSaving(false);
+    setReviewing(false);
     queryClient.invalidateQueries({ queryKey: ['procurement-vendors-select', rfq.institution_id] });
     if (ok) toast.success(`${ok} quotation${ok === 1 ? '' : 's'} saved`);
-    if (noPdf) toast.warning(`${noPdf} PDF${noPdf === 1 ? ' was' : 's were'} not attached (file storage failed) — the prices were saved.`);
-    setRows((prev) => {
-      const left = prev.filter((r) => r.status !== 'saved');
-      if (left.length === 0) {
-        onOpenChange(false);
-        setSelectedKey(null);
-      } else {
-        setSelectedKey(left[0].key);
-      }
-      return left;
-    });
+    // Attach the PDFs to Drive in the background — the prices are already saved.
+    void attachPdfs(pdfJobs);
+    // Side effects stay out of the setRows updater: React runs updaters during
+    // render, and closing the dialog there updates the parent page mid-render.
+    const left = rows.filter((r) => r.status !== 'saved' && !savedKeys.has(r.key));
+    setRows((prev) => prev.filter((r) => r.status !== 'saved'));
+    if (left.length === 0) {
+      setSelectedKey(null);
+      onOpenChange(false);
+    } else {
+      setSelectedKey(left[0].key);
+    }
+  };
+
+  const attachPdfs = async (jobs: Array<{ quotationId: string; file: File }>) => {
+    if (!jobs.length) return;
+    const results = await Promise.all(
+      jobs.map(async (j) => {
+        try {
+          const fd = new FormData();
+          fd.append('file', j.file);
+          fd.append('institutionId', rfq.institution_id);
+          fd.append('rfqNumber', rfq.rfq_number);
+          const res = await fetch('/api/procurement/quotations/upload', { method: 'POST', body: fd });
+          const body = await res.json().catch(() => ({}));
+          if (!res.ok || !body?.attachment) return false;
+          await ProcurementQuotationService.attachQuotationDocument(
+            j.quotationId,
+            body.attachment.url,
+            body.attachment.driveFileId
+          );
+          return true;
+        } catch {
+          return false;
+        }
+      })
+    );
+    queryClient.invalidateQueries({ queryKey: ['procurement-quotations', rfq.id] });
+    const failed = results.filter((x) => !x).length;
+    if (failed) toast.warning(`${failed} PDF${failed === 1 ? ' was' : 's were'} not attached (file storage failed) — the prices are saved.`);
   };
 
   const close = (o: boolean) => {
@@ -372,6 +501,7 @@ export function BulkQuotationUpload({
     if (!o) {
       setRows([]);
       setSelectedKey(null);
+      setReviewing(false);
     }
     onOpenChange(o);
   };
@@ -390,365 +520,533 @@ export function BulkQuotationUpload({
     />
   );
 
-  const toneClass = {
-    ok: 'bg-green-100 text-green-800 dark:bg-green-950 dark:text-green-300',
-    warn: 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300',
-    busy: 'bg-muted text-muted-foreground',
-    done: 'bg-muted text-muted-foreground',
-  } as const;
+
+  const many = rows.length > 1;
+  // Phones: the item takes the first line; price, total and remove share the second.
+  const COLS = 'grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_28px] items-center gap-x-2.5 gap-y-2 sm:grid-cols-[minmax(0,1fr)_120px_100px_28px] sm:gap-3';
+  const totalOf = (r: Row) => rfq.items.reduce((sum, it) => sum + (priceOf(r, it.id) ?? 0) * Number(it.quantity), 0);
+  const titleOf = (r: Row) =>
+    r.status === 'reading' ? 'Reading the quote…' : r.vendorId || r.newVendor.name.trim() ? `Quote from ${vendorName(r)}` : 'Add quote';
+
+  // ── Review before save: per vendor, every item with Asked | Vendor quoted | Price | Total.
+  const notReady = rows.filter((r) => r.status !== 'saved' && statusOf[r.key]?.tone !== 'ok').length;
+  const reviewBody = (
+    <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-5 py-4">
+      {notReady > 0 && (
+        <p className="rounded-lg bg-secondary/20 px-3 py-2 text-[13px] text-foreground">
+          {notReady} quote{notReady === 1 ? ' is' : 's are'} not ready and will not be saved now.
+        </p>
+      )}
+      {savable.map((r) => (
+        <section key={r.key} className="overflow-hidden rounded-xl border">
+          <header className="flex flex-wrap items-baseline justify-between gap-2 bg-muted/50 px-4 py-2.5">
+            <span className="font-semibold">{vendorName(r)}</span>
+            <span className="text-sm">
+              Total <b className="tabular-nums">{rupees(totalOf(r))}</b>
+            </span>
+          </header>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="text-left text-[11px] uppercase tracking-wide text-muted-foreground">
+                <tr className="border-b">
+                  <th className="px-4 py-2 font-semibold">Item</th>
+                  <th className="px-2 py-2 font-semibold">Asked</th>
+                  <th className="px-2 py-2 font-semibold">Vendor quoted</th>
+                  <th className="px-2 py-2 text-right font-semibold">Price / unit</th>
+                  <th className="px-4 py-2 text-right font-semibold">Total</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rfq.items.map((it) => {
+                  const c = r.choices[it.id];
+                  const price = priceOf(r, it.id);
+                  const parts = linesOf(r, c);
+                  const one = parts.length === 1 ? parts[0] : undefined;
+                  const chk = one ? packCheckOf(it, one) : null;
+                  const quoted =
+                    price == null
+                      ? 'Not quoted'
+                      : c?.kind === 'custom'
+                        ? 'Price typed in'
+                        : parts.length > 1
+                          ? `Set of ${parts.length} parts`
+                          : `${one?.pack || 'pack not printed'} @ ${rupees(one?.price ?? 0)}`;
+                  const tone =
+                    chk?.kind === 'mismatch'
+                      ? 'bg-secondary/20'
+                      : chk?.kind === 'scaled'
+                        ? 'bg-primary/10'
+                        : '';
+                  return (
+                    <tr key={it.id} className={cn('border-b last:border-0 align-top', tone, price == null && 'text-muted-foreground')}>
+                      <td className="px-4 py-2">
+                        <span className="font-medium">{it.item_name}</span>
+                        {it.item_spec && <span className="block text-xs text-muted-foreground">{it.item_spec}</span>}
+                      </td>
+                      <td className="whitespace-nowrap px-2 py-2 tabular-nums">{askedLabel(it)}</td>
+                      <td className="px-2 py-2">
+                        {quoted}
+                        {chk?.kind === 'scaled' && (
+                          <span className="block text-xs text-primary">
+                            ×{chk.factor} for {requestedPack(it)?.label}
+                          </span>
+                        )}
+                        {chk?.kind === 'mismatch' && (
+                          <span className="block text-xs font-medium text-foreground">⚠ {chk.reason}</span>
+                        )}
+                      </td>
+                      <td className="whitespace-nowrap px-2 py-2 text-right tabular-nums">{price != null ? rupees(price) : '—'}</td>
+                      <td className="whitespace-nowrap px-4 py-2 text-right font-semibold tabular-nums">
+                        {price != null ? rupees(price * Number(it.quantity)) : '—'}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      ))}
+    </div>
+  );
 
   return (
     <Dialog open={open} onOpenChange={close}>
-      <DialogContent className="flex max-h-[90vh] max-w-6xl flex-col gap-0 overflow-hidden p-0">
+      <DialogContent
+        className={`flex max-h-[90vh] flex-col gap-0 overflow-hidden rounded-2xl p-0 ${
+          many || reviewing ? 'max-w-3xl' : rows.length === 1 ? 'max-w-xl' : 'max-w-md'
+        }`}
+      >
         {fileInput}
-        <DialogHeader className="flex-row items-center justify-between gap-4 space-y-0 border-b px-5 py-4 pr-12">
-          <div>
-            <DialogTitle className="text-lg">Add quotations</DialogTitle>
-            <DialogDescription>
-              {rows.length
-                ? `${rows.length} PDF${rows.length === 1 ? '' : 's'} · check each vendor, then save`
-                : 'Choose all the vendor quotation PDFs together. The AI reads each one.'}
-            </DialogDescription>
-          </div>
-          {rows.length > 0 && (
-            <Button size="sm" variant="outline" onClick={() => inputRef.current?.click()} disabled={saving}>
-              <Plus className="mr-1.5 h-4 w-4" />
-              Add more PDFs
-            </Button>
-          )}
-        </DialogHeader>
 
         {rows.length === 0 ? (
-          <div className="p-5">
-            <button
-              type="button"
-              onClick={() => inputRef.current?.click()}
-              onDragOver={(e) => e.preventDefault()}
-              onDrop={(e) => {
-                e.preventDefault();
-                addFiles(e.dataTransfer.files);
-              }}
-              className="flex w-full flex-col items-center gap-2 rounded-lg border-2 border-dashed px-4 py-14 text-center transition-colors hover:border-primary"
-            >
-              <Upload className="h-8 w-8 text-muted-foreground" />
-              <span className="font-medium">Choose PDFs or drop them here</span>
-              <span className="text-xs text-muted-foreground">Several files at once · max 15 MB each</span>
-            </button>
-          </div>
-        ) : (
-          <div className="grid min-h-0 flex-1 grid-cols-1 overflow-hidden md:grid-cols-[260px_minmax(0,1fr)]">
-            {/* ── Left: one card per PDF ─────────────────────────────── */}
-            <div className="flex max-h-48 flex-col gap-1.5 overflow-y-auto border-b bg-muted/30 p-2.5 md:max-h-none md:border-b-0 md:border-r">
-              {rows.map((r) => {
-                const st = statusOf[r.key];
-                const isSel = selected?.key === r.key;
-                return (
-                  <button
-                    key={r.key}
-                    type="button"
-                    onClick={() => setSelectedKey(r.key)}
-                    className={cn(
-                      'flex flex-col gap-1 rounded-lg border bg-background p-2.5 text-left transition-colors',
-                      isSel ? 'border-primary ring-1 ring-primary' : 'hover:border-primary/50'
-                    )}
-                  >
-                    <span className="flex items-center justify-between gap-2">
-                      <span className="min-w-0 truncate text-sm font-semibold">
-                        {r.status === 'reading' ? 'Reading…' : vendorName(r)}
-                      </span>
-                      {st && (
-                        <span className={cn('flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold', toneClass[st.tone])}>
-                          {st.tone === 'busy' && <Loader2 className="h-3 w-3 animate-spin" />}
-                          {st.tone === 'ok' && <Check className="h-3 w-3" />}
-                          {st.label}
-                        </span>
-                      )}
-                    </span>
-                    <span className="truncate text-xs text-muted-foreground" title={r.file.name}>
-                      {r.file.name}
-                    </span>
-                    {st?.tone === 'warn' && st.blocker && st.blocker !== st.label && (
-                      <span className="text-[11px] text-amber-700 dark:text-amber-400">{st.blocker}</span>
-                    )}
-                  </button>
-                );
-              })}
+          <>
+            <DialogHeader className="px-6 pb-2 pt-5">
+              <DialogTitle className="text-lg">Add quotes</DialogTitle>
+              <DialogDescription>Choose the vendors&apos; quotation PDFs — the AI reads each one.</DialogDescription>
+            </DialogHeader>
+            <div className="p-6 pt-3">
+              <button
+                type="button"
+                onClick={() => inputRef.current?.click()}
+                onDragOver={(e) => e.preventDefault()}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  addFiles(e.dataTransfer.files);
+                }}
+                className="flex w-full flex-col items-center gap-2 rounded-xl border-2 border-dashed px-4 py-8 text-center transition-colors hover:border-primary"
+              >
+                <Upload className="h-6 w-6 text-muted-foreground" />
+                <span className="font-medium">Choose PDFs</span>
+                <span className="text-xs text-muted-foreground">or drop them here · several at once</span>
+              </button>
             </div>
+          </>
+        ) : (
+          <>
+            {/* ── Header: whose quote, which file, View PDF ───────────────── */}
+            <DialogHeader className="space-y-0.5 border-b px-6 pb-3 pt-5 pr-12 text-left">
+              <DialogTitle className="text-lg">
+                {many ? (
+                  <>
+                    Add quotes <span className="text-sm font-normal text-muted-foreground">· {rows.length} PDFs</span>
+                  </>
+                ) : (
+                  titleOf(rows[0])
+                )}
+              </DialogTitle>
+              <DialogDescription className="flex flex-wrap items-center gap-x-2 text-[13px]">
+                {!many && selected && (
+                  <>
+                    <span className="truncate">{selected.file.name}</span>
+                    {selected.vendorNote && selected.vendorId && (
+                      <span className="text-primary">· ✓ vendor {selected.vendorNote}</span>
+                    )}
+                    {pdfUrl && (
+                      <a href={pdfUrl} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">
+                        · View PDF
+                      </a>
+                    )}
+                  </>
+                )}
+                <button
+                  type="button"
+                  className="text-primary hover:underline disabled:opacity-50"
+                  onClick={() => inputRef.current?.click()}
+                  disabled={saving}
+                >
+                  {many ? '+ More PDFs' : '· + Another PDF'}
+                </button>
+              </DialogDescription>
+            </DialogHeader>
 
-            {/* ── Right: the selected vendor ─────────────────────────── */}
-            <div className="min-h-0 overflow-y-auto p-5">
-              {!selected ? null : selected.status === 'reading' ? (
-                <div className="flex h-full min-h-[240px] flex-col items-center justify-center gap-2 text-sm text-muted-foreground">
-                  <Loader2 className="h-6 w-6 animate-spin" />
-                  The AI is reading {selected.file.name}…
-                </div>
-              ) : (
-                <div className="space-y-4">
-                  {/* Vendor */}
-                  <div className="flex flex-wrap items-start justify-between gap-3">
-                    <div className="min-w-0 space-y-1">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <div className="w-[240px]">
-                          <Select
-                            value={selected.vendorId || NEW_VENDOR}
-                            onValueChange={(val) => patch(selected.key, { vendorId: val === NEW_VENDOR ? '' : val })}
-                            disabled={selected.status === 'saving'}
-                          >
-                            <SelectTrigger className="h-9 font-semibold">
-                              <SelectValue placeholder="Choose vendor" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value={NEW_VENDOR}>+ New vendor</SelectItem>
-                              {allVendors.map((v) => (
-                                <SelectItem key={v.id} value={v.id} disabled={quotedSupplierIds.has(v.id)}>
-                                  {v.name}
-                                  {quotedSupplierIds.has(v.id) ? ' (already quoted)' : ''}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
+            {reviewing ? reviewBody : (
+            <div className={`grid min-h-0 flex-1 overflow-hidden ${many ? 'grid-rows-[auto_minmax(0,1fr)] sm:grid-cols-[200px_minmax(0,1fr)] sm:grid-rows-1' : 'grid-cols-1'}`}>
+              {/* ── Vendor rail (several PDFs): name + one status word. A strip across
+                  the top on phones, a side rail from sm. ─────── */}
+              {many && (
+                <nav aria-label="Quotes" className="flex gap-1 overflow-x-auto border-b bg-muted/40 p-2 sm:flex-col sm:overflow-y-auto sm:overflow-x-visible sm:border-b-0 sm:border-r">
+                  {rows.map((r) => {
+                    const st = statusOf[r.key];
+                    const isSel = selected?.key === r.key;
+                    const dot =
+                      st?.tone === 'ok' ? 'text-primary' : st?.tone === 'warn' ? 'text-foreground' : 'text-muted-foreground';
+                    return (
+                      <button
+                        key={r.key}
+                        type="button"
+                        onClick={() => setSelectedKey(r.key)}
+                        className={cn(
+                          'flex max-w-[12rem] shrink-0 flex-col gap-0.5 rounded-lg border px-3 py-2.5 text-left transition-colors sm:max-w-none',
+                          isSel ? 'border-primary bg-background' : 'border-transparent hover:bg-background/70'
+                        )}
+                      >
+                        <span className="truncate text-sm font-semibold" title={r.file.name}>
+                          {r.status === 'reading' ? r.file.name : vendorName(r)}
+                        </span>
+                        <span className={`flex items-center gap-1 text-xs ${dot}`}>
+                          {st?.tone === 'busy' ? <Loader2 className="h-3 w-3 animate-spin" /> : '●'} {st?.label}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </nav>
+              )}
+
+              {/* ── The selected quote ─────────────────────────────────────── */}
+              <div className="min-h-0 overflow-y-auto">
+                {!selected ? null : selected.status === 'reading' ? (
+                  <div className="flex min-h-[220px] flex-col items-center justify-center gap-2 text-sm text-muted-foreground">
+                    <Loader2 className="h-6 w-6 animate-spin" />
+                    Reading {selected.file.name}…
+                  </div>
+                ) : (
+                  <>
+                    {selected.readIssues.length > 0 && (
+                      <div className="mx-5 mt-4 flex items-start gap-2 rounded-xl bg-secondary/20 px-3 py-2 text-sm">
+                        <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
+                        <div>
+                          <p className="font-medium">The reading does not match this quotation&apos;s own numbers</p>
+                          <ul className="list-disc pl-4 text-xs text-muted-foreground">
+                            {selected.readIssues.map((m) => (
+                              <li key={m}>{m}</li>
+                            ))}
+                          </ul>
                         </div>
-                        {!selected.vendorId && (
-                          <Input
-                            className="h-9 w-[220px]"
-                            placeholder="New vendor name"
-                            value={selected.newVendor.name}
-                            onChange={(e) =>
-                              patch(selected.key, (row) => ({ newVendor: { ...row.newVendor, name: e.target.value } }))
-                            }
-                          />
-                        )}
-                        {selected.vendorNote && (
-                          <span className="flex items-center gap-1 text-xs text-green-700 dark:text-green-400">
-                            <Check className="h-3.5 w-3.5" />
-                            {selected.vendorNote}
-                          </span>
-                        )}
                       </div>
-                      <p className="text-xs text-muted-foreground">
+                    )}
+                    {many && (
+                      <div className="px-5 pt-4">
+                        <p className="font-semibold">{vendorName(selected)}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {selected.file.name}
+                          {pdfUrl && (
+                            <>
+                              {' · '}
+                              <a href={pdfUrl} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">
+                                View PDF
+                              </a>
+                            </>
+                          )}
+                          {' · '}
+                          <button
+                            type="button"
+                            className="hover:text-foreground"
+                            onClick={() => {
+                              setRows((prev) => prev.filter((x) => x.key !== selected.key));
+                              setSelectedKey(null);
+                            }}
+                          >
+                            Remove
+                          </button>
+                        </p>
+                      </div>
+                    )}
+
+                    {selected.error && (
+                      <p className="mx-5 mt-4 rounded-lg bg-secondary/20 px-3 py-2 text-[13px] text-foreground">
+                        {selected.error}
+                      </p>
+                    )}
+
+                    {/* Vendor (asked only when not recognised). Quote no., delivery and payment
+                        are not asked — when the AI reads them they are saved and shown here. */}
+                    <div className="space-y-3 px-5 pt-4 empty:hidden">
+                      {(!selected.vendorId || quotedSupplierIds.has(selected.vendorId)) && (
+                        <div className="space-y-1">
+                          <span className="text-xs text-muted-foreground">Vendor</span>
+                          <div className="flex flex-wrap gap-2">
+                            <Select
+                              value={selected.vendorId || NEW_VENDOR}
+                              onValueChange={(val) => patch(selected.key, { vendorId: val === NEW_VENDOR ? '' : val, vendorNote: undefined })}
+                              disabled={selected.status === 'saving'}
+                            >
+                              <SelectTrigger className="h-9 min-w-0 flex-1 sm:max-w-56" aria-label="Vendor">
+                                <SelectValue placeholder="Choose a vendor…" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value={NEW_VENDOR}>+ New vendor</SelectItem>
+                                {allVendors.map((v) => (
+                                  <SelectItem key={v.id} value={v.id} disabled={quotedSupplierIds.has(v.id)}>
+                                    {v.name}
+                                    {quotedSupplierIds.has(v.id) ? ' (already quoted)' : ''}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                            {!selected.vendorId && (
+                              <Input
+                                className="h-9 min-w-0 flex-1"
+                                placeholder="New vendor's name"
+                                aria-label="New vendor's name"
+                                value={selected.newVendor.name}
+                                onChange={(e) =>
+                                  patch(selected.key, (row) => ({ newVendor: { ...row.newVendor, name: e.target.value } }))
+                                }
+                              />
+                            )}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    {(selected.quoteNumber || selected.deliveryDays || selected.paymentTerms) && (
+                      <p className="px-5 pt-3 text-xs text-muted-foreground">
                         {[
-                          selected.deliveryDays ? `Delivery ${selected.deliveryDays} days` : null,
+                          selected.quoteNumber ? `Quote ${selected.quoteNumber}` : null,
+                          selected.deliveryDays ? `${selected.deliveryDays} days delivery` : null,
                           selected.paymentTerms || null,
-                          selected.quoteNumber ? `Quote no. ${selected.quoteNumber}` : null,
                         ]
                           .filter(Boolean)
-                          .join(' · ') || 'No delivery or payment terms found in the PDF'}
+                          .join(' · ')}
                       </p>
-                    </div>
-                    <div className="flex gap-1.5">
-                      <Button size="sm" variant="outline" asChild>
-                        <a href={pdfUrl ?? undefined} target="_blank" rel="noopener noreferrer">
-                          <FileText className="mr-1.5 h-4 w-4" />
-                          View PDF
-                        </a>
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        className="text-muted-foreground"
-                        disabled={selected.status === 'saving'}
-                        onClick={() => {
-                          setRows((prev) => prev.filter((x) => x.key !== selected.key));
-                          setSelectedKey(null);
-                        }}
-                      >
-                        <X className="mr-1 h-4 w-4" />
-                        Remove
-                      </Button>
-                    </div>
-                  </div>
+                    )}
 
-                  {selected.error && (
-                    <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-800 dark:bg-red-950/40 dark:text-red-300">
-                      {selected.error} — type the prices below.
-                    </p>
-                  )}
-
-                  {/* For each thing asked for: what the AI found in this quote, and whether to trust it */}
-                  <div className="overflow-hidden rounded-lg border">
-                    <div className="hidden grid-cols-[minmax(0,1fr)_64px_minmax(0,1.6fr)_110px] gap-3 border-b bg-muted/40 px-3 py-2 text-xs font-semibold text-muted-foreground md:grid">
-                      <span>You asked for</span>
-                      <span className="text-right">Qty</span>
-                      <span>Found in this quote</span>
-                      <span className="text-right">Total</span>
-                    </div>
-                    {rfq.items.map((it) => {
-                      const c = selected.choices[it.id];
-                      const price = priceOf(selected, it.id);
-                      const line = c?.kind === 'line' ? selected.lines.find((l) => l.idx === c.idx) : undefined;
-                      const unsure = c?.kind === 'line' && !c.confirmed;
-                      const unanswered = !c;
-                      const needsYou = unsure || unanswered || (c?.kind === 'custom' && !(Number(c.price) > 0));
-                      const value = c ? (c.kind === 'line' ? `line:${c.idx}` : c.kind) : '';
-                      const onPick = (v: string) => {
-                        if (v === 'none') setChoice(selected.key, it.id, { kind: 'none' });
-                        else if (v === 'custom')
-                          setChoice(selected.key, it.id, { kind: 'custom', price: price != null ? String(price) : '' });
-                        else setChoice(selected.key, it.id, { kind: 'line', idx: Number(v.slice(5)), confirmed: true });
-                      };
-                      return (
-                        <div
-                          key={it.id}
-                          className={cn(
-                            'grid grid-cols-[minmax(0,1fr)_auto] items-start gap-x-3 gap-y-2 border-b px-3 py-3 last:border-b-0 md:grid-cols-[minmax(0,1fr)_64px_minmax(0,1.6fr)_110px]',
-                            needsYou && 'bg-amber-50/70 dark:bg-amber-950/20'
-                          )}
-                        >
-                          {/* asked for */}
-                          <div className="min-w-0">
-                            <p className="text-sm font-semibold">{it.item_name}</p>
-                            {it.item_spec && <p className="text-xs text-muted-foreground">{it.item_spec}</p>}
-                          </div>
-                          <span className="text-right text-sm tabular-nums">
-                            {Number(it.quantity)}
-                            {it.unit_label ? <span className="text-muted-foreground"> {it.unit_label}</span> : null}
-                          </span>
-
-                          {/* found in the quote */}
-                          <div className="col-span-2 min-w-0 space-y-1.5 md:col-span-1">
-                            {line ? (
-                              <div className="flex items-start justify-between gap-2">
-                                <div className="min-w-0">
-                                  <p className="text-sm leading-snug">{line.name}</p>
-                                  <p className="text-xs text-muted-foreground">
-                                    <b className="text-foreground tabular-nums">{rupees(line.price)}</b> each
-                                  </p>
-                                </div>
-                                {unsure ? (
-                                  <span className="shrink-0 rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-800 dark:bg-amber-950 dark:text-amber-300">
-                                    AI guess
+                    {/* Items: ONE aligned grid — item | price / unit | total */}
+                    <div className="mt-4 border-t">
+                      <div className={`${COLS} hidden bg-muted/50 px-5 py-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground sm:grid`}>
+                        <span>Item</span>
+                        <span className="text-right">Price / unit</span>
+                        <span className="text-right">Total</span>
+                        <span />
+                      </div>
+                      {rfq.items.map((it) => {
+                        const c = selected.choices[it.id];
+                        const price = priceOf(selected, it.id);
+                        const parts = linesOf(selected, c);
+                        const isSet = parts.length > 1;
+                        const unsure = c?.kind === 'line' && !c.confirmed;
+                        const unanswered = !c;
+                        const notQuoted = c?.kind === 'none';
+                        const pack = !isSet && c?.kind === 'line' && parts[0] ? packCheckOf(it, parts[0]) : null;
+                        const amber = unsure;
+                        const qty = Number(it.quantity);
+                        const lineValue = c ? (c.kind === 'line' ? (isSet ? '' : `line:${c.idxs[0]}`) : c.kind) : '';
+                        const onPick = (v: string) => {
+                          if (v === 'none') setChoice(selected.key, it.id, { kind: 'none' });
+                          else if (v === 'custom') setChoice(selected.key, it.id, { kind: 'custom', price: price != null ? String(price) : '' });
+                          else setChoice(selected.key, it.id, { kind: 'line', idxs: [Number(v.slice(5))], confirmed: true });
+                        };
+                        const setParts = (idxs: number[]) =>
+                          setChoice(selected.key, it.id, idxs.length ? { kind: 'line', idxs, confirmed: true } : { kind: 'none' });
+                        const taken = usedIdxs(selected.choices);
+                        const addable = c?.kind === 'line' ? selected.lines.filter((l) => !taken.has(l.idx)) : [];
+                        // Typing in the price box always wins over what the AI read.
+                        const typed = (v: string) => setChoice(selected.key, it.id, { kind: 'custom', price: v });
+                        // Every row ends in the same small menu: pick another line from the PDF,
+                        // or mark the item not quoted / quoted again.
+                        const rowMenu = selected.lines.length === 0 ? <span /> : (
+                          <Select value={lineValue} onValueChange={onPick} disabled={selected.status === 'saving'}>
+                            <SelectTrigger
+                              className="h-7 w-7 justify-center border-0 p-0 text-muted-foreground shadow-none hover:bg-muted focus:ring-0 [&>svg:last-child]:hidden"
+                              aria-label={`More for ${it.item_name}`}
+                            >
+                              <MoreHorizontal className="h-4 w-4" />
+                            </SelectTrigger>
+                            <SelectContent align="end" className="max-w-[520px]">
+                              {selected.lines.length > 0 && (
+                                <div className="px-2 py-1 text-xs text-muted-foreground">Use a line from the PDF</div>
+                              )}
+                              {selected.lines.map((l) => (
+                                <SelectItem key={l.idx} value={`line:${l.idx}`}>
+                                  <span className="flex w-full items-center justify-between gap-4">
+                                    <span className="truncate">
+                                      {l.name}
+                                      {l.pack && <span className="text-muted-foreground"> · {l.pack}</span>}
+                                    </span>
+                                    <b className="shrink-0 tabular-nums">{rupees(l.price)}</b>
                                   </span>
-                                ) : (
-                                  <span className="flex shrink-0 items-center gap-1 rounded-full bg-green-100 px-2 py-0.5 text-[11px] font-semibold text-green-800 dark:bg-green-950 dark:text-green-300">
-                                    <Check className="h-3 w-3" /> Match
+                                </SelectItem>
+                              ))}
+
+                            </SelectContent>
+                          </Select>
+                        );
+                        return (
+                          <div
+                            key={it.id}
+                            className={cn(COLS, 'border-t px-5 py-3', amber && 'bg-secondary/20')}
+                          >
+                            <div className="col-span-3 min-w-0 sm:col-span-1">
+                              <p className="truncate text-sm font-semibold">
+                                {it.item_name}{' '}
+                                <span className="font-normal text-muted-foreground">· {askedLabel(it)}</span>
+                              </p>
+                              {/* What the vendor's price is for, against what was asked. */}
+                              {pack?.kind === 'scaled' && (
+                                <p className="truncate text-xs text-primary">
+                                  Quoted {parts[0].pack} @ {rupees(parts[0].price)} → ×{pack.factor} for {requestedPack(it)?.label}
+                                </p>
+                              )}
+                              {pack?.kind === 'mismatch' && (
+                                <p className="truncate text-xs font-medium text-foreground">⚠ {pack.reason}</p>
+                              )}
+                              {/* one short status — actions live in the row's ⋯ menu */}
+                              <p className="truncate text-xs">
+                                {unsure ? (
+                                  <span className="text-foreground">
+                                    {isSet ? `${parts.length} parts = one set?` : `“${parts[0]?.name}”?`}{' '}
+                                    <button
+                                      type="button"
+                                      className="ml-1 rounded bg-primary px-1.5 py-px font-semibold text-primary-foreground hover:bg-primary/90"
+                                      onClick={() => c?.kind === 'line' && setChoice(selected.key, it.id, { ...c, confirmed: true })}
+                                    >
+                                      Yes
+                                    </button>
+                                  </span>
+                                ) : unanswered || notQuoted || c?.kind === 'custom' ? null : (
+                                  <span className="text-primary" title={parts.map((p) => p.name).join(', ')}>
+                                    ✓ {isSet ? `Set of ${parts.length} parts` : parts[0]?.name}
                                   </span>
                                 )}
-                              </div>
-                            ) : c?.kind === 'custom' ? (
-                              <div className="flex items-center gap-2">
-                                <Input
-                                  autoFocus
-                                  type="number"
-                                  min={0}
-                                  step="any"
-                                  aria-label={`Price for ${it.item_name}`}
-                                  placeholder="Price per unit (₹)"
-                                  className="h-8 w-40"
-                                  value={c.price}
-                                  onChange={(e) => setChoice(selected.key, it.id, { kind: 'custom', price: e.target.value })}
-                                />
-                                <span className="text-xs text-muted-foreground">typed by you</span>
-                              </div>
-                            ) : c?.kind === 'none' ? (
-                              <p className="text-sm text-muted-foreground">Not in this quote</p>
-                            ) : (
-                              <p className="text-sm font-medium text-amber-800 dark:text-amber-300">
-                                Not found in this quote
                               </p>
-                            )}
-
-                            {/* what to do about it */}
-                            <div className="flex flex-wrap items-center gap-1.5">
-                              {unsure && c?.kind === 'line' && (
-                                <Button
-                                  size="sm"
-                                  className="h-7 text-xs"
-                                  onClick={() => setChoice(selected.key, it.id, { kind: 'line', idx: c.idx, confirmed: true })}
-                                >
-                                  <Check className="mr-1 h-3.5 w-3.5" />
-                                  Yes, same item
-                                </Button>
-                              )}
-                              <Select value={value} onValueChange={onPick} disabled={selected.status === 'saving'}>
-                                <SelectTrigger
-                                  className={cn(
-                                    'h-7 w-auto gap-1 px-2 text-xs',
-                                    unanswered ? 'border-amber-500 font-semibold' : 'text-muted-foreground'
+                              {isSet && (
+                                <details className="mt-1 text-xs text-muted-foreground">
+                                  <summary className="cursor-pointer text-primary">See the {parts.length} parts</summary>
+                                  <ul className="mt-1 space-y-0.5">
+                                    {parts.map((p) => (
+                                      <li key={p.idx} className="flex items-center justify-between gap-2">
+                                        <span className="truncate">{p.name}</span>
+                                        <span className="flex shrink-0 items-center gap-1 tabular-nums">
+                                          {rupees(p.price)}
+                                          <button
+                                            type="button"
+                                            className="rounded p-0.5 hover:bg-muted hover:text-foreground"
+                                            aria-label={`Remove ${p.name} from ${it.item_name}`}
+                                            onClick={() => setParts(c?.kind === 'line' ? c.idxs.filter((i) => i !== p.idx) : [])}
+                                          >
+                                            <X className="h-3 w-3" />
+                                          </button>
+                                        </span>
+                                      </li>
+                                    ))}
+                                  </ul>
+                                  {addable.length > 0 && c?.kind === 'line' && (
+                                    <Select key={c.idxs.length} onValueChange={(v) => setParts([...c.idxs, Number(v.slice(5))])}>
+                                      <SelectTrigger className="mt-1 h-7 w-auto gap-1 px-2 text-xs" aria-label={`Add a part to ${it.item_name}`}>
+                                        <Plus className="h-3 w-3" /> Add a part
+                                      </SelectTrigger>
+                                      <SelectContent className="max-w-[520px]">
+                                        {addable.map((l) => (
+                                          <SelectItem key={l.idx} value={`line:${l.idx}`}>
+                                            <span className="flex w-full items-center justify-between gap-4">
+                                              <span className="truncate">{l.name}</span>
+                                              <b className="shrink-0 tabular-nums">{rupees(l.price)}</b>
+                                            </span>
+                                          </SelectItem>
+                                        ))}
+                                      </SelectContent>
+                                    </Select>
                                   )}
-                                  aria-label={`Choose the price for ${it.item_name}`}
-                                >
-                                  {unanswered ? 'Pick from the quote' : unsure ? 'No, pick another' : 'Change'}
-                                </SelectTrigger>
-                                <SelectContent className="max-w-[560px]">
-                                  {selected.lines.map((l) => (
-                                    <SelectItem key={l.idx} value={`line:${l.idx}`}>
-                                      <span className="flex w-full items-center justify-between gap-4">
-                                        <span className="truncate">{l.name}</span>
-                                        <b className="shrink-0 tabular-nums">{rupees(l.price)}</b>
-                                      </span>
-                                    </SelectItem>
-                                  ))}
-                                  {selected.lines.length > 0 && <SelectSeparator />}
-                                  <SelectItem value="custom">Type a price instead</SelectItem>
-                                  <SelectItem value="none">Not in this quote</SelectItem>
-                                </SelectContent>
-                              </Select>
-                              {unanswered && (
-                                <Button
-                                  size="sm"
-                                  variant="ghost"
-                                  className="h-7 text-xs text-muted-foreground"
-                                  onClick={() => setChoice(selected.key, it.id, { kind: 'none' })}
-                                >
-                                  Not quoted
-                                </Button>
+                                </details>
                               )}
                             </div>
+
+                            {(
+                              <Input
+                                type="number"
+                                min={0}
+                                step="any"
+                                inputMode="decimal"
+                                aria-label={`Price per unit for ${it.item_name}`}
+                                placeholder="Not quoted"
+                                className={cn(
+                                  'h-9 bg-background text-right tabular-nums',
+                                  amber && 'border-secondary'
+                                )}
+                                value={c?.kind === 'custom' ? c.price : price != null ? String(price) : ''}
+                                onChange={(e) => typed(e.target.value)}
+                                disabled={selected.status === 'saving'}
+                              />
+                            )}
+                            <span className={`text-right text-sm tabular-nums ${price != null ? 'font-semibold' : 'text-muted-foreground'}`}>
+                              {price != null ? rupees(price * qty) : '—'}
+                            </span>
+                            {rowMenu}
                           </div>
-
-                          <span className="hidden pt-0.5 text-right text-sm font-semibold tabular-nums md:block">
-                            {price != null ? rupees(price * Number(it.quantity)) : <span className="font-normal text-muted-foreground">—</span>}
-                          </span>
-                        </div>
-                      );
-                    })}
-                  </div>
-
-                  <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
-                    <span className="text-xs text-muted-foreground">
-                      {(() => {
-                        const used = new Set(
-                          Object.values(selected.choices)
-                            .filter((c): c is Extract<Choice, { kind: 'line' }> => c?.kind === 'line')
-                            .map((c) => c.idx)
                         );
-                        const other = selected.lines.filter((l) => !used.has(l.idx)).length;
-                        return other ? `${other} other line${other === 1 ? '' : 's'} in this PDF not asked for — ignored` : '';
-                      })()}
-                    </span>
-                    <span>
-                      Total for your items{' '}
-                      <b className="tabular-nums">
-                        {rupees(rfq.items.reduce((s, it) => s + (priceOf(selected, it.id) ?? 0) * Number(it.quantity), 0))}
-                      </b>
-                    </span>
-                  </div>
-                </div>
-              )}
+                      })}
+                    </div>
+                  </>
+                )}
+              </div>
             </div>
-          </div>
-        )}
+            )}
 
-        {rows.length > 0 && (
-          <div className="flex flex-wrap items-center justify-between gap-3 border-t bg-muted/30 px-5 py-3">
-            <span className="text-sm text-muted-foreground">
-              {stillReading ? (
-                'Waiting for the AI to finish reading…'
+            {/* ── Footer: total, what is left, Save ─────────────────────────── */}
+            <div className="flex flex-wrap items-center gap-3 border-t bg-muted/30 px-5 py-3">
+              <span className="min-w-0 flex-1 text-sm">
+                {reviewing ? (
+                  <span className="text-muted-foreground">
+                    Check each item&apos;s quantity and pack against the vendor&apos;s quote, then confirm.
+                  </span>
+                ) : stillReading ? (
+                  <span className="text-muted-foreground">Reading the PDFs…</span>
+                ) : many ? (
+                  <>
+                    <b>
+                      {savable.length} of {rows.length}
+                    </b>{' '}
+                    ready
+                    {selected && statusOf[selected.key]?.tone === 'warn' && (
+                      <span className="text-foreground"> · {vendorName(selected)}: {statusOf[selected.key]?.blocker}</span>
+                    )}
+                  </>
+                ) : selected ? (
+                  <>
+                    <span className="block">
+                      Total <b className="tabular-nums">{rupees(totalOf(selected))}</b>
+                    </span>
+                    {statusOf[selected.key]?.tone === 'warn' && (
+                      <span className="block text-xs text-foreground">{statusOf[selected.key]?.blocker}</span>
+                    )}
+                  </>
+                ) : null}
+              </span>
+              {reviewing ? (
+                <Button variant="ghost" onClick={() => setReviewing(false)} disabled={saving}>
+                  Back to edit
+                </Button>
               ) : (
-                <>
-                  <b className="text-foreground">{savable.length} of {rows.length}</b> ready to save
-                </>
+                <Button variant="ghost" onClick={() => close(false)} disabled={saving || stillReading}>
+                  Cancel
+                </Button>
               )}
-            </span>
-            <div className="flex gap-2">
-              <Button variant="outline" onClick={() => close(false)} disabled={saving || stillReading}>
-                Cancel
-              </Button>
-              <Button onClick={saveAll} disabled={saving || stillReading || savable.length === 0}>
-                {saving ? 'Saving…' : `Save ${savable.length || ''} quotation${savable.length === 1 ? '' : 's'}`}
+              {/* Nothing is saved straight from the edit view: the person first sees every
+                  item with the quantity and pack it is being saved for. */}
+              <Button
+                className="h-11 w-full px-5 sm:h-9 sm:w-auto"
+                onClick={reviewing ? saveAll : () => setReviewing(true)}
+                disabled={saving || stillReading || savable.length === 0}
+              >
+                {saving
+                  ? 'Saving…'
+                  : reviewing
+                    ? savable.length > 1 ? `Confirm & save ${savable.length} quotes` : 'Confirm & save'
+                    : 'Review items & qty'}
               </Button>
             </div>
-          </div>
+          </>
         )}
       </DialogContent>
     </Dialog>

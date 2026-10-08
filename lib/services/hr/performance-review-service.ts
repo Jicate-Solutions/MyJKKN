@@ -21,13 +21,26 @@
  *
  *   Policy reader:
  *     getPolicy             — reads hr.performance_review from platform_policies
- *                             via fn_get_policy_json. Single source of truth for
- *                             cycle dates + eligibility (min_service_months).
+ *                             via fn_get_policy_json, for one college (falls
+ *                             back to the group value). Single source of truth
+ *                             for cycle dates + eligibility (min_service_months).
+ *     getPolicyForStaff     — the same, for the college of the person being
+ *                             appraised. Every rule applied TO an appraisal
+ *                             must be read this way.
  *
  * Spec: specs/hr-module-decomposition-2026-05-09.md (T5.1)
  */
 
 import type { SupabaseClient } from '@supabase/supabase-js';
+import type { TeamPerson } from '@/lib/hr/appraisal-team-board';
+import {
+  deriveAppraisalScore,
+  parseRatings,
+  resolveAreas,
+  resolveRatingPoints,
+  type AppraisalRatingPolicySlice,
+  sentBackByFor,
+} from '@/lib/hr/appraisal-ratings';
 
 // ---------------------------------------------------------------------------
 // Types — kept local to the module. (No /types/hr-performance file yet; if
@@ -44,6 +57,11 @@ export type ReviewStatus =
 
 export interface HRPerformanceReviewCycle {
   id: string;
+  /**
+   * The college this round belongs to. NULL means every college — what a
+   * cycle was before it could belong to one.
+   */
+  institution_id: string | null;
   cycle_year: number;
   start_date: string; // ISO date
   end_date: string; // ISO date
@@ -56,6 +74,8 @@ export interface HRPerformanceReviewCycle {
 }
 
 export interface HRPerformanceReviewCycleInsert {
+  /** Omit or pass null for a round that covers every college. */
+  institution_id?: string | null;
   cycle_year: number;
   start_date: string;
   end_date: string;
@@ -64,6 +84,7 @@ export interface HRPerformanceReviewCycleInsert {
 }
 
 export interface HRPerformanceReviewCycleUpdate {
+  institution_id?: string | null;
   cycle_year?: number;
   start_date?: string;
   end_date?: string;
@@ -104,6 +125,16 @@ export interface HRPerformanceReviewPolicy {
   review_committee?: string;
   final_approver?: string;
   facilitator_grading_doc_ref?: string;
+  /**
+   * Three-rating model settings. Both optional: an absent key means the
+   * default, so no existing policy row has to be edited for this to work.
+   * See lib/hr/appraisal-ratings.ts.
+   */
+  rating_points?: AppraisalRatingPolicySlice['rating_points'];
+  area_weights?: AppraisalRatingPolicySlice['area_weights'];
+  exclude_collegiality_from_score?: boolean;
+  below_blocks_increment?: boolean;
+  collegiality_below_requires_example?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -119,6 +150,17 @@ const ALLOWED_TRANSITIONS: Record<ReviewStatus, ReadonlyArray<ReviewStatus>> = {
   final_approved: [], // terminal
 };
 
+/**
+ * The one step a send-back may return to, from each status. A send-back is
+ * only ever one step backward; anything else is a forward move, or a skip,
+ * wearing a send-back's note.
+ */
+const SEND_BACK_TO: Partial<Record<ReviewStatus, ReviewStatus>> = {
+  self_submitted: 'draft',
+  supervisor_reviewed: 'self_submitted',
+  sedc_reviewed: 'supervisor_reviewed',
+};
+
 function assertTransition(from: ReviewStatus, to: ReviewStatus): void {
   if (!ALLOWED_TRANSITIONS[from].includes(to)) {
     throw new Error(
@@ -126,6 +168,30 @@ function assertTransition(from: ReviewStatus, to: ReviewStatus): void {
         `Allowed from ${from}: ${ALLOWED_TRANSITIONS[from].join(', ') || '(terminal)'}`,
     );
   }
+}
+
+// ---------------------------------------------------------------------------
+// Locking a round
+// ---------------------------------------------------------------------------
+
+/**
+ * The refusal shown when a round cannot be locked yet (round-5 review).
+ *
+ * Once a round is locked the head of department can no longer act on it: a
+ * locked round is the committee's phase, with no edits by the person or
+ * their head. So any appraisal still waiting for its head would be stranded
+ * there until someone reopened the round for everybody. The lock waits
+ * instead, and says how many and, where known, in which departments.
+ */
+export function lockBlockedMessage(pending: number, departments: readonly string[] = []): string {
+  const what = pending === 1 ? '1 appraisal is' : `${pending} appraisals are`;
+  const names = [...new Set(departments)].sort();
+  const shown = names.length > 5 ? [...names.slice(0, 5), `${names.length - 5} more`] : names;
+  const where = shown.length > 0 ? ` (${shown.join(', ')})` : '';
+  return (
+    `${what} still waiting for their head of department${where}. ` +
+    'Lock the round once they are passed on or sent back.'
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -140,21 +206,108 @@ export class PerformanceReviewService {
   /**
    * Reads `hr.performance_review` from platform_policies via fn_get_policy_json.
    * Returns null when the policy row is not yet seeded (e.g. before M6a #900).
+   *
+   * `institutionId` is the college whose settings apply. The settings page
+   * saves this policy per college, and the resolver returns that college's
+   * row, or the group row when the college has none. Called with no college,
+   * only the group row is ever read, so a college's own setting is ignored:
+   * pass null only where no single college is involved (the round list).
    */
   static async getPolicy(
     supabase: SupabaseClient,
+    institutionId: string | null = null,
   ): Promise<HRPerformanceReviewPolicy | null> {
     const { data, error } = await supabase.rpc('fn_get_policy_json', {
       p_key: 'hr.performance_review',
+      p_scope_id: institutionId,
     });
     if (error) throw error;
     if (!data) return null;
     return data as HRPerformanceReviewPolicy;
   }
 
+  /**
+   * The settings for the college of the person being appraised. This is the
+   * read every screen that applies a rule TO an appraisal must use: the head,
+   * the committee and the Director may all sit in a different college, or
+   * look at a group-wide round that spans several.
+   *
+   * If the viewer cannot read that person's staff row, this falls back to the
+   * group value. The database guard still applies the person's own college,
+   * so the worst case is a screen that asks for an example the database would
+   * not have required, or the reverse, which the database then refuses.
+   */
+  static async getPolicyForStaff(
+    supabase: SupabaseClient,
+    staffId: string,
+  ): Promise<HRPerformanceReviewPolicy | null> {
+    const { data, error } = await supabase
+      .from('staff')
+      .select('institution_id')
+      .eq('id', staffId)
+      .maybeSingle();
+    if (error) throw error;
+    let institutionId = (data as { institution_id: string | null } | null)?.institution_id ?? null;
+
+    // The live read rule on staff shows a person their OWN row only when they
+    // hold staff.view, which faculty and heads usually do not (30 Sep 2026,
+    // #4139). A hidden row looks exactly like a missing one, so when nothing
+    // came back and the id is the caller's own record, take the college from
+    // the "my record" helpers every signed-in user may call.
+    if (!data) {
+      const own = await this.ownInstitutionFor(supabase, staffId);
+      if (own !== undefined) institutionId = own;
+    }
+    return this.getPolicy(supabase, institutionId);
+  }
+
+  /**
+   * The caller's own college when `staffId` is one of their own staff records;
+   * undefined when it is somebody else's (or the helpers are unavailable), so
+   * the caller keeps its own fallback.
+   */
+  private static async ownInstitutionFor(
+    supabase: SupabaseClient,
+    staffId: string,
+  ): Promise<string | null | undefined> {
+    const rpc = (supabase as unknown as {
+      rpc: (fn: string) => Promise<{ data: string[] | null; error: unknown }>;
+    }).rpc.bind(supabase);
+    const [mine, institutions] = await Promise.all([
+      rpc('fn_my_staff_ids'),
+      rpc('fn_my_staff_institution_ids'),
+    ]);
+    if (mine.error || institutions.error) return undefined;
+    if (!(mine.data ?? []).includes(staffId)) return undefined;
+    return institutions.data?.[0] ?? null;
+  }
+
   // -----------------------------------------------------------------------
   // Cycles
   // -----------------------------------------------------------------------
+
+  /**
+   * The one open round that applies to a given person.
+   *
+   * A college's own round wins over a group-wide one. Without that rule a
+   * staff member with both open would get whichever the database happened to
+   * return first, and two people in the same college could end up filling in
+   * different rounds.
+   *
+   * Row-level security already hides rounds belonging to other colleges, so
+   * this only has to choose between what the viewer can legitimately see.
+   */
+  static pickOpenCycle(
+    cycles: readonly HRPerformanceReviewCycle[],
+    institutionId: string | null,
+  ): HRPerformanceReviewCycle | null {
+    const open = cycles.filter((c) => c.status === 'open');
+    if (open.length === 0) return null;
+    const mine = institutionId
+      ? open.find((c) => c.institution_id === institutionId)
+      : undefined;
+    return mine ?? open.find((c) => c.institution_id === null) ?? null;
+  }
 
   static async listCycles(
     supabase: SupabaseClient,
@@ -193,11 +346,68 @@ export class PerformanceReviewService {
     return data as HRPerformanceReviewCycle;
   }
 
+  /**
+   * Refuses to move a round OUT of open (to locked, closed or back to draft)
+   * while any appraisal in it is still waiting for its head of department
+   * (status self_submitted). Every such move ends the head's step, because
+   * the head's rule requires an open round (round-6 review). Drafts
+   * do not block: those people never submitted and are left out, which the
+   * round page makes the admin confirm first. The database refuses the same
+   * move with a trigger; this check gives the reason in plain words first.
+   */
+  static async assertCanLock(supabase: SupabaseClient, cycleId: string): Promise<void> {
+    const { data, error } = await supabase
+      .from('hr_performance_reviews')
+      .select('staff_id')
+      .eq('cycle_id', cycleId)
+      .eq('status', 'self_submitted');
+    if (error) throw error;
+    const waiting = (data ?? []) as Array<{ staff_id: string }>;
+    if (waiting.length === 0) return;
+
+    // Department names are a courtesy. If they cannot be read the lock is
+    // still refused, just without the list.
+    let departments: string[] = [];
+    try {
+      const { data: people } = await supabase
+        .from('staff')
+        .select('department_id')
+        .in('id', waiting.map((w) => w.staff_id));
+      const deptIds = [
+        ...new Set(
+          ((people ?? []) as Array<{ department_id: string | null }>)
+            .map((p) => p.department_id)
+            .filter((d): d is string => !!d),
+        ),
+      ];
+      if (deptIds.length > 0) {
+        // The column is department_name; departments has no `name` column,
+        // so reading `name` failed quietly and the list never showed.
+        const { data: depts } = await supabase
+          .from('departments')
+          .select('department_name')
+          .in('id', deptIds);
+        departments = ((depts ?? []) as Array<{ department_name: string | null }>)
+          .map((d) => d.department_name ?? '')
+          .filter(Boolean);
+      }
+    } catch {
+      departments = [];
+    }
+    throw new Error(lockBlockedMessage(waiting.length, departments));
+  }
+
   static async updateCycle(
     supabase: SupabaseClient,
     id: string,
     patch: HRPerformanceReviewCycleUpdate,
   ): Promise<HRPerformanceReviewCycle> {
+    if (patch.status !== undefined && patch.status !== 'open') {
+      const current = await this.getCycle(supabase, id);
+      if (current?.status === 'open') {
+        await this.assertCanLock(supabase, id);
+      }
+    }
     const { data, error } = await supabase
       .from('hr_performance_review_cycles')
       .update(patch)
@@ -254,6 +464,62 @@ export class PerformanceReviewService {
     cycleId: string,
   ): Promise<HRPerformanceReview[]> {
     return this.listReviews(supabase, cycleId);
+  }
+
+  /**
+   * Names (and departments) for the people on a board, so a reviewer sees who
+   * an appraisal belongs to instead of an id. Read-only and under the caller's
+   * own row-level security: anyone whose staff row cannot be read is simply
+   * left out, and the screen shows "Team member". Never throws — a missing
+   * name must not stop the board from loading.
+   */
+  static async listPeople(
+    supabase: SupabaseClient,
+    staffIds: readonly string[],
+  ): Promise<Record<string, TeamPerson>> {
+    const ids = [...new Set(staffIds.filter(Boolean))];
+    if (ids.length === 0) return {};
+    try {
+      const { data, error } = await supabase
+        .from('staff')
+        .select('id, first_name, last_name, department_id')
+        .in('id', ids);
+      if (error || !data) return {};
+      const rows = data as Array<{
+        id: string;
+        first_name: string | null;
+        last_name: string | null;
+        department_id: string | null;
+      }>;
+
+      const deptName = new Map<string, string>();
+      const deptIds = [...new Set(rows.map((r) => r.department_id).filter((d): d is string => !!d))];
+      if (deptIds.length > 0) {
+        try {
+          const { data: depts } = await supabase
+            .from('departments')
+            .select('id, department_name')
+            .in('id', deptIds);
+          for (const d of (depts ?? []) as Array<{ id: string; department_name: string | null }>) {
+            if (d.department_name) deptName.set(d.id, d.department_name);
+          }
+        } catch {
+          // Departments are a courtesy; names still show without them.
+        }
+      }
+
+      const out: Record<string, TeamPerson> = {};
+      for (const r of rows) {
+        const name = [r.first_name, r.last_name].filter(Boolean).join(' ').trim();
+        out[r.id] = {
+          name: name || null,
+          department: (r.department_id && deptName.get(r.department_id)) || null,
+        };
+      }
+      return out;
+    } catch {
+      return {};
+    }
   }
 
   // -----------------------------------------------------------------------
@@ -361,23 +627,119 @@ export class PerformanceReviewService {
     return data as HRPerformanceReview;
   }
 
-  /** Director path. sedc_reviewed → final_approved (terminal). */
+  /**
+   * Director path. sedc_reviewed → final_approved (terminal).
+   *
+   * The Director approves the ratings the committee normalised; he does not
+   * type a number. final_score is DERIVED from those ratings by the policy's
+   * rule and exists only so promotion has an ordering — it is never shown as
+   * the appraisal result. There is deliberately no way to pass a score in:
+   * that was the one place a figure could be entered that no rating supported.
+   *
+   * Throws when any area is unrated, so an incomplete appraisal cannot be
+   * closed with a number that looks decided.
+   *
+   * The scoring rule (points per rating, area weights) is read here for the
+   * person's own college, every time. It used to accept a policy from the
+   * screen, which had read the group value; the stored score would then have
+   * followed the group's rule even where the college had its own.
+   */
   static async finalApprove(
     supabase: SupabaseClient,
     reviewId: string,
-    args: { final_score: number; final_remarks: string; approver_profile_id: string },
+    args: {
+      final_remarks: string;
+      approver_profile_id: string;
+    },
   ): Promise<HRPerformanceReview> {
     const current = await this.requireReview(supabase, reviewId);
     assertTransition(current.status, 'final_approved');
 
+    // The approved ratings ARE the committee's normalised ratings. The
+    // Director's decision at this step is approve or send back, so nothing is
+    // re-rated here and no tier's payload is written over by another.
+    const policy = await this.getPolicyForStaff(supabase, current.staff_id);
+    const areas = resolveAreas();
+    const ratings = parseRatings(current.sedc_review_jsonb, areas);
+    const derived = deriveAppraisalScore(ratings, areas, resolveRatingPoints(policy), policy);
+    if (derived === null) {
+      throw new Error(
+        'The committee has not rated every area. Send this review back to the committee rather than approving it.',
+      );
+    }
+
     const { data, error } = await supabase
       .from('hr_performance_reviews')
       .update({
-        final_score: args.final_score,
+        final_score: derived,
         final_remarks: args.final_remarks,
         status: 'final_approved',
         final_approved_at: new Date().toISOString(),
         final_approved_by: args.approver_profile_id,
+      })
+      .eq('id', reviewId)
+      .select('*')
+      .single();
+    if (error) throw error;
+    return data as HRPerformanceReview;
+  }
+
+  /**
+   * Send a review one step back for rework — the only alternative to approving
+   * it. Without this the Director's single option at sign-off would be to
+   * approve, which makes the sign-off meaningless. Uses the same transition
+   * table as the forward path, so it can never skip a tier.
+   *
+   * It also refuses anything that is not exactly one step BACKWARD. The
+   * transition table alone would accept a forward move here, and that move
+   * would then carry a send-back note and a `sent_back_by` stamp, so a
+   * screen would show an approval as a rejection (round-4 review).
+   */
+  static async sendBack(
+    supabase: SupabaseClient,
+    reviewId: string,
+    to: ReviewStatus,
+    reason: string,
+  ): Promise<HRPerformanceReview> {
+    const current = await this.requireReview(supabase, reviewId);
+    if (SEND_BACK_TO[current.status] !== to) {
+      throw new Error(
+        `A send-back must go one step back. From ${current.status} that is ` +
+          `${SEND_BACK_TO[current.status] ?? '(nothing: it cannot be sent back)'}, not ${to}.`,
+      );
+    }
+    assertTransition(current.status, to);
+    if (!reason.trim()) {
+      throw new Error('Say why it is going back — the next reviewer has to act on it.');
+    }
+
+    // Where the note is stamped, by the status the appraisal is leaving:
+    //   sedc_reviewed       (Director -> committee): committee's payload
+    //   supervisor_reviewed (committee -> head):     head's payload
+    //   self_submitted      (head -> person):        head's payload
+    // The first two land on the tier that acts NEXT. The third cannot: the
+    // next actor is the person, and the column guard (rightly) refuses a head
+    // writing the person's own tier, so it goes on the head's own payload.
+    // Because the head's payload then carries notes from two different
+    // senders, `sent_back_by` records which one, and every screen that shows
+    // a note checks it (parseSentBackReason).
+    const stampColumn =
+      current.status === 'sedc_reviewed'
+        ? 'sedc_review_jsonb'
+        : 'supervisor_review_jsonb';
+    const existingPayload =
+      (current[stampColumn as keyof HRPerformanceReview] as Record<string, unknown> | null) ?? {};
+
+    const { data, error } = await supabase
+      .from('hr_performance_reviews')
+      .update({
+        status: to,
+        [stampColumn]: {
+          ...existingPayload,
+          sent_back_reason: reason,
+          sent_back_by: sentBackByFor(current.status),
+          sent_back_at: new Date().toISOString(),
+        },
       })
       .eq('id', reviewId)
       .select('*')

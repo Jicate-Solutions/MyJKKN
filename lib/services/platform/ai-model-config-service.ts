@@ -472,10 +472,18 @@ function getHardcodedFallback(featureKey: string): ResolvedModel {
     // this would be an unrequested model upgrade. Out of scope for this fix.
     'admission.agentic_query': fallback(featureKey, 'anthropic', 'claude-3-5-haiku-20241022'),
     'admission.ai_response': fallback(featureKey, 'anthropic', 'claude-3-5-haiku-20241022'),
-    // Procurement PDF extraction (2026-07-11) — mirrors the pre-adoption hardcode
-    // in lib/procurement/*-pdf-extract.ts (cutover invariant: degraded == old behavior).
-    'procurement.quotation_extract': fallback(featureKey, 'anthropic', 'claude-opus-4-8'),
-    'procurement.invoice_extract': fallback(featureKey, 'anthropic', 'claude-opus-4-8'),
+    // Procurement uses Claude Haiku 4.5 only (2026-10-07, lowest-priced current
+    // model). Every procurement feature is pinned here too, so a missing config
+    // row can never fall through to the generic default (and from there to the
+    // Sonnet hardcode in ai-clients/chat.ts).
+    'procurement.quotation_extract': fallback(featureKey, 'anthropic', 'claude-haiku-4-5'),
+    'procurement.invoice_extract': fallback(featureKey, 'anthropic', 'claude-haiku-4-5'),
+    'procurement.quotation_extract_api': fallback(featureKey, 'anthropic', 'claude-haiku-4-5'),
+    'procurement.quotation_compare_chat': fallback(featureKey, 'anthropic', 'claude-haiku-4-5'),
+    // HR intake helper's resume reader (2026-10-01) — mirrors its seed row in
+    // 20270521091500_hr_intake_resume_extract_model.sql, so a missing row or an
+    // unreachable table keeps it on Haiku instead of the Sonnet last resort.
+    'hr.intake.resume_extract': fallback(featureKey, 'anthropic', 'claude-haiku-4-5'),
   };
 
   return FALLBACKS[featureKey] ?? fallback(featureKey, 'openai', 'gpt-4o-mini');

@@ -1,5 +1,63 @@
 name: Apply Supabase migrations
 
+# ┌─────────────────────────────────────────────────────────────────────────────┐
+# │ NEVER RUN THE `supabase migration repair` LINE THIS WORKFLOW PRINTS WHEN IT │
+# │ FAILS. It is the CLI's generic advice and it is wrong for this project.     │
+# └─────────────────────────────────────────────────────────────────────────────┘
+#
+# What you will see (verified on run 33957269672, 2026-09-05, a real apply that
+# applied NOTHING and failed):
+#
+#     Remote migration versions not found in local migrations directory.
+#     Make sure your local git repo is up-to-date. If the error persists, try
+#     repairing the migration history table:
+#     supabase migration repair --status reverted <2,715 version numbers>
+#
+# That refusal is CORRECT and is the only thing standing between this button and
+# a project-wide regression. Do not "repair" past it.
+#
+# WHY. supabase_migrations.schema_migrations is NOT an index of this repo. Most
+# of this project's SQL reached production through the Management API or by hand,
+# neither of which records a row. Measured against live production 2026-10-05:
+#
+#     migration versions on main ........ 2,463
+#     recorded as applied ...............   660
+#     absent from the record ............ 1,803   ← applied, just not recorded
+#     oldest recorded row ............... 20250428044802
+#     oldest migration file ............. 20250116000001
+#
+# So the CLI sees thousands of files it believes are pending and thousands of
+# rows it cannot match, and stops. The disagreement is a RECORDING gap, not
+# unfinished work.
+#
+# WHAT THE REPAIR LINE WOULD DO. `--status reverted` marks those 2,715 versions
+# as not-applied. The next run then has nothing to refuse, proceeds, and
+# re-applies them for real — old bodies over live objects. Of the first 400 such
+# files, 252 contain CREATE OR REPLACE FUNCTION, CREATE POLICY or DROP POLICY,
+# so live functions and access rules across the platform would be rewritten with
+# definitions months or years old, most likely failing partway and leaving
+# production half-reverted. Compare the 2026-08-04 case documented in
+# .github/workflows/migration-rename-applied.yml, where re-applying ONE file
+# would have replaced a live tenant boundary with WITH CHECK (true).
+#
+# WHAT TO DO INSTEAD when this workflow refuses:
+#   1. Applying ONE recently merged migration? Apply that file alone, outside
+#      this workflow. The W12 ship wave already does this for migrations that
+#      arrive attached to a PR it merges.
+#   2. A migration that reached main by DIRECT PUSH is never seen by the wave
+#      and never becomes pending here either. Apply it by hand after a
+#      BEGIN…ROLLBACK rehearsal, then record its row. (That gap caused an
+#      ~8-hour outage of learner leave/on-duty creation on 2026-10-05.)
+#   3. Want the record to stop lying? Back-fill rows for versions already
+#      applied — and establish "already applied" by whether the migration's
+#      OBJECTS EXIST, never by the ledger. Absence of a row proves nothing.
+#
+# WHO CAN PRESS THIS. Any collaborator with push access (8 at 2026-10-06).
+# History to date: 2026-09-03 dry run, 2026-09-05 dry run, 2026-09-05 real apply
+# (failed, applied nothing). No run has ever applied a migration.
+#
+# ── end of 2026-10-06 warning ────────────────────────────────────────────────
+#
 # Closes the longstanding gap surfaced 2026-05-15: 14 merged migrations sat
 # in supabase/migrations/ on main but never reached production because
 # MyJKKN has Vercel auto-deploy for the Next.js app but NO mechanism to

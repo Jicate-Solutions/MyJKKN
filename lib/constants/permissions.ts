@@ -242,7 +242,13 @@ export const PERMISSION_CATEGORIES = [
       // courses.applications.decide for the external_participant kind alone
       // (20260821070100). Do not tick this key just to unblock /courses.
       { key: 'users.jkkn_id.view', label: 'Look Up People by JKKN ID / Roll Number / Team Code' },
-      { key: 'users.jkkn_id.issue', label: 'Issue a JKKN ID for Any Learner or Team Member' }
+      { key: 'users.jkkn_id.issue', label: 'Issue a JKKN ID for Any Learner or Team Member' },
+      // Added 2026-10-01 — Director ruling: logins last forever on the installed
+      // app; the safety net for a lost or shared phone is "Sign out of all
+      // devices". Gates fn_revoke_user_sessions (the admin button on
+      // /users/[id]). Super admins have it implicitly; no role is granted it by
+      // default — tick it in Role Management for whoever should hold it.
+      { key: 'users.sessions.revoke', label: 'Sign Anyone Out of All Their Devices' }
     ]
   },
   {
@@ -1124,6 +1130,11 @@ export const PERMISSION_CATEGORIES = [
       // anyone), so THAT is what is gated, and the RLS + the review function
       // both demand this key.
       { key: 'hr.staff_photo.review', label: 'Approve Team Member Photographs' },
+      // HR staff harness (20270613101207): the desk-level late counts —
+      // fn_hr_duty_desk_summary(). Desks only, never a person's numbers; the
+      // Director (fn_is_the_director) and super admins see them without it.
+      // Meant for the HR head; switch it on in Role Management.
+      { key: 'hr.harness.desks.view', label: 'View HR Desk Late Counts' },
       { key: 'hr.attendance.view_all', label: 'View Attendance for Everyone' },
       { key: 'hr.attendance.approve_team', label: 'Approve Attendance for Own Team' },
       { key: 'hr.attendance.regularize_approve', label: 'Approve Attendance Regularization Requests' },
@@ -1136,6 +1147,15 @@ export const PERMISSION_CATEGORIES = [
       // grant is unchanged and still hr_head alone.
       { key: 'hr.attendance.manual.generate', label: 'Generate Manual Attendance for Team Members Without Biometric' },
       { key: 'hr.attendance.audit_export', label: 'Export the Attendance Audit Log' },
+      // Clinical duty (2026-10-05). Decides WHO may mark geotagged attendance
+      // from off-campus duty sites, and where those sites are. Requesting
+      // eligibility is deliberately ungated (own-row RLS: a person can only file
+      // for themselves) and punching is gated by an approved eligibility checked
+      // inside fn_hr_clinical_punch, so neither needs a key a rollout would block on.
+      { key: 'hr.attendance.clinical.manage', label: 'Manage Clinical Duty Eligibility & Duty Sites' },
+      // Deleting a duty site is held back from manage: hr_admin / hr_manager can
+      // add, edit and deactivate a site, only hr_head (and super admins) can delete one.
+      { key: 'hr.attendance.clinical.delete', label: 'Delete Clinical Duty Sites' },
 
       // ── Attendance month close (2026-08-22) ──────────────────────────────
       // CLOSING the month is not the same as overriding a record.
@@ -1194,6 +1214,11 @@ export const PERMISSION_CATEGORIES = [
       { key: 'hr.policies.create', label: 'Create Policy Entries' },
       { key: 'hr.policies.edit', label: 'Edit Policy Entries' },
       { key: 'hr.policies.history.view', label: 'View Policy Change History' },
+      // HR staff harness — playbooks (20271007161139): accept, edit or decline
+      // proposed playbook lines and retire old ones on /hr/playbooks. Meant for
+      // the HR head. The migration grants it to no role; until it is granted in
+      // Role Management only super admins decide.
+      { key: 'hr.harness.playbooks.manage', label: 'Decide HR Playbook Lines' },
       // Onboarding (Sprint 4) — hr_onboarding_checklists cadre templates
       { key: 'hr.onboarding.view', label: 'View Onboarding Checklists' },
       { key: 'hr.onboarding.manage', label: 'Manage Onboarding Templates' },
@@ -2032,10 +2057,30 @@ export const PERMISSION_CATEGORIES = [
     // spine, purchases -> Procurement). Each destination keeps its own keys and
     // its own server-side gate, so a second InstaSolver key would grant nothing
     // the destination does not re-check.
+    //
+    // The InstaSolver DESK (docs/instasolver/MYJKKN-MODULE-SPEC.md, 2026-09-30)
+    // does own data (instasolver_* tables) and adds three keys. They only decide
+    // which sidebar rows a person sees; who may actually triage, work or read
+    // analytics is decided by the database (instasolver_my_access + RLS).
     name: 'InstaSolver',
     key: 'instasolver',
     permissions: [
-      { key: 'instasolver.view', label: 'InstaSolver — raise an issue' }
+      { key: 'instasolver.view', label: 'InstaSolver — raise an issue' },
+      { key: 'instasolver.triage', label: 'InstaSolver — triage queue, workload and maintenance teams (CAO)' },
+      { key: 'instasolver.work', label: 'InstaSolver — maintenance work queue' },
+      { key: 'instasolver.analytics', label: 'InstaSolver — analytics (Principal, CAO)' }
+    ]
+  },
+  {
+    // Campus Walk — the FIXES board (/campus-walk/scoreboard/fixes), department
+    // totals only (D9). Director's ruling 2026-09-30: visible to every team
+    // member, so it has its own key rather than riding projects.view or the
+    // campus_walk.reporters.allowed_emails allow-list. Granted to every
+    // non-learner role by 20270701090100_campus_walk_fix_board_permission.sql.
+    name: 'Campus Walk',
+    key: 'campus_walk',
+    permissions: [
+      { key: 'campus_walk.fix_board.view', label: 'Campus Walk — see the fixes scoreboard (departments only)' }
     ]
   },
   {
@@ -2227,9 +2272,10 @@ export const PERMISSION_CATEGORIES = [
       { key: 'campus_living.vacate_requests.finalize', label: 'Finalize Vacate (retired stage)' },
       { key: 'campus_living.vacate_requests.cancel', label: 'Cancel Vacate Request (Admin / Hostel Office)' },
       { key: 'campus_living.vacate_checklist.manage', label: 'Manage Vacate Checklist Items (settings)' },
-      // 2026-10-01: chain is now bills (auto) -> principal -> warden (checklist + room damage) -> mess -> CAO -> [fine paid] -> vacated.
+      // 2026-10-01: chain is bills (auto) -> accounts -> principal -> warden (checklist + room damage) -> CAO -> [fine paid] -> vacated. Mess clearance retired (key kept).
+      { key: 'campus_living.vacate_requests.approve_accountant', label: 'Accounts Approve / Reject Vacate Request (bill verification)' },
       { key: 'campus_living.vacate_requests.approve_principal', label: 'Principal Approve / Reject Vacate Request' },
-      { key: 'campus_living.vacate_requests.approve_mess', label: 'Mess In-charge Clearance Approve / Reject Vacate Request' },
+      { key: 'campus_living.vacate_requests.approve_mess', label: 'Mess In-charge Clearance Approve / Reject Vacate Request (retired step)' },
       { key: 'campus_living.vacate_requests.approve_cao', label: 'CAO Final Approve / Reject Vacate Request (raises the damage fine)' },
       { key: 'campus_living.damage_types.manage', label: 'Manage Hostel Damage Types (settings)' },
 
@@ -3487,6 +3533,8 @@ export const PERMISSION_CATEGORIES = [
       { key: 'social.insights.view', label: 'View Social Insights' },
       { key: 'social.instagram.view', label: 'View Instagram Analytics' },
       { key: 'social.instagram.manage', label: 'Manage Instagram Accounts (connect / discover / sync)' },
+      { key: 'social.learner_credit.view', label: 'View Learner Instagram Credit (claims + the award board)' },
+      { key: 'social.learner_credit.review', label: 'Confirm or Reject a Learner Instagram Claim' },
       { key: 'social.facebook.view', label: 'View Facebook Analytics' },
       { key: 'social.facebook.manage', label: 'Manage Facebook Pages (discover / sync)' },
       { key: 'social.lead_ads.view', label: 'View Lead Ads' },

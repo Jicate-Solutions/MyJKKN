@@ -2,7 +2,10 @@
  * Improvement Board — department owner service (browser client).
  * ============================================================================
  *
- * Names ONE accountable person per department (one row of `improvement_areas`).
+ * Names the accountable people for a department (one row of
+ * `improvement_areas`). A department can have MORE THAN ONE owner since
+ * 2026-10-06 (20271006100000_improvement_multiple_department_owners.sql):
+ * adding an owner ends nobody, and each owner is removed on their own.
  *
  * Why this service exists at all: naming an owner was previously possible only
  * by opening a department's AI-drafted organogram playbook, editing it, filling
@@ -25,14 +28,14 @@
  * for anyone else, so the screen's read-only rendering for a manager is a
  * courtesy over a server-side refusal, never the guard itself.
  *
- * Both RPCs already exist in production and are reused unchanged — this service
- * adds no migration and no new RPC:
- *   fn_mba_dept_role_assignment_set(p_area_id, p_role_type, p_staff_id, p_holder_note)
- *   fn_mba_dept_role_assignment_clear(p_area_id, p_role_type)
+ * The two RPCs this service calls:
+ *   fn_improvement_department_owner_add(p_area_id, p_staff_id, p_holder_note, p_profile_id)
+ *   fn_improvement_department_owner_remove(p_assignment_id)
  *
- * NOTE on clearing: the `set` RPC REFUSES a null holder outright ("a holder is
- * required"), so removing an owner has to go through the dedicated `clear` RPC,
- * which end-dates the standing row rather than deleting it. History is kept.
+ * NOT the organogram pair (`fn_mba_dept_role_assignment_set` / `_clear`): `set`
+ * treats a second name on the same role as a HANDOVER and end-dates the first,
+ * and `clear` ends every row of the role at once. Removing end-dates the row
+ * rather than deleting it. History is kept.
  *
  * KNOWN INTERACTION — `fn_mba_dept_role_assignments_sync` (the organogram
  * approve path) end-dates every current role on a board whose role_type is not
@@ -104,19 +107,33 @@ const MODULE = 'improvement/department-owners';
  */
 export const DEPARTMENT_OWNER_ROLE_TYPE = 'department_owner';
 
-/** One department, plus whoever currently owns it. */
+/** One current owner of a department. */
+export interface DepartmentOwner {
+  /** hr_additional_roles.id — what a removal targets. */
+  assignmentId: string;
+  /** public.staff id of the owner, when the owner is a linked record. */
+  staffId: string | null;
+  /**
+   * User account of an owner who has NO team member record. Such an owner is
+   * still a real, linked person — only `staffId` and `profileId` both being
+   * null means the name was typed in.
+   */
+  profileId: string | null;
+  /** Resolved display name — linked record first, else the typed-in name. */
+  name: string | null;
+  email: string | null;
+  /** Date this owner took the role. */
+  since: string | null;
+}
+
+/** One department, plus everyone who currently owns it. */
 export interface DepartmentOwnerRow {
   areaId: string;
   areaKey: string;
   areaLabel: string;
   displayOrder: number;
-  /** public.staff id of the owner, when the owner is a linked record. */
-  ownerStaffId: string | null;
-  /** Resolved display name — linked record first, else the typed-in name. */
-  ownerName: string | null;
-  ownerEmail: string | null;
-  /** Date the current owner took the role. */
-  ownerSince: string | null;
+  /** Current owners, longest-standing first. Empty when nobody owns it. */
+  owners: DepartmentOwner[];
   /**
    * How many ideas are sitting in Logged on this department right now.
    *
@@ -138,8 +155,10 @@ interface AreaRow {
 
 /** The shape `/api/mba/dept-artifacts/role-assignments` returns per role. */
 interface RoleAssignmentResponse {
+  id: string;
   role_type: string;
   staff_id: string | null;
+  profile_id?: string | null;
   holder_note: string | null;
   holder_name: string | null;
   holder_email: string | null;
@@ -236,25 +255,21 @@ export class DepartmentOwnerService {
       areas
         .filter((area) => ownedAreaIds.has(area.id))
         .map(async (area) => {
-          const owner = await this.fetchOwnerForArea(area.id);
-          return [area.id, owner] as const;
+          const owners = await this.fetchOwnersForArea(area.id);
+          return [area.id, owners] as const;
         })
     );
-    const ownerByArea = new Map(resolved);
+    const ownersByArea = new Map(resolved);
 
     const waitingByArea = await this.countWaitingIdeasByArea();
 
     return areas.map((area) => {
-      const owner = ownerByArea.get(area.id) ?? null;
       return {
         areaId: area.id,
         areaKey: area.key,
         areaLabel: area.label,
         displayOrder: Number(area.display_order ?? 0),
-        ownerStaffId: owner?.staff_id ?? null,
-        ownerName: owner?.holder_name ?? null,
-        ownerEmail: owner?.holder_email ?? null,
-        ownerSince: owner?.start_date ?? null,
+        owners: ownersByArea.get(area.id) ?? [],
         waitingIdeaCount:
           waitingByArea === null ? null : (waitingByArea.get(area.id) ?? 0)
       };
@@ -310,14 +325,14 @@ export class DepartmentOwnerService {
   }
 
   /**
-   * The department_owner assignment for one department, with its name already
+   * Every department_owner assignment for one department, with names already
    * resolved. Throws rather than degrading to "nobody" — an empty answer and a
    * failed lookup look identical on screen, and this page exists to make the
    * difference between "nobody owns this" and "we could not tell" visible.
    */
-  private static async fetchOwnerForArea(
+  private static async fetchOwnersForArea(
     areaId: string
-  ): Promise<RoleAssignmentResponse | null> {
+  ): Promise<DepartmentOwner[]> {
     const response = await fetch(
       `/api/mba/dept-artifacts/role-assignments?area_id=${encodeURIComponent(areaId)}`
     );
@@ -331,46 +346,58 @@ export class DepartmentOwnerService {
     const body = (await response.json()) as {
       assignments?: RoleAssignmentResponse[];
     };
-    return (
-      (body.assignments ?? []).find(
+    return (body.assignments ?? [])
+      .filter(
         (assignment) =>
           assignment.role_type.trim().toLowerCase() ===
           DEPARTMENT_OWNER_ROLE_TYPE
-      ) ?? null
-    );
+      )
+      .map((assignment) => ({
+        assignmentId: assignment.id,
+        staffId: assignment.staff_id,
+        profileId: assignment.profile_id ?? null,
+        name: assignment.holder_name,
+        email: assignment.holder_email,
+        since: assignment.start_date
+      }));
   }
 
   /**
-   * Name (or replace) the owner of one department. Returns the new assignment
-   * id.
+   * Add one owner to a department, alongside whoever already owns it. Returns
+   * the assignment id.
    *
-   * `staffId` is a `public.staff` id, so only a team member can be named — a
-   * learner has no record there and cannot be picked. When the person has no
-   * MyJKKN record the picker falls back to a typed name, which is stored as
-   * text; the RPC rejects a bracketed value like "[Manager to complete]"
-   * because that is the AI draft's prompt to a human, not a person.
+   * `staffId` is a `public.staff` id. `profileId` is for a user account that
+   * has no team member record — the RPC links it by account, and switches to
+   * the team member record itself if one turns out to exist. A learner is never
+   * offered by the picker. With neither id, the typed name is stored as text;
+   * the RPC rejects a bracketed value like "[Manager to complete]" because that
+   * is the AI draft's prompt to a human, not a person.
    *
-   * Replacing an owner is a handover, not an overwrite: the RPC end-dates the
-   * standing row and opens a new one, so who owned what and when survives.
+   * Nobody is end-dated. Naming someone who already owns the department is a
+   * no-op that returns their standing row.
    */
-  static async setOwner(
+  static async addOwner(
     areaId: string,
     staffId: string | null,
-    typedName: string | null
+    typedName: string | null,
+    profileId: string | null = null
   ): Promise<string> {
     const supabase = this.getSupabase();
     const trimmedName = (typedName ?? '').trim();
 
     const { data, error } = (await (supabase as any).rpc(
-      'fn_mba_dept_role_assignment_set',
+      'fn_improvement_department_owner_add',
       {
         p_area_id: areaId,
-        p_role_type: DEPARTMENT_OWNER_ROLE_TYPE,
         p_staff_id: staffId,
         // Matches the organogram path's convention exactly: the free-typed name
         // is stored ONLY when nobody was linked. Both write this same table, so
         // they must not disagree about what `notes` means.
-        p_holder_note: staffId ? null : trimmedName || null
+        p_holder_note: staffId || profileId ? null : trimmedName || null,
+        // Sent only for an account pick, so a team member or typed-name pick
+        // still resolves against the 3-argument function that production
+        // carries until 20271006100000 is re-run.
+        ...(!staffId && profileId ? { p_profile_id: profileId } : {})
       }
     )) as { data: string | null; error: unknown };
 
@@ -384,20 +411,16 @@ export class DepartmentOwnerService {
   }
 
   /**
-   * Remove the owner of one department. Returns how many assignments were
-   * ended (0 or 1 here).
+   * Remove ONE owner of a department, leaving any co-owners standing. Returns
+   * how many assignments were ended (0 or 1).
    *
-   * Goes through the dedicated clear RPC because the set RPC refuses a null
-   * holder. The row is end-dated, never deleted.
+   * The row is end-dated, never deleted.
    */
-  static async clearOwner(areaId: string): Promise<number> {
+  static async removeOwner(assignmentId: string): Promise<number> {
     const supabase = this.getSupabase();
     const { data, error } = (await (supabase as any).rpc(
-      'fn_mba_dept_role_assignment_clear',
-      {
-        p_area_id: areaId,
-        p_role_type: DEPARTMENT_OWNER_ROLE_TYPE
-      }
+      'fn_improvement_department_owner_remove',
+      { p_assignment_id: assignmentId }
     )) as { data: number | null; error: unknown };
 
     if (error) {
