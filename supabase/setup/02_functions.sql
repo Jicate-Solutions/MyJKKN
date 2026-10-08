@@ -22784,6 +22784,70 @@ GRANT EXECUTE ON FUNCTION fn_initiate_refund_request(uuid,text,jsonb,text,jsonb)
 GRANT EXECUTE ON FUNCTION fn_act_on_refund_request(uuid,text,text,jsonb,text) TO authenticated;
 GRANT EXECUTE ON FUNCTION fn_disburse_refund_request(uuid,text,jsonb,text,jsonb) TO authenticated;
 
+-- Re-apply the CURRENT flow to one open request with no approvals (super admin only).
+-- See migration 20261008140000.
+CREATE OR REPLACE FUNCTION public.fn_reapply_refund_flow(p_request_id uuid, p_reason text)
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = ''
+AS $$
+DECLARE
+  v_user uuid := auth.uid();
+  v_req public.billing_refund_requests;
+  v_cfg public.billing_refund_flow_configs;
+  v_snapshot jsonb;
+  v_actor_role text;
+BEGIN
+  IF v_user IS NULL THEN RAISE EXCEPTION 'not_authenticated'; END IF;
+  IF NOT public.is_super_admin() THEN RAISE EXCEPTION 'not_authorized'; END IF;
+  IF COALESCE(btrim(p_reason), '') = '' THEN RAISE EXCEPTION 'reason_required'; END IF;
+
+  SELECT * INTO v_req FROM public.billing_refund_requests WHERE id = p_request_id FOR UPDATE;
+  IF NOT FOUND THEN RAISE EXCEPTION 'request_not_found'; END IF;
+  IF v_req.status <> 'pending_review' THEN RAISE EXCEPTION 'invalid_status: %', v_req.status; END IF;
+  IF v_req.current_stage_index <> 0 OR EXISTS (
+    SELECT 1 FROM public.billing_refund_request_actions a
+    WHERE a.request_id = p_request_id AND a.action_type = 'approved'
+  ) THEN
+    RAISE EXCEPTION 'already_has_approvals';
+  END IF;
+
+  v_cfg := public.fn_resolve_refund_flow_config(v_req.institution_id);
+  IF v_cfg.id IS NULL THEN RAISE EXCEPTION 'no_flow_configured'; END IF;
+  IF jsonb_array_length(v_cfg.stages) = 0 THEN RAISE EXCEPTION 'flow_has_no_stages'; END IF;
+
+  -- Same shape as fn_initiate_refund_request: uuids as strings so jsonb ? works in gating.
+  v_snapshot := jsonb_build_object(
+    'config_id', v_cfg.id::text,
+    'initiator', jsonb_build_object('assignee_roles', to_jsonb(v_cfg.initiator_roles::text[]), 'assignee_users', to_jsonb(v_cfg.initiator_users::text[])),
+    'stages', v_cfg.stages,
+    'disburser', jsonb_build_object('assignee_roles', to_jsonb(v_cfg.disburser_roles::text[]), 'assignee_users', to_jsonb(v_cfg.disburser_users::text[])));
+
+  IF v_req.flow_snapshot IS NOT DISTINCT FROM v_snapshot THEN
+    RAISE EXCEPTION 'flow_already_current';
+  END IF;
+
+  SELECT cr.role_name INTO v_actor_role
+    FROM public.user_roles ur JOIN public.custom_roles cr ON cr.id = ur.role_id
+    WHERE ur.user_id = v_user ORDER BY ur.is_primary DESC NULLS LAST LIMIT 1;
+
+  UPDATE public.billing_refund_requests
+    SET flow_snapshot = v_snapshot, current_stage_index = 0
+    WHERE id = p_request_id;
+
+  INSERT INTO public.billing_refund_request_actions
+    (request_id, action_type, stage_index, stage_name, actor_id, actor_role_name, notes, attachments)
+  VALUES (p_request_id, 'flow_reapplied', NULL, 'Approval flow re-applied', v_user, v_actor_role,
+    format('Flow re-applied from current settings (%s -> %s stages). %s',
+      jsonb_array_length(v_req.flow_snapshot->'stages'), jsonb_array_length(v_cfg.stages), btrim(p_reason)),
+    '[]'::jsonb);
+END; $$;
+
+-- Revoke from BOTH anon and PUBLIC (anon holds a direct default grant on top of PUBLIC).
+REVOKE EXECUTE ON FUNCTION public.fn_reapply_refund_flow(uuid,text) FROM anon, PUBLIC;
+GRANT EXECUTE ON FUNCTION public.fn_reapply_refund_flow(uuid,text) TO authenticated;
+
 -- Role→member pairs for active roles (settings user-picker role filter). See
 -- migration 20260711130000. Self-authorizing DEFINER (config authors only).
 CREATE OR REPLACE FUNCTION public.fn_refund_role_members()
@@ -37786,11 +37850,10 @@ GRANT  EXECUTE ON FUNCTION public.fn_check_duplicate_person(text, text, text, da
 -- teaches its user that people do not exist.
 -- ---------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION public.fn_resolve_person(p_query text)
-RETURNS jsonb
-LANGUAGE plpgsql
-STABLE
-SECURITY DEFINER
-SET search_path = public
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ STABLE SECURITY DEFINER
+ SET search_path TO 'public'
 AS $fn$
 DECLARE
   v_q        text := btrim(coalesce(p_query, ''));
@@ -37855,20 +37918,11 @@ BEGIN
         ELSE 'name'
       END AS matched_on,
       lp.first_name, lp.last_name, lp.student_photo_url, lp.institution_id,
-      -- Updated: 2026-08-14 (migration 20260819010000) — was lp.admission_year,
-      -- which does not exist on learners_profiles and made every call raise
-      -- 42703. The cohort lives behind admission_year_id.
       lp.program_id, ay.year AS admission_year, lp.lifecycle_status, lp.roll_number,
       lp.register_number, lp.application_id, ji.jkkn_id
     FROM public.learners_profiles lp
     LEFT JOIN public.jkkn_identities ji ON ji.learner_profile_id = lp.id
-    -- LEFT, not inner: admission_year_id is nullable, and a learner whose
-    -- cohort was never filled in must still be findable by name or roll
-    -- number. They come back with a null admission_year, not absent.
     LEFT JOIN public.admission_years ay ON ay.id = lp.admission_year_id
-    -- EXISTS, not a LEFT JOIN: two alias types can carry the same value
-    -- (a roll number that is also a legacy number), and a join would then
-    -- return the same person twice.
     WHERE (v_all OR public.role_has_institution_access(lp.institution_id))
       AND (
            (ji.jkkn_id IS NOT NULL AND btrim(ji.jkkn_id) = v_q)
@@ -37895,6 +37949,8 @@ BEGIN
       CASE
         WHEN ji.jkkn_id IS NOT NULL AND btrim(ji.jkkn_id) = v_q      THEN 'jkkn_id'
         WHEN lower(btrim(coalesce(st.staff_id, '')))       = v_lower  THEN 'team_code'
+        WHEN v_lower = ANY (string_to_array(lower(coalesce(st.retired_staff_ids, '')), ' '))
+                                                                      THEN 'team_code'
         WHEN v_phone IS NOT NULL
              AND right(regexp_replace(coalesce(st.phone, ''), '[^0-9]', '', 'g'), 10) = v_phone
                                                                       THEN 'phone'
@@ -37920,6 +37976,7 @@ BEGIN
                 AND lower(btrim(al.alias_value)) = v_lower
            )
         OR lower(btrim(coalesce(st.staff_id, ''))) = v_lower
+        OR v_lower = ANY (string_to_array(lower(coalesce(st.retired_staff_ids, '')), ' '))
         OR lower(coalesce(st.email, ''))             = v_lower
         OR lower(coalesce(st.institution_email, '')) = v_lower
         OR (v_phone IS NOT NULL
@@ -37928,10 +37985,6 @@ BEGIN
       )
     LIMIT 25
   ),
-  -- Added 2026-08-27: profile-anchored identities (associates and external
-  -- participants). INNER join to jkkn_identities on purpose — a profile is
-  -- only findable here once it holds a register row, so a name search does
-  -- not flood with every account in the cluster.
   associate_hits AS (
     SELECT
       p.id,
@@ -38218,23 +38271,11 @@ REVOKE ALL ON FUNCTION public.tg_jkkn_auto_issue_associate() FROM anon, authenti
 -- fn_resolve_person, institution-scoped for non-admins. Sort keys are
 -- whitelisted, the limit clamps to 1..100, and the page clamps to the
 -- last page so narrowing a filter mid-list never blanks the table.
-CREATE OR REPLACE FUNCTION public.fn_jkkn_directory(
-  p_kind           text DEFAULT 'learner',
-  p_institution_id uuid DEFAULT NULL,
-  p_status         text DEFAULT NULL,
-  p_issued         text DEFAULT NULL,   -- 'issued' | 'not_issued' | NULL = any
-  p_admission_year int  DEFAULT NULL,   -- learners only
-  p_search         text DEFAULT NULL,
-  p_sort_by        text DEFAULT 'name',
-  p_sort_order     text DEFAULT 'asc',
-  p_page           int  DEFAULT 1,
-  p_limit          int  DEFAULT 25
-)
-RETURNS jsonb
-LANGUAGE plpgsql
-STABLE
-SECURITY DEFINER
-SET search_path = public
+CREATE OR REPLACE FUNCTION public.fn_jkkn_directory(p_kind text DEFAULT 'learner'::text, p_institution_id uuid DEFAULT NULL::uuid, p_status text DEFAULT NULL::text, p_issued text DEFAULT NULL::text, p_admission_year integer DEFAULT NULL::integer, p_search text DEFAULT NULL::text, p_sort_by text DEFAULT 'name'::text, p_sort_order text DEFAULT 'asc'::text, p_page integer DEFAULT 1, p_limit integer DEFAULT 25)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ STABLE SECURITY DEFINER
+ SET search_path TO 'public'
 AS $fn$
 DECLARE
   v_all    boolean;
@@ -38364,6 +38405,7 @@ BEGIN
        AND (v_q = ''
             OR lower(btrim(st.first_name || ' ' || coalesce(st.last_name, ''))) LIKE '%' || v_q || '%'
             OR lower(btrim(coalesce(st.staff_id, ''))) LIKE '%' || v_q || '%'
+            OR lower(coalesce(st.retired_staff_ids, '')) LIKE '%' || v_q || '%'
             OR lower(coalesce(st.email, ''))             LIKE '%' || v_q || '%'
             OR lower(coalesce(st.institution_email, '')) LIKE '%' || v_q || '%'
             OR btrim(coalesce(ji.jkkn_id, '')) = btrim(coalesce(p_search, '')));
@@ -38402,6 +38444,7 @@ BEGIN
          AND (v_q = ''
               OR lower(btrim(st.first_name || ' ' || coalesce(st.last_name, ''))) LIKE '%' || v_q || '%'
               OR lower(btrim(coalesce(st.staff_id, ''))) LIKE '%' || v_q || '%'
+              OR lower(coalesce(st.retired_staff_ids, '')) LIKE '%' || v_q || '%'
               OR lower(coalesce(st.email, ''))             LIKE '%' || v_q || '%'
               OR lower(coalesce(st.institution_email, '')) LIKE '%' || v_q || '%'
               OR btrim(coalesce(ji.jkkn_id, '')) = btrim(coalesce(p_search, '')))
@@ -56796,9 +56839,6 @@ BEGIN
       USING ERRCODE = 'P0001';
   END IF;
 
-  -- NULL means the employment category did not resolve, so teaching cannot be
-  -- told from non-teaching. Refusing beats guessing: a wrong bucket is a wrong
-  -- PERMANENT code.
   IF p_is_teaching IS NULL THEN
     RAISE EXCEPTION 'Cannot issue a staff ID: this staff member has no employment category, so teaching / non-teaching is unknown.'
       USING ERRCODE = 'P0001';
@@ -56821,8 +56861,6 @@ BEGIN
         USING ERRCODE = 'P0001';
     END IF;
 
-    -- Atomic claim. On the INSERT path next_seq lands at 2 so this returns 1;
-    -- on the UPDATE path it returns the freshly incremented value minus one.
     INSERT INTO public.staff_id_counters AS c (institution_id, is_teaching, next_seq)
     VALUES (p_institution_id, p_is_teaching, 2)
     ON CONFLICT (institution_id, is_teaching)
@@ -56831,8 +56869,10 @@ BEGIN
 
     v_code := v_full || lpad(v_seq::text, 3, '0');
 
-    -- A legacy code may still be squatting on this value.
-    EXIT WHEN NOT EXISTS (SELECT 1 FROM public.staff s WHERE s.staff_id = v_code);
+    -- Free means: held by nobody now AND never held by anybody. The second half
+    -- is what keeps an old printed card or sheet from pointing at a stranger.
+    EXIT WHEN NOT EXISTS (SELECT 1 FROM public.staff s WHERE s.staff_id = v_code)
+          AND NOT EXISTS (SELECT 1 FROM public.staff_id_history h WHERE h.staff_id = v_code);
   END LOOP;
 
   RETURN v_code;
@@ -56840,7 +56880,10 @@ END;
 $function$;
 
 COMMENT ON FUNCTION public.fn_next_staff_code(uuid, boolean) IS
-  'Claims and returns the next staff ID for an institution x teaching bucket. SECURITY DEFINER because staff_id_counters grants no direct writes.';
+  'Claims and returns the next staff ID for an institution x teaching bucket, skipping any code '
+  'a living or retired staff member holds. SECURITY DEFINER because staff_id_counters grants no direct writes.';
+
+-- ── 4. Trigger function: generate on creation, re-issue on a bucket change ───
 
 CREATE OR REPLACE FUNCTION public.fn_staff_autonumber()
 RETURNS trigger
@@ -56849,7 +56892,14 @@ SECURITY DEFINER
 SET search_path = ''
 AS $function$
 DECLARE
-  v_is_teaching boolean;
+  v_new_teaching    boolean;
+  v_old_teaching    boolean;
+  v_inst_changed    boolean;
+  v_teach_changed   boolean := false;
+  v_reactivated     boolean;
+  v_reason          text;
+  v_new_code        text;
+  v_expected_prefix text;
 BEGIN
   -- The edit form defaults this field to `staff?.staff_id || ''`, so a staff
   -- member with no code submits '' against a NULL OLD value. Without this
@@ -56858,12 +56908,15 @@ BEGIN
   NEW.staff_id := nullif(btrim(coalesce(NEW.staff_id, '')), '');
 
   IF TG_OP = 'INSERT' THEN
-    -- Active staff only. Anything the caller supplied is discarded.
+    NEW.retired_staff_ids := NULL;
+
+    -- Active staff only. Anything the caller supplied is discarded: creation
+    -- is never manual.
     IF coalesce(NEW.is_active, false) THEN
-      SELECT ec.is_teaching INTO v_is_teaching
+      SELECT ec.is_teaching INTO v_new_teaching
       FROM public.employment_categories ec WHERE ec.id = NEW.category_id;
 
-      NEW.staff_id := public.fn_next_staff_code(NEW.institution_id, v_is_teaching);
+      NEW.staff_id := public.fn_next_staff_code(NEW.institution_id, v_new_teaching);
     ELSE
       NEW.staff_id := NULL;
     END IF;
@@ -56871,23 +56924,77 @@ BEGIN
     RETURN NEW;
   END IF;
 
+  -- UPDATE. retired_staff_ids is derived; a caller never sets it.
+  NEW.retired_staff_ids := OLD.retired_staff_ids;
+
   -- One guard covers every manual path: changing a code, clearing a code, and
-  -- setting a code on a row that has none. No super-admin escape hatch —
-  -- correcting a wrong code requires a migration.
+  -- setting a code on a row that has none. There is deliberately no super-admin
+  -- escape hatch. A re-issue below is the trigger's own doing, never a caller's
+  -- -- the form round-trips the UNCHANGED value, which passes this guard.
   IF NEW.staff_id IS DISTINCT FROM OLD.staff_id THEN
-    RAISE EXCEPTION 'Staff ID is system-generated and permanent; it cannot be set or changed manually.'
+    RAISE EXCEPTION 'Staff ID is system-generated and cannot be set or changed manually; it is re-issued automatically when the institution or staff type changes.'
       USING ERRCODE = 'P0001';
   END IF;
 
-  -- Rejoin path. Only reaches staff who never held a code — deactivation does
-  -- NOT clear one, so a returning staff member keeps the code they had.
-  IF coalesce(NEW.is_active, false)
-     AND NOT coalesce(OLD.is_active, false)
-     AND NEW.staff_id IS NULL THEN
-    SELECT ec.is_teaching INTO v_is_teaching
-    FROM public.employment_categories ec WHERE ec.id = NEW.category_id;
+  v_inst_changed := NEW.institution_id IS DISTINCT FROM OLD.institution_id;
+  v_reactivated  := coalesce(NEW.is_active, false) AND NOT coalesce(OLD.is_active, false);
 
-    NEW.staff_id := public.fn_next_staff_code(NEW.institution_id, v_is_teaching);
+  -- Only look the categories up when something that could matter moved; this
+  -- trigger fires on every staff UPDATE, including bulk edits.
+  IF v_inst_changed
+     OR v_reactivated
+     OR NEW.category_id IS DISTINCT FROM OLD.category_id THEN
+
+    SELECT ec.is_teaching INTO v_new_teaching
+    FROM public.employment_categories ec WHERE ec.id = NEW.category_id;
+    SELECT ec.is_teaching INTO v_old_teaching
+    FROM public.employment_categories ec WHERE ec.id = OLD.category_id;
+
+    v_teach_changed := v_old_teaching IS DISTINCT FROM v_new_teaching;
+
+    IF coalesce(NEW.is_active, false)
+       AND OLD.staff_id IS NOT NULL
+       AND (v_inst_changed OR v_teach_changed) THEN
+      -- The person moved bucket. Same-flag category changes do not land here.
+      v_reason := CASE
+        WHEN v_inst_changed AND v_teach_changed THEN 'institution_and_teaching_change'
+        WHEN v_inst_changed                     THEN 'institution_change'
+        ELSE                                         'teaching_change'
+      END;
+
+    ELSIF v_reactivated AND NEW.staff_id IS NULL THEN
+      -- Rejoin path. Only reaches staff who never held a code -- deactivation
+      -- does NOT clear one, so a returning staff member keeps theirs.
+      NEW.staff_id := public.fn_next_staff_code(NEW.institution_id, v_new_teaching);
+
+    ELSIF v_reactivated AND NEW.staff_id IS NOT NULL AND v_new_teaching IS NOT NULL THEN
+      -- An inactive person's code is left alone while they are away, so it may
+      -- have gone stale. Prefixes are [A-Z]{2,8} by CHECK, so this is regex-safe.
+      SELECT CASE WHEN v_new_teaching THEN i.staff_code_prefix
+                  ELSE 'NOT' || i.staff_code_prefix END
+        INTO v_expected_prefix
+      FROM public.institutions i WHERE i.id = NEW.institution_id;
+
+      IF v_expected_prefix IS NOT NULL
+         AND NEW.staff_id !~ ('^' || v_expected_prefix || '[0-9]+$') THEN
+        v_reason := 'reactivation';
+      END IF;
+    END IF;
+  END IF;
+
+  IF v_reason IS NOT NULL THEN
+    v_new_code := public.fn_next_staff_code(NEW.institution_id, v_new_teaching);
+
+    INSERT INTO public.staff_id_history (
+      staff_uuid, staff_id, new_staff_id, reason,
+      from_institution_id, to_institution_id, from_is_teaching, to_is_teaching, changed_by
+    ) VALUES (
+      OLD.id, OLD.staff_id, v_new_code, v_reason,
+      OLD.institution_id, NEW.institution_id, v_old_teaching, v_new_teaching, auth.uid()
+    );
+
+    NEW.retired_staff_ids := nullif(btrim(coalesce(OLD.retired_staff_ids, '') || ' ' || OLD.staff_id), '');
+    NEW.staff_id := v_new_code;
   END IF;
 
   RETURN NEW;
@@ -56895,16 +57002,15 @@ END;
 $function$;
 
 COMMENT ON FUNCTION public.fn_staff_autonumber() IS
-  'Issues a staff ID on creation (active staff only) and freezes it thereafter. Bulk backfills must DISABLE TRIGGER trg_staff_autonumber - the permanence guard blocks any rewrite, including their own.';
+  'Issues a staff ID on creation (active staff only), re-issues it when an ACTIVE staff member changes '
+  'institution or teaching type (or is reactivated with a stale code), and rejects every manual change. '
+  'Bulk backfills must DISABLE TRIGGER trg_staff_autonumber -- the manual-change guard blocks any rewrite, '
+  'including their own.';
 
--- Keep both out of the REST API. PostgREST publishes SECURITY DEFINER functions
--- at /rest/v1/rpc/<name>, and fn_next_staff_code CLAIMS a number on every call —
--- an anon caller could burn the sequence and tear permanent gaps in it.
--- REVOKE FROM PUBLIC alone is a no-op: Supabase grants EXECUTE directly to anon
--- and authenticated. Neither needs a grant back — fn_next_staff_code is only
--- called from inside fn_staff_autonumber (SECURITY DEFINER, runs as owner), and
--- Postgres checks EXECUTE on a trigger function at CREATE TRIGGER time, not when
--- it fires.
+-- Both are SECURITY DEFINER and CLAIM a number on every call; keep them off the
+-- REST API. REVOKE FROM PUBLIC alone leaves Supabase's direct anon/authenticated
+-- grants in place, so name them. CREATE OR REPLACE kept the earlier ACL, this
+-- just re-asserts it.
 REVOKE ALL ON FUNCTION public.fn_next_staff_code(uuid, boolean) FROM anon, authenticated, PUBLIC;
 REVOKE ALL ON FUNCTION public.fn_staff_autonumber() FROM anon, authenticated, PUBLIC;
 

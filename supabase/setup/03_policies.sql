@@ -10009,6 +10009,22 @@ CREATE POLICY staff_id_crosswalk_select_super_admin
   USING (public.is_super_admin());
 
 -- =============================================================================
+-- Mirrored from supabase/migrations/20261008120000_staff_id_reissue_on_transfer.sql (policies and grants)
+-- =============================================================================
+
+ALTER TABLE public.staff_id_history ENABLE ROW LEVEL SECURITY;
+
+REVOKE ALL ON public.staff_id_history FROM anon, authenticated;
+GRANT SELECT ON public.staff_id_history TO authenticated;
+
+-- Visible exactly to whoever can see the staff row: the EXISTS runs under the
+-- caller's own RLS on staff, so institution scope is inherited, not restated.
+DROP POLICY IF EXISTS staff_id_history_select ON public.staff_id_history;
+CREATE POLICY staff_id_history_select
+  ON public.staff_id_history FOR SELECT TO authenticated
+  USING (EXISTS (SELECT 1 FROM public.staff s WHERE s.id = staff_id_history.staff_uuid));
+
+-- =============================================================================
 -- Mirrored from supabase/migrations/20260828140000_staff_address_standardisation.sql
 -- =============================================================================
 
