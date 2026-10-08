@@ -71,6 +71,7 @@ import {
   type HarnessCalendar,
   type ItemStanding,
   type LadderAudience,
+  type LadderStep,
   type RerouteReason,
   type WaitingItem
 } from './ladder';
@@ -282,6 +283,11 @@ export interface ChaseDeps {
   /** item key -> the active blocked mark. */
   loadBlockedMarks(items: WaitingItem[]): Promise<Map<string, BlockedMark>>;
   resolveOwners(def: DutyDefinition, item: WaitingItem): Promise<string[]>;
+  /**
+   * Optional: warm the owner look-ups for many items in one round trip, so
+   * resolveOwners can answer them without a query each.
+   */
+  prefetchOwners?(items: WaitingItem[]): Promise<void>;
   /** profile id -> that person's supervisors (reporting line, else HOD). */
   resolveSupervisors(profileIds: string[]): Promise<Map<string, string[]>>;
   /** profile ids on approved leave covering `todayISO`. Throws on error. */
@@ -500,6 +506,19 @@ export async function runHrDutyChase(
       owners: string[];
       ownersOverCap: boolean;
       holidayToday: boolean;
+      /** Highest rung this item has reached AND been sent (ledger), or -1. */
+      alreadyIdx: number;
+      /** The rung the item stands on now has not been reached and sent yet. */
+      currentDue: boolean;
+      /** Ledger id of the current rung when an earlier run claimed it unsent. */
+      currentResumeId: string | null;
+      /**
+       * Earlier rungs (rung order) an earlier run claimed but never sent. The
+       * current rung is here too when a higher rung was already reached.
+       */
+      pendingLower: Array<{ idx: number; ledgerId: string }>;
+      /** Owners were worked out this run. */
+      ownersKnown: boolean;
     }
     const candidates: Candidate[] = [];
     for (const { def, items } of byDuty.values()) {
@@ -516,8 +535,25 @@ export async function runHrDutyChase(
         const late = due ? workingDaysLate(istDate(dueAt), todayISO, item.institutionId, cal) : 0;
         const rungIdx = selectRungIndex({ rungs, due, lateWorkingDays: late, blocked });
         if (rungIdx < 0) continue;
+        // What this item still needs sent — read from the ledger alone, before
+        // any owner is looked up, so items already reached cannot use up the
+        // owner budget that new items need.
+        const unsentHere = unsent.get(itemKey(item)) ?? new Map<string, string>();
+        const already = [...(reached.get(itemKey(item)) ?? new Set<string>())].filter(
+          (k) => !unsentHere.has(k)
+        );
+        const alreadyIdx = Math.max(-1, ...already.map((k) => rungs.findIndex((r) => r.key === k)));
+        const currentDue = rungIdx > alreadyIdx;
+        const pendingLower = [...unsentHere]
+          .map(([key, ledgerId]) => ({ idx: rungs.findIndex((r) => r.key === key), ledgerId }))
+          .filter(({ idx }) => idx >= 0 && (idx < rungIdx || (idx === rungIdx && !currentDue)))
+          .sort((a, b) => a.idx - b.idx);
         perDuty[def.code].due++;
         result.itemsDue++;
+        // Holidays pause the clock AND the chase: nothing is sent about an
+        // item on a day its college is closed.
+        const holidayToday = !isWorkingDay(todayISO, item.institutionId, cal);
+        if (holidayToday) perDuty[def.code].skipped_holiday++;
         candidates.push({
           def,
           item,
@@ -527,19 +563,45 @@ export async function runHrDutyChase(
           blocked,
           owners: [],
           ownersOverCap: false,
-          // Holidays pause the clock AND the chase: nothing is sent about an
-          // item on a day its college is closed.
-          holidayToday: !isWorkingDay(todayISO, item.institutionId, cal)
+          holidayToday,
+          alreadyIdx,
+          currentDue,
+          currentResumeId: currentDue ? unsentHere.get(rungs[rungIdx].key) ?? null : null,
+          pendingLower,
+          ownersKnown: false
         });
       }
     }
 
-    // Owners are worked out one item at a time. When that runs long, stop and
-    // carry out the plan for the items already worked out: the rest wait for
-    // the next run. They are left out entirely — with no owner worked out they
-    // would wrongly land on the HR head's list as "no owner".
+    // Weekly lists: on the digest weekday, or the first run after it in the
+    // same Monday-to-Sunday week (a holiday or a missed run does not lose the
+    // week), and once per ISO week. Decided before owners are looked up: only
+    // on a day the lists are due do the items already reached need owners.
+    const weeklyDueToday =
+      weeklyListsDueToday(todayISO, policies.digestWeekday) &&
+      !(await deps.weeklyListsAlreadySent(isoWeek));
+
+    // Owners are worked out one item at a time: first for the items that have
+    // something to send, then — only when the weekly lists are due — for the
+    // items already reached, which the lists still name. When that runs long,
+    // stop and carry out the plan for the items already worked out: the rest
+    // wait for the next run. They are left out entirely — with no owner worked
+    // out they would wrongly land on the HR head's list as "no owner".
+    const needsSend = (c: Candidate) => !c.holidayToday && (c.currentDue || c.pendingLower.length > 0);
+    const toResolve = [
+      ...candidates.filter(needsSend),
+      ...(weeklyDueToday ? candidates.filter((c) => !needsSend(c)) : [])
+    ];
+    if (deps.prefetchOwners && toResolve.length > 0) {
+      try {
+        await deps.prefetchOwners(toResolve.map((c) => c.item));
+      } catch (e: any) {
+        // Each look-up below still works on its own, one query at a time.
+        errors.push(`prefetch owners: ${e?.message ?? String(e)}`);
+      }
+    }
     let ownersResolved = 0;
-    for (const c of candidates) {
+    for (const c of toResolve) {
       if (elapsed() > budgetMs * OWNER_PHASE_SHARE) break;
       const owners = (await deps.resolveOwners(c.def, c.item)).filter(
         (id) => id && id !== c.item.subjectProfileId
@@ -551,20 +613,21 @@ export async function runHrDutyChase(
       } else {
         c.owners = unique;
       }
+      c.ownersKnown = true;
       ownersResolved++;
     }
-    const ownersUnresolved = candidates.length - ownersResolved;
+    const ownersUnresolved = toResolve.length - ownersResolved;
     if (ownersUnresolved > 0) {
-      candidates.splice(ownersResolved);
       detail.deadline = { owners_unresolved: ownersUnresolved };
       errors.push(
         `ran out of time working out owners: ${ownersUnresolved} item(s) were left for the next run, ` +
           'and the weekly lists wait for a complete run'
       );
     }
+    const known = candidates.filter((c) => c.ownersKnown);
 
     // 3. Supervisors and leave — for every owner and supervisor in play.
-    const ownerIds = [...new Set(candidates.flatMap((c) => c.owners))];
+    const ownerIds = [...new Set(known.flatMap((c) => c.owners))];
     const supervisors = await deps.resolveSupervisors(ownerIds);
     const supervisorsOf = (ids: string[]) => [
       ...new Set(ids.flatMap((id) => supervisors.get(id) ?? []))
@@ -578,16 +641,41 @@ export async function runHrDutyChase(
     const planned: PlannedRung[] = [];
     const standings: ItemStanding[] = [];
     const reroutes: Record<string, number> = {};
-    for (const c of candidates) {
+    const claimFor = (
+      c: Candidate,
+      rung: LadderStep,
+      who: { audience: LadderAudience; recipientIds: string[]; reroute: RerouteReason | null }
+    ): LedgerClaim => ({
+      dutyCode: c.def.code,
+      itemId: c.item.itemId,
+      stageKey: c.item.stageKey,
+      stepKey: rung.key,
+      audience: who.audience,
+      itemLabel: c.item.label,
+      institutionId: c.item.institutionId,
+      ownerProfileIds: c.owners,
+      supervisorProfileIds: supervisorsOf(c.owners),
+      recipientIds: who.recipientIds,
+      reroute: who.reroute ?? (c.blocked ? 'blocked' : null),
+      blocked: !!c.blocked,
+      dueAt: c.dueAt.toISOString(),
+      lateWorkingDays: c.late
+    });
+    const bump = (code: string, key: string) => {
+      perDuty[code][key] = (perDuty[code][key] ?? 0) + 1;
+    };
+    for (const c of known) {
       const rungs = activeRungs(c.def.ladder);
       const rung = rungs[c.rungIdx];
-      const who = resolveRungRecipients({
-        rung,
-        owners: c.owners,
-        ownersOverCap: c.ownersOverCap,
-        supervisorsOf,
-        onLeave
-      });
+      const recipientsFor = (r: LadderStep) =>
+        resolveRungRecipients({
+          rung: r,
+          owners: c.owners,
+          ownersOverCap: c.ownersOverCap,
+          supervisorsOf,
+          onLeave
+        });
+      const who = recipientsFor(rung);
       if (who.reroute) reroutes[who.reroute] = (reroutes[who.reroute] ?? 0) + 1;
 
       standings.push({
@@ -602,62 +690,67 @@ export async function runHrDutyChase(
         reroute: who.reroute
       });
 
-      if (c.holidayToday) {
-        perDuty[c.def.code].skipped_holiday++;
-        continue;
+      // Counted when the candidate was made (owners may not be worked out).
+      if (c.holidayToday) continue;
+
+      // Earlier rungs an earlier run claimed but never sent, in rung order,
+      // before the rung the item stands on now: the item climbing on must not
+      // lose them. Each goes to its own audience when that audience can be told
+      // today. Otherwise the rung the item stands on now covers it, and the row
+      // is closed as "nobody told" (finishLedger with no notification): a
+      // blocked mark stops owner nudges, and a rerouted rung (its audience on
+      // leave or missing) would only reach the people the rungs above reach.
+      for (const low of c.pendingLower) {
+        const lowRung = rungs[low.idx];
+        const lowWho = recipientsFor(lowRung);
+        const superseded =
+          (!!c.blocked && lowRung.audience === 'owner') || lowWho.audience !== lowRung.audience;
+        if (superseded) {
+          bump(c.def.code, 'superseded_unsent');
+          planned.push({
+            def: c.def,
+            item: c.item,
+            claim: claimFor(c, lowRung, { ...lowWho, recipientIds: [] }),
+            message: null,
+            resumeLedgerId: low.ledgerId
+          });
+          continue;
+        }
+        const lowClaim = claimFor(c, lowRung, lowWho);
+        const lowMessage =
+          lowWho.recipientIds.length > 0
+            ? messageFor(c.def, c.item, lowClaim, c.blocked?.reason ?? null)
+            : null;
+        bump(c.def.code, 'resumed_earlier_rung');
+        planned.push({ def: c.def, item: c.item, claim: lowClaim, message: lowMessage, resumeLedgerId: low.ledgerId });
+        perDuty[c.def.code].planned += lowWho.recipientIds.length;
       }
 
       // A supervisor away on leave today is a passing reason: claiming the
       // rung now would mean they are never told once they are back. Leave it
       // unclaimed (the item is on the HR head's list today) and try again.
+      // The reroute names nobody (resolveRungRecipients gives no recipients
+      // for supervisor_on_leave), so no message is held back by waiting.
       if (rung.audience !== 'hr_head' && who.reroute === 'supervisor_on_leave') {
-        perDuty[c.def.code].waiting_on_supervisor_return =
-          (perDuty[c.def.code].waiting_on_supervisor_return ?? 0) + 1;
+        bump(c.def.code, 'waiting_on_supervisor_return');
         continue;
       }
 
       // Send only when the item stands on a rung it has not reached before —
       // or on a rung an earlier run claimed but never managed to send.
-      const unsentHere = unsent.get(itemKey(c.item)) ?? new Map<string, string>();
-      const already = new Set(
-        [...(reached.get(itemKey(c.item)) ?? new Set<string>())].filter((k) => !unsentHere.has(k))
-      );
-      const alreadyIdx = Math.max(-1, ...[...already].map((k) => rungs.findIndex((r) => r.key === k)));
-      if (c.rungIdx <= alreadyIdx) continue;
-      const resumeLedgerId = unsentHere.get(rung.key) ?? null;
+      if (!c.currentDue) continue;
 
-      const claim: LedgerClaim = {
-        dutyCode: c.def.code,
-        itemId: c.item.itemId,
-        stageKey: c.item.stageKey,
-        stepKey: rung.key,
-        audience: who.audience,
-        itemLabel: c.item.label,
-        institutionId: c.item.institutionId,
-        ownerProfileIds: c.owners,
-        supervisorProfileIds: supervisorsOf(c.owners),
-        recipientIds: who.recipientIds,
-        reroute: who.reroute ?? (c.blocked ? 'blocked' : null),
-        blocked: !!c.blocked,
-        dueAt: c.dueAt.toISOString(),
-        lateWorkingDays: c.late
-      };
+      const claim = claimFor(c, rung, who);
       const message =
         who.recipientIds.length > 0 ? messageFor(c.def, c.item, claim, c.blocked?.reason ?? null) : null;
-      planned.push({ def: c.def, item: c.item, claim, message, resumeLedgerId });
+      planned.push({ def: c.def, item: c.item, claim, message, resumeLedgerId: c.currentResumeId });
       perDuty[c.def.code].planned += who.recipientIds.length;
     }
     detail.reroutes = reroutes;
 
-    // Weekly lists: on the digest weekday, or the first run after it in the
-    // same Monday-to-Sunday week (a holiday or a missed run does not lose the
-    // week), and once per ISO week.
     // A run that could not work out every owner has an incomplete picture, so
     // its lists would be too; the next run in the same week sends them.
-    result.weeklyListsDue =
-      ownersUnresolved === 0 &&
-      weeklyListsDueToday(todayISO, policies.digestWeekday) &&
-      !(await deps.weeklyListsAlreadySent(isoWeek));
+    result.weeklyListsDue = ownersUnresolved === 0 && weeklyDueToday;
 
     const weeklyMessages: OutgoingMessage[] = [];
     if (result.weeklyListsDue) {

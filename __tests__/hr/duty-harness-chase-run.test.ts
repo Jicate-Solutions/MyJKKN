@@ -23,7 +23,12 @@ import {
   type LedgerClaim,
   type OutgoingMessage
 } from '@/lib/services/hr/duty-harness/chase-service';
-import { parseLadder, type DutyDefinition, type WaitingItem } from '@/lib/services/hr/duty-harness/ladder';
+import {
+  parseLadder,
+  resolveRungRecipients,
+  type DutyDefinition,
+  type WaitingItem
+} from '@/lib/services/hr/duty-harness/ladder';
 
 const INST = '11111111-1111-1111-1111-111111111111';
 const MONDAY_1015 = new Date('2026-10-05T04:45:00Z');
@@ -184,7 +189,7 @@ function fakeDeps(w: World) {
     }
   };
   for (const name of w.hang ?? []) (deps as any)[name] = () => new Promise(() => {});
-  return { deps, sent, claims, runs, calls, ledger, world: w };
+  return { deps, sent, claims, runs, calls, ledger, world: w, ownerCalls: () => ownerCalls };
 }
 
 // Uploaded Wed 30 Sep 10:00 IST; 2 working days -> due Fri 2 Oct 10:00 IST.
@@ -642,5 +647,156 @@ describe('HR chase run — second review follow-ups (#4262)', () => {
     expect(read('3')).toBe(3);
     expect(read(' 2 ')).toBe(2);
     expect(read(0)).toBe(0);
+  });
+});
+
+describe('HR chase run — third review follow-ups (#4262)', () => {
+  const chases = (sent: OutgoingMessage[]) => sent.filter((m) => m.category === 'hr:duty-chase');
+
+  it('R3 finding 1: an owner rung that failed to send is still sent after the item climbs to the supervisor', async () => {
+    let down = true;
+    const w = fakeDeps({
+      items: [item('a', DUE_TODAY)],
+      weeklySent: true,
+      failSend: (m) => down && m.category === 'hr:duty-chase'
+    });
+    await runHrDutyChase(w.deps);
+    expect(w.claims.map((c) => c.stepKey)).toEqual(['due']);
+    expect(w.sent).toHaveLength(0);
+
+    // Next run the same item is two working days late: the supervisor rung.
+    down = false;
+    w.world.items = [item('a', TWO_LATE)];
+    const r2 = await runHrDutyChase(w.deps);
+    expect(r2.errors).toEqual([]);
+    // Both rungs go out, in rung order: the owner's on its original ledger row.
+    expect(chases(w.sent).map((m) => [m.idempotencyKey, m.recipientIds])).toEqual([
+      ['hr-duty:S3:a:-:due', ['owner-1']],
+      ['hr-duty:S3:a:-:supervisor', ['sup-1']]
+    ]);
+    expect(w.claims.map((c) => c.stepKey)).toEqual(['due', 'supervisor']);
+    expect(w.ledger.get('ledger-1')!.notificationId).toBe('n-1');
+    expect((r2.detail.duties as any).S3.resumed_earlier_rung).toBe(1);
+
+    // And neither is sent again.
+    await runHrDutyChase(w.deps);
+    expect(chases(w.sent)).toHaveLength(2);
+  });
+
+  it('R3 finding 1: a blocked item does not resume its unsent owner rung — the row is closed as superseded', async () => {
+    let down = true;
+    const w = fakeDeps({
+      items: [item('a', DUE_TODAY)],
+      weeklySent: true,
+      failSend: (m) => down && m.category === 'hr:duty-chase'
+    });
+    await runHrDutyChase(w.deps);
+    expect(w.claims.map((c) => c.stepKey)).toEqual(['due']);
+
+    down = false;
+    w.world.blocked = { [itemKey(item('a', DUE_TODAY))]: { atStepKey: 'due', reason: 'Waiting on the photographer' } };
+    const r2 = await runHrDutyChase(w.deps);
+    // The owner is never nudged; the supervisor is.
+    expect(chases(w.sent).map((m) => m.recipientIds)).toEqual([['sup-1']]);
+    // The owner rung's row now names nobody, so it is not unsent any more.
+    expect(w.ledger.get('ledger-1')!.claim.recipientIds).toEqual([]);
+    expect(w.ledger.get('ledger-1')!.notificationId).toBeNull();
+    expect((r2.detail.duties as any).S3.superseded_unsent).toBe(1);
+
+    const r3 = await runHrDutyChase(w.deps);
+    expect(r3.outcome).toBe('nothing_due');
+    expect(chases(w.sent)).toHaveLength(1);
+  });
+
+  it('R3 finding 1: an unsent owner rung whose owner is on leave is closed, not sent twice to the supervisor', async () => {
+    let down = true;
+    const w = fakeDeps({
+      items: [item('a', DUE_TODAY)],
+      weeklySent: true,
+      failSend: (m) => down && m.category === 'hr:duty-chase'
+    });
+    await runHrDutyChase(w.deps);
+    down = false;
+    w.world.items = [item('a', TWO_LATE)];
+    w.world.onLeave = ['owner-1'];
+    await runHrDutyChase(w.deps);
+    // The supervisor rung tells the supervisor once; the owner rung's reroute
+    // would only repeat it.
+    expect(chases(w.sent).map((m) => m.idempotencyKey)).toEqual(['hr-duty:S3:a:-:supervisor']);
+    expect(w.ledger.get('ledger-1')!.claim.recipientIds).toEqual([]);
+  });
+
+  // Five items the ledger shows as already reached, then one new item.
+  const backlog = () => [
+    ...['r1', 'r2', 'r3', 'r4', 'r5'].map((id) => item(id, DUE_TODAY)),
+    item('n', DUE_TODAY)
+  ];
+  const reachedBacklog = Object.fromEntries(
+    ['r1', 'r2', 'r3', 'r4', 'r5'].map((id) => [itemKey(item(id, DUE_TODAY)), ['due']])
+  );
+
+  it('R3 finding 2: items already reached are filtered out before any owner look-up', async () => {
+    const w = fakeDeps({ items: backlog(), reached: reachedBacklog, weeklySent: true });
+    const r = await runHrDutyChase(w.deps);
+    expect(w.ownerCalls()).toBe(1);
+    expect(w.claims.map((c) => c.itemId)).toEqual(['n']);
+    expect(r.itemsDue).toBe(6);
+  });
+
+  it('R3 finding 2: a slow owner look-up cannot starve a new item behind a backlog already reached', async () => {
+    // The first look-up takes 85 s — past the owner phase (80 s of 100 s).
+    const w = fakeDeps({
+      items: backlog(),
+      reached: reachedBacklog,
+      weeklySent: true,
+      slowOwners: { afterCalls: 1, jumpMs: 85_000 }
+    });
+    const r = await runHrDutyChase(w.deps);
+    expect(w.claims.map((c) => c.itemId)).toEqual(['n']);
+    expect(chases(w.sent).map((m) => m.recipientIds)).toEqual([['owner-1']]);
+    expect(r.errors.join(' ')).not.toContain('ran out of time working out owners');
+  });
+
+  it('R3 finding 2: on a list day the new item is worked out first; the backlog after it, for the lists', async () => {
+    const w = fakeDeps({
+      items: backlog(),
+      reached: reachedBacklog,
+      slowOwners: { afterCalls: 1, jumpMs: 85_000 }
+    });
+    const r = await runHrDutyChase(w.deps);
+    expect(w.claims.map((c) => c.itemId)).toEqual(['n']);
+    expect(r.detail.deadline).toEqual({ owners_unresolved: 5 });
+    expect(r.weeklyListsDue).toBe(false);
+
+    // With time to spare, the lists still name every item.
+    const full = fakeDeps({ items: backlog(), reached: reachedBacklog });
+    const r2 = await runHrDutyChase(full.deps);
+    expect(full.ownerCalls()).toBe(6);
+    expect(r2.weeklyListsSent).toBe(true);
+  });
+
+  it('R3 finding 3 (checked, holds): a supervisor-on-leave reroute names nobody, so waiting holds no message back', async () => {
+    const [, , supervisorRung] = LADDER;
+    const supervisorsOf = () => ['sup-1'];
+    // The supervisor rung, and the owner rung when the owner is away too.
+    for (const [rung, onLeave] of [
+      [supervisorRung, ['sup-1']],
+      [LADDER[0], ['owner-1', 'sup-1']]
+    ] as const) {
+      const who = resolveRungRecipients({
+        rung,
+        owners: ['owner-1'],
+        ownersOverCap: false,
+        supervisorsOf,
+        onLeave: new Set(onLeave)
+      });
+      expect(who).toEqual({ audience: 'hr_head', recipientIds: [], reroute: 'supervisor_on_leave' });
+    }
+    const w = fakeDeps({ items: [item('b', TWO_LATE)], onLeave: ['sup-1'], weeklySent: true });
+    const r = await runHrDutyChase(w.deps);
+    expect(r.plannedDeliveries).toBe(0);
+    expect(w.sent).toHaveLength(0);
+    expect(w.claims).toHaveLength(0);
+    expect((r.detail.reroutes as any).supervisor_on_leave).toBe(1);
   });
 });
