@@ -77,3 +77,48 @@ describe('hr duty ledger — unsent rungs', () => {
     expect(Math.abs(cutoff - expected)).toBeLessThan(5_000);
   });
 });
+
+describe('hr duty owners — named owners are looked up in one query per run (#4262, third review)', () => {
+  const pinned = (itemId: string, ids: string[]) =>
+    ({
+      dutyCode: 'S1',
+      itemId,
+      stageKey: '0',
+      label: 'x',
+      institutionId: null,
+      waitingSince: '2026-10-01T00:00:00Z',
+      pinnedOwnerIds: ids,
+      ownerRoleKeys: [],
+      subjectProfileId: null,
+      href: '/hr'
+    }) as any;
+  const def = { code: 'S1', ownerPermissionKey: null } as any;
+
+  it('prefetchOwners answers every item from one profiles query; inactive or missing people are dropped', async () => {
+    const { db, calls } = recordingDb({
+      data: [
+        { id: 'p1', institution_id: null, is_active: true },
+        { id: 'p2', institution_id: null, is_active: false }
+      ]
+    });
+    const deps = createHarnessDbDeps(db);
+    const items = [pinned('a', ['p2', 'p1']), pinned('b', ['p3']), pinned('c', ['p1', 'p1'])];
+    await deps.prefetchOwners!(items);
+    expect(await deps.resolveOwners(def, items[0])).toEqual(['p1']);
+    expect(await deps.resolveOwners(def, items[1])).toEqual([]);
+    expect(await deps.resolveOwners(def, items[2])).toEqual(['p1']);
+    const profileQueries = calls.filter((c) => c.table === 'profiles' && c.op === 'select');
+    expect(profileQueries).toHaveLength(1);
+    expect(calls.find((c) => c.table === 'profiles' && c.op === 'in')?.args).toEqual([
+      'id',
+      ['p2', 'p1', 'p3']
+    ]);
+  });
+
+  it('a person not prefetched is still looked up', async () => {
+    const { db, calls } = recordingDb({ data: [{ id: 'p9', institution_id: null, is_active: true }] });
+    const deps = createHarnessDbDeps(db);
+    expect(await deps.resolveOwners(def, pinned('z', ['p9']))).toEqual(['p9']);
+    expect(calls.filter((c) => c.table === 'profiles' && c.op === 'select')).toHaveLength(1);
+  });
+});

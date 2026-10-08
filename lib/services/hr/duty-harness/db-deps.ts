@@ -509,6 +509,18 @@ export function createHarnessDbDeps(db: SupabaseClient = createServiceRoleClient
     return roleCache.get(k)!;
   };
 
+  // Named owners' active state for this run: prefetchOwners fills it for every
+  // item in one query, so resolveOwners needs no query per item.
+  const activeKnown = new Map<string, boolean>();
+  const activeAmong = async (ids: string[]): Promise<string[]> => {
+    const missing = [...new Set(ids.filter((id) => id && !activeKnown.has(id)))];
+    if (missing.length > 0) {
+      const active = await activeProfiles(db, missing);
+      for (const id of missing) activeKnown.set(id, active.has(id));
+    }
+    return [...new Set(ids.filter((id) => activeKnown.get(id)))].sort();
+  };
+
   const holders = (cacheKey: string, roles: () => Promise<RoleRow[]>) => {
     if (!holderCache.has(cacheKey)) {
       holderCache.set(cacheKey, roles().then((r) => holdersOfRoles(db, r)));
@@ -630,11 +642,12 @@ export function createHarnessDbDeps(db: SupabaseClient = createServiceRoleClient
       return out;
     },
 
+    async prefetchOwners(items) {
+      await activeAmong(items.flatMap((i) => i.pinnedOwnerIds));
+    },
+
     async resolveOwners(def, item) {
-      if (item.pinnedOwnerIds.length > 0) {
-        const active = await activeProfiles(db, item.pinnedOwnerIds);
-        return [...active.keys()].sort();
-      }
+      if (item.pinnedOwnerIds.length > 0) return activeAmong(item.pinnedOwnerIds);
       if (item.ownerRoleKeys.length > 0) {
         const keys = [...item.ownerRoleKeys].sort();
         const h = await holders(`roles:${keys.join(',')}`, () => rolesByKeys(keys));

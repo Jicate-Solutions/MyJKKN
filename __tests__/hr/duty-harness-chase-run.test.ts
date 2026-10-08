@@ -775,6 +775,25 @@ describe('HR chase run — third review follow-ups (#4262)', () => {
     expect(r2.weeklyListsSent).toBe(true);
   });
 
+  it('R3 finding 2: owners are prefetched in one call, only for the items that need them today', async () => {
+    const w = fakeDeps({ items: backlog(), reached: reachedBacklog, weeklySent: true });
+    const prefetched: string[][] = [];
+    w.deps.prefetchOwners = async (items) => {
+      prefetched.push(items.map((i) => i.itemId));
+    };
+    await runHrDutyChase(w.deps);
+    expect(prefetched).toEqual([['n']]);
+
+    // A prefetch that fails is reported, and each look-up still runs on its own.
+    const f = fakeDeps({ items: [item('a', DUE_TODAY)], weeklySent: true });
+    f.deps.prefetchOwners = async () => {
+      throw new Error('profiles down');
+    };
+    const r = await runHrDutyChase(f.deps);
+    expect(r.errors.join(' ')).toContain('prefetch owners: profiles down');
+    expect(f.claims.map((c) => c.itemId)).toEqual(['a']);
+  });
+
   it('R3 finding 3 (checked, holds): a supervisor-on-leave reroute names nobody, so waiting holds no message back', async () => {
     const [, , supervisorRung] = LADDER;
     const supervisorsOf = () => ['sup-1'];
