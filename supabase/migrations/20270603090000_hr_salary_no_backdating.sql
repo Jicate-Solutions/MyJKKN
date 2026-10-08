@@ -93,10 +93,23 @@
 --   start. Whether production enforces NOT NULL was NOT verified. This file
 --   treats a NULL start as "already started" and never writes one.
 --
--- NOT COMPARED WITH PRODUCTION
---   The live body of fn_hr_set_staff_salary could not be read. This file is
---   built from main's newest definition. Diff it against pg_get_functiondef on
---   production before apply.
+-- COMPARED WITH PRODUCTION (8 Oct 2026)
+--   The live body of fn_hr_set_staff_salary (pg_get_functiondef, read by the
+--   orchestrator, not by this PR) is main's newest definition exactly; this
+--   file adds only the three changes above. Nothing on main re-defines it after
+--   20260902100000.
+--
+-- NEXT TO #4190 / #4252 (both live)
+--   hr_staff_salaries also carries trg_hr_staff_salaries_no_own_or_list_pay
+--   (20271007150103, re-created by 20271007180207): never your own pay, a
+--   Director-list member's only by the named decider. Both BEFORE triggers
+--   fire, this one first (name order). The approvals job
+--   (hr_salary_revision_apply_due_on) sends a yes whose start has passed back
+--   to the Director BEFORE it calls fn_hr_set_staff_salary, so the past-date
+--   refusal never jams it; a refusal it does meet is caught per request.
+--   Rehearsed: supabase/tests/hr-salary-no-backdating/run-stacked.sh.
+--   With this file, the HR head can no longer record a new joiner's first pay
+--   (which #4190 allowed): only the Director list writes pay.
 --
 -- FILE ONLY, NOT APPLIED. Re-runnable: applied twice in the rehearsal
 -- (supabase/tests/hr-salary-no-backdating/run.sh). No inner BEGIN/COMMIT.
