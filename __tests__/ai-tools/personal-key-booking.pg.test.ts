@@ -352,6 +352,30 @@ describe('booking reservations (atomic limits)', () => {
     expect(twice).toBe(false);
   });
 
+  it('refuses a missing limit instead of treating it as unlimited', async () => {
+    await db.query('RESET ROLE');
+    await db.query('SET ROLE service_role');
+    try {
+      await expect(
+        db.query(`SELECT public.fn_ai_booking_reserve('${keyS}', '${S}', 1, NULL, 60, 150)`)
+      ).rejects.toThrow(/every limit must be a positive number/);
+      await expect(
+        db.query(`SELECT public.fn_ai_booking_reserve('${keyS}', '${S}', 1, 20, 60, 0)`)
+      ).rejects.toThrow(/every limit must be a positive number/);
+    } finally {
+      await db.query('RESET ROLE');
+    }
+  });
+
+  it('only a key with booking switched on, for its own owner, may reserve', async () => {
+    // keyB never had booking switched on
+    const [{ r: noGrant }] = await asService(reserve(keyB, B, 1, 20));
+    expect(noGrant).toEqual({ ok: false, reason: 'not_allowed' });
+    // keyS is allowed, but not when named for a different owner
+    const [{ r: wrongOwner }] = await asService(reserve(keyS, A, 1, 20));
+    expect(wrongOwner).toEqual({ ok: false, reason: 'not_allowed' });
+  });
+
   it('refuses past the per-day invitee limit for the owner', async () => {
     const [{ r }] = await asService(reserve(keyS, S, 148, 100, 100, 150)); // 3 already live + 148 > 150
     expect(r).toEqual({ ok: false, reason: 'invitees_per_day', limit: 150 });

@@ -78,6 +78,26 @@ BEGIN
   IF p_key_id IS NULL OR p_owner_id IS NULL OR coalesce(p_invitees, 0) < 1 THEN
     RAISE EXCEPTION 'reserve: key, owner and invitees are required' USING ERRCODE = '22023';
   END IF;
+  -- A missing limit must never mean "no limit".
+  IF p_per_hour IS NULL OR p_per_day IS NULL OR p_invitees_per_day IS NULL
+     OR p_per_hour < 1 OR p_per_day < 1 OR p_invitees_per_day < 1 THEN
+    RAISE EXCEPTION 'reserve: every limit must be a positive number' USING ERRCODE = '22023';
+  END IF;
+  -- Only a working personal key of this owner, with booking switched on, may reserve.
+  IF NOT EXISTS (
+    SELECT 1
+      FROM public.ai_personal_key_booking_grants g
+      JOIN public.api_keys k ON k.id = g.key_id
+     WHERE g.key_id = p_key_id
+       AND g.owner_id = p_owner_id
+       AND g.active
+       AND k.key_kind = 'personal'
+       AND k.user_id = p_owner_id
+       AND k.is_active IS TRUE
+       AND k.expires_at > now()
+  ) THEN
+    RETURN jsonb_build_object('ok', false, 'reason', 'not_allowed');
+  END IF;
 
   -- Serialise every reservation for this owner (and so for each of their keys).
   PERFORM pg_advisory_xact_lock(hashtext('ai_booking_reserve:' || p_owner_id::text));

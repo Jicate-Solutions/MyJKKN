@@ -331,6 +331,7 @@ describe('deep review fixes (8 Oct)', () => {
     ['per_hour', 20, /20 meetings in the last hour/],
     ['per_day', 60, /60 meetings in the last 24 hours/],
     ['invitees_per_day', 150, /past 150 invitations/],
+    ['not_allowed', null, /not allowed to book meetings right now/],
   ])('a refused reservation (%s) books nothing', async (reason, limit, msg) => {
     reserveAnswer = { data: { ok: false, reason, limit }, error: null };
     const res = await readRpc(await book(GOOD_ARGS));

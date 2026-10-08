@@ -325,6 +325,7 @@ function exactLike(text: string): string {
 }
 
 const LIMIT_MESSAGES: Record<string, (n: number) => string> = {
+  not_allowed: () => 'This key is not allowed to book meetings right now. The owner can switch booking on for it on the Connect page.',
   per_hour: (n) => `This key has booked ${n} meetings in the last hour. Try again later.`,
   per_day: (n) => `This key has booked ${n} meetings in the last 24 hours. Try again tomorrow.`,
   invitees_per_day: (n) =>
