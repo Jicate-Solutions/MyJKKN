@@ -10,6 +10,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import type { PayDestinationChange } from '@/lib/hr/payroll/pay-destination-changes';
+import { logger } from '@/lib/utils/enhanced-logger';
 
 export function useIsTheDirector() {
   return useQuery({
@@ -17,7 +18,13 @@ export function useIsTheDirector() {
     staleTime: 5 * 60 * 1000,
     queryFn: async () => {
       const { data, error } = await (createClientSupabaseClient() as any).rpc('fn_is_the_director');
-      return !error && data === true;
+      if (error) {
+        // Fails closed: the panel stays hidden. Logged so a broken check is
+        // not mistaken for "not on the Director list".
+        logger.warn('hr/payroll/pay-destination', 'fn_is_the_director check failed; panel hidden', error);
+        return false;
+      }
+      return data === true;
     },
   });
 }
@@ -31,7 +38,10 @@ export function usePayDestinationChanges(days: number, enabled: boolean) {
       const { data, error } = await (createClientSupabaseClient() as any).rpc('fn_hr_pay_destination_changes', {
         p_since: since,
       });
-      if (error) throw new Error(error.message);
+      if (error) {
+        logger.warn('hr/payroll/pay-destination', 'change list could not be read', error);
+        throw new Error(error.message);
+      }
       return (data ?? []) as PayDestinationChange[];
     },
   });

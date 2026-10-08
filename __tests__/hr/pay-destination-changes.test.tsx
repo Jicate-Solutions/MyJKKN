@@ -156,15 +156,18 @@ describe('the Monday route', () => {
 // ---------------------------------------------------------------------
 // The panel on Employee Salaries
 // ---------------------------------------------------------------------
-const hooks = vi.hoisted(() => ({ isDirector: false, rows: [] as unknown[], days: [] as number[] }));
+const hooks = vi.hoisted(() => ({
+  isDirector: false, rows: [] as unknown[], days: [] as number[],
+  error: null as Error | null, refetch: (() => undefined) as unknown as ReturnType<typeof vi.fn>,
+}));
 vi.mock('@/hooks/hr/payroll/use-pay-destination-changes', () => ({
   useIsTheDirector: () => ({ data: hooks.isDirector }),
-  usePayDestinationChanges: (days: number, enabled: boolean) => { hooks.days.push(days); return { data: enabled ? hooks.rows : undefined, isLoading: false, error: null }; },
+  usePayDestinationChanges: (days: number, enabled: boolean) => { hooks.days.push(days); return { data: enabled ? hooks.rows : undefined, isLoading: false, error: hooks.error, refetch: hooks.refetch }; },
 }));
 import { PayDestinationChanges } from '@/app/(routes)/hr/payroll/salaries/_components/pay-destination-changes';
 
 describe('the panel', () => {
-  beforeEach(() => { hooks.isDirector = false; hooks.rows = [bankChange, payerChange]; hooks.days = []; });
+  beforeEach(() => { hooks.isDirector = false; hooks.rows = [bankChange, payerChange]; hooks.days = []; hooks.error = null; hooks.refetch = vi.fn(); });
 
   it('renders nothing for anyone not on the Director list', () => {
     const { container } = render(<PayDestinationChanges />);
@@ -185,5 +188,32 @@ describe('the panel', () => {
     hooks.isDirector = true; hooks.rows = [];
     render(<PayDestinationChanges />);
     expect(screen.getByText('No bank account or paying trust was changed in the last 7 days.')).toBeInTheDocument();
+  });
+
+  it('says plainly when nothing changed in the widest window too', () => {
+    hooks.isDirector = true; hooks.rows = [];
+    render(<PayDestinationChanges />);
+    fireEvent.click(screen.getByRole('button', { name: 'Last 90 days' }));
+    expect(screen.getByText('No bank account or paying trust was changed in the last 90 days.')).toBeInTheDocument();
+    expect(screen.queryAllByTestId('pay-destination-change')).toHaveLength(0);
+  });
+
+  it('a refusal shows a plain sentence and a retry, never the raw database message', () => {
+    hooks.isDirector = true;
+    hooks.error = new Error('Only the Director list can read the bank and payer change list.');
+    render(<PayDestinationChanges />);
+    expect(screen.getByText('This list is only for the Director list, and your account is not on it.')).toBeInTheDocument();
+    expect(screen.queryByText(/Only the Director list can read/)).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
+    expect(hooks.refetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('any other failure shows a plain sentence and a retry', () => {
+    hooks.isDirector = true;
+    hooks.error = new Error('JWT expired');
+    render(<PayDestinationChanges />);
+    expect(screen.getByText('The list of changes could not be loaded just now.')).toBeInTheDocument();
+    expect(screen.queryByText(/JWT expired/)).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Try again' })).toBeInTheDocument();
   });
 });

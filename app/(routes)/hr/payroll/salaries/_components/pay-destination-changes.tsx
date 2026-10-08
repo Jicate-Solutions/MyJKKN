@@ -21,6 +21,14 @@ function when(iso: string): string {
   });
 }
 
+/** A plain sentence for the reader; the database's own wording stays in the log. */
+function errorSentence(error: Error): string {
+  if (/Only the Director list can read/i.test(error.message)) {
+    return 'This list is only for the Director list, and your account is not on it.';
+  }
+  return 'The list of changes could not be loaded just now.';
+}
+
 export function PayDestinationChanges() {
   const director = useIsTheDirector();
   const [days, setDays] = useState<(typeof RANGES)[number]>(7);
@@ -53,7 +61,14 @@ export function PayDestinationChanges() {
           <Loader2 className='h-4 w-4 animate-spin' /> Loading…
         </p>
       ) : list.error ? (
-        <Alert variant='destructive'><AlertDescription>{list.error.message}</AlertDescription></Alert>
+        <Alert variant='destructive'>
+          <AlertDescription className='flex flex-wrap items-center justify-between gap-3'>
+            <span>{errorSentence(list.error)}</span>
+            <Button size='sm' variant='outline' onClick={() => list.refetch()}>
+              Try again
+            </Button>
+          </AlertDescription>
+        </Alert>
       ) : (list.data ?? []).length === 0 ? (
         <p className='text-sm text-muted-foreground'>No bank account or paying trust was changed in the last {days} days.</p>
       ) : (
