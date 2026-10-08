@@ -5,9 +5,10 @@
  *
  * Like my-desk-offer-branch-widening.test.ts, this re-derives the claim from
  * the files every run instead of trusting the header's prose. It reads file
- * text only; nothing here connects to a database. (The behaviour itself was
- * rehearsed on a throwaway local PostgreSQL 16; there is no pg harness for
- * the desk in this repo to commit that run into.)
+ * text only; nothing here connects to a database. The behaviour itself is
+ * rehearsed on a throwaway PostgreSQL 16 by the committed
+ * my-desk-hr-queues.pg.test.ts next to this file, which also covers the
+ * review follow-up 20271008110101 (checked as text at the end of this file).
  */
 import { describe, it, expect } from 'vitest';
 import { createHash } from 'node:crypto';
@@ -19,6 +20,8 @@ const DIR = path.join(process.cwd(), 'supabase', 'migrations');
 const PREV = path.join(DIR, '20261202090000_fn_my_desk_waiting_offer_issued.sql');
 const NEXT = path.join(DIR, '20270613101149_fn_my_desk_waiting_hr_queues.sql');
 const SETUP = path.join(process.cwd(), 'supabase', 'setup', '02_functions.sql');
+/** The review follow-up (#4155): CREATE OR REPLACE of the same function. */
+const FIX = path.join(DIR, '20271008110101_fn_my_desk_waiting_scope_fix.sql');
 
 const OLD_BRANCHES = ['recruitment', 'refund', 'leave', 'meeting_trigger', 'grievance', 'offer'] as const;
 const NEW_BRANCHES = [
@@ -286,11 +289,13 @@ describe('fn_my_desk_waiting 20270613101149 — apply, privileges and the setup 
     );
   });
 
-  it('the setup file carries the function ONCE, byte-identical to the migration', () => {
+  it('the setup file carries this body once, byte-identical, then the 20271008110101 follow-up appended after it', () => {
     const setup = readFileSync(SETUP, 'utf8');
     const blocks = fnBlocks(setup);
-    expect(blocks).toHaveLength(1);
+    expect(blocks).toHaveLength(2);
     expect(sha(blocks[0])).toBe(sha(nextFn));
+    expect(sha(blocks[1])).toBe(sha(fnBlocks(readFileSync(FIX, 'utf8'))[0]));
+    expect(setup.indexOf(blocks[1])).toBeGreaterThan(setup.indexOf(blocks[0]));
     expect(setup).toContain('DROP FUNCTION IF EXISTS public.fn_my_desk_waiting();');
     expect(setup).toContain('CREATE OR REPLACE FUNCTION public.fn_my_desk_ts_or_null(p_text text)');
   });
@@ -299,8 +304,61 @@ describe('fn_my_desk_waiting 20270613101149 — apply, privileges and the setup 
     const re = /^COMMENT ON FUNCTION public\.fn_my_desk_waiting\(\) IS\n {2}'[\s\S]*?';$/gm;
     const mig = [...nextSrc.matchAll(re)].map((m) => m[0]);
     const setup = [...readFileSync(SETUP, 'utf8').matchAll(re)].map((m) => m[0]);
+    const fix = [...readFileSync(FIX, 'utf8').matchAll(re)].map((m) => m[0]);
     expect(mig).toHaveLength(1);
-    expect(setup).toHaveLength(1);
+    expect(fix).toHaveLength(1);
+    expect(setup).toHaveLength(2);
     expect(sha(setup[0])).toBe(sha(mig[0]));
+    expect(sha(setup[1])).toBe(sha(fix[0]));
+  });
+});
+
+describe('fn_my_desk_waiting 20271008110101 — the #4155 review follow-up, as text', () => {
+  const fixSrc = readFileSync(FIX, 'utf8');
+  const fixFn = fnBlocks(fixSrc)[0];
+  const fix = ctes(fixFn);
+
+  it('replaces exactly one definition, in place (no DROP: the return type is unchanged)', () => {
+    expect(fnBlocks(fixSrc)).toHaveLength(1);
+    expect(fixSrc).not.toMatch(/DROP FUNCTION/);
+    expect(fixFn.startsWith('CREATE OR REPLACE FUNCTION public.fn_my_desk_waiting()')).toBe(true);
+  });
+
+  it("calls the salary-revision approve helper instead of a copy of an old version of it (finding 2)", () => {
+    expect(fixFn).toContain('v_can_rev_approve    := COALESCE(public.fn_hr_salary_revision_can_approve(), false);');
+    expect(fixFn).not.toContain("'hr.payroll.salary_revision.approve'");
+    expect(fixFn).not.toMatch(/v_can_rev_approve\s*:=\s*v_is_super/);
+    expect(fix.salary_revision).toContain('public.hr_salary_revision_is_own(q.staff_id, q.subject_profile_id)');
+    expect(fix.salary_revision).toContain('public.hr_salary_revision_is_unlinked(q.staff_id, q.subject_profile_id)');
+    expect(fix.salary_revision).toContain('public.hr_salary_revision_is_list_member(');
+  });
+
+  it('never trusts role_has_institution_access with a NULL college in the branches it fixes (findings 1, 3, 4)', () => {
+    expect(fix.onboarding_step).toContain('c.institution_id IS NOT NULL');
+    expect(fix.onboarding_step).toContain('c.hr_organization_id = ANY (v_org_ids)');
+    expect(fix.staff_photo).toContain('ps.institution_id IS NOT NULL');
+    expect(fix.staff_photo).toContain('o.institution_id = ps.institution_id AND o.included_in_hr');
+    expect(fix.regularisation).toContain('st.institution_id IS NOT NULL');
+    expect(fix.regularisation).toContain('public.role_has_institution_access(st.institution_id)');
+  });
+
+  it('checks drift against production, preflights every column, and test-calls the new body (finding 5)', () => {
+    expect(fixSrc).toContain("'95bdef9d97c60dedd2a685515802fad9'");
+    for (const col of ['principal_decided_at', 'verification_status', 'expires_at', 'subject_was_list_member']) {
+      expect(fixSrc).toContain(col);
+    }
+    expect(fixSrc).toContain("('public.is_super_admin()')");
+    expect(fixSrc).toContain('SELECT count(*) INTO v_n FROM public.fn_my_desk_waiting();');
+    expect(fixSrc).toContain('REVOKE EXECUTE ON FUNCTION public.fn_my_desk_waiting() FROM anon, PUBLIC;');
+  });
+
+  it('changes no branch outside the review findings', () => {
+    for (const n of ['recruitment', 'refund', 'leave', 'meeting_trigger', 'grievance', 'offer', 'leave_eligibility',
+      'payroll_period', 'termination', 'everything'] as const) {
+      // The CTE's own text, up to its closing `  ),` — the comment above the
+      // NEXT branch (some of which this follow-up rewrites) is not part of it.
+      const code = (s: string) => (s.lastIndexOf('\n  ),') >= 0 ? s.slice(0, s.lastIndexOf('\n  ),') + 5) : s);
+      expect(sha(code(fix[n])), n).toBe(sha(code(next[n])));
+    }
   });
 });
