@@ -32,7 +32,6 @@ export const customisedColleges = (c: ProcurementCategory): string[] => [
 /**
  * The selected category, top to bottom:
  *   header        — name (click to rename) · Open for requests
- *   journey strip — Requester asks → A → Quotes → B → Order created
  *   A and B       — the two approver lists, side by side when there is room
  *       A Request approval — approves the items asked for
  *       B Final approval   — approves the vendors and prices chosen after quotations
@@ -116,8 +115,6 @@ export function CategoryDetail({
           setScope(null);
         }}
       />
-
-      <JourneyStrip hasRequest={requestSteps.length > 0} hasFinal={finalSteps.length > 0} />
 
       {/* Side by side when there is room for both, stacked otherwise. Sized to the
           panel itself rather than the viewport, since the category list shares the row. */}
@@ -250,45 +247,6 @@ function CollegeBar({
   );
 }
 
-/** Where the two lists sit in a purchase: ask → A → quotes → B → order. */
-function JourneyStrip({ hasRequest, hasFinal }: { hasRequest: boolean; hasFinal: boolean }) {
-  const points: Array<{ key: string; node: string; label: string; set?: boolean; warn?: boolean }> = [
-    { key: 'ask', node: '', label: 'Requester asks' },
-    { key: 'a', node: 'A', label: 'Request approval', set: hasRequest, warn: !hasRequest },
-    { key: 'quotes', node: '', label: 'Quotes compared' },
-    { key: 'b', node: 'B', label: hasFinal ? 'Final approval' : 'Final approval (Super Admin)', set: hasFinal },
-    { key: 'order', node: '', label: 'Order created' },
-  ];
-  return (
-    <div className="overflow-x-auto border-b bg-muted/30 px-4 py-3" aria-label="Where each list sits in a purchase">
-      <ol className="flex min-w-max items-start">
-        {points.map((p, i) => (
-          <li key={p.key} className="flex items-start">
-            {i > 0 && <span aria-hidden className="mt-[13px] h-0.5 w-6 bg-border sm:w-10" />}
-            <span className="flex w-24 flex-col items-center gap-1 text-center">
-              <span
-                className={cn(
-                  'flex h-7 w-7 items-center justify-center rounded-full border-2 text-xs font-bold',
-                  p.set
-                    ? 'border-primary bg-primary text-primary-foreground'
-                    : p.warn
-                      ? 'border-amber-500 bg-background text-amber-700 dark:text-amber-400'
-                      : 'border-border bg-background text-muted-foreground'
-                )}
-              >
-                {p.node || <span className="h-1.5 w-1.5 rounded-full bg-current" />}
-              </span>
-              <span className={cn('text-[11px] leading-tight', p.set ? 'font-semibold text-foreground' : 'text-muted-foreground')}>
-                {p.label}
-              </span>
-            </span>
-          </li>
-        ))}
-      </ol>
-    </div>
-  );
-}
-
 /** The chain read back as plain sentences, rebuilt on every change. */
 function ReadBack({
   open,
@@ -347,7 +305,7 @@ function ApproverList({
   /** null = the default chain; set = that college's own chain. */
   institutionId: string | null;
   stage: ApprovalStage;
-  /** "A" / "B" — matches the journey strip above. */
+  /** "A" / "B" */
   marker: string;
   title: string;
   empty: string;
