@@ -1,5 +1,5 @@
 -- ============================================================================
--- Migration: 20270415090000_hr_pay_scales_arts_science_reference_row
+-- Migration: 20271008200100_hr_pay_scales_arts_science_reference_row
 -- Date: 2026-09-28
 -- Data-only INSERT into platform_policies. No DDL, no functions, no grants.
 -- ============================================================================
@@ -18,10 +18,12 @@
 -- overwritten. Touches only policy_key = 'hr.pay_scales' for
 -- institution b0b8a724-7c65-4f07-8047-2a38e8100ad5 (JKKN Arts & Science).
 --
--- Version note: 20270415090000 is not used by any file in
--- supabase/migrations on the branch base, but the live migration ledger
--- (supabase_migrations.schema_migrations) could NOT be read when this was
--- written, so it is unconfirmed that the version is free there.
+-- Version note (renumbered 2026-10-08): first written as 20270415090000,
+-- which main later used for 20270415090000_learner_leave_types_and_role_flows.
+-- 20271008200100 is absent from supabase/migrations on jicate/main and matches
+-- no PR (gh pr list --search, 2026-10-08). The newest version applied live was
+-- 20271008160000 per the coordinator's read that day; the ledger itself was not
+-- read by this lane.
 -- ============================================================================
 
 INSERT INTO platform_policies

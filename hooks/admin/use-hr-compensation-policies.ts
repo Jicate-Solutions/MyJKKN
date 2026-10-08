@@ -43,7 +43,7 @@ export type CompensationInstitutionId =
 
 // Pay-scale editor only: the two seeded colleges plus Arts & Science, whose
 // (empty) hr.pay_scales row is created by
-// migrations/20270415090000_hr_pay_scales_arts_science_reference_row.sql.
+// migrations/20271008200100_hr_pay_scales_arts_science_reference_row.sql.
 // COMPENSATION_INSTITUTIONS is left unchanged because the allowances and
 // motivation-fund editors use it and Arts & Science has no rows for those keys.
 export const PAY_SCALE_INSTITUTIONS = [
