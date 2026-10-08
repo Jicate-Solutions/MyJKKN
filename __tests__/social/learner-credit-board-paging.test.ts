@@ -20,18 +20,35 @@ let claimsTable: Claim[] = [];
 let claimReads: Op[][] = [];
 /** Page index (0-based) whose read fails, or null. */
 let failOnPage: number | null = null;
+/** When true, every claims read hangs until its abort signal fires. */
+let hangClaims = false;
 
 function claimsQuery() {
   const ops: Op[] = [];
   claimReads.push(ops);
   const b: Record<string, unknown> = {};
+  let signal: AbortSignal | undefined;
   for (const m of ['select', 'eq', 'gt', 'order', 'range', 'limit', 'in']) {
     b[m] = (...args: unknown[]) => {
       ops.push([m, ...args]);
       return b;
     };
   }
+  b.abortSignal = (sig: AbortSignal) => {
+    signal = sig;
+    ops.push(['abortSignal']);
+    return b;
+  };
   b.then = (ok: (r: unknown) => unknown, bad?: (e: unknown) => unknown) => {
+    if (hangClaims) {
+      // A PostgREST call that never answers; supabase-js reports an aborted
+      // fetch as an error, not a throw.
+      return new Promise((resolve) => {
+        signal?.addEventListener('abort', () =>
+          resolve({ data: null, error: { message: 'AbortError: The operation was aborted.', code: '' } })
+        );
+      }).then(ok, bad);
+    }
     const pageIndex = claimReads.indexOf(ops);
     if (failOnPage === pageIndex) {
       return Promise.resolve({ data: null, error: { message: 'boom', code: 'XX000' } }).then(ok, bad);
@@ -62,7 +79,7 @@ let largestIn = 0;
 function idKeyedQuery(table: string) {
   let ids: string[] = [];
   const b: Record<string, unknown> = {};
-  for (const m of ['select', 'eq', 'gt', 'order', 'range', 'limit']) b[m] = () => b;
+  for (const m of ['select', 'eq', 'gt', 'order', 'range', 'limit', 'abortSignal']) b[m] = () => b;
   b.in = (_col: string, list: string[]) => {
     ids = list;
     largestIn = Math.max(largestIn, list.length);
@@ -121,6 +138,7 @@ beforeEach(() => {
   failOnPage = null;
   richTables = false;
   largestIn = 0;
+  hangClaims = false;
   vi.resetModules();
 });
 
@@ -239,15 +257,40 @@ describe('the board pages past the 1,000-row cap', () => {
     expect(rows.find((r) => r.learner_id === 'LX')!.institution_id).toBe('I1');
   });
 
-  it('stops with a clear 500 when the reads run past the time budget', async () => {
-    claimsTable = makeClaims(2300);
-    let now = 1_000_000;
-    const spy = vi.spyOn(Date, 'now').mockImplementation(() => (now += 20_000));
+  it('a single hung read is cut at the time budget with a clear 500', async () => {
+    claimsTable = makeClaims(10);
+    hangClaims = true;
+    const controller = new AbortController();
+    const spy = vi.spyOn(AbortSignal, 'timeout').mockReturnValue(controller.signal);
     try {
       const { GET } = await import('@/app/api/social/learner-credit/route');
-      const res = await GET(get());
+      const pending = GET(get());
+      setTimeout(() => controller.abort(), 10); // the budget runs out
+      const res = await pending;
       expect(res.status).toBe(500);
-      expect((await res.json()).error).toMatch(/took too long/i);
+      const msg = (await res.json()).error as string;
+      expect(msg).toMatch(/took too long/i);
+      expect(msg).toMatch(/Choose one institution/);
+      expect(claimReads[0]).toContainEqual(['abortSignal']);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it('the time-budget message does not tell a caller who chose an institution to choose one', async () => {
+    claimsTable = makeClaims(10, 'I2');
+    hangClaims = true;
+    const controller = new AbortController();
+    const spy = vi.spyOn(AbortSignal, 'timeout').mockReturnValue(controller.signal);
+    try {
+      const { GET } = await import('@/app/api/social/learner-credit/route');
+      const pending = GET(get('?institution_id=I2'));
+      setTimeout(() => controller.abort(), 10);
+      const res = await pending;
+      expect(res.status).toBe(500);
+      const msg = (await res.json()).error as string;
+      expect(msg).toMatch(/for this institution took too long/i);
+      expect(msg).not.toMatch(/Choose one institution/);
     } finally {
       spy.mockRestore();
     }

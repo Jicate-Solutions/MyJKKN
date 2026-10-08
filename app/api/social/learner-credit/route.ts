@@ -141,6 +141,8 @@ const ID_CHUNK = 200;
  * function time out with no message.
  */
 const BOARD_READ_BUDGET_MS = 45_000;
+/** The platform limit for this route, kept above the read budget. */
+export const maxDuration = 60;
 const OUT_OF_TIME = { message: 'board read budget exceeded' };
 
 /** `error` is null on success; on failure `rows` is empty and must not be used. */
@@ -153,13 +155,13 @@ type ChunkedRead = { rows: Array<Record<string, unknown>>; error: unknown };
 async function readByIdChunks(
   ids: string[],
   build: (ids: string[]) => PromiseLike<{ data: unknown; error: unknown }>,
-  deadline: number
+  signal: AbortSignal
 ): Promise<ChunkedRead> {
   const rows: Array<Record<string, unknown>> = [];
   for (let i = 0; i < ids.length; i += ID_CHUNK) {
-    if (Date.now() > deadline) return { rows: [], error: OUT_OF_TIME };
+    if (signal.aborted) return { rows: [], error: OUT_OF_TIME };
     const { data, error } = await build(ids.slice(i, i + ID_CHUNK));
-    if (error) return { rows: [], error };
+    if (error) return { rows: [], error: signal.aborted ? OUT_OF_TIME : error };
     rows.push(...((data ?? []) as Array<Record<string, unknown>>));
   }
   return { rows, error: null };
@@ -175,10 +177,15 @@ export async function GET(req: NextRequest) {
   const db = await createServerSupabaseClient();
   const admin = createServiceRoleClient();
   const institutionId = req.nextUrl.searchParams.get('institution_id');
-  const deadline = Date.now() + BOARD_READ_BUDGET_MS;
+  // One signal for the whole board read. Every query carries it, so a single
+  // hung call is cut at the budget instead of running until the platform
+  // kills the function with no message.
+  const signal = AbortSignal.timeout(BOARD_READ_BUDGET_MS);
   const outOfTime = () =>
     deny(
-      'The board took too long to read in full, so it is not shown. Choose one institution and try again.',
+      institutionId
+        ? 'The board for this institution took too long to read in full, so it is not shown. Try again shortly; if it keeps happening, tell the MyJKKN team.'
+        : 'The board took too long to read in full, so it is not shown. Choose one institution and try again.',
       500
     );
 
@@ -201,11 +208,12 @@ export async function GET(req: NextRequest) {
       .select('id, learner_id, ig_post_id, status, institution_id');
     if (institutionId) q = q.eq('institution_id', institutionId);
     if (afterId) q = q.gt('id', afterId);
-    return q.order('id', { ascending: true }).limit(size);
+    return q.order('id', { ascending: true }).limit(size).abortSignal(signal);
   };
   for (let page = 0; page < CLAIM_PAGE_LIMIT; page += 1) {
-    if (Date.now() > deadline) return outOfTime();
+    if (signal.aborted) return outOfTime();
     const { data, error } = await readPage(CLAIM_PAGE_SIZE);
+    if (error && signal.aborted) return outOfTime();
     if (error) {
       logger.error(MODULE, 'claim read failed', error);
       return deny('Could not read the claims just now.', 500);
@@ -222,6 +230,7 @@ export async function GET(req: NextRequest) {
     // Every page came back full. One probe tells "exactly at the limit" apart
     // from "more than the limit", so exactly 50,000 claims is not refused.
     const { data: more, error: probeError } = await readPage(1);
+    if (probeError && signal.aborted) return outOfTime();
     if (probeError) {
       logger.error(MODULE, 'claim read failed', probeError);
       return deny('Could not read the claims just now.', 500);
@@ -258,22 +267,27 @@ export async function GET(req: NextRequest) {
   // post (its latest snapshot); reading ig_post_metrics directly returned ~627
   // rows a post and the cap cut it to an arbitrary subset.
   const posts = await readByIdChunks(postIds, (ids) =>
-    admin.from('ig_posts').select('id, account_id').in('id', ids),
-    deadline
+    admin.from('ig_posts').select('id, account_id').in('id', ids).abortSignal(signal),
+    signal
   );
   const metrics = !posts.error
     ? await readByIdChunks(postIds, (ids) =>
         admin
           .from('v_ig_post_latest_metrics')
           .select('post_id, snapshot_at, saves, shares, comments, likes, reach')
-          .in('post_id', ids),
-        deadline
+          .in('post_id', ids)
+          .abortSignal(signal),
+        signal
       )
     : posts;
   const learners = !metrics.error
     ? await readByIdChunks(learnerIds, (ids) =>
-        db.from('learners_profiles').select('id, first_name, last_name, institution_id').in('id', ids),
-        deadline
+        db
+          .from('learners_profiles')
+          .select('id, first_name, last_name, institution_id')
+          .in('id', ids)
+          .abortSignal(signal),
+        signal
       )
     : metrics;
   if (learners.error === OUT_OF_TIME) return outOfTime();
@@ -286,8 +300,8 @@ export async function GET(req: NextRequest) {
     new Set(posts.rows.map((p) => p.account_id as string).filter(Boolean))
   );
   const accounts = await readByIdChunks(accountIds, (ids) =>
-    admin.from('ig_accounts').select('id, metrics_source').in('id', ids),
-    deadline
+    admin.from('ig_accounts').select('id, metrics_source').in('id', ids).abortSignal(signal),
+    signal
   );
   if (accounts.error === OUT_OF_TIME) return outOfTime();
   if (accounts.error) {
