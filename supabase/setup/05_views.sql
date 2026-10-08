@@ -2074,8 +2074,10 @@ BEGIN
     REVOKE ALL ON public.v_session_feedback_pending_ingest FROM anon, authenticated, PUBLIC;
     REVOKE ALL ON public.v_session_feedback_pending_ingest FROM service_role;
     GRANT SELECT ON public.v_session_feedback_pending_ingest TO service_role;
-    IF has_table_privilege('anon', 'public.v_session_feedback_pending_ingest', 'SELECT')
-       OR has_table_privilege('authenticated', 'public.v_session_feedback_pending_ingest', 'SELECT')
+    IF has_table_privilege('anon', 'public.v_session_feedback_pending_ingest',
+                           'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
+       OR has_table_privilege('authenticated', 'public.v_session_feedback_pending_ingest',
+                              'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
        OR NOT has_table_privilege('service_role', 'public.v_session_feedback_pending_ingest', 'SELECT') THEN
       RAISE EXCEPTION 'v_session_feedback_pending_ingest grants did not land as intended';
     END IF;
