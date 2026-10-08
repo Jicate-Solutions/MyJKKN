@@ -18,6 +18,7 @@ import { ContentLayout } from '@/components/layout/content-layout';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { ScholarshipCategoryBadge } from '@/components/billing/scholarship-labels';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Separator } from '@/components/ui/separator';
 import { Label } from '@/components/ui/label';
@@ -205,29 +206,6 @@ export default function DiscountDetailsPage() {
     return format(new Date(date), 'PPP');
   };
 
-  const getDiscountCategoryBadge = (category: string) => {
-    const categoryConfig = {
-      merit_scholarship: {
-        variant: 'default' as const,
-        label: 'Merit Scholarship'
-      },
-      financial_aid: { variant: 'secondary' as const, label: 'Financial Aid' },
-      staff_quota: { variant: 'outline' as const, label: 'Staff Quota' },
-      sports_quota: { variant: 'secondary' as const, label: 'Sports Quota' },
-      special_circumstances: {
-        variant: 'outline' as const,
-        label: 'Special Circumstances'
-      }
-    };
-
-    const config = categoryConfig[category as keyof typeof categoryConfig] || {
-      variant: 'secondary' as const,
-      label: category.replace('_', ' ').toUpperCase()
-    };
-
-    return <Badge variant={config.variant}>{config.label}</Badge>;
-  };
-
   const getDiscountTypeBadge = (type: string) => {
     const typeConfig = {
       amount: { variant: 'default' as const, label: 'Fixed Amount' },
@@ -349,12 +327,22 @@ export default function DiscountDetailsPage() {
                         Category
                       </Label>
                       <div className='mt-1'>
-                        {getDiscountCategoryBadge(discount.discount_category)}
+                        <ScholarshipCategoryBadge
+                          category={discount.scholarship_category}
+                        />
                       </div>
                     </div>
                     <div>
                       <Label className='text-sm font-medium text-muted-foreground'>
                         Type
+                      </Label>
+                      <p className='mt-1 text-sm'>
+                        {discount.scholarship_type?.name ?? '—'}
+                      </p>
+                    </div>
+                    <div>
+                      <Label className='text-sm font-medium text-muted-foreground'>
+                        Value Mode
                       </Label>
                       <div className='mt-1'>
                         {getDiscountTypeBadge(discount.discount_type)}

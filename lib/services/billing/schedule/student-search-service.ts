@@ -461,6 +461,8 @@ export class StudentSearchService {
               `
             *,
             creator:profiles!fk_billing_discounts_created_by(id, full_name),
+            scholarship_category:billing_scholarship_categories(id, name, code),
+            scholarship_type:billing_scholarship_types(id, name, code),
             bill:billing_student_bills(
               *,
               item_category:billing_categories(id, category_name, kind)

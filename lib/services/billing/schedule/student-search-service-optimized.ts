@@ -230,7 +230,8 @@ export class StudentSearchServiceOptimized {
             `
             id,
             bill_id,
-            discount_category,
+            scholarship_category:billing_scholarship_categories(id, name, code),
+            scholarship_type:billing_scholarship_types(id, name, code),
             discount_type,
             discount_value,
             discount_amount,

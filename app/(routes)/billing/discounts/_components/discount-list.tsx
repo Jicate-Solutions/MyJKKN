@@ -26,6 +26,7 @@ import {
 } from '@/hooks/billing/use-billing-discounts';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { ScholarshipCategoryBadge } from '@/components/billing/scholarship-labels';
 import {
   Table,
   TableBody,
@@ -182,29 +183,6 @@ export function DiscountList({
     }).format(amount);
   };
 
-  const getDiscountCategoryBadge = (category: string) => {
-    const categoryConfig = {
-      merit_scholarship: {
-        variant: 'default' as const,
-        label: 'Merit Scholarship'
-      },
-      financial_aid: { variant: 'secondary' as const, label: 'Financial Aid' },
-      staff_quota: { variant: 'outline' as const, label: 'Staff Quota' },
-      sports_quota: { variant: 'secondary' as const, label: 'Sports Quota' },
-      special_circumstances: {
-        variant: 'outline' as const,
-        label: 'Special Circumstances'
-      }
-    };
-
-    const config = categoryConfig[category as keyof typeof categoryConfig] || {
-      variant: 'secondary' as const,
-      label: category.replace('_', ' ').toUpperCase()
-    };
-
-    return <Badge variant={config.variant}>{config.label}</Badge>;
-  };
-
   const getDiscountTypeBadge = (type: string) => {
     const typeConfig = {
       amount: { variant: 'default' as const, label: 'Fixed Amount' },
@@ -289,8 +267,8 @@ export function DiscountList({
               )}
               <TableHead>Student</TableHead>
               <TableHead>Bill Description</TableHead>
-              <TableHead>Category</TableHead>
-              <TableHead>Type</TableHead>
+              <TableHead>Category / Type</TableHead>
+              <TableHead>Value Mode</TableHead>
               <TableHead>Value</TableHead>
               <TableHead>Amount</TableHead>
               <TableHead>Status</TableHead>
@@ -352,7 +330,10 @@ export function DiscountList({
                     </div>
                   </TableCell>
                   <TableCell>
-                    {getDiscountCategoryBadge(discount.discount_category)}
+                    <ScholarshipCategoryBadge
+                      category={discount.scholarship_category}
+                      type={discount.scholarship_type}
+                    />
                   </TableCell>
                   <TableCell>
                     {getDiscountTypeBadge(discount.discount_type)}

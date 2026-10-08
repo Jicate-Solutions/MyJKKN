@@ -43,7 +43,8 @@ export class BillingDiscountService {
         .from('billing_discounts')
         .insert({
           bill_id: discountData.bill_id,
-          discount_category: discountData.discount_category,
+          scholarship_category_id: discountData.scholarship_category_id,
+          scholarship_type_id: discountData.scholarship_type_id,
           discount_type: discountData.discount_type,
           discount_value: discountData.discount_value,
           discount_amount: discountAmount,
@@ -72,6 +73,16 @@ export class BillingDiscountService {
           authorizer:profiles!fk_billing_discounts_authorizer (
             id,
             full_name
+          ),
+          scholarship_category:billing_scholarship_categories (
+            id,
+            name,
+            code
+          ),
+          scholarship_type:billing_scholarship_types (
+            id,
+            name,
+            code
           )
         `
         )
@@ -81,7 +92,7 @@ export class BillingDiscountService {
 
       const studentName = `${(data as any)?.bill?.student?.first_name || ''} ${(data as any)?.bill?.student?.last_name || ''}`.trim() || 'Unknown';
       const template = BillingActivityTemplates.discountCreated(
-        discountData.discount_category,
+        (data as any)?.scholarship_category?.name ?? 'Scholarship',
         discountAmount,
         studentName
       );
@@ -133,6 +144,16 @@ export class BillingDiscountService {
           authorizer:profiles!fk_billing_discounts_authorizer (
             id,
             full_name
+          ),
+          scholarship_category:billing_scholarship_categories (
+            id,
+            name,
+            code
+          ),
+          scholarship_type:billing_scholarship_types (
+            id,
+            name,
+            code
           )
         `
         )
@@ -201,6 +222,16 @@ export class BillingDiscountService {
           authorizer:profiles!fk_billing_discounts_authorizer (
             id,
             full_name
+          ),
+          scholarship_category:billing_scholarship_categories (
+            id,
+            name,
+            code
+          ),
+          scholarship_type:billing_scholarship_types (
+            id,
+            name,
+            code
           )
         `,
         { count: 'exact' }
@@ -217,8 +248,12 @@ export class BillingDiscountService {
         query = query.eq('bill_id', filters.bill_id);
       }
 
-      if (filters.discount_category) {
-        query = query.eq('discount_category', filters.discount_category);
+      if (filters.scholarship_category_id) {
+        query = query.eq('scholarship_category_id', filters.scholarship_category_id);
+      }
+
+      if (filters.scholarship_type_id) {
+        query = query.eq('scholarship_type_id', filters.scholarship_type_id);
       }
 
       if (filters.discount_type) {
@@ -287,6 +322,16 @@ export class BillingDiscountService {
           authorizer:profiles!fk_billing_discounts_authorizer (
             id,
             full_name
+          ),
+          scholarship_category:billing_scholarship_categories (
+            id,
+            name,
+            code
+          ),
+          scholarship_type:billing_scholarship_types (
+            id,
+            name,
+            code
           )
         `
         )
@@ -379,6 +424,16 @@ export class BillingDiscountService {
           authorizer:profiles!fk_billing_discounts_authorizer (
             id,
             full_name
+          ),
+          scholarship_category:billing_scholarship_categories (
+            id,
+            name,
+            code
+          ),
+          scholarship_type:billing_scholarship_types (
+            id,
+            name,
+            code
           )
         `
           )
@@ -400,7 +455,7 @@ export class BillingDiscountService {
 
       const studentNameApprove = `${discountData.bill?.student?.first_name || ''} ${discountData.bill?.student?.last_name || ''}`.trim() || 'Unknown';
       const templateApprove = BillingActivityTemplates.discountApproved(
-        discountData.discount_category,
+        discountData.scholarship_category?.name ?? 'Scholarship',
         discountData.discount_amount,
         studentNameApprove
       );
@@ -478,6 +533,16 @@ export class BillingDiscountService {
           authorizer:profiles!fk_billing_discounts_authorizer (
             id,
             full_name
+          ),
+          scholarship_category:billing_scholarship_categories (
+            id,
+            name,
+            code
+          ),
+          scholarship_type:billing_scholarship_types (
+            id,
+            name,
+            code
           )
         `
         )
@@ -487,7 +552,7 @@ export class BillingDiscountService {
 
       const studentNameReject = `${currentDiscount.bill?.student?.first_name || ''} ${currentDiscount.bill?.student?.last_name || ''}`.trim() || 'Unknown';
       const templateReject = BillingActivityTemplates.discountRejected(
-        currentDiscount.discount_category,
+        currentDiscount.scholarship_category?.name ?? 'Scholarship',
         studentNameReject
       );
       logActivityForCurrentUser({
@@ -571,6 +636,16 @@ export class BillingDiscountService {
           authorizer:profiles!fk_billing_discounts_authorizer (
             id,
             full_name
+          ),
+          scholarship_category:billing_scholarship_categories (
+            id,
+            name,
+            code
+          ),
+          scholarship_type:billing_scholarship_types (
+            id,
+            name,
+            code
           )
         `
           )
@@ -593,7 +668,7 @@ export class BillingDiscountService {
 
       const studentNameReverse = `${discountData.bill?.student?.first_name || ''} ${discountData.bill?.student?.last_name || ''}`.trim() || 'Unknown';
       const templateReverse = BillingActivityTemplates.discountReversed(
-        discountData.discount_category,
+        discountData.scholarship_category?.name ?? 'Scholarship',
         discountData.discount_amount,
         studentNameReverse
       );
