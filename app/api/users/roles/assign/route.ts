@@ -51,26 +51,34 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // ── Gate: roles.assign (primary-role permission lookup + super_admin bypass) ──
-    // Mirrors the established check in app/api/notifications/send/route.ts.
+    // ── Gate: roles.assign across EVERY role the caller holds (2026-10-08) ──
+    // This used to read custom_roles for the caller's PRIMARY role only, so a
+    // second role that grants roles.assign was ignored and a primary role that
+    // grants it could hand out any role. Ask the database the same question
+    // RLS asks: user_has_permission merges all of the caller's roles and lets a
+    // super admin through. Both run as the caller's own session.
     const { data: callerProfile } = await supabase
       .from('profiles')
-      .select('role, full_name')
+      .select('full_name')
       .eq('id', user.id)
       .single();
 
-    let allowed = callerProfile?.role === 'super_admin';
-    if (!allowed && callerProfile?.role) {
-      const { data: callerRole } = await supabase
-        .from('custom_roles')
-        .select('permissions')
-        .eq('role_key', callerProfile.role)
-        .single();
-      allowed = (callerRole?.permissions as Record<string, unknown> | null)?.[
-        'roles.assign'
-      ] === true;
+    const [superResult, permResult] = await Promise.all([
+      supabase.rpc('is_super_admin'),
+      supabase.rpc('user_has_permission', { permission_name: 'roles.assign' })
+    ]);
+    if (superResult.error || permResult.error) {
+      console.error(
+        '[roles/assign] permission check failed:',
+        superResult.error || permResult.error
+      );
+      return NextResponse.json(
+        { error: 'Could not check your permissions. Nothing was changed.' },
+        { status: 500 }
+      );
     }
-    if (!allowed) {
+    const callerIsSuperAdmin = superResult.data === true;
+    if (!callerIsSuperAdmin && permResult.data !== true) {
       return NextResponse.json(
         { error: 'You do not have permission to assign roles (roles.assign required).' },
         { status: 403 }
@@ -83,11 +91,22 @@ export async function POST(request: NextRequest) {
     // Resolve role_key → role_id (the UI chips only carry role_key).
     const { data: role, error: roleErr } = await admin
       .from('custom_roles')
-      .select('id, role_key, role_name')
+      .select('id, role_key, role_name, is_privileged')
       .eq('role_key', roleKey)
       .single();
     if (roleErr || !role) {
       return NextResponse.json({ error: `Role '${roleKey}' not found` }, { status: 404 });
+    }
+
+    // A role with admin powers is a super admin's to give (2026-10-08). The
+    // insert below uses the service-role client, which skips every database
+    // guard, so the route refuses it here. Anything but an explicit false
+    // counts as privileged, so a missing flag fails closed.
+    if (!callerIsSuperAdmin && (role as { is_privileged?: boolean | null }).is_privileged !== false) {
+      return NextResponse.json(
+        { error: 'Only a super admin can give anyone a role with admin powers.' },
+        { status: 403 }
+      );
     }
     const roleId = (role as { id: string }).id;
     const roleName = (role as { role_name?: string }).role_name || roleKey;
