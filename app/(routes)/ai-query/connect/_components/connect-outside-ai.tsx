@@ -9,6 +9,7 @@ import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Switch } from '@/components/ui/switch';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -96,6 +97,7 @@ export function ConnectOutsideAi() {
   const [creating, setCreating] = useState(false);
   const [newKey, setNewKey] = useState<NewKey | null>(null);
   const [turningOff, setTurningOff] = useState<PersonalKey | null>(null);
+  const [allowingBooking, setAllowingBooking] = useState<PersonalKey | null>(null);
 
   const rpc = useCallback(
     (fn: string, args?: Record<string, unknown>) =>
@@ -116,7 +118,36 @@ export function ConnectOutsideAi() {
       return Array.isArray(data) ? (data as PersonalKey[]) : [];
     },
   });
-  const load = () => void refetch();
+  const {
+    data: bookingIds = [],
+    isError: bookingUnknown,
+    refetch: refetchBooking,
+  } = useQuery({
+    queryKey: ['ai-personal-key-booking'],
+    queryFn: async (): Promise<string[]> => {
+      const { data, error } = await rpc('fn_ai_personal_key_booking_ids');
+      if (error) throw new Error(error.message);
+      return Array.isArray(data) ? (data as string[]) : [];
+    },
+  });
+  const load = () => {
+    void refetch();
+    void refetchBooking();
+  };
+
+  const setBooking = async (target: PersonalKey, allow: boolean) => {
+    const { error } = await rpc('fn_ai_personal_key_set_booking', { p_key_id: target.id, p_allow: allow });
+    if (error) {
+      toast.error(error.message || 'Could not change this key. Please try again.');
+      return;
+    }
+    toast.success(
+      allow
+        ? `"${target.name}" can now book meetings on your calendar.`
+        : `"${target.name}" can no longer book meetings.`
+    );
+    load();
+  };
 
   const workingCount = keys.filter((k) => k.status === 'working').length;
 
@@ -171,7 +202,8 @@ export function ConnectOutsideAi() {
         <h1 className="text-2xl font-bold text-foreground">Connect an outside AI</h1>
         <p className="text-sm text-muted-foreground">
           Use MyJKKN from an outside AI such as Claude Code, Claude Desktop or Gemini CLI. The outside AI sees only what you can see in
-          MyJKKN, and it can only read. It cannot change, send or delete anything.
+          MyJKKN, and it can only read. It cannot change, send or delete anything, unless you let one of your keys book
+          meetings on your calendar below.
         </p>
       </div>
 
@@ -272,9 +304,27 @@ export function ConnectOutsideAi() {
                   </p>
                 </div>
                 {k.status === 'working' && (
-                  <Button variant="outline" size="sm" onClick={() => setTurningOff(k)}>
-                    Turn off
-                  </Button>
+                  <div className="flex flex-wrap items-center gap-3">
+                    <div className="flex items-center gap-2">
+                      <Switch
+                        id={`book-${k.id}`}
+                        // If the booking state could not be loaded, do not show
+                        // "off" for a key that may be on: disable the switch.
+                        disabled={bookingUnknown}
+                        checked={bookingIds.includes(k.id)}
+                        onCheckedChange={(on) => (on ? setAllowingBooking(k) : void setBooking(k, false))}
+                      />
+                      <Label htmlFor={`book-${k.id}`} className="text-sm text-foreground">
+                        Can book meetings
+                      </Label>
+                      {bookingUnknown && (
+                        <span className="text-xs text-muted-foreground">(could not check, refresh the page)</span>
+                      )}
+                    </div>
+                    <Button variant="outline" size="sm" onClick={() => setTurningOff(k)}>
+                      Turn off
+                    </Button>
+                  </div>
                 )}
               </li>
             ))}
@@ -312,6 +362,31 @@ export function ConnectOutsideAi() {
           It answers with the same information the MyJKKN AI Assistant would show you.
         </p>
       </section>
+
+      <AlertDialog open={allowingBooking !== null} onOpenChange={(open) => !open && setAllowingBooking(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Let &ldquo;{allowingBooking?.name}&rdquo; book meetings?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Whoever uses this key can then book meetings on your calendar and send the invitations in your name,
+              without asking you first. It cannot book for anyone else. You can switch this off, or turn the key off,
+              here at any time.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Not now</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                const target = allowingBooking;
+                setAllowingBooking(null);
+                if (target) void setBooking(target, true);
+              }}
+            >
+              Allow booking
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <AlertDialog open={turningOff !== null} onOpenChange={(open) => !open && setTurningOff(null)}>
         <AlertDialogContent>
