@@ -40,7 +40,8 @@ CREATE FUNCTION public.is_admin() RETURNS boolean LANGUAGE sql STABLE AS $$
 GRANT EXECUTE ON FUNCTION public.is_super_admin(), public.is_admin() TO authenticated;
 CREATE FUNCTION public.set_updated_at() RETURNS trigger LANGUAGE plpgsql AS $$
   BEGIN NEW.updated_at := now(); RETURN NEW; END $$;
-CREATE TABLE public.hr_memos (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), staff_id uuid NOT NULL);
+CREATE TABLE public.hr_memos (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), staff_id uuid NOT NULL,
+  triggered_by_event_id uuid);
 CREATE TABLE public.platform_policies (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(), policy_key text NOT NULL, scope_type text NOT NULL,
   scope_id uuid, value jsonb NOT NULL, description text, data_type text, classification text,
@@ -150,6 +151,40 @@ describe.skipIf(!PG_READY)('hr memo detector ledgers are super-admin-only (20271
     // Re-running the fix repairs it; running only its guard must refuse the broken state.
     const guard = /DO \$\$[\s\S]*END \$\$;/.exec(readFileSync(FIX, 'utf8'))![0];
     expect(() => psql(['-d', DBNAME, '-c', guard])).toThrow(/super admins only/);
+    psql(['-d', DBNAME, '-f', FIX]);
+    expect(() => psql(['-d', DBNAME, '-c', guard])).not.toThrow();
+  });
+
+  it('#4259 finding 5: the guard counts policies PER TABLE (2 on one ledger, 0 on the other is refused)', () => {
+    const guard = /DO \$\$[\s\S]*END \$\$;/.exec(readFileSync(FIX, 'utf8'))![0];
+    psql(['-d', DBNAME, '-c', `
+      CREATE POLICY hr_memo_nudges_select_extra ON public.hr_memo_nudges FOR SELECT TO authenticated
+        USING ((SELECT public.is_super_admin()));
+      DROP POLICY hr_memo_detector_runs_select ON public.hr_memo_detector_runs;`]);
+    // Two policies in total, both super-admin-only: a total-count guard passes this.
+    expect(() => psql(['-d', DBNAME, '-c', guard])).toThrow(/exactly one policy on each/);
+    psql(['-d', DBNAME, '-c', `
+      DROP POLICY hr_memo_nudges_select_extra ON public.hr_memo_nudges;
+      CREATE POLICY hr_memo_detector_runs_select ON public.hr_memo_detector_runs FOR SELECT TO authenticated
+        USING ((SELECT public.is_super_admin()));`]);
+    expect(() => psql(['-d', DBNAME, '-c', guard])).not.toThrow();
+  });
+
+  it('#4259 finding 1: only ONE memo can name a triggering event; manual memos (no event) never collide', () => {
+    const ev = randomUUID();
+    psql(['-d', DBNAME, '-c', `INSERT INTO public.hr_memos (staff_id, triggered_by_event_id) VALUES (gen_random_uuid(), '${ev}')`]);
+    expect(() =>
+      psql(['-d', DBNAME, '-c', `INSERT INTO public.hr_memos (staff_id, triggered_by_event_id) VALUES (gen_random_uuid(), '${ev}')`]),
+    ).toThrow(/ux_hr_memos_triggered_by_event|duplicate key/);
+    expect(() =>
+      psql(['-d', DBNAME, '-c', `INSERT INTO public.hr_memos (staff_id) VALUES (gen_random_uuid()), (gen_random_uuid())`]),
+    ).not.toThrow();
+  });
+
+  it('#4259 finding 1: the guard refuses a database without the one-memo-per-event index', () => {
+    const guard = /DO \$\$[\s\S]*END \$\$;/.exec(readFileSync(FIX, 'utf8'))![0];
+    psql(['-d', DBNAME, '-c', 'DROP INDEX public.ux_hr_memos_triggered_by_event']);
+    expect(() => psql(['-d', DBNAME, '-c', guard])).toThrow(/one memo per triggering event/);
     psql(['-d', DBNAME, '-f', FIX]);
     expect(() => psql(['-d', DBNAME, '-c', guard])).not.toThrow();
   });

@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { SupabaseClient } from '@supabase/supabase-js';
@@ -172,6 +172,25 @@ function makeFake(opts: {
         if (this.table === 'notifications') {
           for (const n of list) {
             if (n.idempotency_key != null && rows.some((r) => r.idempotency_key === n.idempotency_key)) {
+              return { data: null, error: { message: 'duplicate key', code: '23505' } };
+            }
+          }
+        }
+        if (this.table === 'hr_memos') {
+          // ux_hr_memos_triggered_by_event: one memo per triggering event.
+          for (const n of list) {
+            if (
+              n.triggered_by_event_id != null &&
+              rows.some((r) => r.triggered_by_event_id === n.triggered_by_event_id)
+            ) {
+              return { data: null, error: { message: 'duplicate key', code: '23505' } };
+            }
+          }
+        }
+        if (this.table === 'user_notifications') {
+          // Production's UNIQUE (notification_id, user_id).
+          for (const n of list) {
+            if (rows.some((r) => r.notification_id === n.notification_id && r.user_id === n.user_id)) {
               return { data: null, error: { message: 'duplicate key', code: '23505' } };
             }
           }
@@ -668,7 +687,7 @@ describe('review finding 4 — two overlapping runs issue ONE memo', () => {
     expect(fake.tables.hr_memo_eligibility_events[0].processed_into_memo_id).toBe(fake.tables.hr_memos[0].id);
   });
 
-  it('a memo insert that fails releases the claim, so the next run can issue it', async () => {
+  it('a memo insert that fails leaves the event pending, so the next run can issue it', async () => {
     const event: Row = {
       id: 'ev-2',
       staff_id: STAFF_A,
@@ -773,5 +792,124 @@ describe('review finding 9 — the issue date in a message is the Indian calenda
     await new HRMemoService(fake.client).runDetection(RUN, { now: NOW });
     const notice = fake.tables.notifications.at(-1) as Row;
     expect(String(notice.body)).toContain('issued to you on 2026-10-06');
+  });
+});
+
+describe('#4259 deep review finding 1 — no event is ever left claimed by a memo that does not exist', () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  const pendingEvent = (id: string): Row => ({
+    id,
+    staff_id: STAFF_A,
+    event_type: 'leave_before_approval',
+    event_detail: { leave_id: `leave-${id}`, leave_name: 'Casual' },
+    detected_at: daysAgo(1),
+    processed_into_memo_id: null,
+    is_dismissed: false,
+  });
+
+  it('a failure before the memo insert (composing the reason throws) leaves the event pending', async () => {
+    vi.spyOn(
+      HRMemoService.prototype as unknown as { composeReason: () => string },
+      'composeReason',
+    ).mockImplementation(() => {
+      throw new Error('compose blew up (test)');
+    });
+    const fake = makeFake({
+      policy: { mode: 'live' },
+      tables: { ...scenario(), institution_leaves: [], hr_memos: [], hr_memo_eligibility_events: [pendingEvent('ev-c')] },
+    });
+    const res = await new HRMemoService(fake.client).runDetection(RUN, { now: NOW });
+    expect(res.memos_created).toBe(0);
+    expect(res.errors.join(' ')).toMatch(/memo for event ev-c/);
+    expect(fake.tables.hr_memos).toHaveLength(0);
+    expect(fake.tables.hr_memo_eligibility_events[0].processed_into_memo_id).toBeNull();
+  });
+
+  it('a run that died after inserting the memo but before marking the event: the next run links the event to that memo, issues no second memo and sends no second notice', async () => {
+    const fake = makeFake({
+      policy: { mode: 'live' },
+      tables: {
+        ...scenario(),
+        institution_leaves: [],
+        hr_memos: [
+          {
+            id: 'memo-from-dead-run',
+            staff_id: STAFF_A,
+            memo_type: 'leave_before_approval',
+            triggered_by_event_id: 'ev-d',
+            auto_issued: true,
+            status: 'issued',
+            issued_at: NOW.toISOString(),
+          },
+        ],
+        hr_memo_eligibility_events: [pendingEvent('ev-d')],
+      },
+    });
+    const res = await new HRMemoService(fake.client).runDetection(RUN, { now: NOW });
+    expect(res.errors).toEqual([]);
+    expect(res.memos_created).toBe(0);
+    expect(fake.tables.hr_memos).toHaveLength(1);
+    expect(fake.tables.hr_memo_eligibility_events[0].processed_into_memo_id).toBe('memo-from-dead-run');
+    expect(fake.tables.notifications.filter((n) => n.title === 'HR memo issued')).toHaveLength(0);
+
+    // And it stays settled: a further run finds nothing pending.
+    const again = await new HRMemoService(fake.client).runDetection(RUN2, { now: NOW });
+    expect(again.memos_created).toBe(0);
+    expect(fake.tables.hr_memos).toHaveLength(1);
+  });
+
+  it('a failed event link is reported, the memo stands, and the next run links it without a second memo', async () => {
+    const fake = makeFake({
+      policy: { mode: 'live' },
+      tables: { ...scenario(), institution_leaves: [], hr_memos: [], hr_memo_eligibility_events: [pendingEvent('ev-l')] },
+    });
+    // First run: the event-link update fails once.
+    const realFrom = fake.client.from.bind(fake.client);
+    let failed = false;
+    const spy = vi.spyOn(fake.client, 'from').mockImplementation(((table: string) => {
+      const b = realFrom(table) as unknown as { update: (p: Row) => unknown };
+      if (table === 'hr_memo_eligibility_events' && !failed) {
+        const realUpdate = b.update.bind(b);
+        b.update = (patch: Row) => {
+          if ('processed_into_memo_id' in patch && !failed) {
+            failed = true;
+            return {
+              eq: () => ({ is: () => Promise.resolve({ data: null, error: { message: 'link refused (test)' } }) }),
+            };
+          }
+          return realUpdate(patch);
+        };
+      }
+      return b;
+    }) as never);
+    const first = await new HRMemoService(fake.client).runDetection(RUN, { now: NOW });
+    spy.mockRestore();
+    expect(first.memos_created).toBe(1);
+    expect(first.errors.join(' ')).toMatch(/link failed/);
+    expect(fake.tables.hr_memo_eligibility_events[0].processed_into_memo_id).toBeNull();
+
+    const second = await new HRMemoService(fake.client).runDetection(RUN2, { now: NOW });
+    expect(second.memos_created).toBe(0);
+    expect(fake.tables.hr_memos.filter((m) => m.triggered_by_event_id === 'ev-l')).toHaveLength(1);
+    expect(fake.tables.hr_memo_eligibility_events[0].processed_into_memo_id).toBe(fake.tables.hr_memos[0].id);
+    expect(fake.tables.notifications.filter((n) => n.title === 'HR memo issued')).toHaveLength(1);
+  });
+});
+
+describe('#4259 deep review finding 4 — linking recipients names no conflict target', () => {
+  it('a retry whose recipient is already linked adds nothing, and never upserts on (notification_id, user_id)', async () => {
+    const fake = liveWithMemo(
+      [{ id: 'n1', memo_id: 'memo-old', nudge_kind: 'staff_reminder', status: 'claimed', recorded_at: hoursAgo(12), created_at: hoursAgo(12) }],
+      {
+        notifications: [{ id: 'notif-1', title: 't', body: 'b', idempotency_key: 'hr_memo_nudge:memo-old:staff_reminder' }],
+        user_notifications: [{ id: 'un-1', notification_id: 'notif-1', user_id: PROFILE_B }],
+      },
+    );
+    const res = await new HRMemoService(fake.client).runDetection(RUN, { now: NOW });
+    expect(res.nudges_sent).toBe(1);
+    expect(fake.tables.user_notifications).toHaveLength(1);
+    expect(fake.writes.filter((w) => w.op === 'upsert')).toEqual([]);
+    expect(fake.writes.filter((w) => w.table === 'user_notifications')).toEqual([]);
   });
 });
