@@ -585,6 +585,12 @@ describe('review fixes (20271008110105) — follow-up to #4226', () => {
     expect(r.error).toMatch(/between 0 and/);
   });
 
+  // Review round 2: the bound checks the ROUNDED amount, so a value that rounds up to the limit is a 400, not a 500.
+  it('a correction that rounds up past the column limit is refused with a clear message', async () => {
+    const r = await as({ perms: L4_KEY }, check('L4', ENC, 'corrected', '9999999999.995', `'Rate should be 900 per day'`));
+    expect(r.error).toMatch(/between 0 and/);
+  });
+
   // The drift check: a body that is neither main's nor this file's stops the file.
   it('the migration refuses to run over a function that differs from main, and re-runs cleanly over itself', async () => {
     const fs = await import('fs');

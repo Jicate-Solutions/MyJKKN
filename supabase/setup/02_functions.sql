@@ -84905,8 +84905,10 @@ BEGIN
   END IF;
 
   -- 6b. 2026-10-08: the right amount is zero or more and fits numeric(12,2).
+  -- The upper bound checks the ROUNDED value: 9999999999.995 rounds up to
+  -- 10000000000.00 on insert, which would overflow numeric(12,2) as a 500.
   IF p_result = 'corrected'
-     AND (p_corrected_amount < 0 OR p_corrected_amount >= 10000000000) THEN
+     AND (p_corrected_amount < 0 OR round(p_corrected_amount, 2) >= 10000000000) THEN
     RAISE EXCEPTION 'The right amount must be between 0 and 9,999,999,999.99' USING ERRCODE = '22023';
   END IF;
 

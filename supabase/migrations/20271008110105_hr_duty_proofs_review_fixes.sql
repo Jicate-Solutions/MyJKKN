@@ -52,7 +52,7 @@
 --     fn_hr_duty_proof_gaps          body md5 277c16cfd776254d4d1761e21db463f5  definer t  {search_path=public}
 --   The ones this file installs:
 --     fn_hr_duty_proof_done_items    body md5 7b32c5d8b21b54f67b1a68a74b2317b7  definer f  {search_path=public}
---     fn_hr_duty_proof_second_check  body md5 eb9cd0ad0bb3f0c49de70bed5e319552  definer t  {search_path=public}
+--     fn_hr_duty_proof_second_check  body md5 9dab9ac532792dbe347d6a0a3769d2a1  definer t  {search_path=public}
 --     fn_hr_duty_proof_gaps          body md5 a24d804f1563721fe0eaf6536c887c47  definer t  {search_path=public}
 --   Read them with:
 --     SELECT p.oid::regprocedure, md5(btrim(replace(p.prosrc, E'\r', ''), E' \t\n')),
@@ -74,7 +74,7 @@ BEGIN
        '7b32c5d8b21b54f67b1a68a74b2317b7', false, '{search_path=public}'),
       ('public.fn_hr_duty_proof_second_check(text,uuid,text,numeric,text)',
        'bf4a45ad06fbd41daacdd441526aab41', true, '{search_path=public}',
-       'eb9cd0ad0bb3f0c49de70bed5e319552', true, '{search_path=public}'),
+       '9dab9ac532792dbe347d6a0a3769d2a1', true, '{search_path=public}'),
       ('public.fn_hr_duty_proof_gaps(text,date)',
        '277c16cfd776254d4d1761e21db463f5', true, '{search_path=public}',
        'a24d804f1563721fe0eaf6536c887c47', true, '{search_path=public}')
@@ -257,8 +257,10 @@ BEGIN
   END IF;
 
   -- 6b. 2026-10-08: the right amount is zero or more and fits numeric(12,2).
+  -- The upper bound checks the ROUNDED value: 9999999999.995 rounds up to
+  -- 10000000000.00 on insert, which would overflow numeric(12,2) as a 500.
   IF p_result = 'corrected'
-     AND (p_corrected_amount < 0 OR p_corrected_amount >= 10000000000) THEN
+     AND (p_corrected_amount < 0 OR round(p_corrected_amount, 2) >= 10000000000) THEN
     RAISE EXCEPTION 'The right amount must be between 0 and 9,999,999,999.99' USING ERRCODE = '22023';
   END IF;
 
