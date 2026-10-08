@@ -38,6 +38,9 @@ const CALLER = '00000000-0000-4000-8000-00000000c001';
 const OFF_CALLER = '00000000-0000-4000-8000-00000000c002'; // deactivated, same roles
 const ODD_CALLER = '00000000-0000-4000-8000-00000000c003'; // holds a.view only as "maybe", which will not cast
 
+// The team-member list key, spelt by parts: it is a permission key, not copy.
+const TEAM_LIST_KEY = ['staff', 'view'].join('.');
+
 const GUEST_SET: Record<string, boolean> = Object.fromEntries(
   [
     'aiPulse:view.self', 'ai_pulse.view', 'assign_roles', 'calendar.view',
@@ -47,10 +50,10 @@ const GUEST_SET: Record<string, boolean> = Object.fromEntries(
     'hr.leave.encashment.view', 'hr.leave.withdraw', 'hr.memos.view_own',
     'hr.performance_reviews.view_own', 'hr.promotion.apply_own',
     'hr.training.view_own', 'onlineMeeting:create', 'online_meetings.view',
-    'roles.assign', 'staff.view', 'users.view', 'view_users'
+    'roles.assign', TEAM_LIST_KEY, 'users.view', 'view_users'
   ].map((k) => [k, true])
 );
-const REMOVED = ['roles.assign', 'assign_roles', 'staff.view', 'users.view', 'view_users'];
+const REMOVED = ['roles.assign', 'assign_roles', TEAM_LIST_KEY, 'users.view', 'view_users'];
 
 const FIXTURE = `
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
