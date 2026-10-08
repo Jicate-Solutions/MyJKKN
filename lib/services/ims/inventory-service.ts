@@ -241,7 +241,11 @@ export class ImsInventoryService {
       const from = (page - 1) * limit;
       const to = from + limit - 1;
 
-      query = query.range(from, to).order('name', { ascending: true });
+      // name_sort skips leading digits/punctuation so "2-ETHYL HEXANOL" files under E.
+      query = query
+        .range(from, to)
+        .order('name_sort', { ascending: true })
+        .order('name', { ascending: true });
 
       const { data, error, count } = await query;
 
@@ -639,8 +643,10 @@ export class ImsInventoryService {
       if (error) throw error;
       // A–Z the way people read it (case-insensitive, numbers in order) — the
       // database's byte order puts "acetone" after "Zinc".
+      const letters = (s: string | null) => (s ?? '').trim().replace(/^[^A-Za-z]+/, '');
       const data = [...(rows || [])].sort((a: { name: string }, b: { name: string }) =>
-        (a.name ?? '').trim().localeCompare((b.name ?? '').trim(), 'en', { sensitivity: 'base', numeric: true })
+        letters(a.name).localeCompare(letters(b.name), 'en', { sensitivity: 'base', numeric: true }) ||
+        (a.name ?? '').localeCompare(b.name ?? '', 'en', { sensitivity: 'base', numeric: true })
       );
 
       return (data || []) as ImsItemForSelect[];
