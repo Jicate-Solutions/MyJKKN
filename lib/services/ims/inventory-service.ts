@@ -26,6 +26,8 @@ export interface ImsImportError {
 export interface ImsImportResult {
   success: boolean;
   successCount: number;
+  /** Rows whose code already existed and were added as a new batch of that item. */
+  batchesAdded?: number;
   errorCount: number;
   totalRows: number;
   errors: ImsImportError[];
