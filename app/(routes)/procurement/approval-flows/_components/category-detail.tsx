@@ -1,11 +1,12 @@
 'use client';
 
 import { useState } from 'react';
-import { ArrowDown, ArrowUp, GripVertical, Pencil, X } from 'lucide-react';
+import { ArrowDown, ArrowUp, GripVertical, Pencil, Plus, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
+import { useUserInstitutionAccess } from '@/hooks/use-user-institution-access';
 import { useSaveCategorySteps, useSaveProcurementCategory } from '@/hooks/procurement/use-approval-chains';
 import { errorMessage } from '@/lib/utils/supabase-error';
 import { cn } from '@/lib/utils';
@@ -19,8 +20,14 @@ function stepDetail(s: CategoryStep): string {
   return s.same_college ? `${s.role_key} of the request's college` : `${s.role_key}`;
 }
 
-export const stepsOf = (c: ProcurementCategory, stage: ApprovalStage) =>
-  (c.steps ?? []).filter((s) => (s.stage ?? 'request') === stage);
+/** One list of one scope: `institutionId` null = the default chain, set = that college's own chain. */
+export const stepsOf = (c: ProcurementCategory, stage: ApprovalStage, institutionId: string | null = null) =>
+  (c.steps ?? []).filter((s) => (s.stage ?? 'request') === stage && (s.institution_id ?? null) === institutionId);
+
+/** Colleges that have a chain of their own for this category. */
+export const customisedColleges = (c: ProcurementCategory): string[] => [
+  ...new Set((c.steps ?? []).map((s) => s.institution_id).filter((id): id is string => !!id)),
+];
 
 /**
  * The selected category, top to bottom:
@@ -42,6 +49,10 @@ export function CategoryDetail({
   const saveCategory = useSaveProcurementCategory();
   const [renaming, setRenaming] = useState(false);
   const [name, setName] = useState(category.name);
+  // null = the default chain. A college picked with "Add a college" is only a tab until its
+  // first approver is saved.
+  const [scope, setScope] = useState<string | null>(null);
+  const [draftColleges, setDraftColleges] = useState<string[]>([]);
 
   const rename = async () => {
     setRenaming(false);
@@ -63,8 +74,8 @@ export function CategoryDetail({
     }
   };
 
-  const requestSteps = stepsOf(category, 'request');
-  const finalSteps = stepsOf(category, 'final');
+  const requestSteps = stepsOf(category, 'request', scope);
+  const finalSteps = stepsOf(category, 'final', scope);
 
   return (
     <section className="overflow-hidden rounded-xl border bg-background shadow">
@@ -91,6 +102,21 @@ export function CategoryDetail({
         </label>
       </div>
 
+      <CollegeBar
+        category={category}
+        scope={scope}
+        onScope={setScope}
+        draftColleges={draftColleges}
+        onDraft={(id) => {
+          setDraftColleges((d) => (d.includes(id) ? d : [...d, id]));
+          setScope(id);
+        }}
+        onRemoved={(id) => {
+          setDraftColleges((d) => d.filter((x) => x !== id));
+          setScope(null);
+        }}
+      />
+
       <JourneyStrip hasRequest={requestSteps.length > 0} hasFinal={finalSteps.length > 0} />
 
       {/* Side by side when there is room for both, stacked otherwise. Sized to the
@@ -99,6 +125,7 @@ export function CategoryDetail({
         <ApproverList
           category={category}
           categories={categories}
+          institutionId={scope}
           stage="request"
           marker="A"
           title="Request approval"
@@ -107,6 +134,7 @@ export function CategoryDetail({
         <ApproverList
           category={category}
           categories={categories}
+          institutionId={scope}
           stage="final"
           marker="B"
           title="Final approval"
@@ -117,6 +145,108 @@ export function CategoryDetail({
 
       <ReadBack open={category.is_active} requestSteps={requestSteps} finalSteps={finalSteps} />
     </section>
+  );
+}
+
+/**
+ * Which chain is being edited: the default (every college) or one college's own.
+ * A college chain replaces the whole default for that college; colleges without one use the default.
+ */
+function CollegeBar({
+  category,
+  scope,
+  onScope,
+  draftColleges,
+  onDraft,
+  onRemoved,
+}: {
+  category: ProcurementCategory;
+  scope: string | null;
+  onScope: (id: string | null) => void;
+  draftColleges: string[];
+  onDraft: (id: string) => void;
+  onRemoved: (id: string) => void;
+}) {
+  const { institutions } = useUserInstitutionAccess();
+  const saveSteps = useSaveCategorySteps();
+  const nameOf = (id: string) => institutions.find((i) => i.institution_id === id)?.institution_name ?? 'College';
+  const tabs = [...new Set([...customisedColleges(category), ...draftColleges])];
+  const addable = institutions.filter((i) => !tabs.includes(i.institution_id));
+  const hasOwn = scope !== null && customisedColleges(category).includes(scope);
+  const requestMissing = scope !== null && stepsOf(category, 'request', scope).length === 0;
+
+  const removeChain = async () => {
+    if (!scope) return;
+    try {
+      await saveSteps.mutateAsync({ categoryId: category.id, steps: [], stage: 'request', institutionId: scope });
+      await saveSteps.mutateAsync({ categoryId: category.id, steps: [], stage: 'final', institutionId: scope });
+      toast.success(`${nameOf(scope)} now uses the default chain`);
+      onRemoved(scope);
+    } catch (e) {
+      toast.error(errorMessage(e, 'Could not remove it'));
+    }
+  };
+
+  const chip = (active: boolean) =>
+    cn(
+      'h-9 shrink-0 rounded-md border px-3 text-sm',
+      active ? 'border-primary bg-primary text-primary-foreground' : 'bg-background hover:bg-muted'
+    );
+
+  return (
+    <div className="space-y-2 border-b px-4 py-3">
+      <div className="flex flex-wrap items-center gap-2" role="tablist" aria-label="Which colleges this chain is for">
+        <button type="button" role="tab" aria-selected={scope === null} className={chip(scope === null)} onClick={() => onScope(null)}>
+          All colleges (default)
+        </button>
+        {tabs.map((id) => (
+          <button key={id} type="button" role="tab" aria-selected={scope === id} className={chip(scope === id)} onClick={() => onScope(id)}>
+            {nameOf(id)}
+          </button>
+        ))}
+        {addable.length > 0 && (
+          <Select value="" onValueChange={onDraft}>
+            <SelectTrigger className="h-9 w-auto gap-1.5 border-dashed bg-background text-sm" aria-label="Add a college chain">
+              <Plus className="h-4 w-4" />
+              <SelectValue placeholder="Add a college" />
+            </SelectTrigger>
+            <SelectContent>
+              {addable.map((i) => (
+                <SelectItem key={i.institution_id} value={i.institution_id}>
+                  {i.institution_name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
+      </div>
+
+      {scope === null ? (
+        <p className="text-xs text-muted-foreground">
+          {tabs.length > 0
+            ? `Used by every college except ${tabs.length === 1 ? 'the one' : 'the ones'} with a tab here.`
+            : 'Used by every college. Add a college to give it different approvers.'}
+        </p>
+      ) : (
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <p className={cn('text-xs', requestMissing ? 'text-amber-700 dark:text-amber-400' : 'text-muted-foreground')}>
+            {requestMissing
+              ? `Add request approvers first. Until then ${nameOf(scope)} uses the default chain.`
+              : `Requests from ${nameOf(scope)} use this chain instead of the default (both lists).`}
+          </p>
+          {hasOwn && (
+            <button
+              type="button"
+              onClick={() => void removeChain()}
+              disabled={saveSteps.isPending}
+              className="h-8 rounded-md px-2 text-xs text-destructive hover:bg-destructive/10"
+            >
+              Use the default for {nameOf(scope)}
+            </button>
+          )}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -205,6 +335,7 @@ function ReadBack({
 function ApproverList({
   category,
   categories,
+  institutionId,
   stage,
   marker,
   title,
@@ -213,6 +344,8 @@ function ApproverList({
 }: {
   category: ProcurementCategory;
   categories: ProcurementCategory[];
+  /** null = the default chain; set = that college's own chain. */
+  institutionId: string | null;
   stage: ApprovalStage;
   /** "A" / "B" — matches the journey strip above. */
   marker: string;
@@ -221,13 +354,13 @@ function ApproverList({
   /** An empty final list falls back to the Super Admin, so it is not a warning. */
   emptyIsFine?: boolean;
 }) {
-  const steps = stepsOf(category, stage);
+  const steps = stepsOf(category, stage, institutionId);
   const saveSteps = useSaveCategorySteps();
   const [dragFrom, setDragFrom] = useState<number | null>(null);
 
   const persist = async (next: CategoryStep[], done: string, undo?: CategoryStep[]) => {
     try {
-      await saveSteps.mutateAsync({ categoryId: category.id, steps: next, stage });
+      await saveSteps.mutateAsync({ categoryId: category.id, steps: next, stage, institutionId });
       toast.success(done, undo ? { action: { label: 'Undo', onClick: () => void persist(undo, 'Restored') } } : undefined);
     } catch (e) {
       toast.error(errorMessage(e, 'Could not save'));
@@ -241,6 +374,7 @@ function ApproverList({
     }
     const step: CategoryStep = {
       stage,
+      institution_id: institutionId,
       step_order: steps.length + 1,
       label: p.full_name || p.email || 'Approver',
       approver_kind: 'user',
@@ -260,15 +394,20 @@ function ApproverList({
     void persist(next, 'Order saved');
   };
 
-  const copySources = categories.filter((c) => c.id !== category.id && stepsOf(c, stage).length > 0);
+  // "Default chain" (this category) is offered inside a college tab; other categories copy their default.
+  const DEFAULT_KEY = '__default';
+  const copySources: Array<{ id: string; name: string }> = [
+    ...(institutionId && stepsOf(category, stage).length > 0 ? [{ id: DEFAULT_KEY, name: 'Default chain' }] : []),
+    ...categories.filter((c) => c.id !== category.id && stepsOf(c, stage).length > 0).map((c) => ({ id: c.id, name: c.name })),
+  ];
   const copyFrom = (sourceId: string) => {
-    const source = categories.find((c) => c.id === sourceId);
+    const source = sourceId === DEFAULT_KEY ? category : categories.find((c) => c.id === sourceId);
     const from = source ? stepsOf(source, stage) : [];
     if (!from.length) return;
     void persist(
-      // New rows for this category: never the source's step ids, or saving moves its rows here.
-      from.map(({ id: _id, ...s }) => s),
-      `Copied ${title.toLowerCase()} from ${source!.name}`,
+      // New rows for this scope: never the source's step ids, or saving moves its rows here.
+      from.map(({ id: _id, ...s }) => ({ ...s, institution_id: institutionId })),
+      `Copied ${title.toLowerCase()} from ${sourceId === DEFAULT_KEY ? 'the default chain' : source!.name}`,
       steps.length ? steps : undefined
     );
   };
