@@ -232,6 +232,8 @@ describe('fn_caller_can_grant_role: no escalation', () => {
   it('refuses when the caller is deactivated, signed out, or the role id is unknown', async () => {
     expect(await canGrant('only_a', OFF_CALLER)).toBe(false);
     expect(await canGrant('only_a', null)).toBe(false);
+    // A role that grants nothing would pass the key loop; only the signed-out guard refuses it.
+    expect(await canGrant('empty', null)).toBe(false);
     await client.query(`SELECT set_config('test.uid', $1, false)`, [CALLER]);
     const r = await client.query(`SELECT public.fn_caller_can_grant_role(gen_random_uuid()) AS ok`);
     expect(r.rows[0].ok).toBe(false);
