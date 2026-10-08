@@ -84485,3 +84485,82 @@ BEGIN
 END;
 $$;
 REVOKE EXECUTE ON FUNCTION public.fn_ig_learner_post_claim_guard() FROM anon, authenticated, PUBLIC;
+
+-- ===========================================================================
+-- hr_candidate_salary_suggestion_inputs(p_candidate_id) (2026-10-08)
+-- Source: 20271008200600_hr_candidate_salary_suggestion_inputs.sql
+-- The suggested starting salary for a recruitment candidate: one candidate's
+-- inputs, the college band, and from hr.salary_suggestion_rule ONLY the amount
+-- for the candidate's department. Gated on hr.payroll.salary.view, then on the
+-- hr_recruitment_candidates SELECT policy's own predicate (03_policies.sql).
+-- Needs hr_salary_rule_department_rate / hr_salary_rule_round_to (above).
+-- ===========================================================================
+CREATE OR REPLACE FUNCTION public.hr_candidate_salary_suggestion_inputs(p_candidate_id uuid)
+RETURNS TABLE(
+  candidate_uuid         uuid,
+  institution_id         uuid,
+  designation_id         uuid,
+  designation            text,
+  department_id          uuid,
+  department_name        text,
+  prior_experience_years numeric,
+  band                   jsonb,
+  rule_rate              numeric,
+  rule_round_to          numeric,
+  rule_updated_at        timestamptz
+)
+LANGUAGE plpgsql
+STABLE SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_uid uuid := auth.uid();
+BEGIN
+  IF public.user_has_permission('hr.payroll.salary.view') IS NOT TRUE THEN
+    RAISE EXCEPTION 'hr.payroll.salary.view is required to suggest a salary.'
+      USING ERRCODE = 'insufficient_privilege';
+  END IF;
+
+  RETURN QUERY
+  SELECT c.id,
+         c.institution_id,
+         c.designation_id,
+         dg.name::text,
+         c.department_id,
+         d.department_name::text,
+         c.prior_experience_years,
+         bp.value,
+         public.hr_salary_rule_department_rate(rg.value, c.department_id),
+         public.hr_salary_rule_round_to(rg.value),
+         rg.updated_at
+    FROM public.hr_recruitment_candidates c
+    LEFT JOIN public.hr_designations dg
+           ON dg.id = c.designation_id
+    LEFT JOIN public.departments d
+           ON d.id = c.department_id
+    LEFT JOIN public.platform_policies bp
+           ON bp.policy_key = 'hr.pay_scales'
+          AND bp.scope_type = 'institution'
+          AND bp.scope_id = c.institution_id
+    LEFT JOIN public.platform_policies rg
+           ON rg.policy_key = 'hr.salary_suggestion_rule'
+          AND rg.scope_type = 'global'
+          AND rg.scope_id IS NULL
+          AND rg.is_active IS NOT FALSE
+          AND rg.publication_state <> 'draft_only'
+   WHERE c.id = p_candidate_id
+     AND (
+           public.is_super_admin() IS TRUE
+        OR public.is_admin() IS TRUE
+        OR (public.user_has_permission('hr.recruitment.view') IS TRUE
+            AND public.role_has_institution_access(c.institution_id) IS TRUE)
+        OR (v_uid IS NOT NULL AND c.submitted_by = v_uid)
+         );
+END;
+$function$;
+
+REVOKE EXECUTE ON FUNCTION public.hr_candidate_salary_suggestion_inputs(uuid) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.hr_candidate_salary_suggestion_inputs(uuid) TO authenticated;
+
+COMMENT ON FUNCTION public.hr_candidate_salary_suggestion_inputs(uuid) IS
+  'Inputs for the suggested salary of one recruitment candidate: official job title, department, years before JKKN, the college pay band, and from the group-wide hr.salary_suggestion_rule row only the amount for that department and the rounding step (published value only). Gated on hr.payroll.salary.view (IS NOT TRUE refuses) and on the candidate SELECT policy''s own predicate. Read only. Migration 20271008200600.';

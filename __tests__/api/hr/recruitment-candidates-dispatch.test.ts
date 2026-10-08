@@ -74,6 +74,9 @@ const base = `/api/hr/recruitment/candidates/${CANDIDATE_ID}`;
 const ADDED_ROUTES: OriginalRoute[] = [
   // 2026-09-24 — @mentions on the candidate discussion thread.
   { url: '/comments/mentions', slug: ['comments', 'mentions'], key: 'comment-mentions', methods: ['POST'] },
+  // 2026-10-08 — the suggested salary on Propose Package, and its three inputs.
+  { url: '/salary-details', slug: ['salary-details'], key: 'salary-details', methods: ['GET', 'PATCH'] },
+  { url: '/salary-suggestion', slug: ['salary-suggestion'], key: 'salary-suggestion', methods: ['GET'] },
 ];
 
 const ALL_ROUTES = [...ORIGINAL_ROUTES, ...ADDED_ROUTES];
