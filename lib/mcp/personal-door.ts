@@ -198,7 +198,11 @@ export function indiaLocalToIso(local: unknown): string | null {
   const m = /^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})$/.exec(local.trim());
   if (!m) return null;
   const [y, mo, d, h, mi] = m.slice(1).map(Number);
-  if (mo < 1 || mo > 12 || d < 1 || d > 31 || h > 23 || mi > 59) return null;
+  if (mo < 1 || mo > 12 || d < 1 || h > 23 || mi > 59) return null;
+  // Refuse a day the month does not have (31 February would otherwise roll
+  // into March): the calendar date must survive a round trip unchanged.
+  const cal = new Date(Date.UTC(y, mo - 1, d));
+  if (cal.getUTCFullYear() !== y || cal.getUTCMonth() !== mo - 1 || cal.getUTCDate() !== d) return null;
   return zonedToUtc(y, mo, d, h * 60 + mi, CAMPUS_TZ).toISOString();
 }
 

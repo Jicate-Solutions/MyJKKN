@@ -245,6 +245,7 @@ describe('arguments', () => {
     [{ title: '' }, /title/],
     [{ start_local: '8 Oct 3:30pm' }, /YYYY-MM-DDTHH:MM/],
     [{ start_local: '2020-01-01T10:00' }, /already passed/],
+    [{ start_local: '2099-02-31T10:00' }, /YYYY-MM-DDTHH:MM/],
     [{ duration_min: 0 }, /duration_min/],
     [{ duration_min: 9999 }, /duration_min/],
     [{ location_mode: 'zoom' }, /location_mode/],
@@ -260,6 +261,12 @@ describe('arguments', () => {
     expect(indiaLocalToIso('2026-10-08T15:30')).toBe('2026-10-08T10:00:00.000Z');
     expect(indiaLocalToIso('2026-10-08T00:10')).toBe('2026-10-07T18:40:00.000Z');
     expect(indiaLocalToIso('2026-13-08T15:30')).toBeNull();
+    // impossible days are refused, never rolled into the next month
+    expect(indiaLocalToIso('2026-02-31T15:30')).toBeNull();
+    expect(indiaLocalToIso('2026-04-31T10:00')).toBeNull();
+    expect(indiaLocalToIso('2027-02-29T10:00')).toBeNull();
+    expect(indiaLocalToIso('2028-02-29T10:00')).toBe('2028-02-29T04:30:00.000Z');
+    expect(indiaLocalToIso('2026-10-31T23:59')).toBe('2026-10-31T18:29:00.000Z');
     expect(indiaLocalToIso(42)).toBeNull();
   });
 
