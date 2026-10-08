@@ -12,10 +12,17 @@
 --      "Checked by". A new check on a stale item marks the old row revoked
 --      (revoked_at = now(), revoked_by = the new checker; an UPDATE, nothing
 --      is deleted) and records the new one.
---      Checks recorded before this file have no checked_amount / decider_id
---      and so count as stale: they are NOT back-filled from today's amount,
---      because that would claim the old check covered an amount it may never
---      have seen. Those items need one fresh check.
+--      Confirmed checks recorded before this file have no checked_amount /
+--      decider_id and so count as stale: they are NOT back-filled from today's
+--      amount, because that would claim the old check covered an amount it may
+--      never have seen. Those items need one fresh check.
+--  1b. Open "the amount is wrong" corrections recorded before this file ARE
+--      back-filled (section 10), while the item's amount still differs from
+--      the corrected amount: a correction is a flag that HR must act on, and
+--      treating it as stale would replace "the amount is wrong" with "second
+--      check needed again", let the next checker confirm the same wrong amount
+--      and revoke the flag. A correction whose item already carries the
+--      corrected amount stays without them, so the fix gets a fresh check.
 --   3. G6: whoever calculated the F&F settlement (hr_fnf_calculations.
 --      calculated_by) is now one of the doers, so cannot second-check it.
 --   5. G5: a malformed 'acted_at' in the approval chain (e.g. '2026-13-40')
@@ -34,6 +41,8 @@
 --   +  A corrected amount below zero, or too large for the column, is refused
 --      with 22023 (a 400) instead of a 500.
 --
+-- BACK-FILLED (section 10, an UPDATE that runs once; a re-run finds nothing):
+--   hr_duty_proofs.checked_amount, decider_id on open legacy corrections.
 -- REPLACED (CREATE OR REPLACE, same signatures, same grants):
 --   fn_hr_duty_proof_done_items(text, uuid)
 --   fn_hr_duty_proof_second_check(text, uuid, text, numeric, text)
@@ -387,3 +396,30 @@ GRANT  EXECUTE ON FUNCTION public.fn_hr_duty_proof_gaps(text, date) TO authentic
 CREATE OR REPLACE TRIGGER hr_duty_proof_rules_audit_trg
   AFTER INSERT OR UPDATE ON public.hr_duty_proof_rules
   FOR EACH ROW EXECUTE FUNCTION public.fn_hr_duty_proof_rules_audit();
+
+-- ----------------------------------------------------------------------------
+-- 10. Open corrections recorded before this file stay open (see 1b)
+-- ----------------------------------------------------------------------------
+-- Runs after fn_hr_duty_proof_done_items above, which returns decider_id.
+-- Only active 'corrected' second checks with nothing saved about what they
+-- checked, on an item that is still done, whose amount still differs from the
+-- corrected amount. They take the item's amount and decider as of now, so the
+-- correction stays the item's current proof until the amount or the decider
+-- changes. Confirmed checks are left as they are (stale, see 1). Idempotent:
+-- a back-filled row no longer has a NULL decider_id.
+UPDATE public.hr_duty_proofs p
+   SET (checked_amount, decider_id) = (
+         SELECT d.amount, d.decider_id
+           FROM public.fn_hr_duty_proof_done_items(p.duty_code, p.item_id) d
+          LIMIT 1),
+       updated_at = now()
+ WHERE p.kind = 'second_check'
+   AND p.check_result = 'corrected'
+   AND p.revoked_at IS NULL
+   AND p.checked_amount IS NULL
+   AND p.decider_id IS NULL
+   AND EXISTS (
+         SELECT 1
+           FROM public.fn_hr_duty_proof_done_items(p.duty_code, p.item_id) d
+          WHERE d.decider_id IS NOT NULL
+            AND d.amount IS DISTINCT FROM p.corrected_amount);

@@ -166,6 +166,41 @@ describe('review fixes — the panel and the badge', () => {
     expect(screen.queryByText('Checked by Arun Kumar')).toBeNull();
     expect(screen.getByText('Second check needed again')).toBeTruthy();
   });
+
+  // Review round 4 (LOW): a stale check may only predate the saved amount and
+  // approver, so the tooltip must not claim that anything changed.
+  it('a stale check says it needs to be redone, without claiming the amount or approver changed', () => {
+    response = {
+      gaps: [{ item_id: OTHER, done_at: '2026-10-04T10:00:00Z', institution_id: 'i1', amount: 7200, caller_is_doer: false }],
+      proofs: [{
+        id: 'p1', duty_code: 'L4', item_id: OTHER, kind: 'second_check', storage_path: null, file_name: null,
+        recorded_by: 'u2', recorded_by_name: 'Arun Kumar', recorded_at: '2026-10-05T10:00:00Z',
+        check_result: 'confirmed', corrected_amount: null, check_note: null,
+      }],
+    };
+    render(<DutyProofBadge duty="L4" itemId={OTHER} />);
+    const title = screen.getByText('Second check needed again').closest('[title]')?.getAttribute('title') ?? '';
+    expect(title).toMatch(/needs to be redone/);
+    expect(title).not.toMatch(/changed/);
+  });
+
+  // Review round 4 (MEDIUM): a stale correction keeps "the amount is wrong" in view.
+  it('a stale correction still shows who corrected it and the right amount they gave', () => {
+    response = {
+      gaps: [{ item_id: OTHER, done_at: '2026-10-04T10:00:00Z', institution_id: 'i1', amount: 7200, caller_is_doer: false }],
+      proofs: [{
+        id: 'p1', duty_code: 'L4', item_id: OTHER, kind: 'second_check', storage_path: null, file_name: null,
+        recorded_by: 'u3', recorded_by_name: 'Meena Ravi', recorded_at: '2026-10-05T10:00:00Z',
+        check_result: 'corrected', corrected_amount: 4500, check_note: 'Rate should be 900 per day',
+      }],
+    };
+    render(<DutyProofBadge duty="L4" itemId={OTHER} />);
+    const badge = screen.getByText('Corrected by Meena Ravi: check again');
+    expect(screen.queryByText('Second check needed again')).toBeNull();
+    const title = badge.closest('[title]')?.getAttribute('title') ?? '';
+    expect(title).toContain('₹4,500');
+    expect(title).toContain('Rate should be 900 per day');
+  });
 });
 
 // A re-check marks the old second check revoked and adds a new one, so one

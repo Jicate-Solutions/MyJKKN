@@ -612,3 +612,114 @@ describe('review fixes (20271008110105) — follow-up to #4226', () => {
     expect(r.rows[0]).toEqual({ anon: false, authed: false });
   });
 });
+
+// Review round 4 (deep review on 1dddf340c1, MEDIUM): checks recorded BEFORE
+// 20271008110105 have no checked_amount / decider_id. A legacy 'corrected'
+// check must stay the item's current proof (the "amount is wrong" flag), not
+// turn stale and be revoked by the next confirmation. This applies the file
+// for real over rows written by 20271007161123 alone, on a second throwaway
+// database.
+describe('20271008110105 applied over checks recorded before it', () => {
+  const DB2 = `${DBNAME}_pre`;
+  const ENC_WRONG = '00000000-0000-4000-8000-00000000e101';
+  const ENC_FIXED = '00000000-0000-4000-8000-00000000e102';
+  const ENC_CONFIRMED = '00000000-0000-4000-8000-00000000e103';
+  const ENC_REVOKED = '00000000-0000-4000-8000-00000000e104';
+  let pre: Client;
+
+  beforeAll(async () => {
+    psql(['-d', 'postgres', '-c', `CREATE DATABASE ${DB2}`]);
+    psql(['-d', DB2, '-c', PRELUDE]);
+    psql(['-d', DB2, '-f', MIG('20260515000004_hr_offboarding_substrate.sql')]);
+    psql(['-d', DB2, '-f', MIG('20260621_hr_separation_extension.sql')]);
+    psql(['-d', DB2, '-f', MIG('20260624_hr_termination_workflow.sql')]);
+    psql(['-d', DB2, '-f', MIGRATION]);
+    // Four approved encashments of 5000, each with a check written the way
+    // 20271007161123 wrote it (no checked_amount / decider_id columns yet).
+    psql(['-d', DB2, '-c', `
+      INSERT INTO public.hr_leave_encashments
+        (id, employee_id, hr_organization_id, leave_type_id, days_encashed, per_diem_rate, total_amount,
+         status, approved_by, approved_at)
+      SELECT x, '${STAFF_PAYEE}', '${ORG_A}', gen_random_uuid(), 5, 1000, 5000, 'approved', '${APPROVER}', now()
+        FROM unnest(ARRAY['${ENC_WRONG}', '${ENC_FIXED}', '${ENC_CONFIRMED}', '${ENC_REVOKED}']::uuid[]) AS x;
+      INSERT INTO public.hr_duty_proofs
+        (duty_code, item_table, item_id, institution_id, kind, recorded_by, check_result, corrected_amount,
+         check_note, revoked_at, revoked_by)
+      VALUES
+        ('L4', 'hr_leave_encashments', '${ENC_WRONG}', '${INST_A}', 'second_check', '${SETTLER}', 'corrected',
+         4500, 'Rate should be 900 per day', NULL, NULL),
+        ('L4', 'hr_leave_encashments', '${ENC_FIXED}', '${INST_A}', 'second_check', '${SETTLER}', 'corrected',
+         5000, 'Rate should be 1000 per day', NULL, NULL),
+        ('L4', 'hr_leave_encashments', '${ENC_CONFIRMED}', '${INST_A}', 'second_check', '${SETTLER}', 'confirmed',
+         NULL, NULL, NULL, NULL),
+        ('L4', 'hr_leave_encashments', '${ENC_REVOKED}', '${INST_A}', 'second_check', '${SETTLER}', 'corrected',
+         4500, 'Rate should be 900 per day', now(), '${SETTLER}');`]);
+    psql(['-d', DB2, '-f', REVIEW_FIXES]);
+    pre = new Client({ host: PGHOST, port: Number(PGPORT), user: PGUSER, database: DB2 });
+    await pre.connect();
+  }, 60_000);
+  afterAll(async () => {
+    await pre?.end();
+    try { psql(['-d', 'postgres', '-c', `DROP DATABASE IF EXISTS ${DB2}`]); } catch { /* best effort */ }
+  });
+
+  async function asChecker(sql: string) {
+    await pre.query('BEGIN');
+    try {
+      await pre.query(`SELECT set_config('test.uid', $1, true), set_config('test.perms', $2, true),
+                              set_config('test.insts', $3, true), set_config('test.super', 'off', true)`,
+        [CHECKER, L4_KEY, INST_A]);
+      await pre.query('SET LOCAL ROLE authenticated');
+      return { rows: (await pre.query(sql)).rows, error: null as string | null };
+    } catch (e) {
+      return { rows: [] as Record<string, unknown>[], error: (e as Error).message };
+    } finally {
+      await pre.query('ROLLBACK');
+    }
+  }
+
+  const row = async (item: string) => (await pre.query(
+    `SELECT check_result, checked_amount::text AS checked, decider_id, revoked_at IS NOT NULL AS revoked
+       FROM public.hr_duty_proofs WHERE item_id = $1`, [item])).rows;
+
+  it('an open correction on an amount that is still wrong keeps what it checked: the amount and the approver as of now', async () => {
+    expect(await row(ENC_WRONG)).toEqual([{ check_result: 'corrected', checked: '5000', decider_id: APPROVER, revoked: false }]);
+  });
+
+  it('so the item is not listed as needing a check again: the correction stays its proof', async () => {
+    const r = await asChecker(`SELECT item_id FROM public.fn_hr_duty_proof_gaps('L4', NULL) ORDER BY item_id`);
+    expect(r.error).toBeNull();
+    expect(r.rows.map((x) => x.item_id)).not.toContain(ENC_WRONG);
+  });
+
+  it('and the next checker cannot confirm the wrong amount over it (the flag is not revoked)', async () => {
+    const r = await asChecker(check('L4', ENC_WRONG, 'confirmed'));
+    expect(r.error).toMatch(/already has a second check/);
+    expect(await row(ENC_WRONG)).toEqual([{ check_result: 'corrected', checked: '5000', decider_id: APPROVER, revoked: false }]);
+  });
+
+  it('a correction the item already carries (amount now equals the corrected amount) is left alone and gets a fresh check', async () => {
+    expect(await row(ENC_FIXED)).toEqual([{ check_result: 'corrected', checked: null, decider_id: null, revoked: false }]);
+    const r = await asChecker(`SELECT item_id FROM public.fn_hr_duty_proof_gaps('L4', NULL)`);
+    expect(r.rows.map((x) => x.item_id)).toContain(ENC_FIXED);
+  });
+
+  it('a confirmed check from before stays stale, and a revoked correction is not touched', async () => {
+    expect(await row(ENC_CONFIRMED)).toEqual([{ check_result: 'confirmed', checked: null, decider_id: null, revoked: false }]);
+    expect(await row(ENC_REVOKED)).toEqual([{ check_result: 'corrected', checked: null, decider_id: null, revoked: true }]);
+    const r = await asChecker(`SELECT item_id FROM public.fn_hr_duty_proof_gaps('L4', NULL)`);
+    expect(r.rows.map((x) => x.item_id)).toEqual(expect.arrayContaining([ENC_CONFIRMED, ENC_REVOKED]));
+  });
+
+  it('a second run of the file changes nothing', async () => {
+    await pre.query('BEGIN');
+    try {
+      const before = (await pre.query(`SELECT id, checked_amount::text, decider_id, updated_at FROM public.hr_duty_proofs ORDER BY id`)).rows;
+      const fs = await import('fs');
+      await pre.query(fs.readFileSync(REVIEW_FIXES, 'utf8'));
+      const after = (await pre.query(`SELECT id, checked_amount::text, decider_id, updated_at FROM public.hr_duty_proofs ORDER BY id`)).rows;
+      expect(after).toEqual(before);
+    } finally { await pre.query('ROLLBACK'); }
+  });
+});
+

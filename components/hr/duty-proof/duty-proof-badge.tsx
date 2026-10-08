@@ -22,18 +22,28 @@ export function DutyProofBadge({ duty, itemId }: { duty: DutyProofCode; itemId: 
   // second check whose amount or decider no longer matches the item), so a gap
   // wins over an active proof: never say "Checked by" for an amount nobody checked.
   const needed = data.gaps.some((g) => g.item_id === itemId);
+  const correctionText = (p: NonNullable<typeof proof>) =>
+    `Says the right amount is ₹${Number(p.corrected_amount).toLocaleString('en-IN')}: ${p.check_note ?? ''}`;
 
   if (needed) {
+    // A stale check may simply predate the saved amount and approver, so the
+    // wording does not claim anything changed. A stale correction keeps its
+    // "amount is wrong" message in view, so the next checker sees it.
+    const staleCorrection = proof?.check_result === 'corrected';
     return (
       <Badge
         variant="outline"
         className="gap-1 border-amber-300 text-amber-800 dark:border-amber-700 dark:text-amber-300"
-        title={proof ? `The amount or the approver changed after ${who} checked it on ${when}` : undefined}
+        title={proof
+          ? `${staleCorrection ? `${correctionText(proof)}. ` : ''}The check by ${who} on ${when} needs to be redone`
+          : undefined}
       >
         <CircleAlert className="h-3 w-3" />
-        {kind === 'second_check'
-          ? (proof ? 'Second check needed again' : 'Second check needed')
-          : 'Signed order needed'}
+        {kind !== 'second_check'
+          ? 'Signed order needed'
+          : staleCorrection
+            ? `Corrected by ${who}: check again`
+            : (proof ? 'Second check needed again' : 'Second check needed')}
       </Badge>
     );
   }
@@ -46,9 +56,7 @@ export function DutyProofBadge({ duty, itemId }: { duty: DutyProofCode; itemId: 
         className={corrected
           ? 'gap-1 border-amber-300 text-amber-800 dark:border-amber-700 dark:text-amber-300'
           : 'gap-1 border-emerald-300 text-emerald-800 dark:border-emerald-700 dark:text-emerald-300'}
-        title={corrected
-          ? `Says the right amount is ₹${Number(proof.corrected_amount).toLocaleString('en-IN')}: ${proof.check_note ?? ''}`
-          : `Checked on ${when}`}
+        title={corrected ? correctionText(proof) : `Checked on ${when}`}
       >
         {corrected ? <CircleAlert className="h-3 w-3" /> : <CheckCircle2 className="h-3 w-3" />}
         {corrected ? `Corrected by ${who}` : `Checked by ${who}`}
