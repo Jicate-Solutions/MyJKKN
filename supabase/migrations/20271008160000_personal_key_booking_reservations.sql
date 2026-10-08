@@ -95,7 +95,11 @@ BEGIN
   END IF;
   -- Serialise with every other reservation AND every booking switch for this
   -- owner: the same lock key fn_ai_personal_key_set_booking takes, taken BEFORE
-  -- the grant is checked, so a switch-off cannot slip in between.
+  -- the grant is checked, so the grant check and the reservation see one
+  -- consistent state. The lock ends when this function's transaction commits,
+  -- so a switch-off AFTER the reservation is not stopped here: the door
+  -- re-reads the grant and the key right before it books (personal-door.ts,
+  -- stillAllowedToBook) and gives the slot back if either is gone.
   PERFORM pg_advisory_xact_lock(hashtext('ai_booking_grant:' || p_owner_id::text));
 
   -- Only a working personal key of this owner, with booking switched on, may reserve.

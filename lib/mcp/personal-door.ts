@@ -247,6 +247,13 @@ export function indiaLocalToIso(local: unknown): string | null {
   return zonedToUtc(y, mo, d, h * 60 + mi, CAMPUS_TZ).toISOString();
 }
 
+/** The first `max` letters (grapheme clusters) of `text`. */
+export function cutToLetters(text: string, max: number): string {
+  const Seg = (Intl as unknown as { Segmenter?: new (l?: string, o?: { granularity: string }) => { segment(t: string): Iterable<{ segment: string }> } }).Segmenter;
+  const parts = Seg ? Array.from(new Seg(undefined, { granularity: 'grapheme' }).segment(text), (x) => x.segment) : Array.from(text);
+  return parts.slice(0, max).join('');
+}
+
 /** Checks and shapes the outside AI's arguments. Throws ToolArgsError in plain words. */
 export function parseScheduleArgs(input: Record<string, unknown> | undefined): ScheduleArgs {
   const a = input ?? {};
@@ -287,8 +294,8 @@ export function parseScheduleArgs(input: Record<string, unknown> | undefined): S
     const key = email.toLowerCase();
     if (seen.has(key)) continue;
     seen.add(key);
-    // Cut by characters, not UTF-16 units, so a Tamil or emoji name is never split mid-letter.
-    const name = typeof o.name === 'string' ? Array.from(o.name.trim()).slice(0, BOOKING_LIMITS.MAX_NAME).join('') : '';
+    // Cut by letters as people see them, so a Tamil syllable or an emoji is never split.
+    const name = typeof o.name === 'string' ? cutToLetters(o.name.trim(), BOOKING_LIMITS.MAX_NAME) : '';
     attendees.push({ email, name: name || email });
   }
   const outside = attendees.map((p) => p.email).filter(isOutsideJkkn);
@@ -363,6 +370,28 @@ async function reserveBookingSlot(
     throw new DoorRefusal(msg ? msg(Number(r.limit)) : 'This key has reached its booking limit for now.');
   }
   return r.id;
+}
+
+/**
+ * Re-reads, right before booking, that the key is still a working personal key
+ * of this owner AND still allowed to book. The reservation's own check runs in
+ * an earlier transaction, so a switch-off (or a key turned off) after it must
+ * still stop the booking. Any error reads as "no".
+ */
+async function stillAllowedToBook(db: SupabaseClient, keyId: string, ownerId: string): Promise<boolean> {
+  try {
+    const { data: key, error } = await db
+      .from('api_keys')
+      .select('user_id, is_active, expires_at, key_kind')
+      .eq('id', keyId)
+      .maybeSingle();
+    const k = key as { user_id?: string; is_active?: boolean; expires_at?: string; key_kind?: string } | null;
+    if (error || !k || k.key_kind !== 'personal' || k.user_id !== ownerId || k.is_active !== true) return false;
+    if (!k.expires_at || new Date(k.expires_at).getTime() <= Date.now()) return false;
+    return await keyMayBook(db, keyId);
+  } catch {
+    return false;
+  }
 }
 
 /** Gives a reservation back when booking definitely wrote nothing. Best effort. */
@@ -498,6 +527,13 @@ async function runScheduleTool(
     // Nothing has been booked yet: give the slot back.
     await releaseBookingSlot(db, reservationId);
     throw err;
+  }
+
+  // Last check before anything is written: the owner may have switched booking
+  // off, or turned the key off, since the slot was reserved.
+  if (!(await stillAllowedToBook(db, keyId, ownerId))) {
+    await releaseBookingSlot(db, reservationId);
+    throw new DoorRefusal('Booking was switched off for this key, so nothing was booked.');
   }
 
   // From here the outcome may be unknown (an error or a timeout after the row

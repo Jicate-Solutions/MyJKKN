@@ -25,8 +25,12 @@ let ownerProfile: Record<string, unknown> = { institution_id: 'inst-1', is_super
 let ownerRoles: unknown[] = [];
 let people: { id: string; email: string; institution_id: string }[] = [];
 let reserveAnswer: { data: unknown; error: unknown } = { data: { ok: true, id: 'res-1' }, error: null };
+let afterReserve: (() => void) | null = null;
 const serviceRpc = vi.fn(async (fn: string, _args?: Record<string, unknown>) => {
-  if (fn === 'fn_ai_booking_reserve') return reserveAnswer;
+  if (fn === 'fn_ai_booking_reserve') {
+    afterReserve?.();
+    return reserveAnswer;
+  }
   if (fn === 'fn_ai_booking_release') return { data: true, error: null };
   return { data: null, error: null };
 });
@@ -157,6 +161,7 @@ beforeEach(() => {
   ownerRoles = [];
   people = [{ id: KNOWN_PERSON, email: 'Viswanathan.S@jkkn.ac.in', institution_id: 'inst-1' }];
   reserveAnswer = { data: { ok: true, id: 'res-1' }, error: null };
+  afterReserve = null;
   resetRateLimiter();
   keyRow = {
     id: KEY_ID,
@@ -388,12 +393,25 @@ describe('deep review fixes (8 Oct)', () => {
     expect(scheduleDirect).not.toHaveBeenCalled();
   });
 
-  it('cuts a long name by letters, never splitting one', async () => {
-    const tamil = 'த'.repeat(119) + '😀😀';
-    await readRpc(await book({ ...GOOD_ARGS, attendees: [{ email: 'a@jkkn.ac.in', name: tamil }] }));
+  it('cuts a long name by letters as people see them, never splitting a syllable or emoji', async () => {
+    // 'கு' is one letter made of two code points; '👍🏽' is one emoji made of two
+    const name = 'கு'.repeat(119) + '👍🏽' + '👍🏽';
+    await readRpc(await book({ ...GOOD_ARGS, attendees: [{ email: 'a@jkkn.ac.in', name }] }));
     const cut = scheduleDirect.mock.calls[0][1].attendees[0].name as string;
-    expect(Array.from(cut)).toHaveLength(120);
-    expect(cut.endsWith('😀')).toBe(true);
+    expect(cut).toBe('கு'.repeat(119) + '👍🏽');
+  });
+
+  it.each([
+    ['booking is switched off', () => (grantRow = { active: false })],
+    ['the key is turned off', () => (keyRow = { ...keyRow!, is_active: false })],
+    ['the key expires', () => (keyRow = { ...keyRow!, expires_at: new Date(Date.now() - 1000).toISOString() })],
+  ])('if %s after the slot is reserved, nothing is booked and the slot is given back', async (_what, change) => {
+    afterReserve = change;
+    const res = await readRpc(await book(GOOD_ARGS));
+    expect(res.result.isError).toBe(true);
+    expect(res.result.content[0].text).toMatch(/switched off for this key, so nothing was booked/);
+    expect(scheduleDirect).not.toHaveBeenCalled();
+    expect(released()).toEqual([{ p_reservation_id: 'res-1' }]);
   });
 
   it('cuts a very long attendee name rather than refusing', async () => {
