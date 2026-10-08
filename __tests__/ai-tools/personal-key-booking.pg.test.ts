@@ -13,6 +13,9 @@
  *     leaves the row the door reads with active = false;
  *   - nobody signed in reads the grants table directly, and anon runs neither
  *     function;
+ *   - at most ONE key per person can book (switching on another key switches
+ *     the first off; a partial unique index refuses two active grants), and a
+ *     turned-off key is not listed as booking;
  *   - the file applies twice.
  *
  * REQUIRES a PostgreSQL (CI's postgres:16 service; locally
@@ -235,6 +238,36 @@ describe('switching booking on', () => {
     expect(r.error).toBeUndefined();
     expect((await setBooking(A, keyA2, true)).error).toMatch(/Key not found/);
     expect(await doorReads(keyA2)).toBe(false);
+  });
+});
+
+describe('one booking key per person', () => {
+  it('switching on a second key switches the first one off', async () => {
+    expect(await doorReads(keyA)).toBe(true);
+    const keyA3 = await makeKey(A, 'A second');
+    expect((await setBooking(A, keyA3, true)).error).toBeUndefined();
+    expect(await doorReads(keyA3)).toBe(true);
+    expect(await doorReads(keyA)).toBe(false);
+    expect(await bookingIds(A)).toEqual([keyA3]);
+    // the index refuses two active grants for one person, whoever writes them
+    await db.query('RESET ROLE');
+    await expect(
+      db.query(`UPDATE public.ai_personal_key_booking_grants SET active = true WHERE key_id = $1`, [keyA])
+    ).rejects.toThrow(/uq_ai_personal_key_booking_one_per_owner/);
+    // back to keyA for the tests below
+    expect((await setBooking(A, keyA3, false)).error).toBeUndefined();
+    expect((await setBooking(A, keyA, true)).error).toBeUndefined();
+    expect(await bookingIds(A)).toEqual([keyA]);
+  });
+
+  it('a turned-off key is not listed as booking', async () => {
+    const keyA4 = await makeKey(A, 'A third');
+    expect((await setBooking(A, keyA4, true)).error).toBeUndefined();
+    expect(await bookingIds(A)).toEqual([keyA4]);
+    expect((await as(A, `SELECT public.fn_ai_personal_key_revoke($1)`, [keyA4])).error).toBeUndefined();
+    expect(await bookingIds(A)).toEqual([]);
+    expect((await setBooking(A, keyA, true)).error).toBeUndefined();
+    expect(await bookingIds(A)).toEqual([keyA]);
   });
 });
 

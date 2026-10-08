@@ -18,32 +18,63 @@ const KNOWN_PERSON = '0b3b1b8e-2222-4222-8222-000000000002';
 const KEY = 'jkkn_pk_' + 'b'.repeat(48);
 const KEY_ID = 'key-book-1';
 
-// ── service-role client: key lookup, booking grant, invitee profiles ──────
+// ── service-role client: key lookup, booking grant, limits, invitee profiles ─
 let keyRow: Record<string, unknown> | null = null;
 let grantRow: Record<string, unknown> | null = null;
+let ownerProfile: Record<string, unknown> = { institution_id: 'inst-1', is_super_admin: false };
+let ownerRoles: unknown[] = [];
+let people: { id: string; email: string; institution_id: string }[] = [];
+let bookedLastHour = 0;
+let bookedLastDay = 0;
+let countError: unknown = null;
+let recentBookings: unknown[] = [];
 const tablesRead: string[] = [];
-const inValues: string[] = [];
+const profileQueries: Array<{ ilike?: string; institution?: string }> = [];
 function makeServiceClient() {
   return {
     rpc: vi.fn(),
     from: vi.fn((table: string) => {
       tablesRead.push(table);
+      const f: Record<string, unknown> = {};
       const b: Record<string, unknown> = {};
       b.select = vi.fn(() => b);
-      b.eq = vi.fn(() => b);
+      b.limit = vi.fn(() => b);
+      b.eq = vi.fn((col: string, val: unknown) => ((f[col] = val), b));
+      b.gte = vi.fn((col: string, val: unknown) => ((f[`gte:${col}`] = val), b));
+      b.ilike = vi.fn((col: string, val: unknown) => ((f[`ilike:${col}`] = val), b));
       b.update = vi.fn(() => ({ eq: vi.fn(async () => ({ error: null })) }));
-      if (table === 'profiles') {
-        b.in = vi.fn((_col: string, values: string[]) => (inValues.push(...values), {
-          eq: vi.fn(async () => ({
-            data: [{ id: KNOWN_PERSON, email: 'Viswanathan.S@jkkn.ac.in' }],
-            error: null,
-          })),
-        }));
-      }
       b.maybeSingle = vi.fn(async () => ({
-        data: table === 'api_keys' ? keyRow : table === 'ai_personal_key_booking_grants' ? grantRow : null,
+        data:
+          table === 'api_keys'
+            ? keyRow
+            : table === 'ai_personal_key_booking_grants'
+              ? grantRow
+              : table === 'profiles'
+                ? ownerProfile
+                : null,
         error: null,
       }));
+      const resolve = () => {
+        if (table === 'api_key_usage_logs') {
+          const sinceMs = Date.now() - new Date(String(f['gte:created_at'])).getTime();
+          return { count: sinceMs > 2 * 3_600_000 ? bookedLastDay : bookedLastHour, error: countError };
+        }
+        if (table === 'meeting_bookings') return { data: recentBookings, error: null };
+        if (table === 'user_roles') return { data: ownerRoles, error: null };
+        if (table === 'profiles') {
+          const pattern = String(f['ilike:email'] ?? '');
+          profileQueries.push({ ilike: pattern, institution: f.institution_id as string | undefined });
+          const unescaped = pattern.replace(/\\([\\%_])/g, '$1').toLowerCase();
+          const rows = people.filter(
+            (r) =>
+              r.email.toLowerCase() === unescaped &&
+              (f.institution_id === undefined || r.institution_id === f.institution_id)
+          );
+          return { data: rows.slice(0, 2).map((r) => ({ id: r.id })), error: null };
+        }
+        return { data: null, error: null };
+      };
+      b.then = (ok: (v: unknown) => unknown, bad: (e: unknown) => unknown) => Promise.resolve(resolve()).then(ok, bad);
       return b;
     }),
   };
@@ -122,7 +153,14 @@ const GOOD_ARGS = {
 beforeEach(() => {
   vi.clearAllMocks();
   tablesRead.length = 0;
-  inValues.length = 0;
+  profileQueries.length = 0;
+  ownerProfile = { institution_id: 'inst-1', is_super_admin: false };
+  ownerRoles = [];
+  people = [{ id: KNOWN_PERSON, email: 'Viswanathan.S@jkkn.ac.in', institution_id: 'inst-1' }];
+  bookedLastHour = 0;
+  bookedLastDay = 0;
+  countError = null;
+  recentBookings = [];
   resetRateLimiter();
   keyRow = {
     id: KEY_ID,
@@ -191,10 +229,8 @@ describe('booking', () => {
     expect(input.attendees).toEqual([
       { email: 'viswanathan.s@jkkn.ac.in', name: 'Viswanathan S', profileId: KNOWN_PERSON },
     ]);
-    // looked up both lowercased and as typed
-    const typed = await readRpc(await book({ ...GOOD_ARGS, attendees: [{ email: 'Viswanathan.S@jkkn.ac.in' }] }));
-    expect(typed.result.isError).toBeFalsy();
-    expect(inValues).toEqual(expect.arrayContaining(['viswanathan.s@jkkn.ac.in', 'Viswanathan.S@jkkn.ac.in']));
+    // matched case-insensitively, within the owner's own college
+    expect(profileQueries[0]).toEqual({ ilike: 'viswanathan.s@jkkn.ac.in', institution: 'inst-1' });
     const text = JSON.parse(res.result.content[0].text);
     expect(text).toMatchObject({ booked: true, uid: 'u1', meet_link: 'https://meet.google.com/x', warning: null });
   });
@@ -274,5 +310,104 @@ describe('arguments', () => {
     const a = parseScheduleArgs({ ...GOOD_ARGS, note: '  ', location_text: ' Room 4 ' });
     expect(a.note).toBeNull();
     expect(a.locationText).toBe('Room 4');
+  });
+});
+
+describe('deep review fixes (8 Oct)', () => {
+  it('limits bookings per key per hour and per day, and books nothing past them', async () => {
+    bookedLastHour = 20;
+    let res = await readRpc(await book(GOOD_ARGS));
+    expect(res.result.isError).toBe(true);
+    expect(res.result.content[0].text).toMatch(/20 meetings in the last hour/);
+    bookedLastHour = 3;
+    bookedLastDay = 60;
+    res = await readRpc(await book(GOOD_ARGS));
+    expect(res.result.content[0].text).toMatch(/60 meetings in the last 24 hours/);
+    expect(scheduleDirect).not.toHaveBeenCalled();
+  });
+
+  it('limits invitations per owner per day', async () => {
+    recentBookings = [{ answers: { participants: new Array(150).fill({ email: 'x@jkkn.ac.in' }) } }];
+    const res = await readRpc(await book(GOOD_ARGS));
+    expect(res.result.content[0].text).toMatch(/past 150 invitations/);
+    expect(scheduleDirect).not.toHaveBeenCalled();
+  });
+
+  it('fails CLOSED when the limits cannot be read', async () => {
+    countError = { message: 'db down' };
+    const res = await readRpc(await book(GOOD_ARGS));
+    expect(res.result.content[0].text).toMatch(/could not check the booking limits/);
+    expect(scheduleDirect).not.toHaveBeenCalled();
+  });
+
+  it('refuses people outside JKKN unless allow_outside is true, and caps them at 5', async () => {
+    const outsider = { email: 'guest@gmail.com', name: 'Guest' };
+    let res = await readRpc(await book({ ...GOOD_ARGS, attendees: [outsider] }));
+    expect(res.result.content[0].text).toMatch(/outside JKKN.*allow_outside: true/);
+    expect(scheduleDirect).not.toHaveBeenCalled();
+
+    res = await readRpc(await book({ ...GOOD_ARGS, attendees: [outsider], allow_outside: true }));
+    expect(res.result.isError).toBeFalsy();
+    expect(JSON.parse(res.result.content[0].text).outside_invitees).toEqual(['guest@gmail.com']);
+
+    const six = Array.from({ length: 6 }, (_, i) => ({ email: `g${i}@gmail.com` }));
+    res = await readRpc(await book({ ...GOOD_ARGS, attendees: six, allow_outside: true }));
+    expect(res.result.content[0].text).toMatch(/At most 5 people outside JKKN/);
+  });
+
+  it('a sub-domain of jkkn.ac.in is not outside', async () => {
+    const res = await readRpc(await book({ ...GOOD_ARGS, attendees: [{ email: 'a@pharmacy.jkkn.ac.in' }] }));
+    expect(res.result.isError).toBeFalsy();
+  });
+
+  it('refuses a missing or bad email, and keeps a repeated address once', async () => {
+    let res = await readRpc(await book({ ...GOOD_ARGS, attendees: [{ name: 'No email' }] }));
+    expect(res.result.content[0].text).toMatch(/valid email address/);
+    res = await readRpc(await book({ ...GOOD_ARGS, attendees: [{ email: 'not-an-email' }] }));
+    expect(res.result.content[0].text).toMatch(/valid email address/);
+    expect(scheduleDirect).not.toHaveBeenCalled();
+
+    res = await readRpc(
+      await book({
+        ...GOOD_ARGS,
+        attendees: [{ email: 'viswanathan.s@jkkn.ac.in' }, { email: 'VISWANATHAN.S@jkkn.ac.in' }],
+      })
+    );
+    expect(res.result.isError).toBeFalsy();
+    expect(scheduleDirect.mock.calls[0][1].attendees).toHaveLength(1);
+  });
+
+  it('caps a meeting at 20 invitees', async () => {
+    const many = Array.from({ length: 21 }, (_, i) => ({ email: `p${i}@jkkn.ac.in` }));
+    const res = await readRpc(await book({ ...GOOD_ARGS, attendees: many }));
+    expect(res.result.content[0].text).toMatch(/1 to 20 people/);
+  });
+
+  it('links nobody when two MyJKKN people share the address case-insensitively', async () => {
+    people = [
+      { id: KNOWN_PERSON, email: 'Viswanathan.S@jkkn.ac.in', institution_id: 'inst-1' },
+      { id: FORGED, email: 'viswanathan.s@JKKN.ac.in', institution_id: 'inst-1' },
+    ];
+    await readRpc(await book(GOOD_ARGS));
+    expect(scheduleDirect.mock.calls[0][1].attendees[0].profileId).toBeNull();
+  });
+
+  it("does not link a person from another college for an owner limited to their own", async () => {
+    people = [{ id: KNOWN_PERSON, email: 'viswanathan.s@jkkn.ac.in', institution_id: 'inst-OTHER' }];
+    await readRpc(await book(GOOD_ARGS));
+    expect(scheduleDirect.mock.calls[0][1].attendees[0].profileId).toBeNull();
+  });
+
+  it('a super admin owner links across colleges', async () => {
+    ownerProfile = { institution_id: 'inst-1', is_super_admin: true };
+    people = [{ id: KNOWN_PERSON, email: 'viswanathan.s@jkkn.ac.in', institution_id: 'inst-OTHER' }];
+    await readRpc(await book(GOOD_ARGS));
+    expect(profileQueries[0].institution).toBeUndefined();
+    expect(scheduleDirect.mock.calls[0][1].attendees[0].profileId).toBe(KNOWN_PERSON);
+  });
+
+  it('LIKE wildcards in an address are matched literally', async () => {
+    await readRpc(await book({ ...GOOD_ARGS, attendees: [{ email: 'a_b%c@jkkn.ac.in' }] }));
+    expect(profileQueries[0].ilike).toBe('a\\_b\\%c@jkkn.ac.in');
   });
 });

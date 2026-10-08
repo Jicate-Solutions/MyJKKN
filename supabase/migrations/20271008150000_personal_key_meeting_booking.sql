@@ -16,6 +16,8 @@
 --      RLS on, no table grants to anon/authenticated: read and written only
 --      through the two functions below. Kept apart from api_keys so the
 --      personal-key freeze trigger (20270301090000, section 4b) is untouched.
+--      At most ONE active grant per owner (partial unique index): one booking
+--      key per person.
 --   2. fn_ai_personal_key_set_booking(p_key_id, p_allow): the owner switches
 --      booking on or off for one of THEIR OWN working personal keys. Switching
 --      on needs meetings.view (the same gate as /meetings/schedule) or super
@@ -37,6 +39,13 @@ CREATE TABLE IF NOT EXISTS public.ai_personal_key_booking_grants (
 
 COMMENT ON TABLE public.ai_personal_key_booking_grants IS
   'Personal keys whose owner allowed them to book meetings on the owner''s own calendar through the outside-AI door. Written only by fn_ai_personal_key_set_booking.';
+
+-- One booking key per person (deep review, 8 Oct 2026): at most one ACTIVE
+-- grant per owner. Switching booking on for a key switches it off for the
+-- owner's other keys (fn_ai_personal_key_set_booking below).
+CREATE UNIQUE INDEX IF NOT EXISTS uq_ai_personal_key_booking_one_per_owner
+  ON public.ai_personal_key_booking_grants (owner_id)
+  WHERE active;
 
 ALTER TABLE public.ai_personal_key_booking_grants ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON public.ai_personal_key_booking_grants FROM anon, authenticated, PUBLIC;
@@ -76,6 +85,12 @@ BEGIN
     IF NOT (public.is_super_admin() OR public.user_has_permission('meetings.view')) THEN
       RAISE EXCEPTION 'You need access to Meetings to let a key book meetings' USING ERRCODE = '42501';
     END IF;
+    -- Only one key per person may book: switch the others off first.
+    UPDATE public.ai_personal_key_booking_grants
+       SET active = false, updated_at = now()
+     WHERE owner_id = v_owner
+       AND key_id <> p_key_id
+       AND active;
     INSERT INTO public.ai_personal_key_booking_grants (key_id, owner_id, active)
     VALUES (p_key_id, v_owner, true)
     ON CONFLICT (key_id) DO UPDATE SET active = true, updated_at = now();
@@ -111,6 +126,9 @@ BEGIN
      WHERE g.active
        AND k.key_kind = 'personal'
        AND k.user_id = auth.uid()
+       -- a turned-off or expired key cannot book, so it is not shown as booking
+       AND k.is_active IS TRUE
+       AND k.expires_at > now()
   ), '[]'::jsonb);
 END;
 $$;

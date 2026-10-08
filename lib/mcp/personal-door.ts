@@ -146,8 +146,33 @@ async function keyMayBook(supabase: SupabaseClient, keyId: string): Promise<bool
 export const SCHEDULE_TOOL_NAME = 'schedule_meeting';
 
 const LOCATION_MODES: HostMeetingLocationMode[] = ['online', 'phone', 'in_person'];
-const MAX_ATTENDEES = 50;
 const MAX_DURATION_MIN = 480;
+
+/**
+ * Limits on the one write the door allows (deep review, 8 Oct 2026). A leaked
+ * booking key must not be able to flood a calendar or mass-invite people.
+ *   - per booking: at most MAX_ATTENDEES invitees, of whom at most
+ *     MAX_OUTSIDE are outside JKKN, and only when allow_outside is true;
+ *   - per key: at most BOOKINGS_PER_HOUR / BOOKINGS_PER_DAY bookings;
+ *   - per owner: at most INVITEES_PER_DAY invitees across every meeting they
+ *     scheduled themselves in the last 24 hours (page and door together).
+ */
+export const BOOKING_LIMITS = {
+  MAX_ATTENDEES: 20,
+  MAX_OUTSIDE: 5,
+  BOOKINGS_PER_HOUR: 20,
+  BOOKINGS_PER_DAY: 60,
+  INVITEES_PER_DAY: 150,
+} as const;
+const MAX_ATTENDEES = BOOKING_LIMITS.MAX_ATTENDEES;
+/** Invitees at these domains are JKKN people; anyone else is "outside". */
+const JKKN_DOMAINS = ['jkkn.ac.in'];
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+export function isOutsideJkkn(email: string): boolean {
+  const domain = email.split('@')[1]?.toLowerCase() ?? '';
+  return !JKKN_DOMAINS.some((d) => domain === d || domain.endsWith(`.${d}`));
+}
 
 /** The tool as the outside AI sees it. Listed only for a key allowed to book. */
 export const SCHEDULE_TOOL = {
@@ -167,6 +192,10 @@ export const SCHEDULE_TOOL = {
       location_mode: { type: 'string', enum: LOCATION_MODES, description: 'online makes a Google Meet link.' },
       location_text: { type: 'string', description: 'Where, required for in_person.' },
       note: { type: 'string', description: 'Text the invitees see in the invitation.' },
+      allow_outside: {
+        type: 'boolean',
+        description: `Must be true to invite anyone outside jkkn.ac.in (at most ${BOOKING_LIMITS.MAX_OUTSIDE} per meeting).`,
+      },
       attendees: {
         type: 'array',
         minItems: 1,
@@ -190,6 +219,8 @@ export interface ScheduleArgs {
   locationText: string | null;
   note: string | null;
   attendees: { email: string; name: string }[];
+  /** Invitees outside JKKN (already allowed and within the cap). */
+  outside: string[];
 }
 
 /** Reads India wall-clock "YYYY-MM-DDTHH:MM" as a real instant. */
@@ -227,12 +258,30 @@ export function parseScheduleArgs(input: Record<string, unknown> | undefined): S
   if (!Array.isArray(a.attendees) || a.attendees.length < 1 || a.attendees.length > MAX_ATTENDEES) {
     throw new ToolArgsError(`attendees must list 1 to ${MAX_ATTENDEES} people.`);
   }
-  const attendees = a.attendees.map((p) => {
+  // Every invitee needs a real address; a repeated address is kept once.
+  const seen = new Set<string>();
+  const attendees: { email: string; name: string }[] = [];
+  for (const p of a.attendees) {
     const o = (p ?? {}) as Record<string, unknown>;
     const email = typeof o.email === 'string' ? o.email.trim() : '';
+    if (!EMAIL_RE.test(email)) {
+      throw new ToolArgsError(`Every attendee needs a valid email address; "${email}" is not one.`);
+    }
+    const key = email.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
     const name = typeof o.name === 'string' ? o.name.trim() : '';
-    return { email, name: name || email };
-  });
+    attendees.push({ email, name: name || email });
+  }
+  const outside = attendees.map((p) => p.email).filter(isOutsideJkkn);
+  if (outside.length && a.allow_outside !== true) {
+    throw new ToolArgsError(
+      `${outside.join(', ')} ${outside.length === 1 ? 'is' : 'are'} outside JKKN. Ask the owner, then send allow_outside: true to invite them.`
+    );
+  }
+  if (outside.length > BOOKING_LIMITS.MAX_OUTSIDE) {
+    throw new ToolArgsError(`At most ${BOOKING_LIMITS.MAX_OUTSIDE} people outside JKKN per meeting.`);
+  }
   const text = (v: unknown) => (typeof v === 'string' && v.trim() ? v.trim() : null);
   return {
     title,
@@ -242,7 +291,123 @@ export function parseScheduleArgs(input: Record<string, unknown> | undefined): S
     locationText: text(a.location_text),
     note: text(a.note),
     attendees,
+    outside,
   };
+}
+
+/** A LIKE pattern that matches the text exactly (case-insensitive under ilike). */
+function exactLike(text: string): string {
+  return text.replace(/[\\%_]/g, (c) => `\\${c}`);
+}
+
+/**
+ * Enforces the per-key and per-owner limits. Fails CLOSED: if the counts cannot
+ * be read, nothing is booked.
+ */
+async function assertWithinBookingLimits(
+  db: SupabaseClient,
+  keyId: string,
+  ownerId: string,
+  inviting: number
+): Promise<void> {
+  const since = (ms: number) => new Date(Date.now() - ms).toISOString();
+  const countFor = (sinceIso: string) =>
+    db
+      .from('api_key_usage_logs')
+      .select('id', { count: 'exact', head: true })
+      .eq('api_key_id', keyId)
+      .eq('endpoint', `mcp:${SCHEDULE_TOOL_NAME}`)
+      .eq('status_code', 200)
+      .gte('created_at', sinceIso);
+  const [hour, day, recent] = await Promise.all([
+    countFor(since(3_600_000)),
+    countFor(since(86_400_000)),
+    db
+      .from('meeting_bookings')
+      .select('answers')
+      .eq('host_profile_id', ownerId)
+      .eq('source', 'host-direct')
+      .gte('created_at', since(86_400_000)),
+  ]);
+  if (hour.error || day.error || recent.error) {
+    throw new DoorRefusal('MyJKKN could not check the booking limits just now, so nothing was booked. Try again shortly.');
+  }
+  if ((hour.count ?? 0) >= BOOKING_LIMITS.BOOKINGS_PER_HOUR) {
+    throw new DoorRefusal(`This key has booked ${BOOKING_LIMITS.BOOKINGS_PER_HOUR} meetings in the last hour. Try again later.`);
+  }
+  if ((day.count ?? 0) >= BOOKING_LIMITS.BOOKINGS_PER_DAY) {
+    throw new DoorRefusal(`This key has booked ${BOOKING_LIMITS.BOOKINGS_PER_DAY} meetings in the last 24 hours. Try again tomorrow.`);
+  }
+  const invited = ((recent.data ?? []) as { answers?: { participants?: unknown[] } }[]).reduce(
+    (n, r) => n + (Array.isArray(r.answers?.participants) ? r.answers!.participants!.length : 0),
+    0
+  );
+  if (invited + inviting > BOOKING_LIMITS.INVITEES_PER_DAY) {
+    throw new DoorRefusal(
+      `That would take the owner past ${BOOKING_LIMITS.INVITEES_PER_DAY} invitations in 24 hours. Book it on the Meetings page instead.`
+    );
+  }
+}
+
+/**
+ * Which colleges' people the owner may see — the same rule the Schedule page's
+ * people search uses: super admins and roles with institution_scope 'all' see
+ * everyone; everyone else only their own college. Fails CLOSED to own college.
+ */
+async function ownerPeopleScope(
+  db: SupabaseClient,
+  ownerId: string
+): Promise<{ crossInstitution: boolean; institutionId: string | null }> {
+  const { data: profile } = await db
+    .from('profiles')
+    .select('institution_id, is_super_admin')
+    .eq('id', ownerId)
+    .maybeSingle();
+  const institutionId = ((profile as { institution_id?: string | null } | null)?.institution_id ?? null) as string | null;
+  if ((profile as { is_super_admin?: boolean } | null)?.is_super_admin === true) {
+    return { crossInstitution: true, institutionId };
+  }
+  const { data: roles, error } = await db
+    .from('user_roles')
+    .select('custom_roles!inner(institution_scope, is_active)')
+    .eq('user_id', ownerId);
+  if (error) return { crossInstitution: false, institutionId };
+  const crossInstitution = ((roles ?? []) as { custom_roles: unknown }[]).some((r) => {
+    const role = (Array.isArray(r.custom_roles) ? r.custom_roles[0] : r.custom_roles) as
+      | { institution_scope?: string; is_active?: boolean }
+      | undefined;
+    return role?.is_active !== false && role?.institution_scope === 'all';
+  });
+  return { crossInstitution, institutionId };
+}
+
+/**
+ * Links an invitee to a MyJKKN person only on ONE unambiguous, case-insensitive
+ * match among people the owner may see. No match or several matches leave it a
+ * plain email address (the invitation still goes out).
+ */
+async function linkInvitees(
+  db: SupabaseClient,
+  ownerId: string,
+  people: { email: string; name: string }[]
+): Promise<ScheduleAttendee[]> {
+  const { crossInstitution, institutionId } = await ownerPeopleScope(db, ownerId);
+  const canSearch = crossInstitution || Boolean(institutionId);
+  return Promise.all(
+    people.map(async (p) => {
+      if (!canSearch) return { ...p, profileId: null };
+      let q = db
+        .from('profiles')
+        .select('id')
+        .eq('is_active', true)
+        .ilike('email', exactLike(p.email))
+        .limit(2);
+      if (!crossInstitution) q = q.eq('institution_id', institutionId as string);
+      const { data, error } = await q;
+      const rows = (data ?? []) as { id: string }[];
+      return { ...p, profileId: !error && rows.length === 1 ? rows[0].id : null };
+    })
+  );
 }
 
 /**
@@ -252,6 +417,7 @@ export function parseScheduleArgs(input: Record<string, unknown> | undefined): S
 async function runScheduleTool(
   ownerClient: SupabaseClient,
   ownerId: string,
+  keyId: string,
   input: Record<string, unknown> | undefined
 ): Promise<unknown> {
   const args = parseScheduleArgs(input);
@@ -266,26 +432,11 @@ async function runScheduleTool(
 
   const db = createServiceRoleClient() as unknown as SupabaseClient;
 
-  // Link invitees who are MyJKKN people, the same way the Schedule page does
-  // when someone is picked from the list. Unknown addresses stay plain emails.
-  // Both the lowercased and the as-typed address: profiles.email is matched
-  // exactly here, and not every stored address is lowercase.
-  const emails = [
-    ...new Set(args.attendees.flatMap((p) => [p.email.toLowerCase(), p.email])),
-  ];
-  const { data: known } = await db
-    .from('profiles')
-    .select('id, email')
-    .in('email', emails)
-    .eq('is_active', true);
-  const byEmail = new Map(
-    ((known ?? []) as { id: string; email: string }[]).map((r) => [r.email.toLowerCase(), r.id])
-  );
-  const attendees: ScheduleAttendee[] = args.attendees.map((p) => ({
-    email: p.email,
-    name: p.name,
-    profileId: byEmail.get(p.email.toLowerCase()) ?? null,
-  }));
+  await assertWithinBookingLimits(db, keyId, ownerId, args.attendees.length);
+
+  // Link invitees who are MyJKKN people, as the Schedule page does when someone
+  // is picked from its list. Unknown or ambiguous addresses stay plain emails.
+  const attendees = await linkInvitees(db, ownerId, args.attendees);
 
   const outcome = await HostSchedulingService.scheduleDirect(db, {
     hostProfileId: ownerId,
@@ -312,6 +463,7 @@ async function runScheduleTool(
       ? { attention: `Booked, but not complete: ${warning} Tell the person who asked before booking anything else.` }
       : {}),
     uid: outcome.data.uid,
+    ...(args.outside.length ? { outside_invitees: args.outside } : {}),
     start: outcome.data.startIso,
     end: outcome.data.endIso,
     meet_link: outcome.data.videoUrl,
@@ -487,6 +639,7 @@ export async function handlePersonalKeyRequest(req: Request, token: string): Pro
         const data = await runScheduleTool(
           client as unknown as SupabaseClient,
           ctx.ownerId,
+          ctx.keyId,
           request.params.arguments as Record<string, unknown> | undefined
         );
         audit(name, 200, startTime);
