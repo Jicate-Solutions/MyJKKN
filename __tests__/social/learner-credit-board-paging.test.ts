@@ -53,17 +53,40 @@ function claimsQuery() {
   return b;
 }
 
-/** Every other table answers with an empty list. */
-function emptyQuery() {
+/** When true, the id-keyed tables answer one row per id (capped at 1,000,
+ *  like PostgREST); when false they answer an empty list. */
+let richTables = false;
+/** Largest id list any single .in() read was given. */
+let largestIn = 0;
+
+function idKeyedQuery(table: string) {
+  let ids: string[] = [];
   const b: Record<string, unknown> = {};
-  for (const m of ['select', 'eq', 'gt', 'order', 'range', 'limit', 'in']) b[m] = () => b;
-  b.then = (ok: (r: unknown) => unknown, bad?: (e: unknown) => unknown) =>
-    Promise.resolve({ data: [], error: null }).then(ok, bad);
+  for (const m of ['select', 'eq', 'gt', 'order', 'range', 'limit']) b[m] = () => b;
+  b.in = (_col: string, list: string[]) => {
+    ids = list;
+    largestIn = Math.max(largestIn, list.length);
+    return b;
+  };
+  b.then = (ok: (r: unknown) => unknown, bad?: (e: unknown) => unknown) => {
+    if (!richTables) return Promise.resolve({ data: [], error: null }).then(ok, bad);
+    const make: Record<string, (id: string) => Record<string, unknown>> = {
+      ig_posts: (id) => ({ id, account_id: 'A1' }),
+      v_ig_post_latest_metrics: (id) => ({
+        post_id: id, snapshot_at: '2026-10-07T00:00:00Z', saves: 1, shares: 0, comments: 0, likes: 0, reach: 0,
+      }),
+      learners_profiles: (id) => ({ id, first_name: 'Learner', last_name: id, institution_id: 'I1' }),
+      ig_accounts: (id) => ({ id, metrics_source: 'graph' }),
+    };
+    // PostgREST's silent cap applies here too.
+    const rows = (make[table] ? ids.map(make[table]) : []).slice(0, CAP);
+    return Promise.resolve({ data: rows, error: null }).then(ok, bad);
+  };
   return b;
 }
 
 const fakeClient = () => ({
-  from: (table: string) => (table === 'ig_learner_post_claims' ? claimsQuery() : emptyQuery()),
+  from: (table: string) => (table === 'ig_learner_post_claims' ? claimsQuery() : idKeyedQuery(table)),
 });
 
 vi.mock('@/lib/supabase/server', () => ({
@@ -96,6 +119,8 @@ beforeEach(() => {
   claimsTable = [];
   claimReads = [];
   failOnPage = null;
+  richTables = false;
+  largestIn = 0;
   vi.resetModules();
 });
 
@@ -176,5 +201,21 @@ describe('the board pages past the 1,000-row cap', () => {
     const body = await (await GET(get())).json();
     const counted = (body.rows as Row[]).reduce((n, r) => n + r.confirmed_posts, 0);
     expect(counted).toBe(1500);
+  });
+
+  it('measures every post and names every learner past 1,000 distinct posts', async () => {
+    claimsTable = makeClaims(2300); // 2,300 distinct posts, 230 learners
+    richTables = true;
+    const { GET } = await import('@/app/api/social/learner-credit/route');
+    const res = await GET(get());
+    expect(res.status).toBe(200);
+    const rows = (await res.json()).rows as Array<{
+      learner_name: string; confirmed_posts: number; posts_not_yet_measured: number; real_signal: number;
+    }>;
+    expect(rows).toHaveLength(230);
+    expect(rows.every((r) => !/not visible/i.test(r.learner_name))).toBe(true);
+    expect(rows.reduce((n, r) => n + r.posts_not_yet_measured, 0)).toBe(0);
+    expect(rows.reduce((n, r) => n + r.real_signal, 0)).toBe(2300); // one save per post
+    expect(largestIn).toBeLessThanOrEqual(200);
   });
 });

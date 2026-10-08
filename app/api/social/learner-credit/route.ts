@@ -132,6 +132,29 @@ const CLAIM_PAGE_SIZE = 1000;
 /** Hard stop: past this many pages the board refuses rather than undercount. */
 const CLAIM_PAGE_LIMIT = 50;
 
+/** Ids per `.in()` read: one row per id, so far below the 1,000-row cap. */
+const ID_CHUNK = 200;
+
+/** `error` is null on success; on failure `rows` is empty and must not be used. */
+type ChunkedRead = { rows: Array<Record<string, unknown>>; error: unknown };
+
+/**
+ * Run `build(ids)` over `ids` in ID_CHUNK slices and concatenate the rows.
+ * The first failed slice fails the whole read: a partial board is never shown.
+ */
+async function readByIdChunks(
+  ids: string[],
+  build: (ids: string[]) => PromiseLike<{ data: unknown; error: unknown }>
+): Promise<ChunkedRead> {
+  const rows: Array<Record<string, unknown>> = [];
+  for (let i = 0; i < ids.length; i += ID_CHUNK) {
+    const { data, error } = await build(ids.slice(i, i + ID_CHUNK));
+    if (error) return { rows: [], error };
+    rows.push(...((data ?? []) as Array<Record<string, unknown>>));
+  }
+  return { rows, error: null };
+}
+
 export async function GET(req: NextRequest) {
   // getAuthUser() returns { user, error }, never a bare user. Testing the
   // wrapper object for truthiness is always true, which silently disabled this
@@ -209,47 +232,48 @@ export async function GET(req: NextRequest) {
   const postIds = Array.from(new Set(claims.map((c) => c.ig_post_id as string)));
   const learnerIds = Array.from(new Set(claims.map((c) => c.learner_id as string)));
 
-  // The view holds exactly one row per post (its latest snapshot). Reading
-  // ig_post_metrics directly returns ~627 rows a post and PostgREST's 1,000-row
-  // cap silently cuts it to an arbitrary subset.
-  const [
-    { data: posts, error: postsError },
-    { data: metrics, error: metricsError },
-    { data: learners, error: learnersError },
-  ] = await Promise.all([
-    admin.from('ig_posts').select('id, account_id').in('id', postIds),
-    admin
-      .from('v_ig_post_latest_metrics')
-      .select('post_id, snapshot_at, saves, shares, comments, likes, reach')
-      .in('post_id', postIds),
-    db
-      .from('learners_profiles')
-      .select('id, first_name, last_name, institution_id')
-      .in('id', learnerIds),
-  ]);
-  const readError = postsError ?? metricsError ?? learnersError;
-  if (readError) {
-    logger.error(MODULE, 'board read failed', readError);
+  // Every read keyed on an id list is done in chunks. Each id yields at most one
+  // row, so a chunk of ID_CHUNK ids can never reach PostgREST's silent
+  // 1,000-row cap, and the URL stays short. The view holds exactly one row per
+  // post (its latest snapshot); reading ig_post_metrics directly returned ~627
+  // rows a post and the cap cut it to an arbitrary subset.
+  const posts = await readByIdChunks(postIds, (ids) =>
+    admin.from('ig_posts').select('id, account_id').in('id', ids)
+  );
+  const metrics = !posts.error
+    ? await readByIdChunks(postIds, (ids) =>
+        admin
+          .from('v_ig_post_latest_metrics')
+          .select('post_id, snapshot_at, saves, shares, comments, likes, reach')
+          .in('post_id', ids)
+      )
+    : posts;
+  const learners = !metrics.error
+    ? await readByIdChunks(learnerIds, (ids) =>
+        db.from('learners_profiles').select('id, first_name, last_name, institution_id').in('id', ids)
+      )
+    : metrics;
+  if (learners.error) {
+    logger.error(MODULE, 'board read failed', learners.error);
     return deny('Could not read the board just now. Try again shortly.', 500);
   }
 
   const accountIds = Array.from(
-    new Set((posts ?? []).map((p) => p.account_id as string).filter(Boolean))
+    new Set(posts.rows.map((p) => p.account_id as string).filter(Boolean))
   );
-  const { data: accounts, error: accountsError } = await admin
-    .from('ig_accounts')
-    .select('id, metrics_source')
-    .in('id', accountIds);
-  if (accountsError) {
-    logger.error(MODULE, 'account read failed', accountsError);
+  const accounts = await readByIdChunks(accountIds, (ids) =>
+    admin.from('ig_accounts').select('id, metrics_source').in('id', ids)
+  );
+  if (accounts.error) {
+    logger.error(MODULE, 'account read failed', accounts.error);
     return deny('Could not read the board just now. Try again shortly.', 500);
   }
 
   const sourceByAccount = new Map<string, string | null>(
-    (accounts ?? []).map((a) => [a.id as string, (a.metrics_source as string | null) ?? null])
+    accounts.rows.map((a) => [a.id as string, (a.metrics_source as string | null) ?? null])
   );
   const sourceByPost = new Map<string, string | null>(
-    (posts ?? []).map((p) => [
+    posts.rows.map((p) => [
       p.id as string,
       sourceByAccount.get(p.account_id as string) ?? null,
     ])
@@ -257,7 +281,7 @@ export async function GET(req: NextRequest) {
   // latestSnapshotByPost returns the very row objects it was given, so they
   // still carry `likes`; the cast restores the type the shared helper drops.
   const latestByPost = latestSnapshotByPost(
-    (metrics ?? []) as CreditSnapshot[]
+    metrics.rows as unknown as CreditSnapshot[]
   ) as Map<string, CreditSnapshot>;
 
   const claimsByLearner = new Map<string, ClaimedPostInput[]>();
@@ -275,7 +299,7 @@ export async function GET(req: NextRequest) {
 
   // Rows come from the claims, not from the profiles this person can read, so a
   // claim whose learner profile is hidden from them still shows and still counts.
-  const profileById = new Map((learners ?? []).map((l) => [l.id as string, l]));
+  const profileById = new Map(learners.rows.map((l) => [l.id as string, l]));
   let hiddenProfiles = 0;
   const rows: LearnerCreditRow[] = Array.from(claimsByLearner.entries()).map(
     ([learnerId, learnerClaims]) => {
