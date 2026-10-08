@@ -22785,7 +22785,7 @@ GRANT EXECUTE ON FUNCTION fn_act_on_refund_request(uuid,text,text,jsonb,text) TO
 GRANT EXECUTE ON FUNCTION fn_disburse_refund_request(uuid,text,jsonb,text,jsonb) TO authenticated;
 
 -- Re-apply the CURRENT flow to one open request with no approvals (super admin only).
--- See migration 20261008140000.
+-- See migration 20261008140500.
 CREATE OR REPLACE FUNCTION public.fn_reapply_refund_flow(p_request_id uuid, p_reason text)
 RETURNS void
 LANGUAGE plpgsql
