@@ -42,5 +42,9 @@ psql -d "$DB" -v ON_ERROR_STOP=1 -f "$HERE/22_tick_syncs_first.sql" 2>&1 | grep 
 build
 psql -d "$DB" -v ON_ERROR_STOP=1 -f "$HERE/23_remind_signed_in.sql" 2>&1 | grep -E "FAIL|ERROR|REMIND SIGNED-IN SCENARIOS PASSED"
 
+# Register, October queue (2026-10-08): 20 unwired rows, applied twice, message nobody.
+build
+psql -d "$DB" -v ON_ERROR_STOP=1 -f "$HERE/24_register_oct_queue.sql" 2>&1 | grep -E "FAIL|ERROR|OCT QUEUE REGISTER SCENARIOS PASSED"
+
 # Review 4 (2026-09-25): two simultaneous Ask-why presses cannot overspend the day's budget.
 bash "$HERE/21_concurrency.sh" "$DB"

@@ -24,7 +24,7 @@ import { useProcurementCategories, useSaveProcurementCategory } from '@/hooks/pr
 import { errorMessage } from '@/lib/utils/supabase-error';
 import { cn } from '@/lib/utils';
 import type { ProcurementCategory } from '@/types/procurement';
-import { CategoryDetail, stepsOf } from './_components/category-detail';
+import { CategoryDetail, customisedColleges, stepsOf } from './_components/category-detail';
 
 const isReady = (c: ProcurementCategory) => c.is_active && stepsOf(c, 'request').length > 0;
 const names = (c: ProcurementCategory, stage: 'request' | 'final') => stepsOf(c, stage).map((s) => s.label).join(' → ');
@@ -192,6 +192,8 @@ export default function ApprovalFlowsPage() {
                     <span className="truncate text-xs text-muted-foreground">
                       {stepsOf(c, 'request').length ? names(c, 'request') : 'No approvers yet'}
                       {stepsOf(c, 'final').length > 0 && ` · Final: ${names(c, 'final')}`}
+                      {customisedColleges(c).length > 0 &&
+                        ` · ${customisedColleges(c).length} college${customisedColleges(c).length === 1 ? '' : 's'} customised`}
                     </span>
                   </button>
                 );

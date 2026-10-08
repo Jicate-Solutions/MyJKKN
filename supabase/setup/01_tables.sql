@@ -1116,7 +1116,7 @@ CREATE INDEX IF NOT EXISTS idx_refund_request_bills_bill ON billing_refund_reque
 CREATE TABLE IF NOT EXISTS public.billing_refund_request_actions (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     request_id UUID NOT NULL REFERENCES billing_refund_requests(id) ON DELETE CASCADE,
-    action_type TEXT NOT NULL CHECK (action_type IN ('initiated','approved','declined','disbursed')),
+    action_type TEXT NOT NULL CHECK (action_type IN ('initiated','approved','declined','disbursed','flow_reapplied')),
     stage_index INT NULL,
     stage_name TEXT NOT NULL,
     actor_id UUID NOT NULL REFERENCES profiles(id),
@@ -8817,6 +8817,52 @@ CREATE TABLE IF NOT EXISTS public.staff_id_crosswalk (
 
 COMMENT ON TABLE public.staff_id_crosswalk IS
   'Old -> new staff ID mapping from the 2026-08-28 standardisation. Read via v_staff_id_crosswalk.';
+
+-- =============================================================================
+-- Mirrored from supabase/migrations/20261008120000_staff_id_reissue_on_transfer.sql (tables)
+-- =============================================================================
+
+CREATE TABLE IF NOT EXISTS public.staff_id_history (
+  id                  uuid        PRIMARY KEY DEFAULT gen_random_uuid(),
+  staff_uuid          uuid        NOT NULL REFERENCES public.staff(id) ON DELETE CASCADE,
+  staff_id            text        NOT NULL,
+  new_staff_id        text,
+  reason              text        NOT NULL,
+  from_institution_id uuid        REFERENCES public.institutions(id) ON DELETE SET NULL,
+  to_institution_id   uuid        REFERENCES public.institutions(id) ON DELETE SET NULL,
+  from_is_teaching    boolean,
+  to_is_teaching      boolean,
+  changed_by          uuid,
+  retired_at          timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT staff_id_history_reason_chk CHECK (reason IN (
+    'institution_change', 'teaching_change', 'institution_and_teaching_change',
+    'reactivation', 'corrective_reissue'
+  ))
+);
+
+COMMENT ON TABLE public.staff_id_history IS
+  'Staff IDs that were retired when the holder changed institution or teaching type. '
+  'staff_id here is the RETIRED code. Written only by fn_staff_autonumber (SECURITY DEFINER) '
+  'and the one-off corrective re-issue; there is no policy granting any user a write.';
+
+-- A retired code is retired exactly once: fn_next_staff_code never re-issues it.
+CREATE UNIQUE INDEX IF NOT EXISTS staff_id_history_staff_id_uq
+  ON public.staff_id_history (staff_id);
+
+CREATE INDEX IF NOT EXISTS idx_staff_id_history_staff_uuid
+  ON public.staff_id_history (staff_uuid, retired_at DESC);
+CREATE INDEX IF NOT EXISTS idx_staff_id_history_from_institution
+  ON public.staff_id_history (from_institution_id);
+CREATE INDEX IF NOT EXISTS idx_staff_id_history_to_institution
+  ON public.staff_id_history (to_institution_id);
+
+ALTER TABLE public.staff
+  ADD COLUMN IF NOT EXISTS retired_staff_ids text;
+
+COMMENT ON COLUMN public.staff.retired_staff_ids IS
+  'Space-separated staff IDs this person held before being re-issued one on a change of '
+  'institution or teaching type. Derived from staff_id_history by trg_staff_autonumber; '
+  'a value supplied by a caller is discarded. Search-only.';
 
 -- =============================================================================
 -- Mirrored from supabase/migrations/20260828140000_staff_address_standardisation.sql

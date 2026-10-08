@@ -36,12 +36,20 @@ export function useDepartments(institutionId: string | undefined) {
   });
 }
 
-const requestSteps = (c: ProcurementCategory) => (c.steps ?? []).filter((s) => (s.stage ?? 'request') === 'request');
+/**
+ * The request-approval steps that apply to a college: its own chain when it has one,
+ * otherwise the category's default. Mirrors procurement_chain_institution() in the database.
+ */
+const requestSteps = (c: ProcurementCategory, institutionId?: string) => {
+  const all = (c.steps ?? []).filter((s) => (s.stage ?? 'request') === 'request');
+  const own = institutionId ? all.filter((s) => s.institution_id === institutionId) : [];
+  return own.length > 0 ? own : all.filter((s) => !s.institution_id);
+};
 
-/** Categories a requester may pick: active and with at least one request approver. */
-export function useRequestableCategories() {
+/** Categories a requester may pick: active and with at least one request approver for their college. */
+export function useRequestableCategories(institutionId?: string) {
   const q = useProcurementCategories(false);
-  return { ...q, data: (q.data ?? []).filter((c) => requestSteps(c).length > 0) };
+  return { ...q, data: (q.data ?? []).filter((c) => requestSteps(c, institutionId).length > 0) };
 }
 
 /**
@@ -53,7 +61,7 @@ export function useApprovalRouteReady(
   categoryId: string | null,
   departmentId: string | null
 ): { required: boolean; ready: boolean; problem: string | null } {
-  const { data: categories, isLoading } = useRequestableCategories();
+  const { data: categories, isLoading } = useRequestableCategories(institutionId);
   const { data: preview, isFetching } = useChainPreview(categoryId ?? undefined, institutionId, departmentId);
   const required = !isLoading && categories.length > 0;
   if (!required) return { required: false, ready: true, problem: null };
@@ -74,10 +82,10 @@ export function ApprovalRoutePicker({
   departmentId: string | null;
   onChange: (v: { categoryId: string | null; departmentId: string | null }) => void;
 }) {
-  const { data: categories, isLoading } = useRequestableCategories();
+  const { data: categories, isLoading } = useRequestableCategories(institutionId);
   const { data: departments = [] } = useDepartments(institutionId);
   const category = categories.find((c) => c.id === categoryId);
-  const needsDepartment = !!category && requestSteps(category).some((s) => s.approver_kind === 'hod');
+  const needsDepartment = !!category && requestSteps(category, institutionId).some((s) => s.approver_kind === 'hod');
   const { data: preview, isFetching } = useChainPreview(categoryId ?? undefined, institutionId, departmentId);
 
   if (isLoading || categories.length === 0) return null;

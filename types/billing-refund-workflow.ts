@@ -42,7 +42,7 @@ export interface RefundRequestBill {
 export interface RefundRequestAction {
   id: string;
   request_id: string;
-  action_type: 'initiated' | 'approved' | 'declined' | 'disbursed';
+  action_type: 'initiated' | 'approved' | 'declined' | 'disbursed' | 'flow_reapplied';
   stage_index: number | null;
   stage_name: string;
   actor_id: string;
@@ -112,4 +112,36 @@ export interface RefundRequestFilters {
   search?: string;            // matches request_number
   date_from?: string;
   date_to?: string;
+}
+
+// ─── Refund request PDF export (learner + institution context) ─────────────
+export interface RefundPdfInstitution {
+  name: string;
+  display_name: string | null;
+  counselling_code: string | null;
+  logo_url: string | null;
+  address_line1: string | null;
+  address_line2: string | null;
+  address_line3: string | null;
+  city: string | null;
+  state: string | null;
+  pin_code: string | null;
+  university_affiliation_name: string | null;
+}
+
+export interface RefundPdfLearner {
+  id: string;
+  first_name: string | null;
+  last_name: string | null;
+  application_id: string | null;
+  student_mobile: string | null;
+  lifecycle_status: string | null;
+  degree: { degree_name: string | null; display_name: string | null } | null;
+  program: { program_name: string | null; display_name: string | null } | null;
+  department: { department_name: string | null; display_name: string | null } | null;
+  academic_year: { academic_year_name: string | null } | null;
+  batch: { batch_name: string | null; batch_code: string | null } | null;
+  semester: { semester_name: string | null } | null;
+  section: { section_name: string | null } | null;
+  regulation: { regulation_code: string | null } | null;
 }
