@@ -13,3 +13,22 @@ REVOKE ALL ON public.v_session_feedback_pending_ingest FROM anon, authenticated,
 -- service_role holds every privilege by Supabase default; leave it read-only.
 REVOKE ALL ON public.v_session_feedback_pending_ingest FROM service_role;
 GRANT SELECT ON public.v_session_feedback_pending_ingest TO service_role;
+
+-- Apply-time check: refuse to finish if the grants did not land as intended.
+DO $assert$
+BEGIN
+  IF has_table_privilege('anon', 'public.v_session_feedback_pending_ingest', 'SELECT')
+     OR has_table_privilege('anon', 'public.v_session_feedback_pending_ingest', 'INSERT')
+     OR has_table_privilege('anon', 'public.v_session_feedback_pending_ingest', 'UPDATE')
+     OR has_table_privilege('anon', 'public.v_session_feedback_pending_ingest', 'DELETE')
+     OR has_table_privilege('authenticated', 'public.v_session_feedback_pending_ingest', 'SELECT')
+     OR has_table_privilege('authenticated', 'public.v_session_feedback_pending_ingest', 'INSERT')
+     OR has_table_privilege('authenticated', 'public.v_session_feedback_pending_ingest', 'UPDATE')
+     OR has_table_privilege('authenticated', 'public.v_session_feedback_pending_ingest', 'DELETE') THEN
+    RAISE EXCEPTION 'v_session_feedback_pending_ingest: anon or authenticated still holds a privilege';
+  END IF;
+  IF NOT has_table_privilege('service_role', 'public.v_session_feedback_pending_ingest', 'SELECT') THEN
+    RAISE EXCEPTION 'v_session_feedback_pending_ingest: service_role lost SELECT';
+  END IF;
+END
+$assert$;
