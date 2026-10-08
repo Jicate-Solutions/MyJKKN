@@ -6,6 +6,10 @@
 
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { logger } from '@/lib/utils/enhanced-logger';
+import {
+  buildDesignations,
+  withoutDesignation,
+} from '@/lib/utils/events/committee-designations';
 import type {
   MarathonCommittee,
   MarathonTask,
@@ -109,6 +113,27 @@ export class EventCommitteeService {
     }
   }
 
+  /**
+   * Edit a committee's name, description and each person's designation
+   * (BUG-004626). Designations are rebuilt for the people on the committee
+   * right now, so stale keys for departed members are dropped.
+   */
+  static editCommittee(
+    committee: MarathonCommittee,
+    edits: { name: string; description: string; designations: Record<string, string> }
+  ) {
+    const people = [
+      ...(committee.member_names ?? []),
+      ...(committee.external_members ?? []).map((g) => g.name),
+    ];
+    return this.updateCommittee(committee.id, {
+      event_id: committee.event_id,
+      name: edits.name.trim(),
+      description: edits.description.trim() || null,
+      member_designations: buildDesignations(people, edits.designations),
+    });
+  }
+
   // --- Internal (JKKN) members ----------------------------------------------
 
   /**
@@ -154,6 +179,11 @@ export class EventCommitteeService {
     const payload: Record<string, unknown> = {
       event_id: committee.event_id,
       member_names: names,
+      // The departing member's designation goes with them (BUG-004626).
+      member_designations: withoutDesignation(
+        committee.member_designations,
+        (committee.member_names ?? [])[index]
+      ),
     };
     // member_ids is a parallel array when members were picked from the directory —
     // drop the same slot so the two arrays stay index-aligned.
@@ -213,6 +243,10 @@ export class EventCommitteeService {
     return this.updateCommittee(committee.id, {
       event_id: committee.event_id,
       external_members: list,
+      member_designations: withoutDesignation(
+        committee.member_designations,
+        (committee.external_members ?? [])[index]?.name
+      ),
     } as Partial<MarathonCommittee>);
   }
 

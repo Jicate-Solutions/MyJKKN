@@ -3,6 +3,7 @@ export const dynamic = 'force-dynamic';
 // app/(routes)/learners/my-profile/status/[id]/page.tsx
 import { redirect, notFound } from 'next/navigation';
 import { createClient } from '@/lib/supabase/server';
+import { getUserWithRetry } from '@/lib/auth/auth-retry';
 import { StudentValidationService } from '@/lib/services/auth/student-validation-service';
 import { LearnerProfileChangeService } from '@/lib/services/learner-profile-change-service';
 import { RequestDetailView } from './_components/request-detail-view';
@@ -25,12 +26,9 @@ export default async function RequestDetailPage({ params }: PageProps) {
   const { id } = await params;
 
   // Get authenticated user
-  const {
-    data: { user },
-    error: authError,
-  } = await supabase.auth.getUser();
+  const user = await getUserWithRetry(supabase);
 
-  if (authError || !user) {
+  if (!user) {
     redirect('/auth/login');
   }
 

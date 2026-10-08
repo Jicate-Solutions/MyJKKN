@@ -9,9 +9,11 @@
 // Sports is multi-select because a tournament routinely runs several games on
 // one set of dates, venue and registration link (Chess + Carrom, say). Each
 // pick becomes its own division, which is what the registration form's
-// "Event / division" picker and the per-division fixtures are keyed on. The
-// other division fields (level, format, gender, age band, entry fee) apply to
-// every sport picked here; edit an individual division afterwards to vary them.
+// "Event / division" picker and the per-division fixtures are keyed on.
+// Categories (Open / Men's / Women's / Mixed) are picked PER SPORT, several at
+// once (2026-10-07): Volleyball Men's + Women's and Basketball Men's only makes
+// three divisions. The other division fields (level, format, age band, entry
+// fee) apply to every division created here; edit one afterwards to vary them.
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
@@ -39,6 +41,11 @@ import {
 } from '@/components/ui/select';
 import { useCreateTournament } from '@/hooks/events/use-tournaments';
 import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
+import {
+  HostInstitutionsPicker,
+  hostInstitutionsDto,
+  type HostInstitutionsValue,
+} from '../_components/host-institutions-picker';
 import { JKKN_SPORTS, SPORT_LEVELS } from '@/types/health-sports';
 import { TOURNAMENT_FORMATS, DIVISION_GENDERS } from '@/types/tournament';
 import type { SportLevel } from '@/types/health-sports';
@@ -56,8 +63,11 @@ export default function CreateTournamentPage() {
   // picker stays visible and editable — explicit per the product decision.
   // Derived (not synced via effect+setState) so there's no extra render pass:
   // institutionIdOverride is null until the user actually picks one.
-  const [institutionIdOverride, setInstitutionIdOverride] = useState<string | null>(null);
-  const institutionId = institutionIdOverride ?? institutions[0]?.id ?? '';
+  const [hostsOverride, setHostsOverride] = useState<HostInstitutionsValue | null>(null);
+  const firstId = institutions[0]?.id ?? '';
+  const hosts: HostInstitutionsValue =
+    hostsOverride ?? { primaryId: firstId, hostIds: firstId ? [firstId] : [] };
+  const institutionId = hosts.primaryId;
   const createMutation = useCreateTournament();
 
   const currentYear = new Date().getFullYear();
@@ -65,9 +75,10 @@ export default function CreateTournamentPage() {
   const [form, setForm] = useState({
     name: '',
     sports: [JKKN_SPORTS[0]] as string[],
+    // Categories chosen for each picked sport; a newly picked sport starts at Open.
+    categories: { [JKKN_SPORTS[0]]: ['open'] } as Record<string, DivisionGender[]>,
     level: 'intra_college' as SportLevel,
     scope: 'institution' as TournamentScope,
-    gender: 'open' as DivisionGender,
     format: 'knockout' as TournamentFormat,
     age_band: '',
     entry_fee: '',
@@ -92,15 +103,31 @@ export default function CreateTournamentPage() {
       sports: checked
         ? JKKN_SPORTS.filter((s) => s === sport || prev.sports.includes(s))
         : prev.sports.filter((s) => s !== sport),
+      categories: checked
+        ? { ...prev.categories, [sport]: prev.categories[sport]?.length ? prev.categories[sport] : ['open'] }
+        : prev.categories,
     }));
+
+  // Categories keep the DIVISION_GENDERS order, whatever order they were clicked in.
+  const toggleCategory = (sport: string, gender: DivisionGender) =>
+    setForm((prev) => {
+      const current = prev.categories[sport] ?? [];
+      const next = current.includes(gender)
+        ? current.filter((g) => g !== gender)
+        : DIVISION_GENDERS.map((g) => g.value).filter((g) => g === gender || current.includes(g));
+      return { ...prev, categories: { ...prev.categories, [sport]: next } };
+    });
+
+  const sportsWithoutCategory = form.sports.filter((s) => !(form.categories[s]?.length));
+  const divisionCount = form.sports.reduce((n, s) => n + (form.categories[s]?.length ?? 0), 0);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!form.name.trim() || !institutionId || form.sports.length === 0) return;
+    if (!form.name.trim() || !institutionId || form.sports.length === 0 || sportsWithoutCategory.length > 0) return;
 
     try {
       const event = await createMutation.mutateAsync({
-        institution_id: institutionId,
+        ...hostInstitutionsDto(hosts),
         name: form.name.trim(),
         description: form.description || undefined,
         scope: form.scope,
@@ -112,17 +139,19 @@ export default function CreateTournamentPage() {
         venue: form.venue || undefined,
         is_public: form.is_public,
         allow_external_registration: form.allow_external_registration,
-        // One division per selected sport. They share the level/format/gender/
-        // age band/fee set above — vary an individual one from Edit afterwards.
-        divisions: form.sports.map((sport, i) => ({
-          sport,
-          gender: form.gender,
-          age_band: form.age_band.trim() || undefined,
-          format: form.format,
-          level: form.level,
-          sort_order: i,
-          config: form.entry_fee ? { entry_fee: Number(form.entry_fee) } : undefined,
-        })),
+        // One division per sport AND category picked for it. They share the
+        // level / format / age band / fee set above — vary one from Edit afterwards.
+        divisions: form.sports
+          .flatMap((sport) => (form.categories[sport] ?? []).map((gender) => ({ sport, gender })))
+          .map(({ sport, gender }, i) => ({
+            sport,
+            gender,
+            age_band: form.age_band.trim() || undefined,
+            format: form.format,
+            level: form.level,
+            sort_order: i,
+            config: form.entry_fee ? { entry_fee: Number(form.entry_fee) } : undefined,
+          })),
       });
       // PR1 has no per-tournament detail page yet (arrives in PR2). Return to the
       // list, where the newly created tournament now appears.
@@ -156,29 +185,14 @@ export default function CreateTournamentPage() {
           </CardHeader>
           <CardContent>
             <form onSubmit={handleSubmit} className="space-y-5">
-              {/* Host Institution */}
-              <div className="space-y-2">
-                <Label htmlFor="host_institution">
-                  Host Institution <span className="text-destructive">*</span>
-                </Label>
-                <Select value={institutionId} onValueChange={setInstitutionIdOverride}>
-                  <SelectTrigger id="host_institution">
-                    <SelectValue
-                      placeholder={institutionsLoading ? 'Loading institutions…' : 'Select host institution'}
-                    />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {institutions.map((inst) => (
-                      <SelectItem key={inst.id} value={inst.id}>
-                        {inst.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <p className="text-xs text-muted-foreground">
-                  Registration fees for this tournament settle into this institution&apos;s payment account.
-                </p>
-              </div>
+              {/* Host Institution(s) */}
+              <HostInstitutionsPicker
+                id="host_institution"
+                institutions={institutions}
+                loading={institutionsLoading}
+                value={hosts}
+                onChange={setHostsOverride}
+              />
 
               {/* Name */}
               <div className="space-y-2">
@@ -223,7 +237,7 @@ export default function CreateTournamentPage() {
                   >
                     {form.sports.length === 0
                       ? 'Pick at least one sport.'
-                      : `${form.sports.length} picked — each becomes its own division.`}
+                      : `${form.sports.length} picked — choose each one's categories below.`}
                   </p>
                 </div>
                 <div className="space-y-2">
@@ -274,23 +288,52 @@ export default function CreateTournamentPage() {
                 </div>
               </div>
 
-              {/* Gender + Age band */}
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              {/* Categories per sport — each sport + category becomes a division */}
+              {form.sports.length > 0 && (
                 <div className="space-y-2">
-                  <Label>Category</Label>
-                  <Select value={form.gender} onValueChange={(v) => update('gender', v)}>
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {DIVISION_GENDERS.map((g) => (
-                        <SelectItem key={g.value} value={g.value}>
-                          {g.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <Label>Categories for each sport *</Label>
+                  <div className="divide-y rounded-md border">
+                    {form.sports.map((sport) => {
+                      const picked = form.categories[sport] ?? [];
+                      return (
+                        <div key={sport} className="flex flex-col gap-2 p-2.5 sm:flex-row sm:items-center">
+                          <span className="text-sm font-medium sm:w-56 sm:shrink-0">{sport}</span>
+                          <div className="flex flex-wrap gap-1.5" role="group" aria-label={`${sport} categories`}>
+                            {DIVISION_GENDERS.map((g) => {
+                              const on = picked.includes(g.value);
+                              return (
+                                <button
+                                  key={g.value}
+                                  type="button"
+                                  aria-pressed={on}
+                                  onClick={() => toggleCategory(sport, g.value)}
+                                  className={
+                                    on
+                                      ? 'rounded-full border border-primary bg-primary px-3 py-1 text-xs font-medium text-primary-foreground'
+                                      : 'rounded-full border px-3 py-1 text-xs text-muted-foreground hover:bg-muted'
+                                  }
+                                >
+                                  {g.label}
+                                </button>
+                              );
+                            })}
+                          </div>
+                          {picked.length === 0 && (
+                            <span className="text-xs text-destructive">Pick at least one</span>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    {divisionCount} division{divisionCount === 1 ? '' : 's'} will be created — one for each sport
+                    and category picked.
+                  </p>
                 </div>
+              )}
+
+              {/* Age band */}
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <div className="space-y-2">
                   <Label htmlFor="age_band">Age Band (optional)</Label>
                   <Input
@@ -432,7 +475,8 @@ export default function CreateTournamentPage() {
                     createMutation.isPending ||
                     !form.name.trim() ||
                     !institutionId ||
-                    form.sports.length === 0
+                    form.sports.length === 0 ||
+                    sportsWithoutCategory.length > 0
                   }
                 >
                   {createMutation.isPending && (

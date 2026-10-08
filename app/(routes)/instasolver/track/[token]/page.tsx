@@ -37,6 +37,7 @@
 // "tracking is not switched on yet" and "the lookup just failed" are different
 // facts and only one of them is worth waiting for.
 
+import Link from 'next/link';
 import { AlertCircle, CheckCircle2, Clock, SearchX } from 'lucide-react';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
@@ -79,6 +80,16 @@ function Shell({ children }: { children: React.ReactNode }) {
         />
       </div>
       {children}
+      <p className="mt-6 text-sm text-muted-foreground">
+        Complaints you raised with your name on them are on{' '}
+        <Link
+          href="/instasolver/my-complaints"
+          className="font-medium text-primary underline-offset-4 hover:underline"
+        >
+          My complaints
+        </Link>
+        .
+      </p>
     </ContentLayout>
   );
 }

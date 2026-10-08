@@ -56,6 +56,7 @@ export function BillCancellationDetails({ cancellation, className }: Props) {
             {cancellation.reason}
           </p>
           <p className='text-xs text-amber-700 dark:text-amber-400'>
+            {cancellation.request_id ? 'Approved by ' : ''}
             {who}
             {role ? ` · ${role}` : ''} · {formatDateTime(cancellation.cancelled_at)}
           </p>

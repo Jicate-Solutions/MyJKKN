@@ -7,11 +7,14 @@ import {
   Package,
   AlertTriangle,
   DollarSign,
+  Search,
 } from 'lucide-react';
 import { BeatLoader } from 'react-spinners';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { Input } from '@/components/ui/input';
+import { useDebounceValue } from '@/hooks/use-debounce-value';
 import {
   Select,
   SelectContent,
@@ -154,9 +157,12 @@ export default function BatchesPage() {
 
   const [locationFilter, setLocationFilter] = useState<string>('all');
   const [activeTab, setActiveTab] = useState('all');
+  const [search, setSearch] = useState('');
+  const debouncedSearch = useDebounceValue(search, 300);
 
   const { data: allBatchData, isLoading: allLoading } = useImsStockBatches({
     item_id: preFilterItem,
+    search: debouncedSearch || undefined,
     location_type:
       locationFilter !== 'all' ? (locationFilter as ImsLocationType) : undefined,
     store_id: storeId || '',
@@ -241,6 +247,15 @@ export default function BatchesPage() {
 
         {/* Location Filter */}
         <div className="flex flex-wrap items-center gap-4">
+          <div className="relative w-full sm:w-[280px]">
+            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search item name or batch..."
+              className="pl-9"
+            />
+          </div>
           <Select value={locationFilter} onValueChange={setLocationFilter}>
             <SelectTrigger className="w-full sm:w-[200px]">
               <SelectValue placeholder="All Locations" />

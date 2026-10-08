@@ -6,13 +6,7 @@ import {
   oncePerLearnerMessage
 } from '@/lib/utils/billing-duplicate-error';
 import { logActivityForCurrentUser, BillingActivityTemplates } from '@/lib/utils/activity-logger-client';
-import { BillCancellationService } from './bill-cancellation-service';
 import { resolveBillSortPaths } from './bill-sort-columns';
-import type {
-  BillCancelReasonCode,
-  BillCancellationAttachment,
-  CancelBillResult
-} from '@/types/billing-bill-cancellation';
 import type {
   StudentBill,
   CreateStudentBillDto,
@@ -389,91 +383,9 @@ export class StudentBillService {
     return results;
   }
 
-  /**
-   * Cancel a bill.
-   *
-   * This used to be a plain UPDATE that set status and appended the reason to
-   * the free-text `remarks` column. It now delegates to
-   * BillCancellationService, which goes through fn_cancel_student_bill --
-   * a SECURITY DEFINER RPC that records the reason, the reason code and the
-   * supporting documents in billing_bill_cancellations, and refuses a bill
-   * that still has receipted money against it.
-   *
-   * The status allow-list, the receipted-money guard and the zeroing of
-   * balance_amount all live in the RPC now. Duplicating them here is how the
-   * two would drift apart, and a trigger rejects any UPDATE that tries to set
-   * status='cancelled' outside the RPC, so a second implementation could not
-   * work anyway.
-   */
-  static async cancelStudentBill(
-    id: string,
-    reasonCode: BillCancelReasonCode,
-    reason: string,
-    attachments: BillCancellationAttachment[]
-  ): Promise<CancelBillResult> {
-    return BillCancellationService.cancelBill({
-      billId: id,
-      reasonCode,
-      reason,
-      attachments,
-    });
-  }
-
-  /**
-   * Cancel several bills under ONE reason and ONE set of documents -- the
-   * "these twelve rows are the same duplicate, here is the approval memo" case.
-   * Each bill still goes through the RPC individually, so a bill that is
-   * ineligible (wrong status, or money receipted against it) fails on its own
-   * and the rest continue.
-   */
-  static async bulkCancelStudentBills(
-    ids: string[],
-    reasonCode: BillCancelReasonCode,
-    reason: string,
-    attachments: BillCancellationAttachment[]
-  ): Promise<BulkOperationResult> {
-    const results: BulkOperationResult = {
-      success: [],
-      failed: []
-    };
-
-    for (const id of ids) {
-      try {
-        await BillCancellationService.cancelBill({
-          billId: id,
-          reasonCode,
-          reason,
-          attachments,
-        });
-        results.success.push(id);
-      } catch (error) {
-        results.failed.push({
-          id,
-          error: getErrorMessage(error)
-        });
-      }
-    }
-
-    if (results.success.length > 0) {
-      const template = BillingActivityTemplates.billsBulkCancelled(
-        results.success.length,
-        ids.length,
-        reason
-      );
-      logActivityForCurrentUser({
-        ...template,
-        metadata: {
-          sub_type: template.sub_type,
-          cancelled_ids: results.success,
-          failed_count: results.failed.length,
-          reason_code: reasonCode,
-          reason,
-        },
-      });
-    }
-
-    return results;
-  }
+  // Bills are no longer cancelled from here. Every cancellation is a request
+  // (BillCancelRequestService) that an approver decides; fn_cancel_student_bill
+  // was dropped in 20260928100000 so there is no direct route to call.
 
   /**
    * Resolve an accommodation-type catalog code (e.g. 'hostel') to the matching

@@ -25,7 +25,7 @@
 // The inherited catch-all is also shown rather than hidden, so "no flow of its
 // own" never looks like "no approval required".
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertCircle, ArrowDown, ArrowUp, Building2, GitBranch, Plus, Trash2,
 } from 'lucide-react';
@@ -128,7 +128,9 @@ export function LeaveApprovalFlowDialog({
 }) {
   const isEligibility = flowFor === 'leave_eligibility';
   const hrOrgId = leaveType?.hr_organization_id;
-  const { data: resolved, isLoading } = useLeaveApprovalFlow(hrOrgId, leaveType?.id, flowFor);
+  const {
+    data: resolved, isLoading, isFetching, isError, dataUpdatedAt, refetch,
+  } = useLeaveApprovalFlow(hrOrgId, leaveType?.id, flowFor);
   // The leave flow behind an eligibility flow — what a request falls back to
   // and what an empty editor seeds from. Fetched only in eligibility mode.
   const { data: leaveResolved, isLoading: leaveLoading } = useLeaveApprovalFlow(
@@ -207,6 +209,26 @@ export function LeaveApprovalFlowDialog({
   const [fallbackName, setFallbackName] = useState<string | null>(null);
   const [seeded, setSeeded] = useState<string | null>(null);
 
+  /**
+   * The editor seeds ONCE per open, so it must seed from a read taken AFTER the
+   * open. It used to seed from whatever was cached (up to 5 minutes old, and
+   * another administrator's edit can never invalidate this browser's cache), and
+   * the `seeded` guard then ignored the fresh copy when it arrived — so the
+   * editor opened on the previous chain and a Save overwrote the newer one.
+   *
+   * Declared BEFORE the seeding effect on purpose: effects run in order, so on
+   * the commit that opens the dialog the timestamp is already set when the
+   * seeding effect checks it.
+   */
+  const openedAtRef = useRef(0);
+  useEffect(() => {
+    if (!open || !leaveType) return;
+    openedAtRef.current = Date.now();
+    // cancelRefetch:false — on the first open the query is already fetching, and
+    // restarting that request would only discard it.
+    void refetch({ cancelRefetch: false });
+  }, [open, leaveType, refetch]);
+
   // Seeded from whichever flow currently applies — the type's own if it has one,
   // otherwise the inherited catch-all, so "Save" on an inheriting type starts
   // from what is actually in force rather than from an empty chain.
@@ -216,6 +238,9 @@ export function LeaveApprovalFlowDialog({
   // opens on exactly what is stored, not on a migrated approximation.
   useEffect(() => {
     if (!open || isLoading || !leaveType) return;
+    // Wait for the read the open started. If it FAILED, fall back to the cache
+    // rather than leave the editor blank — that is what it did before.
+    if (dataUpdatedAt < openedAtRef.current && !(isError && !isFetching)) return;
     // In eligibility mode the seed may come from the leave flow, so wait for
     // it too — seeding once from `null` and never again is how the editor would
     // open empty on a type whose leave flow is perfectly good.
@@ -263,7 +288,7 @@ export function LeaveApprovalFlowDialog({
         : [newStep()]
     );
     setSeeded(seedKey);
-  }, [open, isLoading, isEligibility, leaveLoading, leaveType, resolved, seeded, slot, slotEffective]);
+  }, [open, isLoading, isFetching, isError, dataUpdatedAt, isEligibility, leaveLoading, leaveType, resolved, seeded, slot, slotEffective]);
 
   useEffect(() => {
     if (!open) {

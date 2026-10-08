@@ -9,7 +9,7 @@ export function usePurchaseRequests(filters: PurchaseRequestFilters) {
   return useQuery({
     queryKey: ['procurement-purchase-requests', filters],
     queryFn: () => ProcurementPurchaseRequestService.getPurchaseRequests(filters),
-    enabled: !!(filters.store_id || filters.institution_id),
+    enabled: !!(filters.store_id || filters.institution_id || filters.all_institutions),
     staleTime: 2 * 60 * 1000,
   });
 }
@@ -28,6 +28,9 @@ export function useCreatePurchaseRequest() {
   return useMutation({
     mutationFn: ({ data, userId }: { data: CreatePurchaseRequestDto; userId: string }) =>
       ProcurementPurchaseRequestService.createPurchaseRequest(data, userId),
+    // The app retries failed mutations once by default. A create that failed after
+    // saving would then save a second request — so never retry this one.
+    retry: false,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['procurement-purchase-requests'] });
     },
@@ -55,7 +58,8 @@ export function useSubmitPurchaseRequest() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (id: string) => ProcurementPurchaseRequestService.submitPurchaseRequest(id),
-    onSuccess: (_r, id) => {
+    // Settled, not just success: a refused transition must refresh the page too.
+    onSettled: (_r, _e, id) => {
       queryClient.invalidateQueries({ queryKey: ['procurement-purchase-requests'] });
       queryClient.invalidateQueries({ queryKey: ['procurement-purchase-request', id] });
     },
@@ -67,7 +71,8 @@ export function useApprovePurchaseRequest() {
   return useMutation({
     mutationFn: ({ id, userId }: { id: string; userId: string }) =>
       ProcurementPurchaseRequestService.approvePurchaseRequest(id, userId),
-    onSuccess: (_r, { id }) => {
+    // Settled, not just success: a refused transition must refresh the page too.
+    onSettled: (_r, _e, { id }) => {
       queryClient.invalidateQueries({ queryKey: ['procurement-purchase-requests'] });
       queryClient.invalidateQueries({ queryKey: ['procurement-purchase-request', id] });
     },
@@ -81,12 +86,15 @@ export function useApproveWithModifications() {
       id,
       userId,
       itemUpdates,
+      reason,
     }: {
       id: string;
       userId: string;
       itemUpdates: { itemId: string; required_quantity: number }[];
-    }) => ProcurementPurchaseRequestService.approveWithModifications(id, userId, itemUpdates),
-    onSuccess: (_r, { id }) => {
+      reason?: string;
+    }) => ProcurementPurchaseRequestService.approveWithModifications(id, userId, itemUpdates, reason),
+    // Settled, not just success: a refused transition must refresh the page too.
+    onSettled: (_r, _e, { id }) => {
       queryClient.invalidateQueries({ queryKey: ['procurement-purchase-requests'] });
       queryClient.invalidateQueries({ queryKey: ['procurement-purchase-request', id] });
     },
@@ -98,9 +106,43 @@ export function useRejectPurchaseRequest() {
   return useMutation({
     mutationFn: ({ id, userId, reason }: { id: string; userId: string; reason: string }) =>
       ProcurementPurchaseRequestService.rejectPurchaseRequest(id, userId, reason),
-    onSuccess: (_r, { id }) => {
+    // Settled, not just success: a refused transition must refresh the page too.
+    onSettled: (_r, _e, { id }) => {
       queryClient.invalidateQueries({ queryKey: ['procurement-purchase-requests'] });
       queryClient.invalidateQueries({ queryKey: ['procurement-purchase-request', id] });
+    },
+  });
+}
+
+export function useReturnPurchaseRequest() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, reason }: { id: string; reason: string }) =>
+      ProcurementPurchaseRequestService.returnPurchaseRequest(id, reason),
+    onSettled: (_r, _e, { id }) => {
+      queryClient.invalidateQueries({ queryKey: ['procurement-purchase-requests'] });
+      queryClient.invalidateQueries({ queryKey: ['procurement-purchase-request', id] });
+      queryClient.invalidateQueries({ queryKey: ['procurement-overview-waiting'] });
+    },
+  });
+}
+
+export function useResubmitPurchaseRequest() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      id,
+      ...changes
+    }: {
+      id: string;
+      itemUpdates: { itemId: string; required_quantity: number }[];
+      removedItemIds: string[];
+      reply?: string;
+    }) => ProcurementPurchaseRequestService.resubmitPurchaseRequest(id, changes),
+    onSettled: (_r, _e, { id }) => {
+      queryClient.invalidateQueries({ queryKey: ['procurement-purchase-requests'] });
+      queryClient.invalidateQueries({ queryKey: ['procurement-purchase-request', id] });
+      queryClient.invalidateQueries({ queryKey: ['procurement-overview-waiting'] });
     },
   });
 }

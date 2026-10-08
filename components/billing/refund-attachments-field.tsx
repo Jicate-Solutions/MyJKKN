@@ -11,9 +11,13 @@ interface Props {
   onChange: (attachments: RefundAttachment[]) => void;
   institutionName: string;
   requestRef: string;
+  /** Upload route; defaults to the billing refunds one. */
+  endpoint?: string;
 }
 
-export function RefundAttachmentsField({ value, onChange, institutionName, requestRef }: Props) {
+export function RefundAttachmentsField({
+  value, onChange, institutionName, requestRef, endpoint = '/api/billing/refunds/attachments'
+}: Props) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
 
@@ -29,7 +33,7 @@ export function RefundAttachmentsField({ value, onChange, institutionName, reque
         form.append('file', file);
         form.append('institutionName', institutionName);
         form.append('requestRef', requestRef);
-        const res = await fetch('/api/billing/refunds/attachments', { method: 'POST', body: form });
+        const res = await fetch(endpoint, { method: 'POST', body: form });
         const json = await res.json();
         if (!res.ok) throw new Error(json.error || `Upload failed: ${file.name}`);
         uploaded.push(json);

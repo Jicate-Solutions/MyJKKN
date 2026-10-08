@@ -50,6 +50,9 @@ export interface ReceiptCancelRequest {
   decided_by_role: string | null;
   decided_by_designation: string | null;
   decided_by_is_super_admin: boolean | null;
+  /** Resolved for the queue list only (listRequestsPaged); absent elsewhere. */
+  learner_name?: string | null;
+  learner_program?: string | null;
 }
 
 /** Learner the receipt was issued to, resolved live for the detail view. */
@@ -73,6 +76,8 @@ export interface ReceiptCancelBillLine {
   amount_paid: number;
   allocation_reason: string | null;
   bill_description: string | null;
+  /** Fee category (billing_categories.category_name) — the clean label for the bill. */
+  category_name: string | null;
   final_amount: number | null;
   balance_amount: number | null;
   status: string | null;
@@ -252,7 +257,47 @@ export class ReceiptCancellationService {
       logger.error('billing/receipt-cancel', 'Paged list failed', error);
       throw new Error(error.message || 'Failed to load cancellation requests');
     }
-    return { data: (data ?? []) as ReceiptCancelRequest[], total: count ?? 0 };
+    const rows = (data ?? []) as ReceiptCancelRequest[];
+    await this.attachLearners(rows);
+    return { data: rows, total: count ?? 0 };
+  }
+
+  /**
+   * Adds learner name + programme to a page of requests with two batched
+   * lookups (not one per row). Separate selects, not an embed, so a learner or
+   * programme the caller cannot read degrades to a blank instead of dropping
+   * the request.
+   */
+  private static async attachLearners(rows: ReceiptCancelRequest[]): Promise<void> {
+    const studentIds = [...new Set(rows.map((r) => r.student_id).filter(Boolean))] as string[];
+    if (!studentIds.length) return;
+
+    const { data: learners } = await (this.supabase as any)
+      .from('learners_profiles')
+      .select('id, first_name, last_name, program_id')
+      .in('id', studentIds);
+
+    const programIds = [
+      ...new Set((learners ?? []).map((l: any) => l.program_id).filter(Boolean)),
+    ] as string[];
+    const { data: programs } = programIds.length
+      ? await (this.supabase as any)
+          .from('programs')
+          .select('id, program_name')
+          .in('id', programIds)
+      : { data: [] };
+
+    const programById = new Map<string, string>(
+      (programs ?? []).map((p: any) => [p.id, p.program_name])
+    );
+    const learnerById = new Map<string, any>((learners ?? []).map((l: any) => [l.id, l]));
+
+    for (const r of rows) {
+      const l = r.student_id ? learnerById.get(r.student_id) : null;
+      if (!l) continue;
+      r.learner_name = [l.first_name, l.last_name].filter(Boolean).join(' ') || null;
+      r.learner_program = l.program_id ? programById.get(l.program_id) ?? null : null;
+    }
   }
 
   /**
@@ -343,7 +388,9 @@ export class ReceiptCancellationService {
     const { data: bills } = billIds.length
       ? await (this.supabase as any)
           .from('billing_student_bills')
-          .select('id, bill_description, final_amount, balance_amount, status, due_date')
+          .select(
+            'id, bill_description, final_amount, balance_amount, status, due_date, item_category:billing_categories(category_name)'
+          )
           .in('id', billIds)
       : { data: [] };
 
@@ -355,6 +402,7 @@ export class ReceiptCancellationService {
         amount_paid: Number(item.amount_paid) || 0,
         allocation_reason: item.allocation_reason ?? null,
         bill_description: bill?.bill_description ?? null,
+        category_name: bill?.item_category?.category_name ?? null,
         final_amount: bill?.final_amount ?? null,
         balance_amount: bill?.balance_amount ?? null,
         status: bill?.status ?? null,

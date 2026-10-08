@@ -12,6 +12,7 @@
  *   /hr/recruitment/approvals?view=all   → "All pending"
  */
 
+import { DutyPlaybookCard } from '@/components/hr/duty-playbook/duty-playbook-card';
 import { Suspense, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
@@ -159,6 +160,7 @@ function RecruitmentApprovalsInner() {
       </Breadcrumb>
 
       <div className="mt-6 space-y-4">
+        <DutyPlaybookCard duty="R5" />
         {/* Stat strip — CVViZ-style: value above, label below */}
         <Card>
           <CardContent className="p-0">

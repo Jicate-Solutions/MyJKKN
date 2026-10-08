@@ -12,6 +12,7 @@ export interface ProcurementQuotation {
   validity_date: string | null;
   payment_terms: string | null;
   delivery_time_days: number | null;
+  warranty?: string | null;
   total_amount: number | null;
   document_url: string | null;
   document_file_id: string | null;
@@ -20,6 +21,10 @@ export interface ProcurementQuotation {
   created_by: string | null;
   created_at: string;
   updated_at: string;
+  /** How many revised quotations replaced this one's prices (0 = as first quoted). */
+  revision_no?: number;
+  revised_at?: string | null;
+  revision_reason?: string | null;
   supplier?: { id: string; name: string; code: string; email: string | null } | null;
 }
 
@@ -38,7 +43,12 @@ export interface ProcurementQuotationItem {
   /** Purity/strength offered — relevant for chemical items (see ProcurementRfqItem.is_chemical). */
   concentration: string | null;
   other_specs: string | null;
+  /** GST rate / HSN code as printed on the quotation line. */
+  gst_percent?: number | null;
+  hsn?: string | null;
   awarded: boolean;
+  /** Price before the vendor's last revised quotation (null = never revised / unchanged). */
+  previous_unit_price?: number | null;
   created_at: string;
 }
 
@@ -57,6 +67,8 @@ export interface CreateQuotationItemDto {
   quality_grade?: string | null;
   concentration?: string | null;
   other_specs?: string | null;
+  gst_percent?: number | null;
+  hsn?: string | null;
 }
 
 export interface CreateQuotationDto {
@@ -68,6 +80,7 @@ export interface CreateQuotationDto {
   validity_date?: string | null;
   payment_terms?: string | null;
   delivery_time_days?: number | null;
+  warranty?: string | null;
   document_url?: string | null;
   document_file_id?: string | null;
   notes?: string | null;
@@ -90,6 +103,8 @@ export interface ComparisonQuote {
   concentration: string | null;
   other_specs: string | null;
   awarded: boolean;
+  /** Price before the vendor's revised quotation — shown struck through next to the new one. */
+  previous_unit_price?: number | null;
 }
 
 /** One row (per RFQ item) of the item-wise comparison. */
@@ -108,6 +123,6 @@ export interface ComparisonRow {
 export const QUOTATION_STATUS_CONFIG: Record<QuotationStatus, { label: string; color: string }> = {
   received: { label: 'Received', color: 'blue' },
   shortlisted: { label: 'Shortlisted', color: 'indigo' },
-  awarded: { label: 'Awarded', color: 'green' },
+  awarded: { label: 'Chosen', color: 'green' },
   rejected: { label: 'Rejected', color: 'red' },
 };

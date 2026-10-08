@@ -159,6 +159,18 @@ export function useConfirmImsIndentDelivery() {
   });
 }
 
+export function useDeleteImsIndent() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => ImsIndentService.deleteIndent(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['ims-indents'] });
+      queryClient.invalidateQueries({ queryKey: ['ims-pending-indents'] });
+      queryClient.invalidateQueries({ queryKey: ['ims-hod-pending-indents'] });
+    },
+  });
+}
+
 export function useCancelImsIndent() {
   const queryClient = useQueryClient();
   return useMutation({

@@ -105,7 +105,7 @@ export async function GET(): Promise<NextResponse> {
 
     const { data: learner } = await supabase
       .from('learners_profiles')
-      .select('id, program_id, institution_id, semester_id, lifecycle_status')
+      .select('id, program_id, institution_id, semester_id, gender, lifecycle_status')
       .eq('id', learnerId)
       .maybeSingle();
     const row = learner as
@@ -114,6 +114,7 @@ export async function GET(): Promise<NextResponse> {
           program_id: string | null;
           institution_id: string | null;
           semester_id: string | null;
+          gender: string | null;
           lifecycle_status: string | null;
         }
       | null;
@@ -133,6 +134,7 @@ export async function GET(): Promise<NextResponse> {
       program_id: row.program_id,
       institution_id: row.institution_id,
       semester_order: semesterOrder,
+      gender: row.gender,
     };
 
     // 2. Candidate drives: currently visible states, plus anything this learner

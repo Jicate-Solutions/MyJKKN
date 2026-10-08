@@ -13,6 +13,12 @@
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { getAdapter } from './domain-adapters/registry';
 import { matchLine, validateLineForVerify } from './three-way-match';
+import {
+  PO_PURCHASE_REQUEST_EMBED,
+  rfqIdsForRequestSearch,
+  sanitizeOrSearch,
+  withPurchaseRequest,
+} from './purchase-order-service';
 import type { ProcurementDomain, DomainCtx } from './domain-adapters/types';
 import type {
   ProcurementGrn,
@@ -24,6 +30,13 @@ import type {
   GrnExpectations,
   GrnFilters,
 } from '@/types/procurement';
+
+/** Lifts purchase_order.rfq.source_request up to `purchase_request` (the "Purchase no."). */
+function withGrnPurchaseRequest(row: any) {
+  if (!row?.purchase_order) return { ...row, purchase_request: null };
+  const { purchase_request, ...purchase_order } = withPurchaseRequest(row.purchase_order);
+  return { ...row, purchase_order, purchase_request };
+}
 
 export class ProcurementGrnService {
   private static get supabase() {
@@ -42,14 +55,35 @@ export class ProcurementGrnService {
         .select(
           `*,
            supplier:ims_suppliers(id,name,code,gstin),
-           purchase_order:procurement_purchase_orders(id,po_number),
+           purchase_order:procurement_purchase_orders(id,po_number,${PO_PURCHASE_REQUEST_EMBED}),
            received_by_profile:profiles!received_by(full_name),
            verified_by_profile:profiles!verified_by(full_name),
            items:procurement_grn_items(count)`,
           { count: 'exact' }
         );
 
-      if (filters.search) query = query.ilike('grn_number', `%${filters.search}%`);
+      if (filters.search) {
+        // Match the GRN number, the order's PO number or the purchase (request)
+        // number — the latter two resolved to PO ids first (see rfqIdsForRequestSearch).
+        const term = sanitizeOrSearch(filters.search);
+        const rfqIds = await rfqIdsForRequestSearch(term);
+        const { data: pos, error: poErr } = await this.supabase
+          .from('procurement_purchase_orders')
+          .select('id')
+          .or(
+            rfqIds.length
+              ? `po_number.ilike.%${term}%,rfq_id.in.(${rfqIds.join(',')})`
+              : `po_number.ilike.%${term}%`
+          )
+          .limit(200);
+        if (poErr) throw poErr;
+        const poIds = (pos || []).map((r: { id: string }) => r.id);
+        query = query.or(
+          poIds.length
+            ? `grn_number.ilike.%${term}%,purchase_order_id.in.(${poIds.join(',')})`
+            : `grn_number.ilike.%${term}%`
+        );
+      }
       if (filters.status) query = query.eq('status', filters.status);
       if (filters.purchase_order_id) query = query.eq('purchase_order_id', filters.purchase_order_id);
       if (filters.supplier_id) query = query.eq('supplier_id', filters.supplier_id);
@@ -65,7 +99,7 @@ export class ProcurementGrnService {
       if (error) throw error;
 
       const rows = (data || []).map((r: any) => ({
-        ...r,
+        ...withGrnPurchaseRequest(r),
         item_count: Array.isArray(r.items) ? r.items[0]?.count ?? 0 : 0,
       }));
 
@@ -91,7 +125,7 @@ export class ProcurementGrnService {
         .select(
           `*,
            supplier:ims_suppliers(id,name,code,gstin),
-           purchase_order:procurement_purchase_orders(id,po_number),
+           purchase_order:procurement_purchase_orders(id,po_number,${PO_PURCHASE_REQUEST_EMBED}),
            received_by_profile:profiles!received_by(full_name),
            verified_by_profile:profiles!verified_by(full_name)`
         )
@@ -106,7 +140,7 @@ export class ProcurementGrnService {
         .order('created_at', { ascending: true });
       if (itemsErr) throw itemsErr;
 
-      return { ...header, items: items || [] } as GrnWithItems;
+      return { ...withGrnPurchaseRequest(header), items: items || [] } as GrnWithItems;
     } catch (error) {
       console.error('[ProcurementGrnService] getGrn:', error);
       throw error;
@@ -121,14 +155,14 @@ export class ProcurementGrnService {
    */
   static async createGrnAgainstPO(input: CreateGrnInput, userId: string): Promise<ProcurementGrn> {
     try {
-      if (!input.lines?.length) throw new Error('A GRN needs at least one line.');
+      if (!input.lines?.length) throw new Error('A delivery record needs at least one line.');
       // Supplier invoice is mandatory — a GRN records goods received against a billed
       // invoice, and the three-way match has nothing to compare against without it.
       if (!input.invoice_number?.trim()) {
-        throw new Error('Invoice number is required to create a GRN.');
+        throw new Error('Invoice number is required to record a delivery.');
       }
       if (!input.invoice_date) {
-        throw new Error('Invoice date is required to create a GRN.');
+        throw new Error('Invoice date is required to record a delivery.');
       }
 
       // 1) Load PO header + lines (ordered qty and remaining-to-receive per line).
@@ -139,7 +173,7 @@ export class ProcurementGrnService {
         .single();
       if (poErr) throw poErr;
       if (!['sent', 'approved', 'partially_received'].includes(po.status)) {
-        throw new Error(`PO ${po.po_number} is "${po.status}" — receive only sent/approved POs.`);
+        throw new Error(`Order ${po.po_number} is "${po.status}" — receive only sent/approved orders.`);
       }
 
       const { data: poItems, error: piErr } = await this.supabase
@@ -166,7 +200,7 @@ export class ProcurementGrnService {
       const grnItemRows: any[] = [];
       for (const line of input.lines) {
         const poItem = poItemMap.get(line.po_item_id);
-        if (!poItem) throw new Error('A submitted line does not belong to this PO.');
+        if (!poItem) throw new Error('A submitted line does not belong to this order.');
 
         const orderedRemaining =
           Number(poItem.ordered_quantity) - Number(poItem.received_quantity ?? 0);
@@ -303,7 +337,7 @@ export class ProcurementGrnService {
     try {
       const grn = await this.getGrn(id);
       if (grn.status !== 'pending_verification') {
-        throw new Error(`GRN ${grn.grn_number} is "${grn.status}" — only pending GRNs can be verified.`);
+        throw new Error(`Delivery record ${grn.grn_number} is "${grn.status}" — only pending delivery records can be verified.`);
       }
 
       // 1) Chemical validation — block the whole verify if any accepted chemical line
@@ -333,7 +367,7 @@ export class ProcurementGrnService {
         .select()
         .single();
       if (lockErr) throw lockErr;
-      if (!locked) throw new Error('GRN was already verified by someone else; refresh.');
+      if (!locked) throw new Error('Delivery record was already verified by someone else; refresh.');
 
       const domain = (grn.domain ?? 'ims') as ProcurementDomain;
       const ctx: DomainCtx = { institutionId: grn.institution_id, storeId: grn.store_id, userId };
@@ -439,6 +473,7 @@ export class ProcurementGrnService {
                   grnId: grn.id,
                   grnNumber: grn.grn_number,
                   purchaseOrderId: grn.purchase_order_id,
+                  supplierId: grn.supplier_id,
                   grnItemId: line.id,
                 },
                 ctx
@@ -612,7 +647,7 @@ export class ProcurementGrnService {
     if (rep.status !== 'pending') throw new Error('This replacement has already been received.');
 
     const originItem = rep.grn_item;
-    if (!originItem) throw new Error('Replacement is missing its originating GRN line.');
+    if (!originItem) throw new Error('Replacement is missing its originating delivery line.');
     if (accepted > Number(rep.rejected_quantity) + 0.001) {
       throw new Error(
         `Accepted (${accepted}) exceeds the rejected quantity awaiting replacement (${rep.rejected_quantity}).`
@@ -771,6 +806,7 @@ export class ProcurementGrnService {
             grnId: grn.id,
             grnNumber,
             purchaseOrderId: parentGrn.purchase_order_id,
+            supplierId: parentGrn.supplier_id,
             grnItemId: newItem.id,
           },
           ctx
@@ -832,7 +868,7 @@ export class ProcurementGrnService {
       .select()
       .single();
     if (error) throw error;
-    if (!data) throw new Error('Only a pending GRN can be cancelled.');
+    if (!data) throw new Error('Only a pending delivery record can be cancelled.');
     return data as ProcurementGrn;
   }
 

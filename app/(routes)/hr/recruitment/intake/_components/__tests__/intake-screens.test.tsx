@@ -1,0 +1,560 @@
+// @vitest-environment jsdom
+//
+// HR intake helper — the screens HR uses. The API (lane A) is mocked at fetch().
+
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import type { ReactNode } from 'react';
+import type { IntakeBatch, IntakeOpenJob, IntakeRow } from '@/types/hr-intake';
+
+vi.mock('sonner', () => ({ toast: Object.assign(vi.fn(), { error: vi.fn(), success: vi.fn() }) }));
+const nav = vi.hoisted(() => ({ push: vi.fn() }));
+vi.mock('next/navigation', () => ({ useRouter: () => ({ push: nav.push }) }));
+vi.mock('next/link', () => ({
+  default: ({ href, children, ...rest }: { href: string; children: ReactNode }) => (
+    <a href={href} {...rest}>
+      {children}
+    </a>
+  ),
+}));
+
+import { CandidateCard } from '../candidate-card';
+import { BatchReview } from '../batch-review';
+import { BatchList } from '../batch-list';
+import { RulesList } from '../rules-list';
+import { checkIntakeFiles, IntakeUploadForm } from '../intake-upload-form';
+import { getIntakeBatch } from '@/lib/hr/intake/api-client';
+
+// ---------------------------------------------------------------------------
+// Fixtures
+// ---------------------------------------------------------------------------
+
+const JOBS: IntakeOpenJob[] = [
+  { id: 'job-1', title: 'Assistant Manager – Accounts', institution_id: 'i1', institution_name: 'Arts & Science', department_name: 'Accounts' },
+  { id: 'job-2', title: 'Hostel Warden', institution_id: 'i2', institution_name: 'Engineering', department_name: 'Hostel' },
+];
+
+const BATCH: IntakeBatch = {
+  id: 'b1',
+  source: 'cvviz_export',
+  file_name: 'cvviz-september.csv',
+  created_by: 'u1',
+  created_by_name: 'Priya S',
+  created_at: '2026-09-30T10:00:00Z',
+  status: 'ready',
+  row_count: 3,
+  decided_count: 0,
+  applied_count: 0,
+};
+
+function makeRow(over: Partial<IntakeRow> & { id: string; row_index: number }): IntakeRow {
+  return {
+    batch_id: 'b1',
+    candidate: {
+      first_name: 'Anitha',
+      last_name: 'K',
+      email: 'anitha@example.com',
+      phone: null,
+      phone_issue: 'Looks like a date (25/07/85)',
+      qualification: 'M.Com',
+      current_job_title: null,
+      current_company: null,
+      cities: [],
+      linkedin_url: null,
+      cvviz_profile_url: 'https://app.cvviz.com/candidates/123',
+      cvviz_job_title: 'Accounts Assistant',
+      cvviz_job_code: 'AC-1',
+      applied_at: '2026-09-20T00:00:00Z',
+    },
+    resume: {
+      file_name: 'anitha.pdf',
+      matched_upload: true,
+      storage_path: 'intake/b1/anitha.pdf',
+      extract: {
+        qualification: 'M.Com',
+        subject: 'Accountancy',
+        experience_years: 4,
+        current_role: 'Accountant',
+        summary: 'Four years keeping books for a textile firm.',
+      },
+    },
+    duplicate: { kind: 'none', ref_id: null, note: null },
+    proposal: {
+      action: 'file_under_job',
+      job_id: 'job-1',
+      job_title: 'Assistant Manager – Accounts',
+      institution_id: 'i1',
+      confidence: 'high',
+      reasons: ['CVViZ job title matches a learned rule', 'Resume shows an M.Com'],
+      rule_id: 'rule-1',
+      rule_author_name: 'Kavitha R',
+    },
+    decision: null,
+    applied: null,
+    ...over,
+  };
+}
+
+const ROW1 = makeRow({ id: 'r1', row_index: 1 });
+const ROW2 = makeRow({
+  id: 'r2',
+  row_index: 2,
+  candidate: { ...ROW1.candidate, first_name: 'Bala', phone_issue: null },
+  proposal: { ...ROW1.proposal, confidence: 'medium', rule_id: null, rule_author_name: null },
+  duplicate: { kind: 'same_file', ref_id: 'r1', note: null },
+});
+const ROW3 = makeRow({
+  id: 'r3',
+  row_index: 3,
+  candidate: { ...ROW1.candidate, first_name: 'Chitra' },
+});
+
+// ---------------------------------------------------------------------------
+// fetch mock
+// ---------------------------------------------------------------------------
+
+type Handler = (url: string, init?: RequestInit) => Response | Promise<Response>;
+let handler: Handler;
+const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) =>
+  Promise.resolve(handler(String(input), init)),
+);
+
+const json = (body: unknown, status = 200) =>
+  new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
+
+function callsTo(pathEnd: string, method = 'POST') {
+  return fetchMock.mock.calls.filter(
+    ([url, init]) => String(url).endsWith(pathEnd) && (init?.method ?? 'GET') === method,
+  );
+}
+
+function renderWithQuery(ui: ReactNode) {
+  const qc = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+  return render(<QueryClientProvider client={qc}>{ui}</QueryClientProvider>);
+}
+
+beforeEach(() => {
+  fetchMock.mockClear();
+  vi.stubGlobal('fetch', fetchMock);
+});
+
+afterEach(() => {
+  cleanup();
+  vi.unstubAllGlobals();
+});
+
+// ---------------------------------------------------------------------------
+
+describe('CandidateCard', () => {
+  it('shows the proposal, its reasons, the confidence and who taught the rule', () => {
+    render(
+      <CandidateCard row={ROW1} cardNumber={1} openJobs={JOBS} duplicateNote={null} onDecide={vi.fn()} />,
+    );
+    expect(screen.getByText('File under: Assistant Manager – Accounts, Arts & Science')).toBeTruthy();
+    expect(screen.getByText('High confidence')).toBeTruthy();
+    expect(screen.getByText('CVViZ job title matches a learned rule')).toBeTruthy();
+    expect(screen.getByText('Resume shows an M.Com')).toBeTruthy();
+    expect(screen.getByText('Learned from Kavitha R')).toBeTruthy();
+    expect(screen.getByText('Phone problem: Looks like a date (25/07/85)')).toBeTruthy();
+    expect(screen.getByText(/Resume found/)).toBeTruthy();
+    expect(screen.getByText('Four years keeping books for a textile firm.')).toBeTruthy();
+    const link = screen.getByRole('link', { name: /Open CVViZ profile/ });
+    expect(link.getAttribute('href')).toBe('https://app.cvviz.com/candidates/123');
+  });
+
+  it('drops a non-http profile link instead of rendering it', () => {
+    const row = makeRow({ id: 'x', row_index: 1 });
+    row.candidate.cvviz_profile_url = 'javascript:alert(1)';
+    render(<CandidateCard row={row} cardNumber={1} openJobs={JOBS} duplicateNote={null} onDecide={vi.fn()} />);
+    expect(screen.queryByRole('link', { name: /Open CVViZ profile/ })).toBeNull();
+    expect(screen.getByText('No CVViZ profile link')).toBeTruthy();
+  });
+
+  it('Accept sends the proposal exactly once, even on a double tap', async () => {
+    let release: () => void = () => {};
+    const onDecide = vi.fn(() => new Promise<void>((r) => (release = r)));
+    render(<CandidateCard row={ROW1} cardNumber={1} openJobs={JOBS} duplicateNote={null} onDecide={onDecide} />);
+    const accept = screen.getByRole('button', { name: 'Accept' });
+    fireEvent.click(accept);
+    fireEvent.click(accept);
+    expect(onDecide).toHaveBeenCalledTimes(1);
+    expect(onDecide).toHaveBeenCalledWith({ action: 'file_under_job', job_id: 'job-1' });
+    release();
+    await waitFor(() => expect((accept as HTMLButtonElement).disabled).toBe(false));
+  });
+});
+
+describe('BatchReview', () => {
+  function serve(rows: IntakeRow[], extra?: Handler) {
+    handler = (url, init) => {
+      const method = init?.method ?? 'GET';
+      if (method === 'GET' && url.endsWith('/op?op=batch&id=b1')) {
+        return json({ batch: BATCH, rows, open_jobs: JOBS });
+      }
+      const r = extra?.(url, init);
+      if (r) return r;
+      return json({ error: `unexpected ${method} ${url}` }, 500);
+    };
+  }
+
+  it('Accept on a card posts one decision for that row', async () => {
+    serve([ROW1, ROW2], (url, init) => {
+      if (url.endsWith('/op?op=row-decide&id=r1')) {
+        const body = JSON.parse(String(init?.body));
+        return json({
+          row: { ...ROW1, decision: { ...body, decided_by: 'u1', decided_by_name: 'Priya S', decided_at: '2026-10-01T00:00:00Z', corrected: false } },
+        });
+      }
+      return undefined as unknown as Response;
+    });
+    renderWithQuery(<BatchReview batchId="b1" />);
+    const card = await screen.findByRole('article', { name: /Candidate 1: Anitha K/ });
+    fireEvent.click(within(card).getByRole('button', { name: 'Accept' }));
+
+    await waitFor(() => expect(callsTo('/op?op=row-decide&id=r1')).toHaveLength(1));
+    expect(JSON.parse(String(callsTo('/op?op=row-decide&id=r1')[0][1]?.body))).toEqual({
+      action: 'file_under_job',
+      job_id: 'job-1',
+    });
+    expect(await within(card).findByText(/Decided by Priya S/)).toBeTruthy();
+  });
+
+  it('Change job says it will be remembered and credited, then posts the chosen job', async () => {
+    serve([ROW1], (url, init) => {
+      if (url.endsWith('/op?op=row-decide&id=r1')) {
+        const body = JSON.parse(String(init?.body));
+        return json({ row: { ...ROW1, decision: { ...body, decided_by: 'u1', decided_by_name: 'Priya S', decided_at: '2026-10-01T00:00:00Z', corrected: true } } });
+      }
+      return undefined as unknown as Response;
+    });
+    renderWithQuery(<BatchReview batchId="b1" />);
+    const card = await screen.findByRole('article', { name: /Candidate 1/ });
+    fireEvent.click(within(card).getByRole('button', { name: 'Change job' }));
+
+    expect(within(card).getByText(/This will be remembered for next time and credited to you/)).toBeTruthy();
+    expect(within(card).getByText(/Accounts Assistant/, { selector: 'p' })).toBeTruthy();
+
+    fireEvent.change(within(card).getByLabelText('Search open jobs'), { target: { value: 'warden' } });
+    expect(within(card).queryByRole('button', { name: /Assistant Manager/ })).toBeNull();
+    fireEvent.click(within(card).getByRole('button', { name: /Hostel Warden/ }));
+
+    await waitFor(() => expect(callsTo('/op?op=row-decide&id=r1')).toHaveLength(1));
+    expect(JSON.parse(String(callsTo('/op?op=row-decide&id=r1')[0][1]?.body))).toEqual({
+      action: 'file_under_job',
+      job_id: 'job-2',
+    });
+  });
+
+  it('there is no bulk accept: every card is decided by a person', async () => {
+    serve([ROW1, ROW2]);
+    renderWithQuery(<BatchReview batchId="b1" />);
+    await screen.findByRole('article', { name: /Candidate 1/ });
+    expect(screen.queryByRole('button', { name: /Accept all/i })).toBeNull();
+  });
+  it('filing reports every row on its own — one filed, one refused with its reason', async () => {
+    const decision = { action: 'file_under_job' as const, job_id: 'job-1', decided_by: 'u1', decided_by_name: 'Priya S', decided_at: '2026-10-01T00:00:00Z', corrected: false };
+    const a = { ...ROW1, decision };
+    const b = { ...ROW3, decision };
+    // ROW2 is undecided: it must not be sent.
+    serve([a, ROW2, b], (url) =>
+      url.endsWith('/op?op=batch-apply&id=b1')
+        ? json({
+            results: [
+              { row_id: 'r1', ok: true, application_id: 'app-1', error: null },
+              { row_id: 'r3', ok: false, application_id: null, error: 'This job closed yesterday' },
+            ],
+          })
+        : (undefined as unknown as Response),
+    );
+    renderWithQuery(<BatchReview batchId="b1" />);
+    fireEvent.click(await screen.findByRole('button', { name: 'File decided candidates into MyJKKN (2)' }));
+
+    const results = await screen.findByRole('region', { name: 'Filing results' });
+    expect(within(results).getByText(/Filed 1 of 2\./)).toBeTruthy();
+    expect(within(results).getByText(/Chitra K \(card 3\): This job closed yesterday/)).toBeTruthy();
+    expect(JSON.parse(String(callsTo('/op?op=batch-apply&id=b1')[0][1]?.body))).toEqual({ row_ids: ['r1', 'r3'] });
+  });
+
+  it('numbers a same-upload duplicate by its card', async () => {
+    serve([ROW1, ROW2]);
+    renderWithQuery(<BatchReview batchId="b1" />);
+    const card2 = await screen.findByRole('article', { name: /Candidate 2: Bala K/ });
+    expect(within(card2).getByText(/^Possibly the same person as card 1 in this upload/)).toBeTruthy();
+  });
+
+  it('a failed load is an error with the reason, never an empty upload', async () => {
+    handler = () => json({ error: 'The intake service is not ready' }, 503);
+    renderWithQuery(<BatchReview batchId="b1" />);
+    const alert = await screen.findByRole('alert');
+    expect(within(alert).getByText('The intake service is not ready')).toBeTruthy();
+    expect(screen.queryByText('This upload has no candidates')).toBeNull();
+  });
+});
+
+describe('error state is not the empty state', () => {
+  it('BatchList: a server error shows the reason and a retry, not "No uploads yet"', async () => {
+    handler = () => json({ error: 'Could not read uploads' }, 500);
+    renderWithQuery(<BatchList />);
+    const alert = await screen.findByRole('alert');
+    expect(within(alert).getByText('Could not read uploads')).toBeTruthy();
+    expect(within(alert).getByRole('button', { name: 'Try again' })).toBeTruthy();
+    expect(screen.queryByText('No uploads yet')).toBeNull();
+  });
+
+  it('BatchList: a real empty list says so, with no alert', async () => {
+    handler = () => json({ batches: [] });
+    renderWithQuery(<BatchList />);
+    expect(await screen.findByText('No uploads yet')).toBeTruthy();
+    expect(screen.queryByRole('alert')).toBeNull();
+  });
+
+  it('api client: a reply missing its list is an error, not an empty list', async () => {
+    handler = () => json({ batch: BATCH, open_jobs: [] });
+    await expect(getIntakeBatch('b1')).rejects.toThrow(/not in the shape this screen expects/);
+  });
+
+  it('api client: a non-JSON 404 (route not deployed yet) is a plain error', async () => {
+    handler = () => new Response('<html>Not Found</html>', { status: 404 });
+    await expect(getIntakeBatch('b1')).rejects.toThrow(/error 404/);
+  });
+});
+
+describe('RulesList', () => {
+  it('shows who taught each rule and deletes only after the in-page confirm', async () => {
+    handler = (url, init) => {
+      if ((init?.method ?? 'GET') === 'DELETE') return json({ ok: true });
+      return json({
+        rules: [
+          {
+            id: 'rule-1',
+            cvviz_job_title_norm: 'accounts assistant',
+            job_id: 'job-1',
+            job_title: 'Assistant Manager – Accounts',
+            created_by: 'u2',
+            created_by_name: 'Kavitha R',
+            created_at: '2026-09-01T00:00:00Z',
+            times_used: 7,
+          },
+        ],
+      });
+    };
+    renderWithQuery(<RulesList />);
+    expect(await screen.findByText(/Learned from Kavitha R/)).toBeTruthy();
+    expect(screen.getByText(/used 7 times/)).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: /Delete rule/ }));
+    expect(callsTo('/op?op=rule&id=rule-1', 'DELETE')).toHaveLength(0);
+    fireEvent.click(screen.getByRole('button', { name: 'Yes, delete' }));
+    await waitFor(() => expect(callsTo('/op?op=rule&id=rule-1', 'DELETE')).toHaveLength(1));
+  });
+});
+
+describe('Discard an upload (review fix M5)', () => {
+  it('asks in the page first, then deletes the batch and goes back to the list', async () => {
+    nav.push.mockClear();
+    handler = (url, init) => {
+      const method = init?.method ?? 'GET';
+      if (method === 'GET' && url.endsWith('/op?op=batch&id=b1')) return json({ batch: BATCH, rows: [ROW1], open_jobs: JOBS });
+      if (method === 'DELETE' && url.endsWith('/op?op=batch&id=b1')) return json({ ok: true, removed_files: 1 });
+      return json({ error: `unexpected ${method} ${url}` }, 500);
+    };
+    renderWithQuery(<BatchReview batchId="b1" />);
+    fireEvent.click(await screen.findByRole('button', { name: /Discard this upload/ }));
+    expect(callsTo('/op?op=batch&id=b1', 'DELETE')).toHaveLength(0);
+    const group = screen.getByRole('group', { name: 'Confirm discard' });
+    fireEvent.click(within(group).getByRole('button', { name: 'Keep it' }));
+    expect(screen.queryByRole('group', { name: 'Confirm discard' })).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: /Discard this upload/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Yes, discard' }));
+    await waitFor(() => expect(callsTo('/op?op=batch&id=b1', 'DELETE')).toHaveLength(1));
+    await waitFor(() => expect(nav.push).toHaveBeenCalledWith('/hr/recruitment/intake'));
+  });
+});
+
+describe('Upload form: a college picker only when the server asks for one (review fix B1)', () => {
+  const exportFile = () => new File(['First Name,Email Address\nA,a@x.test'], 'cvviz.csv', { type: 'text/csv' });
+
+  it('shows no picker at first; after "choose a college" it lists the choices and sends the chosen one', async () => {
+    const posted: FormData[] = [];
+    handler = (url, init) => {
+      if (url.endsWith('/batches') && init?.method === 'POST') {
+        const form = init.body as FormData;
+        posted.push(form);
+        if (!form.get('institution_id')) {
+          return json({ error: 'Your profile has no college, so choose which college this upload is for.', needs_institution: true, institutions: [{ id: 'c2', name: 'Engineering Demo College' }] }, 400);
+        }
+        return json({ batch: { ...BATCH, id: 'b9', status: 'preparing' } }, 201);
+      }
+      if (url.endsWith('/op?op=batch-prepare&id=b9')) return json({ batch: { ...BATCH, id: 'b9' }, rows: [] });
+      // The list says one home college; the server then asks anyway (e.g. the home college was removed).
+      if (url.endsWith('/institutions')) return json({ institutions: [{ id: 'c1', name: 'Arts Demo College' }], home_institution_id: 'c1' });
+      return json({ error: `unexpected ${url}` }, 500);
+    };
+    nav.push.mockClear();
+    renderWithQuery(<IntakeUploadForm />);
+    await waitFor(() =>
+      expect((screen.getByRole('button', { name: 'Upload and review' }) as HTMLButtonElement).disabled).toBe(false),
+    );
+    expect(screen.queryByLabelText(/Which college is this upload for/)).toBeNull();
+
+    fireEvent.change(screen.getByLabelText(/The CVViZ export/), { target: { files: [exportFile()] } });
+    fireEvent.click(screen.getByRole('button', { name: 'Upload and review' }));
+    const picker = await screen.findByLabelText(/Which college is this upload for/);
+    expect(within(picker).getByRole('option', { name: 'Engineering Demo College' })).toBeTruthy();
+
+    // Submitting again without choosing says so, and sends nothing.
+    fireEvent.click(screen.getByRole('button', { name: 'Upload and review' }));
+    expect(await screen.findByText('Choose which college this upload is for.')).toBeTruthy();
+    expect(posted).toHaveLength(1);
+
+    fireEvent.change(picker, { target: { value: 'c2' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Upload and review' }));
+    await waitFor(() => expect(nav.push).toHaveBeenCalledWith('/hr/recruitment/intake/batch?batchId=b9'));
+    expect(posted[1].get('institution_id')).toBe('c2');
+  });
+});
+
+describe('A closed or still-preparing upload shows no live card buttons (follow-up 5)', () => {
+  for (const status of ['closed', 'preparing'] as const) {
+    it(`${status}: no decision buttons, filing is off, and the page says why`, async () => {
+      handler = (url, init) => {
+        const method = init?.method ?? 'GET';
+        if (method === 'GET' && url.endsWith('/op?op=batch&id=b1')) {
+          return json({ batch: { ...BATCH, status }, rows: [ROW1, ROW3], open_jobs: JOBS });
+        }
+        return json({ error: `unexpected ${method} ${url}` }, 500);
+      };
+      renderWithQuery(<BatchReview batchId="b1" />);
+      const card = await screen.findByRole('article', { name: /Candidate 1: Anitha K/ });
+      for (const name of ['Accept', 'Change job', 'Needs a new job', 'Skip']) {
+        expect(within(card).queryByRole('button', { name })).toBeNull();
+      }
+      expect(
+        within(card).getByText(status === 'closed' ? /This upload is closed/ : /still reading this upload/),
+      ).toBeTruthy();
+      const fileButton = screen.getByRole('button', { name: /File decided candidates/ }) as HTMLButtonElement;
+      expect(fileButton.disabled).toBe(true);
+    });
+  }
+
+  it('ready: the buttons are there', async () => {
+    handler = (url, init) => {
+      if ((init?.method ?? 'GET') === 'GET' && url.endsWith('/op?op=batch&id=b1')) return json({ batch: BATCH, rows: [ROW1], open_jobs: JOBS });
+      return json({ error: 'unexpected' }, 500);
+    };
+    renderWithQuery(<BatchReview batchId="b1" />);
+    const card = await screen.findByRole('article', { name: /Candidate 1: Anitha K/ });
+    expect(within(card).getByRole('button', { name: 'Accept' })).toBeTruthy();
+  });
+});
+
+describe('The upload form takes every export type the server reads (follow-up 6)', () => {
+  it('.xls and .txt exports pass the form check, and the picker offers them', () => {
+    expect(checkIntakeFiles(new File(['x'], 'cvviz.xls'), [])).toBeNull();
+    expect(checkIntakeFiles(new File(['x'], 'cvviz.txt'), [])).toBeNull();
+    expect(checkIntakeFiles(new File(['x'], 'cvviz.pdf'), [])).toMatch(/must be/);
+    renderWithQuery(<IntakeUploadForm />);
+    const accept = (screen.getByLabelText(/The CVViZ export/) as HTMLInputElement).accept.split(',');
+    expect(accept).toEqual(expect.arrayContaining(['.csv', '.tsv', '.txt', '.xlsx', '.xls']));
+  });
+});
+
+describe('Upload form: any college this person can reach (Director ruling, 1 Oct)', () => {
+  const exportFile = () => new File(['First Name,Email Address\nA,a@x.test'], 'cvviz.csv', { type: 'text/csv' });
+  function serveColleges(colleges: { id: string; name: string }[], home: string | null, posted: FormData[]) {
+    handler = (url, init) => {
+      const method = init?.method ?? 'GET';
+      if (method === 'GET' && url.endsWith('/institutions')) return json({ institutions: colleges, home_institution_id: home });
+      if (method === 'POST' && url.endsWith('/batches')) {
+        posted.push(init?.body as FormData);
+        return json({ batch: { ...BATCH, id: 'b9', status: 'preparing' } }, 201);
+      }
+      if (url.endsWith('/op?op=batch-prepare&id=b9')) return json({ batch: { ...BATCH, id: 'b9' }, rows: [] });
+      return json({ error: `unexpected ${method} ${url}` }, 500);
+    };
+  }
+
+  it('lists every college they can reach, starts on their home college, and sends the one chosen', async () => {
+    const posted: FormData[] = [];
+    serveColleges([{ id: 'c1', name: 'Arts Demo College' }, { id: 'c2', name: 'Engineering Demo College' }], 'c1', posted);
+    nav.push.mockClear();
+    renderWithQuery(<IntakeUploadForm />);
+    const picker = (await screen.findByLabelText(/Which college is this upload for/)) as HTMLSelectElement;
+    expect(picker.value).toBe('c1');
+    expect(within(picker).getByRole('option', { name: 'Engineering Demo College' })).toBeTruthy();
+
+    fireEvent.change(screen.getByLabelText(/The CVViZ export/), { target: { files: [exportFile()] } });
+    fireEvent.change(picker, { target: { value: 'c2' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Upload and review' }));
+    await waitFor(() => expect(nav.push).toHaveBeenCalledWith('/hr/recruitment/intake/batch?batchId=b9'));
+    expect(posted[0].get('institution_id')).toBe('c2');
+  });
+
+  it('only their home college: no picker, and the server uses the home college', async () => {
+    const posted: FormData[] = [];
+    serveColleges([{ id: 'c1', name: 'Arts Demo College' }], 'c1', posted);
+    nav.push.mockClear();
+    renderWithQuery(<IntakeUploadForm />);
+    await waitFor(() => expect(callsTo('/institutions', 'GET')).toHaveLength(1));
+    await waitFor(() =>
+      expect((screen.getByRole('button', { name: 'Upload and review' }) as HTMLButtonElement).disabled).toBe(false),
+    );
+    expect(screen.queryByLabelText(/Which college is this upload for/)).toBeNull();
+    fireEvent.change(screen.getByLabelText(/The CVViZ export/), { target: { files: [exportFile()] } });
+    fireEvent.click(screen.getByRole('button', { name: 'Upload and review' }));
+    await waitFor(() => expect(nav.push).toHaveBeenCalledWith('/hr/recruitment/intake/batch?batchId=b9'));
+    expect(posted[0].get('institution_id')).toBeNull();
+  });
+});
+
+describe('Upload form: the college list must load before anything is sent (round 3)', () => {
+  const exportFile = () => new File(['First Name,Email Address\nA,a@x.test'], 'cvviz.csv', { type: 'text/csv' });
+  const submitButton = () => screen.getByRole('button', { name: /Upload and review|Loading your colleges/ }) as HTMLButtonElement;
+
+  it('while the list loads, the upload button is off', async () => {
+    handler = (url) => (url.endsWith('/institutions') ? new Promise<Response>(() => undefined) : json({ error: 'unexpected' }, 500));
+    renderWithQuery(<IntakeUploadForm />);
+    await waitFor(() => expect(callsTo('/institutions', 'GET')).toHaveLength(1));
+    fireEvent.change(screen.getByLabelText(/The CVViZ export/), { target: { files: [exportFile()] } });
+    expect(submitButton().disabled).toBe(true);
+    fireEvent.click(submitButton());
+    expect(callsTo('/batches')).toHaveLength(0);
+  });
+
+  it('when the list fails, it says so plainly and sends nothing (never a silent home-college upload)', async () => {
+    handler = (url) => (url.endsWith('/institutions') ? json({ error: 'Could not read the colleges' }, 500) : json({ error: 'unexpected' }, 500));
+    renderWithQuery(<IntakeUploadForm />);
+    expect(await screen.findByText(/Could not load the colleges you can upload for/)).toBeTruthy();
+    fireEvent.change(screen.getByLabelText(/The CVViZ export/), { target: { files: [exportFile()] } });
+    expect(submitButton().disabled).toBe(true);
+    fireEvent.click(submitButton());
+    expect(callsTo('/batches')).toHaveLength(0);
+  });
+
+  it('after a refusal for the college picked, the picker goes back to the home college', async () => {
+    handler = (url, init) => {
+      const method = init?.method ?? 'GET';
+      if (method === 'GET' && url.endsWith('/institutions')) {
+        return json({ institutions: [{ id: 'c1', name: 'Arts Demo College' }, { id: 'c2', name: 'Engineering Demo College' }], home_institution_id: 'c1' });
+      }
+      if (method === 'POST' && url.endsWith('/batches')) {
+        return json({
+          error: 'You cannot add candidates for that college. Choose one of the colleges you work with.',
+          needs_institution: true,
+          institutions: [{ id: 'c1', name: 'Arts Demo College' }],
+        }, 403);
+      }
+      return json({ error: `unexpected ${method} ${url}` }, 500);
+    };
+    renderWithQuery(<IntakeUploadForm />);
+    const picker = (await screen.findByLabelText(/Which college is this upload for/)) as HTMLSelectElement;
+    fireEvent.change(screen.getByLabelText(/The CVViZ export/), { target: { files: [exportFile()] } });
+    fireEvent.change(picker, { target: { value: 'c2' } });
+    expect(picker.value).toBe('c2');
+    fireEvent.click(screen.getByRole('button', { name: 'Upload and review' }));
+    expect(await screen.findByText(/You cannot add candidates for that college/)).toBeTruthy();
+    await waitFor(() => expect((screen.getByLabelText(/Which college is this upload for/) as HTMLSelectElement).value).toBe('c1'));
+  });
+});

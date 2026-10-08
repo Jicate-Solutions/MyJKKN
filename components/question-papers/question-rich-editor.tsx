@@ -1,315 +1,301 @@
-'use client';
+'use client'
+// Copied from COE b34e527 (+ uncommitted working tree), 2026-10-05 — source: components/ia/question-rich-editor.tsx
+// Sync list: docs spec "QP entry methods parity" §10. Diff against COE before changing.
+//
+// MyJKKN deltas from the COE file (keep when resyncing):
+//   1. TextAlign stays loaded, with its three buttons — MyJKKN papers already
+//      carry `style="text-align:…"` (COE's sanitizer keeps that property), and
+//      dropping the extension would strip it on the next save.
+//   2. setEditable(…, false) — the default emits an 'update', which reported
+//      every question as edited the moment a paper opened ("Unsaved" on a
+//      read-only paper). MyJKKN saves explicitly, so a phantom edit is visible.
+//   3. shouldRerenderOnTransaction — v3 stopped re-rendering per transaction, so
+//      the toolbar's active / in-table states went stale on a caret move.
 
-import 'katex/dist/katex.min.css';
-import { useEditor, EditorContent, type Editor } from '@tiptap/react';
-import StarterKit from '@tiptap/starter-kit';
-import Underline from '@tiptap/extension-underline';
-import Subscript from '@tiptap/extension-subscript';
-import Superscript from '@tiptap/extension-superscript';
-import Table from '@tiptap/extension-table';
-import TableRow from '@tiptap/extension-table-row';
-import TableHeader from '@tiptap/extension-table-header';
-import TableCell from '@tiptap/extension-table-cell';
-import TextAlign from '@tiptap/extension-text-align';
-import TextStyle from '@tiptap/extension-text-style';
-import FontFamily from '@tiptap/extension-font-family';
-import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
+// Rich question editor: typeable box (bold/italic/underline, sub/superscript,
+// inline math via KaTeX, tables) that emits sanitized HTML. The Tamil font is a
+// paper-level default (set once in the paper header), not a per-question choice.
+// Shares the storage contract with the PDF renderer (math = <span data-latex="…">;
+// Tamil = style="font-family:…").
+
+import { memo, useEffect, useRef, useState, useCallback } from 'react'
+import { useEditor, EditorContent } from '@tiptap/react'
+import StarterKit from '@tiptap/starter-kit'
+import { Subscript } from '@tiptap/extension-subscript'
+import { Superscript } from '@tiptap/extension-superscript'
+import { TableKit } from '@tiptap/extension-table'
+import { Placeholder } from '@tiptap/extension-placeholder'
+import { TextStyle, FontFamily } from '@tiptap/extension-text-style'
+import { TextAlign } from '@tiptap/extension-text-align'
+import { cn } from '@/lib/utils'
+import { Button } from '@/components/ui/button'
 import {
-  Bold, Italic, Underline as UnderlineIcon, Subscript as SubIcon, Superscript as SupIcon,
-  Sigma, Table as TableIcon, Rows3, Columns3, Trash2, Grid2x2Plus, Grid2x2X,
-  AlignLeft, AlignCenter, AlignRight,
-} from 'lucide-react';
-import { cn } from '@/lib/utils';
-import { Button } from '@/components/ui/button';
-import { MathInline } from './math-node';
-import { EquationEditorDialog } from './equation-editor-dialog';
+	Bold, Italic, Underline as UnderlineIcon, Subscript as SubIcon, Superscript as SupIcon,
+	Sigma, Table as TableIcon, Rows3, Columns3, Trash2, AlignLeft, AlignCenter, AlignRight,
+} from 'lucide-react'
+import { MathInline } from './math-node'
+import { EquationEditorDialog } from './equation-editor-dialog'
 
 interface Props {
-  value: string;
-  onChange: (html: string) => void;
-  onBlur?: () => void;
-  disabled?: boolean;
-  placeholder?: string;
-  className?: string;
-  /**
-   * Paper-wide default language/font, chosen once in the paper header. Applied as
-   * the editor body's base font so every question renders in it live — there is
-   * NO per-question font picker. Font marks stored on older papers still render
-   * (the FontFamily extension stays loaded) and override this, which keeps the
-   * on-screen look in step with the PDF: the renderer reads the same column.
-   */
-  defaultFontFamily?: string | null;
-  /**
-   * 'compact' is the MCQ-option flavour: the same authoring contract as a
-   * question (bold/italic/underline, sub/superscript, inline equations) minus the
-   * table and alignment tools, on a single-line-height box.
-   */
-  variant?: 'full' | 'compact';
+	value: string
+	onChange: (html: string) => void
+	onBlur?: () => void
+	disabled?: boolean
+	placeholder?: string
+	className?: string
+	/**
+	 * Paper-wide default language/font, chosen once in the paper header. Applied
+	 * as the editor body's base font so every question renders in it live —
+	 * there is no per-question font picker. Font marks stored on older papers
+	 * still render (the FontFamily extension stays loaded) and keep the
+	 * on-screen look in step with the PDF, which reads the same paper default.
+	 */
+	defaultFontFamily?: string | null
+	/**
+	 * 'compact' is the MCQ-option flavour: same authoring contract as a question
+	 * (bold/italic/underline, sub/superscript, inline equations) minus the table
+	 * tools, on a single-line-height box.
+	 */
+	variant?: 'full' | 'compact'
+}
+
+// Empty-document HTML Tiptap emits — normalise to '' so an untouched question stays blank.
+const EMPTY_HTML = new Set(['', '<p></p>', '<p><br></p>'])
+
+/**
+ * One toolbar button. Defined at module level on purpose: an inner component
+ * gets a new identity on every render, which made React unmount and remount
+ * every toolbar button of every editor on the page each time anything on the
+ * paper changed.
+ */
+function Btn({
+	on, active, disabled: d, title, children,
+}: {
+	on: () => void; active?: boolean; disabled?: boolean; title: string; children: React.ReactNode
+}) {
+	return (
+		<Button
+			type="button"
+			variant={active ? 'secondary' : 'ghost'}
+			size="icon"
+			className="h-7 w-7"
+			title={title}
+			disabled={d}
+			onMouseDown={e => e.preventDefault()}
+			onClick={on}
+		>
+			{children}
+		</Button>
+	)
+}
+
+function QuestionRichEditorImpl({ value, onChange, onBlur, disabled, placeholder, className, defaultFontFamily, variant = 'full' }: Props) {
+	const [eqOpen, setEqOpen] = useState(false)
+	const [eqInitial, setEqInitial] = useState('')
+	const compact = variant === 'compact'
+
+	// The editor is created once; its handlers read the latest callbacks here.
+	const onChangeRef = useRef(onChange)
+	onChangeRef.current = onChange
+	const onBlurRef = useRef(onBlur)
+	onBlurRef.current = onBlur
+
+	const editor = useEditor({
+		editable: !disabled,
+		immediatelyRender: false,
+		shouldRerenderOnTransaction: true,
+		extensions: [
+			// Underline is NOT listed: StarterKit v3 already bundles it, and adding
+			// it again makes Tiptap warn "Duplicate extension names found:
+			// ['underline']" on every editor instance — dozens per paper. The
+			// toolbar's toggleUnderline is StarterKit's, and behaves identically.
+			StarterKit,
+			Subscript,
+			Superscript,
+			TextStyle,
+			FontFamily,
+			TextAlign.configure({ types: ['paragraph'], alignments: ['left', 'center', 'right'] }),
+			TableKit.configure({ table: { resizable: false } }),
+			MathInline,
+			Placeholder.configure({ placeholder: placeholder || 'Enter the question…' }),
+		],
+		content: value || '',
+		editorProps: {
+			attributes: {
+				class: cn(
+					'prose prose-sm max-w-none focus:outline-none qp-rich-editor-body',
+					compact ? 'min-h-[34px] px-2 py-1' : 'min-h-[70px] px-3 py-2'
+				),
+			},
+		},
+		onUpdate: ({ editor }) => {
+			const html = editor.getHTML()
+			onChangeRef.current(EMPTY_HTML.has(html) ? '' : html)
+		},
+		onBlur: () => onBlurRef.current?.(),
+	})
+
+	// Keep the editor in step with external value changes (server reloads, rebuild)
+	// WITHOUT re-emitting onUpdate (v3 signature: { emitUpdate: false }).
+	useEffect(() => {
+		if (!editor) return
+		const current = editor.getHTML()
+		const incoming = value || ''
+		const norm = (h: string) => (EMPTY_HTML.has(h) ? '' : h)
+		if (norm(current) !== norm(incoming)) {
+			editor.commands.setContent(incoming, { emitUpdate: false })
+		}
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [value, editor])
+
+	useEffect(() => {
+		if (editor && editor.isEditable === !!disabled) editor.setEditable(!disabled, false)
+	}, [disabled, editor])
+
+	// Open the equation dialog — pre-filled when the caret is on an existing formula.
+	const openEquation = useCallback(() => {
+		if (!editor) return
+		const attrs = editor.getAttributes('mathInline')
+		setEqInitial(editor.isActive('mathInline') ? attrs.latex || '' : '')
+		setEqOpen(true)
+	}, [editor])
+
+	/**
+	 * Double-click a formula to edit it — the Word gesture. The formula is
+	 * selected first, so the dialog's result replaces THAT formula.
+	 */
+	const onFormulaDoubleClick = (e: React.MouseEvent<HTMLDivElement>) => {
+		if (!editor || disabled) return
+		const el = (e.target as HTMLElement | null)?.closest?.('.qp-math') as HTMLElement | null
+		if (!el) return
+		e.preventDefault()
+		try {
+			editor.commands.setNodeSelection(editor.view.posAtDOM(el, 0))
+		} catch {
+			/* fall back to whatever the click itself selected */
+		}
+		setEqInitial(el.getAttribute('data-latex') || '')
+		setEqOpen(true)
+	}
+
+	const onEquationInsert = (latex: string) => {
+		if (!editor) return
+		if (editor.isActive('mathInline')) editor.chain().focus().updateMath(latex).run()
+		else editor.chain().focus().insertMath(latex).run()
+	}
+
+	if (!editor) return null
+
+	const inTable = editor.isActive('table')
+
+	return (
+		<div className={cn('rounded-md border bg-background qp-rich-editor-root', className)}>
+			{!disabled && (
+				<div className="flex flex-wrap items-center gap-0.5 border-b px-1 py-1">
+					<Btn title="Bold" active={editor.isActive('bold')} on={() => editor.chain().focus().toggleBold().run()}>
+						<Bold className="h-4 w-4" />
+					</Btn>
+					<Btn title="Italic" active={editor.isActive('italic')} on={() => editor.chain().focus().toggleItalic().run()}>
+						<Italic className="h-4 w-4" />
+					</Btn>
+					<Btn title="Underline" active={editor.isActive('underline')} on={() => editor.chain().focus().toggleUnderline().run()}>
+						<UnderlineIcon className="h-4 w-4" />
+					</Btn>
+					<Btn title="Subscript" active={editor.isActive('subscript')} on={() => editor.chain().focus().toggleSubscript().run()}>
+						<SubIcon className="h-4 w-4" />
+					</Btn>
+					<Btn title="Superscript" active={editor.isActive('superscript')} on={() => editor.chain().focus().toggleSuperscript().run()}>
+						<SupIcon className="h-4 w-4" />
+					</Btn>
+					<span className="mx-1 h-5 w-px bg-border" />
+					<Button
+						type="button"
+						variant="ghost"
+						size="sm"
+						className="h-7 gap-1 px-2 text-xs"
+						title="Insert / edit equation"
+						onMouseDown={e => e.preventDefault()}
+						onClick={openEquation}
+					>
+						<Sigma className="h-4 w-4" /> Equation
+					</Button>
+					{!compact && (
+						<>
+							<span className="mx-1 h-5 w-px bg-border" />
+							<Btn title="Align left" active={editor.isActive({ textAlign: 'left' })} on={() => editor.chain().focus().setTextAlign('left').run()}>
+								<AlignLeft className="h-4 w-4" />
+							</Btn>
+							<Btn title="Align center" active={editor.isActive({ textAlign: 'center' })} on={() => editor.chain().focus().setTextAlign('center').run()}>
+								<AlignCenter className="h-4 w-4" />
+							</Btn>
+							<Btn title="Align right" active={editor.isActive({ textAlign: 'right' })} on={() => editor.chain().focus().setTextAlign('right').run()}>
+								<AlignRight className="h-4 w-4" />
+							</Btn>
+							<span className="mx-1 h-5 w-px bg-border" />
+							<Btn
+								title="Insert 2×2 table"
+								on={() => editor.chain().focus().insertTable({ rows: 2, cols: 2, withHeaderRow: false }).run()}
+							>
+								<TableIcon className="h-4 w-4" />
+							</Btn>
+							<Btn title="Add row" disabled={!inTable} on={() => editor.chain().focus().addRowAfter().run()}>
+								<Rows3 className="h-4 w-4" />
+							</Btn>
+							<Btn title="Add column" disabled={!inTable} on={() => editor.chain().focus().addColumnAfter().run()}>
+								<Columns3 className="h-4 w-4" />
+							</Btn>
+							<Btn title="Delete row" disabled={!inTable} on={() => editor.chain().focus().deleteRow().run()}>
+								<Rows3 className="h-4 w-4 text-destructive" />
+							</Btn>
+							<Btn title="Delete column" disabled={!inTable} on={() => editor.chain().focus().deleteColumn().run()}>
+								<Columns3 className="h-4 w-4 text-destructive" />
+							</Btn>
+							<Btn title="Delete table" disabled={!inTable} on={() => editor.chain().focus().deleteTable().run()}>
+								<Trash2 className="h-4 w-4 text-destructive" />
+							</Btn>
+						</>
+					)}
+				</div>
+			)}
+
+			{/* Paper default cascades onto the content via --qp-editor-font; font
+			    marks saved on older papers (inline spans) still override it. */}
+			<div
+				style={
+					defaultFontFamily
+						? ({ ['--qp-editor-font']: `'${defaultFontFamily}'` } as React.CSSProperties)
+						: undefined
+				}
+			>
+				<EditorContent editor={editor} className="qp-rich-editor" onDoubleClick={onFormulaDoubleClick} />
+			</div>
+
+			<EquationEditorDialog
+				open={eqOpen}
+				onOpenChange={setEqOpen}
+				initialLatex={eqInitial}
+				onInsert={onEquationInsert}
+			/>
+		</div>
+	)
 }
 
 /**
- * The empty-document HTML TipTap emits. Normalising all three to '' matters: the
- * completion validator tests for visible text, so an untouched question must
- * stay GENUINELY empty rather than holding a stray '<p></p>'.
+ * A paper carries dozens of these boxes, and every edit anywhere on it — a
+ * keystroke, a CO pick — re-renders the whole paper. Each box therefore
+ * re-renders only when what it SHOWS changes; a new identity for onChange /
+ * onBlur alone is not a reason (the handlers are read through refs, and every
+ * caller's handler is keyed by ids, never by a captured question object).
  */
-const EMPTY_HTML = new Set(['', '<p></p>', '<p><br></p>']);
+export const QuestionRichEditor = memo(
+	QuestionRichEditorImpl,
+	(a, b) =>
+		a.value === b.value &&
+		a.disabled === b.disabled &&
+		a.placeholder === b.placeholder &&
+		a.className === b.className &&
+		a.defaultFontFamily === b.defaultFontFamily &&
+		a.variant === b.variant
+)
 
-function normalizeHtml(html: string): string {
-  return EMPTY_HTML.has(html) ? '' : html;
-}
-
-function TB({
-  onClick, active, disabled, icon: Icon, label,
-}: {
-  onClick: () => void;
-  active?: boolean;
-  disabled?: boolean;
-  icon: any;
-  label: string;
-}) {
-  return (
-    <Button
-      type='button'
-      variant='ghost'
-      size='sm'
-      title={label}
-      aria-label={label}
-      disabled={disabled}
-      onMouseDown={(e) => e.preventDefault()} // keep the editor selection
-      onClick={onClick}
-      className={cn('h-7 w-7 p-0', active && 'bg-muted text-foreground')}
-    >
-      <Icon className='h-3.5 w-3.5' />
-    </Button>
-  );
-}
-
-function Toolbar({
-  editor,
-  onOpenEquation,
-  compact,
-}: {
-  editor: Editor;
-  onOpenEquation: () => void;
-  compact?: boolean;
-}) {
-  const inTable = editor.isActive('table');
-  return (
-    <div className='flex items-center gap-0.5 flex-wrap border-b bg-muted/30 px-1.5 py-1'>
-      <TB icon={Bold} label='Bold' active={editor.isActive('bold')}
-        onClick={() => editor.chain().focus().toggleBold().run()} />
-      <TB icon={Italic} label='Italic' active={editor.isActive('italic')}
-        onClick={() => editor.chain().focus().toggleItalic().run()} />
-      <TB icon={UnderlineIcon} label='Underline' active={editor.isActive('underline')}
-        onClick={() => editor.chain().focus().toggleUnderline().run()} />
-      <TB icon={SubIcon} label='Subscript' active={editor.isActive('subscript')}
-        onClick={() => editor.chain().focus().toggleSubscript().run()} />
-      <TB icon={SupIcon} label='Superscript' active={editor.isActive('superscript')}
-        onClick={() => editor.chain().focus().toggleSuperscript().run()} />
-
-      <div className='w-px h-5 bg-border mx-1' />
-
-      {/* Equation editor — the Word-style formula palette. */}
-      <Button
-        type='button' variant='ghost' size='sm'
-        title='Insert / edit equation' aria-label='Insert equation'
-        onMouseDown={(e) => e.preventDefault()}
-        onClick={onOpenEquation}
-        className={cn('h-7 px-2 gap-1 text-xs', editor.isActive('mathInline') && 'bg-muted text-foreground')}
-      >
-        <Sigma className='h-3.5 w-3.5' /> Equation
-      </Button>
-
-      {/* An MCQ option is one line of an answer list — alignment and tables would
-          only produce output the paper cannot use, so the compact variant stops here. */}
-      {!compact && (
-        <>
-          <div className='w-px h-5 bg-border mx-1' />
-
-          {/* Alignment — position the line (and any equation on it) left / center / right */}
-          <TB icon={AlignLeft} label='Align left' active={editor.isActive({ textAlign: 'left' })}
-            onClick={() => editor.chain().focus().setTextAlign('left').run()} />
-          <TB icon={AlignCenter} label='Align center' active={editor.isActive({ textAlign: 'center' })}
-            onClick={() => editor.chain().focus().setTextAlign('center').run()} />
-          <TB icon={AlignRight} label='Align right' active={editor.isActive({ textAlign: 'right' })}
-            onClick={() => editor.chain().focus().setTextAlign('right').run()} />
-
-          <div className='w-px h-5 bg-border mx-1' />
-
-          {/* Table controls */}
-          <TB icon={TableIcon} label='Insert table (2×2)'
-            onClick={() => editor.chain().focus().insertTable({ rows: 2, cols: 2, withHeaderRow: true }).run()} />
-          {inTable && (
-            <>
-              <TB icon={Columns3} label='Add column' onClick={() => editor.chain().focus().addColumnAfter().run()} />
-              <TB icon={Rows3} label='Add row' onClick={() => editor.chain().focus().addRowAfter().run()} />
-              <TB icon={Grid2x2X} label='Delete column' onClick={() => editor.chain().focus().deleteColumn().run()} />
-              <TB icon={Grid2x2Plus} label='Delete row' onClick={() => editor.chain().focus().deleteRow().run()} />
-              <TB icon={Trash2} label='Delete table' onClick={() => editor.chain().focus().deleteTable().run()} />
-            </>
-          )}
-        </>
-      )}
-    </div>
-  );
-}
-
-export function QuestionRichEditor({
-  value, onChange, onBlur, disabled = false, placeholder = 'Enter the question…', className,
-  defaultFontFamily, variant = 'full',
-}: Props) {
-  const compact = variant === 'compact';
-  const [eqOpen, setEqOpen] = useState(false);
-  // LaTeX pre-fill when the caret is on an existing formula (edit vs insert).
-  const [eqInitial, setEqInitial] = useState('');
-  // Whether the dialog was opened on an existing formula (update) vs a new one (insert).
-  const eqEditingRef = useRef(false);
-  // The editor selection captured the instant the dialog opened. The Radix modal
-  // traps focus and blurs the editor, so we must restore this range before inserting
-  // — otherwise the formula lands at a stale position (or nowhere).
-  const eqSelectionRef = useRef<{ from: number; to: number } | null>(null);
-  // Track the last HTML we emitted so controlled value echoes don't clobber typing.
-  const lastEmittedRef = useRef(value);
-
-  const extensions = useMemo(
-    () => [
-      StarterKit.configure({ heading: false, codeBlock: false, code: false, blockquote: false }),
-      Underline,
-      Subscript,
-      Superscript,
-      Table.configure({ resizable: false }),
-      TableRow,
-      TableHeader,
-      TableCell,
-      MathInline,
-      // TextStyle carries the font mark FontFamily sets. Neither is exposed as a
-      // toolbar control — the font is a PAPER-level choice — but they must stay
-      // loaded so inline font marks saved on older papers still render here
-      // exactly as the PDF prints them.
-      TextStyle,
-      FontFamily,
-      // Left / center / right alignment for question lines (incl. any inline
-      // equation on that line). Emits `style="text-align:…"`, which the COE PDF
-      // sanitizer preserves for that one property. Paragraphs only — headings are off.
-      TextAlign.configure({ types: ['paragraph'], alignments: ['left', 'center', 'right'] }),
-    ],
-    []
-  );
-
-  const editor = useEditor({
-    immediatelyRender: false,
-    extensions,
-    content: value || '',
-    editable: !disabled,
-    onUpdate: ({ editor }) => {
-      const html = normalizeHtml(editor.getHTML());
-      lastEmittedRef.current = html;
-      onChange(html);
-    },
-    onBlur: () => onBlur?.(),
-    editorProps: {
-      attributes: {
-        class: cn(
-          'prose prose-sm max-w-none focus:outline-none',
-          compact ? 'min-h-[34px] px-2 py-1' : 'min-h-[70px] px-3 py-2',
-          'prose-p:my-1',
-          // Tables — visible grid inside the editor
-          '[&_table]:border-collapse [&_table]:w-full [&_table]:my-2',
-          '[&_td]:border [&_td]:border-border [&_td]:px-2 [&_td]:py-1 [&_td]:align-top',
-          '[&_th]:border [&_th]:border-border [&_th]:px-2 [&_th]:py-1 [&_th]:bg-muted/50 [&_th]:font-semibold',
-          // Selected formula highlight
-          '[&_.qp-math.ProseMirror-selectednode]:outline [&_.qp-math.ProseMirror-selectednode]:outline-2 [&_.qp-math.ProseMirror-selectednode]:outline-primary/60',
-          '[&_.qp-math]:cursor-pointer [&_.qp-math]:rounded [&_.qp-math]:px-0.5'
-        ),
-        'data-placeholder': placeholder,
-      },
-    },
-  });
-
-  // Keep the editor in sync with external value changes (initial seed / row swap).
-  useEffect(() => {
-    if (!editor) return;
-    // Skip echoes of our own onUpdate — parent re-renders must not reset the doc.
-    if (value === lastEmittedRef.current) return;
-    // NEVER overwrite while the user is typing — background cache updates must not
-    // clobber in-progress edits or jump the cursor. Only sync when unfocused.
-    if (editor.isFocused) return;
-    const current = normalizeHtml(editor.getHTML());
-    // v2 signature: setContent(content, emitUpdate=false) — don't fire onUpdate
-    // on external sync, or a server reload would re-mark the row dirty.
-    // (COE runs TipTap v3, whose signature is setContent(value, { emitUpdate: false });
-    // this is the one place the two ports legitimately differ.)
-    if (normalizeHtml(value || '') !== current) {
-      editor.commands.setContent(value || '', false);
-      lastEmittedRef.current = value;
-    }
-  }, [editor, value]);
-
-  useEffect(() => {
-    editor?.setEditable(!disabled);
-  }, [editor, disabled]);
-
-  const openEquation = () => {
-    if (!editor) return;
-    // Editing an existing formula? seed the dialog with its LaTeX.
-    const editing = editor.isActive('mathInline');
-    eqEditingRef.current = editing;
-    // Snapshot the caret NOW, while the editor still owns the selection. Once the
-    // Radix dialog mounts its focus trap the editor blurs, and although ProseMirror
-    // keeps its selection internally, restoring it explicitly makes placement
-    // deterministic regardless of where Radix hands focus back on close.
-    const { from, to } = editor.state.selection;
-    eqSelectionRef.current = { from, to };
-    const latex = editing ? editor.getAttributes('mathInline').latex ?? '' : '';
-    setEqInitial(latex);
-    setEqOpen(true);
-  };
-
-  const submitEquation = (latex: string) => {
-    if (!editor) return;
-    const editing = eqEditingRef.current;
-    const sel = eqSelectionRef.current;
-    // Defer until AFTER the dialog has closed and released its focus trap. Running
-    // the transaction while the modal is still open lets Radix's focus guard revert
-    // editor.focus(), which is why "Insert did nothing". requestAnimationFrame fires
-    // after React commits the close and Radix tears down its FocusScope.
-    requestAnimationFrame(() => {
-      let chain = editor.chain().focus();
-      // Restore the caret for a fresh insert; for an edit the math node stays selected.
-      if (!editing && sel) chain = chain.setTextSelection(sel);
-      if (editing) chain.updateMath(latex).run();
-      else chain.insertMath(latex).run();
-    });
-  };
-
-  return (
-    <div
-      className={cn(
-        'rounded-md border bg-background qp-rich-editor-root',
-        disabled && 'opacity-60',
-        className
-      )}
-    >
-      {editor && !disabled && (
-        <Toolbar editor={editor} onOpenEquation={openEquation} compact={compact} />
-      )}
-      {/* The paper default cascades onto the content through --qp-editor-font;
-          inline font marks saved on older papers still override it. */}
-      <div
-        style={
-          defaultFontFamily
-            ? ({ ['--qp-editor-font']: `'${defaultFontFamily}'` } as CSSProperties)
-            : undefined
-        }
-      >
-        <EditorContent editor={editor} className='qp-rich-editor-body' />
-      </div>
-      <EquationEditorDialog
-        open={eqOpen}
-        onOpenChange={setEqOpen}
-        initialLatex={eqInitial}
-        onSubmit={submitEquation}
-      />
-    </div>
-  );
-}
+export default QuestionRichEditor

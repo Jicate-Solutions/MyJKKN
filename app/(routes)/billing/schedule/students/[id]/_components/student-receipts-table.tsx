@@ -12,10 +12,18 @@ import {
   ReceiptIndianRupee,
   FileText,
   Printer,
-  Ban
+  Ban,
+  MoreVertical
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger
+} from '@/components/ui/dropdown-menu';
 import {
   Table,
   TableBody,
@@ -24,12 +32,6 @@ import {
   TableHeader,
   TableRow
 } from '@/components/ui/table';
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger
-} from '@/components/ui/tooltip';
 import { toast } from 'react-hot-toast';
 import { usePermissions } from '@/hooks/use-permissions';
 import { BillingReceiptService } from '@/lib/services/billing/receipts/billing-receipt-service';
@@ -210,6 +212,7 @@ export function StudentReceiptsTable({
               <TableHead>Receipt Date</TableHead>
               <TableHead>Payment Mode</TableHead>
               <TableHead>Payer Details</TableHead>
+              <TableHead>Bills Paid</TableHead>
               <TableHead className='text-right'>Amount</TableHead>
               <TableHead>Reference</TableHead>
               <TableHead className='text-center'>Actions</TableHead>
@@ -246,6 +249,37 @@ export function StudentReceiptsTable({
                       </div>
                     )}
                   </div>
+                </TableCell>
+                <TableCell>
+                  {receipt.receipt_items && receipt.receipt_items.length > 0 ? (
+                    <div className='space-y-1'>
+                      {receipt.receipt_items.map((item) => (
+                        <div
+                          key={item.id}
+                          className='flex items-center justify-between gap-3 text-xs'
+                        >
+                          <div className='min-w-0'>
+                            <div className='font-medium truncate'>
+                              {item.bill?.item_category?.category_name ??
+                                'Unknown category'}
+                            </div>
+                            {item.bill?.bill_description && (
+                              <div className='text-muted-foreground truncate'>
+                                {item.bill.bill_description}
+                              </div>
+                            )}
+                          </div>
+                          <span className='font-mono shrink-0'>
+                            {formatCurrency(item.amount_paid)}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <span className='text-xs text-muted-foreground italic'>
+                      No bill linked
+                    </span>
+                  )}
                 </TableCell>
                 <TableCell className='text-right'>
                   {(() => {
@@ -296,105 +330,66 @@ export function StudentReceiptsTable({
                   </div>
                 </TableCell>
                 <TableCell className='text-center'>
-                  <div className='flex items-center justify-center gap-1'>
-                    {canViewReceipts && (
-                      <TooltipProvider>
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <Button variant='ghost' size='sm' asChild>
-                              <Link
-                                href={`/billing/receipts/${receipt.id}`}
-                              >
-                                <Eye className='h-4 w-4' />
-                              </Link>
-                            </Button>
-                          </TooltipTrigger>
-                          <TooltipContent>
-                            <p>View Receipt</p>
-                          </TooltipContent>
-                        </Tooltip>
-                      </TooltipProvider>
-                    )}
-
-                    <TooltipProvider>
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <Button
-                            variant='ghost'
-                            size='sm'
-                            onClick={() => handleDownloadReceipt(receipt.id)}
-                            disabled={downloadingReceiptId === receipt.id}
+                  {pendingCancellations[receipt.id] && (
+                    <Badge
+                      variant='secondary'
+                      className='mr-1 whitespace-nowrap'
+                    >
+                      Cancellation pending
+                    </Badge>
+                  )}
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button
+                        variant='ghost'
+                        size='sm'
+                        aria-label='Receipt actions'
+                        disabled={downloadingReceiptId === receipt.id}
+                      >
+                        <MoreVertical className='h-4 w-4' />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align='end'>
+                      {canViewReceipts && (
+                        <DropdownMenuItem asChild>
+                          <Link href={`/billing/receipts/${receipt.id}`}>
+                            <Eye className='mr-2 h-4 w-4' />
+                            View Receipt
+                          </Link>
+                        </DropdownMenuItem>
+                      )}
+                      <DropdownMenuItem
+                        onClick={() => handleDownloadReceipt(receipt.id)}
+                      >
+                        <Download className='mr-2 h-4 w-4' />
+                        Download PDF
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        onClick={() => handlePrintReceipt(receipt.id)}
+                      >
+                        <Printer className='mr-2 h-4 w-4' />
+                        {PRINT_NOT_AVAILABLE_LABEL}
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        onClick={() => handleEmailReceipt(receipt.id)}
+                      >
+                        <Mail className='mr-2 h-4 w-4' />
+                        {EMAIL_NOT_AVAILABLE_LABEL}
+                      </DropdownMenuItem>
+                      {canRequestCancel && !pendingCancellations[receipt.id] && (
+                        <>
+                          <DropdownMenuSeparator />
+                          <DropdownMenuItem
+                            onClick={() => setReceiptToCancel(receipt)}
+                            className='text-destructive focus:text-destructive'
                           >
-                            <Download className='h-4 w-4' />
-                          </Button>
-                        </TooltipTrigger>
-                        <TooltipContent>
-                          <p>Download PDF</p>
-                        </TooltipContent>
-                      </Tooltip>
-                    </TooltipProvider>
-
-                    <TooltipProvider>
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <Button
-                            variant='ghost'
-                            size='sm'
-                            onClick={() => handlePrintReceipt(receipt.id)}
-                            aria-label={PRINT_NOT_AVAILABLE_LABEL}
-                          >
-                            <Printer className='h-4 w-4' />
-                          </Button>
-                        </TooltipTrigger>
-                        <TooltipContent>
-                          <p>{PRINT_NOT_AVAILABLE_LABEL}</p>
-                        </TooltipContent>
-                      </Tooltip>
-                    </TooltipProvider>
-
-                    <TooltipProvider>
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <Button
-                            variant='ghost'
-                            size='sm'
-                            onClick={() => handleEmailReceipt(receipt.id)}
-                            aria-label={EMAIL_NOT_AVAILABLE_LABEL}
-                          >
-                            <Mail className='h-4 w-4' />
-                          </Button>
-                        </TooltipTrigger>
-                        <TooltipContent>
-                          <p>{EMAIL_NOT_AVAILABLE_LABEL}</p>
-                        </TooltipContent>
-                      </Tooltip>
-                    </TooltipProvider>
-
-                    {canRequestCancel &&
-                      (pendingCancellations[receipt.id] ? (
-                        <Badge variant='secondary' className='whitespace-nowrap'>
-                          Cancellation pending
-                        </Badge>
-                      ) : (
-                        <TooltipProvider>
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <Button
-                                variant='ghost'
-                                size='sm'
-                                onClick={() => setReceiptToCancel(receipt)}
-                                className='text-destructive hover:text-destructive'
-                              >
-                                <Ban className='h-4 w-4' />
-                              </Button>
-                            </TooltipTrigger>
-                            <TooltipContent>
-                              <p>Request Cancellation</p>
-                            </TooltipContent>
-                          </Tooltip>
-                        </TooltipProvider>
-                      ))}
-                  </div>
+                            <Ban className='mr-2 h-4 w-4' />
+                            Request Cancellation
+                          </DropdownMenuItem>
+                        </>
+                      )}
+                    </DropdownMenuContent>
+                  </DropdownMenu>
                 </TableCell>
               </TableRow>
             ))}

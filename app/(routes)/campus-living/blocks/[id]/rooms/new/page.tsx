@@ -9,7 +9,7 @@
 // /rooms/new cleanly AND provides the create flow.
 
 import { use, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -18,6 +18,8 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { useHostelBlock } from '@/hooks/campus-living/use-hostel-blocks';
+import { useBlockFloors } from '@/hooks/campus-living/use-hostel-floors';
+import { floorDisplayName } from '@/lib/utils/floor-label';
 import { useActiveHostelCategories } from '@/hooks/campus-living/use-hostel-categories';
 import { useCreateHostelRoom } from '@/hooks/campus-living/use-hostel-rooms';
 import { useAmenitiesByScope } from '@/hooks/campus-living/use-amenities';
@@ -41,7 +43,10 @@ const AC_STATUSES: { value: AcStatus; label: string }[] = [
 export default function NewRoomPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   const router = useRouter();
+  // ?floor=N preselects a floor (the Floors tab's "Add rooms" link on an empty floor).
+  const floorParam = useSearchParams().get('floor');
   const { data: blockData } = useHostelBlock(id);
+  const { data: floors } = useBlockFloors(id);
   const block = blockData as { name?: string; hostel_type?: string } | undefined;
   const createRoom = useCreateHostelRoom();
   const { hostelCategories: allCategories, loading: categoriesLoading } = useActiveHostelCategories();
@@ -67,7 +72,7 @@ export default function NewRoomPage({ params }: { params: Promise<{ id: string }
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [formData, setFormData] = useState({
     room_number: '',
-    floor: '1',
+    floor: floorParam ?? '',
     room_type: 'double' as RoomType,
     ac_status: 'non_ac' as AcStatus,
     category_id: '',
@@ -80,10 +85,20 @@ export default function NewRoomPage({ params }: { params: Promise<{ id: string }
   const set = (field: string, value: string | boolean) =>
     setFormData((prev) => ({ ...prev, [field]: value }));
 
+  // A room must sit on one of the block's real, active floors (hostel_floors;
+  // the composite FK refuses anything else). Fall back to the first one when
+  // nothing valid is chosen yet.
+  const floorOptions = (floors ?? []).filter((f) => f.is_active);
+  const effectiveFloor = floorOptions.some((f) => String(f.floor_number) === formData.floor)
+    ? formData.floor
+    : floorOptions[0]
+      ? String(floorOptions[0].floor_number)
+      : '';
+
   const canSave =
     formData.room_number.trim().length > 0 &&
     formData.category_id.trim().length > 0 &&
-    Number.isFinite(Number(formData.floor)) &&
+    effectiveFloor !== '' &&
     Number(formData.capacity) > 0;
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -94,7 +109,7 @@ export default function NewRoomPage({ params }: { params: Promise<{ id: string }
       await createRoom.mutateAsync({
         block_id: id,
         room_number: formData.room_number.trim(),
-        floor: parseInt(formData.floor, 10) || 0,
+        floor: parseInt(effectiveFloor, 10),
         room_type: formData.room_type,
         ac_status: formData.ac_status,
         category_id: formData.category_id,
@@ -159,15 +174,24 @@ export default function NewRoomPage({ params }: { params: Promise<{ id: string }
 
               <div className="space-y-2">
                 <Label htmlFor="floor">Floor *</Label>
-                <Input
+                <select
                   id="floor"
-                  type="number"
-                  min={0}
-                  max={50}
-                  value={formData.floor}
+                  className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                  value={effectiveFloor}
                   onChange={(e) => set('floor', e.target.value)}
                   required
-                />
+                >
+                  {floorOptions.length === 0 && (
+                    <option value="" disabled>
+                      {floors ? 'No active floors — add one in the Floors tab' : 'Loading floors…'}
+                    </option>
+                  )}
+                  {floorOptions.map((f) => (
+                    <option key={f.id} value={String(f.floor_number)}>
+                      {floorDisplayName(f.floor_number, f.name)}
+                    </option>
+                  ))}
+                </select>
               </div>
 
               <div className="space-y-2">

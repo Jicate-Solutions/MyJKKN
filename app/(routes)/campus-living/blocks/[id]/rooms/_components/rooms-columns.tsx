@@ -10,6 +10,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { ArrowUpDown, Users } from 'lucide-react';
 import type { HostelRoomWithBedsAndOccupancy } from '@/lib/services/campus-living/hostel-room-service';
+import { floorDisplayName } from '@/lib/utils/floor-label';
 import { RoomRowActions } from './room-row-actions';
 import { RoomNumberCell } from './room-number-cell';
 import {
@@ -45,8 +46,6 @@ function FreeTextStatusCell({ value }: { value: string | null | undefined }) {
     </Badge>
   );
 }
-
-const FLOOR_LABELS = ['Ground Floor', '1st Floor', '2nd Floor', '3rd Floor'];
 
 const statusConfig: Record<
   string,
@@ -90,9 +89,12 @@ function SortHeader({
 export function createRoomColumns({
   blockId,
   blockType,
+  floorNames,
 }: {
   blockId: string;
   blockType?: string;
+  /** floor_number → admin-set name (hostel_floors.name); absent = ordinal label. */
+  floorNames?: Record<number, string | null>;
 }): ColumnDef<HostelRoomWithBedsAndOccupancy>[] {
   return [
     {
@@ -106,7 +108,7 @@ export function createRoomColumns({
       accessorKey: 'floor',
       header: ({ column }) => <SortHeader column={column} label="Floor" />,
       cell: ({ row }) =>
-        FLOOR_LABELS[row.original.floor] ?? `Floor ${row.original.floor}`,
+        floorDisplayName(row.original.floor, floorNames?.[row.original.floor]),
     },
     {
       accessorKey: 'room_type',

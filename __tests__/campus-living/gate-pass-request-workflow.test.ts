@@ -523,7 +523,16 @@ describe('the detail page reads only fields its own query produces', () => {
     // getGatePassDetail returns the row plus embeds. Anything else the page
     // reads off `pass` is undefined on a real row — and `.map`/`.name` on
     // undefined is a crash, not a blank.
-    const allowed = new Set([...WRITABLE_COLUMNS, 'learner', 'leave_type']);
+    // leave_onduty_application_id / valid_from / valid_until come from
+    // 20271005090100_hostel_leave_gate_pass.sql (select('*') returns them).
+    const allowed = new Set([
+      ...WRITABLE_COLUMNS,
+      'learner',
+      'leave_type',
+      'leave_onduty_application_id',
+      'valid_from',
+      'valid_until',
+    ]);
 
     const read = [...source.matchAll(/\bpass\.(\w+)/g)].map((m) => m[1]);
     const invented = [...new Set(read)].filter((p) => !allowed.has(p));
