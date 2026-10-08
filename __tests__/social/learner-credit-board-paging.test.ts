@@ -228,4 +228,28 @@ describe('the board pages past the 1,000-row cap', () => {
     expect(rows.reduce((n, r) => n + r.real_signal, 0)).toBe(2300); // one save per post
     expect(largestIn).toBeLessThanOrEqual(200);
   });
+
+  it('a learner whose profile is hidden keeps the first institution of their claims, not the last', async () => {
+    claimsTable = [
+      { id: 'C000001', learner_id: 'LX', ig_post_id: 'P1', status: 'confirmed', institution_id: 'I1' },
+      { id: 'C000002', learner_id: 'LX', ig_post_id: 'P2', status: 'confirmed', institution_id: 'I2' },
+    ];
+    const { GET } = await import('@/app/api/social/learner-credit/route');
+    const rows = (await (await GET(get())).json()).rows as Array<{ learner_id: string; institution_id: string }>;
+    expect(rows.find((r) => r.learner_id === 'LX')!.institution_id).toBe('I1');
+  });
+
+  it('stops with a clear 500 when the reads run past the time budget', async () => {
+    claimsTable = makeClaims(2300);
+    let now = 1_000_000;
+    const spy = vi.spyOn(Date, 'now').mockImplementation(() => (now += 20_000));
+    try {
+      const { GET } = await import('@/app/api/social/learner-credit/route');
+      const res = await GET(get());
+      expect(res.status).toBe(500);
+      expect((await res.json()).error).toMatch(/took too long/i);
+    } finally {
+      spy.mockRestore();
+    }
+  });
 });

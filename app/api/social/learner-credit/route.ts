@@ -135,6 +135,14 @@ const CLAIM_PAGE_LIMIT = 50;
 /** Ids per `.in()` read: one row per id, so far below the 1,000-row cap. */
 const ID_CHUNK = 200;
 
+/**
+ * The board reads one call after another; near the claim cap that is hundreds
+ * of calls. Stop at this budget with a clear 500 instead of letting the
+ * function time out with no message.
+ */
+const BOARD_READ_BUDGET_MS = 45_000;
+const OUT_OF_TIME = { message: 'board read budget exceeded' };
+
 /** `error` is null on success; on failure `rows` is empty and must not be used. */
 type ChunkedRead = { rows: Array<Record<string, unknown>>; error: unknown };
 
@@ -144,10 +152,12 @@ type ChunkedRead = { rows: Array<Record<string, unknown>>; error: unknown };
  */
 async function readByIdChunks(
   ids: string[],
-  build: (ids: string[]) => PromiseLike<{ data: unknown; error: unknown }>
+  build: (ids: string[]) => PromiseLike<{ data: unknown; error: unknown }>,
+  deadline: number
 ): Promise<ChunkedRead> {
   const rows: Array<Record<string, unknown>> = [];
   for (let i = 0; i < ids.length; i += ID_CHUNK) {
+    if (Date.now() > deadline) return { rows: [], error: OUT_OF_TIME };
     const { data, error } = await build(ids.slice(i, i + ID_CHUNK));
     if (error) return { rows: [], error };
     rows.push(...((data ?? []) as Array<Record<string, unknown>>));
@@ -165,6 +175,12 @@ export async function GET(req: NextRequest) {
   const db = await createServerSupabaseClient();
   const admin = createServiceRoleClient();
   const institutionId = req.nextUrl.searchParams.get('institution_id');
+  const deadline = Date.now() + BOARD_READ_BUDGET_MS;
+  const outOfTime = () =>
+    deny(
+      'The board took too long to read in full, so it is not shown. Choose one institution and try again.',
+      500
+    );
 
   // RLS decides which claims this person may see: their own, or their
   // institution's if they hold social.learner_credit.view.
@@ -188,6 +204,7 @@ export async function GET(req: NextRequest) {
     return q.order('id', { ascending: true }).limit(size);
   };
   for (let page = 0; page < CLAIM_PAGE_LIMIT; page += 1) {
+    if (Date.now() > deadline) return outOfTime();
     const { data, error } = await readPage(CLAIM_PAGE_SIZE);
     if (error) {
       logger.error(MODULE, 'claim read failed', error);
@@ -241,21 +258,25 @@ export async function GET(req: NextRequest) {
   // post (its latest snapshot); reading ig_post_metrics directly returned ~627
   // rows a post and the cap cut it to an arbitrary subset.
   const posts = await readByIdChunks(postIds, (ids) =>
-    admin.from('ig_posts').select('id, account_id').in('id', ids)
+    admin.from('ig_posts').select('id, account_id').in('id', ids),
+    deadline
   );
   const metrics = !posts.error
     ? await readByIdChunks(postIds, (ids) =>
         admin
           .from('v_ig_post_latest_metrics')
           .select('post_id, snapshot_at, saves, shares, comments, likes, reach')
-          .in('post_id', ids)
+          .in('post_id', ids),
+        deadline
       )
     : posts;
   const learners = !metrics.error
     ? await readByIdChunks(learnerIds, (ids) =>
-        db.from('learners_profiles').select('id, first_name, last_name, institution_id').in('id', ids)
+        db.from('learners_profiles').select('id, first_name, last_name, institution_id').in('id', ids),
+        deadline
       )
     : metrics;
+  if (learners.error === OUT_OF_TIME) return outOfTime();
   if (learners.error) {
     logger.error(MODULE, 'board read failed', learners.error);
     return deny('Could not read the board just now. Try again shortly.', 500);
@@ -265,8 +286,10 @@ export async function GET(req: NextRequest) {
     new Set(posts.rows.map((p) => p.account_id as string).filter(Boolean))
   );
   const accounts = await readByIdChunks(accountIds, (ids) =>
-    admin.from('ig_accounts').select('id, metrics_source').in('id', ids)
+    admin.from('ig_accounts').select('id, metrics_source').in('id', ids),
+    deadline
   );
+  if (accounts.error === OUT_OF_TIME) return outOfTime();
   if (accounts.error) {
     logger.error(MODULE, 'account read failed', accounts.error);
     return deny('Could not read the board just now. Try again shortly.', 500);
@@ -290,7 +313,11 @@ export async function GET(req: NextRequest) {
   const claimsByLearner = new Map<string, ClaimedPostInput[]>();
   const institutionByLearner = new Map<string, string>();
   for (const c of claims) {
-    institutionByLearner.set(c.learner_id as string, (c.institution_id as string) ?? '');
+    // The first non-empty institution per learner, the filtered one when a
+    // filter was given (every claim then carries it). Not "whichever came last".
+    if (!institutionByLearner.get(c.learner_id as string) && c.institution_id) {
+      institutionByLearner.set(c.learner_id as string, c.institution_id as string);
+    }
     const list = claimsByLearner.get(c.learner_id as string) ?? [];
     list.push({
       ig_post_id: c.ig_post_id as string,
@@ -448,7 +475,9 @@ export async function PATCH(req: NextRequest) {
     .maybeSingle();
 
   if (error) {
-    if (error.code === '23514') {
+    // 23514 is every CHECK failure; only the guard's own "a decision is final"
+    // means the claim was already decided.
+    if (error.code === '23514' && /decision is final/i.test(error.message ?? '')) {
       return deny('This claim was already decided. A decision is final.', 409);
     }
     if (error.code === '42501') {
@@ -472,6 +501,11 @@ export async function PATCH(req: NextRequest) {
     }
     if (!seen) {
       return deny('That claim does not exist, or you are not allowed to see it.', 404);
+    }
+    if (seen.status === 'pending') {
+      // Visible and still pending, yet the update matched nothing: RLS let this
+      // caller read the claim but not decide it (e.g. the learner who filed it).
+      return deny('You are not allowed to decide that claim.', 403);
     }
     return deny(`This claim was already ${seen.status}. A decision is final.`, 409);
   }

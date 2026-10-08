@@ -246,6 +246,15 @@ describe('#9 deciding a claim', () => {
     expect((await res.json()).error).not.toMatch(/already/i);
   });
 
+  it('answers 403 when the caller can see the pending claim but may not decide it', async () => {
+    results['session:ig_learner_post_claims:update'] = { data: null, error: null };
+    results['session:ig_learner_post_claims:read'] = { data: { id: 'C1', status: 'pending' }, error: null };
+    const { PATCH } = await import('@/app/api/social/learner-credit/route');
+    const res = await PATCH(req('PATCH', { claim_id: 'C1', status: 'confirmed' }));
+    expect(res.status).toBe(403);
+    expect((await res.json()).error).not.toMatch(/already/i);
+  });
+
   it('answers 500 when the follow-up lookup itself fails', async () => {
     results['session:ig_learner_post_claims:update'] = { data: null, error: null };
     results['session:ig_learner_post_claims:read'] = { data: null, error: { message: 'boom' } };
@@ -255,8 +264,19 @@ describe('#9 deciding a claim', () => {
 
   it('maps the database guard (23514) to 409 and self-review (42501) to 403', async () => {
     const { PATCH } = await import('@/app/api/social/learner-credit/route');
-    results['session:ig_learner_post_claims:update'] = { data: null, error: { code: '23514', message: 'final' } };
+    results['session:ig_learner_post_claims:update'] = {
+      data: null,
+      error: { code: '23514', message: 'ig_learner_post_claims: this claim was already confirmed; a decision is final' },
+    };
     expect((await PATCH(req('PATCH', { claim_id: 'C1', status: 'confirmed' }))).status).toBe(409);
+    // Any other CHECK failure is not "already decided".
+    results['session:ig_learner_post_claims:update'] = {
+      data: null,
+      error: { code: '23514', message: 'new row violates check constraint "ck_review_note_length"' },
+    };
+    const other = await PATCH(req('PATCH', { claim_id: 'C1', status: 'confirmed' }));
+    expect(other.status).toBe(400);
+    expect((await other.json()).error).not.toMatch(/already decided/i);
     results['session:ig_learner_post_claims:update'] = { data: null, error: { code: '42501', message: 'self' } };
     expect((await PATCH(req('PATCH', { claim_id: 'C1', status: 'confirmed' }))).status).toBe(403);
   });
