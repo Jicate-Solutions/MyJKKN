@@ -55,7 +55,7 @@ vi.mock('@/components/layout/content-layout', async () => {
   return { ContentLayout: (p: React.PropsWithChildren) => React.createElement(React.Fragment, null, p.children) };
 });
 
-import { TargetSection } from '@/app/(routes)/hr/salary-revisions/_components/target-section';
+import { TargetSection, stateLabel } from '@/app/(routes)/hr/salary-revisions/_components/target-section';
 import DetailPage from '@/app/(routes)/hr/salary-revisions/[id]/page';
 import MyPayChangesPage from '@/app/(routes)/hr/my-pay-changes/page';
 import ApprovePage from '@/app/(routes)/hr/salary-revisions/approve/page';
@@ -112,6 +112,11 @@ describe('the words', () => {
     // The person's own view carries no reason (7 Oct, default cc): plain words, nothing internal.
     expect(planStateText(plan({ state: 'held_listed', state_reason: null }))).toBe('Held: the Director decides when it is paid.');
     expect(planStateText(plan({ state: 'lapsed', state_reason: null }))).toBe('Lapsed: this held part will not be paid under this raise.');
+    // 8 Oct 2026: measurement is on and the schedule record is not complete yet: not "targets being set up".
+    expect(planStateText(plan({ state: 'awaiting_measurement', state_reason: 'schedule_not_recorded' }))).toBe(
+      'The held ₹2,100 a month is held while the class schedule of the last 90 days is being recorded. '
+      + 'Then it is decided which targets apply. Nothing changes your pay until then.');
+    expect(planStateText(plan({ state: 'awaiting_measurement', state_reason: null }))).toMatch(/while the targets are being set up/);
   });
 
   it('writes each number as "n of d (p%)", and a month with nothing scheduled plainly', () => {
@@ -159,6 +164,18 @@ describe('the section', () => {
     // The Director can still lapse it, so a new raise can be asked for.
     expect(screen.getByRole('button', { name: 'Lapse the held part…' })).toBeInTheDocument();
     expect(MONTH_STATUS_LABELS.not_measured).toBe('Not measured: targets being set up');
+  });
+
+  it('a held part waiting for the class schedule to be recorded says so on its badge, not "being set up"', () => {
+    const waiting = plan({
+      state: 'awaiting_measurement', state_reason: 'schedule_not_recorded', target_role: null,
+      rules: { annual_increment_percent: 5, window_months: 6, pause_after_missed_months: 3, role: null, targets: null },
+    });
+    render(<TargetSection targets={targets({ plan: waiting, months: [] })} today='2026-12-10' />);
+    expect(screen.getByTestId('target-state')).toHaveTextContent('Held: class schedule being recorded');
+    expect(screen.getByTestId('target-state')).not.toHaveTextContent('schedule_not_recorded');
+    expect(stateLabel('awaiting_measurement', null)).toBe('Held: targets being set up');
+    expect(stateLabel('waiting', 'schedule_not_recorded')).toBe('Held: waiting for targets');
   });
 
   it('shows nothing when there is no plan', () => {
@@ -313,6 +330,9 @@ describe("the Director's list of held parts waiting on him (approval page)", () 
   it('says every reason in plain words', () => {
     expect(listedReasonInWords('director_list')).toMatch(/On the Director list/);
     expect(listedReasonInWords('awaiting_measurement')).toBe('Waiting for measurement to be switched on');
+    // 8 Oct 2026: measurement on, the schedule of the 90 days not all recorded yet (never the raw code).
+    expect(listedReasonInWords('schedule_not_recorded'))
+      .toBe('Waiting for the last 90 days of class schedule to be recorded, then for its targets to be decided');
     expect(listedReasonInWords('waits_for_own_targets:principal')).toBe('No targets for the principal role yet');
     expect(listedReasonInWords('window_over')).toMatch(/No month met every target in time/);
     expect(listedReasonInWords('lapsed_by_director: New scale')).toBe('Lapsed by you: New scale');

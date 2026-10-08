@@ -21,7 +21,15 @@ CREATE TABLE public.timetables (
   selected_days jsonb DEFAULT '["MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY", "SATURDAY"]'::jsonb,
   timetable_data jsonb NOT NULL DEFAULT '{}'::jsonb,
   periods jsonb NOT NULL DEFAULT '[]'::jsonb,
-  created_at timestamptz DEFAULT now());
+  created_at timestamptz DEFAULT now(),
+  -- 8 Oct 2026 (20271008093015): the columns the app's resolver reads
+  -- (getFacultyTodayPeriods) and the rehearsal's stand-in for it uses.
+  timetable_format text DEFAULT 'regular',
+  selected_dates jsonb,
+  department_id uuid,
+  semester_id uuid,
+  section_id uuid,
+  section_ids uuid[]);
 
 -- Staff leave (the columns the measurement reads: employee_id is the staff id).
 CREATE TABLE public.hr_leave_applications (
@@ -58,7 +66,19 @@ CREATE TABLE public.institution_leaves (
   end_date date NOT NULL,
   scope_level varchar(20) NOT NULL DEFAULT 'institution',
   status varchar(20) NOT NULL DEFAULT 'pending',
-  requested_by uuid NOT NULL);
+  requested_by uuid NOT NULL,
+  -- 8 Oct 2026 (20271008093015): the holiday's scope, as production has it.
+  department_ids uuid[] DEFAULT '{}',
+  semester_ids uuid[] DEFAULT '{}',
+  section_ids uuid[] DEFAULT '{}');
+
+-- 8 Oct 2026 (20271008093015): the staff plans that make a college one a team
+-- member teaches in (20260706_cross_institution_teaching), the columns read.
+CREATE TABLE public.staff_plans (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), institution_id uuid);
+CREATE TABLE public.staff_plan_courses (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  staff_plan_id uuid NOT NULL REFERENCES public.staff_plans(id) ON DELETE CASCADE,
+  staff_id uuid NOT NULL);
 
 CREATE TABLE public.curriculum_lesson (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),

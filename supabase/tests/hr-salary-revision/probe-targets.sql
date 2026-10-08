@@ -617,11 +617,13 @@ SELECT t.check('back on target: the held part is paid again, from the next 1st',
   AND (SELECT state = 'released' AND paused_from IS NULL FROM public.hr_salary_revision_target_plans WHERE request_id = :'req_f1'),
   (SELECT monthly_gross || ' from ' || effective_from FROM public.hr_staff_salaries WHERE staff_id = :'sF1' AND superseded_by IS NULL));
 -- Default aa: once paid, only the months the pause rule can use are measured.
--- F1 is run next at M12: M8 (left "so far" by run 8) is too old and is closed
--- unmeasured; M9-M11 are measured.
+-- 8 Oct 2026 (Director ruling (a), option A): those are the whole current run
+-- of misses, from the month after the last met month acted on (M7, which
+-- resumed it). F1 is run next at M12: M8 (left "so far" by run 8) is in that
+-- run, so it is counted (measured, not closed unmeasured), then M9-M11.
 SELECT public.hr_salary_revision_targets_run_one(:'req_f1', (:'m8'::date + interval '4 month')::date) AS f1_late \gset
-SELECT t.check('a paid held part is measured only for the months the pause rule can use',
-  (SELECT status = 'not_counted' AND results = '[]'::jsonb FROM public.hr_salary_revision_target_months WHERE request_id = :'req_f1' AND month = :'m8')
+SELECT t.check('a paid held part is measured for every month of its current run of misses (ruling (a)): M8, after the met M7, is counted, not closed',
+  (SELECT status IN ('missed', 'met', 'not_counted') AND results <> '[]'::jsonb FROM public.hr_salary_revision_target_months WHERE request_id = :'req_f1' AND month = :'m8')
   AND (SELECT count(*) FROM public.hr_salary_revision_target_months WHERE request_id = :'req_f1' AND month > :'m8') >= 3,
   (SELECT string_agg(month || ':' || status, ', ' ORDER BY month) FROM public.hr_salary_revision_target_months WHERE request_id = :'req_f1'));
 SELECT t.check('nothing is paid after the window, even for a month with all five met',

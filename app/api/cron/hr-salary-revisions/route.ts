@@ -19,6 +19,13 @@
 //                 MIN_REMAINING_MS of maxDuration remain; the rest go first
 //                 the next night. The database refuses any caller but the
 //                 service role.
+//                 8 Oct 2026 (20271008093015): FIRST, for at most
+//                 SCHEDULE_BUDGET_MS, the schedule record: the periods each
+//                 team member with a raise in play was scheduled to teach,
+//                 read through the app's own resolver (My Classes) and written
+//                 to hr_target_scheduled_periods, which the measure reads.
+//                 It runs whether measurement is switched on or not, so the
+//                 days are there when it is.
 //
 // Auth: CRON_SECRET via `Authorization: Bearer <secret>` (Vercel cron) ONLY,
 // compared in constant time (30 Sep, W12 review). No `?secret=` branch: this
@@ -33,6 +40,7 @@ export const maxDuration = 60;
 import { timingSafeEqual } from 'node:crypto';
 import { NextRequest, NextResponse } from 'next/server';
 import { createServiceRoleClient } from '@/lib/supabase/server';
+import { recordScheduledPeriods } from '@/lib/services/hr/salary-revision/scheduled-periods-recorder';
 
 // Same shape as app/api/cron/hr-naac-evidence: Bearer only, constant-time.
 function bearerMatches(authHeader: string | null, secret: string): boolean {
@@ -45,6 +53,8 @@ function bearerMatches(authHeader: string | null, secret: string): boolean {
 /** maxDuration, and the time a started raise is given to finish (default gg). */
 export const MAX_DURATION_MS = 60_000;
 export const MIN_REMAINING_MS = 15_000;
+/** 8 Oct 2026: the schedule record's share of maxDuration (it goes first). */
+export const SCHEDULE_BUDGET_MS = 25_000;
 
 /**
  * 7 Oct 2026: the raises due today, each in its own call (its own
@@ -54,10 +64,19 @@ export const MIN_REMAINING_MS = 15_000;
 async function runTargets(now: () => number = Date.now): Promise<NextResponse> {
   const supabase = createServiceRoleClient() as any;
   const started = now();
+  // 8 Oct 2026: the schedule record first. A failure here is reported and the
+  // measure still runs (a month with a day not recorded is not counted yet).
+  let schedule: Awaited<ReturnType<typeof recordScheduledPeriods>>;
+  try {
+    schedule = await recordScheduledPeriods(supabase, { deadline: started + SCHEDULE_BUDGET_MS, now });
+  } catch (err) {
+    console.error('[HR Salary Revisions cron] schedule: not recorded:', err);
+    schedule = { needed: 0, recorded: 0, failed: 0, error: err instanceof Error ? err.message : String(err) };
+  }
   const due = await supabase.rpc('fn_hr_salary_revision_targets_due');
   if (due.error) {
     console.error('[HR Salary Revisions cron] targets: could not list the raises due:', due.error);
-    return NextResponse.json({ ok: false, mode: 'targets', error: due.error.message }, { status: 500 });
+    return NextResponse.json({ ok: false, mode: 'targets', error: due.error.message, schedule }, { status: 500 });
   }
   const ids = ((due.data ?? []) as Array<string | { fn_hr_salary_revision_targets_due?: string }>)
     .map((r) => (typeof r === 'string' ? r : r?.fn_hr_salary_revision_targets_due))
@@ -79,7 +98,7 @@ async function runTargets(now: () => number = Date.now): Promise<NextResponse> {
     }
     count += Number(data ?? 0);
   }
-  return NextResponse.json({ ok: failed.length === 0, mode: 'targets', count, done, remaining: ids.length - done, failed });
+  return NextResponse.json({ ok: failed.length === 0, mode: 'targets', count, done, remaining: ids.length - done, failed, schedule });
 }
 
 export async function GET(request: NextRequest): Promise<NextResponse> {

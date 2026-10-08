@@ -388,6 +388,13 @@ export function planStateText(plan: TargetPlan): string {
     case 'none':
       return 'Nothing is held: the whole raise starts on the start date.';
     case 'awaiting_measurement':
+      // 8 Oct 2026 (20271008093015, default qq): measurement is ON but the class
+      // schedule of the 90 days before is not all recorded yet, so which targets
+      // apply cannot be decided yet.
+      if (plan.state_reason === 'schedule_not_recorded') {
+        return `${heldRupees(plan)} is held while the class schedule of the last 90 days is being recorded. `
+          + 'Then it is decided which targets apply. Nothing changes your pay until then.';
+      }
       return `${heldRupees(plan)} is held while the targets are being set up. `
         + 'Nothing is measured yet, and nothing changes your pay until they are.';
     case 'waiting':
@@ -470,6 +477,8 @@ export function listedReasonInWords(why: string): string {
   const note = rest.join(':').trim();
   switch (code) {
     case 'awaiting_measurement': return 'Waiting for measurement to be switched on';
+    // 8 Oct 2026 (20271008093015): measurement is on; who it is measured as waits for the schedule record.
+    case 'schedule_not_recorded': return 'Waiting for the last 90 days of class schedule to be recorded, then for its targets to be decided';
     case 'director_list': return 'On the Director list: you decide when it is paid';
     case 'waits_for_own_targets': return `No targets for the ${note || 'principal'} role yet`;
     case 'no_targets_for_role': return 'No targets set for this person’s role';

@@ -60,6 +60,17 @@ const STATE_TONE: Record<TargetPlanState, string> = {
   lapsed: 'border-border text-muted-foreground',
 };
 
+/**
+ * The badge. 8 Oct 2026 (review round 2 leftover): a held part waiting for the
+ * class schedule of the last 90 days to be recorded says so, not "being set up".
+ */
+export function stateLabel(state: TargetPlanState, reason: string | null | undefined): string {
+  if (state === 'awaiting_measurement' && reason === 'schedule_not_recorded') {
+    return 'Held: class schedule being recorded';
+  }
+  return STATE_LABELS[state];
+}
+
 /** How many months the table shows, newest first. */
 const MONTHS_SHOWN = 6;
 
@@ -94,7 +105,7 @@ export function TargetSection({ targets, today, canFlag, canDecide, busy, onFlag
       <div className='flex flex-wrap items-center justify-between gap-2'>
         <h2 className='font-semibold'>Raise in two parts</h2>
         <Badge variant='outline' className={`font-normal ${STATE_TONE[plan.state]}`} data-testid='target-state'>
-          {STATE_LABELS[plan.state]}
+          {stateLabel(plan.state, plan.state_reason)}
         </Badge>
       </div>
 

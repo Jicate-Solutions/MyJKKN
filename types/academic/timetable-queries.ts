@@ -3,7 +3,8 @@
 // Purpose: Type definitions for complex Supabase timetable queries with relations
 // Used by: faculty-attendance-service.ts, faculty-timetable-service.ts
 
-import { Json } from '@/types/database.types';
+// Updated: 2026-10-08 - '@/types/database.types' does not exist (TS2307); Json lives in '@/types/supabase'.
+import type { Json } from '@/types/supabase';
 
 /**
  * Timetable with full relations for Supabase queries

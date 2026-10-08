@@ -310,7 +310,10 @@ SELECT t.check('with measurement ON, the first month of the window with every ta
 SELECT set_config('request.jwt.claims', json_build_object('sub', :'D', 'role', 'authenticated')::text, false);
 SELECT t.try(format('UPDATE public.platform_policies SET value = %L WHERE policy_key = %L', 'false', :'SW')) AS sw_off \gset
 SELECT t.login(NULL);
-SELECT public.hr_salary_revision_targets_run_on(:'m7') AS r7 \gset
+-- Round 8 (U2, 8 Oct 2026): run within M6, so M6 is THIS month (measured
+-- "so far" while ON): it is closed as not measured. Only this month is: a
+-- finished month still waiting stays waiting (probe-settled-off.sql, RV3-P3).
+SELECT public.hr_salary_revision_targets_run_on((:'m6'::date + 2)) AS r7 \gset
 SELECT t.check('switched OFF again: the month in progress is closed as not measured and the pay is untouched',
   :'sw_off' = 'ok'
   AND (SELECT status = 'not_measured' FROM public.hr_salary_revision_target_months WHERE request_id = :'req_f1' AND month = :'m6')

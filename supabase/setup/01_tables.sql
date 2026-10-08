@@ -12267,3 +12267,43 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_hr_intake_match_rules_title_institution
   ON public.hr_intake_match_rules (cvviz_job_title_norm, institution_id);
 CREATE INDEX IF NOT EXISTS idx_hr_intake_match_rules_job
   ON public.hr_intake_match_rules (job_id);
+
+-- Updated: 2026-10-08 - Raise targets: the schedule record (the periods each team member
+-- was scheduled to teach, as the app's own resolver gave them to the nightly job), and
+-- the approved-leave and (round 7) holiday keys on each counted month.
+-- Source: 20271008093015_hr_salary_revision_target_scheduled_periods.sql
+CREATE TABLE IF NOT EXISTS public.hr_target_scheduled_periods (
+  staff_id          uuid NOT NULL REFERENCES public.staff(id) ON DELETE CASCADE,
+  day               date NOT NULL,
+  periods           jsonb NOT NULL DEFAULT '[]'::jsonb CHECK (jsonb_typeof(periods) = 'array'),
+  recorded_live     boolean NOT NULL DEFAULT false,
+  holiday_key       text NOT NULL,
+  resolver          text NOT NULL,
+  first_recorded_at timestamptz NOT NULL DEFAULT now(),
+  recorded_at       timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (staff_id, day)
+);
+
+COMMENT ON TABLE public.hr_target_scheduled_periods IS
+  'Raise targets (8 Oct 2026): the periods a team member was SCHEDULED to teach on a day, as the app''s own resolver '
+  '(FacultyAttendanceService.getFacultyTodayPeriods, My Classes) gave them to the nightly job. One row per person per '
+  'day; recording the day again replaces its list. recorded_live: once recorded on the day itself. holiday_key: the '
+  'approved holidays covering the day when recorded. Read by hr_salary_revision_target_measure and _teaches. Written '
+  'only by hr_target_schedule_record. Migration 20271008093015.';
+
+-- Default ss: the person's approved leave overlapping a counted month, as it
+-- stood when the month was measured.
+ALTER TABLE public.hr_salary_revision_target_months ADD COLUMN IF NOT EXISTS leave_key text;
+
+COMMENT ON COLUMN public.hr_salary_revision_target_months.leave_key IS
+  'Default ss (8 Oct 2026): a key of the person''s approved leave overlapping the month when it was measured. A missed '
+  'month whose key changes is measured again. Migration 20271008093015.';
+
+-- Round 7 (B2): the approved holidays covering the days a counted month's
+-- measure reads, as they stood when the month was measured.
+ALTER TABLE public.hr_salary_revision_target_months ADD COLUMN IF NOT EXISTS holiday_key text;
+
+COMMENT ON COLUMN public.hr_salary_revision_target_months.holiday_key IS
+  'Round 7 (8 Oct 2026): a key of the approved holidays covering the days the month''s measure read, when it was '
+  'measured. A missed month whose key changes is measured again once those days are recorded again. '
+  'Migration 20271008093015.';

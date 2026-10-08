@@ -12342,3 +12342,13 @@ CREATE POLICY ig_learner_post_claims_delete ON public.ig_learner_post_claims
           OR (public.user_has_permission('social.learner_credit.review')
               AND public.role_has_institution_access(institution_id))))
   );
+
+-- Updated: 2026-10-08 - Raise targets: RLS on the schedule record (no signed-in reads or
+-- writes; the service role reads; written only by hr_target_schedule_record).
+-- Source: 20271008093015_hr_salary_revision_target_scheduled_periods.sql
+ALTER TABLE public.hr_target_scheduled_periods ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS hr_target_scheduled_periods_service_role ON public.hr_target_scheduled_periods;
+CREATE POLICY hr_target_scheduled_periods_service_role ON public.hr_target_scheduled_periods
+  FOR SELECT TO service_role USING (true);
+REVOKE ALL ON public.hr_target_scheduled_periods FROM anon, PUBLIC, authenticated, service_role;
+GRANT SELECT ON public.hr_target_scheduled_periods TO service_role;

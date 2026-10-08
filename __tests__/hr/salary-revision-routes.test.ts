@@ -389,9 +389,14 @@ describe('GET /api/cron/hr-salary-revisions', () => {
     const res = await cronRoute.GET(cron('/api/cron/hr-salary-revisions?mode=targets', 'cron-secret'));
     expect(res.status).toBe(200);
     // One call per raise: the one that timed out is reported; the others are still done.
-    expect(await res.json()).toEqual({ ok: false, mode: 'targets', count: 2, done: 3, remaining: 0, failed: ['raise-2'] });
+    // 8 Oct 2026: the schedule record goes first (nothing to record here).
+    expect(await res.json()).toEqual({
+      ok: false, mode: 'targets', count: 2, done: 3, remaining: 0, failed: ['raise-2'],
+      schedule: { needed: 0, recorded: 0, failed: 0 },
+    });
     // Each raise: the attempt is recorded first (its own call), then the run.
     expect(adminCalls.map((c) => c.fn)).toEqual([
+      'fn_hr_target_schedule_needs',
       'fn_hr_salary_revision_targets_due',
       'fn_hr_salary_revision_targets_attempt', 'fn_hr_salary_revision_targets_run_one',
       'fn_hr_salary_revision_targets_attempt', 'fn_hr_salary_revision_targets_run_one',
@@ -404,7 +409,8 @@ describe('GET /api/cron/hr-salary-revisions', () => {
   it('targets mode starts no raise once fewer than 15 s of the 60 s remain; the rest wait for the next night', async () => {
     const t0 = 1_000_000;
     // Started at 0 s; raise-1 checked at 10 s (50 s left: go); raise-2 at 46 s (14 s left): stop.
-    const times = [t0, t0 + 10_000, t0 + 46_000];
+    // 8 Oct 2026: the schedule record reads the clock once first (its time box for listing the days).
+    const times = [t0, t0, t0 + 10_000, t0 + 46_000];
     const spy = vi.spyOn(Date, 'now').mockImplementation(() => times.shift() ?? t0 + 59_000);
     try {
       const res = await cronRoute.GET(cron('/api/cron/hr-salary-revisions?mode=targets', 'cron-secret'));
