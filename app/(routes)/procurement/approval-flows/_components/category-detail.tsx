@@ -32,10 +32,10 @@ export const customisedColleges = (c: ProcurementCategory): string[] => [
 /**
  * The selected category, top to bottom:
  *   header        — name (click to rename) · Open for requests
+ *   college bar   — All colleges (default) · colleges with their own chain · Add a college
  *   A and B       — the two approver lists, side by side when there is room
  *       A Request approval — approves the items asked for
  *       B Final approval   — approves the vendors and prices chosen after quotations
- *   read-back     — the chain as plain sentences
  * Add a person by name or email; ↑ ↓ (or drag) to reorder; ✕ to remove. Saves straight away.
  */
 export function CategoryDetail({
@@ -139,8 +139,6 @@ export function CategoryDetail({
           emptyIsFine
         />
       </div>
-
-      <ReadBack open={category.is_active} requestSteps={requestSteps} finalSteps={finalSteps} />
     </section>
   );
 }
@@ -243,49 +241,6 @@ function CollegeBar({
           )}
         </div>
       )}
-    </div>
-  );
-}
-
-/** The chain read back as plain sentences, rebuilt on every change. */
-function ReadBack({
-  open,
-  requestSteps,
-  finalSteps,
-}: {
-  open: boolean;
-  requestSteps: CategoryStep[];
-  finalSteps: CategoryStep[];
-}) {
-  const lines: string[] = [];
-  if (!requestSteps.length) {
-    lines.push('Nobody approves the items yet, so requesters can’t pick this category.');
-  } else {
-    requestSteps.forEach((s, i) => lines.push(`${i === 0 ? '' : 'Then '}${s.label} approves the items asked for.`));
-  }
-  lines.push('Quotations are collected and compared.');
-  if (!finalSteps.length) {
-    lines.push('A Super Admin approves the chosen vendors and prices, and the purchase order is created.');
-  } else {
-    finalSteps.forEach((s, i) =>
-      lines.push(
-        `${i === 0 ? '' : 'Then '}${s.label} approves the chosen vendors and prices${
-          i === finalSteps.length - 1 ? ', and the purchase order is created' : ''
-        }.`
-      )
-    );
-  }
-  return (
-    <div className="mx-4 mb-4 space-y-1.5 rounded-lg border border-primary/30 bg-primary/5 px-4 py-3">
-      <h3 className="text-sm font-semibold">What happens to a request in this category</h3>
-      {!open && (
-        <p className="text-xs text-amber-700 dark:text-amber-400">Hidden: requesters can’t pick this category for new requests.</p>
-      )}
-      <ol className="list-decimal space-y-0.5 pl-5 text-sm">
-        {lines.map((l, i) => (
-          <li key={i}>{l}</li>
-        ))}
-      </ol>
     </div>
   );
 }
