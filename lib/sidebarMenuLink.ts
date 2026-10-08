@@ -1090,6 +1090,8 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // no MENU_PERMISSIONS entry.
   '/admission/social/governance': 'social.view',
   '/admission/social/loop': 'social.view',
+  // 2026-10-08 — JKKN100 reel countdown scoreboard (read-only).
+  '/admission/social/jkkn100': 'social.view',
 
   // Internship Module — Policy Admin (super_admin only)
   '/internships/policy': 'super_admin',
