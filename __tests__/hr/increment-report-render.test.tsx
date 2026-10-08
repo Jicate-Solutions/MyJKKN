@@ -152,7 +152,7 @@ describe('college table: a DUE row with an amount the rules state', () => {
     expect(report.proposals.map((p) => p.verdict).sort()).toEqual(['due', 'withheld']);
   });
 
-  it('shows "Due", the rise in rupees, the new pay, and who approves', () => {
+  it('shows "Due", the rise in rupees and the new pay, and no approver from the college rules', () => {
     render(<CollegeIncrementSection college={report} />);
     const row = rowFor('Kavya Ramesh');
 
@@ -160,7 +160,8 @@ describe('college table: a DUE row with an amount the rules state', () => {
     expect(within(row).getByText('₹20,000.00')).toBeInTheDocument(); // pay now
     expect(within(row).getByText('₹1,500.00')).toBeInTheDocument(); // proposed rise
     expect(within(row).getByText('would become ₹21,500.00')).toBeInTheDocument();
-    expect(within(row).getByText('Principal approves')).toBeInTheDocument();
+    // The rules name a Principal, but the final yes is the Director list's (#4140).
+    expect(within(row).queryByText(/approves$/)).not.toBeInTheDocument();
     expect(
       within(row).getByText('Due — the year has passed and every condition is met.'),
     ).toBeInTheDocument();
@@ -311,6 +312,20 @@ describe('Annual Increments page', () => {
     ).not.toBeInTheDocument();
     expect(screen.getByText('₹1,500.00')).toBeInTheDocument();
     expect(screen.getByText('would become ₹21,500.00')).toBeInTheDocument();
+  });
+
+  it('sends acting on a proposal to Ask for a salary revision, with the rulings in words', () => {
+    grantedKeys = ['hr.payroll.salary.view'];
+    reportData = pageReport([college({ annual_amount: 1500 }, [DUE])]);
+    render(<AnnualIncrementsPage />);
+
+    expect(screen.getByRole('link', { name: 'ask for a salary revision' })).toHaveAttribute(
+      'href',
+      '/hr/salary-revisions/ask',
+    );
+    expect(screen.getByText(/The final yes belongs to the Director list/)).toBeInTheDocument();
+    expect(screen.getByText(/nobody can decide their own/)).toBeInTheDocument();
+    expect(screen.getByText(/1st of the month after approval,\s+never earlier/)).toBeInTheDocument();
   });
 
   it('the Due and Withheld tiles count the rendered rows', () => {

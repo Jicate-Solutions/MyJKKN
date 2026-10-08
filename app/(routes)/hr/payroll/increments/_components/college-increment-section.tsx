@@ -170,12 +170,14 @@ export function CollegeIncrementSection({ college }: { college: CollegeIncrement
                         )}
                       </td>
                       <td className="px-4 py-3">
+                        {/*
+                          No "<approver> approves" line. The college rules still
+                          name one, but since 7 Oct (#4140, #4190) the final yes
+                          on any raise belongs to the Director list and nobody
+                          decides their own, so that name would be wrong. The
+                          page notice says who decides, once.
+                        */}
                         <IncrementVerdictBadge verdict={p.verdict} />
-                        {p.approver && p.verdict === 'due' && (
-                          <span className="mt-1 block text-xs text-muted-foreground">
-                            {p.approver} approves
-                          </span>
-                        )}
                       </td>
                       <td className="px-4 py-3 text-right tabular-nums text-foreground">
                         {formatMoney(p.currentMonthlyGross)}

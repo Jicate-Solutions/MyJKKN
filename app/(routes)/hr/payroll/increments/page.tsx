@@ -14,6 +14,12 @@
  * without his per-person approval, so a proposal here is a proposal and nothing
  * else.
  *
+ * ACTING ON ONE (rulings as of 8 Oct 2026). The notice points to Ask for a
+ * salary revision: the final yes is the Director list's (#4140), nobody decides
+ * their own raise (#4190), and an approved raise starts on the 1st of the month
+ * after approval with no backdating (lib/hr/raise-effective-date.ts). The
+ * college rules' own approver is therefore not shown.
+ *
  * SEVEN OF THE NINE COLLEGES HAVE NO RULES. Those are shown as an explicit
  * banner with their people still listed, each saying what is missing — never as
  * an empty table, which would read as "nobody is due".
@@ -164,9 +170,20 @@ export default function AnnualIncrementsPage() {
           <Info className="h-4 w-4" />
           <AlertTitle>Nothing on this page changes anyone&rsquo;s pay</AlertTitle>
           <AlertDescription>
-            These are proposals worked out from the rules each college has saved. There is
-            no button here that pays them, and there is not meant to be. Every rise stays a
-            per-person decision.
+            <p>
+              These are proposals worked out from the rules each college has saved. There is
+              no button here that pays them, and there is not meant to be. Every rise stays a
+              per-person decision.
+            </p>
+            <p className="mt-2">
+              To act on one,{' '}
+              <Link href="/hr/salary-revisions/ask" className="font-medium underline">
+                ask for a salary revision
+              </Link>
+              . The final yes belongs to the Director list, nobody can decide their own
+              raise, and an approved raise starts on the 1st of the month after approval,
+              never earlier. A reference scale shown beside a name is for reference only.
+            </p>
           </AlertDescription>
         </Alert>
 
