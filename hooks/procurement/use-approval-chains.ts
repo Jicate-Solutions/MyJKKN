@@ -23,8 +23,18 @@ export function useSaveProcurementCategory() {
 export function useSaveCategorySteps() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ categoryId, steps, stage = 'request' }: { categoryId: string; steps: CategoryStep[]; stage?: ApprovalStage }) =>
-      ProcurementApprovalChainService.saveSteps(categoryId, steps, stage),
+    mutationFn: ({
+      categoryId,
+      steps,
+      stage = 'request',
+      institutionId = null,
+    }: {
+      categoryId: string;
+      steps: CategoryStep[];
+      stage?: ApprovalStage;
+      /** null = the default chain; set = that college's own chain. */
+      institutionId?: string | null;
+    }) => ProcurementApprovalChainService.saveSteps(categoryId, steps, stage, institutionId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['procurement-categories'] });
       queryClient.invalidateQueries({ queryKey: ['procurement-chain-preview'] });
