@@ -40,33 +40,43 @@
 --      between 00:00 and 05:30 IST on the 1st counts in that month.
 --   +  A corrected amount below zero, or too large for the column, is refused
 --      with 22023 (a 400) instead of a 500.
---  1c. Review round 5: a check is recorded only against the amount the checker
---      was shown. The screen sends it (p_expected_amount); when the item's
---      amount differs now, rounded to the paise the screen shows, the check is
---      refused with 40001 (a 409: reload and check again). The item's source
---      rows are locked FOR SHARE before they are read, so an edit committed
---      while the check is being recorded waits for it, and an edit that was
---      waiting first is seen and refused. The old five-argument function had
---      no way to receive that amount: it now refuses every call and is granted
---      to nobody (this file removes no function).
---      The back-fill in section 10 runs only when the item has not changed
---      since the correction was recorded (its done date, and for L4 its
---      updated_at, for G6 its F&F rows, are on or before the correction), so
---      a correction is never made current against figures it never saw.
+--  1c. Review rounds 5 and 6: a check is recorded only against the amount the
+--      checker was shown. The screen sends it (p_expected_amount); when the
+--      item's amount differs now, rounded to the paise the screen shows, the
+--      check is refused with 55000 (a 409: reload and check again; not 40001,
+--      which means "retry"). The function first checks the caller may check
+--      the item in its college, THEN locks the item's source rows and reads
+--      them again, so only an allowed checker ever waits on or locks them, at
+--      most 5 seconds (lock_timeout; then 55P03, "try again"). L4 locks the
+--      encashment FOR SHARE. G6 locks the case row FOR UPDATE, which also makes
+--      any INSERT of a new F&F or settlement-step row wait (its foreign key
+--      takes FOR KEY SHARE on the case), plus the existing F&F and step rows
+--      FOR SHARE. The old five-argument function had no way to receive the
+--      amount: it now refuses every call with a "reload" message. It stays
+--      granted to signed-in users so a screen built before this file shows
+--      that message (this file removes no function).
+--      The back-fill in section 10 skips an item DECIDED again after the
+--      correction (its done date, and for G6 its F&F rows, after the
+--      correction); any other change keeps the correction as the item's proof.
+--
+-- DEPLOY ORDER: either may go first. Before this file is applied, the app's
+-- six-argument call is not found (PGRST202 / 42883) and the app falls back to
+-- the five-argument call, i.e. the behaviour before this file. After it is
+-- applied and before the app is deployed, the old app's five-argument call
+-- gets "This screen is out of date. Reload the page and check again."
 --
 -- BACK-FILLED (section 10, an UPDATE that runs once; a re-run finds nothing):
 --   hr_duty_proofs.checked_amount, decider_id on open legacy corrections.
--- REPLACED (CREATE OR REPLACE, same signatures):
---   fn_hr_duty_proof_done_items(text, uuid)          same grants
+-- REPLACED (CREATE OR REPLACE, same signatures, same grants):
+--   fn_hr_duty_proof_done_items(text, uuid)
 --   fn_hr_duty_proof_second_check(text, uuid, text, numeric, text)
---                                                    now refuses every call;
---                                                    REVOKEd from authenticated
---   fn_hr_duty_proof_gaps(text, date)                same grants
+--                                                    now refuses every call
+--   fn_hr_duty_proof_gaps(text, date)
 -- NEW: fn_hr_duty_proof_try_timestamptz(text) (internal, granted to nobody).
 -- NEW: fn_hr_duty_proof_second_check(text, uuid, text, numeric, numeric, text)
---      (p_expected_amount added; SECURITY DEFINER, REVOKE anon/PUBLIC, GRANT
---      authenticated). p_expected_amount has no default, so a call without it
---      can never resolve to this function.
+--      (p_expected_amount added; SECURITY DEFINER, lock_timeout 5s, REVOKE
+--      anon/PUBLIC, GRANT authenticated). p_expected_amount has no default, so
+--      a call without it can never resolve to this function.
 -- The trigger hr_duty_proof_rules_audit_trg is re-created with CREATE OR
 -- REPLACE TRIGGER (no DROP). Nothing is deleted or dropped.
 --
@@ -80,7 +90,7 @@
 --     fn_hr_duty_proof_gaps          body md5 277c16cfd776254d4d1761e21db463f5  definer t  {search_path=public}
 --   The ones this file installs:
 --     fn_hr_duty_proof_done_items    body md5 7b32c5d8b21b54f67b1a68a74b2317b7  definer f  {search_path=public}
---     fn_hr_duty_proof_second_check  body md5 25f8fdda739c6c407ff12bc464673a71  definer t  {search_path=public}
+--     fn_hr_duty_proof_second_check  body md5 62c4525a95e83e72ba286f4572b25230  definer t  {search_path=public}
 --     fn_hr_duty_proof_gaps          body md5 a24d804f1563721fe0eaf6536c887c47  definer t  {search_path=public}
 --   (second_check here is the five-argument one, which this file turns into a
 --   refusal. The six-argument one is new, so it is not drift-checked.)
@@ -104,7 +114,7 @@ BEGIN
        '7b32c5d8b21b54f67b1a68a74b2317b7', false, '{search_path=public}'),
       ('public.fn_hr_duty_proof_second_check(text,uuid,text,numeric,text)',
        'bf4a45ad06fbd41daacdd441526aab41', true, '{search_path=public}',
-       '25f8fdda739c6c407ff12bc464673a71', true, '{search_path=public}'),
+       '62c4525a95e83e72ba286f4572b25230', true, '{search_path=public}'),
       ('public.fn_hr_duty_proof_gaps(text,date)',
        '277c16cfd776254d4d1761e21db463f5', true, '{search_path=public}',
        'a24d804f1563721fe0eaf6536c887c47', true, '{search_path=public}')
@@ -249,6 +259,8 @@ REVOKE EXECUTE ON FUNCTION public.fn_hr_duty_proof_done_items(text, uuid) FROM a
 -- p_expected_amount has NO default, and comes before the two that do, so a
 -- call without it never resolves here (nor is it ambiguous with the retired
 -- five-argument function below).
+-- lock_timeout: a check waits at most 5 seconds for an edit in progress, then
+-- is refused with a "try again" message instead of hanging the request.
 CREATE OR REPLACE FUNCTION public.fn_hr_duty_proof_second_check(
   p_duty text,
   p_item_id uuid,
@@ -261,6 +273,7 @@ RETURNS uuid
 LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path = public
+SET lock_timeout = '5s'
 AS $$
 DECLARE
   v_uid  uuid := auth.uid();
@@ -298,20 +311,9 @@ BEGIN
     RAISE EXCEPTION 'The right amount must be between 0 and 9,999,999,999.99' USING ERRCODE = '22023';
   END IF;
 
-  -- 1c. Lock the rows the item's amount and decider are read from, BEFORE
-  --     reading them (FOR SHARE cannot run inside the STABLE reader). An edit
-  --     committed while this check is being recorded waits for it; an edit
-  --     already in progress is waited for, and its new amount is read below.
-  --     Locked rows are released when the call's transaction ends.
-  IF p_duty = 'L4' THEN
-    PERFORM 1 FROM public.hr_leave_encashments e WHERE e.id = p_item_id FOR SHARE;
-  ELSIF p_duty = 'G6' THEN
-    PERFORM 1 FROM public.hr_offboarding_step_completions sc
-     WHERE sc.case_id = p_item_id AND sc.step_key = 'final_settlement' FOR SHARE;
-    PERFORM 1 FROM public.hr_fnf_calculations f WHERE f.case_id = p_item_id FOR SHARE;
-  END IF;
-
-  -- 2 + 3. The item, from its own table, and it must be done.
+  -- 2 + 3. The item, from its own table, and it must be done. Read once
+  --        WITHOUT a lock, so that only a caller allowed to check it in its
+  --        college ever waits on, or locks, its rows (review round 6).
   SELECT * INTO v_item FROM public.fn_hr_duty_proof_done_items(p_duty, p_item_id) d LIMIT 1;
   IF NOT FOUND THEN
     RAISE EXCEPTION 'This item is not decided yet, so there is nothing to check' USING ERRCODE = '22023';
@@ -319,6 +321,45 @@ BEGIN
 
   -- 4. The checker holds the rule's key AND has access to the item's college.
   --    IS NOT TRUE, so a NULL from either helper is refused.
+  IF (public.is_super_admin()
+      OR (public.user_has_permission(v_rule.checker_permission_key)
+          AND public.role_has_institution_access(v_item.institution_id))) IS NOT TRUE THEN
+    RAISE EXCEPTION 'You do not have the permission to check this duty in this college'
+      USING ERRCODE = '42501';
+  END IF;
+
+  -- 1c. Now lock what the item's amount and decider are read from, then read
+  --     it again (FOR SHARE / FOR UPDATE cannot run inside the STABLE reader).
+  --     An edit already in progress is waited for (at most lock_timeout) and
+  --     its result is read below; an edit that starts now waits for this check.
+  --     L4: the encashment row holds the amount and the approver.
+  --     G6: the amount is the latest approved F&F row. A NEW F&F row cannot be
+  --     row-locked before it exists, so the case row is locked FOR UPDATE: an
+  --     INSERT into hr_fnf_calculations or hr_offboarding_step_completions
+  --     takes FOR KEY SHARE on the case through its foreign key, which
+  --     conflicts with FOR UPDATE, so every writer of a new row waits, with no
+  --     change to any writer. Existing F&F and step rows are locked FOR SHARE
+  --     against an UPDATE. Locks are released when the call's transaction ends.
+  BEGIN
+    IF p_duty = 'L4' THEN
+      PERFORM 1 FROM public.hr_leave_encashments e WHERE e.id = p_item_id FOR SHARE;
+    ELSIF p_duty = 'G6' THEN
+      PERFORM 1 FROM public.hr_offboarding_cases c WHERE c.id = p_item_id FOR UPDATE;
+      PERFORM 1 FROM public.hr_offboarding_step_completions sc
+       WHERE sc.case_id = p_item_id AND sc.step_key = 'final_settlement' FOR SHARE;
+      PERFORM 1 FROM public.hr_fnf_calculations f WHERE f.case_id = p_item_id FOR SHARE;
+    END IF;
+  EXCEPTION WHEN lock_not_available THEN
+    RAISE EXCEPTION 'This item is being changed right now. Try the check again in a moment.'
+      USING ERRCODE = '55P03';
+  END;
+
+  SELECT * INTO v_item FROM public.fn_hr_duty_proof_done_items(p_duty, p_item_id) d LIMIT 1;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'This item is not decided yet, so there is nothing to check' USING ERRCODE = '22023';
+  END IF;
+
+  -- 4 again, on the item as locked: its college could have changed meanwhile.
   IF (public.is_super_admin()
       OR (public.user_has_permission(v_rule.checker_permission_key)
           AND public.role_has_institution_access(v_item.institution_id))) IS NOT TRUE THEN
@@ -345,9 +386,11 @@ BEGIN
   --     amount can carry more decimals than a browser number keeps). NULL
   --     matches NULL (a G6 case with no approved F&F yet). Otherwise the
   --     check would be recorded against a figure the checker never saw.
+  --     55000 (object not in prerequisite state), a 409: NOT 40001, which
+  --     means "retry the transaction" and could be re-run by a retry layer.
   IF round(p_expected_amount, 2) IS DISTINCT FROM round(v_item.amount, 2) THEN
     RAISE EXCEPTION 'The amount changed after you opened this check. Reload the page and check the new amount.'
-      USING ERRCODE = '40001';
+      USING ERRCODE = '55000';
   END IF;
 
   -- 5b. 2026-10-08: an active check whose amount or decider no longer matches
@@ -387,8 +430,10 @@ REVOKE EXECUTE ON FUNCTION public.fn_hr_duty_proof_second_check(text, uuid, text
 GRANT  EXECUTE ON FUNCTION public.fn_hr_duty_proof_second_check(text, uuid, text, numeric, numeric, text) TO authenticated;
 
 -- 1c. The five-argument function cannot be told what the checker was shown,
---     so it refuses every call, and nobody signed in may call it. Its body
---     is replaced; the function itself stays.
+--     so it refuses every call. It stays granted to signed-in users so that a
+--     screen built before this file gets a clear "reload" message rather than
+--     "permission denied" (review round 6: deploy order). The body records
+--     nothing, so the grant opens no path. The function itself stays.
 CREATE OR REPLACE FUNCTION public.fn_hr_duty_proof_second_check(
   p_duty text,
   p_item_id uuid,
@@ -402,10 +447,11 @@ SECURITY DEFINER
 SET search_path = public
 AS $$
 BEGIN
-  RAISE EXCEPTION 'This screen is out of date. Reload the page and check again.' USING ERRCODE = '40001';
+  RAISE EXCEPTION 'This screen is out of date. Reload the page and check again.' USING ERRCODE = '55000';
 END $$;
 
-REVOKE EXECUTE ON FUNCTION public.fn_hr_duty_proof_second_check(text, uuid, text, numeric, text) FROM anon, PUBLIC, authenticated;
+REVOKE EXECUTE ON FUNCTION public.fn_hr_duty_proof_second_check(text, uuid, text, numeric, text) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_hr_duty_proof_second_check(text, uuid, text, numeric, text) TO authenticated;
 
 -- ----------------------------------------------------------------------------
 -- 1 + 9. Done items still missing their proof
@@ -476,11 +522,16 @@ CREATE OR REPLACE TRIGGER hr_duty_proof_rules_audit_trg
 -- correction stays the item's current proof until the amount or the decider
 -- changes. Confirmed checks are left as they are (stale, see 1). Idempotent:
 -- a back-filled row no longer has a NULL decider_id.
--- 1c (review round 5): only when the item has NOT changed since the
--- correction was recorded. "As of now" is then what the correction saw. An
--- item decided again (done_at), an L4 encashment edited (updated_at), or a G6
--- case with an F&F row calculated or approved after the correction is left
--- alone: the correction stays stale, so the item is listed for a new check.
+-- 1c (review rounds 5 and 6): only when the item has NOT been DECIDED again
+-- since the correction was recorded: its done date (L4 approved_at, G6 the
+-- settlement step's completed_at) is on or before it, and for G6 no F&F row
+-- was calculated or approved after it (the amount is the latest approved
+-- F&F). Such an item is a new decision, and the correction stays stale so it
+-- is listed for a new check. Any other change is NOT a reason to skip: an
+-- encashment marked paid, or edited to another amount that is still not the
+-- corrected one, still carries a wrong amount, and the correction (which
+-- names the right one) must stay its proof rather than be revoked by the
+-- next confirmation. updated_at is therefore not consulted.
 UPDATE public.hr_duty_proofs p
    SET (checked_amount, decider_id) = (
          SELECT d.amount, d.decider_id
@@ -498,12 +549,6 @@ UPDATE public.hr_duty_proofs p
           WHERE d.decider_id IS NOT NULL
             AND d.amount IS DISTINCT FROM p.corrected_amount
             AND d.done_at <= p.recorded_at)
-   AND NOT EXISTS (
-         SELECT 1
-           FROM public.hr_leave_encashments e
-          WHERE p.duty_code = 'L4'
-            AND e.id = p.item_id
-            AND e.updated_at > p.recorded_at)
    AND NOT EXISTS (
          SELECT 1
            FROM public.hr_fnf_calculations f
