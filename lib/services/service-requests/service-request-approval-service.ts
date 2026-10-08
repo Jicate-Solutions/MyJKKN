@@ -12,15 +12,18 @@
  */
 
 import { createServerSupabaseClient } from '@/lib/supabase/server';
-import type {
-  ServiceRequestApproval,
-  ProcessApprovalDto,
-  ServiceRequestFilters,
-  ServiceRequestListResponse,
+import {
+  isFeeStep,
+  type ServiceRequestApproval,
+  type ProcessApprovalDto,
+  type ServiceRequestFilters,
+  type ServiceRequestListResponse,
 } from '@/types/service-request';
 import { ServiceRequestTimelineService } from './service-request-timeline-service';
+import { ServiceRequestFeeService } from './service-request-fee-service';
 import { notifyTmsWebhook } from './transport-webhook';
 import { normalizePagination } from './pagination';
+import { buildApproverScopeFilter } from './approver-scope-filter';
 
 const getSupabase = async () => await createServerSupabaseClient() as any;
 
@@ -78,6 +81,15 @@ export class ServiceRequestApprovalService {
 
     if (!currentStep) {
       throw new Error('Current approval step not found');
+    }
+
+    // A fee step is never decided by hand — it completes when its bill is paid
+    // (ServiceRequestFeeService). Approving it here would skip the payment,
+    // and rejecting it would strand an unpaid bill on the learner's account.
+    if (isFeeStep(currentStep)) {
+      throw new Error(
+        'This step completes automatically once the fee is paid. It cannot be approved, rejected or returned.'
+      );
     }
 
     // Verify approver is authorized. Two paths:
@@ -258,6 +270,14 @@ export class ServiceRequestApprovalService {
         'in_review',
         `Step ${currentStep.step_order} (${currentStep.step_name}) approved. Proceeding to step ${nextStepOrder}.`
       );
+
+      // Next step collects a fee: raise the bill now so the requester can pay
+      // straight away. If that bill is already paid (a returned request coming
+      // round again), the same call moves the request on.
+      const nextStep = approvalSteps.find((s: any) => s.step_order === nextStepOrder);
+      if (isFeeStep(nextStep)) {
+        await ServiceRequestFeeService.syncQuietly(request.id, approverId);
+      }
     }
   }
 
@@ -322,63 +342,18 @@ export class ServiceRequestApprovalService {
   }
 
   /**
-   * Build the PostgREST `.or()` filter selecting the service_requests a user
-   * may approve, split into two scopes:
-   *
-   *   • Role-matched steps (approver_role === userRole): institution-scoped
-   *     when institutionId is provided — preserves multi-tenant isolation for
-   *     the broad role-based path.
-   *   • Named-approver steps (userId ∈ approver_user_ids): NOT institution-
-   *     scoped, so a user explicitly chosen as approver sees the request even
-   *     when it originates in a different institution (cross-institution
-   *     approval — mirrors the RLS named-approver policies).
-   *
-   * Returns an `or=(...)` body string, or null when neither scope matched.
-   * Keeps the coarse (service_type_id × current_approval_step) matching the
-   * callers already used: a request matches a scope if its type AND its current
-   * step both appear in that scope's step set.
-   */
-  private static buildApproverScopeFilter(
-    matchingSteps: any[],
-    userRole: string,
-    userId: string,
-    institutionId?: string
-  ): string | null {
-    const roleSteps = matchingSteps.filter((s) => s.approver_role === userRole);
-    const namedSteps = matchingSteps.filter(
-      (s) => Array.isArray(s.approver_user_ids) && s.approver_user_ids.includes(userId)
-    );
-
-    const group = (steps: any[], scoped: boolean): string | null => {
-      if (steps.length === 0) return null;
-      const typeIds = [...new Set(steps.map((s) => s.service_type_id))];
-      const stepOrders = [...new Set(steps.map((s) => s.step_order))];
-      const parts = [
-        `service_type_id.in.(${typeIds.join(',')})`,
-        `current_approval_step.in.(${stepOrders.join(',')})`,
-      ];
-      if (scoped && institutionId) {
-        parts.push(`institution_id.eq.${institutionId}`);
-      }
-      return `and(${parts.join(',')})`;
-    };
-
-    const groups = [group(roleSteps, true), group(namedSteps, false)].filter(
-      (g): g is string => g !== null
-    );
-    return groups.length > 0 ? groups.join(',') : null;
-  }
-
-  /**
    * Get requests pending approval for a user.
    *
-   * A step is considered "assigned to this user" if EITHER:
-   *   • the step's approver_role matches the user's role, OR
-   *   • the user's id is in the step's approver_user_ids array (multi-approver
-   *     mode — a specific subset of named approvers).
-   *
-   * Named-approver matches are NOT institution-scoped (cross-institution
+   * Assignment is decided by buildApproverScopeFilter, which applies the SAME
+   * rule as canUserApprove: a step naming anyone in approver_user_ids is in
+   * multi-approver mode and the role is ignored; only otherwise does the role
+   * match. Named matches are NOT institution-scoped (cross-institution
    * approval); role matches stay scoped to filters.institution_id.
+   *
+   * The `.or()` below is a deliberately WIDE prefilter — it fetches every step
+   * that could possibly concern this user and lets the pure function narrow it.
+   * Narrowing here instead would have to duplicate the gate's rule in PostgREST
+   * syntax, which is how the two drifted apart in the first place.
    */
   static async getPendingApprovalsForUser(
     userRole: string,
@@ -386,6 +361,11 @@ export class ServiceRequestApprovalService {
     filters?: ServiceRequestFilters
   ): Promise<ServiceRequestListResponse> {
     const supabase = await getSupabase();
+
+    // Requests whose fee was paid at the counter are still parked on the fee
+    // step until someone looks. Move them on first, so the next person in the
+    // chain finds them here.
+    await ServiceRequestFeeService.sweepPaid();
 
     const { page, limit } = normalizePagination(filters?.page, filters?.limit);
     const from = (page - 1) * limit;
@@ -406,7 +386,7 @@ export class ServiceRequestApprovalService {
       };
     }
 
-    const orFilter = this.buildApproverScopeFilter(
+    const orFilter = buildApproverScopeFilter(
       matchingSteps,
       userRole,
       userId,
@@ -484,7 +464,7 @@ export class ServiceRequestApprovalService {
 
     if (!matchingSteps || matchingSteps.length === 0) return 0;
 
-    const orFilter = this.buildApproverScopeFilter(
+    const orFilter = buildApproverScopeFilter(
       matchingSteps,
       userRole,
       userId,
@@ -504,6 +484,46 @@ export class ServiceRequestApprovalService {
     }
 
     return count || 0;
+  }
+
+  /**
+   * How many requests this user has personally approved / rejected.
+   *
+   * Read from service_request_approvals (the decision log) keyed on
+   * approver_id, NOT from service_requests.status: a request's status is the
+   * state of the whole chain, so counting it would credit every approver on a
+   * multi-step type with the same decision. This counts only the rows the user
+   * themselves acted on.
+   *
+   * No institution filter: a named approver may act cross-institution (see
+   * buildApproverScopeFilter), and their own decision history should follow
+   * them rather than being clipped to their home college.
+   */
+  static async getMyApprovalActionCounts(
+    userId: string
+  ): Promise<{ approved: number; rejected: number }> {
+    const supabase = await getSupabase();
+
+    const counts = await Promise.all(
+      (['approved', 'rejected'] as const).map(async (action) => {
+        const { count, error } = await supabase
+          .from('service_request_approvals')
+          .select('*', { count: 'exact', head: true })
+          .eq('approver_id', userId)
+          .eq('action', action);
+
+        if (error) {
+          console.error(
+            `[service-requests/approvals] Failed to count ${action} by user:`,
+            error
+          );
+          return 0;
+        }
+        return count || 0;
+      })
+    );
+
+    return { approved: counts[0], rejected: counts[1] };
   }
 
   /**

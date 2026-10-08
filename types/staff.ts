@@ -82,6 +82,13 @@ export type BloodGroup =
   | 'A1+'
   | 'A1B';
 
+/** A staff ID that was retired when its holder changed institution or teaching type. */
+export interface StaffIdHistoryEntry {
+  staff_id: string;
+  reason: string;
+  retired_at: string;
+}
+
 export interface Staff {
   id: string;
   first_name: string;
@@ -92,10 +99,15 @@ export interface Staff {
   blood_group?: BloodGroup;
   email: string;
   phone: string;
-  /** System-generated and permanent since 2026-08-28. Never sent on create or update. */
+  /** System-generated. Only the database changes it: issued on creation, re-issued when an active
+   *  staff member changes institution or teaching type. Never set by the client. */
   staff_id?: string;
   /** The hand-entered code held before the 2026-08-28 standardisation. Read-only. */
   legacy_staff_id?: string | null;
+  /** Space-separated IDs held before a re-issue. Search-only; the history table is the record. */
+  retired_staff_ids?: string | null;
+  /** Retired IDs, newest first. Only the edit-form fetch (getStaffById) embeds this. */
+  staff_id_history?: StaffIdHistoryEntry[] | null;
   profile_picture?: string;
   address?: string;
   state?: string;

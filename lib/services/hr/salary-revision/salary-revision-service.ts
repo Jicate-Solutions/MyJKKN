@@ -30,7 +30,17 @@ import {
   todayInIST,
   type SalarySuggestionInputsRow,
 } from '@/lib/services/hr/pay-bands/salary-suggestion-service';
-import { bandWarning, toAmount, type SalaryRevisionRow } from '@/lib/hr/salary-revision';
+import {
+  bandWarning,
+  toAmount,
+  type HeldApprovalRow,
+  type ListedTargetRow,
+  type RaiseTargets,
+  type SalaryRevisionRow,
+  type TargetFlag,
+  type TargetMonth,
+  type TargetPlan,
+} from '@/lib/hr/salary-revision';
 
 export const RPC = {
   people: 'fn_hr_salary_revision_people',
@@ -42,10 +52,35 @@ export const RPC = {
   directorDecide: 'fn_hr_salary_revision_director_decide',
   approveMany: 'fn_hr_salary_revision_director_approve_many',
   applyDue: 'fn_hr_salary_revision_apply_due',
+  held: 'fn_hr_salary_revision_held_approvals',
   inputs: 'hr_salary_revision_suggestion_inputs',
+  // 7 Oct 2026 (20271007180207): target-gated raises.
+  targetFlag: 'fn_hr_salary_revision_target_flag',
+  targetDecide: 'fn_hr_salary_revision_target_decide',
+  targetLapse: 'fn_hr_salary_revision_target_lapse',
+  targetsListed: 'fn_hr_salary_revision_targets_listed',
+  myTargets: 'fn_hr_salary_revision_my_targets',
+  targetsRun: 'fn_hr_salary_revision_targets_run',
 } as const;
 
 export const OUTCOMES_TABLE = 'hr_salary_revision_outcomes' as const;
+
+/**
+ * 7 Oct 2026: the held part of a raise and its monthly target numbers. RLS
+ * returns a row to whoever may see the request, except the person it is about
+ * (round 7, even when they asked for it themselves). The person reads their own
+ * numbers, state and dates through myTargets, never the notes or flags.
+ */
+export const TARGET_TABLES = {
+  plans: 'hr_salary_revision_target_plans',
+  months: 'hr_salary_revision_target_months',
+  flags: 'hr_salary_revision_target_flags',
+} as const;
+
+const PLAN_COLUMNS = 'request_id, staff_id, base_monthly_gross, increment_amount, held_amount, target_role, rules, '
+  + 'window_start, window_months, state, state_reason, missed_in_row, held_paid_from, paused_from, run_note, lapse_note';
+const MONTH_COLUMNS = 'request_id, month, status, results, acted, action, action_effective_from';
+const FLAG_COLUMNS = 'request_id, month, note, flagged_at, decided_at, counts_as_met, decision_note';
 
 export type ListView = 'mine' | 'college' | 'director' | 'all';
 
@@ -77,6 +112,17 @@ function fail(error: { code?: string; message?: string; details?: string | null 
   const openId = error.code === '23505' && error.details && /^[0-9a-f-]{36}$/i.test(error.details)
     ? error.details : null;
   throw new SalaryRevisionError(error.message ?? 'Something went wrong', status, openId);
+}
+
+/**
+ * 7 Oct 2026: the target tables and functions arrive with migration
+ * 20271007180207. Production deploys this code on merge, possibly before that
+ * migration is applied; until then a missing table or function means "no held
+ * part yet", so the request page and My Pay Changes keep their old view.
+ */
+const NOT_INSTALLED = new Set(['42P01', '42883', 'PGRST202', 'PGRST205']);
+function notInstalled(error: { code?: string } | null | undefined): boolean {
+  return !!error && NOT_INSTALLED.has(error.code ?? '');
 }
 
 /** What the asker and the Director see beside a figure (ruling 13). */
@@ -251,6 +297,13 @@ export const SalaryRevisionService = {
     return data as number;
   },
 
+  /** 1 Oct 2026: yeses given before the rules that break them. Director list only (42501 otherwise). */
+  async held(supabase: Pick<SupabaseClient, 'rpc'>) {
+    const { data, error } = await supabase.rpc(RPC.held);
+    if (error) fail(error);
+    return (data ?? []) as HeldApprovalRow[];
+  },
+
   /** Writes any approved raise whose start date has come. Idempotent. */
   async applyDue(supabase: Pick<SupabaseClient, 'rpc'>) {
     const { data, error } = await supabase.rpc(RPC.applyDue);
@@ -262,16 +315,96 @@ export const SalaryRevisionService = {
   async myOutcomes(supabase: SupabaseClient) {
     const { data, error } = await supabase
       .from(OUTCOMES_TABLE)
-      .select('id, previous_monthly_gross, new_monthly_gross, is_cut, starts_on, created_at')
+      .select('id, request_id, previous_monthly_gross, new_monthly_gross, is_cut, starts_on, created_at')
       .order('created_at', { ascending: false });
     if (error) fail(error);
     return (data ?? []) as Array<{
       id: string;
+      request_id?: string;
       previous_monthly_gross: number | string;
       new_monthly_gross: number | string;
       is_cut: boolean;
       starts_on: string;
       created_at: string;
     }>;
+  },
+
+  /**
+   * 7 Oct 2026: one request's held part, its months and (if the caller may see them) the flags.
+   * Round 7: the tables never show the person their own held part, even when they asked for
+   * it themselves; then it comes from myTargets (numbers, state and dates, no notes or flags).
+   */
+  async targets(supabase: SupabaseClient, requestId: string): Promise<RaiseTargets> {
+    const [plans, months, flags] = await Promise.all([
+      supabase.from(TARGET_TABLES.plans).select(PLAN_COLUMNS).eq('request_id', requestId).order('request_id'),
+      supabase.from(TARGET_TABLES.months).select(MONTH_COLUMNS).eq('request_id', requestId).order('month', { ascending: false }),
+      supabase.from(TARGET_TABLES.flags).select(FLAG_COLUMNS).eq('request_id', requestId).order('month', { ascending: false }),
+    ]);
+    if ([plans, months, flags].some((r) => notInstalled(r.error))) return { plan: null, months: [], flags: [] };
+    for (const r of [plans, months, flags]) if (r.error) fail(r.error);
+    if ((plans.data ?? []).length === 0) {
+      const own = (await this.myTargets(supabase, [requestId]))[requestId];
+      if (own) return own;
+    }
+    return {
+      plan: ((plans.data ?? []) as unknown as TargetPlan[])[0] ?? null,
+      months: (months.data ?? []) as unknown as TargetMonth[],
+      flags: (flags.data ?? []) as unknown as TargetFlag[],
+    };
+  },
+
+  /**
+   * 7 Oct 2026 (default cc): the held parts of the caller's own outcomes,
+   * read-only: numbers, state and dates only, through
+   * fn_hr_salary_revision_my_targets() (never the parked reason, lapse or run
+   * notes, or flags).
+   */
+  async myTargets(supabase: Pick<SupabaseClient, 'rpc'>, requestIds: string[]): Promise<Record<string, RaiseTargets>> {
+    const ids = new Set(requestIds.filter(Boolean));
+    const out: Record<string, RaiseTargets> = {};
+    if (ids.size === 0) return out;
+    const { data, error } = await supabase.rpc(RPC.myTargets);
+    if (notInstalled(error)) return out;
+    if (error) fail(error);
+    for (const row of (data ?? []) as Array<Omit<TargetPlan, 'staff_id' | 'target_role' | 'state_reason' | 'run_note'> & { months: TargetMonth[] }>) {
+      if (!ids.has(row.request_id)) continue;
+      const { months, ...plan } = row;
+      out[row.request_id] = {
+        plan: { ...plan, staff_id: '', target_role: plan.rules?.role ?? null, state_reason: null, run_note: null },
+        months: months ?? [],
+        flags: [],
+      };
+    }
+    return out;
+  },
+
+  /** 7 Oct 2026, ruling 5: the principal flags a month that has not been counted yet. */
+  async flagMonth(supabase: SupabaseClient, id: string, month: string, note: string) {
+    const { error } = await supabase.rpc(RPC.targetFlag, { p_request_id: id, p_month: month, p_note: note });
+    if (error) fail(error);
+  },
+
+  /** 7 Oct 2026: held parts waiting on the Director (parked, lapsed, back with him, flagged). Director list only (42501 otherwise). */
+  async targetsListed(supabase: Pick<SupabaseClient, 'rpc'>) {
+    const { data, error } = await supabase.rpc(RPC.targetsListed);
+    if (notInstalled(error)) return [] as ListedTargetRow[];
+    if (error) fail(error);
+    return (data ?? []) as ListedTargetRow[];
+  },
+
+  /** 7 Oct 2026, default p: the Director lapses an earlier held part; nobody's pay changes. */
+  async lapseHeld(supabase: SupabaseClient, id: string, note: string) {
+    const { data, error } = await supabase.rpc(RPC.targetLapse, { p_request_id: id, p_note: note });
+    if (error) fail(error);
+    return data as string;
+  },
+
+  /** 7 Oct 2026, ruling 5: the Director decides a flagged month. */
+  async decideMonth(supabase: SupabaseClient, id: string, month: string, countsAsMet: boolean, note: string | null) {
+    const { data, error } = await supabase.rpc(RPC.targetDecide, {
+      p_request_id: id, p_month: month, p_counts_as_met: countsAsMet, p_note: note,
+    });
+    if (error) fail(error);
+    return data as string;
   },
 };

@@ -110,7 +110,7 @@ export class ProcurementQuotationService {
     try {
       if (!dto.items?.length) throw new Error('A quotation must price at least one item.');
       if (!dto.items.some((i) => i.unit_price !== null)) {
-        throw new Error('At least one item must have a quoted price — mark the rest "Not quoted".');
+        throw new Error('Enter at least one price — leave the rest empty if the vendor did not quote them.');
       }
 
       const total = dto.items.reduce(
@@ -129,6 +129,7 @@ export class ProcurementQuotationService {
           validity_date: dto.validity_date ?? null,
           payment_terms: dto.payment_terms ?? null,
           delivery_time_days: dto.delivery_time_days ?? null,
+          warranty: dto.warranty?.trim() || null,
           total_amount: total,
           document_url: dto.document_url ?? null,
           document_file_id: dto.document_file_id ?? null,
@@ -151,6 +152,8 @@ export class ProcurementQuotationService {
         quality_grade: i.quality_grade ?? null,
         concentration: i.concentration ?? null,
         other_specs: i.other_specs ?? null,
+        gst_percent: i.gst_percent ?? null,
+        hsn: i.hsn?.trim() || null,
       }));
       const { error: itemsErr } = await this.supabase
         .from('procurement_quotation_items')
@@ -170,6 +173,42 @@ export class ProcurementQuotationService {
       console.error('[ProcurementQuotationService] createQuotation:', error);
       throw error;
     }
+  }
+
+  /** Link the vendor's PDF after the prices are saved (the upload runs in the background). */
+  static async attachQuotationDocument(id: string, url: string, fileId: string | null): Promise<void> {
+    const { error } = await this.supabase
+      .from('procurement_quotations')
+      .update({ document_url: url, document_file_id: fileId })
+      .eq('id', id);
+    if (error) throw error;
+  }
+
+  /**
+   * The vendor's revised quotation replaces their prices in place (lines keep their
+   * ids and "chosen" mark); each line remembers its previous price and a history row
+   * is kept (RPC procurement_revise_quotation). Only while quotes are open.
+   */
+  static async reviseQuotation(input: {
+    quotationId: string;
+    lines: Array<{ quotation_item_id: string; unit_price: number }>;
+    reason: string;
+    quote: {
+      vendor_quote_number?: string | null;
+      quote_date?: string | null;
+      validity_date?: string | null;
+      delivery_time_days?: number | null;
+      payment_terms?: string | null;
+    };
+  }): Promise<number> {
+    const { data, error } = await this.supabase.rpc('procurement_revise_quotation', {
+      p_quotation_id: input.quotationId,
+      p_lines: input.lines,
+      p_reason: input.reason,
+      p_quote: input.quote,
+    });
+    if (error) throw error;
+    return data as number;
   }
 
   static async deleteQuotation(id: string): Promise<void> {

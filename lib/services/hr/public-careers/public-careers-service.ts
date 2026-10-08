@@ -8,12 +8,28 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { deleteDriveFile, uploadResumeToJobFolder } from '@/lib/google/drive-upload';
 import type { ApplyInput } from './apply-validation';
-import { PUBLIC_JOB_SELECT, isJobVisible, toPublicJob, type PublicJob, type PublicJobRow } from './public-job';
+import {
+  PUBLIC_JOB_SELECT, PUBLIC_JOB_SELECT_WITHOUT_SEO, isJobVisible, toPublicJob, type PublicJob, type PublicJobRow,
+} from './public-job';
 
 export const JOB_TYPES = ['full_time', 'part_time', 'contract', 'internship', 'freelance'] as const;
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 export const isUuid = (v: string): boolean => UUID_RE.test(v);
+
+type SelectResult = { data: unknown; error: { code?: string } | null };
+
+/**
+ * Runs a job query with the seo_* columns and, if the database does not have
+ * them yet (42703 undefined_column — migration 20261006113500 not applied),
+ * once more without. Deploying before the migration then costs only the SEO
+ * text (the website builds its own), never the jkkn.ac.in careers page.
+ */
+async function selectWithSeoFallback(run: (columns: string) => PromiseLike<SelectResult>): Promise<SelectResult> {
+  const first = await run(PUBLIC_JOB_SELECT);
+  if (first.error?.code !== '42703') return first;
+  return run(PUBLIC_JOB_SELECT_WITHOUT_SEO);
+}
 
 export interface ListFilters { institution_id?: string | null; q?: string | null; job_type?: string | null }
 export interface InstitutionFacet { id: string; name: string; open_jobs: number }
@@ -24,13 +40,13 @@ export async function listPublicJobs(
   // One unfiltered read of everything visible (a few dozen rows in practice;
   // the cap is a safety net, not pagination), then filter in memory so the
   // institution facets describe the whole board, not the filtered page.
-  const { data, error } = await db
+  const { data, error } = await selectWithSeoFallback((columns) => db
     .from('hr_recruitment_jobs')
-    .select(PUBLIC_JOB_SELECT)
+    .select(columns)
     .eq('status', 'open')
     .or(`closes_at.is.null,closes_at.gt.${now.toISOString()}`)
     .order('posted_at', { ascending: false, nullsFirst: false })
-    .limit(500);
+    .limit(500));
   if (error) throw error;
 
   const all = ((data ?? []) as unknown as PublicJobRow[]).filter((r) => isJobVisible(r, now)).map(toPublicJob);
@@ -56,7 +72,8 @@ export async function listPublicJobs(
 
 async function loadVisibleJobRow(db: SupabaseClient, id: string, now: Date): Promise<PublicJobRow | null> {
   if (!isUuid(id)) return null;
-  const { data, error } = await db.from('hr_recruitment_jobs').select(PUBLIC_JOB_SELECT).eq('id', id).maybeSingle();
+  const { data, error } = await selectWithSeoFallback((columns) =>
+    db.from('hr_recruitment_jobs').select(columns).eq('id', id).maybeSingle());
   if (error) throw error;
   const row = data as unknown as PublicJobRow | null;
   return row && isJobVisible(row, now) ? row : null;

@@ -3,7 +3,7 @@
 /**
  * PeriodLockModal — Director/Admin terminal lock for a distributed period.
  *
- * Per spec specs/t4-3-pr3-payroll-ui-design-lock-2026-05-19.md Q5:
+ * No written spec; the rules live in this code:
  *   - Visible only when status='distributed' AND user is Director/admin.
  *   - Calls useAdvancePayrollPeriod (RPC fn_advance_payroll_period; when
  *     status='distributed' it advances to 'locked').

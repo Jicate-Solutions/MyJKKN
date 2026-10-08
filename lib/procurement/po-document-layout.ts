@@ -10,6 +10,8 @@ export function itemColumnWeights(keys: string[]): number[] {
     if (k === 'row_index') return 0.55;
     if (/name|desc|title/i.test(k)) return 3;
     if (/author|spec/i.test(k)) return 1.6;
+    // "20 × 500 ml" must sit on one line.
+    if (/qty|quantity/i.test(k)) return 1.4;
     return 1;
   });
 }

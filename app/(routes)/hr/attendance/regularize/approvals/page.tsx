@@ -1,5 +1,6 @@
 'use client';
 
+import { DutyPlaybookCard } from '@/components/hr/duty-playbook/duty-playbook-card';
 import { useMemo, useState } from 'react';
 import Link from 'next/link';
 import { format } from 'date-fns';
@@ -209,6 +210,7 @@ export default function RegularizationApprovalsPage() {
           title="Regularization Approvals"
           description="Review attendance regularization requests submitted by employees."
         />
+        <DutyPlaybookCard duty="A3" />
 
         {authLoading || permLoading ? (
           <div className="text-sm text-muted-foreground">Loading…</div>

@@ -103,6 +103,11 @@ export function useLeaveBalance(
       return ((await res.json()).data ?? []) as HRLeaveBalanceWithType[];
     },
     enabled: !!employeeId && !!hrAcademicYearId,
+    // These rows embed the leave type's own rules (documents, notice, max days,
+    // STO limits), which HR edits from another browser — no invalidation of ours
+    // can reach this one. Re-read on every mount rather than serve a copy up to
+    // 5 minutes old; it is one small request per leave page visit.
+    refetchOnMount: 'always',
   });
 }
 

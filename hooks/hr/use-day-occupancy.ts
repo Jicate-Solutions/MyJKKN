@@ -18,7 +18,7 @@
 // It is a courtesy, not a guarantee: the triggers are the enforcement point, so
 // a stale answer here costs a round trip and never a double booking.
 
-import { useQuery } from '@tanstack/react-query';
+import { useQueries, useQuery } from '@tanstack/react-query';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 
 const KEY = 'hr-day-occupancy';
@@ -63,4 +63,35 @@ export function useDayOccupancy(
     // straight back re-asks.
     staleTime: 30_000,
   });
+}
+
+/**
+ * The same check for several individual days at once — one query per day, so
+ * the multi-day comp-off claim can name WHICH day is taken. Keyed exactly like
+ * useDayOccupancy with from = to, so the two share a cache.
+ *
+ * Returns date -> clash sentence (null = free, undefined = still loading).
+ */
+export function useDaysOccupancy(
+  employeeId: string | null | undefined,
+  dates: string[]
+): Record<string, string | null | undefined> {
+  const supabase = createClientSupabaseClient();
+  const results = useQueries({
+    queries: dates.map((d) => ({
+      queryKey: [KEY, employeeId ?? null, d, d],
+      enabled: Boolean(employeeId),
+      queryFn: async () => {
+        const { data, error } = await (supabase as any).rpc('fn_hr_day_occupancy_check', {
+          p_employee_id: employeeId,
+          p_from: d,
+          p_to: d,
+        });
+        if (error) throw error;
+        return (data as string | null) ?? null;
+      },
+      staleTime: 30_000,
+    })),
+  });
+  return Object.fromEntries(dates.map((d, i) => [d, results[i]?.data]));
 }

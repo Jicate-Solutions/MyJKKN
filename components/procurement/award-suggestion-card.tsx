@@ -136,17 +136,17 @@ export function AwardSuggestionCard({
 
       <div className="mt-3 flex flex-wrap items-center gap-2">
         {appliedAt ? (
-          <span className="flex items-center gap-1 text-xs text-green-600">
+          <span className="flex items-center gap-1 text-xs text-primary">
             <CheckCircle2 className="h-3.5 w-3.5" />
             Applied{appliedBy ? ` by ${appliedBy}` : ''} on {new Date(appliedAt).toLocaleString('en-IN')}
           </span>
         ) : stale ? (
-          <span className="flex items-center gap-1 text-xs text-amber-600">
+          <span className="flex items-center gap-1 text-xs text-foreground">
             <AlertTriangle className="h-3.5 w-3.5" />
             Quotations changed since this was suggested — ask again for a fresh plan.
           </span>
         ) : alreadyInPlace ? (
-          <span className="flex items-center gap-1 text-xs text-green-600">
+          <span className="flex items-center gap-1 text-xs text-primary">
             <CheckCircle2 className="h-3.5 w-3.5" />
             These choices are already in place.
           </span>

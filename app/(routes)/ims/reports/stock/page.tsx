@@ -98,9 +98,11 @@ function StockReportPageInner() {
 
   // Compute summary stats
   const totalItems = stockLevels?.length ?? 0;
-  const stockValue = stockLevels?.reduce((sum: number, item: any) => sum + (item.total_value ?? 0), 0) ?? 0;
+  // getStockLevels rows carry no value and a FLAT reorder_level, so the card
+  // read two missing fields and always showed 0 (BUG-005871). The value is the
+  // valuation total, the same figure the Valuation table footer shows.
   const lowStockCount = stockLevels?.filter((item: any) => {
-    const reorder = item.item?.reorder_level ?? 0;
+    const reorder = item.reorder_level ?? 0;
     return item.current_quantity <= reorder && item.current_quantity > 0;
   }).length ?? 0;
   const expiringCount = expiringItems?.length ?? 0;
@@ -154,7 +156,7 @@ function StockReportPageInner() {
                 <div>
                   <p className='text-sm text-muted-foreground'>Stock Value</p>
                   <p className='text-2xl font-bold'>
-                    {stockLoading ? <BeatLoader size={8} color='#00e902' /> : formatCurrency(stockValue)}
+                    {valuationLoading ? <BeatLoader size={8} color='#00e902' /> : formatCurrency(totalValuation)}
                   </p>
                 </div>
               </div>

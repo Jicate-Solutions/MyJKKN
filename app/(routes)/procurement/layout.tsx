@@ -5,17 +5,23 @@ import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { usePermissions } from '@/hooks/use-permissions';
+import { useHasApprovalWork } from '@/hooks/procurement/use-approval-chains';
 
 /**
- * Procurement module gateway. Blocks users without `procurement.view`.
+ * Procurement module gateway. Blocks users without `procurement.view` — except
+ * people who are an approver on some request's category approval steps (an HOD,
+ * Principal, CAO, Chairperson…): they get in to open and decide those requests.
+ * Their tabs stay hidden (AutoTabNav reads MENU_PERMISSIONS); RLS limits what they read.
  * Unlike IMS there is no store picker — procurement is institution-scoped,
  * so the layout only enforces the permission gate.
  */
 export default function ProcurementLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const { canAccess, isSuperAdmin, isLoading } = usePermissions();
+  const hasView = isSuperAdmin || canAccess('procurement', 'view');
+  const { data: hasApprovalWork, isLoading: checkingWork } = useHasApprovalWork(!isLoading && !hasView);
 
-  if (isLoading) {
+  if (isLoading || (!hasView && checkingWork)) {
     return (
       <div className="flex items-center justify-center min-h-[60vh]">
         <div className="animate-pulse text-muted-foreground text-sm">Checking access...</div>
@@ -23,7 +29,7 @@ export default function ProcurementLayout({ children }: { children: React.ReactN
     );
   }
 
-  if (!isSuperAdmin && !canAccess('procurement', 'view')) {
+  if (!hasView && !hasApprovalWork) {
     return (
       <div className="flex flex-col items-center justify-center min-h-[60vh] gap-6 p-6">
         <Card className="w-full max-w-md">
@@ -43,5 +49,9 @@ export default function ProcurementLayout({ children }: { children: React.ReactN
     );
   }
 
-  return <>{children}</>;
+  // The floating buttons (AI, share, quick actions, bug report) stack down the right
+  // edge of every page and covered whatever sat there: the last button of an action
+  // bar, a table's right-hand column. Every procurement page keeps a gutter clear of
+  // them. Phones are handled per bar (FormActionBar pads its right side).
+  return <div className="md:pr-16">{children}</div>;
 }

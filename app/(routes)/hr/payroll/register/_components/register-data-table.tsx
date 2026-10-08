@@ -90,6 +90,8 @@ interface Props {
   /** Where "View details" goes; the page owns the run id and the query string. */
   detailHref: (line: HRSalaryRegisterLine) => string;
   onAdjust: (line: HRSalaryRegisterLine) => void;
+  /** Enter / edit days by hand for a row with no biometric attendance. */
+  onManualEntry: (line: HRSalaryRegisterLine) => void;
 }
 
 export function RegisterDataTable({
@@ -99,10 +101,11 @@ export function RegisterDataTable({
   isSuperseded,
   detailHref,
   onAdjust,
+  onManualEntry,
 }: Props) {
   const columns = useMemo(
-    () => getRegisterColumns({ detailHref, onAdjust, canManage, isSuperseded }),
-    [canManage, detailHref, isSuperseded, onAdjust]
+    () => getRegisterColumns({ detailHref, onAdjust, onManualEntry, canManage, isSuperseded }),
+    [canManage, detailHref, isSuperseded, onAdjust, onManualEntry]
   );
 
   const fetchData = useCallback(

@@ -12,12 +12,20 @@
  */
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { saveAs } from 'file-saver';
 import type {
   HRSalaryRegisterDeletedRun,
   HRSalaryRegisterLine,
   HRSalaryRegisterRun,
+  ManualEntryContext,
+  ManualEntryInput,
+  ManualEntryResult,
+  PayrollDocumentKind,
+  PayrollDocumentSettingsInput,
+  PayrollDocumentSettingsResponse,
   SalaryRegisterPreflight,
   SalaryRegisterRunDetail,
+  StaffCategoryKey,
 } from '@/types/hr-payroll';
 
 export const SALARY_REGISTER_KEYS = {
@@ -27,6 +35,8 @@ export const SALARY_REGISTER_KEYS = {
   runs: (org: string | undefined, year: number | undefined) =>
     ['hr', 'salary-register', 'runs', org ?? 'all', year ?? 'all'] as const,
   detail: (runId: string) => ['hr', 'salary-register', 'detail', runId] as const,
+  documentSettings: (org: string) => ['hr', 'salary-register', 'document-settings', org] as const,
+  manualEntry: (lineId: string) => ['hr', 'salary-register', 'manual-entry', lineId] as const,
 };
 
 /**
@@ -177,4 +187,134 @@ export function useDeleteSalaryRegisterRun() {
 /** The export URL. A plain link — the route streams the file with its own name. */
 export function salaryRegisterExportUrl(runId: string): string {
   return `/api/hr/payroll/register/${runId}/export`;
+}
+
+// ── Payroll documents (2026-10-07) ─────────────────────────────────────────
+
+/** The Bank Letter / Chairperson Approval constants for one paying institution. */
+export function usePayrollDocumentSettings(hrOrganizationId: string | null) {
+  return useQuery({
+    queryKey: SALARY_REGISTER_KEYS.documentSettings(hrOrganizationId ?? ''),
+    enabled: Boolean(hrOrganizationId),
+    queryFn: async () =>
+      readJson<PayrollDocumentSettingsResponse>(
+        await fetch(`/api/hr/payroll/register/document-settings/${hrOrganizationId}`),
+      ),
+  });
+}
+
+export function useSavePayrollDocumentSettings(hrOrganizationId: string | null) {
+  const qc = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (input: PayrollDocumentSettingsInput) =>
+      readJson<PayrollDocumentSettingsResponse>(
+        await fetch(`/api/hr/payroll/register/document-settings/${hrOrganizationId}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(input),
+        }),
+      ),
+    onSuccess: (data) => {
+      qc.setQueryData(SALARY_REGISTER_KEYS.documentSettings(hrOrganizationId ?? ''), data);
+      qc.invalidateQueries({ queryKey: SALARY_REGISTER_KEYS.documentSettings(hrOrganizationId ?? '') });
+    },
+  });
+}
+
+export interface PayrollDocumentRequest {
+  runId: string;
+  doc: PayrollDocumentKind;
+  category: StaffCategoryKey;
+  /** YYYY-MM-DD. */
+  date: string;
+  cheque?: string;
+}
+
+export function salaryRegisterDocumentUrl(req: PayrollDocumentRequest): string {
+  const qs = new URLSearchParams({ doc: req.doc, category: req.category, date: req.date });
+  if (req.cheque?.trim()) qs.set('cheque', req.cheque.trim());
+  return `/api/hr/payroll/register/${req.runId}/documents?${qs.toString()}`;
+}
+
+/** `filename*=UTF-8''…` first (it carries the real name), then plain `filename=`. */
+function filenameFrom(disposition: string | null, fallback: string): string {
+  if (!disposition) return fallback;
+  const star = /filename\*=UTF-8''([^;]+)/i.exec(disposition);
+  if (star) return decodeURIComponent(star[1]);
+  const plain = /filename="?([^";]+)"?/i.exec(disposition);
+  return plain ? plain[1] : fallback;
+}
+
+/**
+ * Fetch, then save — not a plain link like the workbook. The documents route
+ * answers 409 (details never saved) and 422 (nobody paid in that category) with
+ * a sentence worth showing; a link would open that JSON as a page instead.
+ */
+export function useDownloadPayrollDocument() {
+  return useMutation({
+    mutationFn: async (req: PayrollDocumentRequest) => {
+      const res = await fetch(salaryRegisterDocumentUrl(req));
+      if (!res.ok) {
+        const body = await res.json().catch(() => null);
+        throw new Error(body?.error ?? `Request failed (${res.status})`);
+      }
+      const blob = await res.blob();
+      saveAs(blob, filenameFrom(res.headers.get('Content-Disposition'), 'document.docx'));
+    },
+  });
+}
+
+// ── Days entered by hand (2026-10-07) ─────────────────────────────────────
+
+/** What the Enter / Edit details dialog opens with. */
+export function useManualEntryContext(lineId: string | null) {
+  return useQuery({
+    queryKey: SALARY_REGISTER_KEYS.manualEntry(lineId ?? ''),
+    enabled: Boolean(lineId),
+    // The pay in force can change between openings; never serve a stale one.
+    staleTime: 0,
+    queryFn: async () =>
+      readJson<ManualEntryContext>(
+        await fetch(`/api/hr/payroll/register/lines/${lineId}/manual`),
+      ),
+  });
+}
+
+/** The live preview — computed by the server, saves nothing. */
+export async function fetchManualEntryPreview(
+  lineId: string,
+  input: Omit<ManualEntryInput, 'reason'> & { reason?: string },
+  signal?: AbortSignal,
+): Promise<ManualEntryResult> {
+  return readJson<ManualEntryResult>(
+    await fetch(`/api/hr/payroll/register/lines/${lineId}/manual`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...input, dry_run: true }),
+      signal,
+    }),
+  );
+}
+
+export function useSaveManualEntry(runId: string) {
+  const qc = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (vars: { lineId: string; input: ManualEntryInput }) =>
+      readJson<ManualEntryResult>(
+        await fetch(`/api/hr/payroll/register/lines/${vars.lineId}/manual`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(vars.input),
+        }),
+      ),
+    onSuccess: (_data, vars) => {
+      // The row, the run header (paid / excluded / totals) and the run list all
+      // moved; nothing self-refreshes.
+      qc.invalidateQueries({ queryKey: SALARY_REGISTER_KEYS.detail(runId) });
+      qc.invalidateQueries({ queryKey: SALARY_REGISTER_KEYS.manualEntry(vars.lineId) });
+      qc.invalidateQueries({ queryKey: SALARY_REGISTER_KEYS.all });
+    },
+  });
 }

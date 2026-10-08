@@ -1,18 +1,17 @@
 // app/api/campus-walk/review/route.ts
 // ============================================================================
-// Campus Walk — the DIRECTOR's endpoint. This is where a ticket actually closes.
+// Campus Walk — the DIRECTOR's endpoint for the OLD approval queue.
 //
 // Spec: specs/campus-walk-2026-08-17.md (D2, D4, D10; guardrail G5).
 //
-// ── WHY THIS FILE EXISTS ────────────────────────────────────────────────────
-// app/api/campus-walk/fix/route.ts deliberately stops at status_key 'review'
-// and leaves completed_at NULL, because D4 says a fix photo alone does not
-// close a ticket. Without the route below, every submitted fix would sit in
-// 'review' forever and nobody on the platform could close it. Two writes in
-// this file are therefore unique to it, and must never be copied elsewhere:
-//
-//     status_key = 'done'      (POST -> decision 'approve', one place only)
-//     completed_at = <now>     (same line, same place)
+// ── DIRECTOR'S RULING, 2026-09-30 (supersedes D4) ───────────────────────────
+// The fixer's after-photo now closes the job at once
+// (app/api/campus-walk/fix/route.ts -> lib/campus-walk/closure.ts). Nothing new
+// enters the approval queue. This route stays so the jobs that were ALREADY
+// waiting in 'review' when the ruling landed can still be approved or sent
+// back. Approval goes through the same closeCampusWalkTask() the fix route
+// uses — one closing path, one approval record, one set of bells — so the
+// scoreboard's verified-closure rule reads both doors the same way.
 //
 // ── D2: DIRECTOR-ONLY, AND THE DATABASE WILL NOT HELP ───────────────────────
 // Every project_* RLS policy is `auth.uid() IS NOT NULL` for SELECT *and* for
@@ -47,12 +46,11 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server';
 import { isCampusWalkReporter } from '@/lib/campus-walk/reporters';
 import { createBellNotification } from '@/lib/services/meetings/meeting-trigger-service';
+import { closeCampusWalkTask, resolveFixerProfileId } from '@/lib/campus-walk/closure';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 export const maxDuration = 30;
-
-type SupabaseAny = ReturnType<typeof createServiceRoleClient>;
 
 type Decision = 'approve' | 'request_changes';
 
@@ -101,40 +99,9 @@ interface TaskRow {
   status_key: string;
   owner_staff_id: string | null;
   completed_at: string | null;
+  /** Passed to the close so a report that joined meanwhile is kept. */
+  updated_at?: string | null;
   metadata: Record<string, any>;
-}
-
-/**
- * The person to tell. Preferred source is the fixer route's own record of who
- * pressed send; the assignee chain is a fallback for a task whose metadata was
- * trimmed, and for the (impossible-by-construction, cheap-to-cover) case of a
- * submission recorded without a profile id.
- */
-async function resolveFixerProfileId(
-  admin: SupabaseAny,
-  task: TaskRow,
-  metadata: Record<string, any>
-): Promise<string | null> {
-  const submitted = metadata.fix?.submitted_by_profile_id;
-  if (typeof submitted === 'string' && submitted) return submitted;
-
-  const { data: accountable } = await admin
-    .from('project_task_assignees')
-    .select('staff_id')
-    .eq('task_id', task.id)
-    .eq('role', 'accountable')
-    .maybeSingle();
-
-  const staffId = (accountable?.staff_id as string | null) ?? task.owner_staff_id;
-  if (!staffId) return null;
-
-  const { data: staff } = await admin
-    .from('staff')
-    .select('profile_id')
-    .eq('id', staffId)
-    .maybeSingle();
-
-  return (staff?.profile_id as string | null) ?? null;
 }
 
 // ─── POST ────────────────────────────────────────────────────────────────────
@@ -199,7 +166,7 @@ export async function POST(request: NextRequest) {
 
   const { data: taskData, error: taskErr } = await admin
     .from('project_tasks')
-    .select('id, project_id, title, status_key, owner_staff_id, completed_at, metadata')
+    .select('id, project_id, title, status_key, owner_staff_id, completed_at, updated_at, metadata')
     .eq('id', taskId)
     .maybeSingle();
 
@@ -292,15 +259,69 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  // ── Approve: the same closing path the fixer's photo uses ────────────────
+  // lib/campus-walk/closure.ts writes 'done' + completed_at + the approval
+  // record under a compare-and-set, tells the fixer, and tells whoever
+  // reported it. One function, so a queue approval and a photo closure can
+  // never drift apart.
+  if (decision === 'approve') {
+    const closed = await closeCampusWalkTask(admin, task, {
+      decidedByProfileId: user.id,
+      auto: false,
+      note: note || null,
+    });
+
+    if (closed.ok === false) {
+      return fail(
+        closed.code,
+        closed.code === 'raced'
+          ? 'This job changed while you were looking at it. Refresh the list to see where it stands.'
+          : closed.code === 'decision_not_saved'
+            ? 'We could not record that decision. Nothing was changed — please try again.'
+            : closed.error,
+        closed.code === 'decision_not_saved' ? 502 : 409,
+        closed.retryable ? { retryable: true } : {}
+      );
+    }
+
+    if (closed.already) {
+      return NextResponse.json({
+        ok: true,
+        already: true,
+        decision,
+        task_id: taskId,
+        status_key: closed.statusKey,
+        approval_state: 'approved',
+        completed_at: closed.completedAt,
+        notified: false,
+        message: 'This job was already approved and closed.',
+      });
+    }
+
+    const notified = closed.fixerNotified !== false;
+    return NextResponse.json({
+      ok: true,
+      decision,
+      task_id: taskId,
+      reporter_notified: closed.reporterNotified,
+      status_key: 'done',
+      approval_state: 'approved',
+      completed_at: closed.completedAt,
+      notified,
+      message: notified
+        ? 'Approved and closed. The person who fixed it has been told.'
+        : 'Approved and closed. We could not send them a notification — please mention it.',
+    });
+  }
+
+  // ── Send back: the job goes back to the fixer ─────────────────────────────
   const nowIso = new Date().toISOString();
   const targetState = DECISION_STATE[decision];
 
-  // ── The decision record ───────────────────────────────────────────────────
-  // Exactly the shape app/api/campus-walk/fix/route.ts writes and reads — the
-  // same six keys, no parallel field. previous_state / previous_note carry the
-  // record being replaced, matching how the fixer route rolls the chain forward
-  // on a re-submission, so "what was asked last time" survives one step at a
-  // time and the fixer's screen can show it.
+  // Exactly the shape lib/campus-walk/closure.ts writes on approval — the same
+  // keys, no parallel field. previous_state / previous_note carry the record
+  // being replaced, so "what was asked last time" survives one step at a time
+  // and the fixer's screen can show it.
   metadata.fix = {
     ...(metadata.fix as Record<string, any>),
     approval: {
@@ -313,27 +334,11 @@ export async function POST(request: NextRequest) {
     },
   };
 
-  // ── The only write of 'done' + completed_at in the whole lane (D4) ─────────
-  // is_blocked, is_overdue and due_date are deliberately left ALONE. A block
-  // record carries the SLA arithmetic the fixer route owns (D8); silently
-  // clearing it here would erase how long the job was legitimately held up, and
-  // a closed ticket is filtered out of the fixer's list by status anyway.
-  const update: Record<string, unknown> =
-    decision === 'approve'
-      ? { status_key: 'done', completed_at: nowIso, metadata }
-      : { status_key: RETURN_STATUS, completed_at: null, metadata };
-
-  // Compare-and-set on the status this request read. The realistic race is not
-  // two people — it is one Director on a corridor connection whose first
-  // request DID land and then timed out on the way back, so he taps again.
-  // Without this, the second tap re-stamps decided_at and sends the fixer a
-  // second bell for the same decision. status_key is used as the version
-  // because it is a plain indexed column: making the guard depend on a nested
-  // JSON path would put the write path at the mercy of the one thing this file
-  // cannot verify without a live database.
+  // Compare-and-set on the status this request read: a second tap on a
+  // corridor connection must not re-stamp decided_at or ring the fixer twice.
   const { data: updatedRows, error: updateErr } = await admin
     .from('project_tasks')
-    .update(update)
+    .update({ status_key: RETURN_STATUS, completed_at: null, metadata })
     .eq('id', taskId)
     .eq('status_key', task.status_key)
     .select('id');
@@ -349,9 +354,6 @@ export async function POST(request: NextRequest) {
   }
 
   if ((updatedRows ?? []).length === 0) {
-    // Somebody — probably this same request, a moment ago — got there first.
-    // Report the decision that actually stands rather than an error for work
-    // that already succeeded.
     const { data: fresh } = await admin
       .from('project_tasks')
       .select('status_key, completed_at, metadata')
@@ -370,10 +372,7 @@ export async function POST(request: NextRequest) {
         approval_state: freshState,
         completed_at: fresh?.completed_at ?? null,
         notified: false,
-        message:
-          decision === 'approve'
-            ? 'This job was already approved and closed.'
-            : 'This job has already been sent back for changes.',
+        message: 'This job has already been sent back for changes.',
       });
     }
 
@@ -385,9 +384,8 @@ export async function POST(request: NextRequest) {
   }
 
   // ── Tell the fixer (fail soft) ────────────────────────────────────────────
-  // A decision nobody sees is not a decision. But the decision is already on
-  // the row: a bell that fails is reported, not raised as an error the Director
-  // would re-tap into a duplicate.
+  // The reporter is NOT told: the job is not fixed yet, and a "sent back"
+  // notice would leak how a named department's fix is going (D10).
   let notified = false;
   let notifyProblem: string | null = null;
 
@@ -399,25 +397,12 @@ export async function POST(request: NextRequest) {
       const shortTitle = String(task.title ?? 'Campus job').slice(0, 100);
       const id = await createBellNotification(admin, {
         recipientIds: [fixerProfileId],
-        // D10: created_by is a real column that some notification surfaces
-        // render as "From: <name>". Attributing it to the recipient — the same
-        // thing lib/services/campus-walk/campus-walk-service.ts does for every
-        // notification in this lane — keeps the Director's name off the fixer's
-        // screen by construction rather than by wording discipline.
+        // D10: attributed to the recipient, so no other name surfaces as "From:".
         createdBy: fixerProfileId,
-        title:
-          decision === 'approve'
-            ? `Campus job approved — ${shortTitle}`
-            : `Campus job sent back — ${shortTitle}`,
-        body:
-          decision === 'approve'
-            ? `Your photo was accepted and “${shortTitle}” is now closed.${
-                note ? ` Note: ${note}` : ''
-              }`
-            : `“${shortTitle}” needs more work before it can be closed. ${note}`,
+        title: `Campus job sent back — ${shortTitle}`,
+        body: `“${shortTitle}” needs more work before it can be closed. ${note}`,
         url: `/campus-walk/fix?task=${taskId}`,
-        category:
-          decision === 'approve' ? 'campus-walk:approved' : 'campus-walk:changes-requested',
+        category: 'campus-walk:changes-requested',
         metadata: {
           task_id: taskId,
           source: 'campus-walk',
@@ -438,85 +423,17 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  // ── Tell whoever REPORTED it, when a front door recorded them (fail soft) ─
-  // The InstaSolver form tells the reporter they will hear back. Nothing in
-  // this lane kept that promise: the fixer was told, the Director could see
-  // the board, and the learner who photographed the exposed wire was never
-  // told it had been dealt with. A promise nothing keeps teaches people to
-  // stop reporting, which costs more than the form earns.
-  //
-  // APPROVE only — that is the D4 verified closure, the moment the thing is
-  // actually fixed AND checked. A `changes_requested` round trip is internal;
-  // telling the reporter would leak how a named department's fix is going.
-  //
-  // D10 holds in both directions: the reporter is told nothing about WHO fixed
-  // it, `createdBy` is the recipient themselves so no other name can surface
-  // as "From:", and nobody but the reporter is told that they reported it.
-  //
-  // The idempotency key makes the database the arbiter: a task reopened and
-  // re-approved, or two reviewers racing, still sends exactly one notice.
-  let reporterNotified: boolean | null = null;
-  if (decision === 'approve') {
-    const reporterProfileId =
-      typeof metadata.reporter_id === 'string' && metadata.reporter_id
-        ? metadata.reporter_id
-        : null;
-
-    // Not self: approving your own report should not ping you about it.
-    if (reporterProfileId && reporterProfileId !== user.id) {
-      try {
-        const shortTitle = String(task.title ?? 'your report').slice(0, 100);
-        await createBellNotification(admin, {
-          recipientIds: [reporterProfileId],
-          createdBy: reporterProfileId,
-          title: 'Your report was fixed',
-          body: `Your report “${shortTitle}” was fixed and verified. Thank you for telling us.`,
-          url: '/instasolver/broken',
-          category: 'instasolver:reported-fixed',
-          metadata: {
-            task_id: taskId,
-            source: 'campus-walk',
-            front_door: metadata.front_door ?? null,
-          },
-          idempotencyKey: `instasolver-fixed:${taskId}`,
-        });
-        // A NULL return is not a failure. createBellNotification returns null
-        // when the partial unique index on `idempotency_key` rejected the
-        // insert — which means this reporter has ALREADY been told, which is
-        // exactly the outcome wanted. Only a throw means nobody was told.
-        // Treating null as failure would log an error and report
-        // `reporter_notified: false` on every re-approval of a reopened task,
-        // sending someone to chase a notification that was correctly
-        // suppressed.
-        reporterNotified = true;
-      } catch (e: any) {
-        console.error('[campus-walk/review] reporter notification failed:', e?.message ?? e);
-        reporterNotified = false;
-      }
-      if (reporterNotified === false) {
-        console.error(
-          `[campus-walk/review] closure recorded but reporter not notified (task ${taskId})`
-        );
-      }
-    }
-  }
-
   return NextResponse.json({
     ok: true,
     decision,
     task_id: taskId,
-    reporter_notified: reporterNotified,
-    status_key: decision === 'approve' ? 'done' : RETURN_STATUS,
+    reporter_notified: null,
+    status_key: RETURN_STATUS,
     approval_state: targetState,
-    completed_at: decision === 'approve' ? nowIso : null,
+    completed_at: null,
     notified,
-    message:
-      decision === 'approve'
-        ? notified
-          ? 'Approved and closed. The person who fixed it has been told.'
-          : 'Approved and closed. We could not send them a notification — please mention it.'
-        : notified
-          ? 'Sent back. They have been told what to redo.'
-          : 'Sent back. We could not send them a notification — please mention it.',
+    message: notified
+      ? 'Sent back. They have been told what to redo.'
+      : 'Sent back. We could not send them a notification — please mention it.',
   });
 }

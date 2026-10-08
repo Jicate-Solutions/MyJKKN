@@ -40,11 +40,16 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { getErrorMessage } from '@/lib/utils';
 import { resolveTds } from '@/lib/hr/payroll/tds-slabs';
+import { compareStaffByName } from '@/lib/hr/payroll/staff-name-order';
 import { TdsSlabService } from '@/lib/services/hr/payroll/tds-slab-service';
 import type {
   HRSalaryRegisterDeletedRun,
   HRSalaryRegisterLine,
   HRSalaryRegisterRun,
+  ManualDaysInput,
+  ManualEntryContext,
+  ManualEntryInput,
+  ManualEntryResult,
   SalaryClosePreview,
   SalaryClosePreviewExclusion,
   SalaryClosePreviewRow,
@@ -109,13 +114,14 @@ function num(v: unknown): number {
 
 /** Money is stored numeric(12,2); keep every computed figure at 2dp. */
 /** The identity columns every preview row carries, payable or excluded. */
-function baseRow(m: RosterMember) {
+function baseRow(m: RosterMember, paidBy: string | null) {
   return {
     staff_id: m.staff_id,
     employee_code: m.employee_code,
     staff_name: m.staff_name,
     designation: m.designation,
     department_name: m.department_name,
+    paid_by_name: paidBy,
   };
 }
 
@@ -187,6 +193,25 @@ export interface SalaryRegisterInput {
   month: number;
 }
 
+/**
+ * WHO a register or a close preview lists.
+ *
+ * 'payer'         people THIS organisation pays (hr_staff_payroll). What the issued
+ *                 register is built from: HR reconciles salary per paying
+ *                 institution, wherever the person happens to work.
+ * 'work_location' people who WORK at this organisation's institution, whoever
+ *                 pays them. What the month close is built from: the close
+ *                 freezes the attendance stamped at ONE work location, so the
+ *                 people it freezes are exactly the ones who work there.
+ *
+ * The two used to be mixed in the close preview: payer roster, work-location
+ * day counts. A person paid by Dental but working at Main Office could never have
+ * a projection row at Dental and was reported "No attendance" with a full month of
+ * records sitting under Main Office; and Main Office, which pays nobody, previewed
+ * an empty roster for the people working there.
+ */
+type RosterBy = 'payer' | 'work_location';
+
 interface RosterMember {
   staff_id: string;
   employee_code: string | null;
@@ -196,7 +221,14 @@ interface RosterMember {
   date_of_joining: string | null;
   work_institution_id: string;
   work_institution_name: string | null;
+  /** employment_categories, snapshotted onto the line — splits Teaching / Non-Teaching. */
+  staff_category_name: string | null;
+  is_teaching: boolean;
 }
+
+type TdsSlabs = Awaited<ReturnType<typeof TdsSlabService.list>>;
+
+type StatutoryInForce = { epf: number; esi: number; allowance: number; tds: number };
 
 /** Everything a preflight or a generate needs, loaded once. */
 interface RegisterContext {
@@ -218,6 +250,10 @@ interface RegisterContext {
    * comparisons against an object.
    */
   statutoryByStaff: Map<string, { epf: number; esi: number; allowance: number; tds: number }>;
+  /** The TDS bands, for a hand-entered row whose gross is the entry's own. */
+  tdsSlabs: TdsSlabs;
+  /** Days entered by hand for this organisation-month (2026-10-07). */
+  manualByStaff: Map<string, ManualDaysRow>;
   bankByStaff: Map<string, string>;
   /** Who bears each salary. Absent for the 105 staff with no payer recorded. */
   payerByStaff: Map<string, { id: string; name: string }>;
@@ -227,6 +263,13 @@ interface RegisterContext {
   payerUnreadable: boolean;
   /** Active HR staff working at this institution with NO paying institution recorded — on no register. */
   unpaidHere: string[];
+  /**
+   * Work-location mode only: people THIS organisation pays who work at ANOTHER
+   * institution, grouped by where they work. Always empty in payer mode, where
+   * they ARE the roster. Informational — each is verified when their own work
+   * location closes the month.
+   */
+  paidElsewhere: Array<{ institution_name: string; count: number }>;
 }
 
 /** Exported so computeRegisterLine's signature is nameable by its tests. */
@@ -517,6 +560,221 @@ export function computeRegisterLine(input: {
   };
 }
 
+// ───────────────────────────────────────────────────────────────────────
+// Days entered by hand (2026-10-07)
+// ───────────────────────────────────────────────────────────────────────
+
+/** One saved hr_salary_register_manual_days row, numerics already parsed. */
+export interface ManualDaysRow extends ManualDaysInput {
+  id: string;
+  monthly_gross: number | null;
+  reason: string;
+  created_by: string | null;
+  updated_by: string | null;
+  updated_at: string | null;
+}
+
+/**
+ * Hand-entered days, in the shape computeRegisterLine already reads.
+ *
+ * NOT A SECOND FORMULA. A person with no biometric record is paid by exactly
+ * the arithmetic every other row is; this only builds the summary that
+ * arithmetic expects. Worked days are derived (working − every other day
+ * count), and payable = working − LOP, so computeRegisterLine hands back the
+ * same days that were typed and all four register identities hold.
+ */
+export function manualSummary(
+  d: ManualDaysInput,
+): Pick<
+  AttendanceSummaryRow,
+  'present_days' | 'leave_days' | 'on_duty_days' | 'comp_off_days' | 'payable_days' | 'leave_by_type'
+> {
+  const worked = Math.max(
+    0,
+    d.business_working_days -
+      d.casual_leave_days -
+      d.comp_off_days -
+      d.other_paid_leave_days -
+      d.on_duty_days -
+      d.unpaid_leave_days,
+  );
+  return {
+    present_days: worked,
+    // Comp-off travels separately (computeRegisterLine adds it back); on-duty
+    // travels as on_duty_days, never as leave.
+    leave_days: d.casual_leave_days + d.other_paid_leave_days,
+    comp_off_days: d.comp_off_days,
+    on_duty_days: d.on_duty_days,
+    payable_days: Math.max(0, d.business_working_days - d.unpaid_leave_days),
+    // Keyed 'CL' so the Casual Leave column carries it (CASUAL_LEAVE_CODES).
+    leave_by_type: d.casual_leave_days > 0 ? { CL: d.casual_leave_days } : {},
+  };
+}
+
+/**
+ * The same rules as the table's CHECK constraints, in words a person can act
+ * on. An empty array means the days are acceptable.
+ */
+export function validateManualDays(d: ManualDaysInput): string[] {
+  const errors: string[] = [];
+  const fields: Array<[keyof ManualDaysInput, string]> = [
+    ['business_working_days', 'Working days'],
+    ['casual_leave_days', 'Casual leave'],
+    ['comp_off_days', 'Comp off'],
+    ['other_paid_leave_days', 'Other paid leave'],
+    ['on_duty_days', 'On duty'],
+    ['unpaid_leave_days', 'LOP'],
+  ];
+  for (const [key, label] of fields) {
+    const v = d[key];
+    if (typeof v !== 'number' || !Number.isFinite(v)) {
+      errors.push(`${label} must be a number.`);
+    } else if (v < 0) {
+      errors.push(`${label} cannot be negative.`);
+    } else if (v * 2 !== Math.trunc(v * 2)) {
+      errors.push(`${label} must be in whole or half days.`);
+    }
+  }
+  if (errors.length > 0) return errors;
+
+  if (d.business_working_days <= 0 || d.business_working_days > 31) {
+    errors.push('Working days must be more than 0 and at most 31.');
+  }
+  const accounted =
+    d.casual_leave_days + d.comp_off_days + d.other_paid_leave_days + d.on_duty_days + d.unpaid_leave_days;
+  if (accounted > d.business_working_days) {
+    errors.push(
+      `Leave, on duty and LOP add up to ${accounted}, more than the ${d.business_working_days} working days.`,
+    );
+  }
+  return errors;
+}
+
+/**
+ * Does a hand-entered row pay this person, and on what gross?
+ *
+ * BIOMETRIC ALWAYS WINS: an entry is used only when the person has NO
+ * attendance summary — once real days exist the entry is kept but ignored. The
+ * gross is the salary in force; the entry's own monthly_gross is used only
+ * when no salary is recorded.
+ */
+export function resolveManualPay(input: {
+  hasSummary: boolean;
+  recordedGross: number | undefined;
+  manual: Pick<ManualDaysRow, 'monthly_gross'> | undefined;
+}): { use: boolean; gross: number; grossFromEntry: boolean } {
+  if (input.hasSummary || !input.manual) return { use: false, gross: 0, grossFromEntry: false };
+  if (input.recordedGross !== undefined && input.recordedGross > 0) {
+    return { use: true, gross: input.recordedGross, grossFromEntry: false };
+  }
+  const entryGross = input.manual.monthly_gross ?? 0;
+  return entryGross > 0
+    ? { use: true, gross: entryGross, grossFromEntry: true }
+    : { use: false, gross: 0, grossFromEntry: false };
+}
+
+/**
+ * Work-location mode: who PAYS each person on the roster, by name, and how many of
+ * the people THIS organisation pays work somewhere else.
+ *
+ * hr_staff_payroll is gated on hr.payroll.institution.view and returns ZERO ROWS
+ * AND NO ERROR without it, so an empty answer is checked against the permission
+ * rather than read as "nobody is paid by anyone". Unlike the payer-mode roster
+ * this does NOT refuse: the close preview's money never depended on the payer, so
+ * a missing key degrades to a flag and a blank "Paid by", not a blocked screen.
+ */
+async function loadPayerContext(
+  supabase: SupabaseClient,
+  org: { id: string; institution_id: string },
+  staffIds: string[],
+): Promise<{
+  payerByStaff: Map<string, { id: string; name: string }>;
+  payerUnreadable: boolean;
+  paidElsewhere: Array<{ institution_name: string; count: number }>;
+}> {
+  const payerOrgByStaff = new Map<string, string>();
+  for (const ids of chunk(staffIds)) {
+    const { data, error } = await (supabase as any)
+      .from('hr_staff_payroll')
+      .select('staff_id, hr_organization_id')
+      .in('staff_id', ids);
+    if (error) throw new Error(`Failed to load the payer directory: ${getErrorMessage(error)}`);
+    for (const r of (data ?? []) as any[]) {
+      if (r.staff_id && r.hr_organization_id) payerOrgByStaff.set(r.staff_id, r.hr_organization_id);
+    }
+  }
+
+  // Everyone THIS organisation pays, then the ones among them who work elsewhere.
+  const { data: mineRows, error: mineErr } = await (supabase as any)
+    .from('hr_staff_payroll')
+    .select('staff_id')
+    .eq('hr_organization_id', org.id)
+    .limit(5000);
+  if (mineErr) throw new Error(`Failed to load who this institution pays: ${getErrorMessage(mineErr)}`);
+  const mineIds = ((mineRows ?? []) as any[]).map((r) => r.staff_id).filter(Boolean) as string[];
+
+  const elsewhereByInstitution = new Map<string, number>();
+  for (const ids of chunk(mineIds)) {
+    const { data, error } = await (supabase as any)
+      .from('v_hr_staff')
+      .select('id, institution_id')
+      .in('id', ids)
+      .eq('is_active', true)
+      .neq('institution_id', org.institution_id);
+    if (error) throw new Error(`Failed to load where the staff you pay work: ${getErrorMessage(error)}`);
+    for (const r of (data ?? []) as any[]) {
+      elsewhereByInstitution.set(r.institution_id, (elsewhereByInstitution.get(r.institution_id) ?? 0) + 1);
+    }
+  }
+
+  // Names: payer organisations and the work locations of the people paid elsewhere.
+  const payerOrgIds = Array.from(new Set(payerOrgByStaff.values()));
+  const payerNameById = new Map<string, string>();
+  for (const ids of chunk(payerOrgIds)) {
+    const { data, error } = await (supabase as any)
+      .from('hr_organizations')
+      .select('id, name')
+      .in('id', ids);
+    if (error) throw new Error(`Failed to load payer names: ${getErrorMessage(error)}`);
+    for (const o of (data ?? []) as any[]) payerNameById.set(o.id, o.name);
+  }
+
+  const elsewhereIds = Array.from(elsewhereByInstitution.keys());
+  const workNameByInstitution = new Map<string, string>();
+  for (const ids of chunk(elsewhereIds)) {
+    const { data, error } = await (supabase as any)
+      .from('hr_organizations')
+      .select('institution_id, name')
+      .in('institution_id', ids);
+    if (error) throw new Error(`Failed to load work locations: ${getErrorMessage(error)}`);
+    for (const o of (data ?? []) as any[]) workNameByInstitution.set(o.institution_id, o.name);
+  }
+
+  const payerByStaff = new Map<string, { id: string; name: string }>();
+  for (const [staffId, orgId] of payerOrgByStaff) {
+    const name = payerNameById.get(orgId);
+    if (name) payerByStaff.set(staffId, { id: orgId, name });
+  }
+
+  let payerUnreadable = false;
+  if (payerOrgByStaff.size === 0 && staffIds.length > 0) {
+    const { data: canSeePayroll } = await (supabase as any).rpc('user_has_permission', {
+      permission_name: 'hr.payroll.institution.view',
+    });
+    const { data: isSuperAdmin } = await (supabase as any).rpc('is_super_admin');
+    payerUnreadable = !canSeePayroll && !isSuperAdmin;
+  }
+
+  const paidElsewhere = Array.from(elsewhereByInstitution.entries())
+    .map(([institutionId, count]) => ({
+      institution_name: workNameByInstitution.get(institutionId) ?? 'another institution',
+      count,
+    }))
+    .sort((a, b) => b.count - a.count || a.institution_name.localeCompare(b.institution_name));
+
+  return { payerByStaff, payerUnreadable, paidElsewhere };
+}
+
 export class SalaryRegisterService {
   // ───────────────────────────────────────────────────────────────────────
   // Shared loader
@@ -532,11 +790,116 @@ export class SalaryRegisterService {
    * exactly as payslip-generator.ts does. Only runs in the degenerate case, so
    * it costs nothing on a normal load.
    */
+  /**
+   * The salary in force for a month, its statutory amounts and its TDS — read
+   * once per register by loadContext, and per person by the hand-entered-days
+   * path (2026-10-07), so both pay from the same rows.
+   */
+  private static async loadPayInForce(
+    supabase: SupabaseClient,
+    staffIds: string[],
+    year: number,
+    month: number,
+  ): Promise<{
+    tdsSlabs: TdsSlabs;
+    salaryByStaff: Map<string, number>;
+    statutoryByStaff: Map<string, StatutoryInForce>;
+  }> {
+    // THE BANDS ARE LOADED WITH throwOnDenied. A slab read that RLS empties looks
+    // exactly like "TDS is switched off", and the two demand opposite outcomes:
+    // one generates a register with no tax on it, the other must not generate at
+    // all. TdsSlabService.list asks user_has_permission rather than inferring
+    // from the row count.
+    const tdsSlabs = await TdsSlabService.list(supabase, { throwOnDenied: true });
+
+    const salaryByStaff = new Map<string, number>();
+    const statutoryByStaff = new Map<
+      string,
+      { epf: number; esi: number; allowance: number; tds: number }
+    >();
+    // THE PAY IN FORCE FOR THIS MONTH, not the current row. A salary revision
+    // the Director approves starts on the 1st of the NEXT month and is written
+    // on that day (20270519090000); this month's register is often generated
+    // after it, and reading superseded_by IS NULL would pay this month at next
+    // month's rate. hr_staff_salaries_in_force walks back past any row that
+    // starts after the month's last day; for everyone else it returns the same
+    // current row as before. SECURITY INVOKER — the same RLS as the old read.
+    const monthEnd = registerMonthEnd(year, month);
+    for (const ids of chunk(staffIds)) {
+      const { data, error } = await (supabase as any).rpc(SALARIES_IN_FORCE_RPC, {
+        p_staff_ids: ids,
+        p_on: monthEnd,
+      });
+
+      if (error) throw new Error(`Failed to load salaries: ${getErrorMessage(error)}`);
+      for (const s of (data ?? []) as any[]) {
+        const gross = num(s.monthly_gross);
+        salaryByStaff.set(s.staff_id, gross);
+        // The flag decides, not the amount. fn_hr_set_staff_salary already
+        // zeroes an amount whose flag is off, but the register must not depend
+        // on that: a row written before this feature existed, or by the
+        // service-role path, can carry a figure the flag does not authorise.
+        statutoryByStaff.set(s.staff_id, {
+          epf: s.eligible_for_pf ? num(s.epf_amount) : 0,
+          esi: s.eligible_for_esi ? num(s.esi_amount) : 0,
+          allowance: num(s.allowance_amount),
+          // Resolved against the GROSS ALONE. The allowance is deliberately not
+          // in the tax base, so a person pushed over a band threshold by their
+          // allowance is not taxed for it.
+          tds: resolveTds(gross, tdsSlabs).amount,
+        });
+      }
+    }
+
+    return { tdsSlabs, salaryByStaff, statutoryByStaff };
+  }
+
+  /** hr_salary_register_manual_days for one organisation-month, keyed by staff. */
+  private static async loadManualDays(
+    supabase: SupabaseClient,
+    hrOrganizationId: string,
+    year: number,
+    month: number,
+  ): Promise<Map<string, ManualDaysRow>> {
+    const { data, error } = await (supabase as any)
+      .from('hr_salary_register_manual_days')
+      .select('*')
+      .eq('hr_organization_id', hrOrganizationId)
+      .eq('period_year', year)
+      .eq('period_month', month)
+      .limit(5000);
+
+    if (error) throw new Error(`Failed to load hand-entered days: ${getErrorMessage(error)}`);
+    const out = new Map<string, ManualDaysRow>();
+    for (const r of (data ?? []) as any[]) out.set(r.staff_id, SalaryRegisterService.mapManualDays(r));
+    return out;
+  }
+
+  private static mapManualDays(r: any): ManualDaysRow {
+    return {
+      id: r.id,
+      business_working_days: num(r.business_working_days),
+      casual_leave_days: num(r.casual_leave_days),
+      comp_off_days: num(r.comp_off_days),
+      other_paid_leave_days: num(r.other_paid_leave_days),
+      on_duty_days: num(r.on_duty_days),
+      unpaid_leave_days: num(r.unpaid_leave_days),
+      monthly_gross: r.monthly_gross == null ? null : num(r.monthly_gross),
+      reason: r.reason ?? '',
+      created_by: r.created_by ?? null,
+      updated_by: r.updated_by ?? null,
+      updated_at: r.updated_at ?? null,
+    };
+  }
+
   private static async loadContext(
     supabase: SupabaseClient,
     input: SalaryRegisterInput,
+    /** See RosterBy. Defaults to 'payer', so preflight and generate are unchanged. */
+    options: { rosterBy?: RosterBy } = {},
   ): Promise<RegisterContext> {
     const { hrOrganizationId, year, month } = input;
+    const rosterBy: RosterBy = options.rosterBy ?? 'payer';
 
     // 1. The paying organisation.
     const { data: org, error: orgErr } = await (supabase as any)
@@ -563,7 +926,9 @@ export class SalaryRegisterService {
     // nobody". Ask directly rather than infer, and refuse.
     const roster: RosterMember[] = [];
     const paidStaffIds: string[] = [];
-    {
+    // Skipped in work-location mode: the roster there is who WORKS at this
+    // institution, so who it pays is not what decides the list.
+    if (rosterBy === 'payer') {
       const { data: payRows, error: payErr } = await (supabase as any)
         .from('hr_staff_payroll')
         .select('staff_id')
@@ -594,10 +959,25 @@ export class SalaryRegisterService {
     //
     // The view is security_invoker, so RLS on staff still applies through it.
     const staffRows: any[] = [];
+    if (rosterBy === 'work_location') {
+      // Everyone in an HR category who works here, paid by anyone. The close
+      // freezes the attendance stamped at THIS institution, so these are the
+      // people whose days it freezes. Same view, same gates as below.
+      const { data, error: staffErr } = await (supabase as any)
+        .from('v_hr_staff')
+        .select('id, staff_id, first_name, last_name, designation, date_of_joining, institution_id, department_id, category_id')
+        .eq('institution_id', org.institution_id)
+        .eq('is_active', true)
+        .limit(5000);
+
+      if (staffErr) throw new Error(`Failed to load team members: ${getErrorMessage(staffErr)}`);
+      staffRows.push(...((data ?? []) as any[]));
+    }
+    // paidStaffIds is empty in work-location mode, so this loop is a no-op there.
     for (const ids of chunk(paidStaffIds)) {
       const { data, error: staffErr } = await (supabase as any)
         .from('v_hr_staff')
-        .select('id, staff_id, first_name, last_name, designation, date_of_joining, institution_id, department_id')
+        .select('id, staff_id, first_name, last_name, designation, date_of_joining, institution_id, department_id, category_id')
         .in('id', ids)
         .eq('is_active', true);
 
@@ -623,6 +1003,24 @@ export class SalaryRegisterService {
 
       if (deptErr) throw new Error(`Failed to load departments: ${getErrorMessage(deptErr)}`);
       for (const d of ((deptRows ?? []) as any[])) departmentNameById.set(d.id, d.department_name);
+    }
+
+    // Categories the same way — a few dozen rows, read once. is_teaching splits
+    // the register into its Teaching and Non-Teaching sheets and documents.
+    const categoryIds = Array.from(
+      new Set(staffRows.map((r) => r.category_id).filter(Boolean)),
+    ) as string[];
+    const categoryById = new Map<string, { name: string | null; isTeaching: boolean }>();
+    if (categoryIds.length > 0) {
+      const { data: catRows, error: catErr } = await (supabase as any)
+        .from('employment_categories')
+        .select('id, category_name, is_teaching')
+        .in('id', categoryIds);
+
+      if (catErr) throw new Error(`Failed to load staff categories: ${getErrorMessage(catErr)}`);
+      for (const c of ((catRows ?? []) as any[])) {
+        categoryById.set(c.id, { name: c.category_name ?? null, isTeaching: c.is_teaching === true });
+      }
     }
 
     // Work-location names, for the dependency list and the "Works At" column.
@@ -651,10 +1049,15 @@ export class SalaryRegisterService {
         date_of_joining: st.date_of_joining ?? null,
         work_institution_id: st.institution_id,
         work_institution_name: workNameByInstitution.get(st.institution_id) ?? null,
+        staff_category_name: st.category_id ? categoryById.get(st.category_id)?.name ?? null : null,
+        is_teaching: st.category_id ? categoryById.get(st.category_id)?.isTeaching ?? false : false,
       });
     }
 
-    roster.sort((a, b) => (a.employee_code ?? '￿').localeCompare(b.employee_code ?? '￿'));
+    // Alphabetical by name, titles ignored (2026-10-07) — serial_no is assigned
+    // in this order at generate, so it is the S.No every register surface
+    // prints. Employee-code order was not how HR reads the register.
+    roster.sort(compareStaffByName);
 
     const staffIds = roster.map((r) => r.staff_id);
 
@@ -699,19 +1102,33 @@ export class SalaryRegisterService {
         lockedPeriodByInstitution: new Map(),
         salaryByStaff: new Map(),
         statutoryByStaff: new Map(),
+        tdsSlabs: [],
+        manualByStaff: new Map(),
         bankByStaff: new Map(),
         payerByStaff: new Map(),
         summaryByStaff: new Map(),
         bankUnreadable: false,
         payerUnreadable: false,
         unpaidHere,
+        paidElsewhere: [],
       };
     }
 
-    // Everyone on the roster is paid by this organisation, by construction.
-    const payerByStaff = new Map<string, { id: string; name: string }>();
-    for (const id of staffIds) payerByStaff.set(id, { id: org.id, name: org.name });
-    const payerUnreadable = false;
+    // Payer mode: everyone on the roster is paid by this organisation, by
+    // construction. Work-location mode: the roster is who works here, so who pays
+    // each person is looked up (and the people paid here who work elsewhere are
+    // counted), because the close preview shows it but no longer derives from it.
+    let payerByStaff = new Map<string, { id: string; name: string }>();
+    let payerUnreadable = false;
+    let paidElsewhere: Array<{ institution_name: string; count: number }> = [];
+    if (rosterBy === 'work_location') {
+      const payers = await loadPayerContext(supabase, org, staffIds);
+      payerByStaff = payers.payerByStaff;
+      payerUnreadable = payers.payerUnreadable;
+      paidElsewhere = payers.paidElsewhere;
+    } else {
+      for (const id of staffIds) payerByStaff.set(id, { id: org.id, name: org.name });
+    }
 
     // 4. The attendance months — one per work location among the people paid
     //    here. Each must be closed before the register can be generated.
@@ -758,52 +1175,16 @@ export class SalaryRegisterService {
       }
     }
 
-    // 5. Salaries — the row in force for this month (see below).
-    // THE BANDS ARE LOADED WITH throwOnDenied. A slab read that RLS empties looks
-    // exactly like "TDS is switched off", and the two demand opposite outcomes:
-    // one generates a register with no tax on it, the other must not generate at
-    // all. TdsSlabService.list asks user_has_permission rather than inferring
-    // from the row count.
-    const tdsSlabs = await TdsSlabService.list(supabase, { throwOnDenied: true });
+    // 5. Salaries — the row in force for this month. See loadPayInForce, which
+    //    the hand-entered-days path reads too, so pay has one source.
+    const { tdsSlabs, salaryByStaff, statutoryByStaff } =
+      await SalaryRegisterService.loadPayInForce(supabase, staffIds, year, month);
 
-    const salaryByStaff = new Map<string, number>();
-    const statutoryByStaff = new Map<
-      string,
-      { epf: number; esi: number; allowance: number; tds: number }
-    >();
-    // THE PAY IN FORCE FOR THIS MONTH, not the current row. A salary revision
-    // the Director approves starts on the 1st of the NEXT month and is written
-    // on that day (20270519090000); this month's register is often generated
-    // after it, and reading superseded_by IS NULL would pay this month at next
-    // month's rate. hr_staff_salaries_in_force walks back past any row that
-    // starts after the month's last day; for everyone else it returns the same
-    // current row as before. SECURITY INVOKER — the same RLS as the old read.
-    const monthEnd = registerMonthEnd(year, month);
-    for (const ids of chunk(staffIds)) {
-      const { data, error } = await (supabase as any).rpc(SALARIES_IN_FORCE_RPC, {
-        p_staff_ids: ids,
-        p_on: monthEnd,
-      });
-
-      if (error) throw new Error(`Failed to load salaries: ${getErrorMessage(error)}`);
-      for (const s of (data ?? []) as any[]) {
-        const gross = num(s.monthly_gross);
-        salaryByStaff.set(s.staff_id, gross);
-        // The flag decides, not the amount. fn_hr_set_staff_salary already
-        // zeroes an amount whose flag is off, but the register must not depend
-        // on that: a row written before this feature existed, or by the
-        // service-role path, can carry a figure the flag does not authorise.
-        statutoryByStaff.set(s.staff_id, {
-          epf: s.eligible_for_pf ? num(s.epf_amount) : 0,
-          esi: s.eligible_for_esi ? num(s.esi_amount) : 0,
-          allowance: num(s.allowance_amount),
-          // Resolved against the GROSS ALONE. The allowance is deliberately not
-          // in the tax base, so a person pushed over a band threshold by their
-          // allowance is not taxed for it.
-          tds: resolveTds(gross, tdsSlabs).amount,
-        });
-      }
-    }
+    // 5b. Days entered by hand for this organisation-month. Used only for
+    //     people the frozen month has no summary for (resolveManualPay).
+    const manualByStaff = await SalaryRegisterService.loadManualDays(
+      supabase, input.hrOrganizationId, year, month,
+    );
 
     // Empty salaries across a non-empty roster is ambiguous the same way the
     // payer directory is: four institutions genuinely have zero salary rows.
@@ -901,12 +1282,15 @@ export class SalaryRegisterService {
       lockedPeriodByInstitution,
       salaryByStaff,
       statutoryByStaff,
+      tdsSlabs,
+      manualByStaff,
       bankByStaff,
       payerByStaff,
       summaryByStaff,
       unpaidHere,
       bankUnreadable,
       payerUnreadable,
+      paidElsewhere,
     };
   }
 
@@ -942,7 +1326,14 @@ export class SalaryRegisterService {
     supabase: SupabaseClient,
     input: SalaryRegisterInput,
   ): Promise<SalaryClosePreview> {
-    const ctx = await SalaryRegisterService.loadContext(supabase, input);
+    // WORK-LOCATION roster, not the payer roster. The close freezes the
+    // attendance stamped at THIS institution, and the projection below reads only
+    // that — so the people it can speak for are the ones who work here, whoever
+    // pays them. See RosterBy.
+    const ctx = await SalaryRegisterService.loadContext(supabase, input, {
+      rosterBy: 'work_location',
+    });
+    const paidBy = (staffId: string) => ctx.payerByStaff.get(staffId)?.name ?? null;
     const { year, month } = input;
 
     const { data, error } = await (supabase as any).rpc(
@@ -988,15 +1379,15 @@ export class SalaryRegisterService {
       // Order matters: report the FIRST thing that has to be fixed. A person
       // with neither a salary nor attendance is a salary problem first.
       if (salary === undefined) {
-        excluded.push({ ...baseRow(member), reason: 'no_salary_recorded' });
+        excluded.push({ ...baseRow(member, paidBy(member.staff_id)), reason: 'no_salary_recorded' });
         continue;
       }
       if (salary <= 0) {
-        excluded.push({ ...baseRow(member), reason: 'salary_is_zero' });
+        excluded.push({ ...baseRow(member, paidBy(member.staff_id)), reason: 'salary_is_zero' });
         continue;
       }
       if (!summary) {
-        excluded.push({ ...baseRow(member), reason: 'no_attendance_summary' });
+        excluded.push({ ...baseRow(member, paidBy(member.staff_id)), reason: 'no_attendance_summary' });
         continue;
       }
 
@@ -1012,7 +1403,7 @@ export class SalaryRegisterService {
       });
 
       payable.push({
-        ...baseRow(member),
+        ...baseRow(member, paidBy(member.staff_id)),
         working_days: figures.business_working_days,
         paid_days: figures.paid_days,
         unpaid_days: figures.unpaid_leave_days,
@@ -1035,6 +1426,7 @@ export class SalaryRegisterService {
       payable,
       excluded,
       roster_count: ctx.roster.length,
+      paid_elsewhere: ctx.paidElsewhere,
       total_net_pay: round2(payable.reduce((t, r) => t + r.net_pay, 0)),
       unprocessed_days: payable.reduce((t, r) => t + r.unprocessed_days, 0),
       // What the close will freeze. Compared again at close time so a preview
@@ -1096,6 +1488,16 @@ export class SalaryRegisterService {
       if (salary === undefined || salary <= 0) missingSalary++;
       if (!ctx.bankByStaff.has(member.staff_id)) missingBank++;
       if (salary !== undefined && salary > 0 && summary) payable++;
+      // Days entered by hand pay someone the frozen month has no record for.
+      else if (
+        resolveManualPay({
+          hasSummary: Boolean(summary),
+          recordedGross: salary,
+          manual: ctx.manualByStaff.get(member.staff_id),
+        }).use
+      ) {
+        payable++;
+      }
 
       if (summary) {
         unprocessedDays += summary.unprocessed_days;
@@ -1294,6 +1696,15 @@ export class SalaryRegisterService {
         paid_by_name: ctx.payerByStaff.get(member.staff_id)?.name ?? null,
         work_institution_id: member.work_institution_id,
         work_institution_name: member.work_institution_name,
+        staff_category_name: member.staff_category_name,
+        is_teaching: member.is_teaching,
+        // Every row carries the manual keys too — the batch-shape rule (see
+        // ZERO_FIGURES). Overwritten below for a hand-entered row.
+        entry_source: 'biometric',
+        manual_entry_id: null,
+        manual_reason: null,
+        manual_entered_by: null,
+        manual_entered_at: null,
       };
 
       // Exclusion order matters: report the FIRST thing HR has to fix, not all
@@ -1303,6 +1714,47 @@ export class SalaryRegisterService {
       if (!summary) reason = 'no_attendance_summary';
       else if (salary === undefined) reason = 'no_salary_recorded';
       else if (salary <= 0) reason = 'salary_is_zero';
+
+      // DAYS ENTERED BY HAND (2026-10-07) for someone with no biometric
+      // record. Paid by the same formula as everyone else, on the salary in
+      // force — or the entry's own gross when none is recorded. A summary, if
+      // one exists, always wins (resolveManualPay).
+      const manual = ctx.manualByStaff.get(member.staff_id);
+      const manualPay = resolveManualPay({ hasSummary: Boolean(summary), recordedGross: salary, manual });
+      if (reason && manual && manualPay.use) {
+        const statutory = ctx.statutoryByStaff.get(member.staff_id);
+        const figures = computeRegisterLine({
+          monthlyGross: manualPay.gross,
+          workingDaysBasis: manual.business_working_days,
+          epfAmount: statutory?.epf ?? 0,
+          esiAmount: statutory?.esi ?? 0,
+          allowance: statutory?.allowance ?? 0,
+          tdsAmount: manualPay.grossFromEntry
+            ? resolveTds(manualPay.gross, ctx.tdsSlabs).amount
+            : statutory?.tds ?? 0,
+          summary: manualSummary(manual),
+        });
+
+        included++;
+        totalGross += figures.total_earnings;
+        totalDeductions += figures.total_deductions;
+        totalNet += figures.net_pay;
+
+        lines.push({
+          ...base,
+          ...figures,
+          entry_source: 'manual',
+          manual_entry_id: manual.id,
+          manual_reason: manual.reason,
+          manual_entered_by: manual.updated_by ?? manual.created_by,
+          manual_entered_at: manual.updated_at,
+          remarks: null,
+          adjustment_amount: 0,
+          is_included: true,
+          exclusion_reason: null,
+        });
+        continue;
+      }
 
       if (reason) {
         excluded++;
@@ -1641,6 +2093,229 @@ export class SalaryRegisterService {
     return SalaryRegisterService.mapLine(updated);
   }
 
+  // ───────────────────────────────────────────────────────────────────────
+  // Days entered by hand (2026-10-07)
+  // ───────────────────────────────────────────────────────────────────────
+
+  /**
+   * The line, its run, and the pay in force — everything the manual-entry form
+   * and its save need. Refuses what may not be entered by hand:
+   *   - a superseded run (history is not editable);
+   *   - a row whose days came from biometric data (Adjust is the tool there);
+   *   - a row excluded for a SALARY reason — that person HAS attendance, and
+   *     the fix is to record the salary and regenerate, not to type days over
+   *     real ones.
+   */
+  private static async loadManualTarget(supabase: SupabaseClient, lineId: string) {
+    const { data: line, error } = await (supabase as any)
+      .from('hr_salary_register_lines')
+      .select(
+        '*, hr_salary_register_runs:run_id(id, superseded_at, hr_organization_id, institution_id, period_year, period_month, working_days_basis)',
+      )
+      .eq('id', lineId)
+      .maybeSingle();
+
+    if (error) throw new Error(`Failed to load the register row: ${getErrorMessage(error)}`);
+    if (!line) throw new Error('That register row does not exist, or is not visible to this account.');
+
+    const run = line.hr_salary_register_runs;
+    if (!run) throw new Error('The register this row belongs to is not visible to this account.');
+    if (run.superseded_at) {
+      throw new Error('This register has been superseded by a newer generation and can no longer be edited.');
+    }
+
+    const isManual = line.entry_source === 'manual';
+    const isMissingAttendance = !line.is_included && line.exclusion_reason === 'no_attendance_summary';
+    if (!isManual && !isMissingAttendance) {
+      throw new Error(
+        line.is_included
+          ? 'This person’s days come from biometric attendance. Use Adjust to correct their pay.'
+          : 'This person has attendance but no usable salary. Record the salary in Employee Salaries and regenerate the register.',
+      );
+    }
+
+    const year = num(run.period_year);
+    const month = num(run.period_month);
+    const pay = await SalaryRegisterService.loadPayInForce(supabase, [line.staff_id], year, month);
+    const recorded = pay.salaryByStaff.get(line.staff_id);
+
+    const { data: savedRow, error: savedErr } = await (supabase as any)
+      .from('hr_salary_register_manual_days')
+      .select('*')
+      .eq('hr_organization_id', run.hr_organization_id)
+      .eq('period_year', year)
+      .eq('period_month', month)
+      .eq('staff_id', line.staff_id)
+      .maybeSingle();
+    if (savedErr) throw new Error(`Failed to load hand-entered days: ${getErrorMessage(savedErr)}`);
+
+    return {
+      line,
+      run,
+      year,
+      month,
+      recordedGross: recorded !== undefined && recorded > 0 ? recorded : null,
+      statutory: pay.statutoryByStaff.get(line.staff_id),
+      tdsSlabs: pay.tdsSlabs,
+      saved: savedRow ? SalaryRegisterService.mapManualDays(savedRow) : null,
+    };
+  }
+
+  /** What the manual-entry dialog opens with. */
+  static async getManualEntryContext(
+    supabase: SupabaseClient,
+    lineId: string,
+  ): Promise<ManualEntryContext> {
+    const t = await SalaryRegisterService.loadManualTarget(supabase, lineId);
+    return {
+      line_id: t.line.id,
+      staff_name: t.line.staff_name,
+      employee_code: t.line.employee_code ?? null,
+      working_days_basis: num(t.run.working_days_basis),
+      recorded_gross: t.recordedGross,
+      allowance: t.statutory?.allowance ?? 0,
+      epf: t.statutory?.epf ?? 0,
+      esi: t.statutory?.esi ?? 0,
+      saved: t.saved
+        ? {
+            business_working_days: t.saved.business_working_days,
+            casual_leave_days: t.saved.casual_leave_days,
+            comp_off_days: t.saved.comp_off_days,
+            other_paid_leave_days: t.saved.other_paid_leave_days,
+            on_duty_days: t.saved.on_duty_days,
+            unpaid_leave_days: t.saved.unpaid_leave_days,
+            monthly_gross: t.saved.monthly_gross,
+            reason: t.saved.reason,
+            updated_at: t.saved.updated_at,
+          }
+        : null,
+    };
+  }
+
+  /**
+   * Compute — and unless `dryRun`, save — a person's hand-entered days.
+   *
+   * ORDER: the durable entry first, then the line, then the run totals. If the
+   * line write fails after the entry is saved, the next regeneration still
+   * pays from the entry and a retry here converges; the reverse order could
+   * leave a paid line with nothing behind it for a regeneration to find.
+   */
+  static async saveManualEntry(
+    supabase: SupabaseClient,
+    lineId: string,
+    input: ManualEntryInput,
+    opts: { dryRun: boolean; userId: string | null },
+  ): Promise<ManualEntryResult> {
+    const t = await SalaryRegisterService.loadManualTarget(supabase, lineId);
+
+    const days: ManualDaysInput = {
+      business_working_days: input.business_working_days,
+      casual_leave_days: input.casual_leave_days,
+      comp_off_days: input.comp_off_days,
+      other_paid_leave_days: input.other_paid_leave_days,
+      on_duty_days: input.on_duty_days,
+      unpaid_leave_days: input.unpaid_leave_days,
+    };
+    const errors = validateManualDays(days);
+    if (errors.length > 0) throw new Error(errors.join(' '));
+
+    const reason = (input.reason ?? '').trim();
+    if (!opts.dryRun && (reason.length < 3 || reason.length > 300)) {
+      throw new Error('Give a reason of 3 to 300 characters — e.g. "No biometric device at this site".');
+    }
+
+    // The salary in force wins; the typed gross is used only when none exists.
+    const grossFromEntry = t.recordedGross === null;
+    const gross = grossFromEntry ? input.monthly_gross ?? 0 : (t.recordedGross as number);
+    if (!(gross > 0)) {
+      throw new Error('No salary is recorded for this person for the month. Enter their monthly gross.');
+    }
+
+    const figures = computeRegisterLine({
+      monthlyGross: gross,
+      workingDaysBasis: days.business_working_days,
+      epfAmount: t.statutory?.epf ?? 0,
+      esiAmount: t.statutory?.esi ?? 0,
+      allowance: t.statutory?.allowance ?? 0,
+      tdsAmount: grossFromEntry ? resolveTds(gross, t.tdsSlabs).amount : t.statutory?.tds ?? 0,
+      summary: manualSummary(days),
+    });
+
+    // An adjustment already on the row (only possible on a manual row) stays
+    // and is taken off the net, exactly as updateLine does.
+    const adjustment = num(t.line.adjustment_amount);
+    const netPay = Math.round(figures.total_earnings - figures.total_deductions - adjustment);
+
+    const preview = {
+      business_working_days: figures.business_working_days,
+      worked_days: figures.worked_days,
+      paid_days: figures.paid_days,
+      unpaid_leave_days: figures.unpaid_leave_days,
+      actual_gross: figures.actual_gross,
+      unpaid_leave_deduction: figures.unpaid_leave_deduction,
+      epf_deduction: figures.epf_deduction,
+      esi_deduction: figures.esi_deduction,
+      tds_deduction: figures.tds_deduction,
+      total_earnings: figures.total_earnings,
+      total_deductions: figures.total_deductions,
+      adjustment_amount: adjustment,
+      net_pay: netPay,
+    };
+    if (opts.dryRun) return { saved: false, figures: preview, line: null };
+
+    // 1. The durable entry, keyed on organisation × month × staff.
+    const entryRow = {
+      hr_organization_id: t.run.hr_organization_id,
+      institution_id: t.run.institution_id,
+      period_year: t.year,
+      period_month: t.month,
+      staff_id: t.line.staff_id,
+      ...days,
+      monthly_gross: grossFromEntry ? gross : null,
+      reason,
+      updated_by: opts.userId,
+    };
+    const entryWrite = t.saved
+      ? (supabase as any)
+          .from('hr_salary_register_manual_days')
+          .update(entryRow)
+          .eq('id', t.saved.id)
+      : (supabase as any)
+          .from('hr_salary_register_manual_days')
+          .insert({ ...entryRow, created_by: opts.userId });
+    const { data: entry, error: entryErr } = await entryWrite.select('id, updated_at').maybeSingle();
+    if (entryErr) throw new Error(`Failed to save the hand-entered days: ${getErrorMessage(entryErr)}`);
+    // RLS filters a refused UPDATE to zero rows with no error.
+    if (!entry) throw new Error('Saving the hand-entered days was refused for this account.');
+
+    // 2. The register row — now paid, and marked as entered by hand.
+    const { data: updated, error: lineErr } = await (supabase as any)
+      .from('hr_salary_register_lines')
+      .update({
+        ...figures,
+        adjustment_amount: adjustment,
+        net_pay: netPay,
+        is_included: true,
+        exclusion_reason: null,
+        attendance_period_id: null,
+        entry_source: 'manual',
+        manual_entry_id: entry.id,
+        manual_reason: reason,
+        manual_entered_by: opts.userId,
+        manual_entered_at: entry.updated_at ?? new Date().toISOString(),
+      })
+      .eq('id', lineId)
+      .select('*')
+      .maybeSingle();
+    if (lineErr) throw new Error(`Failed to update the register row: ${getErrorMessage(lineErr)}`);
+    if (!updated) throw new Error('The register row was not updated — this account may not hold hr.payroll.register.manage.');
+
+    // 3. The run header moves with the row: one fewer excluded, one more paid.
+    await SalaryRegisterService.recomputeRunTotals(supabase, t.line.run_id);
+
+    return { saved: true, figures: preview, line: SalaryRegisterService.mapLine(updated) };
+  }
+
   /**
    * Re-sum the run header from its own rows.
    *
@@ -1661,8 +2336,9 @@ export class SalaryRegisterService {
     let deductions = 0;
     let net = 0;
     let included = 0;
+    const rows = (data ?? []) as any[];
 
-    for (const l of (data ?? []) as any[]) {
+    for (const l of rows) {
       if (!l.is_included) continue;
       included++;
       gross += num(l.total_earnings);
@@ -1677,6 +2353,9 @@ export class SalaryRegisterService {
         total_deductions: round2(deductions),
         total_net: round2(net),
         included_count: included,
+        // Rewritten too since 2026-10-07: entering days by hand moves a row
+        // from excluded to included, which an adjustment never did.
+        excluded_count: rows.length - included,
       })
       .eq('id', runId);
 
@@ -1721,6 +2400,8 @@ export class SalaryRegisterService {
       total_deductions: num(l.total_deductions),
       adjustment_amount: num(l.adjustment_amount),
       net_pay: num(l.net_pay),
+      is_teaching: l.is_teaching === true,
+      entry_source: l.entry_source === 'manual' ? 'manual' : 'biometric',
     } as HRSalaryRegisterLine;
   }
 }

@@ -31,7 +31,8 @@ import {
   CheckCircle2,
   XCircle,
   AlertCircle,
-  Loader2
+  Loader2,
+  Wrench
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -56,7 +57,8 @@ import {
   ApprovalConfigTab,
   CustomAttributesTab,
   ImagesTab,
-  UsageStatsTab
+  UsageStatsTab,
+  MaintenanceHistoryTab
 } from './_components';
 
 interface ResourceDetailsPageProps {
@@ -312,6 +314,19 @@ export default function ResourceDetailsPage({
                   <ArrowLeft className='mr-2 h-4 w-4' />
                   <span className='hidden sm:inline'>Back</span>
                 </Button>
+                {/* InstaSolver: the same page a QR sticker opens, so a problem
+                    can be reported from here without scanning. */}
+                {(resource as any).qr_code_token && (
+                  <Link
+                    href={`/instasolver/r/${encodeURIComponent((resource as any).qr_code_token as string)}`}
+                    className='flex-1 lg:flex-none'
+                  >
+                    <Button variant='outline' className='w-full'>
+                      <AlertCircle className='mr-2 h-4 w-4' />
+                      <span className='hidden sm:inline'>Report a problem</span>
+                    </Button>
+                  </Link>
+                )}
                 <Link
                   href={`/resource-management/resources/${id}/edit`}
                   className='flex-1 lg:flex-none'
@@ -418,7 +433,7 @@ export default function ResourceDetailsPage({
 
         {/* Tabs */}
         <Tabs defaultValue='overview' className='space-y-6'>
-          <TabsList className='flex w-full justify-start gap-1 overflow-x-auto sm:grid sm:grid-cols-4 md:grid-cols-7 sm:h-auto sm:gap-2 bg-muted/50 p-1 sm:overflow-visible'>
+          <TabsList className='flex w-full justify-start gap-1 overflow-x-auto sm:grid sm:grid-cols-4 md:grid-cols-8 sm:h-auto sm:gap-2 bg-muted/50 p-1 sm:overflow-visible'>
             <TabsTrigger
               value='overview'
               className='flex items-center gap-2 data-[state=active]:bg-background'
@@ -468,6 +483,13 @@ export default function ResourceDetailsPage({
               <BarChart3 className='h-4 w-4' />
               <span className='hidden sm:inline'>Statistics</span>
             </TabsTrigger>
+            <TabsTrigger
+              value='maintenance'
+              className='flex items-center gap-2 data-[state=active]:bg-background'
+            >
+              <Wrench className='h-4 w-4' />
+              <span className='hidden sm:inline'>Maintenance</span>
+            </TabsTrigger>
           </TabsList>
 
           <TabsContent value='overview'>
@@ -500,6 +522,10 @@ export default function ResourceDetailsPage({
               stats={stats}
               loading={loadingStats}
             />
+          </TabsContent>
+
+          <TabsContent value='maintenance'>
+            <MaintenanceHistoryTab resource={resource} />
           </TabsContent>
         </Tabs>
       </div>

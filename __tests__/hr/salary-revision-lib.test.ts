@@ -20,6 +20,7 @@ import {
   checkAsk,
   decisionSummary,
   flagsFor,
+  STATUS_LABELS,
   isOpen,
   longDate,
   toAmount,
@@ -90,6 +91,13 @@ describe('words on screen', () => {
   it('treats approved (not yet in the pay) as still open (ruling 10)', () => {
     expect(isOpen('approved')).toBe(true);
     expect(isOpen('applied')).toBe(false);
+    expect(isOpen('cancelled')).toBe(false);
+  });
+
+  it('30 Sep: a principal who is also the head of department is flagged; a cancelled raise has its own label', () => {
+    expect(flagsFor({ ...base, asker_is_also_hod: true }).map((f) => f.kind)).toEqual(['also_hod']);
+    expect(flagsFor({ ...base, asker_is_also_hod: false })).toEqual([]);
+    expect(STATUS_LABELS.cancelled).toContain('left');
     expect(isOpen('refused')).toBe(false);
   });
   it('names the Director’s figure when he changed it (ruling 12)', () => {
@@ -97,6 +105,10 @@ describe('words on screen', () => {
       .toBe('Approved at ₹52,500 a month from 1 October 2026 (asked: ₹50,000).');
     expect(decisionSummary({ status: 'applied', final_monthly_gross: 50000, asked_monthly_gross: 50000, starts_on: '2026-10-01' }))
       .toBe('Approved at ₹50,000 a month from 1 October 2026. It is now in the pay.');
+    expect(decisionSummary({ status: 'cancelled', final_monthly_gross: 34000, asked_monthly_gross: 34000, starts_on: '2026-10-01' }))
+      .toBe('Cancelled: the person left before the new pay was to start on 1 October 2026.');
+    expect(decisionSummary({ status: 'cancelled', final_monthly_gross: 34000, asked_monthly_gross: 34000, starts_on: null }))
+      .toBe('Cancelled: the person left before the new pay was to start.');
   });
   it('reads numeric strings and refuses junk', () => {
     expect(toAmount('52500.00')).toBe(52500);

@@ -61,6 +61,48 @@ export interface HRLeaveTypeDeleteCounts {
   policies: number;
 }
 
+/** Every kind of row hr_leave_type_delete_super_admin() removes with the type. */
+export interface HRLeaveTypeSuperDeleteCounts {
+  balances_with_leave_taken: number;
+  balances_unused: number;
+  adjustments: number;
+  overrides: number;
+  assignments: number;
+  cadre_entitlements: number;
+  policies: number;
+  eligibilities: number;
+  month_entries: number;
+  work_pattern_entitlements: number;
+}
+
+/**
+ * What hr_leave_type_delete_super_admin() returns, for the dry run and the commit.
+ *
+ * Refusals come back as { ok: false } in the PAYLOAD (permission_denied,
+ * not_found, in_use, or a SQLERRM), never as a thrown RPC error — callers must
+ * read `ok`. `blockers` is present on an in_use refusal and on a clean dry run.
+ */
+export interface HRLeaveTypeSuperDeleteResult {
+  ok: boolean;
+  dry_run?: boolean;
+  leave_type_name?: string;
+  /** Resolved even for an organization that is not in HR. */
+  organization_name?: string | null;
+  /** True when staff can still apply for it right now. */
+  was_active?: boolean;
+  error?: string;
+  message?: string;
+  blockers?: {
+    applications: number;
+    encashments: number;
+    superseding_types: number;
+  };
+  /** Present on a clean dry run. */
+  will_remove?: HRLeaveTypeSuperDeleteCounts;
+  /** Present after the commit. */
+  removed?: HRLeaveTypeSuperDeleteCounts;
+}
+
 export interface GenerateBalancesFallback {
   staff_code: string;
   name: string;
@@ -212,6 +254,30 @@ export class HRLeaveTypeService {
     });
     if (error) throw error;
     return data as HRLeaveTypeDeleteResult;
+  }
+
+  /**
+   * Super-admin hard delete, through hr_leave_type_delete_super_admin().
+   *
+   * Unlike hardDelete() this works on an ACTIVE type and also removes its
+   * balances and adjustments; it still refuses when a leave application, an
+   * encashment or a superseding type exists. The RPC gates on is_super_admin()
+   * itself — a caller without it gets { ok: false, error: 'permission_denied' }.
+   *
+   * Call with dryRun to fill the confirmation dialog; the commit re-runs every
+   * check under a row lock, so the two cannot disagree.
+   */
+  static async superAdminDelete(
+    supabase: SupabaseClient,
+    id: string,
+    dryRun: boolean
+  ): Promise<HRLeaveTypeSuperDeleteResult> {
+    const { data, error } = await supabase.rpc('hr_leave_type_delete_super_admin', {
+      p_leave_type_id: id,
+      p_dry_run: dryRun,
+    });
+    if (error) throw error;
+    return data as HRLeaveTypeSuperDeleteResult;
   }
 
   /**

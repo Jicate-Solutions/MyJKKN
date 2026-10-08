@@ -59,7 +59,7 @@ import {
 } from '@/lib/id-cards/render-card';
 import { makeCode39SvgDataUrl } from '@/lib/id-cards/barcode';
 import { loadCardFonts } from '@/lib/id-cards/card-fonts';
-import { boostArtworkForPrint } from '@/lib/id-cards/artwork-boost.server';
+import { boostArtworkForPrint, monochromeBackForPrint } from '@/lib/id-cards/artwork-boost.server';
 import { buildFieldReport } from '@/lib/id-cards/field-report';
 import type { ReactElement } from 'react';
 
@@ -254,7 +254,11 @@ export async function GET(
     };
 
     if (side === 'back') {
-      const backPng = await renderBack();
+      const renderedBack = await renderBack();
+      // Bridge download only: two-tone, ready for the ribbon's black panel
+      // (colour front / black back from ONE ribbon set). Previews keep the
+      // smooth render.
+      const backPng = printerBack ? await monochromeBackForPrint(renderedBack) : renderedBack;
       if (format === 'png') {
         return new Response(backPng, {
           status: 200,

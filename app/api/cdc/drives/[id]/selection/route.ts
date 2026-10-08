@@ -6,6 +6,7 @@ export const runtime = 'nodejs';
  *
  * GET  → { drive, rows[], summary, can_decide, decide_blocked_reason }   (cdc.drives.view)
  *        ?format=xlsx&decision=selected|waitlisted|rejected|hold|undecided&attended=1 → Excel
+ *        ?format=xlsx&sheets=split → Excel report: Selected / Not selected / Summary sheets
  * POST → { learner_ids: string[], decision: 'selected'|'waitlisted'|'rejected'|'hold'|null, remarks? }
  *                                                                        (cdc.drives.edit)
  *
@@ -89,32 +90,62 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     });
     if (filtered.length === 0) return NextResponse.json({ error: 'No learners match this filter — nothing to export.' }, { status: 404 });
 
-    const ws = XLSX.utils.json_to_sheet(
-      filtered.map((r, i) => ({
-        'S.No': i + 1,
-        'Register No': r.register_number ?? '',
-        'Learner Name': r.learner_name ?? '',
-        Institution: r.institution_name ?? '',
-        Department: r.department_name ?? '',
-        Semester: r.semester_label ?? '',
-        Email: r.email ?? '',
-        Mobile: r.mobile ?? '',
-        Attendance: r.attendance_status ? ATTENDANCE_LABEL[r.attendance_status] : 'Not marked',
-        Decision: r.decision ? SELECTION_LABEL[r.decision] : 'Undecided',
-        'Decision Date': r.decided_at ? new Date(r.decided_at).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }) : '',
-        Remarks: r.decision_remarks ?? '',
-        Documents: r.documents.map((d) => `${DOCUMENT_TYPE_LABEL[d.document_type]} v${d.version}`).join('; '),
-      }))
-    );
-    ws['!cols'] = [{ wch: 6 }, { wch: 16 }, { wch: 28 }, { wch: 34 }, { wch: 26 }, { wch: 12 }, { wch: 30 }, { wch: 16 }, { wch: 14 }, { wch: 14 }, { wch: 22 }, { wch: 30 }, { wch: 40 }];
+    type Row = (typeof rows)[number];
+    const toSheet = (list: Row[]) => {
+      const sheet = XLSX.utils.json_to_sheet(
+        list.map((r, i) => ({
+          'S.No': i + 1,
+          'Register No': r.register_number ?? '',
+          'Learner Name': r.learner_name ?? '',
+          Institution: r.institution_name ?? '',
+          Department: r.department_name ?? '',
+          Semester: r.semester_label ?? '',
+          Email: r.email ?? '',
+          Mobile: r.mobile ?? '',
+          Attendance: r.attendance_status ? ATTENDANCE_LABEL[r.attendance_status] : 'Not marked',
+          Decision: r.decision ? SELECTION_LABEL[r.decision] : 'Undecided',
+          'Decision Date': r.decided_at ? new Date(r.decided_at).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }) : '',
+          Remarks: r.decision_remarks ?? '',
+          Documents: r.documents.map((d) => `${DOCUMENT_TYPE_LABEL[d.document_type]} v${d.version}`).join('; '),
+        })),
+        // Keeps the header row on a sheet that has no learners.
+        { header: ['S.No', 'Register No', 'Learner Name', 'Institution', 'Department', 'Semester', 'Email', 'Mobile', 'Attendance', 'Decision', 'Decision Date', 'Remarks', 'Documents'] }
+      );
+      sheet['!cols'] = [{ wch: 6 }, { wch: 16 }, { wch: 28 }, { wch: 34 }, { wch: 26 }, { wch: 12 }, { wch: 30 }, { wch: 16 }, { wch: 14 }, { wch: 14 }, { wch: 22 }, { wch: 30 }, { wch: 40 }];
+      return sheet;
+    };
+
     const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, 'Selection');
+    // ?sheets=split → the selection REPORT: selected learners on one sheet,
+    // everyone else (not selected / waitlisted / on hold / undecided — the
+    // Decision column says which) on another, plus a summary.
+    const split = sp.get('sheets') === 'split';
+    if (split) {
+      const selected = filtered.filter((r) => r.decision === 'selected');
+      const notSelected = filtered.filter((r) => r.decision !== 'selected');
+      const count = (d: CdcSelectionDecision | null) => filtered.filter((r) => (r.decision ?? null) === d).length;
+      XLSX.utils.book_append_sheet(wb, toSheet(selected), 'Selected');
+      XLSX.utils.book_append_sheet(wb, toSheet(notSelected), 'Not selected');
+      const summarySheet = XLSX.utils.json_to_sheet([
+        { Metric: 'Drive', Value: drive.title },
+        { Metric: 'Drive date', Value: drive.drive_date ?? '' },
+        { Metric: 'Total learners', Value: filtered.length },
+        { Metric: 'Selected', Value: selected.length },
+        { Metric: 'Not selected (all others)', Value: notSelected.length },
+        ...SELECTION_DECISIONS.filter((d) => d !== 'selected').map((d) => ({ Metric: `  ${SELECTION_LABEL[d]}`, Value: count(d) })),
+        { Metric: '  Undecided', Value: count(null) },
+      ]);
+      summarySheet['!cols'] = [{ wch: 28 }, { wch: 40 }];
+      XLSX.utils.book_append_sheet(wb, summarySheet, 'Summary');
+    } else {
+      XLSX.utils.book_append_sheet(wb, toSheet(filtered), 'Selection');
+    }
     const buffer = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' }) as Buffer;
     return new NextResponse(new Uint8Array(buffer), {
       status: 200,
       headers: {
         'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-        'Content-Disposition': `attachment; filename="${safeFilename(drive.title)}_selection${filter ? `_${filter}` : ''}_${new Date().toISOString().slice(0, 10)}.xlsx"`,
+        'Content-Disposition': `attachment; filename="${safeFilename(drive.title)}_selection${split ? '_report' : filter ? `_${filter}` : ''}_${new Date().toISOString().slice(0, 10)}.xlsx"`,
         'Cache-Control': 'no-store',
       },
     });

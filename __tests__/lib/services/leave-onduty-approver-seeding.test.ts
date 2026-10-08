@@ -37,6 +37,7 @@ const SEMESTER_ID = 'd15bc8fe-70e4-4bc6-8877-38e6572d33ef';
 const SECTION_ID = '3896c106-229f-496d-8552-50823e615c56';
 const DEPARTMENT_ID = '57047edf-b70b-4785-b68a-52b8880cad2a';
 const APPLICATION_ID = '11111111-1111-4111-8111-111111111111';
+const LEAVE_TYPE_ID = '22222222-2222-4222-8222-222222222222';
 
 // The TIMETABLE fixture below defines periods on THURSDAY only, and
 // validateApplicationData rejects a start_date more than
@@ -72,7 +73,7 @@ const PERIOD_ROWS = [
   { id: PERIOD_ID, period_name: 'CET P1', start_time: '09:15:00', end_time: '10:00:00', is_break: false },
 ];
 
-/** What fn_seed_application_approvals returns. Swapped per test. */
+/** What fn_lo_seed_approvals returns. Swapped per test. */
 let seedResult: { data: number | null; error: any } = { data: 2, error: null };
 /** Every rpc(name, args) the service made. */
 let rpcCalls: Array<{ fn: string; args: any }> = [];
@@ -80,8 +81,7 @@ let rpcCalls: Array<{ fn: string; args: any }> = [];
 let deletedApplicationIds: string[] = [];
 /** Tables the service wrote to directly — must never include approvals. */
 let insertedTables: string[] = [];
-const LEAVE_TYPE_ID = '22222222-2222-4222-8222-222222222222';
-/** Whether the leave type demands sponsor pre-approval. */
+/** Whether the chosen leave type demands sponsor pre-approval. */
 let requiresSponsorApproval = false;
 
 function makeClient() {
@@ -93,6 +93,12 @@ function makeClient() {
     rpc(fn: string, args: any) {
       rpcCalls.push({ fn, args });
       if (fn === 'fn_lo_seed_approvals') return Promise.resolve(seedResult);
+      // Rollback of a failed submission goes through this RPC (a learner's
+      // plain DELETE is refused by RLS on a pending row).
+      if (fn === 'fn_discard_unseeded_application') {
+        deletedApplicationIds.push(args.p_application_id);
+        return Promise.resolve({ data: true, error: null });
+      }
       throw new Error(`Unexpected rpc in test: ${fn}`);
     },
     from(table: string) {
@@ -144,6 +150,8 @@ function makeClient() {
         };
       }
 
+      // The learner picks a learner_leave_types row (main dc2495ff05); its
+      // code is written to sub_category.
       if (table === 'learner_leave_types') {
         const b: any = {
           select: () => b,
@@ -278,10 +286,10 @@ describe('createApplication — approver seeding', () => {
     expect(deletedApplicationIds).toEqual([APPLICATION_ID]);
   });
 
-  it('accepts zero approvers for a sponsor-gated leave type without rolling back', async () => {
-    // fn_lo_seed_approvals still runs (it validates the type's rules) but returns
-    // 0 for a sponsor type — the academic chain is seeded after the sponsor
-    // approves, so zero approvers at creation must NOT trigger the rollback.
+  it('keeps a sponsor-gated application when seeding returns zero approvers', async () => {
+    // fn_lo_seed_approvals still runs (it validates the leave type's rules) but
+    // returns 0: the academic chain is seeded when the sponsor approves
+    // (fn_lo_sponsor_decide), so zero here must NOT trigger the rollback.
     requiresSponsorApproval = true;
     seedResult = { data: 0, error: null };
 

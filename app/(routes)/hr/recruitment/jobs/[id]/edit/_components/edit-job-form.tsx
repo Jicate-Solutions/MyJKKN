@@ -15,6 +15,7 @@ import {
   RefreshCw,
   X,
   Loader2,
+  Globe,
 } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
@@ -50,6 +51,7 @@ import type {
 import { JOB_STATUS_LABELS } from '@/types/hr-recruitment';
 
 import { SkillsInput } from '../../../new/_components/skills-input';
+import { JobSeoCard, jobSeoFromJob, jobSeoToColumns, validateJobSeo } from '../../../_components/job-seo-card';
 
 // ---------------------------------------------------------------------------
 // Location data (shared with create form)
@@ -81,6 +83,7 @@ const SECTIONS = [
   { id: 'job-specification', label: 'Job Specification', Icon: BookOpen },
   { id: 'job-description', label: 'Job Description', Icon: FileText },
   { id: 'skills', label: 'Skills', Icon: Zap },
+  { id: 'website-seo', label: 'Website SEO', Icon: Globe },
 ] as const;
 
 type SectionId = (typeof SECTIONS)[number]['id'];
@@ -155,6 +158,9 @@ export function EditJobForm({ job }: { job: HRRecruitmentJob }) {
   const [positionsOpen, setPositionsOpen] = useState(job.positions_open ?? 1);
   const [positionsFilled, setPositionsFilled] = useState(job.positions_filled ?? 0);
 
+  // ---- Website SEO (hidden from applicants) ----
+  const [seo, setSeo] = useState(() => jobSeoFromJob(job));
+
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -208,6 +214,12 @@ export function EditJobForm({ job }: { job: HRRecruitmentJob }) {
       scrollToSection('basic-details');
       return;
     }
+    const seoError = validateJobSeo(seo);
+    if (seoError) {
+      setError(seoError);
+      scrollToSection('website-seo');
+      return;
+    }
     setError(null);
     setIsSaving(true);
     try {
@@ -241,6 +253,7 @@ export function EditJobForm({ job }: { job: HRRecruitmentJob }) {
           positions_open: positionsOpen,
           positions_filled: positionsFilled,
           status,
+          ...jobSeoToColumns(seo),
         },
       });
       toast.success('Job posting updated');
@@ -257,7 +270,7 @@ export function EditJobForm({ job }: { job: HRRecruitmentJob }) {
     country, locationState, city, zipCode, educationLevel,
     minExpYears, maxExpYears, minSalary, maxSalary, salaryCurrency,
     salaryDuration, displaySalary, description, qualifications, skills,
-    departmentId, positionsOpen, positionsFilled, status,
+    departmentId, positionsOpen, positionsFilled, status, seo,
     updateJob, job.id, router, scrollToSection,
   ]);
 
@@ -882,6 +895,9 @@ export function EditJobForm({ job }: { job: HRRecruitmentJob }) {
               <SkillsInput skills={skills} onChange={setSkills} />
             </CardContent>
           </Card>
+
+          {/* ── Section 6: Website SEO (hidden from applicants) ─────── */}
+          <JobSeoCard value={seo} onChange={setSeo} jobTitle={title} institutionName={institutionName} />
 
           {/* Mobile-only: status + positions + public */}
           <Card className="lg:hidden">

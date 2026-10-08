@@ -30,6 +30,9 @@ import type {
   HRRecruitmentJobNote,
   HRJobApplication,
   JobApplicationStatus,
+  PipelineCandidateRecord,
+  PipelineJobSummary,
+  RecruitmentPipelineResponse,
   PurgeRejectedApplicantResult,
   ApprovalsJobOverviewRow,
   ApprovalFlowStepTemplate,
@@ -925,6 +928,105 @@ export class RecruitmentService {
   }
 
   /**
+   * Everything in recruitment the caller may see, for the All Candidates page:
+   * every application, every pipeline candidate, and the jobs + institutions
+   * they point at. RLS bounds all four reads (hr.recruitment.view + institution
+   * access), so the page shows exactly what the per-job workspace would.
+   *
+   * Pages through PostgREST's 1000-row cap instead of asking for a count —
+   * `count: 'exact'` on these RLS-filtered tables is an extra full scan.
+   */
+  static async listPipeline(supabase: SupabaseClient): Promise<RecruitmentPipelineResponse> {
+    const PAGE = 1000;
+    async function readAll<T>(
+      read: (from: number, to: number) => PromiseLike<{ data: T[] | null; error: unknown }>,
+    ): Promise<T[]> {
+      const out: T[] = [];
+      for (let from = 0; ; from += PAGE) {
+        const { data, error } = await read(from, from + PAGE - 1);
+        if (error) throw error;
+        out.push(...(data ?? []));
+        if (!data || data.length < PAGE) return out;
+      }
+    }
+
+    const [applications, candidateRows] = await Promise.all([
+      readAll<HRJobApplication>((from, to) =>
+        supabase
+          .from('hr_job_applications')
+          .select('*')
+          .order('submitted_at', { ascending: false })
+          .range(from, to) as unknown as PromiseLike<{ data: HRJobApplication[] | null; error: unknown }>,
+      ),
+      readAll<Omit<PipelineCandidateRecord, 'job_id'> & { role_specific_details: Record<string, unknown> | null }>(
+        (from, to) =>
+          supabase
+            .from('hr_recruitment_candidates')
+            .select('id, institution_id, name, email, phone, cvviz_url, role_category, role_title, status, is_emergency, source, submitted_at, role_specific_details')
+            .order('submitted_at', { ascending: false })
+            .range(from, to) as unknown as PromiseLike<{
+              data: (Omit<PipelineCandidateRecord, 'job_id'> & { role_specific_details: Record<string, unknown> | null })[] | null;
+              error: unknown;
+            }>,
+      ),
+    ]);
+
+    const candidates: PipelineCandidateRecord[] = candidateRows.map(({ role_specific_details, ...c }) => {
+      const jobId = role_specific_details?.job_id;
+      return { ...c, job_id: typeof jobId === 'string' ? jobId : null };
+    });
+
+    const jobIds = Array.from(new Set([
+      ...applications.map((a) => a.job_id),
+      ...candidates.map((c) => c.job_id),
+    ].filter((id): id is string => !!id)));
+
+    type JobRow = Omit<PipelineJobSummary, 'institution_name' | 'department_name'> & {
+      institution: { name: string } | null;
+      department: { department_name: string } | null;
+    };
+    const jobs: PipelineJobSummary[] = [];
+    // Chunked so the id list never outgrows the request URL.
+    for (let i = 0; i < jobIds.length; i += 200) {
+      const { data, error } = await supabase
+        .from('hr_recruitment_jobs')
+        .select('id, title, job_code, job_type, role_category, status, institution_id, department_id, city, institution:institutions(name), department:departments(department_name)')
+        .in('id', jobIds.slice(i, i + 200));
+      if (error) throw error;
+      for (const { institution, department, ...j } of (data ?? []) as unknown as JobRow[]) {
+        jobs.push({
+          ...j,
+          institution_name: institution?.name ?? null,
+          department_name: department?.department_name ?? null,
+        });
+      }
+    }
+
+    // Names for rows whose institution is not reached through a job (direct
+    // submissions), so every row can show a college.
+    const knownInstitutions = new Map(
+      jobs.filter((j) => j.institution_id && j.institution_name)
+        .map((j) => [j.institution_id as string, j.institution_name as string] as const),
+    );
+    const missing = Array.from(new Set([
+      ...applications.map((a) => a.institution_id),
+      ...candidates.map((c) => c.institution_id),
+    ].filter((id): id is string => !!id && !knownInstitutions.has(id))));
+    if (missing.length > 0) {
+      const { data, error } = await supabase.from('institutions').select('id, name').in('id', missing);
+      if (error) throw error;
+      for (const i of data ?? []) knownInstitutions.set(i.id, i.name);
+    }
+
+    return {
+      applications,
+      candidates,
+      jobs,
+      institutions: Array.from(knownInstitutions, ([id, name]) => ({ id, name })),
+    };
+  }
+
+  /**
    * One application for the screening detail page. Mirrors the list's job embed
    * so the page gets its job context without a second round-trip.
    *
@@ -1070,8 +1172,11 @@ export class RecruitmentService {
       is_emergency: options?.is_emergency ?? false,
       // Website applicants have no account (applicant_user_id NULL) but ARE careers-page
       // candidates; keying on the user id alone mislabelled every one as an HR submission.
+      // CVViZ imports applied on the CVViZ careers page, so they are careers-page candidates too.
       source:
-        application.source === 'external_website' || application.applicant_user_id
+        application.source === 'external_website' ||
+        application.source === 'cvviz_import' ||
+        application.applicant_user_id
           ? 'public_careers_page'
           : 'hr_submission',
       submitted_by: promotedBy,
@@ -1353,7 +1458,7 @@ export class RecruitmentService {
       status: JobApplicationStatus;
       submitted_at: string;
       reviewed_at: string | null;
-      source: 'internal' | 'external_website';
+      source: 'internal' | 'external_website' | 'cvviz_import';
     };
     const apps = (appsRes.data ?? []) as AppRow[];
 
@@ -1364,7 +1469,9 @@ export class RecruitmentService {
     const screenDays: number[] = [];
     for (const a of apps) {
       byApp[a.status] += 1;
-      if (a.source === 'external_website') website += 1;
+      // CVViZ imports applied on the CVViZ careers page: careers-page side, like the
+      // website, never "internal" (the same rule promotion uses for source above).
+      if (a.source === 'external_website' || a.source === 'cvviz_import') website += 1;
       if (a.reviewed_at) {
         const days =
           (new Date(a.reviewed_at).getTime() - new Date(a.submitted_at).getTime()) / 86400000;

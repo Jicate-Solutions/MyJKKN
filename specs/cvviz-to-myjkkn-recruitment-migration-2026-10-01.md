@@ -272,12 +272,22 @@ These are proposed and need confirmation in §8:
 3. **Resume storage: APPROVED.** All 24,934 PDFs (about 5–10 GB) go to the Shared Drive.
 4. **Retention: keep ALL applications.** There is no cut-off, and all 24,934 are imported. The purge rule in `hr_recruitment_purge_log` is not applied to archive rows.
 
+### Decided by DTO on 2026-10-03
+
+The full list of 12 decisions, including how a joined candidate becomes an HR record, is in [cvviz-full-product-spec-2026-10-03.md §10](cvviz-full-product-spec-2026-10-03.md). The ones that close items in this spec:
+
+5. **Promotion rule: APPROVED** as in §5.5. Jobs marked In Progress with an application in the last 12 months become live. All 388 go to the archive.
+6. **CAS Self and Aided are kept separate.**
+   - The 2 departments marked SF go to Self.
+   - For the other 15 shared departments, the CAS reviewer assigns each job to Self or Aided.
+   - Until then the job is held as pending.
+7. **Stale CVViZ tasks** (1,714 open, 2022–23): archive only, not recreated.
+8. **Jobs deleted in CVViZ (47):** imported, marked deleted, hidden by default.
+
 ### Still open
 
-5. **Promotion rule** in §5.5: "status 5 + an application in the last 12 months". Confirm or name the jobs.
-6. **CAS Self vs Aided:**
-   - 15 CAS departments exist under both institutions.
-   - The 2 departments marked SF go to Self.
-   - The CAS reviewer picks Self or Aided per department, or per job.
-7. **Stale CVViZ tasks** (1,714 open, 2022–23): archive only, not recreated. Confirm.
-8. **Rotate the DTO CVViZ password.** It was shared in chat.
+9. **Rotate the DTO CVViZ password.** It was shared in chat.
+
+### Note on the export
+
+The first export (2026-10-01) was lost when a temporary folder was cleared. It was collected again on 2026-10-03 and is kept in `d:\tmp\cvviz\data`, outside the repo.
