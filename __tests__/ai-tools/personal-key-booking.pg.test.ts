@@ -188,18 +188,36 @@ afterAll(async () => {
 });
 
 describe('migration', () => {
-  it('both files apply a second time without error, in either order', async () => {
-    await expect(db.query(reservationsSql)).resolves.toBeDefined();
-    await expect(db.query(migrationSql)).resolves.toBeDefined();
-    await expect(db.query(reservationsSql)).resolves.toBeDefined();
-  });
-
-  it('re-applying 20271008150000 after 20271008160000 keeps the reservation functions', async () => {
+  const setBookingLocked = async () => {
     await db.query('RESET ROLE');
+    const r = await db.query(
+      `SELECT position('pg_advisory_xact_lock' IN pg_get_functiondef('public.fn_ai_personal_key_set_booking(uuid, boolean)'::regprocedure)) > 0 AS locked`
+    );
+    return r.rows[0].locked as boolean;
+  };
+
+  it('in version order (150000 then 160000) the final switch function takes the lock', async () => {
+    // beforeAll applied 150000 then 160000; re-run both in the same order
+    await db.query(migrationSql);
+    await db.query(reservationsSql);
+    expect(await setBookingLocked()).toBe(true);
     const r = await db.query(
       `SELECT count(*)::int AS n FROM pg_proc WHERE proname IN ('fn_ai_booking_reserve', 'fn_ai_booking_release')`
     );
     expect(r.rows[0].n).toBe(2);
+  });
+
+  it('if 150000 is re-run last the lock is lost, safety still holds, and re-running 160000 restores it', async () => {
+    await db.query(reservationsSql);
+    await db.query(migrationSql); // 150000 applied LAST
+    expect(await setBookingLocked()).toBe(false);
+    // the one-active-grant-per-owner index still refuses a second active key
+    const idx = await db.query(
+      `SELECT indexdef FROM pg_indexes WHERE indexname = 'uq_ai_personal_key_booking_one_per_owner'`
+    );
+    expect(idx.rows[0].indexdef).toMatch(/UNIQUE INDEX .* \(owner_id\) WHERE active/);
+    await db.query(reservationsSql);
+    expect(await setBookingLocked()).toBe(true);
   });
 });
 
@@ -374,6 +392,12 @@ describe('booking reservations (atomic limits)', () => {
     // keyS is allowed, but not when named for a different owner
     const [{ r: wrongOwner }] = await asService(reserve(keyS, A, 1, 20));
     expect(wrongOwner).toEqual({ ok: false, reason: 'not_allowed' });
+  });
+
+  it('caps attempts per key per hour, released ones included', async () => {
+    // keyS: 3 live + 1 released reservations so far; a per-hour limit of 1 caps attempts at 3
+    const [{ r }] = await asService(reserve(keyS, S, 1, 1));
+    expect(r).toEqual({ ok: false, reason: 'attempts', limit: 3 });
   });
 
   it('refuses past the per-day invitee limit for the owner', async () => {

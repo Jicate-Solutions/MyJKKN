@@ -332,6 +332,7 @@ describe('deep review fixes (8 Oct)', () => {
     ['per_day', 60, /60 meetings in the last 24 hours/],
     ['invitees_per_day', 150, /past 150 invitations/],
     ['not_allowed', null, /not allowed to book meetings right now/],
+    ['attempts', 60, /tried to book 60 times in the last hour/],
   ])('a refused reservation (%s) books nothing', async (reason, limit, msg) => {
     reserveAnswer = { data: { ok: false, reason, limit }, error: null };
     const res = await readRpc(await book(GOOD_ARGS));
@@ -385,6 +386,14 @@ describe('deep review fixes (8 Oct)', () => {
     const res = await readRpc(await book({ ...GOOD_ARGS, ...bad }));
     expect(res.result.content[0].text).toMatch(msg);
     expect(scheduleDirect).not.toHaveBeenCalled();
+  });
+
+  it('cuts a long name by letters, never splitting one', async () => {
+    const tamil = 'த'.repeat(119) + '😀😀';
+    await readRpc(await book({ ...GOOD_ARGS, attendees: [{ email: 'a@jkkn.ac.in', name: tamil }] }));
+    const cut = scheduleDirect.mock.calls[0][1].attendees[0].name as string;
+    expect(Array.from(cut)).toHaveLength(120);
+    expect(cut.endsWith('😀')).toBe(true);
   });
 
   it('cuts a very long attendee name rather than refusing', async () => {

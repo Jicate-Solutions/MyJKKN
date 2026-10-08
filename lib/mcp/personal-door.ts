@@ -46,6 +46,7 @@ import {
   type ScheduleAttendee,
 } from '@/lib/services/meetings/host-scheduling-service';
 import { zonedToUtc } from '@/lib/services/meetings/native-slot-engine';
+import { after } from 'next/server';
 
 /** Every personal key starts with this; admin keys are `jkkn_` + 32 hex characters. */
 export const PERSONAL_KEY_PREFIX = 'jkkn_pk_';
@@ -286,7 +287,8 @@ export function parseScheduleArgs(input: Record<string, unknown> | undefined): S
     const key = email.toLowerCase();
     if (seen.has(key)) continue;
     seen.add(key);
-    const name = typeof o.name === 'string' ? o.name.trim().slice(0, BOOKING_LIMITS.MAX_NAME) : '';
+    // Cut by characters, not UTF-16 units, so a Tamil or emoji name is never split mid-letter.
+    const name = typeof o.name === 'string' ? Array.from(o.name.trim()).slice(0, BOOKING_LIMITS.MAX_NAME).join('') : '';
     attendees.push({ email, name: name || email });
   }
   const outside = attendees.map((p) => p.email).filter(isOutsideJkkn);
@@ -325,6 +327,7 @@ function exactLike(text: string): string {
 }
 
 const LIMIT_MESSAGES: Record<string, (n: number) => string> = {
+  attempts: (n) => `This key has tried to book ${n} times in the last hour. Wait a while before trying again.`,
   not_allowed: () => 'This key is not allowed to book meetings right now. The owner can switch booking on for it on the Connect page.',
   per_hour: (n) => `This key has booked ${n} meetings in the last hour. Try again later.`,
   per_day: (n) => `This key has booked ${n} meetings in the last 24 hours. Try again tomorrow.`,
@@ -375,6 +378,20 @@ export class BookingTimeout extends Error {
   constructor() {
     super('booking timed out');
     this.name = 'BookingTimeout';
+  }
+}
+
+/**
+ * After a timeout the booking may still be half-way (row written, invitations
+ * not yet sent). Ask the platform to keep it running after the answer is sent,
+ * so it finishes rather than being cut off. Outside a request (tests) this is
+ * a no-op.
+ */
+function keepRunningAfterResponse(work: Promise<unknown>): void {
+  try {
+    after(() => work.catch(() => undefined));
+  } catch {
+    void work.catch(() => undefined);
   }
 }
 
@@ -495,7 +512,13 @@ async function runScheduleTool(
     note: args.note,
     attendees,
   });
-  const outcome = await withDeadline(booking, BOOKING_LIMITS.BOOKING_TIMEOUT_MS);
+  let outcome: Awaited<typeof booking>;
+  try {
+    outcome = await withDeadline(booking, BOOKING_LIMITS.BOOKING_TIMEOUT_MS);
+  } catch (err) {
+    if (err instanceof BookingTimeout) keepRunningAfterResponse(booking);
+    throw err;
+  }
   if (!outcome.ok) {
     const code = outcome.error?.code;
     if (code === 'VALIDATION' || code === 'SLOT_TAKEN') {

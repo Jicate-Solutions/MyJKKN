@@ -139,8 +139,14 @@ export function ConnectOutsideAi() {
 
   const setBooking = async (target: PersonalKey, allow: boolean) => {
     setSavingBooking(true);
-    const { error } = await rpc('fn_ai_personal_key_set_booking', { p_key_id: target.id, p_allow: allow });
-    setSavingBooking(false);
+    let error: { message?: string } | null = null;
+    try {
+      ({ error } = await rpc('fn_ai_personal_key_set_booking', { p_key_id: target.id, p_allow: allow }));
+    } catch (err) {
+      error = { message: err instanceof Error ? err.message : undefined };
+    } finally {
+      setSavingBooking(false);
+    }
     if (error) {
       toast.error(error.message || 'Could not change this key. Please try again.');
       return;

@@ -18,6 +18,15 @@
 --
 -- Depends on 20271008150000 (ai_personal_key_booking_grants). Refuses to run
 -- without it.
+--
+-- ORDER: this file OWNS the locked body of fn_ai_personal_key_set_booking. The
+-- ship wave applies versions in order (150000 then 160000) and never re-runs an
+-- applied version, which leaves the lock in place. If 20271008150000 were ever
+-- re-run by hand AFTER this file, it would put back the unlocked body. Safety
+-- still holds then — the one-active-grant-per-owner unique index refuses a
+-- second active key; a rare double click would get an error instead of a clean
+-- switch — and re-running THIS file restores the lock. The apply-time check at
+-- the end of this file refuses to finish without the lock.
 
 DO $$
 BEGIN
@@ -73,6 +82,7 @@ DECLARE
   v_hour     integer;
   v_day      integer;
   v_invited  integer;
+  v_attempts integer;
   v_id       uuid;
 BEGIN
   IF p_key_id IS NULL OR p_owner_id IS NULL OR coalesce(p_invitees, 0) < 1 THEN
@@ -83,6 +93,11 @@ BEGIN
      OR p_per_hour < 1 OR p_per_day < 1 OR p_invitees_per_day < 1 THEN
     RAISE EXCEPTION 'reserve: every limit must be a positive number' USING ERRCODE = '22023';
   END IF;
+  -- Serialise with every other reservation AND every booking switch for this
+  -- owner: the same lock key fn_ai_personal_key_set_booking takes, taken BEFORE
+  -- the grant is checked, so a switch-off cannot slip in between.
+  PERFORM pg_advisory_xact_lock(hashtext('ai_booking_grant:' || p_owner_id::text));
+
   -- Only a working personal key of this owner, with booking switched on, may reserve.
   IF NOT EXISTS (
     SELECT 1
@@ -99,9 +114,6 @@ BEGIN
     RETURN jsonb_build_object('ok', false, 'reason', 'not_allowed');
   END IF;
 
-  -- Serialise every reservation for this owner (and so for each of their keys).
-  PERFORM pg_advisory_xact_lock(hashtext('ai_booking_reserve:' || p_owner_id::text));
-
   SELECT count(*) FILTER (WHERE created_at > now() - interval '1 hour'),
          count(*)
     INTO v_hour, v_day
@@ -109,6 +121,17 @@ BEGIN
    WHERE key_id = p_key_id
      AND NOT released
      AND created_at > now() - interval '24 hours';
+
+  -- Attempts, released ones included (a taken slot or a refused argument), are
+  -- capped too, so a loop of retries cannot hammer the calendar.
+  SELECT count(*)
+    INTO v_attempts
+    FROM public.ai_booking_reservations
+   WHERE key_id = p_key_id
+     AND created_at > now() - interval '1 hour';
+  IF v_attempts >= p_per_hour * 3 THEN
+    RETURN jsonb_build_object('ok', false, 'reason', 'attempts', 'limit', p_per_hour * 3);
+  END IF;
 
   IF v_hour >= p_per_hour THEN
     RETURN jsonb_build_object('ok', false, 'reason', 'per_hour', 'limit', p_per_hour);
@@ -230,6 +253,10 @@ BEGIN
      OR has_function_privilege('authenticated', 'public.fn_ai_booking_release(uuid)', 'EXECUTE')
      OR has_function_privilege('anon', 'public.fn_ai_booking_release(uuid)', 'EXECUTE') THEN
     RAISE EXCEPTION 'booking reservations must be service-role only';
+  END IF;
+  IF position('pg_advisory_xact_lock' IN pg_get_functiondef('public.fn_ai_personal_key_set_booking(uuid, boolean)'::regprocedure)) = 0
+     OR position('pg_advisory_xact_lock' IN pg_get_functiondef('public.fn_ai_booking_reserve(uuid, uuid, integer, integer, integer, integer)'::regprocedure)) = 0 THEN
+    RAISE EXCEPTION 'the booking functions must take the per-owner advisory lock';
   END IF;
   IF has_function_privilege('anon', 'public.fn_ai_personal_key_set_booking(uuid, boolean)', 'EXECUTE')
      OR NOT has_function_privilege('authenticated', 'public.fn_ai_personal_key_set_booking(uuid, boolean)', 'EXECUTE') THEN
