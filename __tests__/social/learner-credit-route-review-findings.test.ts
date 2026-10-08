@@ -31,7 +31,12 @@ function fakeClient(client: 'session' | 'service') {
       const call: Call = { client, table, ops: [] };
       calls.push(call);
       const key = () => `${client}:${table}:${call.ops.some((o) => o[0] === 'update') ? 'update' : 'read'}`;
-      const settle = () => Promise.resolve(results[key()] ?? { data: [], error: null });
+      const settle = () =>
+        // A keyset read past the first page (it carries .gt('id', …)) is the
+        // end of the list here: these fixtures are a single page.
+        call.ops.some((o) => o[0] === 'gt')
+          ? Promise.resolve({ data: [], error: null })
+          : Promise.resolve(results[key()] ?? { data: [], error: null });
       const b: Record<string, unknown> = {};
       for (const m of ['select', 'eq', 'in', 'like', 'ilike', 'limit', 'update', 'insert', 'delete', 'order', 'range', 'gt', 'abortSignal']) {
         b[m] = (...args: unknown[]) => {
@@ -141,9 +146,9 @@ describe('the board', () => {
   beforeEach(() => {
     results['session:ig_learner_post_claims:read'] = {
       data: [
-        { learner_id: 'L1', ig_post_id: 'P1', status: 'confirmed', institution_id: 'I1' },
-        { learner_id: 'L1', ig_post_id: 'P2', status: 'confirmed', institution_id: 'I1' },
-        { learner_id: 'L2', ig_post_id: 'P1', status: 'pending', institution_id: 'I2' },
+        { id: 'C1', learner_id: 'L1', ig_post_id: 'P1', status: 'confirmed', institution_id: 'I1' },
+        { id: 'C2', learner_id: 'L1', ig_post_id: 'P2', status: 'confirmed', institution_id: 'I1' },
+        { id: 'C3', learner_id: 'L2', ig_post_id: 'P1', status: 'pending', institution_id: 'I2' },
       ],
       error: null,
     };
@@ -253,6 +258,24 @@ describe('#9 deciding a claim', () => {
     const res = await PATCH(req('PATCH', { claim_id: 'C1', status: 'confirmed' }));
     expect(res.status).toBe(403);
     expect((await res.json()).error).not.toMatch(/already/i);
+  });
+
+  it('the same reviewer sending the same decision again gets 200, not an error', async () => {
+    results['session:ig_learner_post_claims:update'] = { data: null, error: null };
+    results['session:ig_learner_post_claims:read'] = { data: { id: 'C1', status: 'confirmed', reviewed_by: 'U1' }, error: null };
+    const { PATCH } = await import('@/app/api/social/learner-credit/route');
+    const res = await PATCH(req('PATCH', { claim_id: 'C1', status: 'confirmed' }));
+    expect(res.status).toBe(200);
+    expect((await res.json()).claim).toEqual({ id: 'C1', status: 'confirmed' });
+  });
+
+  it('a different reviewer, or a different decision, still gets 409', async () => {
+    results['session:ig_learner_post_claims:update'] = { data: null, error: null };
+    const { PATCH } = await import('@/app/api/social/learner-credit/route');
+    results['session:ig_learner_post_claims:read'] = { data: { id: 'C1', status: 'confirmed', reviewed_by: 'U2' }, error: null };
+    expect((await PATCH(req('PATCH', { claim_id: 'C1', status: 'confirmed' }))).status).toBe(409);
+    results['session:ig_learner_post_claims:read'] = { data: { id: 'C1', status: 'confirmed', reviewed_by: 'U1' }, error: null };
+    expect((await PATCH(req('PATCH', { claim_id: 'C1', status: 'rejected' }))).status).toBe(409);
   });
 
   it('answers 500 when the follow-up lookup itself fails', async () => {

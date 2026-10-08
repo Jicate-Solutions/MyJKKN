@@ -11,9 +11,12 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { NextRequest } from 'next/server';
 
-const CAP = 1000;
+/** PostgREST's max-rows. 1,000 on Supabase by default; some tests lower it. */
+let CAP = 1000;
 
-type Claim = { id: string; learner_id: string; ig_post_id: string; status: string; institution_id: string };
+type Claim = {
+  id: string; learner_id: string; ig_post_id: string; status: string; institution_id: string; created_at?: string;
+};
 type Op = [string, ...unknown[]];
 
 let claimsTable: Claim[] = [];
@@ -139,6 +142,7 @@ beforeEach(() => {
   richTables = false;
   largestIn = 0;
   hangClaims = false;
+  CAP = 1000;
   vi.resetModules();
 });
 
@@ -154,10 +158,11 @@ describe('the board pages past the 1,000-row cap', () => {
     expect(total).toBe(2300);
     expect(body.rows).toHaveLength(230);
 
-    // Three pages, each ordered by id, each starting after the last id of the
-    // page before (keyset paging, never offsets).
-    expect(claimReads).toHaveLength(3);
-    claimReads.forEach((ops, i) => {
+    // Three full-or-short pages and one empty page that ends the read, each
+    // ordered by id and starting after the last id of the page before
+    // (keyset paging, never offsets).
+    expect(claimReads).toHaveLength(4);
+    claimReads.slice(0, 3).forEach((ops, i) => {
       expect(ops).toContainEqual(['order', 'id', { ascending: true }]);
       expect(ops).toContainEqual(['limit', 1000]);
       expect(ops.some((o) => o[0] === 'range')).toBe(false);
@@ -294,5 +299,25 @@ describe('the board pages past the 1,000-row cap', () => {
     } finally {
       spy.mockRestore();
     }
+  });
+
+  it('a server cap BELOW the page size does not end the read early', async () => {
+    CAP = 500; // every page now comes back "short"
+    claimsTable = makeClaims(2300);
+    const { GET } = await import('@/app/api/social/learner-credit/route');
+    const res = await GET(get());
+    expect(res.status).toBe(200);
+    const total = ((await res.json()).rows as Row[]).reduce((n, r) => n + r.confirmed_posts, 0);
+    expect(total).toBe(2300);
+  });
+
+  it("a hidden learner's institution is that of their earliest claim, whatever the id order", async () => {
+    claimsTable = [
+      { id: 'C000001', learner_id: 'LY', ig_post_id: 'P1', status: 'confirmed', institution_id: 'I1', created_at: '2026-10-08T10:00:00Z' },
+      { id: 'C000002', learner_id: 'LY', ig_post_id: 'P2', status: 'confirmed', institution_id: 'I2', created_at: '2026-10-01T10:00:00Z' },
+    ];
+    const { GET } = await import('@/app/api/social/learner-credit/route');
+    const rows = (await (await GET(get())).json()).rows as Array<{ learner_id: string; institution_id: string }>;
+    expect(rows.find((r) => r.learner_id === 'LY')!.institution_id).toBe('I2');
   });
 });

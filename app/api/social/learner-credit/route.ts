@@ -205,12 +205,16 @@ export async function GET(req: NextRequest) {
   const readPage = (size: number) => {
     let q = db
       .from('ig_learner_post_claims')
-      .select('id, learner_id, ig_post_id, status, institution_id');
+      .select('id, learner_id, ig_post_id, status, institution_id, created_at');
     if (institutionId) q = q.eq('institution_id', institutionId);
     if (afterId) q = q.gt('id', afterId);
     return q.order('id', { ascending: true }).limit(size).abortSignal(signal);
   };
-  for (let page = 0; page < CLAIM_PAGE_LIMIT; page += 1) {
+  // Stop only on an EMPTY page. A short page does not prove the end: if the
+  // server's max-rows is below CLAIM_PAGE_SIZE, every page comes back short.
+  // Reading one row past the limit tells "exactly 50,000" from "more".
+  const maxClaims = CLAIM_PAGE_SIZE * CLAIM_PAGE_LIMIT;
+  while (claims.length <= maxClaims) {
     if (signal.aborted) return outOfTime();
     const { data, error } = await readPage(CLAIM_PAGE_SIZE);
     if (error && signal.aborted) return outOfTime();
@@ -219,27 +223,16 @@ export async function GET(req: NextRequest) {
       return deny('Could not read the claims just now.', 500);
     }
     const pageRows = (data ?? []) as Array<Record<string, unknown>>;
-    claims.push(...pageRows);
-    if (pageRows.length < CLAIM_PAGE_SIZE) {
+    if (pageRows.length === 0) {
       complete = true;
       break;
     }
+    claims.push(...pageRows);
     afterId = pageRows[pageRows.length - 1].id as string;
   }
   if (!complete) {
-    // Every page came back full. One probe tells "exactly at the limit" apart
-    // from "more than the limit", so exactly 50,000 claims is not refused.
-    const { data: more, error: probeError } = await readPage(1);
-    if (probeError && signal.aborted) return outOfTime();
-    if (probeError) {
-      logger.error(MODULE, 'claim read failed', probeError);
-      return deny('Could not read the claims just now.', 500);
-    }
-    if ((more ?? []).length === 0) complete = true;
-  }
-  if (!complete) {
-    logger.error(MODULE, 'claim read stopped at the page limit', {
-      pages: CLAIM_PAGE_LIMIT,
+    logger.error(MODULE, 'claim read stopped at the claim limit', {
+      limit: maxClaims,
       rows: claims.length,
     });
     const limit = (CLAIM_PAGE_SIZE * CLAIM_PAGE_LIMIT).toLocaleString('en-IN');
@@ -326,11 +319,18 @@ export async function GET(req: NextRequest) {
 
   const claimsByLearner = new Map<string, ClaimedPostInput[]>();
   const institutionByLearner = new Map<string, string>();
+  const earliestByLearner = new Map<string, string>();
   for (const c of claims) {
-    // The first non-empty institution per learner, the filtered one when a
-    // filter was given (every claim then carries it). Not "whichever came last".
-    if (!institutionByLearner.get(c.learner_id as string) && c.institution_id) {
-      institutionByLearner.set(c.learner_id as string, c.institution_id as string);
+    // A hidden learner's row takes the institution of their EARLIEST claim
+    // (by created_at, then id), so it does not depend on read order. With an
+    // institution filter every claim carries that institution anyway.
+    if (c.institution_id) {
+      const at = `${(c.created_at as string) ?? ''}|${c.id as string}`;
+      const prev = earliestByLearner.get(c.learner_id as string);
+      if (!prev || at < prev) {
+        earliestByLearner.set(c.learner_id as string, at);
+        institutionByLearner.set(c.learner_id as string, c.institution_id as string);
+      }
     }
     const list = claimsByLearner.get(c.learner_id as string) ?? [];
     list.push({
@@ -506,7 +506,7 @@ export async function PATCH(req: NextRequest) {
     // caller at all — no such claim, or not theirs to see (404).
     const { data: seen, error: seenError } = await db
       .from('ig_learner_post_claims')
-      .select('id, status')
+      .select('id, status, reviewed_by')
       .eq('id', body.claim_id)
       .maybeSingle();
     if (seenError) {
@@ -520,6 +520,11 @@ export async function PATCH(req: NextRequest) {
       // Visible and still pending, yet the update matched nothing: RLS let this
       // caller read the claim but not decide it (e.g. the learner who filed it).
       return deny('You are not allowed to decide that claim.', 403);
+    }
+    if (seen.status === body.status && seen.reviewed_by === user.id) {
+      // The same reviewer sending the same decision again (a retry or a double
+      // submit): it already went through, so say so instead of erroring.
+      return NextResponse.json({ success: true, claim: { id: seen.id, status: seen.status } });
     }
     return deny(`This claim was already ${seen.status}. A decision is final.`, 409);
   }
