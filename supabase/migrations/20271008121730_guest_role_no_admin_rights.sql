@@ -16,9 +16,10 @@
 -- ever adds keys, so both spellings go together or the dotted ones grow back.
 --
 -- It also clears guest's is_privileged flag. 20260828150000 set it only
--- because guest held roles.assign; with that key gone guest is not an admin
--- role, and the flag would otherwise make /api/users/roles/assign treat every
--- guest holder as someone with admin powers.
+-- because guest held roles.assign. The flag still matters to #4254's
+-- refuseRoleChange (giving a flagged role is super-admin only) and to the
+-- staff form's role picker; with the admin keys gone guest is not an admin
+-- role, so clearing the flag is harmless.
 --
 -- Drift check: refuses, changing nothing, unless the guest row exists, the keys
 -- it grants are exactly the 25 read on 2026-10-08 and is_privileged is true.

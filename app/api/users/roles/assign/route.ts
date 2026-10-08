@@ -79,7 +79,9 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Nobody gives a role to themselves, super admins included.
+    // Nobody gives a role to themselves, super admins included. Checked again
+    // below on the resolved profile id, since the uuid column also accepts
+    // upper case, braces and the no-hyphen form.
     if (userId === user.id) {
       return NextResponse.json(
         { error: 'You cannot change your own roles; ask another super admin.' },
@@ -119,6 +121,12 @@ export async function POST(request: NextRequest) {
     if (targetErr) return checkFailed(targetErr);
     if (!target) {
       return NextResponse.json({ error: 'Target user not found' }, { status: 404 });
+    }
+    if ((target as { id: string }).id === user.id) {
+      return NextResponse.json(
+        { error: 'You cannot change your own roles; ask another super admin.' },
+        { status: 403 }
+      );
     }
     const targetName = (target as { full_name?: string }).full_name || 'The user';
 

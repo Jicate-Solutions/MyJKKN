@@ -13,8 +13,11 @@
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-const CALLER = 'caller-1';
-const TARGET = 'target-1';
+const CALLER = '5f0c2a1e-8b7d-4c3a-9e21-0a1b2c3d4e5f';
+const TARGET = '7a9b8c6d-1e2f-4a3b-8c4d-5e6f7a8b9c0d';
+
+/** How the uuid column matches: case, braces and hyphens do not matter. */
+const canon = (id: unknown) => String(id).toLowerCase().replace(/[{}-]/g, '');
 
 // The caller's own session.
 let callerRole: string | null = 'administrator';
@@ -85,7 +88,11 @@ vi.mock('@/lib/supabase/server', () => ({
     from: (table: string) =>
       query(table, (filter) => {
         if (table === 'custom_roles') return ROLES[filter as string] ?? null;
-        if (table === 'profiles') return filter === TARGET ? { id: TARGET, full_name: 'Target', email: 't@x' } : null;
+        if (table === 'profiles') {
+          if (canon(filter) === canon(TARGET)) return { id: TARGET, full_name: 'Target', email: 't@x' };
+          if (canon(filter) === canon(CALLER)) return { id: CALLER, full_name: 'Caller', email: 'c@x' };
+          return null;
+        }
         return null;
       })
   })
@@ -164,6 +171,17 @@ describe('self-assignment', () => {
   it('refuses a super admin giving a role to themselves', async () => {
     asSuperAdmin();
     const res = await post('faculty', CALLER);
+    expect(res.status).toBe(403);
+    expect(assigned()).toHaveLength(0);
+  });
+
+  it.each([
+    ['upper case', CALLER.toUpperCase()],
+    ['braces', `{${CALLER}}`],
+    ['no hyphens', CALLER.replace(/-/g, '')]
+  ])('refuses a super admin sending their own id in %s', async (_label, id) => {
+    asSuperAdmin();
+    const res = await post('faculty', id);
     expect(res.status).toBe(403);
     expect(assigned()).toHaveLength(0);
   });
