@@ -2,7 +2,7 @@ import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { getErrorMessage } from '@/lib/utils';
 import type {
   RefundFlowConfig, RefundRequest, RefundRequestFilters, InitiateRefundInput,
-  EligibleRefundBill, RefundAttachment
+  EligibleRefundBill, RefundAttachment, RefundPdfInstitution, RefundPdfLearner
 } from '@/types/billing-refund-workflow';
 
 // Thrown by saveConfig() when activating this config would leave more than
@@ -31,6 +31,23 @@ const REQUEST_SELECT = `
   bills:billing_refund_request_bills(*, bill:billing_student_bills(id, bill_description, bill_amount:final_amount, status)),
   actions:billing_refund_request_actions(*, actor:profiles(id, full_name))
 `;
+
+// Learner + institution context for the PDF export only. Kept out of
+// REQUEST_SELECT so the list/detail queries don't pay for ~15 extra embeds.
+const PDF_LEARNER_SELECT = `
+  id, first_name, last_name, application_id, student_mobile, lifecycle_status,
+  degree:degrees(degree_name, display_name),
+  program:programs(program_name, display_name),
+  department:departments(department_name, display_name),
+  academic_year:academic_years(academic_year_name),
+  batch:batches(batch_name, batch_code),
+  semester:semesters(semester_name),
+  section:sections(section_name),
+  regulation:regulations(regulation_code)
+`;
+
+const PDF_INSTITUTION_SELECT =
+  'name, display_name, counselling_code, logo_url, address_line1, address_line2, address_line3, city, state, pin_code, university_affiliation_name';
 
 export class RefundWorkflowService {
   private static supabase = createClientSupabaseClient();
@@ -159,11 +176,33 @@ export class RefundWorkflowService {
     if (error) throw new Error(getErrorMessage(error));
   }
 
+  // Super-admin only; the RPC rejects requests that already have approvals.
+  static async reapplyFlow(requestId: string, reason: string): Promise<void> {
+    const { error } = await (this.supabase as any).rpc('fn_reapply_refund_flow', {
+      p_request_id: requestId, p_reason: reason
+    });
+    if (error) throw new Error(getErrorMessage(error));
+  }
+
   static async getRequest(id: string): Promise<RefundRequest> {
     const { data, error } = await (this.supabase as any)
       .from('billing_refund_requests').select(REQUEST_SELECT).eq('id', id).single();
     if (error) throw new Error(getErrorMessage(error));
     return data;
+  }
+
+  // Either side can legitimately come back null (RLS hides the row, or the
+  // learner has no such FK set) — the PDF prints "-" for those.
+  static async getPdfContext(studentId: string, institutionId: string): Promise<{
+    learner: RefundPdfLearner | null; institution: RefundPdfInstitution | null;
+  }> {
+    const [learnerRes, institutionRes] = await Promise.all([
+      (this.supabase as any).from('learners_profiles').select(PDF_LEARNER_SELECT).eq('id', studentId).maybeSingle(),
+      (this.supabase as any).from('institutions').select(PDF_INSTITUTION_SELECT).eq('id', institutionId).maybeSingle()
+    ]);
+    if (learnerRes.error) throw new Error(getErrorMessage(learnerRes.error));
+    if (institutionRes.error) throw new Error(getErrorMessage(institutionRes.error));
+    return { learner: learnerRes.data ?? null, institution: institutionRes.data ?? null };
   }
 
   static async getRequests(filters: RefundRequestFilters = {}) {
