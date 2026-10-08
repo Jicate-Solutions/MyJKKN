@@ -10,4 +10,6 @@
 -- An unused door is closed rather than left to be reasoned about later.
 
 REVOKE ALL ON public.v_session_feedback_pending_ingest FROM anon, authenticated, PUBLIC;
+-- service_role holds every privilege by Supabase default; leave it read-only.
+REVOKE ALL ON public.v_session_feedback_pending_ingest FROM service_role;
 GRANT SELECT ON public.v_session_feedback_pending_ingest TO service_role;

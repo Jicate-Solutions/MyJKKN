@@ -2072,6 +2072,7 @@ DO $$
 BEGIN
   IF to_regclass('public.v_session_feedback_pending_ingest') IS NOT NULL THEN
     REVOKE ALL ON public.v_session_feedback_pending_ingest FROM anon, authenticated, PUBLIC;
+    REVOKE ALL ON public.v_session_feedback_pending_ingest FROM service_role;
     GRANT SELECT ON public.v_session_feedback_pending_ingest TO service_role;
   END IF;
 END $$;
