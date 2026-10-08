@@ -16,6 +16,9 @@
  *   - at most ONE key per person can book (switching on another key switches
  *     the first off; a partial unique index refuses two active grants), and a
  *     turned-off key is not listed as booking;
+ *   - booking reservations: service role only; a call past a limit is refused;
+ *     a released slot stops counting; two calls at the same instant cannot
+ *     both take the last slot (per-owner advisory lock);
  *   - the file applies twice.
  *
  * REQUIRES a PostgreSQL (CI's postgres:16 service; locally
@@ -292,5 +295,76 @@ describe('switching booking off', () => {
     expect(await doorReads(keyS)).toBe(true);
     expect((await setBooking(A, keyS, false)).error).toMatch(/Key not found/);
     expect(await doorReads(keyS)).toBe(true);
+  });
+});
+
+describe('booking reservations (atomic limits)', () => {
+  const reserve = (key: string, owner: string, invitees: number, perHour: number, perDay = 60, perDayInvitees = 150) =>
+    `SELECT public.fn_ai_booking_reserve('${key}', '${owner}', ${invitees}, ${perHour}, ${perDay}, ${perDayInvitees}) AS r`;
+  async function asService<T = any>(sql: string, client: Client = db): Promise<T[]> {
+    await client.query('RESET ROLE');
+    await client.query('SET ROLE service_role');
+    try {
+      return (await client.query(sql)).rows as T[];
+    } finally {
+      await client.query('RESET ROLE');
+    }
+  }
+
+  it('only the service role may reserve or release; nobody signed in reads the table', async () => {
+    expect((await as(A, reserve(keyS, S, 1, 20))).error).toMatch(/permission denied/);
+    expect((await as(null, reserve(keyS, S, 1, 20))).error).toMatch(/permission denied/);
+    expect((await as(A, `SELECT public.fn_ai_booking_release(gen_random_uuid())`)).error).toMatch(/permission denied/);
+    expect((await as(A, `SELECT count(*) FROM public.ai_booking_reservations`)).error).toMatch(/permission denied/);
+  });
+
+  it('refuses past the per-hour limit, and a released slot no longer counts', async () => {
+    const ids: string[] = [];
+    for (let i = 0; i < 3; i++) {
+      const [{ r }] = await asService(reserve(keyS, S, 1, 3));
+      expect(r.ok).toBe(true);
+      ids.push(r.id);
+    }
+    const [{ r: refused }] = await asService(reserve(keyS, S, 1, 3));
+    expect(refused).toEqual({ ok: false, reason: 'per_hour', limit: 3 });
+    const [{ ok }] = await asService(`SELECT public.fn_ai_booking_release('${ids[0]}') AS ok`);
+    expect(ok).toBe(true);
+    const [{ r: again }] = await asService(reserve(keyS, S, 1, 3));
+    expect(again.ok).toBe(true);
+    // releasing twice changes nothing
+    const [{ ok: twice }] = await asService(`SELECT public.fn_ai_booking_release('${ids[0]}') AS ok`);
+    expect(twice).toBe(false);
+  });
+
+  it('refuses past the per-day invitee limit for the owner', async () => {
+    const [{ r }] = await asService(reserve(keyS, S, 148, 100, 100, 150)); // 3 already live + 148 > 150
+    expect(r).toEqual({ ok: false, reason: 'invitees_per_day', limit: 150 });
+  });
+
+  it('two calls at the same instant cannot both take the last slot', async () => {
+    const other = new Client({ host: PGHOST, port: PGPORT, user: PGUSER, password: PGPASSWORD, database: DBNAME });
+    await other.connect();
+    try {
+      // keyS has 3 live reservations from the test above: the limit 4 leaves exactly one slot.
+      await db.query('BEGIN');
+      await db.query('SET LOCAL ROLE service_role');
+      const first = (await db.query(reserve(keyS, S, 1, 4))).rows[0].r;
+      expect(first.ok).toBe(true);
+      // the second call blocks on the owner's lock until the first commits
+      const secondP = (async () => {
+        await other.query('BEGIN');
+        await other.query('SET LOCAL ROLE service_role');
+        const r = (await other.query(reserve(keyS, S, 1, 4))).rows[0].r;
+        await other.query('COMMIT');
+        return r;
+      })();
+      await new Promise((res) => setTimeout(res, 300));
+      await db.query('COMMIT');
+      const second = await secondP;
+      expect(second).toEqual({ ok: false, reason: 'per_hour', limit: 4 });
+    } finally {
+      await db.query('RESET ROLE').catch(() => {});
+      await other.end();
+    }
   });
 });
