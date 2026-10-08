@@ -25,7 +25,7 @@ function claimsQuery() {
   const ops: Op[] = [];
   claimReads.push(ops);
   const b: Record<string, unknown> = {};
-  for (const m of ['select', 'eq', 'order', 'range', 'in']) {
+  for (const m of ['select', 'eq', 'gt', 'order', 'range', 'limit', 'in']) {
     b[m] = (...args: unknown[]) => {
       ops.push([m, ...args]);
       return b;
@@ -39,10 +39,13 @@ function claimsQuery() {
     let rows = [...claimsTable];
     for (const o of ops) {
       if (o[0] === 'eq') rows = rows.filter((r) => r[o[1] as keyof Claim] === o[2]);
+      if (o[0] === 'gt') rows = rows.filter((r) => String(r[o[1] as keyof Claim]) > String(o[2]));
     }
     if (ops.some((o) => o[0] === 'order')) rows.sort((a, b2) => a.id.localeCompare(b2.id));
     const range = ops.find((o) => o[0] === 'range');
     if (range) rows = rows.slice(range[1] as number, (range[2] as number) + 1);
+    const limit = ops.find((o) => o[0] === 'limit');
+    if (limit) rows = rows.slice(0, limit[1] as number);
     // PostgREST's silent cap: never more than 1,000 rows, whatever was asked.
     rows = rows.slice(0, CAP);
     return Promise.resolve({ data: rows, error: null }).then(ok, bad);
@@ -53,7 +56,7 @@ function claimsQuery() {
 /** Every other table answers with an empty list. */
 function emptyQuery() {
   const b: Record<string, unknown> = {};
-  for (const m of ['select', 'eq', 'order', 'range', 'in']) b[m] = () => b;
+  for (const m of ['select', 'eq', 'gt', 'order', 'range', 'limit', 'in']) b[m] = () => b;
   b.then = (ok: (r: unknown) => unknown, bad?: (e: unknown) => unknown) =>
     Promise.resolve({ data: [], error: null }).then(ok, bad);
   return b;
@@ -108,11 +111,15 @@ describe('the board pages past the 1,000-row cap', () => {
     expect(total).toBe(2300);
     expect(body.rows).toHaveLength(230);
 
-    // Three pages, each ordered by id with consecutive, non-overlapping ranges.
+    // Three pages, each ordered by id, each starting after the last id of the
+    // page before (keyset paging, never offsets).
     expect(claimReads).toHaveLength(3);
     claimReads.forEach((ops, i) => {
       expect(ops).toContainEqual(['order', 'id', { ascending: true }]);
-      expect(ops).toContainEqual(['range', i * 1000, i * 1000 + 999]);
+      expect(ops).toContainEqual(['limit', 1000]);
+      expect(ops.some((o) => o[0] === 'range')).toBe(false);
+      if (i === 0) expect(ops.some((o) => o[0] === 'gt')).toBe(false);
+      else expect(ops).toContainEqual(['gt', 'id', `C${String(i * 1000 - 1).padStart(6, '0')}`]);
     });
   });
 
@@ -142,6 +149,32 @@ describe('the board pages past the 1,000-row cap', () => {
     const body = await res.json();
     expect(body.success).toBe(false);
     expect(body.error).toMatch(/cannot be shown in full/i);
-    expect(claimReads).toHaveLength(50);
+    expect(claimReads).toHaveLength(51); // 50 full pages + one probe
+  });
+
+  it('exactly 50,000 claims is the limit, not past it: the board is shown', async () => {
+    claimsTable = makeClaims(50 * 1000);
+    const { GET } = await import('@/app/api/social/learner-credit/route');
+    const res = await GET(get());
+    expect(res.status).toBe(200);
+    const total = ((await res.json()).rows as Row[]).reduce((n, r) => n + r.confirmed_posts, 0);
+    expect(total).toBe(50000);
+  });
+
+  it('a claim filed between two page reads is not counted twice', async () => {
+    claimsTable = makeClaims(1500);
+    const { GET } = await import('@/app/api/social/learner-credit/route');
+    // After the first page is read, a claim sorting BEFORE the cursor arrives.
+    // Offset paging would shift every row by one and count C000999 twice.
+    const origPush = claimReads.push.bind(claimReads);
+    claimReads.push = (...items: Op[][]) => {
+      if (claimReads.length === 1) {
+        claimsTable.push({ id: 'C000000a', learner_id: 'LNEW', ig_post_id: 'PNEW', status: 'confirmed', institution_id: 'I1' });
+      }
+      return origPush(...items);
+    };
+    const body = await (await GET(get())).json();
+    const counted = (body.rows as Row[]).reduce((n, r) => n + r.confirmed_posts, 0);
+    expect(counted).toBe(1500);
   });
 });

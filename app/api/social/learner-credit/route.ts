@@ -152,16 +152,20 @@ export async function GET(req: NextRequest) {
   // skipping rows. The hard stop answers 500 rather than show a partial board.
   const claims: Array<Record<string, unknown>> = [];
   let complete = false;
-  for (let page = 0; page < CLAIM_PAGE_LIMIT; page += 1) {
+  // Keyset paging on the primary key, not offsets: a claim filed or withdrawn
+  // between two page reads can then neither be counted twice nor push another
+  // claim across a page boundary and out of the board.
+  let afterId: string | null = null;
+  const readPage = (size: number) => {
     let q = db
       .from('ig_learner_post_claims')
-      .select('learner_id, ig_post_id, status, institution_id');
+      .select('id, learner_id, ig_post_id, status, institution_id');
     if (institutionId) q = q.eq('institution_id', institutionId);
-    const from = page * CLAIM_PAGE_SIZE;
-    const { data, error } = await q
-      .order('id', { ascending: true })
-      .range(from, from + CLAIM_PAGE_SIZE - 1);
-
+    if (afterId) q = q.gt('id', afterId);
+    return q.order('id', { ascending: true }).limit(size);
+  };
+  for (let page = 0; page < CLAIM_PAGE_LIMIT; page += 1) {
+    const { data, error } = await readPage(CLAIM_PAGE_SIZE);
     if (error) {
       logger.error(MODULE, 'claim read failed', error);
       return deny('Could not read the claims just now.', 500);
@@ -172,6 +176,17 @@ export async function GET(req: NextRequest) {
       complete = true;
       break;
     }
+    afterId = pageRows[pageRows.length - 1].id as string;
+  }
+  if (!complete) {
+    // Every page came back full. One probe tells "exactly at the limit" apart
+    // from "more than the limit", so exactly 50,000 claims is not refused.
+    const { data: more, error: probeError } = await readPage(1);
+    if (probeError) {
+      logger.error(MODULE, 'claim read failed', probeError);
+      return deny('Could not read the claims just now.', 500);
+    }
+    if ((more ?? []).length === 0) complete = true;
   }
   if (!complete) {
     logger.error(MODULE, 'claim read stopped at the page limit', {
