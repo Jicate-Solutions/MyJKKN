@@ -17,6 +17,9 @@
 # the precondition check (THIS migration must refuse to run without the
 # Director list) -> the Director list migration (+ isvarya@) -> THIS migration,
 # applied TWICE -> seed -> assert.sql as every relevant role.
+# Then run-stacked.sh: this file on top of #4140 + #4190 + #4252 (both guards
+# on hr_staff_salaries fire; the approvals job still sends an overdue yes back
+# and writes the next one). PORT_STACKED= moves its cluster (default PORT+1).
 set -euo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
@@ -191,4 +194,10 @@ PASS=$("${PSQL[@]}" -Atc "select count(*) from t.results where ok")
 FAIL=$("${PSQL[@]}" -Atc "select count(*) from t.results where not ok")
 echo
 echo "RESULT: $PASS PASS / $FAIL FAIL"
-[ "$FAIL" = "0" ]
+[ "$FAIL" = "0" ] || exit 1
+
+# Second phase (8 Oct 2026): the same file on top of the salary approvals that
+# are already on main and live (#4140, #4190, #4252), on its own throwaway
+# cluster. See run-stacked.sh.
+echo
+PORT="${PORT_STACKED:-$((PORT + 1))}" MIG="$MIG" PGBIN="$PGBIN" bash "$HERE/run-stacked.sh"
