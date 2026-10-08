@@ -84499,7 +84499,9 @@ REVOKE EXECUTE ON FUNCTION public.fn_ig_learner_post_claim_guard() FROM anon, au
 -- over only with nothing unsettled before this month and every window month settled;
 -- today's live pass takes the least recently recorded first; Director rulings
 -- 8 Oct 2026 (a): once paid, the run and the nightly listing reach back to the
--- first month of the current run of misses, never before the window start).
+-- first month of the current run of misses, never before the window start;
+-- round 12: run_one's decision is a replay of every settled month from the
+-- window start, writing only the change from where the held part stands).
 -- Source: 20271008093015_hr_salary_revision_target_scheduled_periods.sql
 -- ----------------------------------------------------------------------------
 -- b. The helpers
@@ -84648,7 +84650,8 @@ REVOKE EXECUTE ON FUNCTION public.hr_salary_revision_target_missed_in_row(uuid) 
 
 COMMENT ON FUNCTION public.hr_salary_revision_target_missed_in_row(uuid) IS
   'Internal (round 7, B4, 8 Oct 2026). The missed months in a row of a raise, from its months in calendar order: '
-  'missed months acted on after the last met month acted on. Migration 20271008093015.';
+  'missed months acted on after the last met month acted on. Since round 12 the monthly run no longer calls it: '
+  'its replay (hr_salary_revision_targets_run_one) works out the count and stores it. Migration 20271008093015.';
 
 -- Default ss: the person's approved leave overlapping a range, as one key.
 -- 8 Oct 2026 (review round 6, finding 5): run_one asks it for the days the
@@ -85435,12 +85438,21 @@ DECLARE
   v_role     text;
   v_reason   text;
   v_waiting  date[] := ARRAY[]::date[];  -- 8 Oct 2026 (default oo): the finished month waiting for its days (round 6: at most one)
-  v_rescored boolean := false;           -- 8 Oct 2026 (default ss): a missed month now met or not counted (round 7: any state)
   v_stop     date;                       -- 8 Oct 2026 (round 7, B3): the first finished month that cannot be acted on yet
   v_lkey     text;                       -- 8 Oct 2026 (round 8, U3): the month's leave key, worked out once
   v_hkey     text;                       -- 8 Oct 2026 (round 8, U3): the month's holiday key, worked out once
   v_found    boolean;                    -- 8 Oct 2026 (round 8): the month has a row
   v_again    boolean;                    -- 8 Oct 2026 (round 8): a missed month measured again
+  v_mo       record;                     -- 8 Oct 2026 (round 12): a month of the replay
+  v_walk_end date;                       -- 8 Oct 2026 (round 12): the replay walks the months before this one
+  v_t_state  text;                       -- 8 Oct 2026 (round 12): the state the replay arrives at
+  v_t_run    integer;                    -- 8 Oct 2026 (round 12): its missed months in a row
+  v_t_month  date;                       -- 8 Oct 2026 (round 12): the month of its last change of state
+  v_t_action text;                       -- 8 Oct 2026 (round 12): that change ('released', 'paused', 'resumed')
+  v_t_met    date;                       -- 8 Oct 2026 (round 12): the first month on target in the current run of misses
+  v_t_last   date;                       -- 8 Oct 2026 (round 12): the last month a change of state was written for
+  v_moved    integer := 0;               -- 8 Oct 2026 (round 12): months measured again or acted on by this run
+  v_found_n  integer;                    -- 8 Oct 2026 (round 12): rows acted on just now
 BEGIN
   -- Default hh: a second call for the same raise on the same day (two runs
   -- overlapping) finds it locked or already run, and skips it.
@@ -85607,11 +85619,10 @@ BEGIN
       -- (default oo; a stale day counts as not recorded, B1), flagged and not
       -- yet decided (B3), or past the per-call month cap. The month in progress
       -- is measured "so far" only once every finished month before it is
-      -- settled. Re-measured: met now, a waiting or paused part is released or
-      -- resumed from the next 1st (the step below); a paid part's month counts
-      -- as met and its missed-in-a-row count is worked out again. Never
-      -- backdated, nothing paid taken back, and a met month is never measured
-      -- again.
+      -- settled. A month measured again only changes its status here: what
+      -- that means for the held part is worked out by the replay below, from
+      -- every settled month in calendar order. Never backdated, nothing paid
+      -- taken back, and a met month is never measured again.
       FOR v_m IN
         SELECT g::date FROM generate_series(v_from, LEAST(v_cur_m, v_last), interval '1 month') g
       LOOP
@@ -85676,19 +85687,11 @@ BEGIN
                  -- 8 Oct 2026 (review round 6, finding 1): leave now covering every
                  -- scheduled period of the month: not counted (default d), not missed.
                  status = CASE WHEN COALESCE(v_t1_den, 0) = 0 THEN 'not_counted'
-                               WHEN v_all_met THEN 'met' ELSE status END,
-                 acted = CASE WHEN COALESCE(v_t1_den, 0) > 0 AND v_all_met AND v_p.state IN ('waiting', 'paused')
-                              THEN false ELSE acted END,
-                 action = CASE WHEN COALESCE(v_t1_den, 0) > 0 AND v_all_met AND v_p.state IN ('waiting', 'paused')
-                               THEN NULL ELSE action END,
-                 action_effective_from = CASE WHEN COALESCE(v_t1_den, 0) > 0 AND v_all_met AND v_p.state IN ('waiting', 'paused')
-                                              THEN NULL ELSE action_effective_from END
+                               WHEN v_all_met THEN 'met' ELSE status END
            WHERE request_id = v_p.request_id AND month = v_m;
-          -- Round 7 (B4): in any state (a waiting or paused part's month now met
-          -- is released or resumed below, and the count is worked out again there).
-          IF COALESCE(v_t1_den, 0) = 0 OR v_all_met THEN
-            v_rescored := true;
-          END IF;
+          -- 8 Oct 2026 (round 12): whatever the state, the replay below works out
+          -- what the month's new status means (round 7's B4 recount is gone).
+          v_moved := v_moved + 1;
           CONTINUE;
         END IF;
         -- RULING 5: a flagged month stays flagged until the Director decides it.
@@ -85711,67 +85714,136 @@ BEGIN
           EXIT;
         END IF;
       END LOOP;
-      IF v_rescored AND v_p.state = 'released' THEN
-        -- The missed months in a row since the last met one (the release or
-        -- resume month is a met one); a month not counted neither adds nor resets.
-        -- Before acting, so a month acted on below counts from the right number.
-        UPDATE public.hr_salary_revision_target_plans pl
-           SET missed_in_row = public.hr_salary_revision_target_missed_in_row(pl.request_id),
-               updated_at = now()
-         WHERE pl.request_id = v_p.request_id;
-      END IF;
+      -- 8 Oct 2026 (review round 12): the decision is a REPLAY. Rounds 1-11
+      -- acted on each month not yet acted on, one step at a time from the
+      -- stored state and an incremental count of misses, and every round found
+      -- a new month order that left the state wrong (round 7 of the money
+      -- review: a late re-measure turns an old missed month met, the part is
+      -- released or resumed, the count of misses since then is already at the
+      -- rule, and nothing pauses it, because those misses were acted on
+      -- before). Now the state the held part SHOULD be in is worked out every
+      -- run from scratch: every month of the plan from its window start, in
+      -- calendar order, under rulings 3 and 4, up to the first finished month
+      -- that is not settled (the stop: waiting for its days, flagged, left by
+      -- the cap). A month before v_from is final as it stands (Director ruling
+      -- (a): the run of misses starts after the last met month acted on); every
+      -- month from v_from on was settled by the loop above. Not counted, not
+      -- measured: neither adds nor resets (#4252 default d, Director ruling (a)).
+      v_walk_end := COALESCE(v_stop, v_cur_m);
+      v_t_state := 'waiting'; v_t_run := 0; v_t_month := NULL; v_t_action := NULL; v_t_met := NULL;
+      -- (acted is read for the rehearsal's controls R14/R14b only, which put the
+      -- old rule back: a pause only on a month not acted on yet. Nothing here uses it.)
+      FOR v_mo IN
+        SELECT mo.month, mo.status, mo.acted FROM public.hr_salary_revision_target_months mo
+         WHERE mo.request_id = v_p.request_id AND mo.month >= v_p.window_start
+           AND mo.month < v_walk_end
+         ORDER BY mo.month
+      LOOP
+        -- Not final and not counted (none is expected before the stop): a stop.
+        IF v_mo.status NOT IN ('met', 'missed', 'not_counted', 'decided_met', 'decided_missed', 'not_measured') THEN
+          v_walk_end := v_mo.month;
+          EXIT;
+        END IF;
+        -- RULING 3: while waiting, only the months of the window count.
+        EXIT WHEN v_t_state = 'waiting' AND v_mo.month > (v_p.window_start + make_interval(months => v_p.window_months - 1))::date;
+        IF v_t_state = 'waiting' AND v_mo.status IN ('met', 'decided_met') THEN
+          -- RULING 3: the first month with every target met releases the held part.
+          v_t_state := 'released'; v_t_run := 0; v_t_month := v_mo.month; v_t_action := 'released';
+        ELSIF v_t_state = 'released' AND v_mo.status IN ('missed', 'decided_missed') THEN
+          v_t_run := v_t_run + 1;
+          -- RULING 4: the set number of missed months in a row pauses it.
+          IF v_t_run >= (v_p.rules->>'pause_after_missed_months')::int THEN
+            v_t_state := 'paused'; v_t_run := 0; v_t_month := v_mo.month; v_t_action := 'paused';
+          END IF;
+        ELSIF v_t_state = 'released' AND v_mo.status IN ('met', 'decided_met') THEN
+          v_t_run := 0;  -- a met month starts the missed months in a row again
+        ELSIF v_t_state = 'paused' AND v_mo.status IN ('met', 'decided_met') THEN
+          -- RULING 4: back on target: paid again.
+          v_t_state := 'released'; v_t_run := 0; v_t_month := v_mo.month; v_t_action := 'resumed';
+        END IF;
+        IF v_t_met IS NULL AND v_mo.month >= v_from AND v_mo.status IN ('met', 'decided_met') THEN
+          v_t_met := v_mo.month;  -- on target in the current run of misses (Director ruling (b) below)
+        END IF;
+      END LOOP;
 
-      -- Act on each counted month not yet acted on, oldest first.
-      FOR v_row IN
-        SELECT * FROM public.hr_salary_revision_target_months
+      -- Compare with where the held part stands, and write ONLY the change,
+      -- from the next 1st (target_pay: never backdated); a pay row already
+      -- written is never undone (Director ruling (b)).
+      SELECT * INTO v_p FROM public.hr_salary_revision_target_plans WHERE request_id = v_p.request_id;
+      -- DIRECTOR RULING (b), 8 Oct 2026: a part PAUSED stays paused until a month
+      -- on target. When the months behind its pause later turn not counted (or
+      -- not measured), the replay no longer pauses it at all; that alone never
+      -- pays it again: only a met (or decided met) month in the current run of
+      -- misses does (round 7, B4: a late met month resumes it).
+      IF v_p.state = 'paused' AND v_t_state = 'released' AND v_t_met IS NULL THEN
+        v_t_state := 'paused'; v_t_run := 0; v_t_month := NULL; v_t_action := NULL;
+      END IF;
+      -- A change already written for a month at or after the stop (a month
+      -- since gone unsettled, or a flagged month older than it, R8-U4c): the
+      -- replay stops before the month that change stands on, so it cannot
+      -- speak for it. Nothing is written until that month is settled again.
+      SELECT max(mo.month) INTO v_t_last FROM public.hr_salary_revision_target_months mo
+       WHERE mo.request_id = v_p.request_id AND mo.acted AND mo.action IN ('released', 'paused', 'resumed');
+      IF v_t_last IS NULL OR v_t_last < v_walk_end THEN
+        v_action := 'none'; v_eff := NULL;
+        IF v_p.state = 'waiting' AND v_t_state = 'released' THEN
+          v_eff := public.hr_salary_revision_target_pay(v_p.request_id, 'release', p_today);
+          v_action := 'released';
+        ELSIF v_p.state = 'released' AND v_t_state = 'paused' THEN
+          v_eff := public.hr_salary_revision_target_pay(v_p.request_id, 'pause', p_today);
+          v_action := 'paused';
+        ELSIF v_p.state = 'paused' AND v_t_state = 'released' THEN
+          v_eff := public.hr_salary_revision_target_pay(v_p.request_id, 'resume', p_today);
+          v_action := 'resumed';
+          -- Carried by the month on target that pays it again: the replay's own
+          -- resume, else (the pause above it no longer there) the first met
+          -- month of the current run of misses.
+          IF v_t_action IS DISTINCT FROM 'resumed' THEN
+            v_t_month := v_t_met;
+          END IF;
+        ELSIF v_p.state = 'waiting' AND v_t_state = 'paused' THEN
+          -- Released and paused again within the months settled now: the held
+          -- part was never paid, so nothing is written to the pay; it is
+          -- paused from the next 1st (a month on target pays it then).
+          v_eff := public.hr_salary_revision_start_date(v_p.staff_id, p_today - 1);
+          UPDATE public.hr_salary_revision_target_plans
+             SET state = 'paused', paused_from = v_eff, pending_action = NULL, pending_effective_from = NULL,
+                 updated_at = now()
+           WHERE request_id = v_p.request_id;
+          v_action := 'paused';
+        END IF;
+        -- One pay write at most (the no-pay pause above writes none).
+        IF v_action <> 'none' AND NOT (v_p.state = 'waiting' AND v_t_state = 'paused') THEN
+          v_writes := v_writes + 1;
+        END IF;
+        -- Every month the replay walked is acted on; the month of the change
+        -- carries it, with the date it takes effect.
+        UPDATE public.hr_salary_revision_target_months
+           SET acted = true, action = 'none'
          WHERE request_id = v_p.request_id AND NOT acted
            AND status IN ('met', 'missed', 'not_counted', 'decided_met', 'decided_missed')
            -- 8 Oct 2026 (finding 2; round 7, B3): never at or past the first finished
            -- month that cannot be acted on yet (waiting for its days, flagged, capped).
-           AND (v_stop IS NULL OR month < v_stop)
-         ORDER BY month
-      LOOP
-        SELECT * INTO v_p FROM public.hr_salary_revision_target_plans WHERE request_id = v_row.request_id;
-        v_action := 'none'; v_eff := NULL;
-        IF v_p.state = 'waiting' AND v_row.status IN ('met', 'decided_met') THEN
-          -- RULING 3: the first month with every target met releases the held part.
-          v_eff := public.hr_salary_revision_target_pay(v_p.request_id, 'release', p_today);
-          v_action := 'released';
-        ELSIF v_p.state = 'released' AND v_row.status IN ('missed', 'decided_missed') THEN
-          -- RULING 4: the set number of missed months in a row pauses it.
-          IF v_p.missed_in_row + 1 >= (v_p.rules->>'pause_after_missed_months')::int THEN
-            v_eff := public.hr_salary_revision_target_pay(v_p.request_id, 'pause', p_today);
-            v_action := 'paused';
-          ELSE
-            UPDATE public.hr_salary_revision_target_plans
-               SET missed_in_row = missed_in_row + 1, updated_at = now()
-             WHERE request_id = v_p.request_id;
-          END IF;
-        ELSIF v_p.state = 'released' AND v_row.status IN ('met', 'decided_met') THEN
+           AND month < v_walk_end;
+        GET DIAGNOSTICS v_found_n = ROW_COUNT;
+        v_moved := v_moved + v_found_n;
+        IF v_action <> 'none' THEN
+          UPDATE public.hr_salary_revision_target_months
+             SET acted = true, action = v_action, action_effective_from = v_eff
+           WHERE request_id = v_p.request_id AND month = v_t_month;
+        END IF;
+        -- The missed months in a row are the replay's (0 once paused). While a
+        -- month waits (the stop), the replay ends before it: the count is the
+        -- replay's when this run measured again or acted on a month before
+        -- the stop, or wrote a change (R8-U4b: the cap); otherwise it is left
+        -- as it stands, so a counted miss that now waits to be measured again
+        -- still counts until it is (B2, R6-2).
+        IF v_stop IS NULL OR v_action <> 'none' OR v_moved > 0 THEN
           UPDATE public.hr_salary_revision_target_plans
-             SET missed_in_row = 0, updated_at = now()
-           WHERE request_id = v_p.request_id;
-        ELSIF v_p.state = 'paused' AND v_row.status IN ('met', 'decided_met') THEN
-          -- RULING 4: back on target: paid again.
-          v_eff := public.hr_salary_revision_target_pay(v_p.request_id, 'resume', p_today);
-          v_action := 'resumed';
+             SET missed_in_row = v_t_run, updated_at = now()
+           WHERE request_id = v_p.request_id AND missed_in_row IS DISTINCT FROM v_t_run;
         END IF;
-        IF v_eff IS NOT NULL THEN
-          v_writes := v_writes + 1;
-        END IF;
-        UPDATE public.hr_salary_revision_target_months
-           SET acted = true, action = v_action, action_effective_from = v_eff
-         WHERE request_id = v_row.request_id AND month = v_row.month;
-        -- Round 7 (B4): a release or resume caused by a month measured again
-        -- late: the pay step set the misses in a row to 0, but missed months
-        -- after it may already be counted. Worked out again from the months,
-        -- in calendar order, before the next month is acted on.
-        IF v_rescored AND v_action IN ('released', 'resumed') THEN
-          UPDATE public.hr_salary_revision_target_plans
-             SET missed_in_row = public.hr_salary_revision_target_missed_in_row(request_id), updated_at = now()
-           WHERE request_id = v_row.request_id;
-        END IF;
-      END LOOP;
+      END IF;
 
       -- RULING 3: the window is over, every month of it counted and acted on,
       -- and nothing released: back to the Director with the numbers.
@@ -85852,7 +85924,10 @@ COMMENT ON FUNCTION public.hr_salary_revision_targets_run_one(uuid, date, intege
   'Internal. The monthly targets run for ONE raise on one day: measures its months in calendar order (at most '
   'p_max_months per call; once paid, only the months the pause rule can use; a finished month only once every day it '
   'reads is in the schedule record; a missed month again when its approved leave or holidays changed), stopping at '
-  'the first finished month that is not settled (hr_salary_revision_target_month_settled, round 8), then releases, '
-  'pauses or resumes the held part, sends a window that ran out back to the Director, lapses a plan whose person '
-  'left or moved. Marks the plan as run that day. Migrations 20271007180207, 20271008093015.';
+  'the first finished month that is not settled (hr_salary_revision_target_month_settled, round 8), then works out '
+  'the state the held part should be in by replaying every settled month from its window start in calendar order '
+  '(round 12) and writes only the change from where it stands (release, pause or resume, from the next 1st; a '
+  'paused part is paid again only on a month on target, Director ruling (b)), sends a window that ran out back to '
+  'the Director, lapses a plan whose person left or moved. Marks the plan as run that day. '
+  'Migrations 20271007180207, 20271008093015.';
 

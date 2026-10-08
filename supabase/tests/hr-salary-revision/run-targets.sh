@@ -26,6 +26,12 @@
 #   8. (Director rulings, 8 Oct 2026) probe-rv6-a/b/b2.sql (ruling (a), the
 #      round-6 reviewer's probes with the ruling's outcomes) and
 #      probe-rulings.sql (rulings (a) lower bound, (e), (g), (i)), same way.
+#   9. (review round 12) probe-replay.sql, probe-replay-b.sql (round 7 of the
+#      money review: a late met month with the misses after it already acted
+#      on) and probe-replay-c.sql (the replay never writes past its stop),
+#      same way. Round 12 made run_one's decision a replay of every settled
+#      month, so the controls of the old act loop now remove the same rules
+#      from the replay's lines (T5, T9, T10, T12, T53, S11b, S12b, B4, B4b, B5).
 # Run: bash supabase/tests/hr-salary-revision/run-targets.sh   (PORT= to move it)
 # FINGERPRINTS=1 prints the drift check's fingerprints (main's and this file's)
 # and stops: paste them into 20271008093015 section 0 after any body edit.
@@ -205,7 +211,7 @@ echo "   total: $(grep -c '^PASS' "$WORK/sched.txt") PASS, $(grep -c '^FAIL' "$W
 # 8 Oct 2026, review round 7: the money review's probes (B1-B4), and round 8:
 # the round-3 reviews' probes (probe-settled-*.sql: one rule for calendar
 # order, U1-U4), each on its own database, after probe-schedule.sql.
-for pf in probe-order.sql probe-stale.sql probe-settled-stale.sql probe-settled-off.sql probe-settled-window.sql probe-settled-flag.sql probe-settled-cap.sql probe-settled-race.sql probe-settled-wait-off.sql probe-settled-wait-off-b.sql probe-settled-window-off.sql probe-settled-window-race.sql probe-live-order.sql probe-rv6-a.sql probe-rv6-b.sql probe-rv6-b2.sql probe-rulings.sql; do
+for pf in probe-order.sql probe-stale.sql probe-settled-stale.sql probe-settled-off.sql probe-settled-window.sql probe-settled-flag.sql probe-settled-cap.sql probe-settled-race.sql probe-settled-wait-off.sql probe-settled-wait-off-b.sql probe-settled-window-off.sql probe-settled-window-race.sql probe-live-order.sql probe-rv6-a.sql probe-rv6-b.sql probe-rv6-b2.sql probe-rulings.sql probe-replay.sql probe-replay-b.sql probe-replay-c.sql; do
   echo "== PROBE (rounds 7-9: $pf, after probe-schedule.sql)"
   build "$MIG" targets || exit 1
   probe_after_sched "$pf" | tee "$WORK/$pf.txt" | sed 's/^/   /'
@@ -283,7 +289,7 @@ mutate "T4 the apply marker expects the figure less the held part" \
   's/^( +)- COALESCE\(\(SELECT p\.held_amount FROM public\.hr_salary_revision_target_plans p$/\1- 0 * COALESCE((SELECT p.held_amount FROM public.hr_salary_revision_target_plans p/' \
   "a Director-list member's increment is written when HR runs the approvals job (the apply marker)"
 mutate "T5 only a met month releases" \
-  "s/^        IF v_p\.state = 'waiting' AND v_row\.status IN \('met', 'decided_met'\) THEN$/        IF v_p.state = 'waiting' AND v_row.status IN ('met', 'decided_met', 'missed') THEN/" \
+  "s/^        IF v_t_state = 'waiting' AND v_mo\.status IN \('met', 'decided_met'\) THEN$/        IF v_t_state = 'waiting' AND v_mo.status IN ('met', 'decided_met', 'missed') THEN/" \
   'month 1 with one target missed is counted as missed, and nothing is paid'
 mutate "T6 the 1st after the met month, when run on that 1st" \
   's/hr_salary_revision_start_date\(v_p\.staff_id, p_today - 1\)/hr_salary_revision_start_date(v_p.staff_id, p_today)/' \
@@ -295,16 +301,16 @@ mutate "T8 window over: back to the Director" \
   "s/^           SET state = 'back_to_director', state_reason = 'window_over', updated_at = now\(\)$/           SET updated_at = now()/" \
   'not met by month 6: back to the Director with the numbers, nothing held paid'
 mutate "T9 only the window's months count" \
-  's/^                     THEN \(v_p\.window_start \+ make_interval\(months => v_p\.window_months - 1\)\)::date$/                     THEN v_cur_m/' \
+  's/^                     THEN \(v_p\.window_start \+ make_interval\(months => v_p\.window_months - 1\)\)::date$/                     THEN v_cur_m/; s/^        EXIT WHEN v_t_state = .waiting. AND v_mo\.month > \(v_p\.window_start \+ make_interval\(months => v_p\.window_months - 1\)\)::date;$/        EXIT WHEN false;/' \
   'nothing is paid after the window, even for a month with all five met'
 mutate "T10 three missed months pause it" \
-  "s/^          IF v_p\.missed_in_row \+ 1 >= \(v_p\.rules->>'pause_after_missed_months'\)::int THEN$/          IF v_p.missed_in_row + 1 >= 99 THEN/" \
+  "s/^          IF v_t_run >= \(v_p\.rules->>'pause_after_missed_months'\)::int THEN$/          IF v_t_run >= 99 THEN/" \
   'three missed months in a row pause the held part: pay - held, from the 1st'
 mutate "T11 the pause is exactly pay - held" \
   "s/THEN -v_p\.held_amount ELSE v_p\.held_amount END;$/THEN -2 * v_p.held_amount ELSE v_p.held_amount END;/" \
   'three missed months in a row pause the held part: pay - held, from the 1st'
 mutate "T12 back on target resumes it" \
-  "s/^        ELSIF v_p\.state = 'paused' AND v_row\.status IN \('met', 'decided_met'\) THEN$/        ELSIF false THEN/" \
+  "s/^        ELSIF v_t_state = 'paused' AND v_mo\.status IN \('met', 'decided_met'\) THEN$/        ELSIF false THEN/" \
   'back on target: the held part is paid again, from the next 1st'
 mutate "T13 a month with no classes counts neither way" \
   "s/^                         WHEN COALESCE\(v_t1_den, 0\) = 0 THEN 'not_counted'  -- default d$/                         WHEN false THEN 'not_counted'/" \
@@ -463,7 +469,7 @@ mutate "T52 only the Director lapses a held part" \
   '/^CREATE OR REPLACE FUNCTION public\.fn_hr_salary_revision_target_lapse\(/,/^\$function\$;/s/^  IF v_uid IS NULL OR NOT public\.fn_hr_salary_revision_can_approve\(\) THEN$/  IF v_uid IS NULL THEN/' \
   'nobody but the Director lapses a held part'
 mutate "T53 a met month after release resets the count" \
-  's/^             SET missed_in_row = 0, updated_at = now\(\)$/             SET updated_at = now()/' \
+  's/^          v_t_run := 0;  -- a met month starts the missed months in a row again$/          NULL;/' \
   'a met month after release starts the missed-in-a-row count again (F5: missed, met, missed, missed: still paid)'
 mutate "T54 pay guard: only an applied yes stamped under #4190's rules" \
   "s/^            AND r\.status = 'applied' AND r\.decided_under_rules$/            AND true/" \
@@ -712,13 +718,13 @@ mutate_sched "S11 round 6 finding 2: nothing after a month waiting for its days 
   's/^            v_stop := v_m;  -- waiting for its days$/            CONTINUE;/' \
   'R6-2 while M2 waits for a day, M3 after it is not counted: no pause, nothing written, the note says so'
 mutate_sched "S11b round 6 finding 2: nothing after a waiting month is acted on" \
-  's/^           AND \(v_stop IS NULL OR month < v_stop\)$/           AND true/' \
+  's/^      v_walk_end := COALESCE\(v_stop, v_cur_m\);$/      v_walk_end := v_cur_m;/; s/^          v_walk_end := v_mo\.month;$/          CONTINUE;/' \
   'R6-2 a later month already counted is not acted on while an earlier one waits (no pause on it)'
 mutate_sched "S12 round 6 finding 1: leave over the whole month makes it not counted" \
   "s/^                 status = CASE WHEN COALESCE\(v_t1_den, 0\) = 0 THEN 'not_counted'$/                 status = CASE WHEN false THEN 'not_counted'/" \
   'R6-1 leave approved later for the whole of a missed month: not counted (no periods left), the misses in a row worked out again'
 mutate_sched "S12b round 6 finding 1: the misses in a row are worked out again" \
-  "s/^          IF COALESCE\(v_t1_den, 0\) = 0 OR v_all_met THEN$/          IF COALESCE(v_t1_den, 0) > 0 AND v_all_met THEN/" \
+  's/^             SET missed_in_row = v_t_run, updated_at = now\(\)$/             SET updated_at = now()/' \
   'R6-1 leave approved later for the whole of a missed month: not counted (no periods left), the misses in a row worked out again'
 mutate_sched "S13 round 6 finding 3: a cycle timetable's later days are recorded again" \
   "s/^                    AND l\.end_date >= c\.anchor AND l\.start_date < p_day\), ''\)\)$/                    AND false), ''))/" \
@@ -755,10 +761,10 @@ mutate_file probe-order.sql "B3 a flagged month the Director has not decided sto
   's/^        IF v_flagged AND v_m < v_cur_m THEN$/        IF false THEN/' \
   'B3-S1 while flagged M9 is undecided, M10 after it is not counted or acted on (no pause ahead of M9), and the note says so'
 mutate_file probe-order.sql "B4 the misses in a row worked out again after a late release or resume" \
-  "s/^        IF v_rescored AND v_action IN \('released', 'resumed'\) THEN$/        IF false THEN/" \
+  "s/^        IF v_stop IS NULL OR v_action <> 'none' OR v_moved > 0 THEN$/        IF v_action = 'none' AND (v_stop IS NULL OR v_moved > 0) THEN/" \
   'B4-S4 after M4 turns met, the misses since the last met month (M5; M6 not counted) are counted: missed_in_row = 1, not 0'
 mutate_file probe-order.sql "B4b a paused part's late met month counts too (any state)" \
-  "s/^          IF COALESCE\(v_t1_den, 0\) = 0 OR v_all_met THEN$/          IF v_p.state = 'released' AND (COALESCE(v_t1_den, 0) = 0 OR v_all_met) THEN/" \
+  "s/^        IF v_t_met IS NULL AND v_mo\.month >= v_from AND v_mo\.status IN \('met', 'decided_met'\) THEN$/        IF false THEN/" \
   'B4-S4 after M4 turns met, the misses since the last met month (M5; M6 not counted) are counted: missed_in_row = 1, not 0'
 # 8 Oct 2026, review round 8 (the round-3 money and safety reviews): one control per fix.
 mutate_file probe-settled-stale.sql "R1 U1: a counted missed month is never settled by its status alone" \
@@ -849,7 +855,7 @@ mutate_file probe-rv6-b.sql "A5 ruling (a): the closing of an old month never re
 # (b) the alternative not taken (a pausing month later not counted pays it
 # again by itself) put in: B4-S3 must catch it.
 mutate_file probe-order.sql "B5 ruling (b): a month later excused does not undo a pause" \
-  "s/COALESCE\(v_t1_den, 0\) > 0 AND v_all_met AND v_p\.state IN \('waiting', 'paused'\)/(COALESCE(v_t1_den, 0) = 0 OR v_all_met) AND v_p.state IN ('waiting', 'paused')/g; s/^        ELSIF v_p\.state = 'paused' AND v_row\.status IN \('met', 'decided_met'\) THEN$/        ELSIF v_p.state = 'paused' AND v_row.status IN ('met', 'decided_met', 'not_counted') THEN/" \
+  "s/^      IF v_p\.state = 'paused' AND v_t_state = 'released' AND v_t_met IS NULL THEN$/      IF false THEN/" \
   'B4-S3 DIRECTOR RULING (b)'
 # (d) only the main teacher is measured.
 mutate_sched "D1 ruling (d): only the main teacher's periods count" \
@@ -871,4 +877,19 @@ mutate_file probe-rulings.sql "I1 ruling (i): switched off, it still counts" \
 mutate_file probe-rulings.sql "I2 ruling (i): deleted by HR, it no longer counts" \
   "s/^    JOIN public\.timetables t ON t\.id::text = e->>'timetable_id'$/    LEFT JOIN public.timetables t ON t.id::text = e->>'timetable_id'/; s/^    JOIN public\.timetables t ON t\.id = r\.timetable_id$/    LEFT JOIN public.timetables t ON t.id = r.timetable_id/; s/^  SELECT t\.id AS timetable_id, dd\.d, dd\.in_month,/  SELECT (e->>'timetable_id')::uuid AS timetable_id, dd.d, dd.in_month,/" \
   '(i) deleted by HR: none of its periods count any more'
+# 8 Oct 2026, review round 12: the replay (round 7 of the money review).
+# R14/R14b put the old behaviour back in one line: a pause only on a month not
+# acted on yet (the misses acted on before a late met month never pause it).
+mutate_file probe-replay.sql "R14 round 12: a late met month's later misses pause it (waiting part)" \
+  "s/^          IF v_t_run >= \(v_p\.rules->>'pause_after_missed_months'\)::int THEN$/          IF v_t_run >= (v_p.rules->>'pause_after_missed_months')::int AND NOT v_mo.acted THEN/" \
+  'R7 (i) a late met month releases a waiting part whose next three months are already counted missed'
+mutate_file probe-replay-b.sql "R14b round 12: a late met month's later misses keep it paused (paused part)" \
+  "s/^          IF v_t_run >= \(v_p\.rules->>'pause_after_missed_months'\)::int THEN$/          IF v_t_run >= (v_p.rules->>'pause_after_missed_months')::int AND NOT v_mo.acted THEN/" \
+  'R7 (ii) a late met month in a paused part whose next three months are already counted missed'
+mutate_file probe-replay.sql "R15 round 12: released and paused within the months settled now: paused, nothing paid" \
+  "s/^        ELSIF v_p\.state = 'waiting' AND v_t_state = 'paused' THEN$/        ELSIF false THEN/" \
+  'R7 (i) a late met month releases a waiting part whose next three months are already counted missed'
+mutate_file probe-replay-c.sql "R16 round 12: nothing is written past the replay's stop" \
+  's/^      IF v_t_last IS NULL OR v_t_last < v_walk_end THEN$/      IF true THEN/' \
+  'R12-H a late met month while a later month of the pausing run waits to be measured again'
 echo "== mutation controls: $CAUGHT caught, $MISSED not caught"

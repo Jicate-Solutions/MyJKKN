@@ -72,7 +72,14 @@ SELECT t.check('B4-S4 M5, M7, M8 missed since the last met month (M4): three in 
 
 -- S1: a flagged month is not decided before the next month is counted.
 -- Put the plan back to a clean 'released' with two misses in a row (as if).
+-- 8 Oct 2026 (round 12): the run now works out the state from the months
+-- (a replay), so the "as if" is made in the months too: M8, which paused it,
+-- is put back as not counted (M5, M7 missed since the last met month M4: two
+-- in a row). Left as a counted miss, the months say "paused at M8" while the
+-- plan says released, and the replay pauses it again (a pay row).
 UPDATE public.hr_salary_revision_target_plans SET state = 'released', missed_in_row = 2, paused_from = NULL WHERE request_id = :'req';
+UPDATE public.hr_salary_revision_target_months SET status = 'not_counted', action = 'none', action_effective_from = NULL
+ WHERE request_id = :'req' AND month = :'m8';
 INSERT INTO public.hr_salary_revision_target_months (request_id, month, status) VALUES (:'req', :'m9', 'flagged')
 ON CONFLICT (request_id, month) DO UPDATE SET status = 'flagged';
 SELECT t.good_month(:'tt', :'F4', :'C4', :'m9');
