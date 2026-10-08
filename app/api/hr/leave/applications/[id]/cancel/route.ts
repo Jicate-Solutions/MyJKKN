@@ -6,6 +6,7 @@ import { NextResponse, connection } from 'next/server';
 import type { NextRequest } from 'next/server';
 import type { CookieOptions } from '@supabase/ssr';
 import { LeaveService } from '@/lib/services/hr/leave-service';
+import { errorMessage } from '@/lib/utils/supabase-error';
 import { recomputeForShortTimeOff } from '@/lib/hr/attendance/recompute-day';
 
 async function getClient() {
@@ -49,6 +50,6 @@ export async function POST(
     return NextResponse.json({ data: newRow });
   } catch (err) {
     console.error('[hr/leave/applications/:id/cancel] error', err);
-    return NextResponse.json({ error: err instanceof Error ? err.message : 'Unknown error' }, { status: 400 });
+    return NextResponse.json({ error: errorMessage(err, 'Unknown error') }, { status: 400 });
   }
 }
