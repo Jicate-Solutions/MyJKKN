@@ -54,6 +54,8 @@ function makeFake(opts: {
   triggers?: Row;
   /** Tables whose inserts fail (to prove a claim is released). */
   failInsertOn?: string[];
+  /** Tables whose unique key the fake does NOT enforce (to prove the code itself avoids duplicates). */
+  noUniqueOn?: string[];
 }) {
   const tables: Record<string, Row[]> = {
     institution_leaves: [],
@@ -187,7 +189,7 @@ function makeFake(opts: {
             }
           }
         }
-        if (this.table === 'user_notifications') {
+        if (this.table === 'user_notifications' && !opts.noUniqueOn?.includes('user_notifications')) {
           // Production's UNIQUE (notification_id, user_id).
           for (const n of list) {
             if (rows.some((r) => r.notification_id === n.notification_id && r.user_id === n.user_id)) {
@@ -559,9 +561,14 @@ describe('migration 20270613101223 seeds the detector switched off', () => {
 // ---------------------------------------------------------------------------
 const hoursAgo = (h: number) => new Date(NOW.getTime() - h * 3_600_000).toISOString();
 
-function liveWithMemo(nudges: Row[], extra: Partial<Record<string, Row[]>> = {}) {
+function liveWithMemo(
+  nudges: Row[],
+  extra: Partial<Record<string, Row[]>> = {},
+  fakeOpts: { noUniqueOn?: string[] } = {},
+) {
   const tables = scenario();
   return makeFake({
+    ...fakeOpts,
     policy: { mode: 'live' },
     tables: {
       ...tables,
@@ -826,7 +833,7 @@ describe('#4259 deep review finding 1 — no event is ever left claimed by a mem
     expect(fake.tables.hr_memo_eligibility_events[0].processed_into_memo_id).toBeNull();
   });
 
-  it('a run that died after inserting the memo but before marking the event: the next run links the event to that memo, issues no second memo and sends no second notice', async () => {
+  it('a run that died after inserting the memo but before sending its notice: the next run sends the notice ONCE, links the event, and issues no second memo', async () => {
     const fake = makeFake({
       policy: { mode: 'live' },
       tables: {
@@ -851,12 +858,74 @@ describe('#4259 deep review finding 1 — no event is ever left claimed by a mem
     expect(res.memos_created).toBe(0);
     expect(fake.tables.hr_memos).toHaveLength(1);
     expect(fake.tables.hr_memo_eligibility_events[0].processed_into_memo_id).toBe('memo-from-dead-run');
-    expect(fake.tables.notifications.filter((n) => n.title === 'HR memo issued')).toHaveLength(0);
+    const issued = fake.tables.notifications.filter((n) => n.title === 'HR memo issued');
+    expect(issued).toHaveLength(1);
+    expect(issued[0].idempotency_key).toBe('hr_memo_issued:memo-from-dead-run');
+    expect(fake.tables.user_notifications.filter((u) => u.notification_id === issued[0].id)).toEqual([
+      expect.objectContaining({ user_id: PROFILE_A }),
+    ]);
 
-    // And it stays settled: a further run finds nothing pending.
+    // And it stays settled: a further run finds nothing pending and sends nothing more.
     const again = await new HRMemoService(fake.client).runDetection(RUN2, { now: NOW });
     expect(again.memos_created).toBe(0);
     expect(fake.tables.hr_memos).toHaveLength(1);
+    expect(fake.tables.notifications.filter((n) => n.title === 'HR memo issued')).toHaveLength(1);
+  });
+
+  it('a run that dies while sending the notice leaves the event pending, and the next run sends it once', async () => {
+    const fake = makeFake({
+      policy: { mode: 'live' },
+      tables: { ...scenario(), institution_leaves: [], hr_memos: [], hr_memo_eligibility_events: [pendingEvent('ev-n')] },
+    });
+    const spy = vi
+      .spyOn(HRMemoService.prototype as unknown as { sendMemoIssuedNotice: () => Promise<boolean> }, 'sendMemoIssuedNotice')
+      .mockRejectedValueOnce(new Error('process died mid-send (test)'));
+    const first = await new HRMemoService(fake.client).runDetection(RUN, { now: NOW });
+    spy.mockRestore();
+    expect(first.errors.join(' ')).toMatch(/memo for event ev-n/);
+    expect(fake.tables.hr_memos).toHaveLength(1);
+    expect(fake.tables.hr_memo_eligibility_events[0].processed_into_memo_id).toBeNull();
+    expect(fake.tables.notifications).toHaveLength(0);
+
+    const second = await new HRMemoService(fake.client).runDetection(RUN2, { now: NOW });
+    expect(second.errors).toEqual([]);
+    expect(fake.tables.hr_memos).toHaveLength(1);
+    expect(fake.tables.hr_memo_eligibility_events[0].processed_into_memo_id).toBe(fake.tables.hr_memos[0].id);
+    expect(fake.tables.notifications.filter((n) => n.title === 'HR memo issued')).toHaveLength(1);
+  });
+
+  it('a run that died after sending the notice but before marking the event: the next run links the event and sends NO second notice', async () => {
+    const fake = makeFake({
+      policy: { mode: 'live' },
+      tables: {
+        ...scenario(),
+        institution_leaves: [],
+        hr_memos: [
+          {
+            id: 'memo-sent-then-died',
+            staff_id: STAFF_A,
+            memo_type: 'leave_before_approval',
+            reason: 'r',
+            triggered_by_event_id: 'ev-s',
+            auto_issued: true,
+            status: 'issued',
+            issued_at: NOW.toISOString(),
+          },
+        ],
+        hr_memo_eligibility_events: [pendingEvent('ev-s')],
+        notifications: [
+          { id: 'notif-issued', title: 'HR memo issued', body: 'r', idempotency_key: 'hr_memo_issued:memo-sent-then-died' },
+        ],
+        user_notifications: [{ id: 'un-issued', notification_id: 'notif-issued', user_id: PROFILE_A }],
+      },
+    });
+    const res = await new HRMemoService(fake.client).runDetection(RUN, { now: NOW });
+    expect(res.errors).toEqual([]);
+    expect(res.memos_created).toBe(0);
+    expect(fake.tables.hr_memo_eligibility_events[0].processed_into_memo_id).toBe('memo-sent-then-died');
+    expect(fake.tables.notifications).toHaveLength(1);
+    expect(fake.tables.user_notifications).toHaveLength(1);
+    expect(fake.writes.filter((w) => w.table === 'notifications' || w.table === 'user_notifications')).toEqual([]);
   });
 
   it('a failed event link is reported, the memo stands, and the next run links it without a second memo', async () => {
@@ -905,11 +974,42 @@ describe('#4259 deep review finding 4 — linking recipients names no conflict t
         notifications: [{ id: 'notif-1', title: 't', body: 'b', idempotency_key: 'hr_memo_nudge:memo-old:staff_reminder' }],
         user_notifications: [{ id: 'un-1', notification_id: 'notif-1', user_id: PROFILE_B }],
       },
+      // No UNIQUE (notification_id, user_id) here: nothing in the repo's
+      // migrations creates it, so the code itself must not add a second row.
+      { noUniqueOn: ['user_notifications'] },
     );
     const res = await new HRMemoService(fake.client).runDetection(RUN, { now: NOW });
     expect(res.nudges_sent).toBe(1);
     expect(fake.tables.user_notifications).toHaveLength(1);
+    expect(
+      fake.tables.user_notifications.filter((u) => u.notification_id === 'notif-1' && u.user_id === PROFILE_B),
+    ).toHaveLength(1);
     expect(fake.writes.filter((w) => w.op === 'upsert')).toEqual([]);
     expect(fake.writes.filter((w) => w.table === 'user_notifications')).toEqual([]);
   });
+});
+
+describe('#4259 blind re-review — setup/03_policies.sql mirrors the ledger rule once, in place', () => {
+  const setup = readFileSync(join(process.cwd(), 'supabase/setup/03_policies.sql'), 'utf8');
+  const migration = readFileSync(
+    join(process.cwd(), 'supabase/migrations/20271008110108_hr_memo_detector_ledgers_super_admin_read.sql'),
+    'utf8',
+  );
+
+  for (const [policy, table] of [
+    ['hr_memo_detector_runs_select', 'hr_memo_detector_runs'],
+    ['hr_memo_nudges_select', 'hr_memo_nudges'],
+  ] as const) {
+    it(`${policy}: one definition, super admins only, the same rule as the migration`, () => {
+      const created = [...setup.matchAll(new RegExp(`CREATE POLICY ${policy} ON public\\.${table}\\s+FOR SELECT TO authenticated\\s+USING \\(([^;]*)\\);`, 'g'))];
+      expect(created).toHaveLength(1);
+      const rule = created[0][1];
+      expect(rule).not.toMatch(/is_admin/);
+
+      const altered = new RegExp(`ALTER POLICY ${policy} ON public\\.${table}\\s+USING \\(([^;]*)\\);`).exec(migration);
+      expect(altered).not.toBeNull();
+      expect(rule).toBe(altered![1]);
+      expect(rule).toBe('(SELECT public.is_super_admin())');
+    });
+  }
 });

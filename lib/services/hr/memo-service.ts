@@ -533,6 +533,10 @@ export class HRMemoService {
       // insert, so a run that dies at any point leaves no event stuck: either
       // the memo exists (and the next run links it below) or it does not
       // (and the event is still pending).
+      // The event is marked LAST, after the 'HR memo issued' notice. The
+      // notice carries a key per memo, so a run that died anywhere before
+      // the mark is finished by the next run: it sends the notice if it was
+      // never sent, and never sends it twice.
       try {
         const reason = this.composeReason(
           event.event_type,
@@ -556,21 +560,25 @@ export class HRMemoService {
         if (memoError?.code === '23505') {
           // This event already has its memo: another run issued it, or an
           // earlier run inserted it and died (or lost the reply) before
-          // marking the event. Point the event at that memo; send nothing.
+          // marking the event. Make sure its notice went out (once, by its
+          // key), then point the event at that memo. No second memo.
           const { data: owner, error: ownerErr } = await this.supabase
             .from('hr_memos')
-            .select('id')
+            .select('id, reason')
             .eq('triggered_by_event_id', event.event_id)
             .maybeSingle();
           if (ownerErr || !owner) {
             throw new Error(`memo exists but could not be read: ${ownerErr?.message ?? 'no row'}`);
           }
+          await this.sendMemoIssuedNotice(
+            owner.id as string,
+            event.staff_id,
+            (owner.reason as string | null) ?? reason,
+          );
           await this.linkEventToMemo(event.event_id, owner.id as string, result);
           continue;
         }
         if (memoError || !memoRow) throw new Error(memoError?.message ?? 'no memo row returned');
-
-        await this.linkEventToMemo(event.event_id, memoRow.id as string, result);
 
         // Audit transition
         await this.supabase.from('hr_memo_state_transitions').insert({
@@ -593,18 +601,34 @@ export class HRMemoService {
           staff_found: true,
           notify_count: recipients.length,
         });
-        const sent = await this.sendInApp({
-          recipients,
-          title: 'HR memo issued',
-          body: reason,
-          url: '/hr/memos/my',
-          metadata: { staff_id: event.staff_id, memo_id: memoRow.id },
-        });
+        const sent = await this.sendMemoIssuedNotice(memoRow.id as string, event.staff_id, reason, recipients);
         if (sent) result.notifications_sent += 1;
+
+        await this.linkEventToMemo(event.event_id, memoRow.id as string, result);
       } catch (e) {
         result.errors.push(`memo for event ${event.event_id}: ${errText(e)}`);
       }
     }
+  }
+
+  /**
+   * The 'HR memo issued' notice for one memo. Keyed per memo, so sending it
+   * again (a retry after a crash, or two overlapping runs) adds nothing.
+   */
+  private async sendMemoIssuedNotice(
+    memoId: string,
+    staffId: string,
+    reason: string,
+    recipients?: string[],
+  ): Promise<boolean> {
+    return this.sendInApp({
+      recipients: recipients ?? (await this.resolveMemoRecipients(staffId)),
+      title: 'HR memo issued',
+      body: reason,
+      url: '/hr/memos/my',
+      metadata: { staff_id: staffId, memo_id: memoId },
+      idempotencyKey: `hr_memo_issued:${memoId}`,
+    });
   }
 
   /**
