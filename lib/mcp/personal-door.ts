@@ -154,8 +154,11 @@ const MAX_DURATION_MIN = 480;
  *   - per booking: at most MAX_ATTENDEES invitees, of whom at most
  *     MAX_OUTSIDE are outside JKKN, and only when allow_outside is true;
  *   - per key: at most BOOKINGS_PER_HOUR / BOOKINGS_PER_DAY bookings;
- *   - per owner: at most INVITEES_PER_DAY invitees across every meeting they
- *     scheduled themselves in the last 24 hours (page and door together).
+ *   - per owner: at most INVITEES_PER_DAY invitees through the door in 24 h.
+ * The per-key and per-owner limits are RESERVED in the database before booking
+ * (fn_ai_booking_reserve, per-owner advisory lock), so parallel or retried
+ * calls cannot all pass. A reservation is released only when booking
+ * definitely wrote nothing; an error or a timeout keeps it counted.
  */
 export const BOOKING_LIMITS = {
   MAX_ATTENDEES: 20,
@@ -163,6 +166,12 @@ export const BOOKING_LIMITS = {
   BOOKINGS_PER_HOUR: 20,
   BOOKINGS_PER_DAY: 60,
   INVITEES_PER_DAY: 150,
+  MAX_TITLE: 200,
+  MAX_NOTE: 2000,
+  MAX_NAME: 120,
+  MAX_DAYS_AHEAD: 366,
+  /** How long the door waits for the booking before saying "check the inbox". */
+  BOOKING_TIMEOUT_MS: 25_000,
 } as const;
 const MAX_ATTENDEES = BOOKING_LIMITS.MAX_ATTENDEES;
 /** Invitees at these domains are JKKN people; anyone else is "outside". */
@@ -242,10 +251,16 @@ export function parseScheduleArgs(input: Record<string, unknown> | undefined): S
   const a = input ?? {};
   const title = typeof a.title === 'string' ? a.title.trim() : '';
   if (!title) throw new ToolArgsError('Give the meeting a title.');
+  if (title.length > BOOKING_LIMITS.MAX_TITLE) {
+    throw new ToolArgsError(`The title can be at most ${BOOKING_LIMITS.MAX_TITLE} characters.`);
+  }
   const startIso = indiaLocalToIso(a.start_local);
   if (!startIso) throw new ToolArgsError('start_local must be India time as YYYY-MM-DDTHH:MM.');
   if (new Date(startIso).getTime() < Date.now() - 5 * 60_000) {
     throw new ToolArgsError('That start time has already passed.');
+  }
+  if (new Date(startIso).getTime() > Date.now() + BOOKING_LIMITS.MAX_DAYS_AHEAD * 86_400_000) {
+    throw new ToolArgsError('That start time is more than a year away.');
   }
   const durationMin = Number(a.duration_min);
   if (!Number.isInteger(durationMin) || durationMin < 5 || durationMin > MAX_DURATION_MIN) {
@@ -264,13 +279,14 @@ export function parseScheduleArgs(input: Record<string, unknown> | undefined): S
   for (const p of a.attendees) {
     const o = (p ?? {}) as Record<string, unknown>;
     const email = typeof o.email === 'string' ? o.email.trim() : '';
-    if (!EMAIL_RE.test(email)) {
+    // '*' is a wildcard in the people lookup, so it is never accepted.
+    if (!EMAIL_RE.test(email) || email.includes('*')) {
       throw new ToolArgsError(`Every attendee needs a valid email address; "${email}" is not one.`);
     }
     const key = email.toLowerCase();
     if (seen.has(key)) continue;
     seen.add(key);
-    const name = typeof o.name === 'string' ? o.name.trim() : '';
+    const name = typeof o.name === 'string' ? o.name.trim().slice(0, BOOKING_LIMITS.MAX_NAME) : '';
     attendees.push({ email, name: name || email });
   }
   const outside = attendees.map((p) => p.email).filter(isOutsideJkkn);
@@ -283,13 +299,21 @@ export function parseScheduleArgs(input: Record<string, unknown> | undefined): S
     throw new ToolArgsError(`At most ${BOOKING_LIMITS.MAX_OUTSIDE} people outside JKKN per meeting.`);
   }
   const text = (v: unknown) => (typeof v === 'string' && v.trim() ? v.trim() : null);
+  const note = text(a.note);
+  if (note && note.length > BOOKING_LIMITS.MAX_NOTE) {
+    throw new ToolArgsError(`The note can be at most ${BOOKING_LIMITS.MAX_NOTE} characters.`);
+  }
+  const locationText = text(a.location_text);
+  if (locationText && locationText.length > BOOKING_LIMITS.MAX_TITLE) {
+    throw new ToolArgsError(`location_text can be at most ${BOOKING_LIMITS.MAX_TITLE} characters.`);
+  }
   return {
     title,
     startIso,
     durationMin,
     locationMode,
-    locationText: text(a.location_text),
-    note: text(a.note),
+    locationText,
+    note,
     attendees,
     outside,
   };
@@ -300,53 +324,66 @@ function exactLike(text: string): string {
   return text.replace(/[\\%_]/g, (c) => `\\${c}`);
 }
 
+const LIMIT_MESSAGES: Record<string, (n: number) => string> = {
+  per_hour: (n) => `This key has booked ${n} meetings in the last hour. Try again later.`,
+  per_day: (n) => `This key has booked ${n} meetings in the last 24 hours. Try again tomorrow.`,
+  invitees_per_day: (n) =>
+    `That would take the owner past ${n} invitations through this door in 24 hours. Book it on the Meetings page instead.`,
+};
+
 /**
- * Enforces the per-key and per-owner limits. Fails CLOSED: if the counts cannot
- * be read, nothing is booked.
+ * Reserves one booking slot in the database, atomically, before anything is
+ * booked. Fails CLOSED: if the reservation cannot be made, nothing is booked.
+ * Returns the reservation id.
  */
-async function assertWithinBookingLimits(
+async function reserveBookingSlot(
   db: SupabaseClient,
   keyId: string,
   ownerId: string,
   inviting: number
-): Promise<void> {
-  const since = (ms: number) => new Date(Date.now() - ms).toISOString();
-  const countFor = (sinceIso: string) =>
-    db
-      .from('api_key_usage_logs')
-      .select('id', { count: 'exact', head: true })
-      .eq('api_key_id', keyId)
-      .eq('endpoint', `mcp:${SCHEDULE_TOOL_NAME}`)
-      .eq('status_code', 200)
-      .gte('created_at', sinceIso);
-  const [hour, day, recent] = await Promise.all([
-    countFor(since(3_600_000)),
-    countFor(since(86_400_000)),
-    db
-      .from('meeting_bookings')
-      .select('answers')
-      .eq('host_profile_id', ownerId)
-      .eq('source', 'host-direct')
-      .gte('created_at', since(86_400_000)),
-  ]);
-  if (hour.error || day.error || recent.error) {
+): Promise<string> {
+  const { data, error } = await db.rpc('fn_ai_booking_reserve', {
+    p_key_id: keyId,
+    p_owner_id: ownerId,
+    p_invitees: inviting,
+    p_per_hour: BOOKING_LIMITS.BOOKINGS_PER_HOUR,
+    p_per_day: BOOKING_LIMITS.BOOKINGS_PER_DAY,
+    p_invitees_per_day: BOOKING_LIMITS.INVITEES_PER_DAY,
+  });
+  const r = (data ?? {}) as { ok?: boolean; id?: string; reason?: string; limit?: number };
+  if (error || typeof r.ok !== 'boolean') {
     throw new DoorRefusal('MyJKKN could not check the booking limits just now, so nothing was booked. Try again shortly.');
   }
-  if ((hour.count ?? 0) >= BOOKING_LIMITS.BOOKINGS_PER_HOUR) {
-    throw new DoorRefusal(`This key has booked ${BOOKING_LIMITS.BOOKINGS_PER_HOUR} meetings in the last hour. Try again later.`);
+  if (!r.ok || !r.id) {
+    const msg = LIMIT_MESSAGES[r.reason ?? ''];
+    throw new DoorRefusal(msg ? msg(Number(r.limit)) : 'This key has reached its booking limit for now.');
   }
-  if ((day.count ?? 0) >= BOOKING_LIMITS.BOOKINGS_PER_DAY) {
-    throw new DoorRefusal(`This key has booked ${BOOKING_LIMITS.BOOKINGS_PER_DAY} meetings in the last 24 hours. Try again tomorrow.`);
+  return r.id;
+}
+
+/** Gives a reservation back when booking definitely wrote nothing. Best effort. */
+async function releaseBookingSlot(db: SupabaseClient, reservationId: string): Promise<void> {
+  try {
+    await db.rpc('fn_ai_booking_release', { p_reservation_id: reservationId });
+  } catch {
+    // A failed release only means the slot stays counted until it ages out.
   }
-  const invited = ((recent.data ?? []) as { answers?: { participants?: unknown[] } }[]).reduce(
-    (n, r) => n + (Array.isArray(r.answers?.participants) ? r.answers!.participants!.length : 0),
-    0
-  );
-  if (invited + inviting > BOOKING_LIMITS.INVITEES_PER_DAY) {
-    throw new DoorRefusal(
-      `That would take the owner past ${BOOKING_LIMITS.INVITEES_PER_DAY} invitations in 24 hours. Book it on the Meetings page instead.`
-    );
+}
+
+export class BookingTimeout extends Error {
+  constructor() {
+    super('booking timed out');
+    this.name = 'BookingTimeout';
   }
+}
+
+/** Resolves with the promise, or rejects with BookingTimeout after `ms`. */
+export function withDeadline<T>(promise: Promise<T>, ms: number): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const deadline = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new BookingTimeout()), ms);
+  });
+  return Promise.race([promise, deadline]).finally(() => clearTimeout(timer));
 }
 
 /**
@@ -432,13 +469,22 @@ async function runScheduleTool(
 
   const db = createServiceRoleClient() as unknown as SupabaseClient;
 
-  await assertWithinBookingLimits(db, keyId, ownerId, args.attendees.length);
+  const reservationId = await reserveBookingSlot(db, keyId, ownerId, args.attendees.length);
 
   // Link invitees who are MyJKKN people, as the Schedule page does when someone
   // is picked from its list. Unknown or ambiguous addresses stay plain emails.
-  const attendees = await linkInvitees(db, ownerId, args.attendees);
+  let attendees: ScheduleAttendee[];
+  try {
+    attendees = await linkInvitees(db, ownerId, args.attendees);
+  } catch (err) {
+    // Nothing has been booked yet: give the slot back.
+    await releaseBookingSlot(db, reservationId);
+    throw err;
+  }
 
-  const outcome = await HostSchedulingService.scheduleDirect(db, {
+  // From here the outcome may be unknown (an error or a timeout after the row
+  // was written), so the reservation is kept unless booking says it wrote nothing.
+  const booking = HostSchedulingService.scheduleDirect(db, {
     hostProfileId: ownerId,
     title: args.title,
     startIso: args.startIso,
@@ -448,10 +494,15 @@ async function runScheduleTool(
     note: args.note,
     attendees,
   });
+  const outcome = await withDeadline(booking, BOOKING_LIMITS.BOOKING_TIMEOUT_MS);
   if (!outcome.ok) {
     const code = outcome.error?.code;
-    if (code === 'VALIDATION') throw new ToolArgsError(outcome.error.message);
-    if (code === 'SLOT_TAKEN') throw new DoorRefusal(outcome.error.message);
+    if (code === 'VALIDATION' || code === 'SLOT_TAKEN') {
+      // Both are decided before anything is written.
+      await releaseBookingSlot(db, reservationId);
+      if (code === 'VALIDATION') throw new ToolArgsError(outcome.error.message);
+      throw new DoorRefusal(outcome.error.message);
+    }
     throw new Error(outcome.error?.message ?? 'not booked');
   }
   const warning = outcome.data.warning;
@@ -648,6 +699,12 @@ export async function handlePersonalKeyRequest(req: Request, token: string): Pro
         if (err instanceof DoorRefusal) {
           audit(name, 403, startTime);
           return mcpError(err.message);
+        }
+        if (err instanceof BookingTimeout) {
+          audit(name, 504, startTime);
+          return mcpError(
+            "MyJKKN did not confirm the booking in time. It may still have been made: check the owner's Meetings inbox before trying again."
+          );
         }
         const isArgs = err instanceof ToolArgsError;
         audit(name, isArgs ? 400 : 500, startTime);

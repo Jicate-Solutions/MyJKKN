@@ -98,6 +98,7 @@ export function ConnectOutsideAi() {
   const [newKey, setNewKey] = useState<NewKey | null>(null);
   const [turningOff, setTurningOff] = useState<PersonalKey | null>(null);
   const [allowingBooking, setAllowingBooking] = useState<PersonalKey | null>(null);
+  const [savingBooking, setSavingBooking] = useState(false);
 
   const rpc = useCallback(
     (fn: string, args?: Record<string, unknown>) =>
@@ -121,6 +122,7 @@ export function ConnectOutsideAi() {
   const {
     data: bookingIds = [],
     isError: bookingUnknown,
+    isLoading: bookingLoading,
     refetch: refetchBooking,
   } = useQuery({
     queryKey: ['ai-personal-key-booking'],
@@ -136,7 +138,9 @@ export function ConnectOutsideAi() {
   };
 
   const setBooking = async (target: PersonalKey, allow: boolean) => {
+    setSavingBooking(true);
     const { error } = await rpc('fn_ai_personal_key_set_booking', { p_key_id: target.id, p_allow: allow });
+    setSavingBooking(false);
     if (error) {
       toast.error(error.message || 'Could not change this key. Please try again.');
       return;
@@ -310,7 +314,7 @@ export function ConnectOutsideAi() {
                         id={`book-${k.id}`}
                         // If the booking state could not be loaded, do not show
                         // "off" for a key that may be on: disable the switch.
-                        disabled={bookingUnknown}
+                        disabled={bookingUnknown || bookingLoading || savingBooking}
                         checked={bookingIds.includes(k.id)}
                         onCheckedChange={(on) => (on ? setAllowingBooking(k) : void setBooking(k, false))}
                       />
@@ -369,8 +373,9 @@ export function ConnectOutsideAi() {
             <AlertDialogTitle>Let &ldquo;{allowingBooking?.name}&rdquo; book meetings?</AlertDialogTitle>
             <AlertDialogDescription>
               Whoever uses this key can then book meetings on your calendar and send the invitations in your name,
-              without asking you first. It cannot book for anyone else. You can switch this off, or turn the key off,
-              here at any time.
+              without asking you first, including up to 5 people outside JKKN per meeting. It cannot book for anyone
+              else, and only one of your keys can book at a time. You can switch this off, or turn the key off, here at
+              any time.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

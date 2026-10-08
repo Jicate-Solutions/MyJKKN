@@ -24,15 +24,18 @@ let grantRow: Record<string, unknown> | null = null;
 let ownerProfile: Record<string, unknown> = { institution_id: 'inst-1', is_super_admin: false };
 let ownerRoles: unknown[] = [];
 let people: { id: string; email: string; institution_id: string }[] = [];
-let bookedLastHour = 0;
-let bookedLastDay = 0;
-let countError: unknown = null;
-let recentBookings: unknown[] = [];
+let reserveAnswer: { data: unknown; error: unknown } = { data: { ok: true, id: 'res-1' }, error: null };
+const serviceRpc = vi.fn(async (fn: string, _args?: Record<string, unknown>) => {
+  if (fn === 'fn_ai_booking_reserve') return reserveAnswer;
+  if (fn === 'fn_ai_booking_release') return { data: true, error: null };
+  return { data: null, error: null };
+});
+const released = () => serviceRpc.mock.calls.filter(([fn]) => fn === 'fn_ai_booking_release').map(([, a]) => a);
 const tablesRead: string[] = [];
 const profileQueries: Array<{ ilike?: string; institution?: string }> = [];
 function makeServiceClient() {
   return {
-    rpc: vi.fn(),
+    rpc: serviceRpc,
     from: vi.fn((table: string) => {
       tablesRead.push(table);
       const f: Record<string, unknown> = {};
@@ -55,11 +58,6 @@ function makeServiceClient() {
         error: null,
       }));
       const resolve = () => {
-        if (table === 'api_key_usage_logs') {
-          const sinceMs = Date.now() - new Date(String(f['gte:created_at'])).getTime();
-          return { count: sinceMs > 2 * 3_600_000 ? bookedLastDay : bookedLastHour, error: countError };
-        }
-        if (table === 'meeting_bookings') return { data: recentBookings, error: null };
         if (table === 'user_roles') return { data: ownerRoles, error: null };
         if (table === 'profiles') {
           const pattern = String(f['ilike:email'] ?? '');
@@ -141,7 +139,8 @@ const book = (args: Record<string, unknown>) =>
   );
 
 /** A start far enough ahead that it is never "already passed". */
-const FUTURE_LOCAL = '2099-10-08T15:30';
+const FUTURE_DATE = new Date(Date.now() + 30 * 86_400_000).toISOString().slice(0, 10);
+const FUTURE_LOCAL = `${FUTURE_DATE}T15:30`;
 const GOOD_ARGS = {
   title: 'Chat with Viswanathan',
   start_local: FUTURE_LOCAL,
@@ -157,10 +156,7 @@ beforeEach(() => {
   ownerProfile = { institution_id: 'inst-1', is_super_admin: false };
   ownerRoles = [];
   people = [{ id: KNOWN_PERSON, email: 'Viswanathan.S@jkkn.ac.in', institution_id: 'inst-1' }];
-  bookedLastHour = 0;
-  bookedLastDay = 0;
-  countError = null;
-  recentBookings = [];
+  reserveAnswer = { data: { ok: true, id: 'res-1' }, error: null };
   resetRateLimiter();
   keyRow = {
     id: KEY_ID,
@@ -222,7 +218,7 @@ describe('booking', () => {
     const input = scheduleDirect.mock.calls[0][1];
     expect(input.hostProfileId).toBe(OWNER);
     // 15:30 India time = 10:00 UTC
-    expect(input.startIso).toBe('2099-10-08T10:00:00.000Z');
+    expect(input.startIso).toBe(`${FUTURE_DATE}T10:00:00.000Z`);
     expect(input.durationMin).toBe(10);
     expect(input.locationMode).toBe('online');
     // a MyJKKN person is linked by email, case-insensitively
@@ -314,30 +310,85 @@ describe('arguments', () => {
 });
 
 describe('deep review fixes (8 Oct)', () => {
-  it('limits bookings per key per hour and per day, and books nothing past them', async () => {
-    bookedLastHour = 20;
-    let res = await readRpc(await book(GOOD_ARGS));
-    expect(res.result.isError).toBe(true);
-    expect(res.result.content[0].text).toMatch(/20 meetings in the last hour/);
-    bookedLastHour = 3;
-    bookedLastDay = 60;
-    res = await readRpc(await book(GOOD_ARGS));
-    expect(res.result.content[0].text).toMatch(/60 meetings in the last 24 hours/);
-    expect(scheduleDirect).not.toHaveBeenCalled();
+  it('reserves a slot in the database BEFORE booking, with the limits', async () => {
+    await readRpc(await book(GOOD_ARGS));
+    const reserve = serviceRpc.mock.calls.find(([fn]) => fn === 'fn_ai_booking_reserve');
+    expect(reserve![1]).toEqual({
+      p_key_id: KEY_ID,
+      p_owner_id: OWNER,
+      p_invitees: 1,
+      p_per_hour: 20,
+      p_per_day: 60,
+      p_invitees_per_day: 150,
+    });
+    const reserveOrder = serviceRpc.mock.invocationCallOrder[serviceRpc.mock.calls.indexOf(reserve!)];
+    expect(reserveOrder).toBeLessThan(scheduleDirect.mock.invocationCallOrder[0]);
+    // a successful booking keeps its reservation
+    expect(released()).toEqual([]);
   });
 
-  it('limits invitations per owner per day', async () => {
-    recentBookings = [{ answers: { participants: new Array(150).fill({ email: 'x@jkkn.ac.in' }) } }];
+  it.each([
+    ['per_hour', 20, /20 meetings in the last hour/],
+    ['per_day', 60, /60 meetings in the last 24 hours/],
+    ['invitees_per_day', 150, /past 150 invitations/],
+  ])('a refused reservation (%s) books nothing', async (reason, limit, msg) => {
+    reserveAnswer = { data: { ok: false, reason, limit }, error: null };
     const res = await readRpc(await book(GOOD_ARGS));
-    expect(res.result.content[0].text).toMatch(/past 150 invitations/);
+    expect(res.result.isError).toBe(true);
+    expect(res.result.content[0].text).toMatch(msg);
     expect(scheduleDirect).not.toHaveBeenCalled();
   });
 
-  it('fails CLOSED when the limits cannot be read', async () => {
-    countError = { message: 'db down' };
+  it('fails CLOSED when the reservation cannot be made', async () => {
+    reserveAnswer = { data: null, error: { message: 'db down' } };
     const res = await readRpc(await book(GOOD_ARGS));
     expect(res.result.content[0].text).toMatch(/could not check the booking limits/);
     expect(scheduleDirect).not.toHaveBeenCalled();
+  });
+
+  it('gives the slot back only when booking definitely wrote nothing', async () => {
+    scheduleDirect.mockResolvedValueOnce({ ok: false, error: { code: 'SLOT_TAKEN', message: 'taken' } });
+    await readRpc(await book(GOOD_ARGS));
+    expect(released()).toEqual([{ p_reservation_id: 'res-1' }]);
+
+    serviceRpc.mockClear();
+    scheduleDirect.mockResolvedValueOnce({ ok: false, error: { code: 'UNKNOWN', message: 'boom' } });
+    const res = await readRpc(await book(GOOD_ARGS));
+    expect(res.result.isError).toBe(true);
+    // an unknown outcome may have written: the slot stays counted
+    expect(released()).toEqual([]);
+  });
+
+  it('stops waiting after the deadline and says to check the inbox, keeping the slot', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      scheduleDirect.mockImplementationOnce(() => new Promise(() => {}));
+      const pending = book(GOOD_ARGS).then(readRpc);
+      await vi.advanceTimersByTimeAsync(25_001);
+      const res = await pending;
+      expect(res.result.isError).toBe(true);
+      expect(res.result.content[0].text).toMatch(/did not confirm the booking in time.*Meetings inbox/);
+      expect(released()).toEqual([]);
+      expect(logApiUsage.mock.calls.at(-1)![0]).toMatchObject({ statusCode: 504 });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it.each([
+    [{ title: 'x'.repeat(201) }, /title can be at most 200/],
+    [{ note: 'x'.repeat(2001) }, /note can be at most 2000/],
+    [{ start_local: '2099-10-08T15:30' }, /more than a year away/],
+    [{ attendees: [{ email: 'a*@jkkn.ac.in' }] }, /valid email address/],
+  ])('refuses %j', async (bad, msg) => {
+    const res = await readRpc(await book({ ...GOOD_ARGS, ...bad }));
+    expect(res.result.content[0].text).toMatch(msg);
+    expect(scheduleDirect).not.toHaveBeenCalled();
+  });
+
+  it('cuts a very long attendee name rather than refusing', async () => {
+    await readRpc(await book({ ...GOOD_ARGS, attendees: [{ email: 'a@jkkn.ac.in', name: 'n'.repeat(500) }] }));
+    expect(scheduleDirect.mock.calls[0][1].attendees[0].name).toHaveLength(120);
   });
 
   it('refuses people outside JKKN unless allow_outside is true, and caps them at 5', async () => {
