@@ -23,6 +23,8 @@ export type ApprovalStepStatus =
 export interface CategoryStep {
   id?: string;
   stage?: ApprovalStage;
+  /** null/absent = the default chain; set = this college's own chain (replaces the default). */
+  institution_id?: string | null;
   step_order: number;
   label: string;
   approver_kind: ApproverKind;

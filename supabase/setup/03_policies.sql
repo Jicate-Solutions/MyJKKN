@@ -10009,6 +10009,22 @@ CREATE POLICY staff_id_crosswalk_select_super_admin
   USING (public.is_super_admin());
 
 -- =============================================================================
+-- Mirrored from supabase/migrations/20261008120000_staff_id_reissue_on_transfer.sql (policies and grants)
+-- =============================================================================
+
+ALTER TABLE public.staff_id_history ENABLE ROW LEVEL SECURITY;
+
+REVOKE ALL ON public.staff_id_history FROM anon, authenticated;
+GRANT SELECT ON public.staff_id_history TO authenticated;
+
+-- Visible exactly to whoever can see the staff row: the EXISTS runs under the
+-- caller's own RLS on staff, so institution scope is inherited, not restated.
+DROP POLICY IF EXISTS staff_id_history_select ON public.staff_id_history;
+CREATE POLICY staff_id_history_select
+  ON public.staff_id_history FOR SELECT TO authenticated
+  USING (EXISTS (SELECT 1 FROM public.staff s WHERE s.id = staff_id_history.staff_uuid));
+
+-- =============================================================================
 -- Mirrored from supabase/migrations/20260828140000_staff_address_standardisation.sql
 -- =============================================================================
 
@@ -12280,4 +12296,49 @@ CREATE POLICY hr_intake_match_rules_select ON public.hr_intake_match_rules
     OR ((SELECT public.user_has_permission('hr.recruitment.create'))
         AND institution_id IS NOT NULL
         AND public.role_has_institution_access(institution_id))
+  );
+
+
+-- Updated: 2026-10-07 - Mirrored from supabase/migrations/20261022000100_learner_ig_post_claims_hardening.sql
+-- ig_learner_post_claims: a learner could INSERT a claim already confirmed (review finding #1, PR #4193).
+-- INSERT ties origin to who may use it; SELECT admits the review key; DELETE only while pending.
+-- The UPDATE policy is unchanged from 20261022000000.
+DROP POLICY IF EXISTS ig_learner_post_claims_insert ON public.ig_learner_post_claims;
+CREATE POLICY ig_learner_post_claims_insert ON public.ig_learner_post_claims
+  FOR INSERT
+  WITH CHECK (
+    origin IN ('learner_link', 'staff_link')
+    AND (
+      public.is_super_admin()
+      OR public.is_admin()
+      OR (origin = 'learner_link'
+          AND learner_id = (SELECT p.learner_id FROM public.profiles p WHERE p.id = auth.uid()))
+      OR (origin = 'staff_link'
+          AND public.user_has_permission('social.learner_credit.review')
+          AND public.role_has_institution_access(institution_id))
+    )
+  );
+
+DROP POLICY IF EXISTS ig_learner_post_claims_select ON public.ig_learner_post_claims;
+CREATE POLICY ig_learner_post_claims_select ON public.ig_learner_post_claims
+  FOR SELECT
+  USING (
+    public.is_super_admin()
+    OR public.is_admin()
+    OR learner_id = (SELECT p.learner_id FROM public.profiles p WHERE p.id = auth.uid())
+    OR ((public.user_has_permission('social.learner_credit.view')
+         OR public.user_has_permission('social.learner_credit.review'))
+        AND public.role_has_institution_access(institution_id))
+  );
+
+DROP POLICY IF EXISTS ig_learner_post_claims_delete ON public.ig_learner_post_claims;
+CREATE POLICY ig_learner_post_claims_delete ON public.ig_learner_post_claims
+  FOR DELETE
+  USING (
+    public.is_super_admin()
+    OR (status = 'pending' AND (
+          public.is_admin()
+          OR learner_id = (SELECT p.learner_id FROM public.profiles p WHERE p.id = auth.uid())
+          OR (public.user_has_permission('social.learner_credit.review')
+              AND public.role_has_institution_access(institution_id))))
   );

@@ -45,6 +45,7 @@ interface ImportError {
 interface ImportResult {
   success: boolean;
   successCount: number;
+  batchesAdded?: number;
   errorCount: number;
   totalRows: number;
   errors: ImportError[];
@@ -202,6 +203,7 @@ export function BulkImportDialog({
       const data: ImportResult = {
         success:      raw.success      ?? false,
         successCount: raw.successCount ?? 0,
+        batchesAdded: raw.batchesAdded ?? 0,
         errorCount:   raw.errorCount   ?? 0,
         totalRows:    raw.totalRows    ?? 0,
         errors: Array.isArray(raw.errors)
@@ -214,9 +216,16 @@ export function BulkImportDialog({
       };
       setResult(data);
 
-      if (data.successCount > 0) {
+      const batches = data.batchesAdded ?? 0;
+      if (data.successCount > 0 || batches > 0) {
         toast.success(
-          `Imported ${data.successCount} item${data.successCount !== 1 ? 's' : ''} successfully`
+          [
+            data.successCount > 0 &&
+              `Imported ${data.successCount} new item${data.successCount !== 1 ? 's' : ''}`,
+            batches > 0 && `added ${batches} batch${batches !== 1 ? 'es' : ''} to existing items`,
+          ]
+            .filter(Boolean)
+            .join(', ')
         );
         onImportComplete?.();
       } else {
@@ -352,14 +361,14 @@ export function BulkImportDialog({
           {result && (
             <div className="space-y-4">
               {/* Summary alert */}
-              <Alert variant={result.successCount > 0 ? 'default' : 'destructive'}>
-                {result.successCount > 0 ? (
+              <Alert variant={(result.successCount > 0 || !!result.batchesAdded) ? 'default' : 'destructive'}>
+                {result.successCount > 0 || !!result.batchesAdded ? (
                   <CheckCircle className="h-4 w-4" />
                 ) : (
                   <XCircle className="h-4 w-4" />
                 )}
                 <AlertTitle>
-                  {result.successCount > 0
+                  {result.successCount > 0 || !!result.batchesAdded
                     ? result.errorCount > 0
                       ? 'Partial Import'
                       : 'Import Complete'
@@ -378,7 +387,15 @@ export function BulkImportDialog({
                         <Badge className="mr-2 bg-green-600 hover:bg-green-600">
                           {result.successCount}
                         </Badge>
-                        <span>Successfully imported</span>
+                        <span>New items imported</span>
+                      </div>
+                    )}
+                    {!!result.batchesAdded && (
+                      <div>
+                        <Badge className="mr-2 bg-green-600 hover:bg-green-600">
+                          {result.batchesAdded}
+                        </Badge>
+                        <span>Batches added to existing items</span>
                       </div>
                     )}
                     {result.errorCount > 0 && (
@@ -488,7 +505,7 @@ export function BulkImportDialog({
                   Import Another File
                 </Button>
                 <Button onClick={handleClose}>
-                  {result.successCount > 0 ? 'Done' : 'Close'}
+                  {result.successCount > 0 || result.batchesAdded ? 'Done' : 'Close'}
                 </Button>
               </>
             )}
