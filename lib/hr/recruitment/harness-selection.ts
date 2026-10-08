@@ -184,14 +184,16 @@ export interface SentNudge {
 export const STALE_CLAIM_MINUTES = 15;
 
 /**
- * Claims to re-arm: the run that wrote them died before the send landed, so
- * nobody was told — but the UNIQUE (kind, ref_key) row would block every later
- * run from trying again (review of #4149, finding 3). Releasing them lets the
- * selection pick the nudge up again if it is still due. A re-send is safe: the
- * notification carries the same idempotency key, so a send that DID land before
- * the run died is found, not duplicated.
+ * Claims whose send MAY not have finished: the row has people to tell and no
+ * notification recorded. Either the run died between the claim and the send, or
+ * the send landed and recording its id did not (a failed update, or a row written
+ * by the code before this follow-up). The runner tells the two apart by the
+ * notification's idempotency key (releaseStaleClaims): a landed send is recorded
+ * on the row with its original sent_at kept, so the HR Head's clock does not
+ * restart; only a send that never happened is released for a new claim (review of
+ * #4149, finding 3; review of #4260, finding 1).
  *
- * Never re-armed: a row with recipient_ids = {} (it found nobody — that row is the
+ * Never returned: a row with recipient_ids = {} (it found nobody — that row is the
  * record which starts the HR Head's 48-hour clock), a row with a notification, a
  * row younger than STALE_CLAIM_MINUTES, or one whose sent_at cannot be read.
  */
@@ -224,6 +226,17 @@ export interface Nudge {
 
 const TERMINAL_CANDIDATE_STATUSES = new Set(['rejected', 'withdrawn', 'offer_rescinded', 'no_show']);
 const WAITING_STATUSES = new Set(['submitted', 'pending_approval']);
+
+/** metadata.source of every recruitment nudge, and the prefix of its notification key. */
+export const NUDGE_SOURCE = 'hr_recruitment_harness';
+
+/**
+ * notifications.idempotency_key of a scheduled nudge. One definition, used by the
+ * send and by the check that finds a send which landed without its id recorded.
+ */
+export function nudgeIdempotencyKey(kind: NudgeKind, refKey: string): string {
+  return `${NUDGE_SOURCE}:${kind}:${refKey}`;
+}
 
 export function sentKey(kind: NudgeKind, refKey: string): string {
   return `${kind}|${refKey}`;
@@ -391,11 +404,37 @@ export function offerRecipients(
   hrEditors: string[],
   dir: Directory,
 ): string[] {
-  if (jobCreatorId) {
-    const creator = dir.users.get(jobCreatorId);
-    if (creator && creator.active && creator.canEditRecruitment) return [creator.id];
-  }
+  if (jobCreatorCanAct(jobCreatorId, dir)) return [jobCreatorId as string];
   return Array.from(new Set(hrEditors)).sort();
+}
+
+/** The job's creator is still active and can still edit recruitment. */
+export function jobCreatorCanAct(jobCreatorId: string | null, dir: Directory): boolean {
+  if (!jobCreatorId) return false;
+  const creator = dir.users.get(jobCreatorId);
+  return !!creator && creator.active && creator.canEditRecruitment;
+}
+
+/**
+ * The candidates the offer rules may look at when some colleges' HR-editor lookup
+ * failed. Only a candidate whose nudge would FALL BACK to those editors waits for
+ * the next run; one whose job creator can act is nudged as usual, because it never
+ * needed the list (review of #4260, finding 3).
+ *
+ * @param unavailable institutionKey() of each college whose lookup failed
+ * @param jobCreatorOf job id -> hr_recruitment_jobs.created_by
+ */
+export function offerCandidatesToCheck(
+  candidates: HarnessCandidate[],
+  unavailable: Set<string>,
+  jobCreatorOf: Map<string, string | null>,
+  dir: Directory,
+): HarnessCandidate[] {
+  return candidates.filter((c) => {
+    if (!unavailable.has(institutionKey(c.institution_id))) return true;
+    const creator = c.job_id ? jobCreatorOf.get(c.job_id) ?? null : null;
+    return jobCreatorCanAct(creator, dir);
+  });
 }
 
 /** Map key for an institution id, including the NULL institution. */
