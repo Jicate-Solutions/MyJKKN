@@ -29,12 +29,12 @@ export const dynamic = 'force-dynamic';
 import { NextRequest, NextResponse } from 'next/server';
 import { connection } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
+import { fetchLatestPostMetrics } from '@/lib/services/social/ig-post-lookup';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const HASHTAG_RE = /#[\p{L}\p{N}_]+/gu;
 const PAGE = 1000;
 const MAX_PAGES = 20;
-const IN_CHUNK = 200;
 
 interface PostRow {
   id: string;
@@ -118,23 +118,18 @@ export async function GET(request: NextRequest) {
       if (batch.length < PAGE) break;
     }
 
-    // 2. Latest ig_post_metrics per post — batched .in() chunks, newest-first,
-    //    first-seen-wins dedupe (same idiom as the accounts list route).
-    const latestMetrics = new Map<string, PostMetricRow>();
+    // 2. Latest ig_post_metrics per post — one newest-snapshot read per post.
+    //    A batched .in() read overflowed the 1,000-row cap (~627 snapshots a
+    //    post) and silently dropped most posts' metrics.
     const postIds = posts.map((p) => p.id);
-    for (let i = 0; i < postIds.length; i += IN_CHUNK) {
-      const chunk = postIds.slice(i, i + IN_CHUNK);
-      const { data, error } = await supabase
-        .from('ig_post_metrics')
-        .select('post_id, likes, comments, saves, engagement')
-        .in('post_id', chunk)
-        .order('snapshot_at', { ascending: false });
-      if (error) {
-        return NextResponse.json({ success: false, error: error.message }, { status: 500 });
-      }
-      for (const m of (data ?? []) as PostMetricRow[]) {
-        if (!latestMetrics.has(m.post_id)) latestMetrics.set(m.post_id, m);
-      }
+    const { latest: latestMetrics, error: metricsErr } =
+      await fetchLatestPostMetrics<PostMetricRow>(
+        supabase,
+        postIds,
+        'post_id, likes, comments, saves, engagement'
+      );
+    if (metricsErr) {
+      return NextResponse.json({ success: false, error: metricsErr.message }, { status: 500 });
     }
 
     // 3. Parse captions and aggregate per tag (unique tags per post).

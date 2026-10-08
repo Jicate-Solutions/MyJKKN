@@ -1,7 +1,7 @@
 /**
  * HR Payroll Periods Service (T4.3 PR 2)
  *
- * Spec: specs/t4-payroll-design-lock-2026-05-15.md (20 decisions, lock 2026-05-15)
+ * No written spec; the stage rules live in the RPC migration listed below.
  * Substrate: 20260628000000_t4_3_payroll_periods_approvals_payslips.sql
  * RPCs:      20260629000000_t4_3_pr2_payroll_rpcs.sql
  *
@@ -12,10 +12,10 @@
  *   listPeriods       — paginated list with filters
  *   getPeriod         — single record by id
  *   createPeriod      — open a new period in 'draft' state (HR Officer only — RLS-enforced)
- *   preparePeriod     — RPC: draft → prepared (Decision #9 stage 1)
- *   advancePeriod     — RPC: generic stage advance (Decision #9 stages 2-5)
+ *   preparePeriod     — RPC: draft → prepared (stage 1)
+ *   advancePeriod     — RPC: generic stage advance (stages 2-5)
  *   rejectPeriod      — RPC: drop one stage back
- *   backdatePeriod    — RPC: Director-only retroactive flag (Decision #20)
+ *   backdatePeriod    — RPC: Director-only retroactive flag
  *
  * All RPC wrappers return the updated period row so the caller can update
  * React Query caches without a follow-up SELECT.
@@ -151,7 +151,7 @@ export class PayrollPeriodsService {
   // ----- RPC wrappers (state-machine transitions) -----
 
   /**
-   * Decision #9 stage 1: HR Officer flips draft → prepared.
+   * Stage 1: HR Officer flips draft → prepared (role check in fn_prepare_payroll_period).
    * Server-side snapshots pay_matrix + deduction_rates + computes working_days.
    */
   static async preparePeriod(
@@ -168,7 +168,7 @@ export class PayrollPeriodsService {
   }
 
   /**
-   * Decision #9 stages 2-5: generic stage advance. Target derived from
+   * Stages 2-5: generic stage advance. Target derived from
    * current status server-side; role guard enforced inside the RPC.
    */
   static async advancePeriod(
@@ -205,7 +205,7 @@ export class PayrollPeriodsService {
   }
 
   /**
-   * Decision #20 Director-only retroactive flag. Reason REQUIRED.
+   * Director-only retroactive flag (role check in fn_backdate_payroll_period). Reason REQUIRED.
    * Does NOT change status — only sets is_backdated=true + records audit.
    */
   static async backdatePeriod(

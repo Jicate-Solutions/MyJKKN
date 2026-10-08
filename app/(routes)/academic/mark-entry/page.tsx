@@ -6,8 +6,6 @@ import {
   Breadcrumb, BreadcrumbItem, BreadcrumbLink, BreadcrumbList, BreadcrumbPage, BreadcrumbSeparator,
 } from '@/components/ui/breadcrumb';
 import { Card, CardContent } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ClipboardEdit, Loader2, ListChecks, PenLine } from 'lucide-react';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useAuth } from '@/hooks/use-auth';
@@ -30,10 +28,11 @@ import { DirectEntryTab } from './_components/direct-entry-tab';
  * marks/monitor/report/audit surface untouched. This one is the entry screen, and
  * it is the only place that understands `mark_entry_type`.
  *
- * The active tab follows the ROUND's configured mode (COE cia_rounds[].
- * mark_entry_type). A question-wise round that has no authored paper is never a
- * dead end — the Question-wise tab explains the gap and Direct Entry stays
- * available, matching the COE entry screen exactly.
+ * The ROUND's configured mode (COE cia_rounds[].mark_entry_type) decides which
+ * ONE entry screen renders — there is no tab to pick between them. A
+ * question-wise round that has no authored paper is still never a dead end: the
+ * question-wise screen explains the gap and renders the component grid beneath
+ * it (`renderFallback`) until the paper is ready.
  */
 export default function MarkEntryPage() {
   const { isSuperAdmin, canAccess, isLoading: isLoadingPermissions } = usePermissions();
@@ -43,8 +42,6 @@ export default function MarkEntryPage() {
   const canEnter = isSuperAdmin || canAccess('academic.mark-entry', 'enter');
 
   const [filters, setFilters] = useState<Partial<MarkEntryFilterState>>({});
-  /** null = follow the round's configured mode; set = the user picked a tab. */
-  const [tabOverride, setTabOverride] = useState<'question-wise' | 'direct' | null>(null);
 
   const institutionId = isSuperAdmin ? filters.institution_id : profile?.institution_id ?? undefined;
 
@@ -66,15 +63,6 @@ export default function MarkEntryPage() {
 
   const entryMode = resolveMarkEntryType(selectedRound);
 
-  // The round decides the mode; the user is not asked to pick. Switching rounds
-  // drops any manual override, so a direct round never lands on a question grid
-  // it has no paper for. Manual switching afterwards is still allowed — the
-  // no-paper fallback depends on it.
-  //
-  // Derived during render rather than in an effect: an effect would render the
-  // wrong tab for one frame and then cascade a second render to correct it.
-  // Resetting state during render is React's documented pattern for "adjust
-  // state when a prop changes" (react.dev/learn/you-might-not-need-an-effect).
   const pdfContext = useMemo(() => {
     const inst = institutions.find((i) => i.id === institutionId);
     // counselling_code is what useInstitutionsWithAccess exposes, and it IS the
@@ -91,14 +79,6 @@ export default function MarkEntryPage() {
     };
   }, [institutions, institutionId, examSessions, filters.exam_session_id, selectedSetting]);
 
-  const roundKey = `${filters.setting_id ?? ''}:${filters.cia_round ?? ''}`;
-  const [lastRoundKey, setLastRoundKey] = useState(roundKey);
-  if (roundKey !== lastRoundKey) {
-    setLastRoundKey(roundKey);
-    setTabOverride(null);
-  }
-  const tab = tabOverride ?? (entryMode === 'question_wise' ? 'question-wise' : 'direct');
-
   const { data: registrations, isLoading: isLoadingRegistrations } = useRegistrations({
     institutionId,
     examSessionId: filters.exam_session_id,
@@ -112,37 +92,6 @@ export default function MarkEntryPage() {
         : [],
     [registrations, filters.course_code]
   );
-
-  /**
-   * Every registration for the chosen course, whatever its status.
-   *
-   * The course dropdown lists anything with `is_regular`, but
-   * getLearnersFromRegistrations ALSO requires registration_status ===
-   * 'Approved'. A course whose registrations are all Pending therefore appears
-   * in the dropdown and then produces an empty grid. Keeping the unfiltered set
-   * lets the empty state say WHICH of those two situations it is — "nobody is
-   * registered" and "nobody's registration is approved yet" need different
-   * people to do different things.
-   */
-  const courseRegistrations = useMemo(
-    () =>
-      filters.course_code
-        ? (registrations ?? []).filter((r) => r.course_code === filters.course_code)
-        : [],
-    [registrations, filters.course_code]
-  );
-
-  const blockedStatuses = useMemo(() => {
-    const counts = new Map<string, number>();
-    for (const r of courseRegistrations) {
-      if (r.registration_status === 'Approved' && r.is_regular) continue;
-      const label = !r.is_regular
-        ? 'not regular (arrear/repeat)'
-        : (r.registration_status ?? 'unknown status');
-      counts.set(label, (counts.get(label) ?? 0) + 1);
-    }
-    return [...counts.entries()].map(([label, count]) => ({ label, count }));
-  }, [courseRegistrations]);
 
   /** Round total — the ceiling a learner's components may sum to. */
   const maxInternalMarks = useMemo(
@@ -220,62 +169,34 @@ export default function MarkEntryPage() {
         {isReady && !isLoadingRegistrations && learners.length === 0 && (
           <Card>
             <CardContent className='space-y-2 py-10 text-center text-sm'>
-              {courseRegistrations.length === 0 ? (
-                <>
-                  <p className='font-medium'>
-                    No exam registrations found for {filters.course_code} in this session.
-                  </p>
-                  <p className='text-xs text-muted-foreground'>
-                    Learners are drawn from COE exam registrations for{' '}
-                    {filters.program_code}. If registration is still open, marks cannot be
-                    entered yet.
-                  </p>
-                </>
-              ) : (
-                <>
-                  <p className='font-medium'>
-                    {courseRegistrations.length} registration
-                    {courseRegistrations.length === 1 ? '' : 's'} exist for{' '}
-                    {filters.course_code}, but none is markable yet.
-                  </p>
-                  <p className='text-xs text-muted-foreground'>
-                    Mark entry needs registrations that are{' '}
-                    <strong>Approved</strong> and <strong>regular</strong>. Currently:{' '}
-                    {blockedStatuses.map((s) => `${s.count} ${s.label}`).join(', ')}.
-                  </p>
-                  <p className='text-xs text-muted-foreground'>
-                    Approve them in COE exam registrations, then reload this page.
-                  </p>
-                </>
-              )}
+              <p className='font-medium'>
+                No exam registrations found for {filters.course_code} in this session.
+              </p>
+              <p className='text-xs text-muted-foreground'>
+                Learners are drawn from COE exam registrations for {filters.program_code} — any
+                regular registration counts, whatever its approval status. Register the learners
+                in COE, then reload this page.
+              </p>
             </CardContent>
           </Card>
         )}
 
         {isReady && !isLoadingRegistrations && learners.length > 0 && selectedRound && (
-          <Tabs value={tab} onValueChange={(v) => setTabOverride(v as typeof tab)}>
-            <TabsList className='grid w-full max-w-md grid-cols-2'>
-              <TabsTrigger value='question-wise' className='gap-1.5'>
-                <ListChecks className='h-4 w-4' />
-                Question-wise
-                {entryMode === 'question_wise' && (
-                  <Badge variant='secondary' className='ml-1 px-1 py-0 text-[9px]'>
-                    set
-                  </Badge>
-                )}
-              </TabsTrigger>
-              <TabsTrigger value='direct' className='gap-1.5'>
-                <PenLine className='h-4 w-4' />
-                Direct Entry
-                {entryMode === 'direct' && (
-                  <Badge variant='secondary' className='ml-1 px-1 py-0 text-[9px]'>
-                    set
-                  </Badge>
-                )}
-              </TabsTrigger>
-            </TabsList>
+          <div className='space-y-4'>
+            <div className='inline-flex items-center gap-1.5 rounded-full border bg-muted/50 px-3 py-1 text-xs font-medium'>
+              {entryMode === 'question_wise' ? (
+                <>
+                  <ListChecks className='h-3.5 w-3.5' /> Question-wise entry
+                </>
+              ) : (
+                <>
+                  <PenLine className='h-3.5 w-3.5' /> Direct entry
+                </>
+              )}
+              <span className='font-normal text-muted-foreground'>· set for {selectedRound.round_name}</span>
+            </div>
 
-            <TabsContent value='question-wise' className='mt-4'>
+            {entryMode === 'question_wise' ? (
               <QuestionWiseTab
                 institutionId={institutionId!}
                 examSessionId={filters.exam_session_id!}
@@ -287,10 +208,20 @@ export default function MarkEntryPage() {
                 maxInternalMarks={maxInternalMarks}
                 canEnter={canEnter}
                 pdf={pdfContext}
+                renderFallback={() => (
+                  <DirectEntryTab
+                    institutionId={institutionId!}
+                    examSessionId={filters.exam_session_id!}
+                    ciaSettingId={filters.setting_id!}
+                    round={selectedRound}
+                    learners={learners}
+                    maxInternalMarks={maxInternalMarks}
+                    canEnter={canEnter}
+                    courseCode={filters.course_code}
+                  />
+                )}
               />
-            </TabsContent>
-
-            <TabsContent value='direct' className='mt-4'>
+            ) : (
               <DirectEntryTab
                 institutionId={institutionId!}
                 examSessionId={filters.exam_session_id!}
@@ -299,14 +230,10 @@ export default function MarkEntryPage() {
                 learners={learners}
                 maxInternalMarks={maxInternalMarks}
                 canEnter={canEnter}
-                fallbackNotice={
-                  entryMode === 'question_wise'
-                    ? 'This round is configured for question-wise entry. Use this tab only if the question paper is not authored yet — the component total you enter here will not carry a per-question breakdown.'
-                    : undefined
-                }
+                courseCode={filters.course_code}
               />
-            </TabsContent>
-          </Tabs>
+            )}
+          </div>
         )}
 
         {!isReady && (

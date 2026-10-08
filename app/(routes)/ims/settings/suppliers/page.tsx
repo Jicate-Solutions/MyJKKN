@@ -2,6 +2,9 @@
 
 import { useState, useEffect } from 'react';
 import { ContentLayout } from '@/components/layout/content-layout';
+import { VendorScoreBadge } from '@/components/procurement/vendor-score-badge';
+import { VendorRatingsDialog } from '@/components/procurement/vendor-ratings-dialog';
+import { useVendorScores } from '@/hooks/procurement/use-ratings';
 import { BeatLoader } from 'react-spinners';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -55,6 +58,7 @@ import {
   Search,
   MoreHorizontal,
   Pencil,
+  Star,
   Trash2,
   Truck,
 } from 'lucide-react';
@@ -272,6 +276,9 @@ function SuppliersPageInner() {
   const isMutating = createSupplier.isPending || updateSupplier.isPending;
 
   const suppliers: ImsSupplier[] = suppliersList?.data ?? [];
+  // Vendor score from deliveries + ratings (procurement rating loop).
+  const { data: vendorScores } = useVendorScores(suppliers.map((s) => s.id));
+  const [ratingsFor, setRatingsFor] = useState<{ id: string; name: string } | null>(null);
 
   return (
     <ContentLayout title="Suppliers">
@@ -349,6 +356,7 @@ function SuppliersPageInner() {
                       <TableHead>Email</TableHead>
                       <TableHead>Phone</TableHead>
                       <TableHead>GSTIN</TableHead>
+                      <TableHead>Score</TableHead>
                       <TableHead>Status</TableHead>
                       <TableHead className="text-right">Actions</TableHead>
                     </TableRow>
@@ -377,6 +385,9 @@ function SuppliersPageInner() {
                           {supplier.gstin || '-'}
                         </TableCell>
                         <TableCell>
+                          <VendorScoreBadge score={vendorScores?.get(supplier.id)} vendorName={supplier.name} />
+                        </TableCell>
+                        <TableCell>
                           <div className="flex items-center gap-2">
                             <Switch
                               checked={supplier.is_active}
@@ -398,6 +409,10 @@ function SuppliersPageInner() {
                               </Button>
                             </DropdownMenuTrigger>
                             <DropdownMenuContent align="end">
+                              <DropdownMenuItem onClick={() => setRatingsFor({ id: supplier.id, name: supplier.name })}>
+                                <Star className="h-4 w-4 mr-2" />
+                                Ratings
+                              </DropdownMenuItem>
                               {canManage && (
                                 <DropdownMenuItem onClick={() => handleEdit(supplier)}>
                                   <Pencil className="h-4 w-4 mr-2" />
@@ -428,6 +443,8 @@ function SuppliersPageInner() {
           </CardContent>
         </Card>
       </div>
+
+      <VendorRatingsDialog supplier={ratingsFor} onOpenChange={(o) => !o && setRatingsFor(null)} />
 
       {/* Add/Edit Supplier Dialog */}
       <Dialog open={dialogOpen} onOpenChange={handleDialogOpenChange}>

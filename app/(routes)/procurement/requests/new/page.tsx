@@ -6,15 +6,17 @@ import { ContentLayout } from '@/components/layout/content-layout';
 import { useAuth } from '@/hooks/use-auth';
 import { useCreatePurchaseRequest } from '@/hooks/procurement/use-purchase-requests';
 import { CatalogItemPicker } from '@/components/procurement/catalog-item-picker';
+import { RequestFileImport } from '@/components/procurement/request-file-import';
 import { InstitutionFilter } from '@/components/procurement/institution-filter';
+import { ApprovalRoutePicker, useApprovalRouteReady } from '@/components/procurement/approval-route-picker';
 import { registeredDomainOptions } from '@/lib/services/procurement/domain-adapters/registry';
 import type { DomainCtx, ProcurementDomain } from '@/lib/services/procurement/domain-adapters/types';
 import type { CreatePurchaseRequestItemDto } from '@/types/procurement';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { DetailHeader } from '@/components/procurement/detail-header';
+import { FormActionBar } from '@/components/procurement/form-action-bar';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Textarea } from '@/components/ui/textarea';
 import {
   Select,
   SelectContent,
@@ -22,16 +24,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
-} from '@/components/ui/dialog';
-import { Plus, Trash2, ArrowLeft } from 'lucide-react';
+import { Plus, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { errorMessage } from '@/lib/utils/supabase-error';
+import { displayRequestNumber } from '@/lib/procurement/display-number';
+import { PastRatingHint } from '@/components/procurement/past-rating-hint';
+import { useItemVendorRatings } from '@/hooks/procurement/use-ratings';
 
 // is_new is local UI state only — never sent to the server. domain_item_id
 // (null = new item) is what the service actually derives request_type from.
@@ -74,9 +72,17 @@ export default function NewPurchaseRequestPage() {
   const [domain, setDomain] = useState<ProcurementDomain>(
     () => domainOptions[0]?.value ?? 'ims'
   );
-  const [notes, setNotes] = useState('');
   const [items, setItems] = useState<ItemRow[]>([emptyRow()]);
-  const [previewOpen, setPreviewOpen] = useState(false);
+  // How each picked catalog item went last time (requester ratings).
+  const { data: itemRatings = [] } = useItemVendorRatings(
+    items.map((i) => i.domain_item_id).filter((x): x is string => !!x)
+  );
+  // "What is it for?" — ONE field. It names the purchase on every list and is the
+  // reason the approver reads; it also fills each new item's reason (the server
+  // needs one per new line) unless an AI-read reason is already there.
+  const [title, setTitle] = useState('');
+  // Field errors show only after a first Send, so an untouched form isn't all red.
+  const [triedSubmit, setTriedSubmit] = useState(false);
 
   // Institution scope — carries over whatever the requester had filtered the
   // Requests list to (?institution=…), so a multi-institution user isn't asked to
@@ -87,6 +93,14 @@ export default function NewPurchaseRequestPage() {
     () => searchParams.get('institution') ?? undefined
   );
   const effectiveInstitution = institutionId ?? profile?.institution_id ?? '';
+
+  // Category decides the approval steps (set by the Super Admin); the department is
+  // whose HOD approves when a step is "HOD".
+  const [route, setRoute] = useState<{ categoryId: string | null; departmentId: string | null }>({
+    categoryId: null,
+    departmentId: null,
+  });
+  const routeReady = useApprovalRouteReady(effectiveInstitution || undefined, route.categoryId, route.departmentId);
 
   // Ambient context handed to the domain adapter's catalog search.
   const ctx: DomainCtx = useMemo(
@@ -105,6 +119,7 @@ export default function NewPurchaseRequestPage() {
     setItems((rows) => (rows.length > 1 ? rows.filter((_, i) => i !== idx) : rows));
 
   const handleSubmit = async () => {
+    setTriedSubmit(true);
     if (!profile?.id || !effectiveInstitution) {
       toast.error('No institution selected — pick one or contact an administrator.');
       return;
@@ -114,8 +129,12 @@ export default function NewPurchaseRequestPage() {
       toast.error('Add at least one item.');
       return;
     }
-    if (cleaned.some((i) => i.is_new && !i.reason?.trim())) {
-      toast.error('Enter a reason for every new item.');
+    if (!title.trim()) {
+      toast.error('Say what it is for (e.g. Microbiology practicals).');
+      return;
+    }
+    if (!routeReady.ready) {
+      toast.error(routeReady.problem ?? 'Wait a moment — checking who approves this request.');
       return;
     }
     if (cleaned.some((i) => !i.is_new && !i.domain_item_id)) {
@@ -123,14 +142,19 @@ export default function NewPurchaseRequestPage() {
       return;
     }
 
-    // Validation passed — gate creation behind a read-only review step.
-    setPreviewOpen(true);
+    // Validation passed — the form itself is the review, so submit straight away.
+    await handleConfirmCreate();
   };
 
   // Cleaned line items as they will be submitted (also drives the preview table).
   const cleanedItems = useMemo(
-    () => items.filter((i) => i.item_name.trim()),
-    [items]
+    () =>
+      items
+        .filter((i) => i.item_name.trim())
+        .map((i) =>
+          i.is_new && !i.reason?.trim() ? { ...i, reason: title.trim() } : i
+        ),
+    [items, title]
   );
 
   // Display-only summary of the request's composition — mirrors the derivation the
@@ -153,7 +177,10 @@ export default function NewPurchaseRequestPage() {
         data: {
           institution_id: effectiveInstitution,
           domain,
-          notes: notes || null,
+          title: title.trim(),
+          notes: null,
+          category_id: routeReady.required ? route.categoryId : null,
+          department_id: routeReady.required ? route.departmentId : null,
           items: cleanedItems.map(({ is_new, ...i }) => ({
             ...i,
             required_quantity: Number(i.required_quantity) || 0,
@@ -162,316 +189,209 @@ export default function NewPurchaseRequestPage() {
         },
         userId: profile.id,
       });
-      setPreviewOpen(false);
-      toast.success(`Purchase request ${created.request_number} created`);
-      router.push(`/procurement/requests/${created.id}`);
+      toast.success(`Purchase ${displayRequestNumber(created.request_number)} submitted for approval`);
+      // Straight to the purchase page — its progress line shows who acts next.
+      router.push(created.id ? `/procurement/requests/${created.id}` : '/procurement/requests');
     } catch (e) {
       toast.error(errorMessage(e, 'Failed to create request'));
     }
   };
 
   return (
-    <ContentLayout title="New Purchase Request">
-      <div className="space-y-4 sm:space-y-6 max-w-5xl">
-        <div className="flex items-center gap-2 sm:gap-3">
-          <Button variant="ghost" size="sm" aria-label="Go back" onClick={() => router.back()}>
-            <ArrowLeft className="h-4 w-4" />
-          </Button>
-          <div>
-            <h2 className="text-xl sm:text-2xl font-bold tracking-tight">New Purchase Request</h2>
-            <p className="hidden text-muted-foreground sm:block">
-              Mix restock and new-item lines freely — each item picks its own type.
-            </p>
-          </div>
-        </div>
+    <ContentLayout title="New request">
+      {/* Full width, several fields to a row: the header fields share one line, each
+          item is one line (what · size/brand · qty), so a long list stays short. */}
+      <div className="w-full space-y-5">
+        <DetailHeader backLabel="Back" onBack={() => router.back()} title="What do you need?" />
 
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Request details</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
+        <section className="space-y-5 rounded-xl border bg-background p-5 shadow">
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
             <InstitutionFilter
+              className="w-full space-y-1 [&_label]:text-xs [&_label]:font-semibold"
               value={effectiveInstitution || undefined}
               onChange={(id) => {
                 setInstitutionId(id);
                 // Different institution = different inventory catalog; clear picks.
                 setItems([emptyRow()]);
+                // …and different departments.
+                setRoute((r) => ({ ...r, departmentId: null }));
               }}
-              hint="Sets which item catalog you order from."
             />
-            <div className="space-y-2 max-w-md">
-              <Label>What are you buying?</Label>
-              <Select
-                value={domain}
-                onValueChange={(v) => {
-                  setDomain(v as ProcurementDomain);
-                  // Different module = different catalog; clear picked items.
-                  setItems([emptyRow()]);
-                }}
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {domainOptions.map((opt) => (
-                    <SelectItem key={opt.value} value={opt.value}>
-                      {DOMAIN_CHOICE[opt.value]
-                        ? `${DOMAIN_CHOICE[opt.value]} — ${opt.label}`
-                        : opt.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <p className="hidden text-[11px] text-muted-foreground sm:block">
-                Consumables and chemicals are tracked by batch and expiry. Equipment and
-                furniture are tracked as assets.
-              </p>
-            </div>
-            {domain === 'resource_mgmt' && requestTypeSummary !== 'Restock' && (
-              <div className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-200">
-                Buying consumables or chemicals — things that get used up or expire (reagents,
-                cotton, gloves)? Purchase those through the <b>Inventory (IMS)</b> module instead,
-                which tracks batches and expiry dates. Resource Management is for equipment,
-                furniture and instruments.
+            {domainOptions.length > 1 && (
+              <div className="w-full space-y-1">
+                <Label className="text-xs font-semibold">Type</Label>
+                <Select
+                  value={domain}
+                  onValueChange={(v) => {
+                    setDomain(v as ProcurementDomain);
+                    // Different module = different catalog; clear picked items.
+                    setItems([emptyRow()]);
+                  }}
+                >
+                  <SelectTrigger className="h-9">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {domainOptions.map((opt) => (
+                      <SelectItem key={opt.value} value={opt.value}>
+                        {DOMAIN_CHOICE[opt.value] ?? opt.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
             )}
-            <div className="space-y-2">
-              <Label>Notes (optional)</Label>
-              <Textarea
-                value={notes}
-                onChange={(e) => setNotes(e.target.value)}
-                placeholder="Any context for the approver..."
+            <div className={`space-y-1 sm:col-span-2 ${domainOptions.length > 1 ? '' : 'lg:col-span-3'}`}>
+              <Label htmlFor="request-title" className="text-xs font-semibold">
+                What is it for?
+              </Label>
+              <Input
+                id="request-title"
+                className="h-9"
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                maxLength={80}
+                autoComplete="off"
+                placeholder="e.g. Microbiology practicals, 2026-27 batch"
+                aria-invalid={triedSubmit && !title.trim()}
+                aria-describedby={triedSubmit && !title.trim() ? 'request-title-error' : undefined}
               />
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="flex flex-col gap-2 sm:gap-3 sm:flex-row sm:items-start sm:justify-between">
-            <div>
-              <CardTitle className="text-base">
-                Items{cleanedItems.length ? ` (${cleanedItems.length})` : ''}
-              </CardTitle>
-              <p className="mt-1 hidden text-sm text-muted-foreground sm:block">
-                Pick each item from the catalog. If something is not stocked yet, choose
-                “New item” and say why it is needed.
-              </p>
-            </div>
-            <Button variant="outline" size="sm" className="shrink-0" onClick={addRow}>
-              <Plus className="mr-2 h-4 w-4" />
-              Add item
-            </Button>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            {items.map((item, idx) => (
-              <div key={idx} className="grid gap-3 lg:grid-cols-12 items-start border-b pb-4 last:border-0">
-                <div className="lg:col-span-2 space-y-1">
-                  <Label className="text-xs">Source</Label>
-                  <Select
-                    value={item.is_new ? 'new_item' : 'restock'}
-                    onValueChange={(v) => {
-                      const isNew = v === 'new_item';
-                      // Switching a row's type invalidates its catalog linkage — reset
-                      // name + link so a restock pick can't leak into a new-item line
-                      // (or vice versa).
-                      updateItem(idx, {
-                        is_new: isNew,
-                        item_name: '',
-                        domain_item_id: null,
-                        current_stock: null,
-                        reorder_level: null,
-                      });
-                    }}
-                  >
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="restock">From the catalog</SelectItem>
-                      <SelectItem value="new_item">New item — not in the catalog</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="lg:col-span-3 space-y-1">
-                  <Label className="text-xs">Item name</Label>
-                  {item.is_new ? (
-                    <Input
-                      value={item.item_name}
-                      onChange={(e) => updateItem(idx, { item_name: e.target.value })}
-                      placeholder="e.g. A4 paper"
-                    />
-                  ) : (
-                    <>
-                      <CatalogItemPicker
-                        domain={domain}
-                        ctx={ctx}
-                        value={item.item_name || null}
-                        placeholder="Pick an inventory item…"
-                        onSelect={(sel) =>
-                          updateItem(idx, {
-                            domain_item_id: sel.domainItemId,
-                            item_name: sel.name,
-                            item_spec: sel.spec ?? item.item_spec ?? '',
-                            unit_id: sel.unitId ?? null,
-                            unit_label: sel.unitLabel ?? item.unit_label ?? '',
-                            current_stock: sel.currentStock ?? null,
-                            reorder_level: sel.reorderLevel ?? null,
-                            estimated_cost:
-                              item.estimated_cost ?? (sel.costPrice != null ? sel.costPrice : undefined),
-                          })
-                        }
-                      />
-                      {item.current_stock != null && (
-                        <p
-                          className={
-                            item.reorder_level != null && item.current_stock <= item.reorder_level
-                              ? 'text-[11px] font-medium text-amber-700 dark:text-amber-300'
-                              : 'text-[11px] text-muted-foreground'
-                          }
-                        >
-                          {item.reorder_level != null && item.current_stock <= item.reorder_level
-                            ? 'Low stock — '
-                            : ''}
-                          {item.current_stock} in stock
-                          {item.reorder_level != null ? `, reorder at ${item.reorder_level}` : ''}
-                        </p>
-                      )}
-                    </>
-                  )}
-                </div>
-                <div className="lg:col-span-2 space-y-1">
-                  <Label className="text-xs">Specification</Label>
-                  <Input
-                    value={item.item_spec ?? ''}
-                    onChange={(e) => updateItem(idx, { item_spec: e.target.value })}
-                    placeholder={item.is_new ? 'Size, grade, packaging…' : 'From catalog'}
-                  />
-                </div>
-                <div className="lg:col-span-2 space-y-1">
-                  <Label className="text-xs">Qty</Label>
-                  <Input
-                    type="number"
-                    min={1}
-                    value={item.required_quantity}
-                    onChange={(e) => updateItem(idx, { required_quantity: Number(e.target.value) })}
-                  />
-                </div>
-                <div className="lg:col-span-2 space-y-1">
-                  <Label className="text-xs">Unit</Label>
-                  <Input
-                    value={item.unit_label ?? ''}
-                    onChange={(e) => updateItem(idx, { unit_label: e.target.value })}
-                    placeholder="e.g. box"
-                  />
-                </div>
-                <div className="lg:col-span-1 flex items-end justify-end h-full">
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    aria-label="Remove item"
-                    onClick={() => removeRow(idx)}
-                    disabled={items.length === 1}
-                  >
-                    <Trash2 className="h-4 w-4 text-destructive" />
-                  </Button>
-                </div>
-                {item.is_new && (
-                  <div className="lg:col-span-12 space-y-1">
-                    <Label className="text-xs">
-                      Reason for new item <span className="text-destructive">*</span>
-                    </Label>
-                    <Input
-                      value={item.reason ?? ''}
-                      onChange={(e) => updateItem(idx, { reason: e.target.value })}
-                      placeholder="Why is this new item needed? (mandatory)"
-                    />
-                  </div>
-                )}
-              </div>
-            ))}
-          </CardContent>
-        </Card>
-
-        <div className="flex flex-col gap-2 sm:gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <p className="hidden text-sm text-muted-foreground sm:block">
-            This saves the request as a draft. You send it for approval from the request page.
-          </p>
-          <div className="flex justify-end gap-2 sm:gap-3">
-            <Button variant="outline" onClick={() => router.back()}>
-              Cancel
-            </Button>
-            <Button onClick={handleSubmit} disabled={createPR.isPending}>
-              Review &amp; create
-            </Button>
-          </div>
-        </div>
-      </div>
-
-      <Dialog open={previewOpen} onOpenChange={setPreviewOpen}>
-        <DialogContent className="max-w-2xl">
-          <DialogHeader>
-            <DialogTitle>Review purchase request</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4">
-            <div className="grid gap-2 text-sm sm:grid-cols-2">
-              <div>
-                <span className="text-muted-foreground">Request type: </span>
-                {requestTypeSummary}
-              </div>
-              <div>
-                <span className="text-muted-foreground">Items: </span>
-                {cleanedItems.length}
-              </div>
-              {notes.trim() && (
-                <div className="sm:col-span-2">
-                  <span className="text-muted-foreground">Notes: </span>
-                  {notes}
-                </div>
+              {triedSubmit && !title.trim() && (
+                <p id="request-title-error" className="text-xs text-destructive">
+                  Say what it is for.
+                </p>
               )}
             </div>
-            <div className="overflow-x-auto rounded-md border">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b bg-muted/50 text-left text-xs text-muted-foreground">
-                    <th className="px-3 py-2 font-medium">Item</th>
-                    <th className="px-3 py-2 font-medium">Qty</th>
-                    <th className="px-3 py-2 font-medium">Unit</th>
-                    <th className="px-3 py-2 font-medium">Type</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {cleanedItems.map((item, idx) => (
-                    <tr key={idx} className="border-b last:border-0">
-                      <td className="px-3 py-2">
-                        {item.item_name}
-                        {item.item_spec?.trim() && (
-                          <span className="block text-xs text-muted-foreground">
-                            {item.item_spec}
-                          </span>
-                        )}
-                      </td>
-                      <td className="px-3 py-2">{item.required_quantity}</td>
-                      <td className="px-3 py-2">{item.unit_label?.trim() || '—'}</td>
-                      <td className="px-3 py-2">{item.is_new ? 'New item' : 'From catalog'}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
           </div>
-          <p className="hidden text-sm text-muted-foreground sm:block">
-            The request is saved as a draft. Send it for approval from the request page.
-          </p>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setPreviewOpen(false)}>
-              Back to edit
-            </Button>
-            <Button onClick={handleConfirmCreate} disabled={createPR.isPending}>
-              {createPR.isPending ? 'Creating…' : 'Create draft request'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+          <ApprovalRoutePicker
+            institutionId={effectiveInstitution || undefined}
+            categoryId={route.categoryId}
+            departmentId={route.departmentId}
+            onChange={setRoute}
+          />
+          {domain === 'resource_mgmt' && requestTypeSummary !== 'Restock' && (
+            <p className="text-xs text-foreground">
+              Buying things that get used up or expire (reagents, gloves)? Request them under
+              <b> Consumables &amp; chemicals</b> instead.
+            </p>
+          )}
+
+          {/* Items: a light row each — what, a hint, qty, remove */}
+          <fieldset className="space-y-2">
+            <legend className="mb-1 text-xs font-semibold">Items</legend>
+            {triedSubmit && !items.some((i) => i.item_name.trim()) && (
+              <p className="text-xs text-destructive">Add at least one item.</p>
+            )}
+            {triedSubmit && items.some((i) => i.item_name.trim() && !i.is_new && !i.domain_item_id) && (
+              <p className="text-xs text-destructive">
+                Pick each item from the list, or choose &ldquo;New item&rdquo; for one that isn&rsquo;t in the store yet.
+              </p>
+            )}
+            {items.map((item, idx) => (
+              <div
+                key={idx}
+                className="grid grid-cols-[minmax(0,1fr)_4.5rem_2rem] items-start gap-2 rounded-xl bg-muted/50 p-2.5 md:grid-cols-[minmax(0,3fr)_minmax(0,2fr)_5rem_2rem]"
+              >
+                <div className="min-w-0 space-y-1.5 [&_button]:h-9">
+                  <CatalogItemPicker
+                    domain={domain}
+                    ctx={ctx}
+                    value={item.item_name || null}
+                    placeholder="Search or type an item…"
+                    onSelect={(sel) =>
+                      updateItem(idx, {
+                        is_new: false,
+                        domain_item_id: sel.domainItemId,
+                        item_name: sel.name,
+                        item_spec: sel.spec ?? item.item_spec ?? '',
+                        unit_id: sel.unitId ?? null,
+                        unit_label: sel.unitLabel ?? item.unit_label ?? '',
+                        current_stock: sel.currentStock ?? null,
+                        reorder_level: sel.reorderLevel ?? null,
+                        estimated_cost: item.estimated_cost ?? (sel.costPrice != null ? sel.costPrice : undefined),
+                      })
+                    }
+                    // Not in the catalog → the same box turns it into a new-item line.
+                    onCreateNew={(name) =>
+                      updateItem(idx, {
+                        is_new: true,
+                        item_name: name,
+                        domain_item_id: null,
+                        unit_id: null,
+                        current_stock: null,
+                        reorder_level: null,
+                      })
+                    }
+                  />
+                  {item.is_new ? (
+                    <p className="text-xs text-primary">New item — not in the store yet</p>
+                  ) : item.current_stock != null ? (
+                    <p className="text-xs text-foreground">
+                      {Number(item.current_stock)} already in stock
+                      {item.reorder_level != null ? ` · reorder at ${Number(item.reorder_level)}` : ''}
+                    </p>
+                  ) : null}
+                  {item.domain_item_id && (
+                    <PastRatingHint ratings={itemRatings.filter((r) => r.item_id === item.domain_item_id)} />
+                  )}
+                </div>
+                {/* Size / brand / grade: beside the item on wide screens, under it on a phone. */}
+                <Input
+                  className="order-last col-span-3 h-9 bg-background text-sm md:order-none md:col-span-1"
+                  value={item.item_spec ?? ''}
+                  onChange={(e) => updateItem(idx, { item_spec: e.target.value })}
+                  placeholder="Size, brand, grade (optional)"
+                  aria-label={`Specification${item.item_name ? ` for ${item.item_name}` : ''}`}
+                />
+                <Input
+                  className="h-9 w-full bg-background text-center tabular-nums"
+                  type="number"
+                  min={1}
+                  aria-label={`Quantity${item.item_name ? ` for ${item.item_name}` : ''}`}
+                  value={item.required_quantity}
+                  onChange={(e) => updateItem(idx, { required_quantity: Number(e.target.value) })}
+                />
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-9 w-8 text-muted-foreground"
+                  aria-label="Remove item"
+                  onClick={() => removeRow(idx)}
+                  disabled={items.length === 1}
+                >
+                  <X className="h-4 w-4" />
+                </Button>
+              </div>
+            ))}
+            <div className="flex flex-wrap items-center gap-1">
+              <Button variant="ghost" size="sm" className="text-primary" onClick={addRow}>
+                <Plus className="mr-1 h-4 w-4" />
+                Add item
+              </Button>
+              <RequestFileImport
+                domain={domain}
+                ctx={ctx}
+                // Imported lines replace the blank starter row(s) and follow any already filled in.
+                onAdd={(rows) => setItems((cur) => [...cur.filter((r) => r.item_name.trim()), ...rows])}
+              />
+            </div>
+          </fieldset>
+
+        </section>
+
+        <FormActionBar
+          status={`${items.filter((i) => i.item_name.trim()).length} item${
+            items.filter((i) => i.item_name.trim()).length === 1 ? '' : 's'
+          }`}
+        >
+          <Button variant="ghost" className="h-11 sm:h-9" onClick={() => router.back()}>
+            Cancel
+          </Button>
+          <Button className="h-11 px-6 sm:h-9" onClick={handleSubmit} disabled={createPR.isPending}>
+            {createPR.isPending ? 'Sending…' : 'Send for approval'}
+          </Button>
+        </FormActionBar>
+      </div>
     </ContentLayout>
   );
 }

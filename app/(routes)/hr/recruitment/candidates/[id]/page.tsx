@@ -35,6 +35,7 @@ import { useAlumniSignal } from '@/hooks/hr/use-alumni-signal';
 import { useRecruitmentInstitutions } from '@/hooks/hr/use-recruitment-institutions';
 import { CandidateDiscussionThread } from '../../_components/candidate-discussion-thread';
 import { useAuth } from '@/hooks/use-auth';
+import { useProfiles } from '@/hooks/organization/use-profiles';
 import { usePermissions } from '@/hooks/use-permissions';
 import {
   CANDIDATE_STATUS_LABELS,
@@ -131,6 +132,26 @@ export default function CandidateDetailPage() {
   const institutionName = useMemo(
     () => institutions.find((i) => i.id === candidate?.institution_id)?.name,
     [institutions, candidate?.institution_id],
+  );
+  // The chain stores profile ids only — resolve every person it names so each
+  // step can show who it is assigned to and who decided it, by name.
+  const chainProfileIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const step of candidate?.approval_chain ?? []) {
+      for (const v of [
+        step.approver_user_id, step.decided_by, step.skipped_by, step.revoked_by, step.overridden_by,
+        ...(step.approvers ?? []).map((a) => a.approver_user_id),
+        ...(step.decisions ?? []).map((d) => d.by),
+      ]) {
+        if (v) ids.add(v);
+      }
+    }
+    return [...ids];
+  }, [candidate?.approval_chain]);
+  const { data: chainProfiles = [] } = useProfiles(chainProfileIds);
+  const chainProfileById = useMemo(
+    () => new Map(chainProfiles.map((p) => [p.id, p])),
+    [chainProfiles],
   );
 
   // ζ FINDING #5 (PR #943) — Onboarding read-side rendering + (this PR, κ) toggle wiring.
@@ -909,11 +930,52 @@ export default function CandidateDetailPage() {
                             </Badge>
                           )}
                         </div>
-                        {step.decided_at && (
-                          <p className="text-xs text-muted-foreground mt-0.5">
-                            {new Date(step.decided_at).toLocaleString()}
-                          </p>
-                        )}
+                        {(() => {
+                          const person = (pid: string | null | undefined, fallback?: string | null) => {
+                            const p = pid ? chainProfileById.get(pid) : undefined;
+                            if (!p) return fallback ? <span className="text-foreground">{fallback}</span> : null;
+                            return (
+                              <>
+                                <span className="font-medium text-foreground">{p.full_name || p.email}</span>
+                                {p.full_name && p.email && <span> ({p.email})</span>}
+                              </>
+                            );
+                          };
+                          const assignees = step.approvers?.length
+                            ? step.approvers
+                            : [{ approver_user_id: step.approver_user_id ?? null, approver_name: step.approver_name ?? null }];
+                          const assigned = assignees
+                            .map((a) => person(a.approver_user_id, a.approver_name))
+                            .filter(Boolean);
+                          const [decidedLabel, deciderId, decidedAt] =
+                            step.status === 'skipped' ? ['Skipped by', step.skipped_by, step.skipped_at] :
+                            step.status === 'revoked' ? ['Revoked by', step.revoked_by, step.revoked_at] :
+                            step.status === 'approved' ? [step.step_type === 'final' ? 'Approved by' : 'Reviewed by', step.decided_by, step.decided_at] :
+                            step.status === 'rejected' ? ['Rejected by', step.decided_by, step.decided_at] :
+                            [null, null, null];
+                          return (
+                            <div className="mt-1 space-y-0.5 text-xs text-muted-foreground">
+                              <p>
+                                Assigned to:{' '}
+                                {assigned.length > 0
+                                  ? assigned.map((node, i) => (
+                                      <span key={i}>{i > 0 && ', '}{node}</span>
+                                    ))
+                                  : <span className="text-foreground">Anyone with the {step.approver_role} role</span>}
+                              </p>
+                              {decidedLabel && (
+                                <div>
+                                  {decidedLabel}: {person(deciderId) ?? '—'}
+                                  {decidedAt && <> &middot; {new Date(decidedAt).toLocaleString()}</>}
+                                  {step.overridden && <Badge variant="outline" className="ml-1.5 text-[10px]">Override</Badge>}
+                                </div>
+                              )}
+                              {step.status === 'revoked' && step.revoke_reason && (
+                                <p className="italic">Reason: {step.revoke_reason}</p>
+                              )}
+                            </div>
+                          );
+                        })()}
                         {(step as any).comment ? (
                           <div className="mt-0.5 flex items-start gap-1.5">
                             <p className="flex-1 text-xs text-muted-foreground italic">
@@ -1144,7 +1206,7 @@ export default function CandidateDetailPage() {
                     {packages.map((pkg) => (
                       <tr key={pkg.id} className="border-b last:border-b-0">
                         <td className="py-2 pr-3 font-medium">{formatSalary(pkg.proposed_monthly_salary)}</td>
-                        <td className="py-2 pr-3 font-mono text-xs max-w-[120px] truncate">{pkg.proposed_by}</td>
+                        <td className="py-2 pr-3 text-xs">{pkg.proposer?.full_name || pkg.proposer?.email || '—'}</td>
                         <td className="py-2 pr-3">
                           {pkg.is_counter_offer ? (
                             <Badge variant="outline" className="text-xs">Counter</Badge>

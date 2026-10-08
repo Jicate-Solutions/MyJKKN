@@ -2,6 +2,7 @@ import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { logger } from '@/lib/utils/enhanced-logger';
 import { recordFeatureUse, FEATURE_KEYS } from '@/lib/usage/record';
 import { getErrorMessage } from '@/lib/utils';
+import type { LeaveGatePassSummary } from '@/types/leave-onduty';
 import type {
   CreateHostelGatePassDTO,
   GatePassContactNumber,
@@ -41,7 +42,7 @@ const CANCELLABLE: GatePassStatus[] = ['requested', 'issued'];
 const LEARNER_EMBED =
   'learner:profiles!hostel_gate_passes_learner_id_fkey(id, full_name, email)';
 const LEAVE_TYPE_EMBED =
-  'leave_type:hostel_leave_types!hostel_gate_passes_leave_type_id_fkey(id, leave_type_name, leave_type_code, color_code, requires_attachment)';
+  'leave_type:learner_leave_types!hostel_gate_passes_leave_type_id_fkey(id, leave_type_name:name, leave_type_code:code, color_code, requires_attachment)';
 
 type EmbeddedLearner = { id: string; full_name: string | null; email: string | null } | null;
 type EmbeddedLeaveType = {
@@ -450,6 +451,28 @@ export class GatePassService {
   }
 
   /**
+   * The gate pass raised by one leave/OD application, or null when the type does
+   * not issue one (day scholar, on-campus OD). Created by the DB when the
+   * application is submitted; moved by the application's own status changes.
+   */
+  static async getByLeaveApplication(applicationId: string) {
+    const supabase = createClientSupabaseClient();
+    const { data, error } = await supabase
+      .from('hostel_gate_passes')
+      .select(
+        'id, pass_number, qr_code, status, valid_from, valid_until, expected_return, out_time, actual_return, approved_at'
+      )
+      .eq('leave_onduty_application_id', applicationId)
+      .maybeSingle();
+
+    if (error) {
+      logger.error(LOG, 'Failed to fetch the gate pass of a leave application', error);
+      throw new Error(getErrorMessage(error));
+    }
+    return (data ?? null) as LeaveGatePassSummary | null;
+  }
+
+  /**
    * The passes a gate scan must consider for one learner.
    *
    * Wider than "active" on purpose: it includes 'overdue', and an overdue
@@ -612,6 +635,10 @@ export class GatePassService {
         })
         .eq('id', id)
         .eq('status', GATE_PASS_REQUESTED)
+        // A pass raised by a leave/OD application is issued by that leave's final
+        // (Chief Warden) approval — never from this generic button, which would
+        // skip the chain and carry no 12-hour exit window.
+        .is('leave_onduty_application_id', null)
         .select()
         .maybeSingle();
 
@@ -624,7 +651,7 @@ export class GatePassService {
         // both must be said out loud. A silent no-op that reports success is
         // how the Approve button looked like it worked for a year.
         throw new Error(
-          'This request could not be approved — it is no longer pending, or you do not have permission to approve gate passes for this institution.',
+          'This request could not be approved — it is no longer pending, it belongs to a leave application (approve it from Leave / OD approvals), or you do not have permission to approve gate passes for this institution.',
         );
       }
       return data as unknown as HostelGatePass;

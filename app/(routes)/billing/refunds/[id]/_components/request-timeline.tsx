@@ -1,6 +1,6 @@
 'use client';
 
-import { Undo, Check, X, Banknote, FileText, Circle } from 'lucide-react';
+import { Undo, Check, X, Banknote, FileText, Circle, RefreshCw } from 'lucide-react';
 import { format, formatDistanceToNow } from 'date-fns';
 import type { RefundRequest, RefundRequestAction } from '@/types/billing-refund-workflow';
 
@@ -15,14 +15,16 @@ const ACTION_ICON: Record<RefundRequestAction['action_type'], typeof Undo> = {
   initiated: Undo,
   approved: Check,
   declined: X,
-  disbursed: Banknote
+  disbursed: Banknote,
+  flow_reapplied: RefreshCw
 };
 
 const ACTION_ICON_CLASS: Record<RefundRequestAction['action_type'], string> = {
   initiated: 'text-muted-foreground bg-muted',
   approved: 'text-green-600 bg-green-100',
   declined: 'text-red-600 bg-red-100',
-  disbursed: 'text-blue-600 bg-blue-100'
+  disbursed: 'text-blue-600 bg-blue-100',
+  flow_reapplied: 'text-amber-600 bg-amber-100'
 };
 
 export function RequestTimeline({ actions, flowSnapshot, currentStageIndex, status }: Props) {

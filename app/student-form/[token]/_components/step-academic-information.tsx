@@ -27,6 +27,8 @@ import {
   type LastSchoolFetchers,
 } from '@/components/learners/last-school-field';
 import { useMemo } from 'react';
+import { cleanPreviousDegree, missingPreviousDegreeFields } from '@/lib/admission/previous-degree';
+import { PG_DEGREE_DOC_TYPES, type PgDegreeDocType } from '@/lib/admission/learner-documents';
 
 interface Props {
   lang: Language;
@@ -163,7 +165,10 @@ export function StepAcademicInformation({
     scholarship_type: data.scholarship_type ?? '',
     engineering_cutoff_marks: data.engineering_cutoff_marks ?? '',
     medical_cutoff_marks: data.medical_cutoff_marks ?? '',
+    // Postgraduate only (2026-09-30) — the qualifying degree, required on continue.
+    previous_degree: { score_type: 'percentage', ...(data.previous_degree ?? {}) } as Record<string, string>,
   });
+  const [pgMissing, setPgMissing] = useState<string[]>([]);
   const set = <K extends keyof typeof v>(k: K, val: typeof v[K]) =>
     setV((p) => ({ ...p, [k]: val }));
 
@@ -172,6 +177,8 @@ export function StepAcademicInformation({
     set('tenth_marks', { ...v.tenth_marks, [key]: value });
   const set12 = (key: string, value: string) =>
     set('twelfth_marks', { ...v.twelfth_marks, [key]: value });
+  const setPD = (key: string, value: string) =>
+    set('previous_degree', { ...v.previous_degree, [key]: value });
   const setSubject = (subject: string, value: string) =>
     set('twelfth_marks', {
       ...v.twelfth_marks,
@@ -331,7 +338,12 @@ export function StepAcademicInformation({
     <form
       onSubmit={(e) => {
         e.preventDefault();
-        onContinue(v);
+        if (isPG) {
+          const missing = missingPreviousDegreeFields(v);
+          setPgMissing(missing);
+          if (missing.length > 0) return;
+        }
+        onContinue({ ...v, previous_degree: isPG ? cleanPreviousDegree(v.previous_degree) : undefined });
       }}
       className="space-y-6"
     >
@@ -365,7 +377,7 @@ export function StepAcademicInformation({
           </Field>
         )}
 
-        <Field label={isPG ? 'College Name & Place / கல்லூரி பெயர் மற்றும் இடம்' : 'Last School / கடந்த பள்ளி'}>
+        <Field label={isPG ? 'College Name & Place * / கல்லூரி பெயர் மற்றும் இடம்' : 'Last School / கடந்த பள்ளி'}>
           <LastSchoolField
             board={(v.board_of_study || '').toLowerCase().replace(/\s+/g, '_')}
             isPG={isPG}
@@ -386,27 +398,93 @@ export function StepAcademicInformation({
         </Field>
       </Section>
 
-      {/* PG-specific: Previous Qualification */}
+      {/* PG: the qualifying degree (2026-09-30), stored in previous_degree.
+          Starred fields are required to continue. New labels are English only —
+          Tamil to be added after native review. */}
       {isPG && (
         <Section title={{ en: 'Previous Qualification', ta: 'முந்தைய தகுதி' }}>
-          <Field label="Previous Course / Degree / முந்தைய பட்டம்">
+          {pgMissing.length > 0 && (
+            <p className="text-sm text-destructive">
+              Please fill every field marked * before continuing.
+            </p>
+          )}
+          <Field label="Degree *">
             <Input
-              value={v.twelfth_marks.course_name ?? ''}
-              onChange={(e) => set12('course_name', e.target.value)}
-              placeholder="e.g., B.Sc Computer Science"
+              value={v.previous_degree.degree_name ?? ''}
+              onChange={(e) => setPD('degree_name', e.target.value)}
+              placeholder="e.g., BDS, B.Sc Computer Science"
               className="h-12"
             />
           </Field>
-          <Field label="Previous Degree Percentage / முந்தைய சதவீதம்">
+          <Field label="University *">
+            <Input
+              value={v.previous_degree.university ?? ''}
+              onChange={(e) => setPD('university', e.target.value)}
+              placeholder="e.g., The Tamil Nadu Dr. M.G.R. Medical University"
+              className="h-12"
+            />
+          </Field>
+          <Field label="Year of Passing *">
             <Input
               type="number"
-              inputMode="numeric"
-              value={v.twelfth_marks.percentage ?? ''}
-              onChange={(e) => set12('percentage', e.target.value)}
-              placeholder="e.g., 85"
+              inputMode="decimal"
+              value={v.previous_degree.year_of_passing ?? ''}
+              onChange={(e) => setPD('year_of_passing', e.target.value)}
+              placeholder="e.g., 2025"
               className="h-12"
             />
           </Field>
+          <Field label="Marks given as">
+            <Select
+              value={v.previous_degree.score_type || 'percentage'}
+              onValueChange={(s) => setPD('score_type', s)}
+            >
+              <SelectTrigger className="h-12">
+                <SelectValue placeholder="Percentage or CGPA" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="percentage">Percentage</SelectItem>
+                <SelectItem value="cgpa">CGPA</SelectItem>
+              </SelectContent>
+            </Select>
+          </Field>
+          <Field label="Degree Marks *">
+            <Input
+              type="number"
+              inputMode="decimal"
+              value={v.previous_degree.score ?? ''}
+              onChange={(e) => setPD('score', e.target.value)}
+              placeholder="e.g., 72.5 or 8.1"
+              className="h-12"
+            />
+          </Field>
+          <Field label="Entrance Exam (if any)">
+            <Input
+              value={v.previous_degree.entrance_exam ?? ''}
+              onChange={(e) => setPD('entrance_exam', e.target.value)}
+              placeholder="e.g., NEET-MDS, TANCET, GATE"
+              className="h-12"
+            />
+          </Field>
+          <Field label="Entrance Score">
+            <Input
+              value={v.previous_degree.entrance_score ?? ''}
+              onChange={(e) => setPD('entrance_score', e.target.value)}
+              placeholder="e.g., 412"
+              className="h-12"
+            />
+          </Field>
+          <Field label="Entrance Rank">
+            <Input
+              value={v.previous_degree.entrance_rank ?? ''}
+              onChange={(e) => setPD('entrance_rank', e.target.value)}
+              placeholder="e.g., 1830"
+              className="h-12"
+            />
+          </Field>
+          {(Object.keys(PG_DEGREE_DOC_TYPES) as PgDegreeDocType[]).map((dt) => (
+            <PgDocumentUpload key={dt} token={token} docType={dt} label={PG_DEGREE_DOC_TYPES[dt]} />
+          ))}
         </Section>
       )}
 
@@ -636,3 +714,46 @@ export function StepAcademicInformation({
     </form>
   );
 }
+
+// Mark sheet / scorecard upload for a postgraduate applicant (2026-09-30).
+// Optional here — a walk-in often does not carry the papers — and never blocks
+// Continue. Posts to /api/student-form/[token]/document, which writes for this
+// token's learner only.
+function PgDocumentUpload({ token, docType, label }: { token: string; docType: PgDegreeDocType; label: string }) {
+  const [state, setState] = useState<'idle' | 'uploading' | 'done' | 'error'>('idle');
+  const [message, setMessage] = useState('');
+  const onFile = async (file: File | undefined) => {
+    if (!file) return;
+    setState('uploading');
+    setMessage('');
+    try {
+      const body = new FormData();
+      body.append('doc_type', docType);
+      body.append('file', file);
+      const res = await fetch(`/api/student-form/${encodeURIComponent(token)}/document`, { method: 'POST', body });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error || 'Upload failed');
+      setState('done');
+      setMessage(`${file.name} uploaded`);
+    } catch (e) {
+      setState('error');
+      setMessage(e instanceof Error ? e.message : 'Upload failed');
+    }
+  };
+  return (
+    <Field label={`${label} (PDF, JPG or PNG, up to 5 MB)`}>
+      <Input
+        id={`pg-doc-${docType}`}
+        type="file"
+        accept="application/pdf,image/jpeg,image/png"
+        onChange={(e) => void onFile(e.target.files?.[0])}
+        disabled={state === 'uploading'}
+        className="h-12"
+      />
+      {state === 'uploading' && <p className="text-xs text-muted-foreground">Uploading…</p>}
+      {state === 'done' && <p className="text-xs text-emerald-700 dark:text-emerald-400">{message}</p>}
+      {state === 'error' && <p className="text-xs text-destructive">{message}</p>}
+    </Field>
+  );
+}
+

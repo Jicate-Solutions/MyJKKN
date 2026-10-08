@@ -9,11 +9,15 @@
  * cannot render them — this page covers that half. Once promoted, it hands off
  * to the candidate page rather than duplicating the approval workflow.
  *
- * Read-only by design: every screening action (shortlist / reject / promote)
- * lives on the job workspace, which is one click away in the header.
+ * Read-only apart from the screening note: every screening DECISION (shortlist
+ * / reject / promote) lives on the job workspace, which is one click away in
+ * the header. The note is an annotation, not a decision, so it is editable here
+ * via the note-only branch of PATCH .../applications/[id] — see
+ * ScreeningNoteEditor.
  *
  * Access is RLS-gated on hr.recruitment.view + role_has_institution_access via
- * GET /api/hr/recruitment/applications/[id]; no extra permission key exists.
+ * GET /api/hr/recruitment/applications/[id]. The note editor additionally needs
+ * hr.recruitment.edit (the UPDATE policy), which it enforces itself.
  */
 
 import Link from 'next/link';
@@ -35,6 +39,7 @@ import { useApplication } from '@/hooks/hr/use-recruitment';
 import { useAlumniSignalBulk } from '@/hooks/hr/use-alumni-signal-bulk';
 import { useRecruitmentInstitutions } from '@/hooks/hr/use-recruitment-institutions';
 import { AlumniSignalLine } from '../../_components/alumni-signal-line';
+import { ScreeningNoteEditor } from './_components/screening-note-editor';
 import {
   JOB_APPLICATION_STATUS_LABELS,
   type HRJobApplication,
@@ -224,10 +229,13 @@ export default function ApplicationDetailPage() {
                   href={application.resume_url}
                   target="_blank"
                   rel="noopener noreferrer"
+                  // The file name ("CV(Avikal Pandey) (1) (1).pdf") is noise as a
+                  // label; keep it on hover only.
+                  title={application.resume_filename ?? undefined}
                   className="inline-flex w-full items-center justify-center gap-1.5 rounded-md border px-2 py-1.5 text-xs font-medium text-primary hover:bg-muted/50 transition-colors"
                 >
                   <FileText className="h-3 w-3" />
-                  {application.resume_filename || 'View Resume'}
+                  Open Resume
                   <ExternalLink className="h-3 w-3" />
                 </a>
               )}
@@ -337,13 +345,11 @@ export default function ApplicationDetailPage() {
                   </span>
                 )}
               </div>
-              {application.review_notes ? (
-                <p className="text-sm text-muted-foreground italic border-l-2 border-border pl-3">
-                  &ldquo;{application.review_notes}&rdquo;
-                </p>
-              ) : (
-                <p className="text-xs text-muted-foreground">No screening notes recorded.</p>
-              )}
+              {/* The one writable field on this page. Editing the note is not a
+                  screening decision, so it goes through its own note-only PATCH
+                  and leaves status / reviewed_at alone. Self-gating on
+                  hr.recruitment.edit — read-only users still see the note. */}
+              <ScreeningNoteEditor applicationId={application.id} note={application.review_notes} />
               <p className="text-xs text-muted-foreground pt-1">
                 Screening actions (shortlist, reject, promote) are on the{' '}
                 <Link href={workspaceHref} className="text-primary hover:underline">

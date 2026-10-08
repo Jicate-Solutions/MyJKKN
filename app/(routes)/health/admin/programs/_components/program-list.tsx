@@ -12,6 +12,7 @@ import {
   Activity,
   BarChart3,
   CalendarRange,
+  ListChecks,
   ChevronRight,
   ClipboardList,
   Plus,
@@ -123,6 +124,16 @@ function ProgramCard({ program }: { program: HealthProgram }) {
           </div>
         </div>
         <div className="flex shrink-0 flex-wrap items-center gap-2">
+          <Link href={`/health/admin/programs/${program.id}/surveys`}>
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-1.5 border-emerald-200 text-emerald-700 hover:bg-emerald-50"
+            >
+              <ListChecks className="h-3.5 w-3.5" />
+              Surveys
+            </Button>
+          </Link>
           <Link href={`/health/admin/programs/${program.id}/responses`}>
             <Button
               variant="outline"

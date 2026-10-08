@@ -3,26 +3,14 @@ import type { ModuleNavConfig } from '@/lib/navigation/nav-config';
 /**
  * Procurement — in-page tab bar (AutoTabNav).
  *
- * WHY THIS CONFIG EXISTS: without one, AutoTabNav renders the module's children
- * flat from the route manifest, which orders them by folder name. For procurement
- * that produced "Grn · Purchase Orders · Requests · Rfqs" — alphabetical, which puts
- * the LAST step of the chain first and the FIRST step third, and mis-cases two
- * acronyms into "Grn" and "Rfqs".
- *
- * Procurement is a strict sequence: a request precedes an RFQ, which precedes a
- * purchase order, which precedes a goods receipt. The tab order below is that
- * sequence, so the nav teaches the workflow instead of contradicting it.
- *
- * Per-tab visibility is NOT declared here — AutoTabNav.canShowChip() gates each tab
- * by its MENU_PERMISSIONS entry (lib/sidebarMenuLink.ts), so a user without a given
- * procurement permission simply does not see that chip.
- *
- * Active-state: 'Overview' matches the bare '/procurement'; every other tab has a
- * more specific path, so the most-specific match wins on deeper routes (the same
- * Dashboard-vs-siblings pattern the calendar and audit modules use). Each stage
- * path also covers its own children — '/procurement/rfqs' stays active on
- * '/procurement/rfqs/[id]/quotations', and '/procurement/purchase-orders' stays
- * active on the PO format editors.
+ * One purchase = one page (/procurement/requests/[id]); the tabs are just the ways in:
+ *   Overview   — what is waiting at each step, per college
+ *   Requests   — every request and the stage it is at; people who only raise
+ *                requests open on their own, to follow what happened to each
+ *   Quotations — requests at the quoting / comparing / final-approval stage
+ * Orders and deliveries open from the purchase page, so /purchase-orders and /grn
+ * count as the Quotations tab. Per-tab visibility is gated by AutoTabNav.canShowChip()
+ * from MENU_PERMISSIONS (lib/sidebarMenuLink.ts), not here.
  */
 const config: ModuleNavConfig = {
   module: 'procurement',
@@ -40,22 +28,16 @@ const config: ModuleNavConfig = {
       matchPaths: ['/procurement/requests'],
     },
     {
-      label: 'RFQs',
+      label: 'Quotations',
       icon: 'FileSearch',
       href: '/procurement/rfqs',
-      matchPaths: ['/procurement/rfqs'],
+      matchPaths: ['/procurement/rfqs', '/procurement/purchase-orders', '/procurement/grn'],
     },
     {
-      label: 'Purchase Orders',
-      icon: 'ScrollText',
-      href: '/procurement/purchase-orders',
-      matchPaths: ['/procurement/purchase-orders'],
-    },
-    {
-      label: 'Goods Receipt',
-      icon: 'PackageCheck',
-      href: '/procurement/grn',
-      matchPaths: ['/procurement/grn'],
+      label: 'Approval flows',
+      icon: 'GitBranch',
+      href: '/procurement/approval-flows',
+      matchPaths: ['/procurement/approval-flows'],
     },
   ],
 };

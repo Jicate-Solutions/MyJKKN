@@ -9,6 +9,8 @@ import { Button } from '@/components/ui/button';
 import { DataTable } from '@/components/ui/data-table';
 import { useRoomsByBlockWithOccupancy } from '@/hooks/campus-living/use-hostel-rooms';
 import { useHostelBlock } from '@/hooks/campus-living/use-hostel-blocks';
+import { useBlockFloors } from '@/hooks/campus-living/use-hostel-floors';
+import { floorDisplayName } from '@/lib/utils/floor-label';
 import { createRoomColumns } from './_components/rooms-columns';
 import { RoomFormDialog } from './_components/room-form-dialog';
 import { BulkUploadRooms } from './_components/bulk-upload-rooms';
@@ -31,8 +33,6 @@ const STATUS_FILTERS: { value: string; label: string }[] = [
   { value: 'partially_occupied', label: 'Partial' },
   { value: 'full', label: 'Full' },
 ];
-
-const FLOOR_LABELS = ['Ground Floor', '1st Floor', '2nd Floor', '3rd Floor'];
 
 // DataTable search matches the room number (the only free-text identifier).
 const roomGlobalFilter = (
@@ -64,6 +64,12 @@ export default function BlockRoomsPage({ params }: { params: Promise<{ id: strin
   const { data: rooms, isLoading, refetch } = useRoomsByBlockWithOccupancy(id);
   const { data: blockData } = useHostelBlock(id);
   const blockType = (blockData as { hostel_type?: string } | undefined)?.hostel_type;
+  // Floor chips + names come from hostel_floors (admin-managed), not a fixed list.
+  const { data: floors } = useBlockFloors(id);
+  const floorNames = useMemo(
+    () => Object.fromEntries((floors ?? []).map((f) => [f.floor_number, f.name])) as Record<number, string | null>,
+    [floors]
+  );
 
   // Floor + status chip filters are block-specific UX; the DataTable layers
   // search + sort + pagination + column visibility on top of the filtered set.
@@ -83,8 +89,8 @@ export default function BlockRoomsPage({ params }: { params: Promise<{ id: strin
   );
 
   const columns = useMemo(
-    () => createRoomColumns({ blockId: id, blockType }),
-    [id, blockType]
+    () => createRoomColumns({ blockId: id, blockType, floorNames }),
+    [id, blockType, floorNames]
   );
 
   // Multi-select bulk delete. DataTable renders its own confirm dialog + the
@@ -139,7 +145,7 @@ export default function BlockRoomsPage({ params }: { params: Promise<{ id: strin
 
     const filters: string[] = [];
     if (selectedFloor !== null)
-      filters.push(`Floor = ${FLOOR_LABELS[selectedFloor] ?? `Floor ${selectedFloor}`}`);
+      filters.push(`Floor = ${floorDisplayName(selectedFloor, floorNames[selectedFloor])}`);
     if (statusFilter !== 'all')
       filters.push(
         `Status = ${STATUS_FILTERS.find((s) => s.value === statusFilter)?.label ?? statusFilter}`
@@ -154,7 +160,7 @@ export default function BlockRoomsPage({ params }: { params: Promise<{ id: strin
     try {
       setExporting(true);
       const { exportRoomsPdf } = await import('./_components/rooms-pdf');
-      await exportRoomsPdf(exportRooms, { blockName, filters });
+      await exportRoomsPdf(exportRooms, { blockName, filters, floorNames });
       toast.success(
         `Exported ${exportRooms.length} room${exportRooms.length === 1 ? '' : 's'} to PDF`
       );
@@ -233,14 +239,14 @@ export default function BlockRoomsPage({ params }: { params: Promise<{ id: strin
           >
             All Floors
           </Button>
-          {FLOOR_LABELS.map((label, idx) => (
+          {(floors ?? []).map((f) => (
             <Button
-              key={idx}
-              variant={selectedFloor === idx ? 'default' : 'outline'}
+              key={f.id}
+              variant={selectedFloor === f.floor_number ? 'default' : 'outline'}
               size="sm"
-              onClick={() => setSelectedFloor(idx)}
+              onClick={() => setSelectedFloor(f.floor_number)}
             >
-              {label}
+              {floorDisplayName(f.floor_number, f.name)}
             </Button>
           ))}
         </div>
@@ -296,6 +302,7 @@ export default function BlockRoomsPage({ params }: { params: Promise<{ id: strin
         mode="create"
         blockId={id}
         blockType={blockType}
+        defaultFloor={selectedFloor ?? undefined}
       />
     </ContentLayout>
   );

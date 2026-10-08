@@ -3,7 +3,8 @@
 /**
  * HR Payroll Periods Hooks (T4.3 PR 2)
  *
- * Spec: specs/t4-payroll-design-lock-2026-05-15.md
+ * No written spec; the stage rules live in the RPCs of migration
+ * 20260629000000_t4_3_pr2_payroll_rpcs.sql.
  * Service: lib/services/hr/payroll/periods-service.ts
  *
  * Pattern: combines @tanstack/react-query with direct Supabase browser client
@@ -37,7 +38,7 @@ import type {
  *
  * PR 3 amendment (2026-05-19): removed `enabled: !!hr_organization_id` gate
  * so super-admin / Director list pages can render "all institutions" scope
- * (per spec specs/t4-3-pr3-payroll-ui-design-lock-2026-05-19.md Q7). RLS
+ * (no written spec; the rule lives in this code). RLS
  * still scopes server-side — Director sees all 11 orgs they have access to,
  * HR Officer sees only their own org. Caller can pass `enabled: false` via
  * the React Query layer if they need to defer a fetch.
@@ -78,7 +79,7 @@ export function useCreatePayrollPeriod() {
 }
 
 /**
- * Decision #9 stage 1: HR Officer flips draft → prepared.
+ * Stage 1: HR Officer flips draft → prepared (role check in fn_prepare_payroll_period).
  * Server-side snapshots pay_matrix + deduction_rates + working_days.
  */
 export function usePreparePayrollPeriod() {
@@ -150,7 +151,7 @@ export function useRejectPayrollPeriod() {
 }
 
 /**
- * Decision #20 Director-only retroactive backdate. Reason REQUIRED.
+ * Director-only retroactive backdate (role check in fn_backdate_payroll_period). Reason REQUIRED.
  * Does NOT change status — only sets is_backdated=true + audit row.
  */
 export function useBackdatePayrollPeriod() {

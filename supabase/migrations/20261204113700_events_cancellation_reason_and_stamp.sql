@@ -1,3 +1,9 @@
+-- RE-ARMED 2026-09-29 for BUG-006223: this file was merged on 13 Sep (#3700)
+-- but NEVER applied to production — public.event_cancellations did not exist,
+-- so every "Cancel event" failed and no event was ever cancelled. The only
+-- change is in section 5 (see the note there); editing the file puts it back
+-- in the ship wave's pending list.
+--
 -- Events — an event can be cancelled, and the reason is recorded OFF the public
 -- table (2026-09-13)
 --
@@ -369,81 +375,13 @@ CREATE TRIGGER trg_event_cancellation_stamp
 DROP TRIGGER  IF EXISTS trg_events_stamp_cancellation ON public.events;
 DROP FUNCTION IF EXISTS public.fn_events_stamp_cancellation();
 
-DO $events_cancellation_drop_old$
-DECLARE
-  v_has_reason BOOLEAN;
-  v_has_at     BOOLEAN;
-  v_has_by     BOOLEAN;
-  v_where      TEXT;
-BEGIN
-  -- Each column INDEPENDENTLY. A partial old shape is a real state — an earlier
-  -- draft that half-applied, or a hand-dropped column — and the copy below is
-  -- built by EXECUTE rather than written out because static SQL naming
-  -- `e.cancellation_reason` fails to plan when that column is the one missing,
-  -- which would abort the migration AFTER the table, policies and trigger were
-  -- created and leave a half-applied state no re-run could clear.
-  SELECT
-    bool_or(column_name = 'cancellation_reason'),
-    bool_or(column_name = 'cancelled_at'),
-    bool_or(column_name = 'cancelled_by')
-  INTO v_has_reason, v_has_at, v_has_by
-  FROM information_schema.columns
-   WHERE table_schema = 'public' AND table_name = 'events';
-
-  IF coalesce(v_has_reason, false) OR coalesce(v_has_at, false) OR coalesce(v_has_by, false) THEN
-    -- ⚠️ THE TRIGGER MUST NOT RUN OVER THE BACKFILL. trg_event_cancellation_stamp
-    -- fires BEFORE INSERT unconditionally and overwrites cancelled_at with now()
-    -- and cancelled_by with auth.uid() — which is NULL on a migration connection.
-    -- Left enabled it would replace the REAL who and when of every cancellation
-    -- recorded under the old shape with "now, nobody", and the next statement
-    -- drops the source columns, so the loss is irreversible. Disabling it for the
-    -- copy keeps the trigger unconditional everywhere else, which is what stops a
-    -- browser naming somebody else as the canceller.
-    ALTER TABLE public.event_cancellations DISABLE TRIGGER trg_event_cancellation_stamp;
-
-    -- Carry the words across BEFORE the columns go. Section 0 has already proved
-    -- no view depends on them, so the drop below cannot fail on a dependency.
-    -- Only the columns that EXIST are named; the rest are typed NULLs.
-    v_where := array_to_string(ARRAY[
-      CASE WHEN v_has_reason THEN 'e.cancellation_reason IS NOT NULL' END,
-      CASE WHEN v_has_at     THEN 'e.cancelled_at IS NOT NULL'        END,
-      CASE WHEN v_has_by     THEN 'e.cancelled_by IS NOT NULL'        END
-    ], ' OR ');
-
-    EXECUTE format(
-      'INSERT INTO public.event_cancellations (event_id, reason, cancelled_at, cancelled_by)
-       SELECT e.id, %s, coalesce(%s, now()), %s FROM public.events e WHERE %s
-       ON CONFLICT (event_id) DO NOTHING',
-      CASE WHEN v_has_reason THEN 'e.cancellation_reason' ELSE 'NULL::text'        END,
-      CASE WHEN v_has_at     THEN 'e.cancelled_at'        ELSE 'NULL::timestamptz' END,
-      CASE WHEN v_has_by     THEN 'e.cancelled_by'        ELSE 'NULL::uuid'        END,
-      v_where
-    );
-
-    ALTER TABLE public.event_cancellations ENABLE TRIGGER trg_event_cancellation_stamp;
-
-    -- Prove the history actually survived, BEFORE destroying the source. If the
-    -- stamp had eaten it, every carried row would now read cancelled_at = the
-    -- moment of this migration — so compare against the source while it exists.
-    IF v_has_at THEN
-      IF EXISTS (
-        SELECT 1
-          FROM public.events e
-          JOIN public.event_cancellations c ON c.event_id = e.id
-         WHERE e.cancelled_at IS NOT NULL
-           AND c.cancelled_at IS DISTINCT FROM e.cancelled_at
-      ) THEN
-        RAISE EXCEPTION 'the backfill did not preserve cancelled_at — refusing to drop the source columns';
-      END IF;
-    END IF;
-
-    ALTER TABLE public.events
-      DROP COLUMN IF EXISTS cancellation_reason,
-      DROP COLUMN IF EXISTS cancelled_at,
-      DROP COLUMN IF EXISTS cancelled_by;
-  END IF;
-END
-$events_cancellation_drop_old$;
+-- 29 Sep 2026: the block that copied the old columns across and then removed
+-- them is gone. It was a no-op on production (a catalog read on 28 Sep found no
+-- cancellation_reason / cancelled_at / cancelled_by on public.events), and its
+-- column-removal statement is one the ship wave refuses to apply unattended. On
+-- a database that DID carry the old columns, section 6 below now stops the
+-- migration with an error instead of removing them silently; a person moves
+-- that data by hand.
 
 -- ---------------------------------------------------------------------------
 -- 6. Assert the end state, rather than trusting the statements above

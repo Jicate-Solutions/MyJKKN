@@ -200,23 +200,28 @@ export function assertPolicyRowUpdated(rows: unknown[] | null | undefined): void
 // Generic typed reader + writer for an institution-scoped policy row
 // ---------------------------------------------------------------------------
 
+/**
+ * The READ goes through GET /api/hr/compensation-policies, which checks
+ * hr.payroll.salary.view on the server. It used to query platform_policies from
+ * the browser; migration 20270506090000 restricts the pay rows at the database,
+ * and __tests__/hr/pay-policies-server-only-guard.test.ts fails if this file
+ * goes back to reading them directly. A refusal surfaces as the route's error
+ * message, never as an empty matrix.
+ */
 export function useCompensationPolicy<T>(
   policyKey: CompensationPolicyKey,
   institutionId: string
 ) {
-  const supabase = createClientSupabaseClient();
   return useQuery({
     queryKey: hrCompensationPolicyKeys.byKey(policyKey, institutionId),
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from(PLATFORM_POLICIES_TABLE)
-        .select('policy_key, value, description, updated_at, updated_by')
-        .eq('policy_key', policyKey)
-        .eq('scope_type', 'institution')
-        .eq('scope_id', institutionId)
-        .maybeSingle();
-      if (error) throw new Error(error.message);
-      const row = data as RawPolicyRow<unknown> | null;
+      const params = new URLSearchParams({ key: policyKey, institutionId });
+      const res = await fetch(`/api/hr/compensation-policies?${params.toString()}`);
+      const body = await res.json().catch(() => null);
+      if (!res.ok) {
+        throw new Error(body?.error ?? `Request failed (${res.status})`);
+      }
+      const row = (body?.row ?? null) as RawPolicyRow<unknown> | null;
       return {
         exists: !!row,
         value: row ? unwrapValue<T>(row.value) : null,

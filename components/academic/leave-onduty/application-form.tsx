@@ -20,11 +20,10 @@ import * as z from 'zod';
 import {
   ApplicationFormData,
   LeaveOndutyCategory,
-  LEAVE_SUB_CATEGORIES,
-  ONDUTY_SUB_CATEGORIES,
   PeriodType,
   DEFAULT_VALIDATION_RULES,
 } from '@/types/leave-onduty';
+import type { LearnerLeaveType } from '@/types/learner-leave-types';
 
 // Storage key for persisting form data
 const FORM_STORAGE_KEY = 'leave-onduty-form-draft';
@@ -32,7 +31,7 @@ const FORM_STORAGE_KEY = 'leave-onduty-form-draft';
 // Type for stored form data
 interface StoredFormData {
   category: LeaveOndutyCategory;
-  subCategory: string;
+  leaveTypeId: string;
   startDate: string | null;
   endDate: string | null;
   periodType: PeriodType;
@@ -71,19 +70,21 @@ function base64ToFile(data: { name: string; type: string; base64: string }): Fil
   return new File([u8arr], data.name, { type: mime });
 }
 import { LeaveOndutyApplicationService } from '@/lib/services/academic/leave-onduty-application-service';
-import { useCreateLeaveOndutyApplication, TeamMemberSearchResult } from '@/hooks/academic/use-leave-onduty';
-import { useLeaveOndutySubCategories } from '@/hooks/academic/use-leave-onduty-sub-categories';
+import { useCreateLeaveOndutyApplication } from '@/hooks/academic/use-leave-onduty';
+import { useLearnerResidency, useEligibleLeaveTypes } from '@/hooks/learners/use-learner-leave-types';
 import { SponsorPicker } from './sponsor-picker';
-import { TeamMemberPicker } from './team-member-picker';
-import type { ApplicableType } from '@/types/leave-onduty';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Textarea } from '@/components/ui/textarea';
+import { Input } from '@/components/ui/input';
 import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Badge } from '@/components/ui/badge';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Skeleton } from '@/components/ui/skeleton';
 import { format } from 'date-fns';
-import { CalendarIcon, Loader2 } from 'lucide-react';
+import { CalendarIcon, Loader2, Home, Building2, Info } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { cn } from '@/lib/utils';
 import { FileUpload } from './file-upload';
@@ -98,7 +99,7 @@ import {
 
 const formSchema = z.object({
   category: z.enum(['leave', 'onduty']),
-  sub_category: z.string().min(1, 'Please select a sub-category'),
+  leave_type_id: z.string().min(1, 'Please select a type'),
   start_date: z.string().min(1, 'Please select start date'),
   end_date: z.string().min(1, 'Please select end date'),
   period_type: z.enum(['fullday', 'forenoon', 'afternoon', 'periodwise']),
@@ -126,9 +127,7 @@ export function ApplicationForm({
   onCancel,
 }: ApplicationFormProps) {
   const [category, setCategory] = useState<LeaveOndutyCategory>('leave');
-  const [subCategory, setSubCategory] = useState('');
-  const [applicableType, setApplicableType] = useState<ApplicableType>('individual');
-  const [teamMembers, setTeamMembers] = useState<TeamMemberSearchResult[]>([]);
+  const [leaveTypeId, setLeaveTypeId] = useState('');
   const [startDate, setStartDate] = useState<Date>();
   const [endDate, setEndDate] = useState<Date>();
   const [periodType, setPeriodType] = useState<PeriodType>('fullday');
@@ -148,6 +147,8 @@ export function ApplicationForm({
   const [reason, setReason] = useState('');
   const [attachmentFile, setAttachmentFile] = useState<File | null>(null);
   const [sponsorId, setSponsorId] = useState<string | null>(null);
+  const [exitTime, setExitTime] = useState('');
+  const [returnTime, setReturnTime] = useState('');
   const [dayCount, setDayCount] = useState(0);
   const [isInitialized, setIsInitialized] = useState(false);
 
@@ -189,7 +190,7 @@ export function ApplicationForm({
         if (Date.now() - data.savedAt < maxAge) {
           console.log('[ApplicationForm] Restoring saved form data');
           setCategory(data.category);
-          setSubCategory(data.subCategory);
+          setLeaveTypeId(data.leaveTypeId || '');
           if (data.startDate) setStartDate(new Date(data.startDate));
           if (data.endDate) setEndDate(new Date(data.endDate));
           setPeriodType(data.periodType);
@@ -228,7 +229,7 @@ export function ApplicationForm({
     try {
       const dataToSave: StoredFormData = {
         category,
-        subCategory,
+        leaveTypeId,
         startDate: startDate?.toISOString() || null,
         endDate: endDate?.toISOString() || null,
         periodType,
@@ -272,7 +273,7 @@ export function ApplicationForm({
     } catch (err) {
       console.warn('[ApplicationForm] Failed to save form data:', err);
     }
-  }, [category, subCategory, startDate, endDate, periodType, selectedPeriods, reason, attachmentFile, isInitialized]);
+  }, [category, leaveTypeId, startDate, endDate, periodType, selectedPeriods, reason, attachmentFile, isInitialized]);
 
   // Clear saved form data
   const clearSavedFormData = useCallback(() => {
@@ -294,67 +295,82 @@ export function ApplicationForm({
     }
   }, [startDate, endDate]);
 
-  // Reset sub-category when category changes (only after initialization)
+  // Reset leave type when category changes (only after initialization)
   const [prevCategory, setPrevCategory] = useState<LeaveOndutyCategory | null>(null);
+  // Track the category only once the saved draft has been restored. Recording
+  // the mount-time default ('leave') first made a restored OnDuty draft look
+  // like a category switch, which wiped its on-duty type — the form then could
+  // not be submitted until the learner noticed and re-picked it.
   useEffect(() => {
-    if (isInitialized && prevCategory !== null && prevCategory !== category) {
-      setSubCategory('');
+    if (!isInitialized) return;
+    if (prevCategory !== null && prevCategory !== category) {
+      setLeaveTypeId('');
     }
     setPrevCategory(category);
   }, [category, isInitialized, prevCategory]);
 
-  // When switching to Leave, force applicable back to individual (team is
-  // OnDuty-only per the v2 spec) and clear any team roster the learner picked
-  // while drafting an OnDuty application.
-  useEffect(() => {
-    if (category === 'leave') {
-      setApplicableType('individual');
-      setTeamMembers([]);
-    }
-  }, [category]);
-
-  // Fetch admin-managed sub-categories for this institution
-  const { data: dbSubCategories, isLoading: dbSubCategoriesLoading } =
-    useLeaveOndutySubCategories(
-      institutionId,
-      { activeOnly: true },
-      { enabled: !!institutionId }
-    );
-
-  // Look up the full sub-category row (for sponsor requirement)
-  const selectedSubCategoryRow = (dbSubCategories || []).find(
-    (r) => r.category === category && r.code === subCategory
+  // Learner's residency drives which leave types are eligible — hostel/day
+  // scholar rules differ (e.g. hostel-only leave types). fn_lo_seed_approvals
+  // is the authoritative check server-side; this only filters the dropdown.
+  const { data: residency, isLoading: residencyLoading } = useLearnerResidency(learnerId);
+  const { data: eligibleTypes, isLoading: eligibleTypesLoading } = useEligibleLeaveTypes(
+    residency,
+    category
   );
-  const requiresSponsorApproval = !!selectedSubCategoryRow?.requires_sponsor_approval;
-  const sponsorRoleHint = selectedSubCategoryRow?.sponsor_role_hint || null;
 
-  // Reset sponsor when category/sub-category changes (would be invalid anyway)
+  // Look up the full leave type row (for rules display + sponsor requirement)
+  const selectedType: LearnerLeaveType | undefined = (eligibleTypes || []).find(
+    (t) => t.id === leaveTypeId
+  );
+  const requiresSponsorApproval = !!selectedType?.requires_sponsor_approval;
+  // A hostel learner leaving campus gets a gate pass on approval; the pass needs a
+  // real exit/return time. The DB decides who actually gets one (fn_lo_sync_gate_pass).
+  const needsGatePassTimes = residency === 'hostel' && !!selectedType?.issues_gate_pass;
+  const sponsorRoleHint = selectedType?.sponsor_role_hint || null;
+
+  // Reset sponsor when category/leave type changes (would be invalid anyway)
   useEffect(() => {
     if (isInitialized) {
       setSponsorId(null);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [subCategory, category]);
+  }, [leaveTypeId, category]);
 
-  const getSubCategories = () => {
-    // While still fetching, show the hard-coded constants so the dropdown is
-    // never empty on first paint. Once loaded, use only the DB rows — if the
-    // admin has intentionally removed all options, the dropdown MUST reflect
-    // that (do not silently revert to the constants).
-    if (dbSubCategoriesLoading) {
-      return category === 'leave' ? LEAVE_SUB_CATEGORIES : ONDUTY_SUB_CATEGORIES;
+  // If the selected period type is no longer allowed by the newly-chosen
+  // type's rules, fall back to fullday rather than submit an invalid combo.
+  useEffect(() => {
+    if (!selectedType) return;
+    if (periodType === 'periodwise' && !selectedType.allow_periodwise) {
+      setPeriodType('fullday');
+    } else if (
+      (periodType === 'forenoon' || periodType === 'afternoon') &&
+      !selectedType.allow_half_day
+    ) {
+      setPeriodType('fullday');
     }
-    return (dbSubCategories || [])
-      .filter((r) => r.category === category)
-      .map((r) => ({ value: r.code, label: r.name }));
-  };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedType]);
+
+  // Which period-type options the selected leave type permits. Undefined
+  // (nothing chosen yet) leaves PeriodSelector's own defaults untouched.
+  const allowedPeriodTypes = useMemo<PeriodType[] | undefined>(() => {
+    if (!selectedType) return undefined;
+    const types: PeriodType[] = ['fullday'];
+    if (selectedType.allow_half_day) types.push('forenoon', 'afternoon');
+    if (selectedType.allow_periodwise) types.push('periodwise');
+    return types;
+  }, [selectedType]);
 
   const getFileRequirements = () => {
-    return LeaveOndutyApplicationService.getFileRequirements(
+    const base = LeaveOndutyApplicationService.getFileRequirements(
       category,
-      subCategory,
+      selectedType?.code || '',
       dayCount
     );
+    if (selectedType?.requires_attachment) {
+      return { ...base, required: true, reason: 'This leave type requires a supporting document.' };
+    }
+    return base;
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -368,8 +384,8 @@ export function ApplicationForm({
       return;
     }
 
-    if (!subCategory) {
-      toast.error('Please select a sub-category.');
+    if (!leaveTypeId || !selectedType) {
+      toast.error(`Please select a ${category === 'leave' ? 'leave' : 'on-duty'} type.`);
       return;
     }
 
@@ -394,9 +410,32 @@ export function ApplicationForm({
       return;
     }
 
+    // UX-only checks mirroring the type's rules — fn_lo_seed_approvals is the
+    // authoritative enforcement server-side.
+    if (selectedType.max_duration_days && dayCount > selectedType.max_duration_days) {
+      toast.error(
+        `${selectedType.name} allows at most ${selectedType.max_duration_days} day${selectedType.max_duration_days > 1 ? 's' : ''}. You selected ${dayCount}.`
+      );
+      return;
+    }
+
+    if (selectedType.advance_notice_hours > 0) {
+      const minStart = new Date();
+      minStart.setHours(0, 0, 0, 0);
+      minStart.setDate(minStart.getDate() + Math.ceil(selectedType.advance_notice_hours / 24));
+      const startCompare = new Date(startDate);
+      startCompare.setHours(0, 0, 0, 0);
+      if (startCompare < minStart) {
+        toast.error(
+          `${selectedType.name} must be applied at least ${selectedType.advance_notice_hours} hour${selectedType.advance_notice_hours > 1 ? 's' : ''} in advance.`
+        );
+        return;
+      }
+    }
+
     const fileReq = getFileRequirements();
     if (fileReq.required && !attachmentFile) {
-      toast.error('This category requires a supporting document. Please attach a file.');
+      toast.error('This leave type requires a supporting document. Please attach a file.');
       return;
     }
 
@@ -406,27 +445,32 @@ export function ApplicationForm({
       return;
     }
 
-    // v2: team OD roster validation
-    if (category === 'onduty' && applicableType === 'team' && teamMembers.length === 0) {
-      toast.error('Please add at least one team-mate, or switch to Individual.');
-      return;
+    if (needsGatePassTimes) {
+      if (!exitTime || !returnTime) {
+        toast.error('Please enter the time you will leave and the time you will return.');
+        return;
+      }
+      if (format(startDate, 'yyyy-MM-dd') === format(endDate, 'yyyy-MM-dd') && returnTime <= exitTime) {
+        toast.error('Return time must be after the exit time.');
+        return;
+      }
     }
 
     const formData: ApplicationFormData = {
       category,
-      sub_category: subCategory,
+      leave_type_id: leaveTypeId,
+      sub_category: selectedType.code,
       start_date: format(startDate, 'yyyy-MM-dd'),
       end_date: format(endDate, 'yyyy-MM-dd'),
       period_type: periodType,
       selected_periods: selectedPeriods,
       reason,
       attachment_file: attachmentFile,
+      exit_time: needsGatePassTimes ? exitTime : null,
+      return_time: needsGatePassTimes ? returnTime : null,
       sponsor_id: requiresSponsorApproval ? sponsorId : null,
-      applicable_type: category === 'leave' ? 'individual' : applicableType,
-      team_member_ids:
-        category === 'onduty' && applicableType === 'team'
-          ? teamMembers.map((m) => m.id)
-          : [],
+      applicable_type: 'individual',
+      team_member_ids: [],
     };
 
     createApplication.mutate(
@@ -442,9 +486,7 @@ export function ApplicationForm({
 
           // Reset form
           setCategory('leave');
-          setSubCategory('');
-          setApplicableType('individual');
-          setTeamMembers([]);
+          setLeaveTypeId('');
           setStartDate(undefined);
           setEndDate(undefined);
           setPeriodType('fullday');
@@ -455,6 +497,8 @@ export function ApplicationForm({
           setReason('');
           setAttachmentFile(null);
           setSponsorId(null);
+          setExitTime('');
+          setReturnTime('');
           onSuccess?.();
         },
       }
@@ -464,21 +508,6 @@ export function ApplicationForm({
   // Dates whose periods could not be detected. `undefined` means "not reported
   // yet" (still loading) and must not block — only an explicit false does.
   const blockedDates = daysInRange.filter((d) => dateAvailability[d] === false);
-
-  const isFormValid = () => {
-    if (requiresSponsorApproval && !sponsorId) return false;
-    if (blockedDates.length > 0) return false;
-    return (
-      category &&
-      subCategory &&
-      startDate &&
-      endDate &&
-      periodType &&
-      reason.length >= 1 &&
-      (periodType !== 'periodwise' || selectedPeriods.length > 0) &&
-      (!getFileRequirements().required || attachmentFile !== null)
-    );
-  };
 
   return (
     <form onSubmit={handleSubmit} className="space-y-6 sm:space-y-8">
@@ -525,85 +554,97 @@ export function ApplicationForm({
         </RadioGroup>
       </div>
 
-      {/* Sub-category Selection */}
+      {/* Residency badge — leave types are filtered by hostel vs day scholar */}
+      {residencyLoading ? (
+        <Skeleton className="h-6 w-40" />
+      ) : residency ? (
+        <div className="flex items-center gap-2">
+          <Badge variant="secondary" className="gap-1.5">
+            {residency === 'hostel' ? (
+              <Building2 className="h-3.5 w-3.5" />
+            ) : (
+              <Home className="h-3.5 w-3.5" />
+            )}
+            {residency === 'hostel' ? 'Hostel learner' : 'Day scholar'}
+          </Badge>
+          <span className="text-xs text-muted-foreground">
+            Only leave types for your residency are shown.
+          </span>
+        </div>
+      ) : null}
+
+      {/* Leave/OnDuty Type Selection */}
       <div className="space-y-2 sm:space-y-3">
-        <Label htmlFor="sub-category" className="text-sm sm:text-base font-medium">
-          {category === 'leave' ? 'Leave Type' : 'OnDuty Type'}
+        <Label htmlFor="leave-type" className="text-sm sm:text-base font-medium">
+          {category === 'leave' ? 'Leave type' : 'On-duty type'}
           <span className="text-red-500 ml-1">*</span>
         </Label>
-        <Select value={subCategory} onValueChange={setSubCategory}>
-          <SelectTrigger id="sub-category" className="h-10 sm:h-11">
-            <SelectValue placeholder={`Select ${category} type`} />
-          </SelectTrigger>
-          <SelectContent>
-            {getSubCategories().map((type) => (
-              <SelectItem key={type.value} value={type.value}>
-                {type.label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        {/* !isInitialized: mount the Select only after the saved draft is
+            restored. Radix's hidden native <select> re-dispatches 'change' when
+            its value changes before its options exist, which reports '' and
+            wiped a restored type whenever the type list was already cached. */}
+        {!isInitialized || residencyLoading || eligibleTypesLoading ? (
+          <Skeleton className="h-10 sm:h-11 w-full" />
+        ) : !residency ? null : (eligibleTypes || []).length === 0 ? (
+          <Alert>
+            <Info className="h-4 w-4" />
+            <AlertDescription>
+              No leave types are available for you yet. Please contact the office.
+            </AlertDescription>
+          </Alert>
+        ) : (
+          <Select value={leaveTypeId} onValueChange={setLeaveTypeId}>
+            <SelectTrigger id="leave-type" className="h-10 sm:h-11">
+              <SelectValue placeholder={`Select ${category === 'leave' ? 'leave' : 'on-duty'} type`} />
+            </SelectTrigger>
+            <SelectContent>
+              {(eligibleTypes || []).map((type) => (
+                <SelectItem key={type.id} value={type.id}>
+                  <span className="flex items-center gap-2">
+                    <span
+                      className="h-2 w-2 rounded-full flex-shrink-0"
+                      style={{ backgroundColor: type.color_code }}
+                    />
+                    {type.name}
+                  </span>
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
+
+        {/* Selected type's rules — UX hints only; the server is authoritative. */}
+        {selectedType && (
+          <ul className="text-xs sm:text-sm text-muted-foreground space-y-1 pl-1">
+            {selectedType.description && <li>{selectedType.description}</li>}
+            {selectedType.max_duration_days && (
+              <li>
+                Max {selectedType.max_duration_days} day{selectedType.max_duration_days > 1 ? 's' : ''}
+              </li>
+            )}
+            {selectedType.advance_notice_hours > 0 && (
+              <li>
+                Apply at least {selectedType.advance_notice_hours} hour
+                {selectedType.advance_notice_hours > 1 ? 's' : ''} in advance
+              </li>
+            )}
+            {selectedType.requires_attachment && <li>Supporting document required</li>}
+            {selectedType.requires_sponsor_approval && (
+              <li>
+                Needs sponsor approval
+                {sponsorRoleHint ? ` (${sponsorRoleHint})` : ''}
+              </li>
+            )}
+            {!selectedType.affects_attendance && <li>Does not change class attendance</li>}
+            {needsGatePassTimes && (
+              <li>A gate pass is generated once the Chief Warden approves; it is valid for 12 hours from your exit time</li>
+            )}
+          </ul>
+        )}
       </div>
 
-      {/* Applicable — visible only for OnDuty (Leave is always individual) */}
-      {category === 'onduty' && (
-        <div className="space-y-3">
-          <Label className="text-sm sm:text-base font-medium">
-            Applicable<span className="text-red-500 ml-1">*</span>
-          </Label>
-          <RadioGroup
-            value={applicableType}
-            onValueChange={(v) => setApplicableType(v as ApplicableType)}
-            className="grid grid-cols-2 gap-2 sm:gap-4"
-          >
-            <label
-              className={cn(
-                'flex items-center gap-2 sm:gap-3 rounded-lg border-2 p-3 sm:p-4 cursor-pointer transition-all',
-                applicableType === 'individual'
-                  ? 'border-primary bg-primary/5'
-                  : 'border-gray-200 dark:border-gray-700 hover:border-primary/50'
-              )}
-            >
-              <RadioGroupItem value="individual" id="applicable-individual" className="h-4 w-4" />
-              <div className="min-w-0">
-                <div className="font-medium text-sm sm:text-base">Individual</div>
-                <div className="text-xs sm:text-sm text-muted-foreground truncate">
-                  Just me
-                </div>
-              </div>
-            </label>
-            <label
-              className={cn(
-                'flex items-center gap-2 sm:gap-3 rounded-lg border-2 p-3 sm:p-4 cursor-pointer transition-all',
-                applicableType === 'team'
-                  ? 'border-primary bg-primary/5'
-                  : 'border-gray-200 dark:border-gray-700 hover:border-primary/50'
-              )}
-            >
-              <RadioGroupItem value="team" id="applicable-team" className="h-4 w-4" />
-              <div className="min-w-0">
-                <div className="font-medium text-sm sm:text-base">Team</div>
-                <div className="text-xs sm:text-sm text-muted-foreground truncate">
-                  Me plus other students
-                </div>
-              </div>
-            </label>
-          </RadioGroup>
-        </div>
-      )}
-
-      {/* Team Member Picker — only when OnDuty + Team */}
-      {category === 'onduty' && applicableType === 'team' && (
-        <TeamMemberPicker
-          institutionId={institutionId}
-          applicantLearnerId={learnerId}
-          value={teamMembers}
-          onChange={setTeamMembers}
-        />
-      )}
-
-      {/* Sponsor Picker — only shown when the selected sub-category requires it */}
-      {requiresSponsorApproval && subCategory && (
+      {/* Sponsor Picker — only shown when the selected leave type requires it */}
+      {requiresSponsorApproval && leaveTypeId && (
         <SponsorPicker
           institutionId={institutionId}
           value={sponsorId}
@@ -716,6 +757,7 @@ export function ApplicationForm({
             semesterId={semesterId}
             selectedDate={dateStr}
             periodType={periodType}
+            allowedPeriodTypes={allowedPeriodTypes}
             selectedPeriods={selectedPeriodsByDate[dateStr] || []}
             onPeriodTypeChange={setPeriodType}
             onPeriodsChange={(periods) =>
@@ -729,6 +771,34 @@ export function ApplicationForm({
           />
         </div>
       ))}
+
+      {/* Gate pass times — hostel learners on an off-campus type */}
+      {needsGatePassTimes && (
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <div className="space-y-2">
+            <Label htmlFor="exit-time" className="text-sm sm:text-base font-medium">
+              Exit time (start date)<span className="text-red-500 ml-1">*</span>
+            </Label>
+            <Input
+              id="exit-time"
+              type="time"
+              value={exitTime}
+              onChange={(e) => setExitTime(e.target.value)}
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="return-time" className="text-sm sm:text-base font-medium">
+              Return time (end date)<span className="text-red-500 ml-1">*</span>
+            </Label>
+            <Input
+              id="return-time"
+              type="time"
+              value={returnTime}
+              onChange={(e) => setReturnTime(e.target.value)}
+            />
+          </div>
+        </div>
+      )}
 
       {/* Reason */}
       <div className="space-y-2 sm:space-y-3">
@@ -745,7 +815,7 @@ export function ApplicationForm({
       </div>
 
       {/* File Attachment */}
-      {subCategory && (
+      {leaveTypeId && (
         <FileUpload
           onFileSelect={setAttachmentFile}
           requirements={getFileRequirements()}
@@ -778,9 +848,14 @@ export function ApplicationForm({
             Cancel
           </Button>
         )}
+        {/* Only a pending submit disables the button. Gating it on
+            a form-validity check made every toast in handleSubmit unreachable, so a
+            learner who had not picked an end date, a type, a reason or a
+            sponsor saw a grey button and no reason (BUG-006248, BUG-006249;
+            the BUG-003236 toasts never fired). handleSubmit names each gap. */}
         <Button
           type="submit"
-          disabled={!isFormValid() || createApplication.isPending}
+          disabled={createApplication.isPending}
           className="w-full sm:flex-1"
         >
           {createApplication.isPending && (

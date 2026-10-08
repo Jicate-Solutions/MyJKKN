@@ -21,6 +21,10 @@ export function DepartmentFiltersClient({ searchParams }: DepartmentFiltersClien
       } else {
         params.delete(key);
       }
+      // A degree belongs to one institution, so changing the institution
+      // clears it in the SAME navigation (two pushes off the same stale
+      // params would let the second overwrite the first).
+      if (key === 'institution_id') params.delete('degree_id');
       params.set('page', '1');
       router.push(`/organizations/departments?${params.toString()}`);
     },

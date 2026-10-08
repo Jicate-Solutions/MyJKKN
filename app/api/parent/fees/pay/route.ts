@@ -8,8 +8,11 @@ import {
 import { PaymentGatewayService } from '@/lib/services/billing/payment-gateway-service';
 import {
   getLearnerHiddenCategoryIds,
+  getLearnerHiddenYearIds,
   isBillLearnerVisible,
+  isBillYearLearnerVisible,
 } from '@/lib/utils/billing/learner-visibility';
+import { findEarlierYearDuesBlock } from '@/lib/utils/billing/academic-year-payment-order';
 import { parentPortalBaseUrl } from '@/lib/utils/parent-url';
 import type { PayPayload } from '@/types/parent-portal';
 
@@ -44,7 +47,7 @@ export async function POST(req: NextRequest) {
     // Defense: every bill must belong to THIS learner before we initiate.
     const { data: owned } = await db
       .from('billing_student_bills')
-      .select('id, item_category_id')
+      .select('id, item_category_id, academic_year_id')
       .eq('student_id', learnerId)
       .in('id', billIds);
     const ownedIds = new Set((owned ?? []).map((b) => b.id));
@@ -65,6 +68,35 @@ export async function POST(req: NextRequest) {
         { error: 'One or more bills cannot be paid online. Please contact the accounts office.' },
         { status: 403 }
       );
+    }
+
+    // Defense: advance-year window. A bill more than one academic year ahead is
+    // never listed on the parent portal, so a request for one is a hand-crafted
+    // id (or a stale page) — refuse it before a gateway session is created.
+    const hiddenYearIds = await getLearnerHiddenYearIds(
+      db,
+      (owned ?? []).map((b) => b.academic_year_id)
+    );
+    if (
+      (owned ?? []).some(
+        (b) => !isBillYearLearnerVisible(b.academic_year_id, hiddenYearIds)
+      )
+    ) {
+      return NextResponse.json(
+        { error: 'One or more bills cannot be paid online. Please contact the accounts office.' },
+        { status: 403 }
+      );
+    }
+
+    // Year order (oldest first): a bill cannot be paid while a bill of an older
+    // academic year still has a balance — clear those first (separate checkout).
+    const yearOrder = await findEarlierYearDuesBlock(db, {
+      studentId: learnerId,
+      billIds,
+      hiddenCategoryIds,
+    });
+    if (yearOrder.blocked) {
+      return NextResponse.json({ error: yearOrder.message }, { status: 409 });
     }
 
     const base = parentPortalBaseUrl(); // e.g. http://localhost:3000/parent

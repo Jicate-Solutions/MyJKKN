@@ -6,6 +6,13 @@ import { logActivityClient, LearnerActivityTemplates } from '@/lib/utils/activit
 import { SchoolDefaultsService } from '@/lib/services/school-defaults-service';
 import { buildLearnerSearchConditions } from '@/lib/utils/learner-search';
 import { resolveAdmissionYearIds } from '@/lib/utils/admission-year-filter';
+import {
+  findDuplicateLearners,
+  describeDuplicateLearner,
+  learnerIdentityKey,
+  type DuplicateLearnerCandidate,
+  type LearnerIdentity,
+} from '@/lib/services/learner-duplicate-guard';
 import type {
   LearnerProfile,
   CreateLearnerProfileDto,
@@ -225,7 +232,10 @@ export class LearnerProfileService {
 
       // No existing profile - create a new user account
       console.log(`[learner-profile-service] Creating new user account for ${profile.college_email}`);
-      const baseUrl = process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000';
+      // Same-origin in the browser so the sign-in cookie always travels: the
+      // route refuses callers without a session, and a configured site URL that
+      // differs from the page origin (jkkn.ai vs www.jkkn.ai) would drop it.
+      const baseUrl = typeof window !== 'undefined' ? '' : (process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000');
       const response = await fetch(`${baseUrl}/api/learners/complete-onboarding`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -398,7 +408,9 @@ export class LearnerProfileService {
    * Get single learner profile by ID
    */
   static async getLearnerProfile(id: string): Promise<LearnerProfile | null> {
-    const supabase = createClientSupabaseClient();
+    // `any`: this select's embed list is deep enough to trip TS2589; the row is
+    // narrowed by hand right below.
+    const supabase = createClientSupabaseClient() as any;
     const { data, error } = await supabase
       .from('learners_profiles')
       .select(
@@ -438,7 +450,7 @@ export class LearnerProfileService {
     }
 
     // Type assertion: migration_source is stored as string but should be typed as MigrationSource
-    return row as LearnerProfile;
+    return row as unknown as LearnerProfile;
   }
 
   /**
@@ -459,7 +471,7 @@ export class LearnerProfileService {
     }
 
     // Type assertion: migration_source is stored as string but should be typed as MigrationSource
-    return data as LearnerProfile | null;
+    return data as unknown as LearnerProfile | null;
   }
 
   /**
@@ -498,7 +510,9 @@ export class LearnerProfileService {
     // (the same alias the list page's select uses). Before it was embedded the
     // export dialog had no name to resolve and wrote the raw admission_year_id
     // UUID into its "Admission Year" column.
-    let query = supabase
+    // `any`: the embed list is deep enough to trip TS2589 (type instantiation
+    // excessively deep); rows are cast to LearnerProfile[] on return.
+    let query = (supabase as any)
       .from('learners_profiles')
       .select(
         `
@@ -614,7 +628,7 @@ export class LearnerProfileService {
 
     return {
       // Type assertion: migration_source is stored as string but should be typed as MigrationSource
-      data: (data || []) as LearnerProfile[],
+      data: (data || []) as unknown as LearnerProfile[],
       metadata: {
         total: count || 0,
         page,
@@ -675,6 +689,70 @@ export class LearnerProfileService {
     delete dto.admission_year;
   }
 
+  /**
+   * Block a save that would make this learner the same person as another live
+   * learner (mobile + name + admission year + institution). A failed check does
+   * not block — data entry must not stop because the safety net had a hiccup.
+   */
+  private static async assertNoDuplicateLearner(
+    supabase: ReturnType<typeof createClientSupabaseClient>,
+    identity: LearnerIdentity,
+    excludeLearnerId: string | null
+  ): Promise<void> {
+    let duplicates: DuplicateLearnerCandidate[];
+    try {
+      duplicates = await findDuplicateLearners(supabase, identity, excludeLearnerId);
+    } catch (dupErr) {
+      console.error(
+        `[learner-profile-service] Duplicate-learner check failed (not blocking): ${getErrorMessage(dupErr)}`
+      );
+      return;
+    }
+
+    if (duplicates.length > 0) {
+      throw new Error(
+        `This learner already exists: ${duplicates.map(describeDuplicateLearner).join('; ')}. ` +
+          'Open that record instead of creating another.'
+      );
+    }
+  }
+
+  /**
+   * Run the duplicate check on an update only when the save changes WHO the
+   * learner is. A draft enquiry is created before the mobile is typed, so the
+   * first update that completes the identity is where a duplicate becomes
+   * detectable; unchanged identities are skipped so legacy duplicate pairs stay editable.
+   */
+  private static async assertNoDuplicateOnIdentityChange(
+    supabase: ReturnType<typeof createClientSupabaseClient>,
+    id: string,
+    dto: Record<string, any>
+  ): Promise<void> {
+    const { data: current } = (await supabase
+      .from('learners_profiles')
+      .select('student_mobile, first_name, last_name, admission_year_id, institution_id')
+      .eq('id', id)
+      .maybeSingle()) as { data: LearnerIdentity | null; error: any };
+
+    if (!current) return;
+
+    const merged: LearnerIdentity = { ...current };
+    for (const field of [
+      'student_mobile',
+      'first_name',
+      'last_name',
+      'admission_year_id',
+      'institution_id',
+    ] as const) {
+      if (dto[field] !== undefined) merged[field] = dto[field];
+    }
+
+    const keyAfter = learnerIdentityKey(merged);
+    if (keyAfter && keyAfter !== learnerIdentityKey(current)) {
+      await this.assertNoDuplicateLearner(supabase, merged, id);
+    }
+  }
+
   static async createLearnerProfile(dto: CreateLearnerProfileDto): Promise<LearnerProfile> {
     const supabase = createClientSupabaseClient();
 
@@ -728,6 +806,8 @@ export class LearnerProfileService {
         );
       }
     }
+
+    await this.assertNoDuplicateLearner(supabase, enforcedDto as LearnerIdentity, null);
 
     const insertQuery: any = supabase.from('learners_profiles');
     const { data, error } = await insertQuery
@@ -914,6 +994,8 @@ export class LearnerProfileService {
         program_id: cur?.program_id,
       });
     }
+
+    await this.assertNoDuplicateOnIdentityChange(supabase, id, enforcedDto as Record<string, any>);
 
     // First update with provided DTO (using enforcedDto for schools)
     const updateQuery: any = supabase.from('learners_profiles');
@@ -1416,6 +1498,10 @@ export class LearnerProfileService {
 
     // Get counts by status
     const statusCounts: Record<LifecycleStatus, number> = {
+      enquiry: 0,
+      enquiry_submitted: 0,
+      account: 0,
+      reserved: 0,
       admitted: 0,
       pending: 0,
       approved: 0,

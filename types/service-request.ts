@@ -171,7 +171,29 @@ export interface ServiceRequestApprovalStep {
    * service_request_approvals. Every live read filters on true.
    */
   is_active: boolean;
+  /**
+   * Fee step. When both are set, a bill of fee_amount in this billing category
+   * is raised for the requester as the request reaches the step, and the step
+   * completes by itself once that bill is paid (online or at the counter) —
+   * nobody approves it. Null = ordinary approval step.
+   */
+  fee_category_id?: string | null;
+  fee_amount?: number | null;
   created_at: string;
+}
+
+/**
+ * The ONLY billing category a fee step may bill, at that category's own
+ * amount. Deliberately not a choice: letting a service-type author point a
+ * step at Tuition / Hostel / Exam fees would raise bills in live fee heads.
+ */
+export const SERVICE_REQUEST_FEE_CATEGORY_NAME = 'ID Card Fee';
+
+/** True when the step collects a fee instead of waiting for an approval. */
+export function isFeeStep(
+  step: Pick<ServiceRequestApprovalStep, 'fee_category_id' | 'fee_amount'> | null | undefined
+): boolean {
+  return !!step?.fee_category_id && Number(step.fee_amount ?? 0) > 0;
 }
 
 // ---------- Service Request ----------
@@ -185,6 +207,8 @@ export interface ServiceRequest {
   status: ServiceRequestStatus;
   priority: ServiceRequestPriority | null;
   current_approval_step: number;
+  /** Bill raised for this request's fee step (billing_student_bills.id). */
+  fee_bill_id?: string | null;
   form_data: Record<string, any>;
   requester_context: {
     institution_name?: string;
@@ -312,6 +336,9 @@ export interface CreateApprovalStepDto {
   approver_user_ids?: string[];
   is_required?: boolean;
   on_return_restart_from_step?: number | null;
+  /** Fee step: billing category + amount. Both null/absent = approval step. */
+  fee_category_id?: string | null;
+  fee_amount?: number | null;
 }
 
 export interface UpdateServiceTypeDto extends Partial<CreateServiceTypeDto> {
@@ -411,6 +438,11 @@ export const approvalStepSchema = z.object({
   approver_user_ids: z.array(z.string().uuid()).min(1, 'At least one approver required').default([]),
   is_required: z.boolean().default(true),
   on_return_restart_from_step: z.number().int().min(1).optional().nullable(),
+  fee_category_id: z.string().uuid().optional().nullable(),
+  fee_amount: z.number().positive('Fee amount must be more than 0').optional().nullable(),
+}).refine((step) => !step.fee_category_id === !step.fee_amount, {
+  message: 'A fee step needs both a fee category and an amount',
+  path: ['fee_amount'],
 });
 
 export const createServiceTypeSchema = z.object({
@@ -420,7 +452,8 @@ export const createServiceTypeSchema = z.object({
   icon: z.string().default('FileText'),
   color: z.string().regex(/^#[0-9A-Fa-f]{6}$/).default('#3B82F6'),
   allowed_roles: z.array(z.string()).min(1, 'At least one role must be allowed'),
-  max_active_requests: z.number().int().min(1).default(1),
+  // 0 = no limit (createRequest only enforces the cap when it is above 0).
+  max_active_requests: z.number().int().min(0).default(1),
   auto_fulfill_on_approval: z.boolean().default(false),
   enable_priority: z.boolean().default(false),
   enable_attachments: z.boolean().default(false),

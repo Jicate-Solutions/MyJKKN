@@ -39,7 +39,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { DataTableColumnHeader } from '@/components/data-table/column-header';
-import { LeaveOndutyApproval } from '@/types/leave-onduty';
+import { LeaveOndutyApproval, ApproverRole, APPROVER_ROLE_LABELS } from '@/types/leave-onduty';
 
 // Type for super admin view (applications)
 export type ApprovalTableRow = any; // Will be LeaveOndutyApplication from super admin query
@@ -223,6 +223,7 @@ export const createColumns = (
       cell: ({ row }) => {
         const category = row.original.category;
         const subCategory = row.original.sub_category;
+        const leaveType = row.original.leave_type;
 
         return (
           <div className="space-y-1">
@@ -230,7 +231,7 @@ export const createColumns = (
               {category === 'leave' ? 'Leave' : 'On-Duty'}
             </Badge>
             <div className="text-xs text-muted-foreground capitalize">
-              {subCategory.replace('_', ' ')}
+              {leaveType?.name ?? subCategory?.replace(/_/g, ' ')}
             </div>
           </div>
         );
@@ -410,7 +411,8 @@ export const createColumns = (
         approver_id?: string;
         status?: string;
         step_order?: number;
-        approver_role?: string;
+        approver_role?: ApproverRole | 'super_admin' | null;
+        role?: { id: string; role_name: string } | null;
       }>;
 
       const myStep = currentUserId
@@ -419,6 +421,12 @@ export const createColumns = (
       const nextPending = [...approvals]
         .sort((a, b) => (a.step_order ?? 0) - (b.step_order ?? 0))
         .find((a) => a.status === 'pending');
+      const nextPendingLabel = nextPending
+        ? nextPending.role?.role_name ??
+          (nextPending.approver_role
+            ? APPROVER_ROLE_LABELS[nextPending.approver_role as ApproverRole] ?? nextPending.approver_role
+            : 'Approver')
+        : null;
 
       const appBadge = (
         <Badge
@@ -458,7 +466,7 @@ export const createColumns = (
           )}
           {appStatus === 'pending' && nextPending && nextPending.approver_id !== currentUserId && (
             <div className="text-[11px] text-muted-foreground">
-              Waiting: <span className="font-medium capitalize">{nextPending.approver_role}</span>
+              Waiting: <span className="font-medium">{nextPendingLabel}</span>
             </div>
           )}
         </div>

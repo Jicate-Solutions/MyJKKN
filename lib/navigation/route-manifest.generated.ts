@@ -146,6 +146,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "iconName": "CalendarOff",
         "children": [
           {
+            "path": "/academic/leave-onduty/apply-bulk",
+            "label": "Apply Bulk",
+            "iconName": "CalendarOff",
+            "children": []
+          },
+          {
             "path": "/academic/leave-onduty/approvals",
             "label": "Approvals",
             "iconName": "CalendarOff",
@@ -891,6 +897,18 @@ export const ROUTE_MANIFEST: RouteNode[] = [
           {
             "path": "/admission/consultants/attribution-orphans",
             "label": "Attribution Orphans",
+            "iconName": "Users",
+            "children": []
+          },
+          {
+            "path": "/admission/consultants/commission-approvals",
+            "label": "Commission Approvals",
+            "iconName": "Users",
+            "children": []
+          },
+          {
+            "path": "/admission/consultants/commission-payments",
+            "label": "Commission Payments",
             "iconName": "Users",
             "children": []
           },
@@ -1832,6 +1850,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "label": "Admin",
         "iconName": "FileText",
         "children": []
+      },
+      {
+        "path": "/ai-query/connect",
+        "label": "Connect an outside AI",
+        "iconName": "KeyRound",
+        "children": []
       }
     ]
   },
@@ -2028,6 +2052,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "children": []
           }
         ]
+      },
+      {
+        "path": "/billing/bill-cancellations",
+        "label": "Bill Cancellations",
+        "iconName": "Wallet",
+        "children": []
       },
       {
         "path": "/billing/categories",
@@ -3115,6 +3145,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "children": []
           },
           {
+            "path": "/campus-living/settings/damage-types",
+            "label": "Damage Types",
+            "iconName": "FileText",
+            "children": []
+          },
+          {
             "path": "/campus-living/settings/fee-config",
             "label": "Fee Config",
             "iconName": "FileText",
@@ -3179,6 +3215,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "label": "Program Eligibility",
             "iconName": "FileText",
             "children": []
+          },
+          {
+            "path": "/campus-living/settings/vacate-checklist",
+            "label": "Vacate Checklist",
+            "iconName": "LogOut",
+            "children": []
           }
         ]
       },
@@ -3192,7 +3234,14 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "path": "/campus-living/vacate-requests",
         "label": "Vacate Requests",
         "iconName": "LogOut",
-        "children": []
+        "children": [
+          {
+            "path": "/campus-living/vacate-requests/new",
+            "label": "New",
+            "iconName": "Plus",
+            "children": []
+          }
+        ]
       },
       {
         "path": "/campus-living/visitors",
@@ -3240,8 +3289,20 @@ export const ROUTE_MANIFEST: RouteNode[] = [
     "iconName": "FileText",
     "children": [
       {
+        "path": "/campus-walk/check",
+        "label": "Check",
+        "iconName": "FileText",
+        "children": []
+      },
+      {
         "path": "/campus-walk/fix",
         "label": "Fix",
+        "iconName": "FileText",
+        "children": []
+      },
+      {
+        "path": "/campus-walk/report-card",
+        "label": "Report Card",
         "iconName": "FileText",
         "children": []
       },
@@ -3275,6 +3336,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "children": []
           }
         ]
+      },
+      {
+        "path": "/campus-walk/spot-checks",
+        "label": "Spot Checks",
+        "iconName": "FileText",
+        "children": []
       }
     ]
   },
@@ -3962,6 +4029,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         ]
       },
       {
+        "path": "/health/surveys",
+        "label": "Surveys",
+        "iconName": "Heart",
+        "children": []
+      },
+      {
         "path": "/health/training",
         "label": "Training",
         "iconName": "Heart",
@@ -4366,6 +4439,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
                 "children": []
               },
               {
+                "path": "/hr/admin/policies/salary-suggestion",
+                "label": "Salary Suggestion",
+                "iconName": "Sparkles",
+                "children": []
+              },
+              {
                 "path": "/hr/admin/policies/staff-development",
                 "label": "Staff Development",
                 "iconName": "Users",
@@ -4534,6 +4613,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "iconName": "CheckSquare",
         "children": [
           {
+            "path": "/hr/attendance/clinical",
+            "label": "Clinical",
+            "iconName": "CheckSquare",
+            "children": []
+          },
+          {
             "path": "/hr/attendance/close",
             "label": "Close",
             "iconName": "CheckSquare",
@@ -4691,6 +4776,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "children": []
       },
       {
+        "path": "/hr/my-pay-changes",
+        "label": "My Pay Changes",
+        "iconName": "Wallet",
+        "children": []
+      },
+      {
         "path": "/hr/offboarding",
         "label": "Offboarding",
         "iconName": "FileText",
@@ -4717,6 +4808,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "path": "/hr/payroll/organisation",
             "label": "Organisation",
             "iconName": "FileText",
+            "children": []
+          },
+          {
+            "path": "/hr/payroll/pay-band-check",
+            "label": "Pay Band Check",
+            "iconName": "Scale",
             "children": []
           },
           {
@@ -4795,6 +4892,19 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "children": []
           },
           {
+            "path": "/hr/recruitment/intake",
+            "label": "Bring in Candidates",
+            "iconName": "FileUp",
+            "children": [
+              {
+                "path": "/hr/recruitment/intake/rules",
+                "label": "Learned Rules",
+                "iconName": "ListChecks",
+                "children": []
+              }
+            ]
+          },
+          {
             "path": "/hr/recruitment/interviews",
             "label": "Interviews",
             "iconName": "UserSearch",
@@ -4823,6 +4933,31 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "path": "/hr/recruitment/submit",
             "label": "Submit",
             "iconName": "UserSearch",
+            "children": []
+          }
+        ]
+      },
+      {
+        "path": "/hr/salary-revisions",
+        "label": "Salary Revisions",
+        "iconName": "Wallet",
+        "children": [
+          {
+            "path": "/hr/salary-revisions/approve",
+            "label": "Approve Salary Revisions",
+            "iconName": "BadgeCheck",
+            "children": []
+          },
+          {
+            "path": "/hr/salary-revisions/ask",
+            "label": "Ask for a Salary Revision",
+            "iconName": "Wallet",
+            "children": []
+          },
+          {
+            "path": "/hr/salary-revisions/college-check",
+            "label": "Principal’s Check",
+            "iconName": "ClipboardCheck",
             "children": []
           }
         ]
@@ -5100,6 +5235,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "iconName": "Settings",
         "children": [
           {
+            "path": "/ims/settings/pos-devices",
+            "label": "Pos Devices",
+            "iconName": "FileText",
+            "children": []
+          },
+          {
             "path": "/ims/settings/stores",
             "label": "Stores",
             "iconName": "FileText",
@@ -5189,6 +5330,31 @@ export const ROUTE_MANIFEST: RouteNode[] = [
     "iconName": "FileText",
     "children": [
       {
+        "path": "/instasolver/admin",
+        "label": "Admin",
+        "iconName": "FileText",
+        "children": [
+          {
+            "path": "/instasolver/admin/categories",
+            "label": "Categories",
+            "iconName": "Tags",
+            "children": []
+          },
+          {
+            "path": "/instasolver/admin/teams",
+            "label": "Teams",
+            "iconName": "Users",
+            "children": []
+          }
+        ]
+      },
+      {
+        "path": "/instasolver/analytics",
+        "label": "Analytics",
+        "iconName": "BarChart",
+        "children": []
+      },
+      {
         "path": "/instasolver/broken",
         "label": "Broken",
         "iconName": "FileText",
@@ -5201,8 +5367,82 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "children": []
       },
       {
+        "path": "/instasolver/dashboard",
+        "label": "Dashboard",
+        "iconName": "LayoutGrid",
+        "children": []
+      },
+      {
+        "path": "/instasolver/issues",
+        "label": "Issues",
+        "iconName": "FileText",
+        "children": [
+          {
+            "path": "/instasolver/issues/new",
+            "label": "New",
+            "iconName": "Plus",
+            "children": []
+          }
+        ]
+      },
+      {
+        "path": "/instasolver/my-complaints",
+        "label": "My Complaints",
+        "iconName": "FileText",
+        "children": []
+      },
+      {
+        "path": "/instasolver/my-reports",
+        "label": "My Reports",
+        "iconName": "FileText",
+        "children": []
+      },
+      {
+        "path": "/instasolver/old-purchase-requests",
+        "label": "Old Purchase Requests",
+        "iconName": "FileText",
+        "children": []
+      },
+      {
+        "path": "/instasolver/r",
+        "label": "Scan to report",
+        "iconName": "FileText",
+        "children": []
+      },
+      {
+        "path": "/instasolver/requirements",
+        "label": "Requirements",
+        "iconName": "FileText",
+        "children": [
+          {
+            "path": "/instasolver/requirements/new",
+            "label": "New",
+            "iconName": "Plus",
+            "children": []
+          }
+        ]
+      },
+      {
         "path": "/instasolver/track",
         "label": "Track",
+        "iconName": "FileText",
+        "children": []
+      },
+      {
+        "path": "/instasolver/triage",
+        "label": "Triage",
+        "iconName": "FileText",
+        "children": []
+      },
+      {
+        "path": "/instasolver/work",
+        "label": "Work",
+        "iconName": "FileText",
+        "children": []
+      },
+      {
+        "path": "/instasolver/workload",
+        "label": "Workload",
         "iconName": "FileText",
         "children": []
       }
@@ -5439,9 +5679,21 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "children": []
           },
           {
+            "path": "/learners/leave-onduty/apply-bulk",
+            "label": "Apply Bulk",
+            "iconName": "GraduationCap",
+            "children": []
+          },
+          {
             "path": "/learners/leave-onduty/my-applications",
             "label": "My Applications",
             "iconName": "GraduationCap",
+            "children": []
+          },
+          {
+            "path": "/learners/leave-onduty/settings",
+            "label": "Settings",
+            "iconName": "Settings",
             "children": []
           }
         ]
@@ -5728,6 +5980,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
     "label": "Meetings",
     "iconName": "FileText",
     "children": [
+      {
+        "path": "/meetings/action-items",
+        "label": "My Follow-ups",
+        "iconName": "ListChecks",
+        "children": []
+      },
       {
         "path": "/meetings/adoption",
         "label": "Adoption",
@@ -6556,6 +6814,18 @@ export const ROUTE_MANIFEST: RouteNode[] = [
     "iconName": "FileText",
     "children": [
       {
+        "path": "/procurement/approval-flows",
+        "label": "Approval Flows",
+        "iconName": "FileText",
+        "children": []
+      },
+      {
+        "path": "/procurement/approvals",
+        "label": "Approvals",
+        "iconName": "FileText",
+        "children": []
+      },
+      {
         "path": "/procurement/grn",
         "label": "Grn",
         "iconName": "FileText",
@@ -6804,6 +7074,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         ]
       },
       {
+        "path": "/resource-management/qr-stickers",
+        "label": "Qr Stickers",
+        "iconName": "FileText",
+        "children": []
+      },
+      {
         "path": "/resource-management/reservations",
         "label": "Reservations",
         "iconName": "Boxes",
@@ -6850,6 +7126,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
       {
         "path": "/resource-management/scan",
         "label": "Scan",
+        "iconName": "FileText",
+        "children": []
+      },
+      {
+        "path": "/resource-management/suggested-places",
+        "label": "Suggested Places",
         "iconName": "FileText",
         "children": []
       }

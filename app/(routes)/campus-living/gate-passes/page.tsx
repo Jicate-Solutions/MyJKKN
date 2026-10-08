@@ -70,7 +70,7 @@ const TABS: { value: string; label: string; statuses: GatePassStatus[] | null }[
   { value: 'approved', label: 'Approved', statuses: ['issued'] },
   { value: 'out', label: 'Out now', statuses: ['active', 'overdue'] },
   { value: 'returned', label: 'Returned', statuses: ['returned'] },
-  { value: 'rejected', label: 'Rejected', statuses: ['rejected', 'cancelled'] },
+  { value: 'rejected', label: 'Rejected', statuses: ['rejected', 'cancelled', 'expired'] },
   { value: 'all', label: 'All', statuses: null },
 ];
 

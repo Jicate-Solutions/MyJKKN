@@ -324,6 +324,11 @@ export const GUIDES: GuideBook = {
               detail: "Units are things like pieces, boxes, kilograms. Conversions tell the system how one unit relates to another (e.g. 1 box = 12 pieces).",
               link: { label: "Manage Units", href: "/ims/settings/units" },
             },
+            {
+              action: "Open **Settings · Payment Terminals** to register a Razorpay POS QR soundbox on a selling counter.",
+              detail: "Enter the serial printed on the device and the username + app key Razorpay issued, send a ₹1 test, then activate it. A new terminal starts in Demo (simulated money); switch it to Live once Razorpay issues the production app key.",
+              link: { label: "Manage Payment Terminals", href: "/ims/settings/pos-devices" },
+            },
           ],
         },
         {

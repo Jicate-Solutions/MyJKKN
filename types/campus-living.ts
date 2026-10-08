@@ -736,6 +736,20 @@ export interface CreateHostelBlockDTO {
 
 export type UpdateHostelBlockDTO = Partial<CreateHostelBlockDTO>;
 
+// hostel_floors: one row per floor of a block. `floor_number` is the same
+// integer stored in hostel_rooms.floor (0 = Ground) and is immutable once
+// created; `name` is an optional display override and `is_active` hides the
+// floor from room pickers without touching rooms already on it.
+export interface HostelFloor {
+  id: string;
+  block_id: string;
+  floor_number: number;
+  name: string | null;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface BlockFilters {
   hostel_type?: HostelType;
   status?: BlockStatus;
@@ -966,6 +980,18 @@ export interface MarkableResident {
    *  students). Falls back to initials when absent. */
   student_photo_url: string | null;
   /**
+   * Set when an approved leave/OD that takes the learner off campus covers the
+   * date being marked (fn_cl_leave_cover). The row is shown locked as On Leave;
+   * the BEFORE trigger on hostel_attendance coerces the status regardless of what
+   * the sheet sends. `is_clinical` = approved clinical/hospital rotation, which
+   * also removes the 'medical' status.
+   */
+  leave_cover?: {
+    application_id: string;
+    leave_type_code: string;
+    is_clinical: boolean;
+  } | null;
+  /**
    * Set when a cleaning in this learner's room finished and nobody rated it, so
    * attendance is held for the whole room. Null when they can be marked.
    *
@@ -1020,7 +1046,9 @@ export type GatePassStatus =
   | 'returned'
   | 'overdue'
   | 'cancelled'
-  | 'rejected';
+  | 'rejected'
+  /** Leave-linked pass never scanned OUT inside its 12-hour window. */
+  | 'expired';
 
 /**
  * RETIRED, kept only for the published API contract.
@@ -1065,6 +1093,12 @@ export interface HostelGatePass {
   transport_mode: string | null;
   accompanying_person: string | null;
   attachment_url: string | null;
+
+  /** Set when the pass was raised by an approved leave/OD application. */
+  leave_onduty_application_id?: string | null;
+  /** Exit window for a leave-linked pass: OUT must be scanned inside [valid_from, valid_until] (12h). */
+  valid_from?: string | null;
+  valid_until?: string | null;
 
   // ── The decision ────────────────────────────────────────────────
   status: GatePassStatus;
