@@ -299,14 +299,19 @@ async function runScheduleTool(
     if (code === 'SLOT_TAKEN') throw new DoorRefusal(outcome.error.message);
     throw new Error(outcome.error?.message ?? 'not booked');
   }
+  const warning = outcome.data.warning;
   return {
     booked: true,
+    // Put first so an outside AI cannot miss it: the meeting exists, but the
+    // calendar or invitation step did not fully succeed.
+    ...(warning
+      ? { attention: `Booked, but not complete: ${warning} Tell the person who asked before booking anything else.` }
+      : {}),
     uid: outcome.data.uid,
     start: outcome.data.startIso,
     end: outcome.data.endIso,
     meet_link: outcome.data.videoUrl,
-    // Booked, but the calendar or invitation step did not fully succeed.
-    warning: outcome.data.warning,
+    warning,
   };
 }
 

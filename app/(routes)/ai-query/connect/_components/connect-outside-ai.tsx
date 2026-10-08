@@ -118,7 +118,11 @@ export function ConnectOutsideAi() {
       return Array.isArray(data) ? (data as PersonalKey[]) : [];
     },
   });
-  const { data: bookingIds = [], refetch: refetchBooking } = useQuery({
+  const {
+    data: bookingIds = [],
+    isError: bookingUnknown,
+    refetch: refetchBooking,
+  } = useQuery({
     queryKey: ['ai-personal-key-booking'],
     queryFn: async (): Promise<string[]> => {
       const { data, error } = await rpc('fn_ai_personal_key_booking_ids');
@@ -304,12 +308,18 @@ export function ConnectOutsideAi() {
                     <div className="flex items-center gap-2">
                       <Switch
                         id={`book-${k.id}`}
+                        // If the booking state could not be loaded, do not show
+                        // "off" for a key that may be on: disable the switch.
+                        disabled={bookingUnknown}
                         checked={bookingIds.includes(k.id)}
                         onCheckedChange={(on) => (on ? setAllowingBooking(k) : void setBooking(k, false))}
                       />
                       <Label htmlFor={`book-${k.id}`} className="text-sm text-foreground">
                         Can book meetings
                       </Label>
+                      {bookingUnknown && (
+                        <span className="text-xs text-muted-foreground">(could not check, refresh the page)</span>
+                      )}
                     </div>
                     <Button variant="outline" size="sm" onClick={() => setTurningOff(k)}>
                       Turn off

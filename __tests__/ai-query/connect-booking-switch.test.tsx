@@ -73,6 +73,17 @@ describe('Can book meetings switch', () => {
     expect(screen.queryByText(/book meetings\?/)).not.toBeInTheDocument();
   });
 
+  it('when the booking state cannot be loaded, the switch is disabled rather than shown off', async () => {
+    rpc.mockImplementation(async (fn: string) => {
+      if (fn === 'fn_ai_personal_key_list') return { data: [KEY_A], error: null };
+      if (fn === 'fn_ai_personal_key_booking_ids') return { data: null, error: { message: 'boom' } };
+      return { data: null, error: null };
+    });
+    renderPage();
+    await waitFor(() => expect(screen.getByRole('switch', { name: 'Can book meetings' })).toBeDisabled());
+    expect(screen.getByText(/could not check/)).toBeInTheDocument();
+  });
+
   it('tells people a key can book only if they allow it', async () => {
     renderPage();
     expect(await screen.findByText(/unless you let one of your keys book/)).toBeInTheDocument();
