@@ -84324,7 +84324,9 @@ GRANT  EXECUTE ON FUNCTION public.fn_my_desk_waiting() TO authenticated;
 -- round 9 W1-W3: the window counts only its own months, rows kept for missing days,
 -- a month final by its status has no keys worked out; round 10 X1: the window is
 -- over only with nothing unsettled before this month and every window month settled;
--- today's live pass takes the least recently recorded first).
+-- today's live pass takes the least recently recorded first; Director rulings
+-- 8 Oct 2026 (a): once paid, the run and the nightly listing reach back to the
+-- first month of the current run of misses, never before the window start).
 -- Source: 20271008093015_hr_salary_revision_target_scheduled_periods.sql
 -- ----------------------------------------------------------------------------
 -- b. The helpers
@@ -84505,7 +84507,8 @@ COMMENT ON FUNCTION public.hr_salary_revision_target_leave_key(uuid, date, date)
 --     met month is never measured again, default ss; a Director's decision
 --     stands; a month not measured stays so);
 --   not_counted: final as well (it neither adds nor resets, and no rule
---     measures it again; noted for the Director in the PR);
+--     measures it again; Director ruling (g), 8 Oct 2026: final even if the
+--     leave behind it is later cancelled);
 --   missed: only while it was measured on a complete, CURRENT schedule: every
 --     day it reads recorded with today's holiday key (missing_days = 0) and
 --     its stored leave and holiday keys equal to the keys now;
@@ -84568,9 +84571,15 @@ people AS (
   SELECT p.staff_id,
          CASE WHEN p.state = 'awaiting_measurement' THEN p_today - 90
               WHEN p.state = 'waiting' THEN date_trunc('week', p.window_start)::date
+              -- 8 Oct 2026 (Director ruling (a), option A): a paid part's
+              -- run_one reads the whole current run of misses (from the month
+              -- after the last met month acted on, never before the window
+              -- start), so its days are recorded from there.
               ELSE date_trunc('week', GREATEST(p.window_start,
-                     (date_trunc('month', p_today)
-                      - make_interval(months => COALESCE((p.rules->>'pause_after_missed_months')::int, 3)))::date))::date
+                     COALESCE((SELECT (max(mo.month) + interval '1 month')::date
+                                 FROM public.hr_salary_revision_target_months mo
+                                WHERE mo.request_id = p.request_id AND mo.acted
+                                  AND mo.status IN ('met', 'decided_met')), p.window_start)))::date
          END AS from_day,
          CASE WHEN p.state = 'waiting'
               THEN LEAST(p_today, (p.window_start + make_interval(months => p.window_months) - interval '1 day')::date)
@@ -84586,7 +84595,12 @@ people AS (
      AND r.staff_id IS NOT NULL
      AND NOT EXISTS (SELECT 1 FROM public.hr_salary_revision_target_plans p WHERE p.request_id = r.id)
 )
-SELECT x.staff_id, GREATEST(min(x.from_day), p_today - 400), LEAST(max(x.to_day), p_today)
+-- 8 Oct 2026 (Director ruling (a)): no longer cut at 400 days back. The
+-- widest range is a paid part's run of misses, which never starts before its
+-- window start; a cut there would leave a stale day of an old month in the run
+-- never recorded again, and the part could then never be paused or paid again.
+-- The listing stays bounded by its row limit and time box (hr_target_schedule_needs).
+SELECT x.staff_id, min(x.from_day), LEAST(max(x.to_day), p_today)
   FROM people x
  GROUP BY x.staff_id
 $function$;
@@ -84595,7 +84609,8 @@ REVOKE EXECUTE ON FUNCTION public.hr_target_schedule_ranges(date) FROM anon, PUB
 
 COMMENT ON FUNCTION public.hr_target_schedule_ranges(date) IS
   'Internal (default vv, 8 Oct 2026). Everyone the nightly job records (a held part in play, or a raise asked for and '
-  'not yet decided or applied) with the days their classification or measurement will read, at most 400 days back. '
+  'not yet decided or applied) with the days their classification or measurement will read: for a paid part, the '
+  'whole current run of missed months, never before its window start (Director ruling (a), 8 Oct 2026). '
   'Migration 20271008093015.';
 
 -- Default vv: the (person, day) pairs the nightly job should record: today
@@ -85378,12 +85393,25 @@ BEGIN
                      ELSE v_cur_m END;
 
       -- Default aa: once the held part is paid, only the months the pause
-      -- rule can still use are measured (the last pause_after_missed_months
-      -- finished months and this one). An older month left "so far" (the run
+      -- rule can still use are measured. An older month left "so far" (the run
       -- missed it) is closed as not counted, unmeasured.
+      -- 8 Oct 2026 (Director ruling (a), option A): a month not measured (OFF
+      -- night), not counted (leave or holidays over the whole month) or
+      -- Director-decided is SKIPPED OVER in a run of missed months (#4252
+      -- default d), so the months the pause rule can use are the whole CURRENT
+      -- run of misses: from the month after the last met (or decided met)
+      -- month acted on, never before the window start. Every month of that run
+      -- is counted and settled, in calendar order, before any month after it is
+      -- acted on, so a pause comes only once every month in the run is settled
+      -- (RV6-A). A month the stop holds (waiting for its days, flagged) comes
+      -- after the last met month acted on, so it is never older than this and
+      -- the closing below never reaches it (RV6-B).
       v_from := CASE WHEN v_p.state IN ('released', 'paused')
                      THEN GREATEST(v_p.window_start,
-                                   (v_cur_m - make_interval(months => (v_p.rules->>'pause_after_missed_months')::int))::date)
+                                   COALESCE((SELECT (max(mo.month) + interval '1 month')::date
+                                               FROM public.hr_salary_revision_target_months mo
+                                              WHERE mo.request_id = v_p.request_id AND mo.acted
+                                                AND mo.status IN ('met', 'decided_met')), v_p.window_start))
                      ELSE v_p.window_start END;
       UPDATE public.hr_salary_revision_target_months
          SET status = 'not_counted', results = '[]'::jsonb, measured_at = now()

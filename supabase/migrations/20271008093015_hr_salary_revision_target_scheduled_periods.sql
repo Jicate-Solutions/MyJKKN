@@ -148,6 +148,29 @@
 --   Recording a day again replaces that day's list (an upsert: nothing is
 --   deleted). The measure reads ONLY this table.
 --
+-- DIRECTOR RULINGS (8 Oct 2026, 05:30, first-hand)
+--   (a) Option A: a month not measured, not counted or Director-decided is
+--       skipped over in a run of missed months (#4252 default d). Once paid,
+--       the run (and the nightly listing) reaches back to the first month of
+--       the current run of misses: the month after the last met or decided
+--       met month acted on, never before the window start. A pause comes only
+--       once every month of that run is settled; the closing of an older month
+--       left "so far" (default aa) never reaches a month the stop holds.
+--   (b) A part paused by a month later excused stays paused until a month on
+--       target; no backdating (ss below).
+--   (c) A split week counts in the month it ENDS in (rr).
+--   (d) Only the MAIN teacher is measured (tt).
+--   (e) A combined class at the same hour in two timetables counts ONCE (nn).
+--   (f) A month with a missing schedule day WAITS (oo).
+--   (g) not_counted is final even if the leave behind it is later cancelled.
+--   (h) "Teaches" waits ("being set up") until the 90 days are recorded (qq).
+--   (i) A wrongly made timetable still counts until HR deletes or end-dates it
+--       (uu): deleting it drops its periods from every day; end-dating it stops
+--       the days after the new end date from being recorded with it (the
+--       resolver reads a timetable by its dates), and a day already recorded
+--       keeps the periods it was recorded with (until it is recorded again,
+--       e.g. for a holiday change).
+--
 -- DEFAULTS TAKEN (8 Oct 2026) — overrule here
 --   nn. (finding 1) Two periods on the same day from DIFFERENT timetables whose
 --       times overlap are one teaching: only one counts (the marked one, else
@@ -161,10 +184,11 @@
 --       no later month is counted or acted on (not even measured "so far")
 --       until it is. Round 8: one rule for every such stop (settled, U1); a
 --       missed month waiting to be measured again stops later months the
---       same way. Bound: a stop is only kept for months the run still
---       measures (default aa: once paid, the last pause_after_missed_months
---       months); a missed month whose days are not recorded again before it
---       ages out of them stops nothing any more.
+--       same way. Director ruling (a), 8 Oct 2026: once paid, the run
+--       measures the whole current run of misses (from the month after the
+--       last met month acted on, never before the window start), so a month
+--       in that run never ages out while it waits: it stops the months after
+--       it until it is settled, and no pause comes before it is.
 --   pp. (finding 3) A recorded day is recorded again when the approved holidays
 --       covering it, in the institutions the person teaches in (own college and
 --       staff-plan colleges, as fn_staff_teaching_institutions), changed since.
@@ -191,17 +215,19 @@
 --   ss. (finding 6) Each counted month keeps a key of the person's approved
 --       leave overlapping the days its measure reads. A MISSED month whose key changed is measured again
 --       (only months the run still measures: the window while waiting, the
---       pause rule's months once paid; within the per-call month cap). Met now:
+--       current run of misses once paid (ruling (a)); within the per-call month
+--       cap). Met now:
 --       waiting -> released from the next 1st; paused -> resumed from the next
 --       1st; released -> the month counts as met and the missed-in-a-row count
 --       is worked out again. Never backdated; nothing paid is taken back; a met
 --       month is never re-measured into a missed one. Round 6: leave now
 --       covering every period of the month makes it 'not_counted' (default d)
 --       and the count is worked out again; a part already PAUSED by that month
---       stays paused (paid again after a month on target, as before).
+--       stays paused (paid again after a month on target, as before): Director
+--       ruling (b), 8 Oct 2026, no backdating.
 --       Round 8: a month 'not_counted' is final, like a met one: it is not
---       measured again if the leave that emptied it is withdrawn (noted for
---       the Director in the PR).
+--       measured again if the leave that emptied it is withdrawn (Director
+--       ruling (g), 8 Oct 2026).
 --   tt. Only periods where the person is the slot's MAIN teacher
 --       (primary_staff_id) count, as in #4252. The resolver also lists periods
 --       where they are a co-teacher (staff_ids), in a sub-slot group or a
@@ -212,12 +238,14 @@
 --   vv. Who is recorded: everyone with a held part in play (any open state)
 --       and everyone with a raise asked for and not yet decided or applied.
 --       Days: today (live) for each; the days their classification or
---       measurement will read; at most 400 days back. Today first for everyone,
+--       measurement will read (ruling (a): for a paid part, its whole current
+--       run of misses, never before its window start; no 400-day cut any
+--       more). Today first for everyone,
 --       then one person at a time (days whose holidays changed, then missing
 --       days newest first), in an order that turns every night. Round 6: the
 --       listing is time-boxed (p_budget_ms). How many days a night actually
 --       gets recorded is bounded by the cron's 25 s share and the resolver's
---       speed, NOT by the 400 (see the PR for the estimate).
+--       speed, NOT by the range (see the PR for the estimate).
 --   ww. The schedule record is written only by the nightly job (service role);
 --       no signed-in person reads or writes it. A day not yet begun is refused.
 --
@@ -305,7 +333,7 @@ BEGIN
       ('public.hr_salary_revision_target_classify(uuid, jsonb, date)',
        ARRAY['0eac67dcaecb3d25f5f397ed3a3c10a4|true|search_path=public', 'e4679c8456521dc0096c9b7bdd21627c|true|search_path=public']),
       ('public.hr_salary_revision_targets_run_one(uuid, date, integer)',
-       ARRAY['7cbbb8dbe04a7deb5c80414700d2e0d3|true|search_path=public', '801541415eee09923db782e74b17017d|true|search_path=public'])) x(fn, ok)
+       ARRAY['7cbbb8dbe04a7deb5c80414700d2e0d3|true|search_path=public', '20f52d15c897904b8bce6eff8c259e0c|true|search_path=public'])) x(fn, ok)
   LOOP
     SELECT md5(btrim(replace(p.prosrc, E'\r', ''), E' \t\n')) || '|' || p.prosecdef::text || '|'
            || COALESCE(array_to_string(p.proconfig, ','), '')
@@ -554,7 +582,8 @@ COMMENT ON FUNCTION public.hr_salary_revision_target_leave_key(uuid, date, date)
 --     met month is never measured again, default ss; a Director's decision
 --     stands; a month not measured stays so);
 --   not_counted: final as well (it neither adds nor resets, and no rule
---     measures it again; noted for the Director in the PR);
+--     measures it again; Director ruling (g), 8 Oct 2026: final even if the
+--     leave behind it is later cancelled);
 --   missed: only while it was measured on a complete, CURRENT schedule: every
 --     day it reads recorded with today's holiday key (missing_days = 0) and
 --     its stored leave and holiday keys equal to the keys now;
@@ -617,9 +646,15 @@ people AS (
   SELECT p.staff_id,
          CASE WHEN p.state = 'awaiting_measurement' THEN p_today - 90
               WHEN p.state = 'waiting' THEN date_trunc('week', p.window_start)::date
+              -- 8 Oct 2026 (Director ruling (a), option A): a paid part's
+              -- run_one reads the whole current run of misses (from the month
+              -- after the last met month acted on, never before the window
+              -- start), so its days are recorded from there.
               ELSE date_trunc('week', GREATEST(p.window_start,
-                     (date_trunc('month', p_today)
-                      - make_interval(months => COALESCE((p.rules->>'pause_after_missed_months')::int, 3)))::date))::date
+                     COALESCE((SELECT (max(mo.month) + interval '1 month')::date
+                                 FROM public.hr_salary_revision_target_months mo
+                                WHERE mo.request_id = p.request_id AND mo.acted
+                                  AND mo.status IN ('met', 'decided_met')), p.window_start)))::date
          END AS from_day,
          CASE WHEN p.state = 'waiting'
               THEN LEAST(p_today, (p.window_start + make_interval(months => p.window_months) - interval '1 day')::date)
@@ -635,7 +670,12 @@ people AS (
      AND r.staff_id IS NOT NULL
      AND NOT EXISTS (SELECT 1 FROM public.hr_salary_revision_target_plans p WHERE p.request_id = r.id)
 )
-SELECT x.staff_id, GREATEST(min(x.from_day), p_today - 400), LEAST(max(x.to_day), p_today)
+-- 8 Oct 2026 (Director ruling (a)): no longer cut at 400 days back. The
+-- widest range is a paid part's run of misses, which never starts before its
+-- window start; a cut there would leave a stale day of an old month in the run
+-- never recorded again, and the part could then never be paused or paid again.
+-- The listing stays bounded by its row limit and time box (hr_target_schedule_needs).
+SELECT x.staff_id, min(x.from_day), LEAST(max(x.to_day), p_today)
   FROM people x
  GROUP BY x.staff_id
 $function$;
@@ -644,7 +684,8 @@ REVOKE EXECUTE ON FUNCTION public.hr_target_schedule_ranges(date) FROM anon, PUB
 
 COMMENT ON FUNCTION public.hr_target_schedule_ranges(date) IS
   'Internal (default vv, 8 Oct 2026). Everyone the nightly job records (a held part in play, or a raise asked for and '
-  'not yet decided or applied) with the days their classification or measurement will read, at most 400 days back. '
+  'not yet decided or applied) with the days their classification or measurement will read: for a paid part, the '
+  'whole current run of missed months, never before its window start (Director ruling (a), 8 Oct 2026). '
   'Migration 20271008093015.';
 
 -- Default vv: the (person, day) pairs the nightly job should record: today
@@ -1427,12 +1468,25 @@ BEGIN
                      ELSE v_cur_m END;
 
       -- Default aa: once the held part is paid, only the months the pause
-      -- rule can still use are measured (the last pause_after_missed_months
-      -- finished months and this one). An older month left "so far" (the run
+      -- rule can still use are measured. An older month left "so far" (the run
       -- missed it) is closed as not counted, unmeasured.
+      -- 8 Oct 2026 (Director ruling (a), option A): a month not measured (OFF
+      -- night), not counted (leave or holidays over the whole month) or
+      -- Director-decided is SKIPPED OVER in a run of missed months (#4252
+      -- default d), so the months the pause rule can use are the whole CURRENT
+      -- run of misses: from the month after the last met (or decided met)
+      -- month acted on, never before the window start. Every month of that run
+      -- is counted and settled, in calendar order, before any month after it is
+      -- acted on, so a pause comes only once every month in the run is settled
+      -- (RV6-A). A month the stop holds (waiting for its days, flagged) comes
+      -- after the last met month acted on, so it is never older than this and
+      -- the closing below never reaches it (RV6-B).
       v_from := CASE WHEN v_p.state IN ('released', 'paused')
                      THEN GREATEST(v_p.window_start,
-                                   (v_cur_m - make_interval(months => (v_p.rules->>'pause_after_missed_months')::int))::date)
+                                   COALESCE((SELECT (max(mo.month) + interval '1 month')::date
+                                               FROM public.hr_salary_revision_target_months mo
+                                              WHERE mo.request_id = v_p.request_id AND mo.acted
+                                                AND mo.status IN ('met', 'decided_met')), v_p.window_start))
                      ELSE v_p.window_start END;
       UPDATE public.hr_salary_revision_target_months
          SET status = 'not_counted', results = '[]'::jsonb, measured_at = now()

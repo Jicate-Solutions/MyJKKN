@@ -47,11 +47,10 @@ INSERT INTO public.hr_leave_applications (employee_id, start_date, end_date, sta
 VALUES (:'sF4', :'m6', (:'m7'::date - 1), 'approved');
 SELECT public.hr_salary_revision_targets_run_on((:'m7'::date + 1)) AS r2 \gset
 SELECT t.info('after leave over all of M6, run M7+1: ' || t.dump(:'req'));
--- DIRECTOR QUESTION (kept as default ss says, not changed in round 7): the
--- reviewer's rule would pay it again now (two misses left in a row). As
--- built, a part PAUSED by a month that later becomes not counted stays paused
--- until a month on target: nothing is backdated or paid by itself.
-SELECT t.check('B4-S3 DIRECTOR QUESTION: the month that paused it is now not counted, and the part stays paused until a month on target (no backdating)',
+-- DIRECTOR RULING (b), 8 Oct 2026 (was the open question of round 7): a part
+-- PAUSED by a month that later becomes not counted stays paused until a month
+-- on target: nothing is backdated or paid by itself.
+SELECT t.check('B4-S3 DIRECTOR RULING (b): the month that paused it is now not counted, and the part stays paused until a month on target (no backdating)',
   (SELECT status = 'not_counted' FROM public.hr_salary_revision_target_months WHERE request_id = :'req' AND month = :'m6')
   AND (SELECT state = 'paused' FROM public.hr_salary_revision_target_plans WHERE request_id = :'req')
   AND (SELECT count(*) FROM public.hr_staff_salaries WHERE staff_id = :'sF4') = :'pay_s3'::int,

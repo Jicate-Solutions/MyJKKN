@@ -22,7 +22,10 @@
 #   6. probe-schedule.sql (findings 1-6, the coverage wait, the record's rules),
 #      every line PASS, and one mutation control per finding;
 #   7. (rounds 7-10) probe-order.sql, probe-stale.sql and probe-settled-*.sql,
-#      each after probe-schedule.sql on its own database, each with its controls.
+#      each after probe-schedule.sql on its own database, each with its controls;
+#   8. (Director rulings, 8 Oct 2026) probe-rv6-a/b/b2.sql (ruling (a), the
+#      round-6 reviewer's probes with the ruling's outcomes) and
+#      probe-rulings.sql (rulings (a) lower bound, (e), (g), (i)), same way.
 # Run: bash supabase/tests/hr-salary-revision/run-targets.sh   (PORT= to move it)
 # FINGERPRINTS=1 prints the drift check's fingerprints (main's and this file's)
 # and stops: paste them into 20271008093015 section 0 after any body edit.
@@ -202,7 +205,7 @@ echo "   total: $(grep -c '^PASS' "$WORK/sched.txt") PASS, $(grep -c '^FAIL' "$W
 # 8 Oct 2026, review round 7: the money review's probes (B1-B4), and round 8:
 # the round-3 reviews' probes (probe-settled-*.sql: one rule for calendar
 # order, U1-U4), each on its own database, after probe-schedule.sql.
-for pf in probe-order.sql probe-stale.sql probe-settled-stale.sql probe-settled-off.sql probe-settled-window.sql probe-settled-flag.sql probe-settled-cap.sql probe-settled-race.sql probe-settled-wait-off.sql probe-settled-wait-off-b.sql probe-settled-window-off.sql probe-settled-window-race.sql probe-live-order.sql; do
+for pf in probe-order.sql probe-stale.sql probe-settled-stale.sql probe-settled-off.sql probe-settled-window.sql probe-settled-flag.sql probe-settled-cap.sql probe-settled-race.sql probe-settled-wait-off.sql probe-settled-wait-off-b.sql probe-settled-window-off.sql probe-settled-window-race.sql probe-live-order.sql probe-rv6-a.sql probe-rv6-b.sql probe-rv6-b2.sql probe-rulings.sql; do
   echo "== PROBE (rounds 7-9: $pf, after probe-schedule.sql)"
   build "$MIG" targets || exit 1
   probe_after_sched "$pf" | tee "$WORK/$pf.txt" | sed 's/^/   /'
@@ -519,9 +522,11 @@ mutate "T71 one person per call: marked as run, the next night starts with whoev
 mutate "T72 at most the set number of months per call" \
   's/^          EXIT WHEN v_measured >= p_max_months;$/          NULL;/' \
   'one call measures at most the set number of months; the rest wait for the next run'
-mutate "T73 a paid held part: only the months the pause rule can use" \
-  "s/^      v_from := CASE WHEN v_p\.state IN \('released', 'paused'\)$/      v_from := CASE WHEN false/" \
-  'a paid held part is measured only for the months the pause rule can use'
+# 8 Oct 2026 (Director ruling (a)): the months the pause rule can use are the
+# whole current run of misses. T73 puts back the old 3-month look-back.
+mutate "T73 a paid held part: the whole current run of misses (ruling (a))" \
+  "s/^                                                AND mo\.status IN \('met', 'decided_met'\)\), v_p\.window_start\)\)$/                                                AND false), (v_cur_m - make_interval(months => (v_p.rules->>'pause_after_missed_months')::int))::date))/" \
+  'a paid held part is measured for every month of its current run of misses (ruling (a))'
 mutate "T74 T5: a direct pulse closed since still counts" \
   's/^          OR \(NOT EXISTS \(SELECT 1 FROM public\.induction_session_poll ip$/          OR (lp.is_open AND NOT EXISTS (SELECT 1 FROM public.induction_session_poll ip/' \
   'T5 is met with a pulse they opened in every course-week (one week only through a poll that reached open, one only through direct pulses closed since)'
@@ -813,4 +818,53 @@ mutate_file probe-settled-window-race.sql "R12b X1: every window month settled, 
 mutate_file probe-live-order.sql "R13 today's live pass: least recently recorded on the day itself first" \
   's/^     ORDER BY \(SELECT max\(sp\.day\) FROM public\.hr_target_scheduled_periods sp$/     ORDER BY r.staff_id, (SELECT max(sp.day) FROM public.hr_target_scheduled_periods sp/' \
   'R10-L today'"'"'s live pass takes the people least recently recorded on the day itself first'
+# 8 Oct 2026, Director rulings (05:30): one control per ruling the code carries.
+# (a) option A: the run and the listing reach back to the first month of the
+# current run of misses; the closing of an old month never reaches a held one.
+mutate_file probe-rv6-a.sql "A1 ruling (a): the run reaches back to the run of misses (RV6-A)" \
+  "s/^                                                AND mo\.status IN \('met', 'decided_met'\)\), v_p\.window_start\)\)$/                                                AND false), (v_cur_m - make_interval(months => (v_p.rules->>'pause_after_missed_months')::int))::date))/" \
+  'RV6-A no pause while M4 (first month of the run of misses) is not settled'
+mutate_file probe-rv6-b.sql "A1b ruling (a): a held month in the run is not closed and overtaken (RV6-B)" \
+  "s/^                                                AND mo\.status IN \('met', 'decided_met'\)\), v_p\.window_start\)\)$/                                                AND false), (v_cur_m - make_interval(months => (v_p.rules->>'pause_after_missed_months')::int))::date))/" \
+  'RV6-B a month the stop holds (waiting for a day) is not closed as not counted'
+mutate_file probe-rv6-b2.sql "A1c ruling (a): a held month is not closed even with no met month after it (RV6-B variant)" \
+  "s/^                                                AND mo\.status IN \('met', 'decided_met'\)\), v_p\.window_start\)\)$/                                                AND false), (v_cur_m - make_interval(months => (v_p.rules->>'pause_after_missed_months')::int))::date))/" \
+  'RV6-B3 a held month is not closed as not counted even with no met month after it'
+mutate_file probe-rv6-a.sql "A2 ruling (a): the nightly listing reaches back to the run of misses" \
+  "s/^                                  AND mo\.status IN \('met', 'decided_met'\)\), p\.window_start\)\)\)::date$/                                  AND false), (date_trunc('month', p_today) - make_interval(months => COALESCE((p.rules->>'pause_after_missed_months')::int, 3)))::date)))::date/" \
+  "RV6-A the nightly listing reaches back to the run of misses: all six of M4's stale days are asked for again"
+mutate_file probe-rulings.sql "A3 ruling (a): the run starts at the run of misses, not at the window start" \
+  "s/^      v_from := CASE WHEN v_p\.state IN \('released', 'paused'\)$/      v_from := CASE WHEN false/" \
+  '(a) a missed month BEFORE the last met month is never looked at again'
+mutate_file probe-rulings.sql "A4 ruling (a): the listing starts at the run of misses, not at the window start" \
+  "s/^                                  AND mo\.status IN \('met', 'decided_met'\)\), p\.window_start\)\)\)::date$/                                  AND false), p.window_start)))::date/" \
+  "(a) the nightly listing starts at the run of misses too: M4's stale days are not asked for"
+mutate_file probe-rv6-b.sql "A5 ruling (a): the closing of an old month never reaches a month the stop holds" \
+  "s/^       WHERE request_id = v_p\.request_id AND month < v_from AND status = 'in_progress';$/       WHERE request_id = v_p.request_id AND month < (v_cur_m - make_interval(months => (v_p.rules->>'pause_after_missed_months')::int))::date AND status = 'in_progress';/" \
+  'RV6-B a month the stop holds (waiting for a day) is not closed as not counted'
+# (b) the alternative not taken (a pausing month later not counted pays it
+# again by itself) put in: B4-S3 must catch it.
+mutate_file probe-order.sql "B5 ruling (b): a month later excused does not undo a pause" \
+  "s/COALESCE\(v_t1_den, 0\) > 0 AND v_all_met AND v_p\.state IN \('waiting', 'paused'\)/(COALESCE(v_t1_den, 0) = 0 OR v_all_met) AND v_p.state IN ('waiting', 'paused')/g; s/^        ELSIF v_p\.state = 'paused' AND v_row\.status IN \('met', 'decided_met'\) THEN$/        ELSIF v_p.state = 'paused' AND v_row.status IN ('met', 'decided_met', 'not_counted') THEN/" \
+  'B4-S3 DIRECTOR RULING (b)'
+# (d) only the main teacher is measured.
+mutate_sched "D1 ruling (d): only the main teacher's periods count" \
+  "s/^     AND e->'is_primary' = 'true'::jsonb$/     AND true/" \
+  'F2 a period where they are only a co-teacher is recorded, not counted (default tt)'
+# (e) a combined class in two timetables at the same hour counts once.
+mutate_file probe-rulings.sql "E1 ruling (e): a combined class at the same hour counts once" \
+  's/^                        AND q\.start_time < r\.end_time AND r\.start_time < q\.end_time$/                        AND false/' \
+  '(e) a combined class listed at the same hour in two section timetables counts once'
+# (g) not counted is final, even if the leave is later cancelled (both places
+# that pass it over: the settled rule and the run's own skip).
+mutate_file probe-rulings.sql "G1 ruling (g): not counted is final" \
+  "s/'decided_missed', 'not_measured', 'not_counted'\)/'decided_missed', 'not_measured')/g" \
+  '(g) a month not counted (leave over all of it) stays not counted when that leave is later cancelled'
+# (i) a wrongly made timetable counts until HR deletes or end-dates it.
+mutate_file probe-rulings.sql "I1 ruling (i): switched off, it still counts" \
+  's/^   WHERE COALESCE\(t\.is_template, false\) = false$/   WHERE t.is_active IS TRUE AND COALESCE(t.is_template, false) = false/' \
+  '(i) a wrongly made timetable switched off still counts'
+mutate_file probe-rulings.sql "I2 ruling (i): deleted by HR, it no longer counts" \
+  "s/^    JOIN public\.timetables t ON t\.id::text = e->>'timetable_id'$/    LEFT JOIN public.timetables t ON t.id::text = e->>'timetable_id'/; s/^    JOIN public\.timetables t ON t\.id = r\.timetable_id$/    LEFT JOIN public.timetables t ON t.id = r.timetable_id/" \
+  '(i) deleted by HR: none of its periods count any more'
 echo "== mutation controls: $CAUGHT caught, $MISSED not caught"
