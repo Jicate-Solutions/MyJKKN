@@ -50,6 +50,8 @@
 --                                 'student' role holds neither improvement.ideas.view nor
 --                                 improvement.ideas.create, so the measured share will read zero
 --                                 until that is granted.
+--   meetings.*                    access is per meeting (the host, or the follow-up's owner), not
+--                                 per role; the roles listed are the staff who can reach /meetings.
 --   hr_head has no person whose primary role is hr_head (one holds it as a second role); the share
 --   is computed on profiles.role, so its rows will show no audience until that changes.
 --
