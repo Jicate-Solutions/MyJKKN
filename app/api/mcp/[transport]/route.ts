@@ -1,4 +1,7 @@
 export const dynamic = 'force-dynamic';
+// schedule_meeting waits up to 25 s for a booking (lib/mcp/personal-door.ts
+// BOOKING_TIMEOUT_MS); the function must be allowed to outlive that deadline.
+export const maxDuration = 60;
 
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js';

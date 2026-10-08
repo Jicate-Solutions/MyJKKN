@@ -1,5 +1,6 @@
 /**
- * supabase/migrations/20271008150000_personal_key_meeting_booking.sql, applied
+ * supabase/migrations/20271008150000_personal_key_meeting_booking.sql and its
+ * follow-up 20271008160000_personal_key_booking_reservations.sql, applied
  * VERBATIM (after 20270301090000, which creates personal keys) to a throwaway
  * PostgreSQL and exercised as real signed-in callers (SET ROLE authenticated +
  * request.jwt.claim.sub, the way PostgREST does it).
@@ -16,6 +17,9 @@
  *   - at most ONE key per person can book (switching on another key switches
  *     the first off; a partial unique index refuses two active grants), and a
  *     turned-off key is not listed as booking;
+ *   - booking reservations: service role only; a call past a limit is refused;
+ *     a released slot stops counting; two calls at the same instant cannot
+ *     both take the last slot (per-owner advisory lock);
  *   - the file applies twice.
  *
  * REQUIRES a PostgreSQL (CI's postgres:16 service; locally
@@ -31,6 +35,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 const REPO = path.resolve(__dirname, '..', '..');
 const BASE = path.join(REPO, 'supabase/migrations/20270301090000_ai_tool_catalog.sql');
 const MIGRATION = path.join(REPO, 'supabase/migrations/20271008150000_personal_key_meeting_booking.sql');
+const RESERVATIONS = path.join(REPO, 'supabase/migrations/20271008160000_personal_key_booking_reservations.sql');
 
 const PGHOST = process.env.AI_DOOR_TEST_PGHOST ?? 'localhost';
 const PGPORT = Number(process.env.AI_DOOR_TEST_PGPORT ?? 5432);
@@ -95,6 +100,7 @@ let adminConnected = false;
 let dbConnected = false;
 const baseSql = readFileSync(BASE, 'utf8');
 const migrationSql = readFileSync(MIGRATION, 'utf8');
+const reservationsSql = readFileSync(RESERVATIONS, 'utf8');
 
 /** Stand-ins for the seeded functions — the migration asserts every target exists. */
 function stubsFor(sql: string): string {
@@ -162,7 +168,10 @@ beforeAll(async () => {
   await db.query(SCHEMA);
   await db.query(stubsFor(baseSql));
   await db.query(baseSql);
+  // 20271008160000 must refuse to run before 20271008150000
+  await expect(db.query(reservationsSql)).rejects.toThrow(/needs 20271008150000/);
   await db.query(migrationSql);
+  await db.query(reservationsSql);
   keyA = await makeKey(A, 'A front desk');
   keyA2 = await makeKey(A, 'A laptop');
   keyB = await makeKey(B, 'B key');
@@ -179,8 +188,36 @@ afterAll(async () => {
 });
 
 describe('migration', () => {
-  it('applies a second time without error', async () => {
-    await expect(db.query(migrationSql)).resolves.toBeDefined();
+  const setBookingLocked = async () => {
+    await db.query('RESET ROLE');
+    const r = await db.query(
+      `SELECT position('pg_advisory_xact_lock' IN pg_get_functiondef('public.fn_ai_personal_key_set_booking(uuid, boolean)'::regprocedure)) > 0 AS locked`
+    );
+    return r.rows[0].locked as boolean;
+  };
+
+  it('in version order (150000 then 160000) the final switch function takes the lock', async () => {
+    // beforeAll applied 150000 then 160000; re-run both in the same order
+    await db.query(migrationSql);
+    await db.query(reservationsSql);
+    expect(await setBookingLocked()).toBe(true);
+    const r = await db.query(
+      `SELECT count(*)::int AS n FROM pg_proc WHERE proname IN ('fn_ai_booking_reserve', 'fn_ai_booking_release')`
+    );
+    expect(r.rows[0].n).toBe(2);
+  });
+
+  it('if 150000 is re-run last the lock is lost, safety still holds, and re-running 160000 restores it', async () => {
+    await db.query(reservationsSql);
+    await db.query(migrationSql); // 150000 applied LAST
+    expect(await setBookingLocked()).toBe(false);
+    // the one-active-grant-per-owner index still refuses a second active key
+    const idx = await db.query(
+      `SELECT indexdef FROM pg_indexes WHERE indexname = 'uq_ai_personal_key_booking_one_per_owner'`
+    );
+    expect(idx.rows[0].indexdef).toMatch(/UNIQUE INDEX .* \(owner_id\) WHERE active/);
+    await db.query(reservationsSql);
+    expect(await setBookingLocked()).toBe(true);
   });
 });
 
@@ -292,5 +329,135 @@ describe('switching booking off', () => {
     expect(await doorReads(keyS)).toBe(true);
     expect((await setBooking(A, keyS, false)).error).toMatch(/Key not found/);
     expect(await doorReads(keyS)).toBe(true);
+  });
+});
+
+describe('booking reservations (atomic limits)', () => {
+  const reserve = (key: string, owner: string, invitees: number, perHour: number, perDay = 60, perDayInvitees = 150) =>
+    `SELECT public.fn_ai_booking_reserve('${key}', '${owner}', ${invitees}, ${perHour}, ${perDay}, ${perDayInvitees}) AS r`;
+  async function asService<T = any>(sql: string, client: Client = db): Promise<T[]> {
+    await client.query('RESET ROLE');
+    await client.query('SET ROLE service_role');
+    try {
+      return (await client.query(sql)).rows as T[];
+    } finally {
+      await client.query('RESET ROLE');
+    }
+  }
+
+  it('only the service role may reserve or release; nobody signed in reads the table', async () => {
+    expect((await as(A, reserve(keyS, S, 1, 20))).error).toMatch(/permission denied/);
+    expect((await as(null, reserve(keyS, S, 1, 20))).error).toMatch(/permission denied/);
+    expect((await as(A, `SELECT public.fn_ai_booking_release(gen_random_uuid())`)).error).toMatch(/permission denied/);
+    expect((await as(A, `SELECT count(*) FROM public.ai_booking_reservations`)).error).toMatch(/permission denied/);
+  });
+
+  it('refuses past the per-hour limit, and a released slot no longer counts', async () => {
+    const ids: string[] = [];
+    for (let i = 0; i < 3; i++) {
+      const [{ r }] = await asService(reserve(keyS, S, 1, 3));
+      expect(r.ok).toBe(true);
+      ids.push(r.id);
+    }
+    const [{ r: refused }] = await asService(reserve(keyS, S, 1, 3));
+    expect(refused).toEqual({ ok: false, reason: 'per_hour', limit: 3 });
+    const [{ ok }] = await asService(`SELECT public.fn_ai_booking_release('${ids[0]}') AS ok`);
+    expect(ok).toBe(true);
+    const [{ r: again }] = await asService(reserve(keyS, S, 1, 3));
+    expect(again.ok).toBe(true);
+    // releasing twice changes nothing
+    const [{ ok: twice }] = await asService(`SELECT public.fn_ai_booking_release('${ids[0]}') AS ok`);
+    expect(twice).toBe(false);
+  });
+
+  it('refuses a missing limit instead of treating it as unlimited', async () => {
+    await db.query('RESET ROLE');
+    await db.query('SET ROLE service_role');
+    try {
+      await expect(
+        db.query(`SELECT public.fn_ai_booking_reserve('${keyS}', '${S}', 1, NULL, 60, 150)`)
+      ).rejects.toThrow(/every limit must be a positive number/);
+      await expect(
+        db.query(`SELECT public.fn_ai_booking_reserve('${keyS}', '${S}', 1, 20, 60, 0)`)
+      ).rejects.toThrow(/every limit must be a positive number/);
+    } finally {
+      await db.query('RESET ROLE');
+    }
+  });
+
+  it('only a key with booking switched on, for its own owner, may reserve', async () => {
+    // keyB never had booking switched on
+    const [{ r: noGrant }] = await asService(reserve(keyB, B, 1, 20));
+    expect(noGrant).toEqual({ ok: false, reason: 'not_allowed' });
+    // keyS is allowed, but not when named for a different owner
+    const [{ r: wrongOwner }] = await asService(reserve(keyS, A, 1, 20));
+    expect(wrongOwner).toEqual({ ok: false, reason: 'not_allowed' });
+  });
+
+  it('caps attempts per key per hour, released ones included', async () => {
+    // keyS: 3 live + 1 released reservations so far; a per-hour limit of 1 caps attempts at 3
+    const [{ r }] = await asService(reserve(keyS, S, 1, 1));
+    expect(r).toEqual({ ok: false, reason: 'attempts', limit: 3 });
+  });
+
+  it('deleting a key keeps its reservations counted for the owner', async () => {
+    await db.query('RESET ROLE');
+    const before = (await db.query(`SELECT count(*)::int AS n FROM public.ai_booking_reservations WHERE owner_id = $1`, [S])).rows[0].n;
+    const tmp = (await db.query(
+      `INSERT INTO public.api_keys (name, key_value) VALUES ('tmp admin key', 'tmp-hash') RETURNING id`
+    )).rows[0].id;
+    await db.query(`INSERT INTO public.ai_booking_reservations (key_id, owner_id, invitees) VALUES ($1, $2, 1)`, [tmp, S]);
+    await db.query(`DELETE FROM public.api_keys WHERE id = $1`, [tmp]);
+    const after = await db.query(
+      `SELECT count(*)::int AS n, count(*) FILTER (WHERE key_id IS NULL)::int AS orphaned FROM public.ai_booking_reservations WHERE owner_id = $1`,
+      [S]
+    );
+    expect(after.rows[0].n).toBe(before + 1);
+    expect(after.rows[0].orphaned).toBe(1);
+    // put the count back so the invitee-limit test below sees the same total
+    await db.query(`UPDATE public.ai_booking_reservations SET released = true WHERE key_id IS NULL AND owner_id = $1`, [S]);
+  });
+
+  it('the reserve function carries its own lock and statement time limits', async () => {
+    await db.query('RESET ROLE');
+    const r = await db.query(
+      `SELECT proconfig FROM pg_proc WHERE proname = 'fn_ai_booking_reserve'`
+    );
+    expect(r.rows[0].proconfig).toEqual(expect.arrayContaining(['lock_timeout=5s', 'statement_timeout=10s']));
+  });
+
+  it('refuses past the per-day invitee limit for the owner', async () => {
+    const [{ r }] = await asService(reserve(keyS, S, 148, 100, 100, 150)); // 3 already live + 148 > 150
+    expect(r).toEqual({ ok: false, reason: 'invitees_per_day', limit: 150 });
+  });
+
+  it('two calls at the same instant cannot both take the last slot', async () => {
+    const other = new Client({ host: PGHOST, port: PGPORT, user: PGUSER, password: PGPASSWORD, database: DBNAME });
+    await other.connect();
+    try {
+      // keyS has 3 live reservations from the test above: the limit 4 leaves exactly one slot.
+      await db.query('BEGIN');
+      await db.query('SET LOCAL ROLE service_role');
+      const first = (await db.query(reserve(keyS, S, 1, 4))).rows[0].r;
+      expect(first.ok).toBe(true);
+      // the second call blocks on the owner's lock until the first commits
+      const secondP = (async () => {
+        await other.query('BEGIN');
+        await other.query('SET LOCAL ROLE service_role');
+        const r = (await other.query(reserve(keyS, S, 1, 4))).rows[0].r;
+        await other.query('COMMIT');
+        return r;
+      })();
+      await new Promise((res) => setTimeout(res, 300));
+      await db.query('COMMIT');
+      const second = await secondP;
+      expect(second).toEqual({ ok: false, reason: 'per_hour', limit: 4 });
+    } finally {
+      // a failed assertion above must not leave either session inside BEGIN
+      await db.query('ROLLBACK').catch(() => {});
+      await other.query('ROLLBACK').catch(() => {});
+      await db.query('RESET ROLE').catch(() => {});
+      await other.end();
+    }
   });
 });

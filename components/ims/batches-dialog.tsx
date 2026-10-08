@@ -34,6 +34,8 @@ import { Card, CardContent } from '@/components/ui/card';
 import { BeatLoader } from 'react-spinners';
 import { Pencil, Trash2, X, Check } from 'lucide-react';
 import { toast } from 'sonner';
+import { VendorScoreBadge } from '@/components/procurement/vendor-score-badge';
+import { useVendorScores } from '@/hooks/procurement/use-ratings';
 import {
   useImsBatchesForItem,
   useUpdateImsBatch,
@@ -107,6 +109,7 @@ function BatchRow({
   batch: ImsStockBatch;
   onDelete: (b: ImsStockBatch) => void;
 }) {
+  const { data: vendorScores } = useVendorScores(batch.supplier_id ? [batch.supplier_id] : []);
   const [editing, setEditing] = useState(false);
   const [form, setForm] = useState<EditFormState>({
     cost_price:  String(batch.cost_price),
@@ -195,7 +198,14 @@ function BatchRow({
       <TableCell className="text-xs">{formatInr(batch.cost_price)}</TableCell>
       <TableCell className="text-xs">{batch.gst_rate}%</TableCell>
       <TableCell className="text-xs">{formatInr(batch.total_value)}</TableCell>
-      <TableCell className="text-xs">{batch.supplier?.name ?? '—'}</TableCell>
+      <TableCell className="text-xs">
+        <span className="inline-flex items-center gap-1.5">
+          {batch.supplier?.name ?? '—'}
+          {batch.supplier_id && (
+            <VendorScoreBadge score={vendorScores?.get(batch.supplier_id)} vendorName={batch.supplier?.name} />
+          )}
+        </span>
+      </TableCell>
       <TableCell><BatchStatusBadge batch={batch} /></TableCell>
       <TableCell>
         <div className="flex items-center gap-1">
