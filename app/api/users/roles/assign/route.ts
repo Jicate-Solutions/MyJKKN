@@ -33,8 +33,6 @@ const ADMIN_ROLE_KEYS = ['super_admin', 'administrator', 'admin'];
 type RoleRow = {
   role_key?: string | null;
   is_privileged?: boolean | null;
-  institution_scope?: string | null;
-  permissions?: unknown;
 };
 
 function checkFailed(error: unknown) {
@@ -45,45 +43,18 @@ function checkFailed(error: unknown) {
   );
 }
 
-/** Keys set to true, from either permissions shape: flat/nested object or array of keys. */
-function grantedKeys(perms: unknown, prefix = ''): string[] | null {
-  if (perms == null) return [];
-  if (Array.isArray(perms)) return perms.filter((k): k is string => typeof k === 'string');
-  if (typeof perms !== 'object') return null;
-  const out: string[] = [];
-  for (const [k, v] of Object.entries(perms as Record<string, unknown>)) {
-    const key = prefix ? `${prefix}.${k}` : k;
-    if (v === true) out.push(key);
-    else if (v && typeof v === 'object') {
-      const inner = grantedKeys(v, key);
-      if (inner === null) return null;
-      out.push(...inner);
-    }
-  }
-  return out;
-}
-
 /**
- * Privileged for this route. is_privileged defaults to false on a new role, so
- * the flag alone cannot be trusted: also count anything that reaches every
- * college, grants role, user or settings keys, or approves/manages payroll.
- * An unreadable permissions value counts as privileged.
+ * The same answer as user_has_permission's `(permissions->>key)::boolean`:
+ * PostgreSQL's boolean input (t, true, y, yes, on, 1 and unambiguous
+ * prefixes, any case, spaces trimmed). A value that would not cast is false.
  */
-function isPrivilegedLike(role: RoleRow): boolean {
-  if (role.is_privileged !== false) return true;
-  if (ADMIN_ROLE_KEYS.includes(role.role_key ?? '')) return true;
-  if (role.institution_scope === 'all') return true;
-  const keys = grantedKeys(role.permissions);
-  if (keys === null) return true;
-  return keys.some(
-    (k) =>
-      k.startsWith('roles.') ||
-      k.startsWith('users.') ||
-      k.startsWith('settings.') ||
-      k === 'assign_roles' ||
-      k === 'view_users' ||
-      (k.startsWith('hr.payroll.') && (k.endsWith('.manage') || k.endsWith('.approve')))
-  );
+function grantsKey(permissions: unknown, key: string): boolean {
+  if (!permissions || typeof permissions !== 'object' || Array.isArray(permissions)) return false;
+  const v = (permissions as Record<string, unknown>)[key];
+  if (v === true) return true;
+  if (typeof v !== 'string' && typeof v !== 'number') return false;
+  const t = String(v).trim().toLowerCase();
+  return ['t', 'tr', 'tru', 'true', 'y', 'ye', 'yes', 'on', '1'].includes(t);
 }
 
 export async function POST(request: NextRequest) {
@@ -138,9 +109,7 @@ export async function POST(request: NextRequest) {
         .eq('role_key', callerProfile.role)
         .maybeSingle();
       if (callerRoleErr) return checkFailed(callerRoleErr);
-      allowed = (callerRole?.permissions as Record<string, unknown> | null)?.[
-        'roles.assign'
-      ] === true;
+      allowed = grantsKey(callerRole?.permissions, 'roles.assign');
     }
     if (!allowed) {
       return NextResponse.json(
@@ -163,7 +132,7 @@ export async function POST(request: NextRequest) {
     // Resolve role_key → role_id (the UI chips only carry role_key).
     const { data: role, error: roleErr } = await admin
       .from('custom_roles')
-      .select('id, role_key, role_name, is_privileged, institution_scope, permissions')
+      .select('id, role_key, role_name')
       .eq('role_key', roleKey)
       .maybeSingle();
     if (roleErr) return checkFailed(roleErr);
@@ -171,13 +140,24 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: `Role '${roleKey}' not found` }, { status: 404 });
     }
 
-    // (c) A role with admin powers is a super admin's to give. The insert
-    // below uses the service-role client, which skips every database guard.
-    if (!callerIsSuperAdmin && isPrivilegedLike(role as RoleRow)) {
-      return NextResponse.json(
-        { error: 'Only a super admin can give anyone a role with admin powers.' },
-        { status: 403 }
-      );
+    // (c) No escalation. The insert below uses the service-role client, which
+    // skips every database guard. Anyone but a super admin may give only a
+    // role that is not privileged, not every-college, and grants nothing the
+    // caller does not hold (fn_caller_can_grant_role, asked as the caller).
+    if (!callerIsSuperAdmin) {
+      const { data: canGrant, error: grantErr } = await supabase.rpc('fn_caller_can_grant_role', {
+        p_role_id: (role as { id: string }).id
+      });
+      if (grantErr) return checkFailed(grantErr);
+      if (canGrant !== true) {
+        return NextResponse.json(
+          {
+            error:
+              'You can give only a role whose access you already hold yourself, that is not an admin role and does not reach every college.'
+          },
+          { status: 403 }
+        );
+      }
     }
     const roleId = (role as { id: string }).id;
     const roleName = (role as { role_name?: string }).role_name || roleKey;

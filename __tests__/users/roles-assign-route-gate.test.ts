@@ -7,8 +7,9 @@
  * whoever the caller is:
  *   (a) nobody assigns a role to themselves;
  *   (b) only a super admin changes the roles of someone with admin powers;
- *   (c) only a super admin gives a privileged-like role (flag, every-college
- *       scope, role/user/settings keys, payroll approve/manage).
+ *   (c) anyone but a super admin gives only a role that grants nothing they
+ *       do not hold (fn_caller_can_grant_role; its SQL is proven in
+ *       guest-role-no-admin-rights.pg.test.ts, here it is faked).
  * Any check that cannot run refuses with 500.
  *
  * Auth, the caller's reads and the service-role reads/writes are faked; only
@@ -31,13 +32,16 @@ type Role = {
 // The caller's own session.
 let callerRole: string | null = 'counselor';
 let callerIsSuperFlag = false;
-let rolePermsByKey: Record<string, Record<string, boolean>> = {};
+let rolePermsByKey: Record<string, Record<string, unknown>> = {};
 // Service-role view.
 let roles: Record<string, Role> = {};
 let target: Record<string, unknown> | null = null;
 let targetRoleKeys: string[] = [];
 // Fault injection: table/rpc name → error.
 let failing: Set<string> = new Set();
+// What fn_caller_can_grant_role answers, and which role ids it was asked about.
+let canGrant: boolean | null = true;
+let grantAsked: unknown[] = [];
 const inserted: { table: string; row: unknown }[] = [];
 
 const ERR = { message: 'boom' };
@@ -73,12 +77,15 @@ vi.mock('@/lib/supabase/server', () => ({
   createClient: () =>
     Promise.resolve({
       auth: { getUser: () => Promise.resolve({ data: { user: { id: CALLER } }, error: null }) },
-      rpc: (fn: string) =>
-        Promise.resolve(
-          failing.has(`rpc:${fn}`)
-            ? { data: null, error: ERR }
-            : { data: fn === 'is_super_admin' ? callerIsSuperFlag : false, error: null }
-        ),
+      rpc: (fn: string, args?: { p_role_id?: string }) => {
+        if (failing.has(`rpc:${fn}`)) return Promise.resolve({ data: null, error: ERR });
+        if (fn === 'is_super_admin') return Promise.resolve({ data: callerIsSuperFlag, error: null });
+        if (fn === 'fn_caller_can_grant_role') {
+          grantAsked.push(args?.p_role_id);
+          return Promise.resolve({ data: canGrant, error: null });
+        }
+        return Promise.resolve({ data: null, error: { message: `unexpected rpc ${fn}` } });
+      },
       from: (table: string) =>
         query(`caller:${table}`, (filter) => {
           if (table === 'profiles') return { role: callerRole, full_name: 'Caller' };
@@ -137,6 +144,8 @@ beforeEach(() => {
   callerIsSuperFlag = false;
   rolePermsByKey = { counselor: { 'roles.assign': true } };
   failing = new Set();
+  canGrant = true;
+  grantAsked = [];
   inserted.length = 0;
   target = { id: TARGET, full_name: 'Target', email: 't@x', role: 'driver', is_super_admin: false };
   targetRoleKeys = ['driver'];
@@ -224,17 +233,61 @@ describe('(b) a target with admin powers', () => {
   });
 });
 
-describe('(c) privileged-like roles need a super admin', () => {
-  it.each([
-    ['hr_admin', 'flagged privileged'],
-    ['super_admin', 'flagged and every college'],
-    ['unflagged', 'no flag (fails closed)'],
-    ['all_colleges', "unflagged but scope 'all'"],
-    ['nested_users', 'unflagged but grants users.view (nested shape)'],
-    ['payroll_approver', 'unflagged but approves payroll'],
-    ['settings_editor', 'unflagged but grants settings.* (array shape)']
-  ])('refuses %s for a non-super-admin (%s)', async (key) => {
-    const res = await post(key);
+describe('(c) no escalation for anyone but a super admin', () => {
+  it('refuses when fn_caller_can_grant_role says no, and asks about the resolved role id', async () => {
+    canGrant = false;
+    const res = await post('librarian');
+    expect(res.status).toBe(403);
+    expect(grantAsked).toEqual(['r-librarian']);
+    expect(assigned()).toHaveLength(0);
+  });
+
+  it('refuses when the check answers null (fails closed)', async () => {
+    canGrant = null;
+    const res = await post('librarian');
+    expect(res.status).toBe(403);
+    expect(assigned()).toHaveLength(0);
+  });
+
+  it('a super admin is not asked: unrestricted apart from self-assign', async () => {
+    callerRole = 'super_admin';
+    callerIsSuperFlag = true;
+    canGrant = false;
+    const res = await post('hr_admin');
+    expect(res.status).toBe(200);
+    expect(grantAsked).toHaveLength(0);
+  });
+
+  it('an administrator gives a normal role to someone holding guest once guest is not privileged', async () => {
+    callerRole = 'administrator';
+    rolePermsByKey = { administrator: { 'roles.assign': true } };
+    roles.guest = role('guest', { is_privileged: false });
+    targetRoleKeys = ['guest'];
+    const res = await post('librarian');
+    expect(res.status).toBe(200);
+    expect(assigned()).toHaveLength(1);
+  });
+
+  it('while guest is still flagged privileged, that same person is treated as admin-powered (fails closed until the migration)', async () => {
+    callerRole = 'administrator';
+    rolePermsByKey = { administrator: { 'roles.assign': true } };
+    roles.guest = role('guest', { is_privileged: true });
+    targetRoleKeys = ['guest'];
+    const res = await post('librarian');
+    expect(res.status).toBe(403);
+  });
+});
+
+describe('caller gate reads roles.assign like user_has_permission', () => {
+  it.each([['true'], ['t'], ['YES'], [' on '], ['1'], [1]])('counts %j as granted', async (v) => {
+    rolePermsByKey = { counselor: { 'roles.assign': v as never } };
+    const res = await post('librarian');
+    expect(res.status).toBe(200);
+  });
+
+  it.each([['false'], ['maybe'], ['o'], [{ assign: true }], [0], [null]])('does not count %j', async (v) => {
+    rolePermsByKey = { counselor: { 'roles.assign': v as never } };
+    const res = await post('librarian');
     expect(res.status).toBe(403);
     expect(assigned()).toHaveLength(0);
   });
@@ -247,7 +300,8 @@ describe('fail closed', () => {
     ['caller:custom_roles'],
     ['custom_roles'],
     ['profiles'],
-    ['user_roles']
+    ['user_roles'],
+    ['rpc:fn_caller_can_grant_role']
   ])('returns 500 and assigns nothing when %s errors', async (which) => {
     failing.add(which);
     const res = await post('librarian');
