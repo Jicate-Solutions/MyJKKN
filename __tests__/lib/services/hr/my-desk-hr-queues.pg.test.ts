@@ -178,7 +178,7 @@ CREATE TABLE public.test_persona (
   staff_ids uuid[] DEFAULT '{}', staff_inst_ids uuid[] DEFAULT '{}', inst_access uuid[] DEFAULT '{}');
 CREATE FUNCTION public.is_super_admin() RETURNS boolean LANGUAGE sql STABLE AS $$
   SELECT COALESCE((SELECT super FROM public.test_persona WHERE uid = auth.uid()), false) $$;
-CREATE FUNCTION public.is_admin() RETURNS boolean LANGUAGE sql STABLE AS $$ SELECT false $$;
+CREATE FUNCTION public.is_admin(user_id uuid DEFAULT NULL) RETURNS boolean LANGUAGE sql STABLE AS $$ SELECT false $$;
 -- Like production: a super admin passes every key.
 CREATE FUNCTION public.user_has_permission(permission_name text) RETURNS boolean LANGUAGE sql STABLE AS $$
   SELECT COALESCE((SELECT super OR permission_name = ANY (perms) FROM public.test_persona WHERE uid = auth.uid()), false) $$;
