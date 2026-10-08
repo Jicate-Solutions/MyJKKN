@@ -51,9 +51,10 @@ export async function GET(request: NextRequest) {
   const ranAt = new Date();
   try {
     const summary = await runRecruitmentHarness(createServiceRoleClient(), ranAt);
-    // A college whose HR-editor lookup failed is not a crash (every other nudge
-    // still went out), but it is reported, so a broken lookup stays visible.
-    const ok = summary.failed === 0 && summary.hrEditorsUnavailable === 0;
+    // A college whose HR-editor lookup failed, or an unfinished claim the settle
+    // step could not decide, is not a crash (every other nudge still went out),
+    // but it is reported, so a broken lookup stays visible.
+    const ok = summary.failed === 0 && summary.hrEditorsUnavailable === 0 && summary.unsettled === 0;
     return NextResponse.json(
       { ok, job: JOB_NAME, ran_at: ranAt.toISOString(), ...summary },
       { status: ok ? 200 : 500 },

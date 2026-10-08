@@ -10,6 +10,10 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 //   finding 2 — a send that returns nothing and no reason is a failure, not
 //               a terminal found-nobody record
 //   finding 3 — a failed HR-editor lookup holds back only the offers that need it
+// Second review of #4260 (11:29 UTC panel):
+//   r2 f1 — a send skipped as 'no_created_by' is a failure, not found-nobody
+//   r2 f2 — a claim the settle step could not decide does not start the HR
+//           Head's 48-hour clock, and is still never sent twice
 
 const fanout = vi.fn();
 const ensureLinks = vi.fn();
@@ -18,11 +22,12 @@ vi.mock('@/lib/services/_shared/notifications/notify', () => ({
   ensureLinks: (...args: unknown[]) => ensureLinks(...args),
 }));
 
-import { claimAndSend, loadHrEditors, releaseStaleClaims } from '@/lib/hr/recruitment/harness-run';
+import { claimAndSend, loadHrEditors, releaseStaleClaims, sentForRules } from '@/lib/hr/recruitment/harness-run';
 import {
   STALE_CLAIM_MINUTES,
   nudgeIdempotencyKey,
   offerCandidatesToCheck,
+  selectApprovalNudges,
   staleUnsentClaims,
   type Directory,
   type DirectoryUser,
@@ -153,6 +158,23 @@ describe('claimAndSend — when a claim is released', () => {
     )).toEqual(['claim-1']);
   });
 
+  it('#4260 r2 f1: a send skipped as no_created_by is a failure — not a permanent found-nobody claim', async () => {
+    // no_created_by = the sender was missing, not "nobody to tell".
+    fanout.mockResolvedValue({ notified: 0, skipped: 'no_created_by' });
+    const { db, ops } = fakeDb();
+    expect(await claimAndSend(db, NUDGE, null)).toBe('failed');
+    // No found-nobody mark (that would close the nudge and start the HR Head's clock) ...
+    expect(ops.some((o) => o.op === 'update')).toBe(false);
+    // ... and the claim keeps its recipients, so the settle step re-arms it.
+    expect(ops.some((o) => o.op === 'delete')).toBe(false);
+    const claim = ops.find((o) => o.op === 'insert');
+    expect((claim?.payload as { recipient_ids: string[] }).recipient_ids).toEqual(['user-1']);
+    expect(staleUnsentClaims(
+      [{ id: 'claim-1', kind: NUDGE.kind, ref_key: NUDGE.refKey, sent_at: '2026-10-10T03:00:00Z', notification_id: null, recipient_ids: ['user-1'] }],
+      new Date('2026-10-10T04:00:00Z'),
+    )).toEqual(['claim-1']);
+  });
+
   it('a send that landed but whose id could not be recorded is still a send (the next run records it)', async () => {
     fanout.mockResolvedValue({ notified: 1, notificationId: 'notif-1' });
     const { db, ops } = fakeDb({ updateReturns: { data: null, error: { message: 'boom' } } });
@@ -248,9 +270,18 @@ describe('staleUnsentClaims / releaseStaleClaims — a run killed mid-send', () 
     expect(del?.filters).toContainEqual(['is', 'notification_id', null]);
   });
 
-  it('a failed delete releases nothing (so nothing is re-sent)', async () => {
+  it('a failed delete releases nothing (so nothing is re-sent) and leaves the row unsettled', async () => {
     const { db } = fakeDb({ deleteReturns: { data: null, error: { message: 'boom' } } });
-    expect((await releaseStaleClaims(db, [row({ id: 'stale' })], NOW)).released.size).toBe(0);
+    const { released, unsettled } = await releaseStaleClaims(db, [row({ id: 'stale' })], NOW);
+    expect(released.size).toBe(0);
+    expect(Array.from(unsettled)).toEqual(['stale']);
+  });
+
+  it('#4260 r2 f2: a row the guarded delete did not remove is unsettled, not released', async () => {
+    const { db } = fakeDb({ deleteReturns: { data: [{ id: 'a' }], error: null } });
+    const { released, unsettled } = await releaseStaleClaims(db, [row({ id: 'a' }), row({ id: 'b', ref_key: 'cand-2:0' })], NOW);
+    expect(Array.from(released)).toEqual(['a']);
+    expect(Array.from(unsettled)).toEqual(['b']);
   });
 
   it('#4260 f1: a claim whose send LANDED is recorded with its id and keeps sent_at — never released, never re-sent', async () => {
@@ -295,10 +326,12 @@ describe('staleUnsentClaims / releaseStaleClaims — a run killed mid-send', () 
 
   it('#4260 f1: if the notification lookup fails, nothing is released or recorded (no re-send, no clock reset)', async () => {
     const { db, ops } = fakeDb({ reads: { notifications: { data: null, error: { message: 'boom' } } } });
-    const { released, recorded } = await releaseStaleClaims(db, [row({ id: 'stale' })], NOW);
+    const { released, unsettled, recorded } = await releaseStaleClaims(db, [row({ id: 'stale' })], NOW);
     expect(released.size).toBe(0);
     expect(recorded).toBe(0);
     expect(ops.some((o) => o.op === 'delete' || o.op === 'update')).toBe(false);
+    // #4260 r2 f2: the row is reported unsettled, so the runner keeps it out of the clock.
+    expect(Array.from(unsettled)).toEqual(['stale']);
   });
 
   it('#4260 f1: if re-asserting the links fails, the landed row is left for the next run — not released', async () => {
@@ -306,10 +339,44 @@ describe('staleUnsentClaims / releaseStaleClaims — a run killed mid-send', () 
     const { db, ops } = fakeDb({
       reads: { notifications: { data: [{ id: 'notif-9', idempotency_key: nudgeIdempotencyKey('approval_reminder', 'cand-1:0') }], error: null } },
     });
-    const { released, recorded } = await releaseStaleClaims(db, [row({ id: 'landed' })], NOW);
+    const { released, unsettled, recorded } = await releaseStaleClaims(db, [row({ id: 'landed' })], NOW);
     expect(released.size).toBe(0);
     expect(recorded).toBe(0);
     expect(ops.some((o) => o.op === 'delete' || o.op === 'update')).toBe(false);
+    // The notification exists — the reminder reached people — so its clock runs.
+    expect(unsettled.size).toBe(0);
+  });
+
+  it('#4260 r2 f2: an unsettled reminder does not escalate to the HR Head, and is not sent twice', async () => {
+    const hrDir: Directory = {
+      users: new Map<string, DirectoryUser>([
+        ['hod-a', { id: 'hod-a', fullName: 'hod-a', institutionId: 'college-a', active: true, isSuperAdmin: false, roleKeys: ['hod'], allScope: false, grantInstitutionIds: [], canEditRecruitment: false }],
+        ['hr-head', { id: 'hr-head', fullName: 'hr-head', institutionId: 'college-a', active: true, isSuperAdmin: false, roleKeys: ['hr_head'], allScope: true, grantInstitutionIds: [], canEditRecruitment: false }],
+      ]),
+      counsellingCodeOf: new Map(),
+      roleNameOf: new Map([['hod', 'HOD'], ['hr_head', 'HR Head']]),
+    };
+    const waiting: HarnessCandidate = {
+      id: 'cand-1', name: 'Priya S', role_title: 'Accountant', status: 'pending_approval', institution_id: 'college-a',
+      approval_chain: [{ approver_role: 'hod', status: 'pending', escalate_after_hours: 72 }],
+      current_step: 0, submitted_at: new Date(NOW.getTime() - 200 * 3600_000).toISOString(), final_decided_at: null,
+      expected_joining_date: null, actual_joining_date: null, offer_issued_at: null, job_id: null,
+    };
+    // A reminder claim from 60 hours ago that never recorded a notification, and
+    // whose settle step failed this run.
+    const reminder = row({ id: 'stale', sent_at: new Date(NOW.getTime() - 60 * 3600_000).toISOString() });
+    const goLive = new Date('2020-01-01T00:00:00Z');
+
+    // Counted as sent, it would escalate (this is what the panel flagged) ...
+    expect(selectApprovalNudges([waiting], sentForRules([reminder], new Set()), hrDir, NOW, goLive).map((n) => n.kind))
+      .toEqual(['approval_escalation']);
+    // ... left out as unsettled, no escalation: the reminder is re-selected instead,
+    const nudges = selectApprovalNudges([waiting], sentForRules([reminder], new Set(['stale'])), hrDir, NOW, goLive);
+    expect(nudges.map((n) => n.kind)).toEqual(['approval_reminder']);
+    // and the existing claim stops it being sent a second time.
+    const { db } = fakeDb({ insert: { data: null, error: { code: '23505', message: 'duplicate' } } });
+    expect(await claimAndSend(db, nudges[0], null)).toBe('already_claimed');
+    expect(fanout).not.toHaveBeenCalled();
   });
 });
 

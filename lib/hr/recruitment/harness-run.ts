@@ -9,12 +9,14 @@
 //   3. sends it through fanoutNotification (notifications + user_notifications);
 //   4. releases the claim if the send THREW, so the next run tries again. Only a
 //      send that explicitly found no recipients becomes a terminal "found nobody"
-//      record (recipient_ids = {}); a send that returned nothing and no reason is
-//      a failure, and its claim is left for step 5.
+//      record (recipient_ids = {}); a send that returned nothing and no reason, or
+//      was skipped for having no sender (no_created_by), is a failure, and its
+//      claim is left for step 5.
 //   5. at the start of each run, settles claims with no notification recorded
 //      (staleUnsentClaims): if the notification exists under the nudge's key, its
 //      id is recorded and sent_at is kept; otherwise the claim is released and the
-//      nudge is sent again — see releaseStaleClaims.
+//      nudge is sent again — see releaseStaleClaims. A claim the settle step
+//      could not decide is kept out of the escalation clock for that run.
 //
 // SERVER-SIDE ONLY. Never import from a client component.
 // =====================================================================================
@@ -347,13 +349,16 @@ export async function claimAndSend(db: Db, nudge: Nudge, createdBy: string | nul
   }
 
   // 5. The send returned nothing and gave no reason (notify.ts: the insert
-  //    returned no row and no error). That is a failed write, not "found nobody"
-  //    (review of #4260, finding 2): treating it as final would start the HR
-  //    Head's clock for an approver who was never reminded. The claim is left as
-  //    it is — people to tell, no notification — so the next run's settle step
-  //    releases it once stale and the nudge is sent again.
-  if (result.skipped !== 'no_recipients' && result.skipped !== 'no_created_by') {
-    console.error('[recruitment-harness] send returned no notification and no reason', { kind: nudge.kind, ref: nudge.refKey, result });
+  //    returned no row and no error), or it was skipped as 'no_created_by'. Both
+  //    are failed sends, not "found nobody" (review of #4260, finding 2; second
+  //    review, finding 1): 'no_created_by' means the sender was missing, not that
+  //    there was nobody to tell. Treating either as final would close the nudge
+  //    for ever and start the HR Head's clock for an approver who was never
+  //    reminded. The claim is left as it is — people to tell, no notification —
+  //    so the next run's settle step finds no notification under the key,
+  //    releases it, and the nudge is sent again.
+  if (result.skipped !== 'no_recipients') {
+    console.error('[recruitment-harness] send reached nobody and was not a found-nobody', { kind: nudge.kind, ref: nudge.refKey, result });
     return 'failed';
   }
 
@@ -386,21 +391,32 @@ export async function claimAndSend(db: Db, nudge: Nudge, createdBy: string | nul
  *     selects and sends the nudge again; the new claim's sent_at is when the
  *     approver is actually reminded.
  * If the lookup fails, nothing is settled this run: the rows stay claimed, so
- * nothing is re-sent and no clock moves. A failed record or delete is logged and
- * that row is left for the next run.
+ * nothing is re-sent. A failed record or delete is logged and that row is left
+ * for the next run.
  *
- * @returns the ids released (to be sent again) and how many landed sends were recorded.
+ * A row this run could not settle as landed — every stale row when the lookup
+ * failed, and a no-notification row whose release failed — is returned in
+ * `unsettled`. The runner keeps it out of the rules' "already sent" input, so an
+ * approval reminder that may never have reached anyone does not start the HR
+ * Head's 48-hour clock (second review of #4260, finding 2). It still guards
+ * against a double send: a re-selected nudge meets the UNIQUE (kind, ref_key)
+ * claim and comes back 'already_claimed'. A landed row whose links or id record
+ * failed is NOT unsettled — the reminder did reach people, so its clock runs.
+ *
+ * @returns the ids released (to be sent again), the ids left unsettled, and how
+ * many landed sends were recorded.
  */
 export async function releaseStaleClaims(
   db: Db,
   rows: SentNudge[],
   now: Date,
-): Promise<{ released: Set<string>; recorded: number }> {
+): Promise<{ released: Set<string>; unsettled: Set<string>; recorded: number }> {
   const released = new Set<string>();
+  const unsettled = new Set<string>();
   let recorded = 0;
   const stale = new Set(staleUnsentClaims(rows, now));
   const staleRows = rows.filter((r) => r.id && stale.has(r.id));
-  if (staleRows.length === 0) return { released, recorded };
+  if (staleRows.length === 0) return { released, unsettled, recorded };
 
   const keyOf = (r: SentNudge) => nudgeIdempotencyKey(r.kind, r.ref_key);
   let landed: { id: string; idempotency_key: string }[];
@@ -411,7 +427,8 @@ export async function releaseStaleClaims(
     );
   } catch (err) {
     console.error('[recruitment-harness] checking unfinished claims failed; leaving them claimed', { count: staleRows.length, err });
-    return { released, recorded };
+    for (const r of staleRows) unsettled.add(r.id as string);
+    return { released, unsettled, recorded };
   }
   const notificationOf = new Map(landed.map((n) => [n.idempotency_key, n.id]));
 
@@ -445,11 +462,30 @@ export async function releaseStaleClaims(
       .select('id');
     if (error) {
       console.error('[recruitment-harness] re-arming unfinished claims failed', { count: part.length, error });
+      for (const id of part) unsettled.add(id);
       continue;
     }
-    for (const r of (data as { id: string }[] | null) ?? []) released.add(r.id);
+    const gone = new Set(((data as { id: string }[] | null) ?? []).map((r) => r.id));
+    for (const id of part) {
+      if (gone.has(id)) released.add(id);
+      // Not deleted: either an overlapping run recorded a notification on it
+      // (the guarded delete skipped it) or another run already released it.
+      // Neither is known to have reached anyone in THIS run's read, so it stays
+      // out of the clock until a later run reads it again.
+      else unsettled.add(id);
+    }
   }
-  return { released, recorded };
+  return { released, unsettled, recorded };
+}
+
+/**
+ * The "already sent" input of the selection rules: every sent row except the
+ * claims the settle step released (they are to be sent again) or could not
+ * settle (they may never have reached anyone, so they must not start the HR
+ * Head's clock — the UNIQUE claim still stops a double send).
+ */
+export function sentForRules(rows: SentNudge[], leaveOut: Set<string>): Map<string, SentNudge> {
+  return indexSent(rows.filter((r) => !(r.id && leaveOut.has(r.id))));
 }
 
 /**
@@ -511,6 +547,8 @@ export interface HarnessRunSummary {
   rearmed: number;
   /** Claims whose send had landed without its id recorded; the id was recorded, sent_at kept, nothing re-sent. */
   recordedLate: number;
+  /** Unfinished claims this run could not settle (lookup or release failed); kept out of the escalation clock, retried next run. */
+  unsettled: number;
   /** Colleges whose HR-editor lookup failed; their offer nudges wait for the next run. */
   hrEditorsUnavailable: number;
   /** Approval reminders/escalations left to the HR chase ladder (it covers duty R5). */
@@ -593,8 +631,10 @@ export async function runRecruitmentHarness(db: Db, now: Date = new Date()): Pro
   );
   // A claim whose send never happened is released, so the rules see it as unsent;
   // one whose send landed gets its notification id recorded and stays sent.
-  const { released: rearmed, recorded: recordedLate } = await releaseStaleClaims(db, sentRows, now);
-  const sent = indexSent(sentRows.filter((r) => !(r.id && rearmed.has(r.id))));
+  // A claim the settle step could not decide is also left out, so it cannot start
+  // the HR Head's clock; the UNIQUE claim still stops it being sent twice.
+  const { released: rearmed, unsettled, recorded: recordedLate } = await releaseStaleClaims(db, sentRows, now);
+  const sent = sentForRules(sentRows, new Set([...Array.from(rearmed), ...Array.from(unsettled)]));
 
   // --- directory ---------------------------------------------------------------
   const stepRoleKeys = candidates.flatMap((c) =>
@@ -636,7 +676,7 @@ export async function runRecruitmentHarness(db: Db, now: Date = new Date()): Pro
   // --- send ---------------------------------------------------------------------
   const summary: HarnessRunSummary = {
     due: zero(), sent: zero(), noRecipient: zero(), alreadyClaimed: 0, failed: 0, handedToLadder,
-    rearmed: rearmed.size, recordedLate, hrEditorsUnavailable: hrEditorsUnavailable.size,
+    rearmed: rearmed.size, recordedLate, unsettled: unsettled.size, hrEditorsUnavailable: hrEditorsUnavailable.size,
   };
   for (const n of nudges) {
     summary.due[n.kind] += 1;
