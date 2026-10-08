@@ -12,7 +12,7 @@
  * Postgres and returns the candidate only when the caller may already see them.
  * The candidate id is the only thing taken from the request.
  *
- * allowApiKey: false — an API key skips withAuth's permission check, and this
+ * Session only (the caller's own cookies), like every handler beside it: this
  * is a browser screen's data, not an integration endpoint.
  *
  * What is returned: the worked-out lines, the figure, "above band by" and the
@@ -22,41 +22,87 @@
  * READ ONLY. GET is the only verb.
  */
 
+import { createServerClient } from '@supabase/ssr';
+import type { CookieOptions } from '@supabase/ssr';
+import { cookies } from 'next/headers';
 import { NextResponse, connection } from 'next/server';
-import { withAuth } from '@/lib/auth/with-auth';
+import type { NextRequest } from 'next/server';
 import {
   CandidateSalarySuggestionAccessError,
   CandidateSalarySuggestionNotFoundError,
   CandidateSalarySuggestionService,
 } from '@/lib/services/hr/pay-bands/candidate-salary-suggestion-service';
+import { getErrorMessage } from '@/lib/utils';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const REQUIRED_KEY = 'hr.payroll.salary.view';
 
-export const GET = withAuth(
-  async (_request, auth, context) => {
-    await connection();
-    const id = (await context?.params)?.id ?? '';
-    if (!UUID.test(id)) {
-      return NextResponse.json({ error: 'This is not a candidate id.' }, { status: 400 });
+async function getClient() {
+  const cookieStore = await cookies();
+  return createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      cookies: {
+        get(name: string) {
+          return cookieStore.get(name)?.value;
+        },
+        set(name: string, value: string, options: CookieOptions) {
+          try {
+            cookieStore.set({ name, value, ...options });
+          } catch {}
+        },
+        remove(name: string, options: CookieOptions) {
+          try {
+            cookieStore.set({ name, value: '', ...options });
+          } catch {}
+        },
+      },
+    },
+  );
+}
+
+/** The canonical triad, as withAuth's requirePermission runs it. */
+async function holds(supabase: Awaited<ReturnType<typeof getClient>>, key: string): Promise<boolean> {
+  const [{ data: isSuperAdmin }, { data: isAdmin }, { data: canDo }] = await Promise.all([
+    supabase.rpc('is_super_admin'),
+    supabase.rpc('is_admin'),
+    supabase.rpc('user_has_permission', { permission_name: key }),
+  ]);
+  return isSuperAdmin === true || isAdmin === true || canDo === true;
+}
+
+export async function GET(_request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  await connection();
+  const { id } = await params;
+  if (!UUID.test(id ?? '')) {
+    return NextResponse.json({ error: 'This is not a candidate id.' }, { status: 400 });
+  }
+  try {
+    const supabase = await getClient();
+    const {
+      data: { user },
+      error: authError,
+    } = await supabase.auth.getUser();
+    if (authError || !user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    if (!(await holds(supabase, REQUIRED_KEY))) {
+      return NextResponse.json(
+        {
+          error: `A suggested salary is shown only to people who can see salaries (${REQUIRED_KEY}).`,
+        },
+        { status: 403 },
+      );
     }
-    try {
-      const body = await CandidateSalarySuggestionService.forCandidate(auth.supabase, id);
-      return NextResponse.json(body);
-    } catch (err: unknown) {
-      if (err instanceof CandidateSalarySuggestionAccessError) {
-        return NextResponse.json({ error: err.message }, { status: 403 });
-      }
-      if (err instanceof CandidateSalarySuggestionNotFoundError) {
-        return NextResponse.json({ error: err.message }, { status: 404 });
-      }
-      console.error('[HR Candidate Salary Suggestion] read error:', err);
-      const message = err instanceof Error ? err.message : 'Failed to work out a suggestion';
-      return NextResponse.json({ error: message }, { status: 500 });
+    const body = await CandidateSalarySuggestionService.forCandidate(supabase, id);
+    return NextResponse.json(body);
+  } catch (err: unknown) {
+    if (err instanceof CandidateSalarySuggestionAccessError) {
+      return NextResponse.json({ error: err.message }, { status: 403 });
     }
-  },
-  {
-    requirePermission: 'hr.payroll.salary.view',
-    requiredPermission: 'read',
-    allowApiKey: false,
-  },
-);
+    if (err instanceof CandidateSalarySuggestionNotFoundError) {
+      return NextResponse.json({ error: err.message }, { status: 404 });
+    }
+    console.error('[HR Candidate Salary Suggestion] read error:', err);
+    return NextResponse.json({ error: getErrorMessage(err) }, { status: 500 });
+  }
+}

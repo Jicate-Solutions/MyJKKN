@@ -15,7 +15,11 @@
  *   4. an unknown path is a miss (the route answers 404) and a verb the module
  *      never exported is a miss too (the route answers 405).
  */
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
+
+// The salary-suggestion handler's service is `import 'server-only'`, which only
+// Next's bundler resolves.
+vi.mock('server-only', () => ({}));
 
 import {
   CANDIDATE_ROUTES,
