@@ -3090,7 +3090,7 @@ CREATE TRIGGER trg_ig_learner_post_claims_guard
 -- ----------------------------------------------------------------------------
 DROP TRIGGER IF EXISTS trg_hr_log_bank_destination_change ON public.hr_staff_bank_accounts;
 CREATE TRIGGER trg_hr_log_bank_destination_change
-  AFTER INSERT OR UPDATE ON public.hr_staff_bank_accounts
+  AFTER INSERT OR UPDATE OR DELETE ON public.hr_staff_bank_accounts
   FOR EACH ROW EXECUTE FUNCTION public.fn_hr_log_bank_destination_change();
 
 DROP TRIGGER IF EXISTS trg_hr_log_payer_destination_change ON public.hr_staff_payroll;

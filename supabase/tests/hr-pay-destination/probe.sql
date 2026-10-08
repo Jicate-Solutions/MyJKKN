@@ -107,5 +107,67 @@ RESET ROLE;
 INSERT INTO public.r (ok, what) SELECT count(*) = 1 AND bool_and(days_of_week = ARRAY[1]::smallint[] AND minute_of_day = 497),
   'Monday 08:17 IST schedule row present once' FROM public.ai_routine_schedules WHERE routine_id = 'hr-pay-destination-weekly';
 
+-- 13. An account on file from BEFORE the log began: the first change still
+--     names it, because the save function points the old row at the new one.
+SELECT public.as_user('a0000000-0000-4000-8000-0000000000aa');
+ALTER TABLE public.hr_staff_bank_accounts DISABLE TRIGGER trg_hr_log_bank_destination_change;
+INSERT INTO public.hr_staff_bank_accounts (staff_id, account_holder_name, account_number, ifsc_code, bank_name)
+VALUES ('5a000000-0000-4000-8000-000000000003', 'MEENA S', '111122223333', 'SBIN0001234', 'SBI');
+ALTER TABLE public.hr_staff_bank_accounts ENABLE TRIGGER trg_hr_log_bank_destination_change;
+SELECT public.fn_hr_set_staff_bank_account('5a000000-0000-4000-8000-000000000003', 'MEENA S', '444455556666', 'HDFC0000123', 'HDFC');
+INSERT INTO public.r (ok, what) SELECT count(*) = 1 AND bool_and(before->>'account_last4' = '3333' AND after->>'account_last4' = '6666'),
+  'an account from before the log: its first change is logged as changed 3333 to 6666, not recorded (got ' || count(*) || ')'
+  FROM public.hr_pay_destination_changes WHERE kind = 'bank' AND staff_id = '5a000000-0000-4000-8000-000000000003';
+
+-- 14. Delete the account in use, then insert a new one directly (the write
+--     policy allows both). The delete is logged as removed, and the insert as
+--     a CHANGE from the deleted account, not as a first-time record.
+SELECT public.fn_hr_set_staff_bank_account('5a000000-0000-4000-8000-000000000004', 'RAVI T', '555566667777', 'SBIN0001234', 'SBI');
+DELETE FROM public.hr_staff_bank_accounts WHERE staff_id = '5a000000-0000-4000-8000-000000000004' AND superseded_by IS NULL;
+INSERT INTO public.r (ok, what) SELECT count(*) = 1, 'delete of the account in use: logged as removed (was 7777)'
+  FROM public.hr_pay_destination_changes WHERE staff_id = '5a000000-0000-4000-8000-000000000004'
+   AND before->>'account_last4' = '7777' AND after IS NULL;
+INSERT INTO public.hr_staff_bank_accounts (staff_id, account_holder_name, account_number, ifsc_code, bank_name)
+VALUES ('5a000000-0000-4000-8000-000000000004', 'RAVI T', '888899990000', 'HDFC0000123', 'HDFC');
+INSERT INTO public.r (ok, what) SELECT count(*) = 1, 'direct insert after a delete: logged as changed 7777 to 0000'
+  FROM public.hr_pay_destination_changes WHERE staff_id = '5a000000-0000-4000-8000-000000000004'
+   AND before->>'account_last4' = '7777' AND after->>'account_last4' = '0000';
+INSERT INTO public.r (ok, what) SELECT count(*) = 0, 'no first-time "recorded" row after the first one for this person'
+  FROM public.hr_pay_destination_changes WHERE staff_id = '5a000000-0000-4000-8000-000000000004'
+   AND before IS NULL AND after->>'account_last4' <> '7777';
+
+-- 15. The back door: insert an old-looking row, retire the account in use onto
+--     it, then put the old-looking row back in use. Every step that moves pay
+--     is logged; inserting a row that is not in use is not.
+DO $$ DECLARE v_cur uuid; v_new uuid := gen_random_uuid(); n0 int; n1 int; BEGIN
+  SELECT id INTO v_cur FROM public.hr_staff_bank_accounts WHERE staff_id = '5a000000-0000-4000-8000-000000000003' AND superseded_by IS NULL;
+  SELECT count(*) INTO n0 FROM public.hr_pay_destination_changes WHERE staff_id = '5a000000-0000-4000-8000-000000000003';
+  INSERT INTO public.hr_staff_bank_accounts (id, staff_id, account_holder_name, account_number, ifsc_code, bank_name, superseded_by)
+  VALUES (v_new, '5a000000-0000-4000-8000-000000000003', 'MEENA S', '121212121212', 'ICIC0000456', 'ICICI', v_cur);
+  SELECT count(*) INTO n1 FROM public.hr_pay_destination_changes WHERE staff_id = '5a000000-0000-4000-8000-000000000003';
+  INSERT INTO public.r (ok, what) VALUES (n1 = n0, 'inserting a row that is not in use: no log row');
+  UPDATE public.hr_staff_bank_accounts SET superseded_by = v_new WHERE id = v_cur;
+  UPDATE public.hr_staff_bank_accounts SET superseded_by = NULL WHERE id = v_new;
+END $$;
+INSERT INTO public.r (ok, what) SELECT count(*) = 1, 'account in use retired onto a row not in use: logged as removed (was 6666)'
+  FROM public.hr_pay_destination_changes WHERE staff_id = '5a000000-0000-4000-8000-000000000003'
+   AND before->>'account_last4' = '6666' AND after IS NULL;
+INSERT INTO public.r (ok, what) SELECT count(*) = 1, 'an old-looking row put back in use: logged as changed 6666 to 1212'
+  FROM public.hr_pay_destination_changes WHERE staff_id = '5a000000-0000-4000-8000-000000000003'
+   AND before->>'account_last4' = '6666' AND after->>'account_last4' = '1212';
+
+-- 16. Deleting an old, superseded row is housekeeping, not a change.
+DO $$ DECLARE n0 int; n1 int; BEGIN
+  SELECT count(*) INTO n0 FROM public.hr_pay_destination_changes;
+  DELETE FROM public.hr_staff_bank_accounts WHERE staff_id = '5a000000-0000-4000-8000-000000000003' AND account_number = '111122223333';
+  SELECT count(*) INTO n1 FROM public.hr_pay_destination_changes;
+  INSERT INTO public.r (ok, what) VALUES (n1 = n0, 'deleting an old superseded row: no log row');
+END $$;
+
+-- 17. Still no full account number anywhere.
+INSERT INTO public.r (ok, what) SELECT NOT EXISTS (SELECT 1 FROM public.hr_pay_destination_changes
+  WHERE concat(before::text, after::text) ~ '(111122223333|444455556666|555566667777|888899990000|121212121212)'),
+  'after every path: no full account number stored';
+
 SELECT CASE WHEN ok THEN 'PASS' ELSE 'FAIL' END || ' | ' || what FROM public.r ORDER BY n;
 SELECT 'RESULT: ' || count(*) FILTER (WHERE ok) || ' PASS / ' || count(*) FILTER (WHERE NOT ok) || ' FAIL' FROM public.r;

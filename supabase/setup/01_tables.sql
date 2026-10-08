@@ -12279,7 +12279,8 @@ CREATE TABLE IF NOT EXISTS public.hr_pay_destination_changes (
   kind        text NOT NULL CHECK (kind IN ('bank', 'payer')),
   -- auth.uid() of whoever made the change; NULL = a system job (service role).
   changed_by  uuid,
-  changed_at  timestamptz NOT NULL DEFAULT now(),
+  -- clock_timestamp(), not now(): two changes in one transaction keep their order.
+  changed_at  timestamptz NOT NULL DEFAULT clock_timestamp(),
   -- bank:  { holder, account_last4, ifsc, bank }   (never the full number)
   -- payer: { organization_id, organization_name }
   -- NULL before = first time recorded; NULL after = removed.

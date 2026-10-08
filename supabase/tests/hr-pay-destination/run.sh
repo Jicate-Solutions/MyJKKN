@@ -7,7 +7,7 @@
 # (20260821240000), its 20261020000000 changes and the newest
 # fn_hr_set_staff_bank_account, and fn_is_the_director (20270520090000).
 # stubs.sql stands in for everything else. The migration is applied TWICE.
-# Then three MUTATION CONTROLS: a rule removed from a copy of the migration,
+# Then six MUTATION CONTROLS: a rule removed from a copy of the migration,
 # the database rebuilt, and the probe must print a FAIL.
 # Run: bash supabase/tests/hr-pay-destination/run.sh
 set -u
@@ -17,7 +17,7 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 SRC="$(cd "$HERE/../../.." && pwd)"
 M="$SRC/supabase/migrations"
 MIG="$M/20270614090000_hr_pay_destination_changes.sql"
-PORT=${PORT:-5541}
+PORT=${PORT:-54617}
 WORK="$(mktemp -d)"
 wipe() { python3 -c 'import shutil,sys; shutil.rmtree(sys.argv[1], ignore_errors=True)' "$1"; }
 stop() { "$BIN/pg_ctl" -D "$WORK/pgdata" stop -m fast >/dev/null 2>&1; }
@@ -58,6 +58,13 @@ PY
   if echo "$out" | grep -q '^FAIL'; then echo "MUTATION CAUGHT | $1 | $(echo "$out" | grep '^FAIL' | head -1)"; else echo "MUTATION MISSED | $1"; fi
 }
 echo "== mutation controls"
-mutate "the before-lookup ignores which row was replaced" "WHERE b.superseded_by = NEW.id AND b.id <> NEW.id" "WHERE b.staff_id = NEW.staff_id AND b.id <> NEW.id AND false"
+mutate "the before-lookup ignores which row was replaced" "WHERE b.staff_id = NEW.staff_id AND b.superseded_by = NEW.id AND b.id <> NEW.id" "WHERE b.staff_id = NEW.staff_id AND b.superseded_by = NEW.id AND false"
+mutate "the before-lookup forgets what the log last saw" "WHERE c.staff_id = NEW.staff_id AND c.kind = 'bank'" "WHERE c.staff_id = NEW.staff_id AND false"
+mutate "deleting the account in use is not logged" "IF OLD.superseded_by IS NULL
+       AND EXISTS" "IF false
+       AND EXISTS"
+mutate "retiring the account in use with nothing in its place is not logged" "IF TG_OP = 'UPDATE' AND OLD.superseded_by IS NULL
+       AND EXISTS" "IF false
+       AND EXISTS"
 mutate "the log is readable by everyone" "USING (public.fn_is_the_director());" "USING (true);"
 mutate "the full account number is stored" "ELSE right(p_account, 4) END" "ELSE p_account END"

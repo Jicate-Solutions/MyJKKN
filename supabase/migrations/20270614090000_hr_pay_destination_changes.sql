@@ -29,8 +29,6 @@
 -- reconstructed (the payer table never kept them).
 -- ============================================================================
 
-BEGIN;
-
 -- ----------------------------------------------------------------------------
 -- 1. The log
 -- ----------------------------------------------------------------------------
@@ -40,7 +38,8 @@ CREATE TABLE IF NOT EXISTS public.hr_pay_destination_changes (
   kind        text NOT NULL CHECK (kind IN ('bank', 'payer')),
   -- auth.uid() of whoever made the change; NULL = a system job (service role).
   changed_by  uuid,
-  changed_at  timestamptz NOT NULL DEFAULT now(),
+  -- clock_timestamp(), not now(): two changes in one transaction keep their order.
+  changed_at  timestamptz NOT NULL DEFAULT clock_timestamp(),
   -- bank:  { holder, account_last4, ifsc, bank }   (never the full number)
   -- payer: { organization_id, organization_name }
   -- NULL before = first time recorded; NULL after = removed.
@@ -95,12 +94,15 @@ GRANT  EXECUTE ON FUNCTION public.fn_hr_bank_destination_json(text, text, text, 
 -- ----------------------------------------------------------------------------
 -- 3. Trigger: bank accounts
 -- ----------------------------------------------------------------------------
--- fn_hr_set_staff_bank_account() first stamps the current row's superseded_by
--- with the NEW id, then inserts the new row. So on INSERT the row being
--- replaced is the one whose superseded_by = NEW.id. An in-place edit of the
--- account (an UPDATE that changes the number, IFSC, holder or bank) is logged
--- too. Stamping superseded_by, verifying, or touching notes is NOT a change of
--- destination and is ignored.
+-- Every way the account in use can change is logged, because the table's
+-- write policy lets a bank.manage holder write it directly, not only through
+-- fn_hr_set_staff_bank_account():
+--   * a new row becomes the account in use (the save function, or a direct
+--     insert), or an old row is put back in use;
+--   * the account in use is edited in place (number, IFSC, holder or bank);
+--   * the account in use is deleted, or superseded with nothing in its place.
+-- Verifying it, touching its notes, or editing an old superseded row is NOT a
+-- change of destination and is ignored.
 CREATE OR REPLACE FUNCTION public.fn_hr_log_bank_destination_change()
 RETURNS trigger
 LANGUAGE plpgsql
@@ -110,20 +112,40 @@ AS $$
 DECLARE
   v_before jsonb;
 BEGIN
-  IF TG_OP = 'INSERT' THEN
-    SELECT public.fn_hr_bank_destination_json(b.account_holder_name, b.account_number, b.ifsc_code, b.bank_name)
-      INTO v_before
-      FROM public.hr_staff_bank_accounts b
-     WHERE b.superseded_by = NEW.id AND b.id <> NEW.id
-     ORDER BY b.created_at DESC
-     LIMIT 1;
-    INSERT INTO public.hr_pay_destination_changes (staff_id, kind, changed_by, before, after)
-    VALUES (NEW.staff_id, 'bank', auth.uid(), v_before,
-            public.fn_hr_bank_destination_json(NEW.account_holder_name, NEW.account_number, NEW.ifsc_code, NEW.bank_name));
+  IF TG_OP = 'DELETE' THEN
+    -- Deleting the account in use leaves the person with nowhere to be paid:
+    -- logged as removed. Deleting an old, superseded row is not a change of
+    -- destination. A staff delete cascades here; the log row would cascade
+    -- away with it, so that case is skipped.
+    IF OLD.superseded_by IS NULL
+       AND EXISTS (SELECT 1 FROM public.staff s WHERE s.id = OLD.staff_id) THEN
+      INSERT INTO public.hr_pay_destination_changes (staff_id, kind, changed_by, before, after)
+      VALUES (OLD.staff_id, 'bank', auth.uid(),
+              public.fn_hr_bank_destination_json(OLD.account_holder_name, OLD.account_number, OLD.ifsc_code, OLD.bank_name),
+              NULL);
+    END IF;
+    RETURN OLD;
+  END IF;
+
+  IF NEW.superseded_by IS NOT NULL THEN
+    -- The row is not (or no longer) the account in use. Normally the row that
+    -- replaces it logs the change. But if it was the account in use and now
+    -- points at a row that already exists and is itself not in use, nothing
+    -- is in use any more: that is a removal.
+    IF TG_OP = 'UPDATE' AND OLD.superseded_by IS NULL
+       AND EXISTS (SELECT 1 FROM public.hr_staff_bank_accounts n
+                    WHERE n.id = NEW.superseded_by AND n.superseded_by IS NOT NULL) THEN
+      INSERT INTO public.hr_pay_destination_changes (staff_id, kind, changed_by, before, after)
+      VALUES (NEW.staff_id, 'bank', auth.uid(),
+              public.fn_hr_bank_destination_json(OLD.account_holder_name, OLD.account_number, OLD.ifsc_code, OLD.bank_name),
+              NULL);
+    END IF;
     RETURN NEW;
   END IF;
 
-  IF TG_OP = 'UPDATE' THEN
+  IF TG_OP = 'UPDATE' AND OLD.superseded_by IS NULL THEN
+    -- The account in use, edited in place. Verifying it or touching its notes
+    -- is not a change of destination.
     IF OLD.account_number      IS DISTINCT FROM NEW.account_number
     OR OLD.ifsc_code           IS DISTINCT FROM NEW.ifsc_code
     OR OLD.account_holder_name IS DISTINCT FROM NEW.account_holder_name
@@ -136,7 +158,32 @@ BEGIN
     RETURN NEW;
   END IF;
 
-  RETURN NULL;
+  -- A row has just become the account in use: a new row, or an old row put
+  -- back in use. What it replaced is, in order:
+  --   1. the row whose superseded_by points at it (fn_hr_set_staff_bank_account
+  --      stamps that before it inserts);
+  --   2. otherwise the last destination the log recorded for this person.
+  --      This is what catches "delete the old row, then insert a new one":
+  --      the old row is gone, but the log saw it (as removed) and keeps it.
+  SELECT public.fn_hr_bank_destination_json(b.account_holder_name, b.account_number, b.ifsc_code, b.bank_name)
+    INTO v_before
+    FROM public.hr_staff_bank_accounts b
+   WHERE b.staff_id = NEW.staff_id AND b.superseded_by = NEW.id AND b.id <> NEW.id
+   ORDER BY b.created_at DESC
+   LIMIT 1;
+  IF v_before IS NULL THEN
+    SELECT COALESCE(c.after, c.before)
+      INTO v_before
+      FROM public.hr_pay_destination_changes c
+     WHERE c.staff_id = NEW.staff_id AND c.kind = 'bank'
+     ORDER BY c.changed_at DESC
+     LIMIT 1;
+  END IF;
+
+  INSERT INTO public.hr_pay_destination_changes (staff_id, kind, changed_by, before, after)
+  VALUES (NEW.staff_id, 'bank', auth.uid(), v_before,
+          public.fn_hr_bank_destination_json(NEW.account_holder_name, NEW.account_number, NEW.ifsc_code, NEW.bank_name));
+  RETURN NEW;
 END;
 $$;
 
@@ -144,7 +191,7 @@ REVOKE EXECUTE ON FUNCTION public.fn_hr_log_bank_destination_change() FROM anon,
 
 DROP TRIGGER IF EXISTS trg_hr_log_bank_destination_change ON public.hr_staff_bank_accounts;
 CREATE TRIGGER trg_hr_log_bank_destination_change
-  AFTER INSERT OR UPDATE ON public.hr_staff_bank_accounts
+  AFTER INSERT OR UPDATE OR DELETE ON public.hr_staff_bank_accounts
   FOR EACH ROW EXECUTE FUNCTION public.fn_hr_log_bank_destination_change();
 
 -- ----------------------------------------------------------------------------
@@ -218,7 +265,8 @@ SECURITY DEFINER
 SET search_path = public
 AS $$
 BEGIN
-  IF NOT (public.fn_is_the_director() OR COALESCE(auth.role(), '') = 'service_role') THEN
+  -- Written so a NULL can never pass: both answers must be a plain yes.
+  IF NOT (COALESCE(public.fn_is_the_director(), false) OR COALESCE(auth.role(), '') = 'service_role') THEN
     RAISE EXCEPTION 'Only the Director list can read the bank and payer change list.'
       USING ERRCODE = '42501';
   END IF;
@@ -257,7 +305,5 @@ COMMENT ON FUNCTION public.fn_hr_pay_destination_changes(timestamptz) IS
 INSERT INTO public.ai_routine_schedules (routine_id, enabled, managed, days_of_week, minute_of_day)
 VALUES ('hr-pay-destination-weekly', true, true, ARRAY[1]::smallint[], 497)
 ON CONFLICT (routine_id) DO NOTHING;
-
-COMMIT;
 
 NOTIFY pgrst, 'reload schema';
