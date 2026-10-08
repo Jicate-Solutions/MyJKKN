@@ -547,10 +547,10 @@ export function QuotesSection({
                   )}
                   {canFinalApprove && (
                     <>
-                      <Button variant="outline" className="h-10 sm:h-9 px-4" onClick={() => setSendBackOpen(true)}>
+                      <Button variant="outline" className="h-11 px-4 sm:h-9" onClick={() => setSendBackOpen(true)}>
                         Send back
                       </Button>
-                      <Button className="h-10 sm:h-9 px-5" onClick={handleApprove} disabled={approveAward.isPending || approveStep.isPending}>
+                      <Button className="h-11 px-5 sm:h-9" onClick={handleApprove} disabled={approveAward.isPending || approveStep.isPending}>
                         <Check className="mr-1.5 h-4 w-4" />
                         {approveAward.isPending || approveStep.isPending ? 'Approving…' : several ? `Approve ${vendors.length} orders` : 'Approve & order'}
                       </Button>
@@ -689,12 +689,12 @@ export function QuotesSection({
                       {terms.length > 0 && <p className="text-xs text-muted-foreground">{terms.join(' · ')}</p>}
                     </div>
                     {q.document_file_id ? (
-                      <Button size="sm" variant="outline" onClick={() => setPdfQuote({ fileId: q.document_file_id!, name: v.name })}>
+                      <Button size="sm" variant="outline" className="h-10 sm:h-8" onClick={() => setPdfQuote({ fileId: q.document_file_id!, name: v.name })}>
                         <FileText className="mr-1.5 h-4 w-4" />
                         Quote PDF
                       </Button>
                     ) : q.document_url ? (
-                      <Button size="sm" variant="outline" asChild>
+                      <Button size="sm" variant="outline" className="h-10 sm:h-8" asChild>
                         <a href={q.document_url} target="_blank" rel="noopener noreferrer">
                           <ExternalLink className="mr-1.5 h-4 w-4" />
                           Quote PDF

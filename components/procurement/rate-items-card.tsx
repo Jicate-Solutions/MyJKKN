@@ -68,7 +68,7 @@ function RateLine({ line }: { line: RateableLine }) {
         <div className="flex items-center gap-2 text-sm text-muted-foreground">
           <StarDisplay value={line.my_stars!} />
           <span>· meets spec: {SPEC_OPTIONS.find((o) => o.value === line.my_meets_spec)?.label}</span>
-          <Button variant="ghost" size="sm" className="h-9 px-2" onClick={() => setEditing(true)}>
+          <Button variant="ghost" size="sm" className="h-10 px-2 sm:h-9" onClick={() => setEditing(true)}>
             <Pencil className="mr-1 h-3.5 w-3.5" /> Edit
           </Button>
         </div>

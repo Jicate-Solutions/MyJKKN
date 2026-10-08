@@ -183,7 +183,7 @@ export function RequestFileImport({
       <Button
         variant="ghost"
         size="sm"
-        className="text-primary"
+        className="h-10 text-primary sm:h-8"
         disabled={!ctx.institutionId}
         title="Excel, CSV, PDF, Word, or a photo of a list — AI reads the items"
         onClick={() => inputRef.current?.click()}
@@ -209,7 +209,7 @@ export function RequestFileImport({
           ) : error ? (
             <div className="space-y-3 py-6 text-center text-sm">
               <p className="text-destructive">{error}</p>
-              <Button size="sm" variant="outline" onClick={() => inputRef.current?.click()}>
+              <Button size="sm" variant="outline" className="h-10 sm:h-8" onClick={() => inputRef.current?.click()}>
                 Try another file
               </Button>
             </div>
