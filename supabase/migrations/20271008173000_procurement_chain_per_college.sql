@@ -28,8 +28,9 @@ RETURNS uuid LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
                    AND s.stage = 'request')
               THEN p_institution_id END;
 $$;
-REVOKE ALL ON FUNCTION public.procurement_chain_institution(uuid, uuid) FROM public, anon;
-GRANT EXECUTE ON FUNCTION public.procurement_chain_institution(uuid, uuid) TO authenticated;
+-- Called only from the SECURITY DEFINER functions below (they run as the owner), never by a
+-- signed-in user directly, so nobody gets EXECUTE on it.
+REVOKE ALL ON FUNCTION public.procurement_chain_institution(uuid, uuid) FROM public, anon, authenticated;
 
 -- Save one list of one scope (default or a college). Empty list = remove it.
 DROP FUNCTION IF EXISTS public.procurement_save_category_steps(uuid, jsonb, text);
@@ -90,26 +91,26 @@ BEGIN
   d2 := replace(d, 'category_id = NEW.category_id AND stage = ''request''',
     'category_id = NEW.category_id AND stage = ''request'' AND institution_id IS NOT DISTINCT FROM procurement_chain_institution(NEW.category_id, NEW.institution_id)');
   IF d2 = d THEN RAISE EXCEPTION 'fn_procurement_build_approval_chain: pattern not found'; END IF;
-  EXECUTE d2;
+  IF d NOT LIKE '%procurement_chain_institution(%' THEN EXECUTE d2; END IF;  -- skip when already patched
 
   -- final approval built when the award is sent
   d := pg_get_functiondef('public.fn_procurement_build_final_chain()'::regprocedure);
   d2 := replace(d, 'category_id = v_req.category_id AND stage = ''final''',
     'category_id = v_req.category_id AND stage = ''final'' AND institution_id IS NOT DISTINCT FROM procurement_chain_institution(v_req.category_id, v_req.institution_id)');
   IF d2 = d THEN RAISE EXCEPTION 'fn_procurement_build_final_chain: pattern not found'; END IF;
-  EXECUTE d2;
+  IF d NOT LIKE '%procurement_chain_institution(%' THEN EXECUTE d2; END IF;  -- skip when already patched
 
   -- preview shown to the requester before submitting
   d := pg_get_functiondef('public.procurement_preview_chain(uuid,uuid,uuid)'::regprocedure);
   d2 := replace(d, 's.category_id = p_category_id AND s.stage = ''request''',
     's.category_id = p_category_id AND s.stage = ''request'' AND s.institution_id IS NOT DISTINCT FROM procurement_chain_institution(p_category_id, p_institution_id)');
   IF d2 = d THEN RAISE EXCEPTION 'procurement_preview_chain: pattern not found'; END IF;
-  EXECUTE d2;
+  IF d NOT LIKE '%procurement_chain_institution(%' THEN EXECUTE d2; END IF;  -- skip when already patched
 
   -- "Super Admin" fallback row in My approvals (no final list for this college)
   d := pg_get_functiondef('public.procurement_my_approvals()'::regprocedure);
   d2 := replace(d, 's.category_id = r.category_id AND s.stage = ''final''',
     's.category_id = r.category_id AND s.stage = ''final'' AND s.institution_id IS NOT DISTINCT FROM procurement_chain_institution(r.category_id, r.institution_id)');
   IF d2 = d THEN RAISE EXCEPTION 'procurement_my_approvals: pattern not found'; END IF;
-  EXECUTE d2;
+  IF d NOT LIKE '%procurement_chain_institution(%' THEN EXECUTE d2; END IF;  -- skip when already patched
 END $$;
