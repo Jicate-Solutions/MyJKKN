@@ -178721,6 +178721,7 @@ export type Database = {
           research_focus_areas: Json
           research_papers: number
           researchgate_url: string | null
+          retired_staff_ids: string | null
           role_key: string
           role_type: string | null
           slug: string | null
@@ -178795,6 +178796,7 @@ export type Database = {
           research_focus_areas?: Json
           research_papers?: number
           researchgate_url?: string | null
+          retired_staff_ids?: string | null
           role_key?: string
           role_type?: string | null
           slug?: string | null
@@ -178869,6 +178871,7 @@ export type Database = {
           research_focus_areas?: Json
           research_papers?: number
           researchgate_url?: string | null
+          retired_staff_ids?: string | null
           role_key?: string
           role_type?: string | null
           slug?: string | null
@@ -179358,6 +179361,70 @@ export type Database = {
           staff_uuid?: string
         }
         Relationships: []
+      }
+      staff_id_history: {
+        Row: {
+          changed_by: string | null
+          from_institution_id: string | null
+          from_is_teaching: boolean | null
+          id: string
+          new_staff_id: string | null
+          reason: string
+          retired_at: string
+          staff_id: string
+          staff_uuid: string
+          to_institution_id: string | null
+          to_is_teaching: boolean | null
+        }
+        Insert: {
+          changed_by?: string | null
+          from_institution_id?: string | null
+          from_is_teaching?: boolean | null
+          id?: string
+          new_staff_id?: string | null
+          reason: string
+          retired_at?: string
+          staff_id: string
+          staff_uuid: string
+          to_institution_id?: string | null
+          to_is_teaching?: boolean | null
+        }
+        Update: {
+          changed_by?: string | null
+          from_institution_id?: string | null
+          from_is_teaching?: boolean | null
+          id?: string
+          new_staff_id?: string | null
+          reason?: string
+          retired_at?: string
+          staff_id?: string
+          staff_uuid?: string
+          to_institution_id?: string | null
+          to_is_teaching?: boolean | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "staff_id_history_from_institution_id_fkey"
+            columns: ["from_institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "staff_id_history_staff_uuid_fkey"
+            columns: ["staff_uuid"]
+            isOneToOne: false
+            referencedRelation: "staff"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "staff_id_history_to_institution_id_fkey"
+            columns: ["to_institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       staff_import_unmatched: {
         Row: {
