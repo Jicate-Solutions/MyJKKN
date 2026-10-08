@@ -18,8 +18,9 @@
 -- key is kept, and no other role is touched.
 --
 -- Drift check: refuses, changing nothing, unless the guest row exists and its
--- keys set to true are exactly the set read on 2026-10-08. Applied twice, the
--- second run refuses too, because the five keys are already gone.
+-- keys set to true are exactly the set read on 2026-10-08. Re-runnable: if the
+-- five keys are already gone and the rest of the set matches, it raises a
+-- NOTICE and does nothing. Any other difference still aborts.
 
 BEGIN;
 
@@ -27,6 +28,7 @@ DO $$
 DECLARE
   v_perms jsonb;
   v_true  text[];
+  v_removed text[] := ARRAY['roles.assign', 'assign_roles', 'staff.view', 'users.view', 'view_users'];
   v_expected text[] := ARRAY[
     'aiPulse:view.self', 'ai_pulse.view', 'assign_roles', 'calendar.view',
     'courses.participant.self', 'hr.assets.view_own', 'hr.attendance.view_self',
@@ -56,16 +58,22 @@ BEGIN
   FROM jsonb_each(v_perms)
   WHERE value = 'true'::jsonb;
 
+  IF v_true = (SELECT array_agg(k ORDER BY k) FROM unnest(v_expected) AS k
+                WHERE k <> ALL (v_removed)) THEN
+    RAISE NOTICE 'guest role already has none of the five admin keys; nothing to do';
+    RETURN;
+  END IF;
+
   IF v_true IS DISTINCT FROM (SELECT array_agg(k ORDER BY k) FROM unnest(v_expected) AS k) THEN
     RAISE EXCEPTION 'guest grants differ from the set read on 2026-10-08; nothing changed. Now true: %',
       array_to_string(v_true, ', ');
   END IF;
+
+  UPDATE public.custom_roles
+  SET permissions = permissions - v_removed,
+      updated_at  = now()
+  WHERE role_key = 'guest';
 END
 $$;
-
-UPDATE public.custom_roles
-SET permissions = permissions - ARRAY['roles.assign', 'assign_roles', 'staff.view', 'users.view', 'view_users']::text[],
-    updated_at  = now()
-WHERE role_key = 'guest';
 
 COMMIT;

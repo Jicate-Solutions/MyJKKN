@@ -28,6 +28,64 @@ if (process.env.VAPID_PUBLIC_KEY && process.env.VAPID_PRIVATE_KEY) {
   );
 }
 
+const ADMIN_ROLE_KEYS = ['super_admin', 'administrator', 'admin'];
+
+type RoleRow = {
+  role_key?: string | null;
+  is_privileged?: boolean | null;
+  institution_scope?: string | null;
+  permissions?: unknown;
+};
+
+function checkFailed(error: unknown) {
+  console.error('[roles/assign] check failed:', error);
+  return NextResponse.json(
+    { error: 'Could not check this request. Nothing was changed.' },
+    { status: 500 }
+  );
+}
+
+/** Keys set to true, from either permissions shape: flat/nested object or array of keys. */
+function grantedKeys(perms: unknown, prefix = ''): string[] | null {
+  if (perms == null) return [];
+  if (Array.isArray(perms)) return perms.filter((k): k is string => typeof k === 'string');
+  if (typeof perms !== 'object') return null;
+  const out: string[] = [];
+  for (const [k, v] of Object.entries(perms as Record<string, unknown>)) {
+    const key = prefix ? `${prefix}.${k}` : k;
+    if (v === true) out.push(key);
+    else if (v && typeof v === 'object') {
+      const inner = grantedKeys(v, key);
+      if (inner === null) return null;
+      out.push(...inner);
+    }
+  }
+  return out;
+}
+
+/**
+ * Privileged for this route. is_privileged defaults to false on a new role, so
+ * the flag alone cannot be trusted: also count anything that reaches every
+ * college, grants role, user or settings keys, or approves/manages payroll.
+ * An unreadable permissions value counts as privileged.
+ */
+function isPrivilegedLike(role: RoleRow): boolean {
+  if (role.is_privileged !== false) return true;
+  if (ADMIN_ROLE_KEYS.includes(role.role_key ?? '')) return true;
+  if (role.institution_scope === 'all') return true;
+  const keys = grantedKeys(role.permissions);
+  if (keys === null) return true;
+  return keys.some(
+    (k) =>
+      k.startsWith('roles.') ||
+      k.startsWith('users.') ||
+      k.startsWith('settings.') ||
+      k === 'assign_roles' ||
+      k === 'view_users' ||
+      (k.startsWith('hr.payroll.') && (k.endsWith('.manage') || k.endsWith('.approve')))
+  );
+}
+
 export async function POST(request: NextRequest) {
   try {
     const supabase = await createClient();
@@ -51,36 +109,50 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // ── Gate: roles.assign across EVERY role the caller holds (2026-10-08) ──
-    // This used to read custom_roles for the caller's PRIMARY role only, so a
-    // second role that grants roles.assign was ignored and a primary role that
-    // grants it could hand out any role. Ask the database the same question
-    // RLS asks: user_has_permission merges all of the caller's roles and lets a
-    // super admin through. Both run as the caller's own session.
-    const { data: callerProfile } = await supabase
+    // ── Gate: roles.assign on the caller's PRIMARY role + super-admin flag ──
+    // Kept primary-role only on purpose (2026-10-08). Widening to every role
+    // the caller holds (user_has_permission) would let the 27 guest holders
+    // through if this code went live before migration 20271008121730 takes
+    // roles.assign off guest. Widen it once that migration is applied.
+    //
+    // #4254 edits these same lines. Whichever PR merges second keeps BOTH rule
+    // sets: #4254's callerIsSuperAdmin + refuseRoleChange, and this PR's
+    // refusals below + 500 when any check cannot run.
+    const { data: callerProfile, error: callerErr } = await supabase
       .from('profiles')
-      .select('full_name')
+      .select('role, full_name')
       .eq('id', user.id)
       .single();
-
-    const [superResult, permResult] = await Promise.all([
-      supabase.rpc('is_super_admin'),
-      supabase.rpc('user_has_permission', { permission_name: 'roles.assign' })
-    ]);
-    if (superResult.error || permResult.error) {
-      console.error(
-        '[roles/assign] permission check failed:',
-        superResult.error || permResult.error
-      );
-      return NextResponse.json(
-        { error: 'Could not check your permissions. Nothing was changed.' },
-        { status: 500 }
-      );
+    const superResult = await supabase.rpc('is_super_admin');
+    if (callerErr || superResult.error) {
+      return checkFailed(callerErr || superResult.error);
     }
+    // Super admin = the is_super_admin flag, nothing else.
     const callerIsSuperAdmin = superResult.data === true;
-    if (!callerIsSuperAdmin && permResult.data !== true) {
+
+    let allowed = callerIsSuperAdmin;
+    if (!allowed && callerProfile?.role) {
+      const { data: callerRole, error: callerRoleErr } = await supabase
+        .from('custom_roles')
+        .select('permissions')
+        .eq('role_key', callerProfile.role)
+        .maybeSingle();
+      if (callerRoleErr) return checkFailed(callerRoleErr);
+      allowed = (callerRole?.permissions as Record<string, unknown> | null)?.[
+        'roles.assign'
+      ] === true;
+    }
+    if (!allowed) {
       return NextResponse.json(
         { error: 'You do not have permission to assign roles (roles.assign required).' },
+        { status: 403 }
+      );
+    }
+
+    // (a) Nobody assigns a role to themselves, super admins included.
+    if (userId === user.id) {
+      return NextResponse.json(
+        { error: 'You cannot change your own roles; ask a super admin.' },
         { status: 403 }
       );
     }
@@ -91,18 +163,17 @@ export async function POST(request: NextRequest) {
     // Resolve role_key → role_id (the UI chips only carry role_key).
     const { data: role, error: roleErr } = await admin
       .from('custom_roles')
-      .select('id, role_key, role_name, is_privileged')
+      .select('id, role_key, role_name, is_privileged, institution_scope, permissions')
       .eq('role_key', roleKey)
-      .single();
-    if (roleErr || !role) {
+      .maybeSingle();
+    if (roleErr) return checkFailed(roleErr);
+    if (!role) {
       return NextResponse.json({ error: `Role '${roleKey}' not found` }, { status: 404 });
     }
 
-    // A role with admin powers is a super admin's to give (2026-10-08). The
-    // insert below uses the service-role client, which skips every database
-    // guard, so the route refuses it here. Anything but an explicit false
-    // counts as privileged, so a missing flag fails closed.
-    if (!callerIsSuperAdmin && (role as { is_privileged?: boolean | null }).is_privileged !== false) {
+    // (c) A role with admin powers is a super admin's to give. The insert
+    // below uses the service-role client, which skips every database guard.
+    if (!callerIsSuperAdmin && isPrivilegedLike(role as RoleRow)) {
       return NextResponse.json(
         { error: 'Only a super admin can give anyone a role with admin powers.' },
         { status: 403 }
@@ -112,13 +183,38 @@ export async function POST(request: NextRequest) {
     const roleName = (role as { role_name?: string }).role_name || roleKey;
 
     // Confirm the target user exists.
-    const { data: target } = await admin
+    const { data: target, error: targetErr } = await admin
       .from('profiles')
-      .select('id, full_name, email')
+      .select('id, full_name, email, role, is_super_admin')
       .eq('id', userId)
-      .single();
+      .maybeSingle();
+    if (targetErr) return checkFailed(targetErr);
     if (!target) {
       return NextResponse.json({ error: 'Target user not found' }, { status: 404 });
+    }
+
+    // (b) The roles of someone with admin powers are not changed here, by
+    // anyone: a super admin flag, a legacy admin role, or any role held that
+    // is privileged.
+    const { data: targetRoles, error: targetRolesErr } = await admin
+      .from('user_roles')
+      .select('custom_roles(role_key, is_privileged)')
+      .eq('user_id', userId);
+    if (targetRolesErr) return checkFailed(targetRolesErr);
+    const t = target as { role?: string | null; is_super_admin?: boolean | null };
+    const targetHasAdminPowers =
+      t.is_super_admin === true ||
+      ADMIN_ROLE_KEYS.includes(t.role ?? '') ||
+      ((targetRoles ?? []) as { custom_roles: RoleRow | RoleRow[] | null }[]).some((ur) =>
+        (Array.isArray(ur.custom_roles) ? ur.custom_roles : [ur.custom_roles]).some(
+          (r) => r != null && (r.is_privileged !== false || ADMIN_ROLE_KEYS.includes(r.role_key ?? ''))
+        )
+      );
+    if (targetHasAdminPowers) {
+      return NextResponse.json(
+        { error: 'This person has admin powers. Their roles cannot be changed here.' },
+        { status: 403 }
+      );
     }
     const targetName = (target as { full_name?: string }).full_name || 'The user';
 
