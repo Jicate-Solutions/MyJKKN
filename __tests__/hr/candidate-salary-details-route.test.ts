@@ -26,7 +26,7 @@ let updateReachesRow = true;
 const updates: Array<Record<string, unknown>> = [];
 
 const DESIGNATIONS = [
-  { id: TITLE_OK, name: 'Assistant Professor', hr_organization_id: ORG },
+  { id: TITLE_OK, name: 'Office Assistant', hr_organization_id: ORG },
   { id: TITLE_OTHER_ORG, name: 'Typist', hr_organization_id: 'org-b' },
 ];
 const DEPARTMENTS = [
@@ -52,7 +52,7 @@ function query(table: string) {
         return {
           data: {
             id: CANDIDATE,
-            role_title: '  assistant professor ',
+            role_title: '  office assistant ',
             institution_id: COLLEGE,
             hr_organization_id: ORG,
             designation_id: null,
@@ -122,7 +122,7 @@ beforeEach(() => {
 describe('salary details: GET', () => {
   it("lists only the candidate's HR organisation's job titles and college's departments, and pre-selects the exact role title", async () => {
     const body = await (await GET(new NextRequest(url), ctx)).json();
-    expect(body.designations).toEqual([{ id: TITLE_OK, name: 'Assistant Professor' }]);
+    expect(body.designations).toEqual([{ id: TITLE_OK, name: 'Office Assistant' }]);
     expect(body.departments).toEqual([{ id: DEPT_OK, name: 'Mechanical' }]);
     expect(body.roleTitleMatchId).toBe(TITLE_OK);
     expect(body.details).toEqual({ designation_id: null, department_id: null, prior_experience_years: null });

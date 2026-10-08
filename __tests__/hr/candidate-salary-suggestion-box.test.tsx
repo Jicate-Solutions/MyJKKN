@@ -29,7 +29,7 @@ const SUGGESTED = {
     aboveBandBy: null,
     departmentName: 'Mechanical',
     lines: [
-      { label: 'Band floor for Assistant Professor', amount: 30000, note: 'The lowest pay on the band.' },
+      { label: 'Band floor for Office Assistant', amount: 30000, note: 'The lowest pay on the band.' },
       { label: 'Years at JKKN', amount: null, note: 'Not counted: the candidate has not joined yet.' },
       { label: 'Years before JKKN', amount: 2000, note: '4 years before JKKN.' },
     ],
@@ -113,7 +113,7 @@ describe('Suggested salary box', () => {
   it('shows every line of the working', async () => {
     render(<Harness />);
     await screen.findByTestId('suggested-figure');
-    expect(screen.getByText('Band floor for Assistant Professor')).toBeInTheDocument();
+    expect(screen.getByText('Band floor for Office Assistant')).toBeInTheDocument();
     expect(screen.getByText('+ ₹2,000')).toBeInTheDocument();
   });
 

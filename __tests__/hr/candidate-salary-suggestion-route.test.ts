@@ -31,15 +31,15 @@ function row(id: string, rate: number | null) {
     candidate_uuid: id,
     institution_id: 'inst-a',
     designation_id: 'des-1',
-    designation: 'Assistant Professor',
+    designation: 'Office Assistant',
     department_id: 'dept-a',
     department_name: 'Mechanical',
     // numeric arrives over PostgREST as a string
     prior_experience_years: '4.0',
     band: {
       pay_matrix: [
-        { designation: 'Assistant Professor', basic_pay: 30000 },
-        { designation: 'Assistant Professor', basic_pay: 47000 },
+        { designation: 'Office Assistant', basic_pay: 30000 },
+        { designation: 'Office Assistant', basic_pay: 47000 },
       ],
     },
     rule_rate: rate === null ? null : String(rate),
@@ -122,7 +122,7 @@ describe('candidate salary suggestion route', () => {
     expect(body.suggestion.verdict).toBe('suggested');
     // 30,000 floor + 4 × 500.
     expect(body.suggestion.suggested).toBe(32000);
-    expect(body.suggestion.lines[0].label).toBe('Band floor for Assistant Professor');
+    expect(body.suggestion.lines[0].label).toBe('Band floor for Office Assistant');
     const text = JSON.stringify(body);
     expect(text).not.toContain('47000');
     expect(text).not.toContain('47,000');

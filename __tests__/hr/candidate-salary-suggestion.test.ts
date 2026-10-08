@@ -18,8 +18,8 @@ import type { PayBandPolicy } from '@/lib/hr/pay-band-check';
 
 const BAND: PayBandPolicy = {
   rungs: [
-    { designation: 'Assistant Professor', qualification: 'M.E.', basicPay: 30000 },
-    { designation: 'Assistant Professor', qualification: 'Ph.D', basicPay: 40000 },
+    { designation: 'Office Assistant', qualification: 'M.E.', basicPay: 30000 },
+    { designation: 'Office Assistant', qualification: 'Ph.D', basicPay: 40000 },
     { designation: 'Typist', qualification: null, basicPay: 12000 },
   ],
 } as unknown as PayBandPolicy;
@@ -27,7 +27,7 @@ const BAND: PayBandPolicy = {
 function input(over: Partial<CandidateSuggestionInput> = {}): CandidateSuggestionInput {
   return {
     institutionId: 'inst-a',
-    designation: 'Assistant Professor',
+    designation: 'Office Assistant',
     department: { id: 'dept-a', name: 'Mechanical', perYear: 1000 },
     priorExperienceYears: 4,
     band: BAND,
@@ -45,7 +45,7 @@ describe('suggestCandidateSalary: the figure', () => {
     // 30,000 floor + 4 × 500 = 32,000.
     expect(r.suggested).toBe(32000);
     expect(r.lines.map((l) => l.label)).toEqual([
-      'Band floor for Assistant Professor',
+      'Band floor for Office Assistant',
       'Years at JKKN',
       'Years before JKKN',
     ]);
