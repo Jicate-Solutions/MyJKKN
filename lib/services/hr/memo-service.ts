@@ -22,6 +22,7 @@
  * This service does NOT trigger termination — it only writes memos.
  */
 
+import { createHash } from 'node:crypto';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import {
   MEMO_DETECTOR_POLICY_KEY,
@@ -155,6 +156,30 @@ export function istDate(iso: string): string {
 /** Why an event that names no team member record is set aside instead of left pending. */
 export const UNRESOLVABLE_EVENT_REASON =
   'auto-dismissed: this id matches no team member record, so no memo can ever be issued for it';
+
+/**
+ * Live mode issues memos only when the one-memo-per-event unique index from
+ * migration 20271008110108 exists. Without it, two overlapping runs could each
+ * issue a memo for the same event. exec_sql_safe returns no rows, only whether
+ * the statement ran, so this check RAISEs when the index is absent. The RPC is
+ * service_role only, which is what the cron route uses.
+ */
+export const ONE_MEMO_PER_EVENT_INDEX_CHECK_SQL =
+  "DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_indexes WHERE schemaname = 'public' " +
+  "AND tablename = 'hr_memos' AND indexname = 'ux_hr_memos_triggered_by_event' " +
+  "AND indexdef ILIKE 'CREATE UNIQUE INDEX%(triggered_by_event_id)%') " +
+  "THEN RAISE EXCEPTION 'ux_hr_memos_triggered_by_event missing'; END IF; END $$";
+
+/**
+ * The 'issued' audit row of an auto-issued memo gets an id derived from the
+ * memo id, so the table's primary key lets that row exist only once, however
+ * many runs try to write it.
+ */
+export function issuedTransitionId(memoId: string): string {
+  const h = createHash('sha1').update(`hr_memo_issued_transition:${memoId}`).digest('hex');
+  const variant = ((parseInt(h[16], 16) & 0x3) | 0x8).toString(16);
+  return `${h.slice(0, 8)}-${h.slice(8, 12)}-5${h.slice(13, 16)}-${variant}${h.slice(17, 20)}-${h.slice(20, 32)}`;
+}
 
 const OPEN_MEMO_PAGE = 1000;
 const OPEN_MEMO_MAX_PAGES = 50;
@@ -290,10 +315,17 @@ export class HRMemoService {
     }
 
     // ---- Resolution: events -> memos (dry run previews the fresh ones too)
-    try {
-      await this.resolveEventsIntoMemos(runId, live, live ? [] : fresh, settings, result);
-    } catch (e) {
-      result.errors.push(`event resolution: ${errText(e)}`);
+    // Live: no memo is created until the one-memo-per-event index exists.
+    // The events stay pending and the nudges below still run.
+    const refusal = live ? await this.memoCreationRefusal() : null;
+    if (refusal) {
+      result.errors.push(refusal);
+    } else {
+      try {
+        await this.resolveEventsIntoMemos(runId, live, live ? [] : fresh, settings, result);
+      } catch (e) {
+        result.errors.push(`event resolution: ${errText(e)}`);
+      }
     }
 
     // ---- Acknowledgement nudges
@@ -305,6 +337,25 @@ export class HRMemoService {
 
     await this.recordRun(result, now);
     return result;
+  }
+
+  /**
+   * null when the one-memo-per-event index exists; otherwise why memo
+   * creation is refused. A check that cannot run also refuses (fail closed).
+   */
+  private async memoCreationRefusal(): Promise<string | null> {
+    const refused = 'memo creation refused: migration 20271008110108 not applied';
+    try {
+      const { data, error } = await this.supabase.rpc('exec_sql_safe', {
+        query: ONE_MEMO_PER_EVENT_INDEX_CHECK_SQL,
+      });
+      if (error) return `${refused} (could not check the index: ${error.message})`;
+      const answer = data as { success?: boolean; error?: string } | null;
+      if (answer?.success === true) return null;
+      return `${refused} (${answer?.error ?? 'the index check gave no answer'})`;
+    } catch (e) {
+      return `${refused} (could not check the index: ${errText(e)})`;
+    }
   }
 
   private async recordRun(result: DetectionRunResult, now: Date): Promise<void> {
@@ -575,20 +626,14 @@ export class HRMemoService {
             event.staff_id,
             (owner.reason as string | null) ?? reason,
           );
+          // The run that inserted it may have died before its audit row.
+          await this.recordIssuedTransition(owner.id as string, event.event_id, result, true);
           await this.linkEventToMemo(event.event_id, owner.id as string, result);
           continue;
         }
         if (memoError || !memoRow) throw new Error(memoError?.message ?? 'no memo row returned');
 
-        // Audit transition
-        await this.supabase.from('hr_memo_state_transitions').insert({
-          memo_id: memoRow.id,
-          from_status: null,
-          to_status: 'issued',
-          actor_user_id: null,
-          actor_role: 'cron',
-          note: `auto-issued from event ${event.event_id}`,
-        });
+        await this.recordIssuedTransition(memoRow.id as string, event.event_id, result, false);
 
         result.memos_created += 1;
 
@@ -629,6 +674,47 @@ export class HRMemoService {
       metadata: { staff_id: staffId, memo_id: memoId },
       idempotencyKey: `hr_memo_issued:${memoId}`,
     });
+  }
+
+  /**
+   * The memo's 'issued' audit row, written at most once. Its id is derived
+   * from the memo id, so a second insert hits the primary key (23505) and
+   * adds nothing. A recovering run first looks for any 'issued' row, which
+   * also covers a memo issued before this id scheme, whose row has a random id.
+   */
+  private async recordIssuedTransition(
+    memoId: string,
+    eventId: string,
+    result: DetectionRunResult,
+    recovering: boolean,
+  ): Promise<void> {
+    if (recovering) {
+      const { data: existing, error: readErr } = await this.supabase
+        .from('hr_memo_state_transitions')
+        .select('id')
+        .eq('memo_id', memoId)
+        .eq('to_status', 'issued')
+        .limit(1);
+      if (readErr) {
+        result.errors.push(`memo ${memoId}: audit row check failed: ${readErr.message}`);
+        return;
+      }
+      if ((existing ?? []).length > 0) return;
+    }
+    const { error } = await this.supabase.from('hr_memo_state_transitions').insert({
+      id: issuedTransitionId(memoId),
+      memo_id: memoId,
+      from_status: null,
+      to_status: 'issued',
+      actor_user_id: null,
+      actor_role: 'cron',
+      note: recovering
+        ? `auto-issued from event ${eventId} (audit row written by a later run)`
+        : `auto-issued from event ${eventId}`,
+    });
+    if (error && (error as { code?: string }).code !== '23505') {
+      result.errors.push(`memo ${memoId}: audit row failed: ${error.message}`);
+    }
   }
 
   /**

@@ -3,7 +3,13 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { SupabaseClient } from '@supabase/supabase-js';
 
-import { HRMemoService, UNRESOLVABLE_EVENT_REASON, istDate } from '@/lib/services/hr/memo-service';
+import {
+  HRMemoService,
+  ONE_MEMO_PER_EVENT_INDEX_CHECK_SQL,
+  UNRESOLVABLE_EVENT_REASON,
+  issuedTransitionId,
+  istDate,
+} from '@/lib/services/hr/memo-service';
 import {
   dueNudges,
   effectiveMode,
@@ -56,6 +62,8 @@ function makeFake(opts: {
   failInsertOn?: string[];
   /** Tables whose unique key the fake does NOT enforce (to prove the code itself avoids duplicates). */
   noUniqueOn?: string[];
+  /** What the live index check (exec_sql_safe) finds. Default: the index exists. */
+  memoIndex?: 'present' | 'missing' | 'rpc_error';
 }) {
   const tables: Record<string, Row[]> = {
     institution_leaves: [],
@@ -75,6 +83,7 @@ function makeFake(opts: {
   };
   const writes: Write[] = [];
   const touched: string[] = [];
+  const rpcCalls: string[] = [];
 
   class Builder {
     private filters: Filter[] = [];
@@ -171,6 +180,12 @@ function makeFake(opts: {
         if (opts.failInsertOn?.includes(this.table)) {
           return { data: null, error: { message: `insert into ${this.table} refused (test)` } };
         }
+        // Every table's primary key: a supplied id that already exists.
+        for (const n of list) {
+          if (n.id != null && rows.some((r) => r.id === n.id)) {
+            return { data: null, error: { message: 'duplicate key (pkey)', code: '23505' } };
+          }
+        }
         if (this.table === 'notifications') {
           for (const n of list) {
             if (n.idempotency_key != null && rows.some((r) => r.idempotency_key === n.idempotency_key)) {
@@ -244,7 +259,23 @@ function makeFake(opts: {
       touched.push(table);
       return new Builder(table);
     },
-    async rpc(name: string) {
+    async rpc(name: string, args?: Row) {
+      rpcCalls.push(name);
+      if (name === 'exec_sql_safe') {
+        if (args?.query !== ONE_MEMO_PER_EVENT_INDEX_CHECK_SQL) {
+          return { data: null, error: { message: 'unexpected exec_sql_safe query (test)' } };
+        }
+        if (opts.memoIndex === 'rpc_error') {
+          return { data: null, error: { message: 'permission denied for function exec_sql_safe' } };
+        }
+        if (opts.memoIndex === 'missing') {
+          return {
+            data: { success: false, error: 'ux_hr_memos_triggered_by_event missing', code: 'P0001' },
+            error: null,
+          };
+        }
+        return { data: { success: true, message: 'SQL executed successfully' }, error: null };
+      }
       if (name === 'fn_get_policy') return { data: opts.policy, error: null };
       if (name === 'fn_get_hr_memo_triggers') {
         return {
@@ -262,7 +293,7 @@ function makeFake(opts: {
     },
   };
 
-  return { client: client as unknown as SupabaseClient, tables, writes, touched };
+  return { client: client as unknown as SupabaseClient, tables, writes, touched, rpcCalls };
 }
 
 const STAFF_A = 'aaaaaaaa-0000-4000-8000-000000000001';
@@ -1012,4 +1043,177 @@ describe('#4259 blind re-review — setup/03_policies.sql mirrors the ledger rul
       expect(rule).toBe('(SELECT public.is_super_admin())');
     });
   }
+});
+
+describe('#4259 panel item 2 — live mode creates no memo until the one-memo-per-event index exists', () => {
+  const pendingEvent: Row = {
+    id: 'ev-guard',
+    staff_id: STAFF_A,
+    event_type: 'leave_before_approval',
+    event_detail: { leave_id: 'leave-guard', leave_name: 'Casual' },
+    detected_at: daysAgo(1),
+    processed_into_memo_id: null,
+    is_dismissed: false,
+  };
+  const tables = () => ({ ...scenario(), hr_memo_eligibility_events: [{ ...pendingEvent }] });
+
+  for (const memoIndex of ['missing', 'rpc_error'] as const) {
+    it(`index ${memoIndex}: no memo, no audit row, no memo notice; the event stays pending and the run says why`, async () => {
+      const fake = makeFake({ policy: { mode: 'live' }, tables: tables(), memoIndex });
+      const res = await new HRMemoService(fake.client).runDetection(RUN, { now: NOW });
+
+      expect(res.memos_created).toBe(0);
+      expect(fake.writes.filter((w) => w.table === 'hr_memos')).toEqual([]);
+      expect(fake.writes.filter((w) => w.table === 'hr_memo_state_transitions')).toEqual([]);
+      expect(fake.tables.notifications.filter((n) => n.title === 'HR memo issued')).toEqual([]);
+      const pending = fake.tables.hr_memo_eligibility_events.find((e) => e.id === 'ev-guard');
+      expect(pending?.processed_into_memo_id).toBeNull();
+      expect(pending?.is_dismissed).toBe(false);
+      expect(res.errors.join(' ')).toMatch(/memo creation refused: migration 20271008110108 not applied/);
+      // The run is still recorded, with the refusal in it.
+      expect(fake.tables.hr_memo_detector_runs).toHaveLength(1);
+      expect(JSON.stringify(fake.tables.hr_memo_detector_runs[0].errors)).toMatch(/20271008110108/);
+    });
+  }
+
+  it('index present: memos are issued as before', async () => {
+    const fake = makeFake({ policy: { mode: 'live' }, tables: tables(), memoIndex: 'present' });
+    const res = await new HRMemoService(fake.client).runDetection(RUN, { now: NOW });
+    expect(res.errors.join(' ')).not.toMatch(/20271008110108/);
+    expect(res.memos_created).toBeGreaterThan(0);
+    expect(fake.rpcCalls).toContain('exec_sql_safe');
+  });
+
+  it('dry run never runs the check and previews exactly as before, even with the index missing', async () => {
+    const fake = makeFake({ policy: { mode: 'dry_run' }, tables: tables(), memoIndex: 'missing' });
+    const res = await new HRMemoService(fake.client).runDetection(RUN, { now: NOW });
+    expect(fake.rpcCalls).not.toContain('exec_sql_safe');
+    expect(res.errors.join(' ')).not.toMatch(/20271008110108/);
+    expect(res.preview.memos.some((m) => m.event_id === 'ev-guard' && m.staff_found)).toBe(true);
+  });
+
+  it('the check names the index, mirrors the migration guard, and writes nothing', () => {
+    expect(ONE_MEMO_PER_EVENT_INDEX_CHECK_SQL).toContain("indexname = 'ux_hr_memos_triggered_by_event'");
+    expect(ONE_MEMO_PER_EVENT_INDEX_CHECK_SQL).toContain("indexdef ILIKE 'CREATE UNIQUE INDEX%(triggered_by_event_id)%'");
+    expect(ONE_MEMO_PER_EVENT_INDEX_CHECK_SQL).toMatch(/RAISE EXCEPTION/);
+    expect(ONE_MEMO_PER_EVENT_INDEX_CHECK_SQL).not.toMatch(/\b(INSERT|UPDATE|DELETE|DROP|TRUNCATE|ALTER|CREATE (TABLE|INDEX)|GRANT)\b/i);
+  });
+});
+
+describe('#4259 panel item 5 — the 23505 recovery path writes the missing issued audit row, once', () => {
+  const pendingEvent = (id: string): Row => ({
+    id,
+    staff_id: STAFF_A,
+    event_type: 'leave_before_approval',
+    event_detail: { leave_id: `leave-${id}`, leave_name: 'Casual' },
+    detected_at: daysAgo(1),
+    processed_into_memo_id: null,
+    is_dismissed: false,
+  });
+  const orphanMemo = (id: string, eventId: string): Row => ({
+    id,
+    staff_id: STAFF_A,
+    memo_type: 'leave_before_approval',
+    reason: 'r',
+    triggered_by_event_id: eventId,
+    auto_issued: true,
+    status: 'issued',
+    issued_at: NOW.toISOString(),
+  });
+  const issuedRows = (fake: ReturnType<typeof makeFake>, memoId: string) =>
+    fake.tables.hr_memo_state_transitions.filter((t) => t.memo_id === memoId && t.to_status === 'issued');
+
+  it('a memo left by a run that died before its audit row gets exactly one, with the derived id', async () => {
+    const fake = makeFake({
+      policy: { mode: 'live' },
+      tables: {
+        ...scenario(),
+        institution_leaves: [],
+        hr_memos: [orphanMemo('memo-no-audit', 'ev-a1')],
+        hr_memo_eligibility_events: [pendingEvent('ev-a1')],
+      },
+    });
+    const res = await new HRMemoService(fake.client).runDetection(RUN, { now: NOW });
+    expect(res.errors).toEqual([]);
+    const rows = issuedRows(fake, 'memo-no-audit');
+    expect(rows).toHaveLength(1);
+    expect(rows[0].id).toBe(issuedTransitionId('memo-no-audit'));
+    expect(rows[0].from_status).toBeNull();
+    expect(rows[0].actor_role).toBe('cron');
+  });
+
+  it('another run writing the row between the check and the insert: the primary key keeps ONE, and it is not an error', async () => {
+    const fake = makeFake({
+      policy: { mode: 'live' },
+      tables: {
+        ...scenario(),
+        institution_leaves: [],
+        hr_memos: [orphanMemo('memo-race', 'ev-a2')],
+        hr_memo_eligibility_events: [pendingEvent('ev-a2')],
+      },
+    });
+    // The check reads "no row yet"; just before this run's insert, an
+    // overlapping run lands the same row (same derived id).
+    const realFrom = (fake.client as unknown as { from: (t: string) => unknown }).from;
+    let transitionCalls = 0;
+    (fake.client as unknown as { from: (t: string) => unknown }).from = (t: string) => {
+      if (t === 'hr_memo_state_transitions' && ++transitionCalls === 2) {
+        fake.tables.hr_memo_state_transitions.push({
+          id: issuedTransitionId('memo-race'),
+          memo_id: 'memo-race',
+          from_status: null,
+          to_status: 'issued',
+          actor_role: 'cron',
+        });
+      }
+      return realFrom(t);
+    };
+    const res = await new HRMemoService(fake.client).runDetection(RUN, { now: NOW });
+    expect(transitionCalls).toBe(2);
+    expect(res.errors).toEqual([]);
+    expect(issuedRows(fake, 'memo-race')).toHaveLength(1);
+    expect(fake.tables.hr_memo_eligibility_events[0].processed_into_memo_id).toBe('memo-race');
+  });
+
+  it('a memo issued by this code and later recovered (link lost) still has ONE row', async () => {
+    // A fresh issue then a recovery of the same memo: still one row.
+    const fresh = makeFake({
+      policy: { mode: 'live' },
+      tables: { ...scenario(), institution_leaves: [], hr_memos: [], hr_memo_eligibility_events: [pendingEvent('ev-a3')] },
+    });
+    await new HRMemoService(fresh.client).runDetection(RUN, { now: NOW });
+    const memoId = fresh.tables.hr_memos[0].id as string;
+    expect(issuedRows(fresh, memoId)).toHaveLength(1);
+    expect(issuedRows(fresh, memoId)[0].id).toBe(issuedTransitionId(memoId));
+    fresh.tables.hr_memo_eligibility_events[0].processed_into_memo_id = null; // as if the link never landed
+    const again = await new HRMemoService(fresh.client).runDetection(RUN2, { now: NOW });
+    expect(again.errors).toEqual([]);
+    expect(issuedRows(fresh, memoId)).toHaveLength(1);
+  });
+
+  it('a memo issued before the derived id (its audit row has a random id) gets no second row', async () => {
+    const fake = makeFake({
+      policy: { mode: 'live' },
+      tables: {
+        ...scenario(),
+        institution_leaves: [],
+        hr_memos: [orphanMemo('memo-legacy', 'ev-a4')],
+        hr_memo_eligibility_events: [pendingEvent('ev-a4')],
+        hr_memo_state_transitions: [
+          { id: 'random-legacy-id', memo_id: 'memo-legacy', from_status: null, to_status: 'issued', actor_role: 'cron' },
+        ],
+      },
+    });
+    const res = await new HRMemoService(fake.client).runDetection(RUN, { now: NOW });
+    expect(res.errors).toEqual([]);
+    expect(issuedRows(fake, 'memo-legacy')).toEqual([expect.objectContaining({ id: 'random-legacy-id' })]);
+    expect(fake.writes.filter((w) => w.table === 'hr_memo_state_transitions')).toEqual([]);
+  });
+
+  it('the derived id is a stable, well-formed UUID that differs per memo', () => {
+    const a = issuedTransitionId('memo-1');
+    expect(a).toBe(issuedTransitionId('memo-1'));
+    expect(a).not.toBe(issuedTransitionId('memo-2'));
+    expect(a).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+  });
 });
