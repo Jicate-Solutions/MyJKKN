@@ -3007,3 +3007,69 @@ DROP TRIGGER IF EXISTS hr_duty_proof_rules_audit_trg ON public.hr_duty_proof_rul
 CREATE TRIGGER hr_duty_proof_rules_audit_trg
   AFTER UPDATE ON public.hr_duty_proof_rules
   FOR EACH ROW EXECUTE FUNCTION public.fn_hr_duty_proof_rules_audit();
+
+-- ===========================================================================
+-- Source: 20271007161139_hr_duty_playbooks_and_lessons.sql (triggers)
+-- HR staff harness — playbooks, the lessons log and credited authorship.
+-- Seeds (reason codes, two platform_policies rows, the ai_routine_schedules
+-- row) and the apply-time guards live only in the migration.
+-- ===========================================================================
+DROP TRIGGER IF EXISTS hr_duty_reason_codes_audit_trg ON public.hr_duty_reason_codes;
+
+CREATE TRIGGER hr_duty_reason_codes_audit_trg
+  BEFORE UPDATE ON public.hr_duty_reason_codes
+  FOR EACH ROW EXECUTE FUNCTION public.fn_hr_duty_reason_codes_audit();
+
+-- ============================================================================
+-- HR staff harness — chase ladder: triggers (functions in 02_functions.sql)
+-- Migration: 20270613101207_hr_duty_chase_ladder.sql
+-- Added: 2026-10-01 - duty register (config table), chase ledger, blocked marks,
+-- run log. Seed rows (38 duties, policies, schedule, loop row) live in the
+-- migration only.
+-- ============================================================================
+DROP TRIGGER IF EXISTS hr_duty_definitions_touch_trg ON public.hr_duty_definitions;
+CREATE TRIGGER hr_duty_definitions_touch_trg
+  BEFORE UPDATE ON public.hr_duty_definitions
+  FOR EACH ROW EXECUTE FUNCTION public.fn_hr_duty_definitions_touch();
+
+DROP TRIGGER IF EXISTS hr_duty_definitions_audit_trg ON public.hr_duty_definitions;
+CREATE TRIGGER hr_duty_definitions_audit_trg
+  AFTER UPDATE ON public.hr_duty_definitions
+  FOR EACH ROW EXECUTE FUNCTION public.fn_hr_duty_definitions_audit();
+
+-- Cold-read config (read once per cron run), so no pg_notify cache trigger.
+
+-- =====================================================================
+-- Updated: 2026-10-01 - HR memo detector run log + acknowledgement nudges
+-- Migration: 20270613101223_hr_memo_detector_schedule_disabled_with_dry_run.sql
+-- =====================================================================
+DROP TRIGGER IF EXISTS trg_hr_memo_nudges_updated_at ON public.hr_memo_nudges;
+CREATE TRIGGER trg_hr_memo_nudges_updated_at
+  BEFORE UPDATE ON public.hr_memo_nudges
+  FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+
+
+-- Updated: 2026-10-01 - HR staff harness (migration 20270613101125_hr_recruitment_nudges.sql)
+DROP TRIGGER IF EXISTS hr_recruitment_nudges_sent_updated_at ON public.hr_recruitment_nudges_sent;
+CREATE TRIGGER hr_recruitment_nudges_sent_updated_at
+  BEFORE UPDATE ON public.hr_recruitment_nudges_sent
+  FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+
+
+-- ============================================================================
+-- Updated: 2026-10-01 - HR intake helper (source: migrations/20270613101241_hr_intake_helper.sql)
+-- ============================================================================
+DROP TRIGGER IF EXISTS hr_intake_batches_updated_at ON public.hr_intake_batches;
+CREATE TRIGGER hr_intake_batches_updated_at
+  BEFORE UPDATE ON public.hr_intake_batches
+  FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+
+DROP TRIGGER IF EXISTS hr_intake_rows_updated_at ON public.hr_intake_rows;
+CREATE TRIGGER hr_intake_rows_updated_at
+  BEFORE UPDATE ON public.hr_intake_rows
+  FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+
+DROP TRIGGER IF EXISTS hr_intake_match_rules_updated_at ON public.hr_intake_match_rules;
+CREATE TRIGGER hr_intake_match_rules_updated_at
+  BEFORE UPDATE ON public.hr_intake_match_rules
+  FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();

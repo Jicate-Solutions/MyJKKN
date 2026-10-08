@@ -11683,3 +11683,541 @@ VALUES (
   ARRAY['application/pdf', 'image/jpeg', 'image/png', 'image/webp']
 )
 ON CONFLICT (id) DO NOTHING;
+
+-- ===========================================================================
+-- Source: 20271007161139_hr_duty_playbooks_and_lessons.sql (tables, indexes)
+-- HR staff harness — playbooks, the lessons log and credited authorship.
+-- Seeds (reason codes, two platform_policies rows, the ai_routine_schedules
+-- row) and the apply-time guards live only in the migration.
+-- ===========================================================================
+CREATE TABLE IF NOT EXISTS public.hr_duty_reason_codes (
+  -- shared config mixin (config-table-pattern.md, verbatim)
+  id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  config_key    text NOT NULL,                  -- '<duty_code>.<code>', e.g. 'L1.late_application'
+  display_name  text NOT NULL,
+  description   text,
+  is_active     boolean NOT NULL DEFAULT true,
+  created_at    timestamptz NOT NULL DEFAULT now(),
+  updated_at    timestamptz NOT NULL DEFAULT now(),
+  updated_by    uuid REFERENCES public.profiles(id),
+  change_reason text,
+
+  -- typed columns
+  duty_code      text NOT NULL
+                   CHECK (duty_code ~ '^(R[1-9]|L[1-5]|A[1-6]|P[1-4]|S[1-4]|G([1-9]|10))$'),
+  code           text NOT NULL CHECK (code ~ '^[a-z][a-z0-9_]{1,40}$'),
+  label          text NOT NULL CHECK (char_length(label) BETWEEN 3 AND 80),
+  -- Lowercase keywords. Letters, digits, spaces, apostrophes and hyphens only,
+  -- so the matcher can splice them into a regex without escaping.
+  match_terms    text[] NOT NULL DEFAULT '{}',
+  match_order    integer NOT NULL DEFAULT 100,  -- lower is tried first
+  suggested_line text CHECK (suggested_line IS NULL OR char_length(suggested_line) BETWEEN 10 AND 240),
+
+  CONSTRAINT hr_duty_reason_codes_key_shape CHECK (config_key = duty_code || '.' || code),
+  CONSTRAINT hr_duty_reason_codes_terms_lowercase
+    CHECK (array_to_string(match_terms, '|') = lower(array_to_string(match_terms, '|'))),
+  CONSTRAINT hr_duty_reason_codes_terms_plain
+    CHECK (array_to_string(match_terms, '|') ~ '^([a-z0-9][a-z0-9 ''-]*[a-z0-9](\|[a-z0-9][a-z0-9 ''-]*[a-z0-9])*)?$'),
+  CONSTRAINT hr_duty_reason_codes_line_unless_other
+    CHECK (code = 'other' OR suggested_line IS NOT NULL)
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS hr_duty_reason_codes_active_unique
+  ON public.hr_duty_reason_codes (duty_code, code) WHERE is_active = true;
+
+CREATE UNIQUE INDEX IF NOT EXISTS hr_duty_reason_codes_config_key_active_unique
+  ON public.hr_duty_reason_codes (config_key) WHERE is_active = true;
+
+COMMENT ON TABLE public.hr_duty_reason_codes IS
+  'Per HR duty, the short list of reasons a rejection or reversal is sorted into (by keyword), and the playbook line each reason suggests. config_key = duty_code.code. Config table (shared mixin). 20271007161139.';
+
+CREATE TABLE IF NOT EXISTS public.hr_duty_reason_codes_audit (
+  id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  config_id     uuid NOT NULL REFERENCES public.hr_duty_reason_codes(id),
+  changed_at    timestamptz NOT NULL DEFAULT now(),
+  changed_by    uuid REFERENCES public.profiles(id),
+  old_value     jsonb,
+  new_value     jsonb,
+  change_reason text
+);
+
+CREATE TABLE IF NOT EXISTS public.hr_duty_lessons (
+  id             uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  duty_code      text NOT NULL
+                   CHECK (duty_code ~ '^(R[1-9]|L[1-5]|A[1-6]|P[1-4]|S[1-4]|G([1-9]|10))$'),
+  institution_id uuid,                 -- NULL when the record has no college
+  item_table     text NOT NULL,
+  item_id        uuid NOT NULL,
+  kind           text NOT NULL CHECK (kind IN ('reject','reversal','reopen','send_back')),
+  reason_code    text NOT NULL,        -- the keyword bucket; the reason's words are never kept
+  source         text NOT NULL CHECK (source IN ('harvest')),
+  occurred_at    timestamptz NOT NULL,
+  created_at     timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT hr_duty_lessons_once UNIQUE (duty_code, item_table, item_id, kind, occurred_at)
+);
+
+CREATE INDEX IF NOT EXISTS hr_duty_lessons_pattern_idx
+  ON public.hr_duty_lessons (duty_code, reason_code, occurred_at DESC);
+
+COMMENT ON TABLE public.hr_duty_lessons IS
+  'One row per rejection or reversal a person decided on an HR duty, with the reason sorted into a keyword bucket (reason_code). The reason text itself is never stored, and no name is: only the bucket, the duty, the college, the time and a pointer to the source record (item_table, item_id), which is the only way back to the person. Gathered weekly (source=harvest). 20271007161139.';
+
+CREATE TABLE IF NOT EXISTS public.hr_playbook_line_proposals (
+  id             uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  duty_code      text NOT NULL
+                   CHECK (duty_code ~ '^(R[1-9]|L[1-5]|A[1-6]|P[1-4]|S[1-4]|G([1-9]|10))$'),
+  proposed_text  text NOT NULL CHECK (char_length(proposed_text) BETWEEN 10 AND 240),
+  source         text NOT NULL CHECK (source IN ('suggestion','lesson_pattern')),
+  reason_code    text,
+  -- {count, window_days, first_at, last_at} only: no item ids, no names.
+  evidence       jsonb,
+  suggested_by   uuid REFERENCES public.profiles(id),
+  status         text NOT NULL DEFAULT 'proposed' CHECK (status IN ('proposed','accepted','declined')),
+  decided_by     uuid REFERENCES public.profiles(id),
+  decided_at     timestamptz,
+  decision_note  text CHECK (decision_note IS NULL OR char_length(decision_note) <= 500),
+  edited_text    text CHECK (edited_text IS NULL OR char_length(edited_text) BETWEEN 10 AND 240),
+  created_at     timestamptz NOT NULL DEFAULT now(),
+
+  CONSTRAINT hr_playbook_proposals_evidence_shape CHECK (
+    evidence IS NULL OR (
+      jsonb_typeof(evidence) = 'object'
+      AND evidence - ARRAY['count','window_days','first_at','last_at'] = '{}'::jsonb
+    )
+  ),
+  CONSTRAINT hr_playbook_proposals_source_fields CHECK (
+    (source = 'suggestion' AND suggested_by IS NOT NULL AND evidence IS NULL)
+    OR (source = 'lesson_pattern' AND suggested_by IS NULL AND reason_code IS NOT NULL
+        AND evidence ? 'count')
+  ),
+  CONSTRAINT hr_playbook_proposals_decided_fields CHECK (
+    (status = 'proposed') = (decided_at IS NULL)
+  )
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS hr_playbook_proposals_one_open_pattern
+  ON public.hr_playbook_line_proposals (duty_code, reason_code)
+  WHERE status = 'proposed' AND source = 'lesson_pattern';
+
+CREATE INDEX IF NOT EXISTS hr_playbook_proposals_open_idx
+  ON public.hr_playbook_line_proposals (status, duty_code);
+
+CREATE INDEX IF NOT EXISTS hr_playbook_proposals_suggested_by_idx
+  ON public.hr_playbook_line_proposals (suggested_by) WHERE suggested_by IS NOT NULL;
+
+COMMENT ON TABLE public.hr_playbook_line_proposals IS
+  'Playbook lines waiting for the HR head (hr.harness.playbooks.manage): suggestions by team members (credited by name) and lines drafted from a reason seen often (lesson_pattern). 20271007161139.';
+
+CREATE TABLE IF NOT EXISTS public.hr_playbook_lines (
+  id                 uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  duty_code          text NOT NULL
+                       CHECK (duty_code ~ '^(R[1-9]|L[1-5]|A[1-6]|P[1-4]|S[1-4]|G([1-9]|10))$'),
+  line_text          text NOT NULL CHECK (char_length(line_text) BETWEEN 10 AND 240),
+  position           integer NOT NULL DEFAULT 0,
+  status             text NOT NULL DEFAULT 'active' CHECK (status IN ('active','retired')),
+  authored_by        uuid NOT NULL REFERENCES public.profiles(id),   -- the credited person
+  source             text NOT NULL CHECK (source IN ('hr_head','suggestion','lesson_pattern')),
+  source_proposal_id uuid REFERENCES public.hr_playbook_line_proposals(id),
+  lesson_count       integer CHECK (lesson_count IS NULL OR lesson_count > 0),
+  accepted_by        uuid NOT NULL REFERENCES public.profiles(id),
+  accepted_at        timestamptz NOT NULL DEFAULT now(),
+  -- Set when the decider changed the words before accepting; the card then
+  -- names both people ("suggested by X · edited by Y").
+  edited_by          uuid REFERENCES public.profiles(id),
+  retired_by         uuid REFERENCES public.profiles(id),
+  retired_at         timestamptz,
+  retire_note        text CHECK (retire_note IS NULL OR char_length(retire_note) <= 500),
+  created_at         timestamptz NOT NULL DEFAULT now(),
+  updated_at         timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT hr_playbook_lines_retired_fields CHECK ((status = 'retired') = (retired_at IS NOT NULL)),
+  CONSTRAINT hr_playbook_lines_lesson_count CHECK (source <> 'lesson_pattern' OR lesson_count IS NOT NULL)
+);
+
+CREATE INDEX IF NOT EXISTS hr_playbook_lines_duty_idx
+  ON public.hr_playbook_lines (duty_code, position) WHERE status = 'active';
+
+COMMENT ON TABLE public.hr_playbook_lines IS
+  'The short playbook shown on each HR duty screen. authored_by is the person credited, edited_by the decider who changed the words (if any); names are read from profiles at read time, never copied. Readable by team members (a staff row), super admins, admins and holders of hr.harness.playbooks.manage (fn_hr_playbook_can_read). 20271007161139.';
+
+-- ============================================================================
+-- HR staff harness — chase ladder: tables
+-- Migration: 20270613101207_hr_duty_chase_ladder.sql
+-- Added: 2026-10-01 - duty register (config table), chase ledger, blocked marks,
+-- run log. Seed rows (38 duties, policies, schedule, loop row) live in the
+-- migration only.
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS public.hr_duty_definitions (
+  -- shared config mixin (config-table-pattern.md, verbatim)
+  id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  config_key    text NOT NULL,                  -- the duty code, e.g. 'L1'
+  display_name  text NOT NULL,
+  description   text,
+  is_active     boolean NOT NULL DEFAULT true,
+  created_at    timestamptz NOT NULL DEFAULT now(),
+  updated_at    timestamptz NOT NULL DEFAULT now(),
+  updated_by    uuid REFERENCES public.profiles(id),
+  change_reason text,
+
+  -- typed columns
+  area                 text NOT NULL
+                         CHECK (area IN ('recruitment','leave','attendance','payroll','staff_records','governance')),
+  owning_queue         text NOT NULL,
+  -- How the engine finds who an item is waiting on:
+  --   chain_step = the approver pinned or named by the item's current step;
+  --   permission = holders of owner_permission_key in the item's college;
+  --   none       = no per-item owner (monthly / yearly duties).
+  owner_rule           text NOT NULL DEFAULT 'permission'
+                         CHECK (owner_rule IN ('chain_step','permission','none')),
+  owner_permission_key text,
+  -- Due rule. Hours are counted as ceil(hours/24) WORKING days (the clock
+  -- pauses on weekly offs and holidays). A calendar rule combines with an
+  -- hours/days rule as the EARLIER of the two. Supported calendar rule:
+  -- 'before_item_deadline:<days>'. Anything else is stored for the record and
+  -- keeps the duty out of the run.
+  due_hours            integer CHECK (due_hours IS NULL OR due_hours > 0),
+  due_working_days     integer CHECK (due_working_days IS NULL OR due_working_days > 0),
+  due_calendar_rule    text,
+  ladder               jsonb NOT NULL,
+  enabled              boolean NOT NULL DEFAULT false,
+  href                 text,
+  note                 text,
+
+  CONSTRAINT hr_duty_definitions_ladder_is_array CHECK (jsonb_typeof(ladder) = 'array'),
+  CONSTRAINT hr_duty_definitions_permission_named
+    CHECK (owner_rule <> 'permission' OR owner_permission_key IS NOT NULL),
+  CONSTRAINT hr_duty_definitions_enabled_needs_due
+    CHECK (NOT enabled OR due_hours IS NOT NULL OR due_working_days IS NOT NULL OR due_calendar_rule IS NOT NULL)
+);
+
+COMMENT ON TABLE public.hr_duty_definitions IS
+  'HR staff harness duty register (20270613101207): one row per HR duty with its owning queue, owner rule, due rule, chase-ladder rungs and enabled flag. Read by the hr-duty-chase cron. Config-table pattern; super admins write, every change audited in hr_duty_definitions_audit.';
+COMMENT ON COLUMN public.hr_duty_definitions.ladder IS
+  'Array of rungs {key, after_working_days, audience owner|supervisor|hr_head, channel in_app|whatsapp|weekly_list, enabled}. The whatsapp channel is not wired in this build and is skipped.';
+
+-- One active row per duty; history rows stay with is_active = false.
+CREATE UNIQUE INDEX IF NOT EXISTS hr_duty_definitions_active_unique
+  ON public.hr_duty_definitions (config_key)
+  WHERE is_active = true;
+
+CREATE TABLE IF NOT EXISTS public.hr_duty_definitions_audit (
+  id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  config_id     uuid NOT NULL REFERENCES public.hr_duty_definitions(id),
+  changed_at    timestamptz NOT NULL DEFAULT now(),
+  changed_by    uuid REFERENCES public.profiles(id),
+  old_value     jsonb,
+  new_value     jsonb,
+  change_reason text
+);
+
+CREATE INDEX IF NOT EXISTS idx_hr_duty_definitions_audit_config
+  ON public.hr_duty_definitions_audit (config_id, changed_at DESC);
+
+CREATE TABLE IF NOT EXISTS public.hr_duty_chase_ledger (
+  id                     uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  duty_code              text NOT NULL,
+  item_id                uuid NOT NULL,
+  -- '' for single-step items; the chain step index for leave / recruitment /
+  -- forms, so step 2 of a request is a new wait for a new person.
+  stage_key              text NOT NULL DEFAULT '',
+  step_key               text NOT NULL,
+  audience               text NOT NULL CHECK (audience IN ('owner','supervisor','hr_head')),
+  item_label             text,
+  institution_id         uuid,
+  owner_profile_ids      uuid[] NOT NULL DEFAULT '{}',
+  supervisor_profile_ids uuid[] NOT NULL DEFAULT '{}',
+  notified_profile_ids   uuid[] NOT NULL DEFAULT '{}',
+  notification_id        uuid,
+  reroute_reason         text CHECK (reroute_reason IS NULL OR reroute_reason IN
+                           ('owner_on_leave','no_owner','owners_over_cap','no_supervisor','supervisor_on_leave','blocked')),
+  blocked                boolean NOT NULL DEFAULT false,
+  due_at                 timestamptz NOT NULL,
+  late_working_days      integer NOT NULL DEFAULT 0,
+  reached_at             timestamptz NOT NULL DEFAULT now(),
+  -- Stamped by the run when the item has left its queue (decided, withdrawn…).
+  resolved_at            timestamptz,
+  created_at             timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT hr_duty_chase_ledger_one_per_rung UNIQUE (duty_code, item_id, stage_key, step_key)
+);
+
+COMMENT ON TABLE public.hr_duty_chase_ledger IS
+  'HR chase ladder: one row per item per rung reached (the UNIQUE key is the dedupe — a rung is messaged once). The per-person record: readable only by the item''s owners and their supervisors. Written by the hr-duty-chase cron (service role) only.';
+
+CREATE INDEX IF NOT EXISTS idx_hr_duty_chase_ledger_item
+  ON public.hr_duty_chase_ledger (item_id);
+CREATE INDEX IF NOT EXISTS idx_hr_duty_chase_ledger_open
+  ON public.hr_duty_chase_ledger (duty_code)
+  WHERE resolved_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_hr_duty_chase_ledger_owners
+  ON public.hr_duty_chase_ledger USING gin (owner_profile_ids);
+CREATE INDEX IF NOT EXISTS idx_hr_duty_chase_ledger_supervisors
+  ON public.hr_duty_chase_ledger USING gin (supervisor_profile_ids);
+
+
+CREATE TABLE IF NOT EXISTS public.hr_duty_blocked_marks (
+  id           uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  duty_code    text NOT NULL,
+  item_id      uuid NOT NULL,
+  stage_key    text NOT NULL DEFAULT '',
+  -- The rung the item stood on when it was marked; the engine lifts it one above.
+  at_step_key  text,
+  reason       text NOT NULL CHECK (length(btrim(reason)) >= 10),
+  marked_by    uuid NOT NULL REFERENCES public.profiles(id),
+  marked_at    timestamptz NOT NULL DEFAULT now(),
+  cleared_at   timestamptz,
+  cleared_by   uuid REFERENCES public.profiles(id),
+  created_at   timestamptz NOT NULL DEFAULT now()
+);
+
+COMMENT ON TABLE public.hr_duty_blocked_marks IS
+  'An owner''s "blocked, because…" answer on a chased HR item. An open mark parks the item (no more nudges to the owner) and lifts it one rung at once; it never counts against the owner. Written through fn_hr_duty_mark_blocked / fn_hr_duty_clear_blocked only.';
+
+CREATE UNIQUE INDEX IF NOT EXISTS hr_duty_blocked_marks_one_open
+  ON public.hr_duty_blocked_marks (duty_code, item_id, stage_key)
+  WHERE cleared_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_hr_duty_blocked_marks_item
+  ON public.hr_duty_blocked_marks (item_id);
+
+
+CREATE TABLE IF NOT EXISTS public.hr_duty_chase_runs (
+  id                  uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  run_date            date NOT NULL,
+  iso_week            text NOT NULL,
+  started_at          timestamptz NOT NULL DEFAULT now(),
+  finished_at         timestamptz,
+  outcome             text NOT NULL CHECK (outcome IN
+                        ('sent','nothing_due','switched_off','outside_hours','weekly_off','halted_volume_fuse','failed')),
+  master_switch       boolean NOT NULL DEFAULT false,
+  fuse_limit          integer NOT NULL DEFAULT 0,
+  fuse_blown          boolean NOT NULL DEFAULT false,
+  items_seen          integer NOT NULL DEFAULT 0,
+  items_due           integer NOT NULL DEFAULT 0,
+  planned_deliveries  integer NOT NULL DEFAULT 0,
+  sent_deliveries     integer NOT NULL DEFAULT 0,
+  weekly_lists_due    boolean NOT NULL DEFAULT false,
+  weekly_lists_sent   boolean NOT NULL DEFAULT false,
+  -- Counts per duty and per reroute reason, and the switch-off preview.
+  -- Never a profile id.
+  detail              jsonb NOT NULL DEFAULT '{}'::jsonb,
+  errors              text[] NOT NULL DEFAULT '{}',
+  created_at          timestamptz NOT NULL DEFAULT now()
+);
+
+COMMENT ON TABLE public.hr_duty_chase_runs IS
+  'One row per hr-duty-chase run, whatever it decided (sent, switched off, outside hours, weekly off, fuse blown, failed). While the master switch is off, detail.preview holds what the run WOULD have sent per duty.';
+
+CREATE INDEX IF NOT EXISTS idx_hr_duty_chase_runs_date
+  ON public.hr_duty_chase_runs (run_date DESC, started_at DESC);
+CREATE INDEX IF NOT EXISTS idx_hr_duty_chase_runs_week_sent
+  ON public.hr_duty_chase_runs (iso_week)
+  WHERE weekly_lists_sent;
+
+
+-- =====================================================================
+-- Updated: 2026-10-01 - HR memo detector run log + acknowledgement nudges
+-- Migration: 20270613101223_hr_memo_detector_schedule_disabled_with_dry_run.sql
+-- =====================================================================
+CREATE TABLE IF NOT EXISTS public.hr_memo_detector_runs (
+  id                 uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  run_id             uuid NOT NULL UNIQUE,
+  mode               text NOT NULL CHECK (mode IN ('dry_run', 'live')),
+  ran_at             timestamptz NOT NULL DEFAULT now(),
+  events_found       integer NOT NULL DEFAULT 0,
+  events_written     integer NOT NULL DEFAULT 0,
+  memos_found        integer NOT NULL DEFAULT 0,
+  memos_created      integer NOT NULL DEFAULT 0,
+  notifications_sent integer NOT NULL DEFAULT 0,
+  nudges_found       integer NOT NULL DEFAULT 0,
+  nudges_sent        integer NOT NULL DEFAULT 0,
+  details            jsonb NOT NULL DEFAULT '{}'::jsonb,
+  errors             jsonb NOT NULL DEFAULT '[]'::jsonb,
+  created_at         timestamptz NOT NULL DEFAULT now(),
+  updated_at         timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_hr_memo_detector_runs_ran_at
+  ON public.hr_memo_detector_runs (ran_at DESC);
+
+COMMENT ON TABLE public.hr_memo_detector_runs IS
+  'One row per hr-memo-auto-detector run (dry_run or live). details = {events, memos, nudges} the run created, or would have created in a dry run. Written by the cron (service role) only. Migration 20270613101223.';
+
+CREATE TABLE IF NOT EXISTS public.hr_memo_nudges (
+  id                    uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  memo_id               uuid NOT NULL REFERENCES public.hr_memos(id) ON DELETE CASCADE,
+  nudge_kind            text NOT NULL CHECK (nudge_kind IN ('staff_reminder', 'hod_notice')),
+  run_id                uuid,
+  status                text NOT NULL DEFAULT 'claimed'
+                          CHECK (status IN ('claimed', 'sent', 'no_recipient', 'failed')),
+  recipient_profile_ids uuid[] NOT NULL DEFAULT '{}'::uuid[],
+  recipient_source      text,   -- staff | reports_to | department_head | department_hod_role | none
+  recorded_at           timestamptz NOT NULL DEFAULT now(),
+  created_at            timestamptz NOT NULL DEFAULT now(),
+  updated_at            timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT hr_memo_nudges_once UNIQUE (memo_id, nudge_kind)
+);
+
+COMMENT ON TABLE public.hr_memo_nudges IS
+  'Acknowledgement nudges for hr_memos: at most ONE staff_reminder and ONE hod_notice per memo (UNIQUE memo_id, nudge_kind), claimed before sending. no_recipient = nobody could be resolved, recorded so it is visible and not retried. Written by the cron (service role) only. Migration 20270613101223.';
+
+
+-- =====================================================================================
+-- Updated: 2026-10-01 - HR staff harness (R5/R6/R8): hr_recruitment_nudges_sent
+-- Migration: 20270613101125_hr_recruitment_nudges.sql
+-- One row per recruitment nudge ever due (approval reminder / escalation, missing
+-- scorecard, offer not issued, joining outcome missing). Claimed BEFORE the send;
+-- UNIQUE (kind, ref_key) makes every nudge fire once. Service role only.
+-- =====================================================================================
+CREATE TABLE IF NOT EXISTS public.hr_recruitment_nudges_sent (
+  id               uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  kind             text NOT NULL,
+  ref_key          text NOT NULL,
+  candidate_id     uuid NOT NULL REFERENCES public.hr_recruitment_candidates(id) ON DELETE CASCADE,
+  recipient_ids    uuid[] NOT NULL DEFAULT '{}',
+  notification_id  uuid,
+  sent_at          timestamptz NOT NULL DEFAULT now(),
+  created_at       timestamptz NOT NULL DEFAULT now(),
+  updated_at       timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT hr_recruitment_nudges_sent_kind_chk CHECK (kind IN (
+    'approval_reminder',
+    'approval_escalation',
+    'scorecard_missing',
+    'offer_not_issued',
+    'joining_outcome_missing'
+  )),
+  CONSTRAINT hr_recruitment_nudges_sent_once UNIQUE (kind, ref_key)
+);
+
+CREATE INDEX IF NOT EXISTS idx_hr_recruitment_nudges_sent_candidate
+  ON public.hr_recruitment_nudges_sent (candidate_id);
+
+ALTER TABLE public.hr_recruitment_nudges_sent ENABLE ROW LEVEL SECURITY;
+-- Deliberately NO policies: written and read only by /api/cron/hr-recruitment-nudges.
+REVOKE ALL ON public.hr_recruitment_nudges_sent FROM anon, authenticated;
+
+-- ============================================================================
+-- Updated: 2026-10-01 - HR intake helper (source: migrations/20270613101241_hr_intake_helper.sql)
+-- ============================================================================
+-- hr_job_applications: source CHECK widened to ('internal','external_website','cvviz_import')
+-- (constraint hr_job_applications_source_check) and a nullable cvviz_profile_url.
+ALTER TABLE public.hr_job_applications
+  ADD COLUMN IF NOT EXISTS cvviz_profile_url text;
+
+-- One CVViZ import per person per job (review fix M2).
+CREATE UNIQUE INDEX IF NOT EXISTS uq_hr_job_applications_cvviz_job_email
+  ON public.hr_job_applications (job_id, lower(email))
+  WHERE source = 'cvviz_import' AND email IS NOT NULL;
+
+CREATE TABLE IF NOT EXISTS public.hr_intake_batches (
+  id               uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  source           text NOT NULL DEFAULT 'cvviz_export' CHECK (source IN ('cvviz_export')),
+  file_name        text NOT NULL CHECK (length(btrim(file_name)) > 0),
+  -- NOT NULL: role_has_institution_access(NULL) is TRUE, so a college-less batch
+  -- would be visible to HR in every college (review fix B1).
+  institution_id   uuid NOT NULL REFERENCES public.institutions(id),
+  created_by       uuid NOT NULL REFERENCES public.profiles(id),
+  created_by_name  text,
+  status           text NOT NULL DEFAULT 'preparing' CHECK (status IN ('preparing', 'ready', 'closed')),
+  row_count        integer NOT NULL DEFAULT 0 CHECK (row_count >= 0),
+  -- Uploaded files that were not used, with the plain-English reason:
+  -- [{ "file_name": "...", "reason": "..." }]
+  skipped_files    jsonb NOT NULL DEFAULT '[]'::jsonb,
+  -- The cleaned export rows, held between upload and "prepare" (the resumes
+  -- arrive in between, straight to storage). Emptied once the rows are written.
+  parsed_rows      jsonb,
+  -- Set while one request prepares the batch, so two cannot do it at once.
+  prepare_claimed_at timestamptz,
+  created_at       timestamptz NOT NULL DEFAULT now(),
+  updated_at       timestamptz NOT NULL DEFAULT now()
+);
+
+COMMENT ON TABLE public.hr_intake_batches IS
+  'HR intake helper: one CVViZ export upload. preparing (export parsed, resumes uploading) -> ready (rows proposed) -> closed (every row decided and every filing done; resume copies removed).';
+
+CREATE INDEX IF NOT EXISTS idx_hr_intake_batches_created_at
+  ON public.hr_intake_batches (created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_hr_intake_batches_created_by
+  ON public.hr_intake_batches (created_by);
+CREATE INDEX IF NOT EXISTS idx_hr_intake_batches_institution
+  ON public.hr_intake_batches (institution_id);
+
+CREATE TABLE IF NOT EXISTS public.hr_intake_rows (
+  id                         uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  batch_id                   uuid NOT NULL REFERENCES public.hr_intake_batches(id) ON DELETE CASCADE,
+  row_index                  integer NOT NULL CHECK (row_index >= 1),
+  candidate                  jsonb NOT NULL,
+  cvviz_job_title_norm       text,
+
+  resume_file_name           text,
+  resume_matched_upload      boolean NOT NULL DEFAULT false,
+  resume_storage_path        text,
+  resume_extract             jsonb,
+
+  duplicate_kind             text NOT NULL DEFAULT 'none'
+                               CHECK (duplicate_kind IN ('none', 'same_file', 'existing_application', 'existing_candidate')),
+  duplicate_ref_id           uuid,
+  duplicate_note             text,
+
+  proposal_action            text NOT NULL
+                               CHECK (proposal_action IN ('file_under_job', 'merge_existing', 'needs_new_job', 'skip')),
+  proposal_job_id            uuid REFERENCES public.hr_recruitment_jobs(id) ON DELETE SET NULL,
+  proposal_job_title         text,
+  proposal_institution_id    uuid,
+  proposal_confidence        text NOT NULL CHECK (proposal_confidence IN ('high', 'medium', 'low')),
+  proposal_reasons           text[] NOT NULL DEFAULT '{}',
+  proposal_rule_id           uuid,
+  proposal_rule_author_name  text,
+
+  decision_action            text
+                               CHECK (decision_action IN ('file_under_job', 'merge_existing', 'needs_new_job', 'skip')),
+  decision_job_id            uuid REFERENCES public.hr_recruitment_jobs(id) ON DELETE SET NULL,
+  decided_by                 uuid REFERENCES public.profiles(id) ON DELETE SET NULL,
+  decided_by_name            text,
+  decided_at                 timestamptz,
+  decision_corrected         boolean NOT NULL DEFAULT false,
+
+  -- Filing. apply_claimed_at is set atomically before the Drive upload so two
+  -- concurrent "apply" calls can never file the same row twice.
+  apply_claimed_at           timestamptz,
+  application_id             uuid REFERENCES public.hr_job_applications(id) ON DELETE SET NULL,
+  applied_at                 timestamptz,
+  apply_error                text,
+
+  created_at                 timestamptz NOT NULL DEFAULT now(),
+  updated_at                 timestamptz NOT NULL DEFAULT now(),
+
+  CONSTRAINT hr_intake_rows_batch_row_unique UNIQUE (batch_id, row_index)
+  -- No CHECK tying "file_under_job" to a job: decision_job_id is SET NULL when
+  -- a job is deleted, and such a CHECK would then refuse the job's deletion for
+  -- ever. Filing refuses a row whose job is gone instead.
+);
+-- A database that ran an earlier draft of this migration carries the CHECK.
+ALTER TABLE public.hr_intake_rows DROP CONSTRAINT IF EXISTS hr_intake_rows_file_needs_job;
+
+COMMENT ON TABLE public.hr_intake_rows IS
+  'HR intake helper: one export row. proposal_* is what the helper suggests; decision_* is what a person chose; application_id is the hr_job_applications row it was filed as.';
+
+CREATE INDEX IF NOT EXISTS idx_hr_intake_rows_batch
+  ON public.hr_intake_rows (batch_id, row_index);
+CREATE INDEX IF NOT EXISTS idx_hr_intake_rows_application
+  ON public.hr_intake_rows (application_id) WHERE application_id IS NOT NULL;
+
+CREATE TABLE IF NOT EXISTS public.hr_intake_match_rules (
+  id                    uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  cvviz_job_title_norm  text NOT NULL CHECK (length(btrim(cvviz_job_title_norm)) > 0),
+  job_id                uuid NOT NULL REFERENCES public.hr_recruitment_jobs(id) ON DELETE CASCADE,
+  -- The job's college; NOT NULL, no shared "every college" rules (review fix M3).
+  institution_id        uuid NOT NULL REFERENCES public.institutions(id) ON DELETE CASCADE,
+  created_by            uuid NOT NULL REFERENCES public.profiles(id),
+  created_by_name       text,
+  times_used            integer NOT NULL DEFAULT 0 CHECK (times_used >= 0),
+  last_used_at          timestamptz,
+  created_at            timestamptz NOT NULL DEFAULT now(),
+  updated_at            timestamptz NOT NULL DEFAULT now()
+);
+
+COMMENT ON TABLE public.hr_intake_match_rules IS
+  'HR intake helper: learned routing from a normalised CVViZ job title to a MyJKKN job, credited to the person whose correction created it. One per (title, institution).';
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_hr_intake_match_rules_title_institution
+  ON public.hr_intake_match_rules (cvviz_job_title_norm, institution_id);
+CREATE INDEX IF NOT EXISTS idx_hr_intake_match_rules_job
+  ON public.hr_intake_match_rules (job_id);

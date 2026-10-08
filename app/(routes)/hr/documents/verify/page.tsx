@@ -28,6 +28,7 @@
 
 'use client';
 
+import { DutyPlaybookCard } from '@/components/hr/duty-playbook/duty-playbook-card';
 import { useMemo, useState } from 'react';
 import Link from 'next/link';
 
@@ -219,6 +220,7 @@ function VerifyPageInner() {
       <Breadcrumbs />
 
       <div className="mt-6 space-y-4">
+        <DutyPlaybookCard duty="S2" />
         <div>
           <h1 className="text-2xl font-semibold">Document Verification</h1>
           <p className="text-sm text-muted-foreground">

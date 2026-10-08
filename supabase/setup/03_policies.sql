@@ -12011,3 +12011,273 @@ DROP POLICY IF EXISTS hr_duty_proofs_objects_select ON storage.objects;
 CREATE POLICY hr_duty_proofs_objects_select ON storage.objects
   FOR SELECT TO authenticated
   USING (bucket_id = 'hr-duty-proofs' AND public.fn_hr_duty_proof_can_view_object(name));
+
+-- ===========================================================================
+-- Source: 20271007161139_hr_duty_playbooks_and_lessons.sql (RLS, policies and table grants)
+-- HR staff harness — playbooks, the lessons log and credited authorship.
+-- Seeds (reason codes, two platform_policies rows, the ai_routine_schedules
+-- row) and the apply-time guards live only in the migration.
+-- ===========================================================================
+ALTER TABLE public.hr_duty_reason_codes ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS hr_duty_reason_codes_read ON public.hr_duty_reason_codes;
+
+CREATE POLICY hr_duty_reason_codes_read ON public.hr_duty_reason_codes
+  FOR SELECT USING (auth.uid() IS NOT NULL);
+
+DROP POLICY IF EXISTS hr_duty_reason_codes_write ON public.hr_duty_reason_codes;
+
+CREATE POLICY hr_duty_reason_codes_write ON public.hr_duty_reason_codes
+  FOR ALL USING (public.is_super_admin()) WITH CHECK (public.is_super_admin());
+
+REVOKE ALL ON public.hr_duty_reason_codes FROM anon, PUBLIC;
+
+GRANT SELECT, INSERT, UPDATE ON public.hr_duty_reason_codes TO authenticated;
+
+ALTER TABLE public.hr_duty_reason_codes_audit ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS hr_duty_reason_codes_audit_read ON public.hr_duty_reason_codes_audit;
+
+CREATE POLICY hr_duty_reason_codes_audit_read ON public.hr_duty_reason_codes_audit
+  FOR SELECT USING (public.is_super_admin());
+
+REVOKE ALL ON public.hr_duty_reason_codes_audit FROM anon, PUBLIC;
+
+GRANT SELECT ON public.hr_duty_reason_codes_audit TO authenticated;
+
+ALTER TABLE public.hr_duty_lessons ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS hr_duty_lessons_select ON public.hr_duty_lessons;
+
+CREATE POLICY hr_duty_lessons_select ON public.hr_duty_lessons
+  FOR SELECT USING (
+    public.is_super_admin() OR public.is_admin()
+    OR (public.user_has_permission('hr.harness.playbooks.manage')
+        AND public.role_has_institution_access(institution_id))
+  );
+
+REVOKE ALL ON public.hr_duty_lessons FROM anon, PUBLIC, authenticated;
+
+GRANT SELECT ON public.hr_duty_lessons TO authenticated;
+
+ALTER TABLE public.hr_playbook_line_proposals ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS hr_playbook_proposals_select ON public.hr_playbook_line_proposals;
+
+CREATE POLICY hr_playbook_proposals_select ON public.hr_playbook_line_proposals
+  FOR SELECT USING (
+    public.is_super_admin() OR public.is_admin()
+    OR public.user_has_permission('hr.harness.playbooks.manage')
+    OR suggested_by = auth.uid()
+  );
+
+REVOKE ALL ON public.hr_playbook_line_proposals FROM anon, PUBLIC, authenticated;
+
+GRANT SELECT ON public.hr_playbook_line_proposals TO authenticated;
+
+ALTER TABLE public.hr_playbook_lines ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS hr_playbook_lines_select ON public.hr_playbook_lines;
+
+CREATE POLICY hr_playbook_lines_select ON public.hr_playbook_lines
+  FOR SELECT USING (public.fn_hr_playbook_can_read());
+
+REVOKE ALL ON public.hr_playbook_lines FROM anon, PUBLIC, authenticated;
+
+GRANT SELECT ON public.hr_playbook_lines TO authenticated;
+
+-- ============================================================================
+-- HR staff harness — chase ladder: RLS and grants
+-- Migration: 20270613101207_hr_duty_chase_ladder.sql
+-- Added: 2026-10-01 - duty register (config table), chase ledger, blocked marks,
+-- run log. Seed rows (38 duties, policies, schedule, loop row) live in the
+-- migration only.
+-- ============================================================================
+ALTER TABLE public.hr_duty_definitions       ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.hr_duty_definitions_audit ENABLE ROW LEVEL SECURITY;
+
+REVOKE ALL ON public.hr_duty_definitions       FROM anon, PUBLIC;
+REVOKE ALL ON public.hr_duty_definitions_audit FROM anon, PUBLIC;
+GRANT SELECT, INSERT, UPDATE ON public.hr_duty_definitions TO authenticated;
+GRANT SELECT ON public.hr_duty_definitions_audit TO authenticated;
+GRANT ALL ON public.hr_duty_definitions, public.hr_duty_definitions_audit TO service_role;
+
+DROP POLICY IF EXISTS hr_duty_definitions_read ON public.hr_duty_definitions;
+CREATE POLICY hr_duty_definitions_read ON public.hr_duty_definitions
+  FOR SELECT USING ((SELECT auth.uid()) IS NOT NULL);
+
+DROP POLICY IF EXISTS hr_duty_definitions_write ON public.hr_duty_definitions;
+CREATE POLICY hr_duty_definitions_write ON public.hr_duty_definitions
+  FOR ALL USING (public.is_super_admin())
+  WITH CHECK (public.is_super_admin());
+
+DROP POLICY IF EXISTS hr_duty_definitions_audit_read ON public.hr_duty_definitions_audit;
+CREATE POLICY hr_duty_definitions_audit_read ON public.hr_duty_definitions_audit
+  FOR SELECT USING (public.is_super_admin() OR public.is_admin());
+
+
+ALTER TABLE public.hr_duty_chase_ledger ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON public.hr_duty_chase_ledger FROM anon, PUBLIC;
+GRANT SELECT ON public.hr_duty_chase_ledger TO authenticated;
+GRANT ALL ON public.hr_duty_chase_ledger TO service_role;
+
+-- DELIBERATELY no is_super_admin() / is_admin() clause (a recorded exception
+-- to the standard policy shape): guardrail "a person sees their own numbers
+-- first; supervisors see their own team; the Director sees desks, never a
+-- ranking of people" (design decision 3, recommended option). Desks come from
+-- fn_hr_duty_desk_summary(). No INSERT/UPDATE/DELETE policy: only the cron's
+-- service role writes, and RLS denies what it does not name.
+DROP POLICY IF EXISTS hr_duty_chase_ledger_select ON public.hr_duty_chase_ledger;
+CREATE POLICY hr_duty_chase_ledger_select ON public.hr_duty_chase_ledger
+  FOR SELECT USING (
+    (SELECT auth.uid()) = ANY (owner_profile_ids)
+    OR (SELECT auth.uid()) = ANY (supervisor_profile_ids)
+  );
+
+
+ALTER TABLE public.hr_duty_blocked_marks ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON public.hr_duty_blocked_marks FROM anon, PUBLIC;
+GRANT SELECT ON public.hr_duty_blocked_marks TO authenticated;
+GRANT ALL ON public.hr_duty_blocked_marks TO service_role;
+
+-- The marker, and whoever can see that item's ledger rows (its owners and
+-- their supervisors) — the same audience as the ledger, nobody wider.
+DROP POLICY IF EXISTS hr_duty_blocked_marks_select ON public.hr_duty_blocked_marks;
+CREATE POLICY hr_duty_blocked_marks_select ON public.hr_duty_blocked_marks
+  FOR SELECT USING (
+    marked_by = (SELECT auth.uid())
+    OR EXISTS (
+      SELECT 1 FROM public.hr_duty_chase_ledger l
+       WHERE l.duty_code = hr_duty_blocked_marks.duty_code
+         AND l.item_id   = hr_duty_blocked_marks.item_id
+         AND l.stage_key = hr_duty_blocked_marks.stage_key
+    )
+  );
+
+
+ALTER TABLE public.hr_duty_chase_runs ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON public.hr_duty_chase_runs FROM anon, PUBLIC;
+GRANT SELECT ON public.hr_duty_chase_runs TO authenticated;
+GRANT ALL ON public.hr_duty_chase_runs TO service_role;
+
+DROP POLICY IF EXISTS hr_duty_chase_runs_select ON public.hr_duty_chase_runs;
+CREATE POLICY hr_duty_chase_runs_select ON public.hr_duty_chase_runs
+  FOR SELECT USING (public.is_super_admin() OR public.is_admin());
+
+
+-- =====================================================================
+-- Updated: 2026-10-01 - HR memo detector run log + acknowledgement nudges
+-- Migration: 20270613101223_hr_memo_detector_schedule_disabled_with_dry_run.sql
+-- =====================================================================
+ALTER TABLE public.hr_memo_detector_runs ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON TABLE public.hr_memo_detector_runs FROM anon, PUBLIC;
+GRANT SELECT ON TABLE public.hr_memo_detector_runs TO authenticated;
+GRANT ALL ON TABLE public.hr_memo_detector_runs TO service_role;
+
+DROP POLICY IF EXISTS hr_memo_detector_runs_select ON public.hr_memo_detector_runs;
+CREATE POLICY hr_memo_detector_runs_select ON public.hr_memo_detector_runs
+  FOR SELECT TO authenticated
+  USING ((SELECT public.is_super_admin()) OR (SELECT public.is_admin()));
+
+ALTER TABLE public.hr_memo_nudges ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON TABLE public.hr_memo_nudges FROM anon, PUBLIC;
+GRANT SELECT ON TABLE public.hr_memo_nudges TO authenticated;
+GRANT ALL ON TABLE public.hr_memo_nudges TO service_role;
+
+DROP POLICY IF EXISTS hr_memo_nudges_select ON public.hr_memo_nudges;
+CREATE POLICY hr_memo_nudges_select ON public.hr_memo_nudges
+  FOR SELECT TO authenticated
+  USING ((SELECT public.is_super_admin()) OR (SELECT public.is_admin()));
+
+
+
+-- ============================================================================
+-- Updated: 2026-10-01 - HR intake helper (source: migrations/20270613101241_hr_intake_helper.sql)
+-- Review fixes: read-only for signed-in people (the server writes with the service role),
+-- "institution_id IS NOT NULL AND" before every role_has_institution_access() call.
+-- ============================================================================
+-- Names, emails and phone numbers of people applying for jobs: the anonymous
+-- key never reaches any of these tables.
+--
+-- READ-ONLY for signed-in people. A signed-in client may SELECT what its
+-- policies allow, and nothing else: no INSERT, UPDATE or DELETE grant at all,
+-- so no column (a resume path, a decision, who decided it, a rule's college)
+-- can be written straight through PostgREST. Every write is made by the server
+-- with the service role, inside lib/services/hr/intake/intake-service.ts, and
+-- only AFTER the person's own session has shown it can see the batch, the row
+-- or the job (the SELECT policies below are that check). Names written beside
+-- a decision or an upload come from profiles on the server, never from the
+-- browser.
+ALTER TABLE public.hr_intake_batches ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.hr_intake_rows ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.hr_intake_match_rules ENABLE ROW LEVEL SECURITY;
+
+REVOKE ALL ON public.hr_intake_batches FROM anon, PUBLIC, authenticated;
+REVOKE ALL ON public.hr_intake_rows FROM anon, PUBLIC, authenticated;
+REVOKE ALL ON public.hr_intake_match_rules FROM anon, PUBLIC, authenticated;
+
+GRANT SELECT ON public.hr_intake_batches TO authenticated;
+GRANT SELECT ON public.hr_intake_rows TO authenticated;
+GRANT SELECT ON public.hr_intake_match_rules TO authenticated;
+
+GRANT ALL ON public.hr_intake_batches TO service_role;
+GRANT ALL ON public.hr_intake_rows TO service_role;
+GRANT ALL ON public.hr_intake_match_rules TO service_role;
+
+-- Write policies from an earlier draft of this file, if any were created: the
+-- grants above already refuse the writes; dropping them keeps the catalog honest.
+DROP POLICY IF EXISTS hr_intake_batches_insert ON public.hr_intake_batches;
+DROP POLICY IF EXISTS hr_intake_batches_update ON public.hr_intake_batches;
+DROP POLICY IF EXISTS hr_intake_batches_delete ON public.hr_intake_batches;
+DROP POLICY IF EXISTS hr_intake_rows_insert ON public.hr_intake_rows;
+DROP POLICY IF EXISTS hr_intake_rows_update ON public.hr_intake_rows;
+DROP POLICY IF EXISTS hr_intake_rows_delete ON public.hr_intake_rows;
+DROP POLICY IF EXISTS hr_intake_match_rules_insert ON public.hr_intake_match_rules;
+DROP POLICY IF EXISTS hr_intake_match_rules_update ON public.hr_intake_match_rules;
+DROP POLICY IF EXISTS hr_intake_match_rules_delete ON public.hr_intake_match_rules;
+
+-- The gate is hr.recruitment.create (the people who bring candidates in),
+-- scoped like the recruitment screens: institution access through
+-- role_has_institution_access(), super admins and admins first. No role name
+-- is written anywhere; Role Management decides who holds the key.
+--
+-- "institution_id IS NOT NULL AND" comes before every role_has_institution_access()
+-- call: that function answers TRUE for NULL, so without the guard a row with no
+-- college would be visible to HR in every college. The columns are NOT NULL as
+-- well; the guard is the second wall, not the only one.
+
+-- 6a. Batches: the uploader, or anyone holding the key for the batch's college.
+DROP POLICY IF EXISTS hr_intake_batches_select ON public.hr_intake_batches;
+CREATE POLICY hr_intake_batches_select ON public.hr_intake_batches
+  FOR SELECT TO authenticated
+  USING (
+    (SELECT public.is_super_admin())
+    OR (SELECT public.is_admin())
+    OR ((SELECT public.user_has_permission('hr.recruitment.create'))
+        AND (created_by = (SELECT auth.uid())
+             OR (institution_id IS NOT NULL
+                 AND public.role_has_institution_access(institution_id))))
+  );
+
+-- 6b. Rows follow their batch: whoever can see the batch can see its rows. The
+-- EXISTS runs under the caller's own batch policy above.
+DROP POLICY IF EXISTS hr_intake_rows_select ON public.hr_intake_rows;
+CREATE POLICY hr_intake_rows_select ON public.hr_intake_rows
+  FOR SELECT TO authenticated
+  USING (EXISTS (
+    SELECT 1 FROM public.hr_intake_batches b
+     WHERE b.id = hr_intake_rows.batch_id
+       AND b.institution_id IS NOT NULL
+  ));
+
+-- 6c. Rules: visible within the college of the job they point at.
+DROP POLICY IF EXISTS hr_intake_match_rules_select ON public.hr_intake_match_rules;
+CREATE POLICY hr_intake_match_rules_select ON public.hr_intake_match_rules
+  FOR SELECT TO authenticated
+  USING (
+    (SELECT public.is_super_admin())
+    OR (SELECT public.is_admin())
+    OR ((SELECT public.user_has_permission('hr.recruitment.create'))
+        AND institution_id IS NOT NULL
+        AND public.role_has_institution_access(institution_id))
+  );

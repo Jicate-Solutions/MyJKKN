@@ -699,7 +699,7 @@ export const JOB_APPLICATION_STATUS_LABELS: Record<JobApplicationStatus, string>
 };
 
 /** 'external_website' = applied anonymously through /api/public/careers (jkkn.ac.in). */
-export type JobApplicationSource = 'internal' | 'external_website';
+export type JobApplicationSource = 'internal' | 'external_website' | 'cvviz_import';
 
 export interface HRJobApplication {
   id: string;

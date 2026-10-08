@@ -548,6 +548,12 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // Its counterpart /my-photo has NO entry here on purpose — see the sidebar
   // row below and the page header.
   '/hr/staff-photos': 'hr.staff_photo.review',
+  // HR duty playbooks (20271007161139). Reached from the "How this is done" card
+  // on each HR duty screen; no sidebar row. Written out so the tier-2 coverage
+  // gate sees it, with the SAME key it already resolved to by longest prefix
+  // ('/hr' -> 'hr.view'), so who can open it does not change. The Proposals tab
+  // inside checks hr.harness.playbooks.manage itself.
+  '/hr/playbooks': 'hr.view',
   '/hr/employees': 'hr.employees.view',
   '/hr/employees/[id]': 'hr.employees.view',
   // WHO PAYS each team member. This entry is load-bearing, not decorative:
@@ -703,6 +709,11 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/hr/recruitment': 'hr.recruitment.view',
   '/hr/recruitment/jobs': 'hr.recruitment.view',
   '/hr/recruitment/submit': 'hr.recruitment.create',
+  // Bring in Candidates — the CVViZ intake helper (2026-10-01). Uploading and
+  // filing candidates is a create action, so the whole subtree (review cards at
+  // /intake/batch?batchId= resolve here by longest prefix) needs hr.recruitment.create.
+  '/hr/recruitment/intake': 'hr.recruitment.create',
+  '/hr/recruitment/intake/rules': 'hr.recruitment.create',
   '/hr/recruitment/my': 'hr.recruitment.view',
   '/hr/recruitment/candidates': 'hr.recruitment.view',
   '/hr/recruitment/interviews': 'hr.recruitment.view',
@@ -3878,6 +3889,7 @@ export function GetPages(pathname: string): MenuGroup[] {
             { href: '/hr/recruitment', label: 'Dashboard', active: pathname === '/hr/recruitment' },
             { href: '/hr/recruitment/jobs', label: 'Job Postings', active: pathname.startsWith('/hr/recruitment/jobs') },
             { href: '/hr/recruitment/candidates', label: 'All Candidates', active: pathname.startsWith('/hr/recruitment/candidates') },
+            { href: '/hr/recruitment/intake', label: 'Bring in Candidates', active: pathname.startsWith('/hr/recruitment/intake') },
             { href: '/hr/recruitment/submit', label: 'Apply for Jobs', active: pathname === '/hr/recruitment/submit' },
             { href: '/hr/recruitment/my', label: 'My Submissions', active: pathname === '/hr/recruitment/my' },
             { href: '/hr/recruitment/approvals', label: 'Approvals', active: pathname === '/hr/recruitment/approvals' },

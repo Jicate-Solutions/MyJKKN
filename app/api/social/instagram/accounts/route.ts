@@ -33,6 +33,7 @@ interface IgAccountRow {
   status: string;
   last_polled_at: string | null;
   connected_at: string;
+  connected_by: string | null;
   created_at: string;
   updated_at: string;
   institutions: { name: string } | null;
@@ -64,7 +65,7 @@ export async function GET(request: NextRequest) {
     let query = supabase
       .from('ig_accounts')
       .select(
-        'id, institution_id, department_id, ig_user_id, username, account_type, status, last_polled_at, connected_at, created_at, updated_at, institutions(name), departments(department_name)'
+        'id, institution_id, department_id, ig_user_id, username, account_type, status, last_polled_at, connected_at, connected_by, created_at, updated_at, institutions(name), departments(department_name)'
       )
       .order('username', { ascending: true });
 
@@ -95,6 +96,20 @@ export async function GET(request: NextRequest) {
     // newest audit_month first, first-seen-wins). Best-effort — accounts
     // without an audit row yet fall back to 0.
     const latestHealthScore = new Map<string, number>();
+    // Name of the team member who runs each account (ig_accounts.connected_by).
+    // Separate best-effort read, not an embed, so a name lookup problem can
+    // never blank the whole list.
+    const runnerNames = new Map<string, string>();
+    const runnerIds = [...new Set(accounts.map((a) => a.connected_by).filter((v): v is string => !!v))];
+    if (runnerIds.length > 0) {
+      const { data: runnerRows } = await supabase
+        .from('profiles')
+        .select('id, full_name, email')
+        .in('id', runnerIds);
+      for (const r of runnerRows ?? []) {
+        runnerNames.set(r.id, r.full_name || r.email || '');
+      }
+    }
 
     if (accountIds.length > 0) {
       const [{ data: metricRows }, { data: postRows }, { data: auditRows }] = await Promise.all([
@@ -162,6 +177,10 @@ export async function GET(request: NextRequest) {
         last_post_at: lastPostAt.get(a.id) ?? null,
         last_polled_at: a.last_polled_at,
         is_active: a.status === 'active',
+        // The team member who runs this account (posts learners' work and
+        // invites them as collaborator). Also who silence-detect alerts.
+        connected_by: a.connected_by,
+        connected_by_name: a.connected_by ? runnerNames.get(a.connected_by) ?? null : null,
         created_at: a.created_at,
         updated_at: a.updated_at,
       };

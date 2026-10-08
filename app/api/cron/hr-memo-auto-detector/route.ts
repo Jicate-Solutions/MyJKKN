@@ -2,18 +2,27 @@ export const dynamic = 'force-dynamic';
 
 // /api/cron/hr-memo-auto-detector
 // T6.1 — runs daily. Detects memo-eligible events (leave taken before approval,
-// monthly LOP threshold breach) and auto-issues hr_memos rows with a
-// notification fan-out. Idempotent — re-runs do not duplicate memos because
-// the detectors de-duplicate on stable keys (leave_id / month).
+// monthly LOP threshold breach), auto-issues hr_memos rows with an in-app
+// notice, and sends the acknowledgement nudges (ONE reminder to the staff
+// member after 3 days, ONE notice to their reporting head 3 days later).
+// Idempotent — detectors de-duplicate on stable keys (leave_id / month) and
+// every nudge is claimed in hr_memo_nudges before it is sent.
 //
-// Auth: Bearer CRON_SECRET (Vercel-provided in production).
+// Auth: Bearer CRON_SECRET.
 //
 // Director notes
-//   * Schedule: once a day at 02:00 UTC (configure via vercel.json crons).
-//   * If `hr.memo_and_termination_triggers` policy row isn't seeded yet,
-//     safe defaults apply (defined in fn_get_hr_memo_triggers).
-//   * The detector returns 0 events when the source tables (institution_leaves,
-//     hr_attendance_records) are absent or empty — never throws.
+//   * Schedule: the AI-routine dispatcher, routine 'hr-memo-auto-detector'
+//     (ai_routine_schedules; day/time at /admin/ai-routines). Seeded DISABLED
+//     by migration 20270613101223 — not a vercel.json cron.
+//   * Switch: platform_policies 'hr.memo_auto_detector' → { "mode": ... }
+//       off     — no work at all
+//       dry_run — seeded value: previews what it WOULD create and send in one
+//                 hr_memo_detector_runs row; creates nothing, sends nothing
+//       live    — creates memos and sends notices
+//     A missing or unreadable switch is 'off'. See the migration header for
+//     the exact statements that switch it on.
+//   * ?dry_run=1 forces a preview of a live detector. It never turns an 'off'
+//     detector on.
 
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
@@ -40,7 +49,7 @@ function generateRunId(): string {
 
 export async function GET(request: Request) {
   const auth = request.headers.get('authorization');
-  if (auth !== `Bearer ${process.env.CRON_SECRET}`) {
+  if (!process.env.CRON_SECRET || auth !== `Bearer ${process.env.CRON_SECRET}`) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
@@ -50,7 +59,9 @@ export async function GET(request: Request) {
   try {
     const supabase = getServiceClient();
     const service = new HRMemoService(supabase);
-    const result = await service.runDetection(runId);
+    const dryParam = new URL(request.url).searchParams.get('dry_run');
+    const forceDryRun = dryParam === '1' || dryParam === 'true';
+    const result = await service.runDetection(runId, { forceDryRun });
 
     if (result.errors.length > 0) {
       Sentry.captureMessage(
