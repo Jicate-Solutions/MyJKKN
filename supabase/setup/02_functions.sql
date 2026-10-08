@@ -84312,3 +84312,70 @@ COMMENT ON FUNCTION public.fn_my_desk_waiting() IS
 -- re-asserted: every SECURITY DEFINER RPC is locked from anon.
 REVOKE EXECUTE ON FUNCTION public.fn_my_desk_waiting() FROM anon, PUBLIC;
 GRANT  EXECUTE ON FUNCTION public.fn_my_desk_waiting() TO authenticated;
+
+
+-- Updated: 2026-10-07 - Mirrored from supabase/migrations/20261022000100_learner_ig_post_claims_hardening.sql
+-- ig_learner_post_claims: a learner could INSERT a claim already confirmed (review finding #1, PR #4193).
+-- Guard: every new claim is born pending and unreviewed; a decision is final and never self-made.
+CREATE OR REPLACE FUNCTION public.fn_ig_learner_post_claim_guard()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+  IF TG_OP = 'INSERT' THEN
+    -- A claim is born pending and unreviewed, filed by whoever is calling.
+    -- Anything the caller sent for these is discarded, not trusted.
+    NEW.status      := 'pending';
+    NEW.reviewed_by := NULL;
+    NEW.reviewed_at := NULL;
+    NEW.review_note := NULL;
+    -- A signed-in caller is always the filer. Only a service-role write (no
+    -- auth.uid(), e.g. a future auto_collab job) may name the filer itself.
+    NEW.claimed_by  := coalesce(auth.uid(), NEW.claimed_by);
+    NEW.claimed_at  := now();
+    NEW.created_at  := now();
+    RETURN NEW;
+  END IF;
+
+  -- UPDATE: a claim is decided once, by someone other than its filer, and only
+  -- the decision fields may move.
+  IF OLD.status <> 'pending' THEN
+    RAISE EXCEPTION 'ig_learner_post_claims: this claim was already %; a decision is final', OLD.status
+      USING ERRCODE = '23514';
+  END IF;
+  IF NEW.status IS NULL OR NEW.status NOT IN ('confirmed', 'rejected') THEN
+    RAISE EXCEPTION 'ig_learner_post_claims: a claim can only be confirmed or rejected'
+      USING ERRCODE = '23514';
+  END IF;
+
+  NEW.id          := OLD.id;
+  NEW.learner_id  := OLD.learner_id;
+  NEW.institution_id := OLD.institution_id;
+  NEW.ig_post_id  := OLD.ig_post_id;
+  NEW.origin      := OLD.origin;
+  NEW.claimed_by  := OLD.claimed_by;
+  NEW.claimed_at  := OLD.claimed_at;
+  NEW.created_at  := OLD.created_at;
+  -- The decider is whoever is calling. A service-role call has no auth.uid(),
+  -- so it must name the decider itself; the table CHECK still requires one.
+  NEW.reviewed_by := coalesce(auth.uid(), NEW.reviewed_by);
+  NEW.reviewed_at := now();
+
+  IF NEW.reviewed_by IS NOT NULL AND NEW.reviewed_by = OLD.claimed_by THEN
+    RAISE EXCEPTION 'ig_learner_post_claims: the person who filed a claim cannot also decide it'
+      USING ERRCODE = '42501';
+  END IF;
+  -- Nor may the learner the claim credits decide it, even holding the review key.
+  -- Matched on the stamped decider, so a service-role write naming them is refused too.
+  IF EXISTS (SELECT 1 FROM public.profiles p
+              WHERE p.id = NEW.reviewed_by AND p.learner_id = OLD.learner_id) THEN
+    RAISE EXCEPTION 'ig_learner_post_claims: a learner cannot decide a claim about themselves'
+      USING ERRCODE = '42501';
+  END IF;
+
+  RETURN NEW;
+END;
+$$;
+REVOKE EXECUTE ON FUNCTION public.fn_ig_learner_post_claim_guard() FROM anon, authenticated, PUBLIC;

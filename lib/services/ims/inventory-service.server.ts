@@ -20,6 +20,22 @@ import type {
   ImsDistributionRow,
 } from '@/lib/services/ims/inventory-service';
 
+interface ExistingItemRef {
+  id: string;
+  code: string;
+  name: string;
+  track_expiry: boolean | null;
+  cost_price: number | null;
+}
+
+interface ExistingItemBatchRow {
+  row: number;
+  existing: ExistingItemRef;
+  // The resolved import row (its shape is local to bulkImport).
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  item: any;
+}
+
 export class ImsInventoryServiceServer {
   /**
    * Fetch categories and units needed to build the Excel import template.
@@ -348,7 +364,7 @@ export class ImsInventoryServiceServer {
 
     let dbDupQuery = supabase
       .from('ims_items')
-      .select('code')
+      .select('id, code, name, track_expiry, cost_price')
       .in('code', codesToCheck);
 
     if (institutionId) dbDupQuery = dbDupQuery.eq('institution_id', institutionId);
@@ -359,32 +375,49 @@ export class ImsInventoryServiceServer {
       console.error('[ImsInventoryServiceServer] bulkImport duplicate check:', dupError);
     }
 
-    const existingCodes = new Set<string>(
-      (existingItems || []).map((i: any) => (i.code as string).toUpperCase())
+    const existingByCode = new Map<string, ExistingItemRef>(
+      (existingItems || []).map((i: any) => [(i.code as string).toUpperCase(), i as ExistingItemRef])
     );
 
+    // A code that already exists is not an error when the row carries stock: it
+    // is the next batch of that item. Only a row with nothing to add is a plain
+    // duplicate.
+    const batchRows: ExistingItemBatchRow[] = [];
     const itemsToInsert = deduped.filter((item, idx) => {
       if (!item.code) return true;
-      if (existingCodes.has(item.code.toUpperCase())) {
-        allErrors.push({
-          row: idx + 2,
-          field: 'code',
-          message: `Row ${idx + 2}: Code "${item.code}" already exists in this institution`,
-        });
-        duplicateCodes.push(item.code);
+      const existing = existingByCode.get(item.code.toUpperCase());
+      if (!existing) return true;
+      if (item.opening_stock > 0) {
+        batchRows.push({ row: idx + 2, item, existing });
         return false;
       }
-      return true;
+      allErrors.push({
+        row: idx + 2,
+        field: 'code',
+        message: `Row ${idx + 2}: Code "${item.code}" already exists in this institution (no quantity given, so no batch was added)`,
+      });
+      duplicateCodes.push(item.code);
+      return false;
     });
+
+    const batchesAdded = await this.addBatchesToExistingItems(
+      supabase,
+      batchRows,
+      storeId,
+      institutionId,
+      userId,
+      allErrors
+    );
 
     if (itemsToInsert.length === 0) {
       return {
-        success: false,
+        success: batchesAdded > 0,
         successCount: 0,
+        batchesAdded,
         errorCount: allErrors.length,
         totalRows,
         errors: allErrors,
-        duplicateCodes: [...new Set(duplicateCodes)],
+        duplicateCodes: duplicateCodes.length > 0 ? [...new Set(duplicateCodes)] : undefined,
       };
     }
 
@@ -422,6 +455,7 @@ export class ImsInventoryServiceServer {
           return {
             success: false,
             successCount: 0,
+            batchesAdded,
             errorCount: allErrors.length,
             totalRows,
             errors: allErrors,
@@ -580,13 +614,176 @@ export class ImsInventoryServiceServer {
     const successCount = inserted?.length ?? 0;
 
     return {
-      success: successCount > 0,
+      success: successCount > 0 || batchesAdded > 0,
       successCount,
+      batchesAdded,
       errorCount: allErrors.length,
       totalRows,
       errors: allErrors,
       duplicateCodes: duplicateCodes.length > 0 ? [...new Set(duplicateCodes)] : undefined,
     };
+  }
+
+  /**
+   * Import rows whose code already exists: add their quantity as a NEW batch of
+   * the existing item (stock summary + ledger entry included). Returns how many
+   * batches were added; per-row problems are pushed onto `errors`.
+   *
+   * Refused rows: an expiry-tracked item with no expiry date (the DB trigger
+   * would reject it anyway), and a batch number the item already has — silently
+   * topping up the old batch would double-count when a file is uploaded twice.
+   */
+  private static async addBatchesToExistingItems(
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    supabase: any,
+    rows: ExistingItemBatchRow[],
+    storeId: string | null,
+    institutionId: string | null,
+    userId: string,
+    errors: ImsImportError[]
+  ): Promise<number> {
+    if (rows.length === 0) return 0;
+
+    // Local (IST) date, same reason as the opening-stock batches: entry_date is
+    // the FEFO sort key and UTC is a day behind before 05:30.
+    const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+
+    const { data: held } = await supabase
+      .from('ims_stock_batches')
+      .select('item_id, batch_number')
+      .in('item_id', [...new Set(rows.map((r) => r.existing.id))]);
+    const taken = new Set<string>(
+      (held || []).map((b: any) => `${b.item_id}|${String(b.batch_number).toLowerCase()}`)
+    );
+
+    let added = 0;
+    for (const { row, item, existing } of rows) {
+      const fail = (message: string) =>
+        errors.push({ row, field: 'batch_number', message: `Row ${row}: ${message}` });
+
+      if (existing.track_expiry && !item.expiry_date) {
+        fail(`"${existing.code}" tracks expiry, so the new batch needs an Expiry Date`);
+        continue;
+      }
+
+      let batchNumber = item.batch_number?.trim() || '';
+      if (!batchNumber) {
+        const { data: next } = storeId
+          ? await supabase.rpc('ims_next_batch_number', { p_store_id: storeId, p_date: today })
+          : { data: null };
+        const yymmdd = today.replace(/-/g, '').slice(2);
+        batchNumber =
+          next != null
+            ? `BTH-${yymmdd}-${String(next).padStart(5, '0')}`
+            : `BTH-${yymmdd}-${String(Date.now()).slice(-5)}`;
+      }
+      const key = `${existing.id}|${batchNumber.toLowerCase()}`;
+      if (taken.has(key)) {
+        fail(`"${existing.code}" already has a batch "${batchNumber}" — use a new batch number`);
+        continue;
+      }
+
+      const quantity = item.opening_stock;
+      // The row's price belongs to this batch only; the item's own price is untouched.
+      const costPrice = item.cost_price > 0 ? item.cost_price : existing.cost_price ?? 0;
+      const totalValue = quantity * costPrice;
+      const scope = {
+        institution_id: institutionId,
+        ...(storeId ? { store_id: storeId } : {}),
+      };
+
+      const { data: batch, error: batchError } = await supabase
+        .from('ims_stock_batches')
+        .insert({
+          item_id: existing.id,
+          batch_number: batchNumber,
+          expiry_date: item.expiry_date || null,
+          quantity,
+          quantity_available: quantity,
+          entry_date: today,
+          cost_price: costPrice,
+          total_value: totalValue,
+          grn_id: null,
+          location_type: 'central_store',
+          department_id: null,
+          ...scope,
+        })
+        .select('id')
+        .single();
+      if (batchError) {
+        fail(`could not add batch to "${existing.code}": ${batchError.message}`);
+        continue;
+      }
+
+      // Stock summary: add to this store's balance, or open one. If it fails the
+      // batch is removed again so batches and totals never disagree.
+      let summaryQuery = supabase
+        .from('ims_stock_summary')
+        .select('id, current_quantity, available_quantity, total_value')
+        .eq('item_id', existing.id);
+      summaryQuery = storeId ? summaryQuery.eq('store_id', storeId) : summaryQuery.is('store_id', null);
+      const { data: summary } = await summaryQuery.maybeSingle();
+
+      const now = new Date().toISOString();
+      const { error: summaryError } = summary
+        ? await supabase
+            .from('ims_stock_summary')
+            .update({
+              current_quantity: (summary.current_quantity ?? 0) + quantity,
+              available_quantity: (summary.available_quantity ?? 0) + quantity,
+              total_value: (summary.total_value ?? 0) + totalValue,
+              updated_at: now,
+            })
+            .eq('id', summary.id)
+        : await supabase.from('ims_stock_summary').insert({
+            item_id: existing.id,
+            opening_quantity: 0,
+            current_quantity: quantity,
+            reserved_quantity: 0,
+            available_quantity: quantity,
+            total_value: totalValue,
+            updated_at: now,
+            ...scope,
+          });
+      if (summaryError) {
+        await supabase.from('ims_stock_batches').delete().eq('id', batch.id);
+        fail(`could not update stock for "${existing.code}": ${summaryError.message}`);
+        continue;
+      }
+
+      taken.add(key);
+      added += 1;
+
+      // Ledger + store listing are bookkeeping around stock that already landed:
+      // a failure here is reported but does not undo the batch.
+      const { error: txError } = await supabase.from('ims_financial_transactions').insert({
+        transaction_type: 'adjustment',
+        reference_id: null,
+        reference_type: 'adjustment',
+        amount: totalValue,
+        description: `Stock added via import — ${existing.name} (${existing.code}), batch ${batchNumber}`,
+        item_id: existing.id,
+        quantity,
+        batch_number: batchNumber,
+        expiry_date: item.expiry_date || null,
+        created_by: userId,
+        ...scope,
+      });
+      if (txError) fail(`batch added to "${existing.code}" but the ledger entry failed: ${txError.message}`);
+
+      if (storeId) {
+        // ignoreDuplicates: if the store already lists it, leave its POS flag alone.
+        await supabase.from('ims_store_items').upsert(
+          {
+            store_id: storeId,
+            item_id: existing.id,
+            is_sellable_to_students: item.is_sellable_to_students ?? false,
+          },
+          { onConflict: 'store_id,item_id', ignoreDuplicates: true }
+        );
+      }
+    }
+    return added;
   }
 
   /**
