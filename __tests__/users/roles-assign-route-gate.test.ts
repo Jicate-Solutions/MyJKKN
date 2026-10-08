@@ -6,7 +6,7 @@
  * first would let guest holders through. On top of that, refusals that hold
  * whoever the caller is:
  *   (a) nobody assigns a role to themselves;
- *   (b) nobody changes the roles of someone with admin powers here;
+ *   (b) only a super admin changes the roles of someone with admin powers;
  *   (c) only a super admin gives a privileged-like role (flag, every-college
  *       scope, role/user/settings keys, payroll approve/manage).
  * Any check that cannot run refuses with 500.
@@ -189,13 +189,24 @@ describe('(a) self-assignment', () => {
 });
 
 describe('(b) a target with admin powers', () => {
-  it('refuses when the target has the super admin flag, even for a super admin caller', async () => {
-    callerRole = 'super_admin';
-    callerIsSuperFlag = true;
+  it('refuses a non-super-admin when the target has the super admin flag', async () => {
     target = { ...target!, is_super_admin: true };
     const res = await post('librarian');
     expect(res.status).toBe(403);
     expect(assigned()).toHaveLength(0);
+  });
+
+  it.each([
+    ['the super admin flag', () => { target = { ...target!, is_super_admin: true }; }],
+    ['a privileged second role', () => { targetRoleKeys = ['driver', 'hr_admin']; }],
+    ['the legacy administrator role', () => { target = { ...target!, role: 'administrator' }; }]
+  ])('lets a super admin change the roles of a target with %s', async (_label, arrange) => {
+    arrange();
+    callerRole = 'super_admin';
+    callerIsSuperFlag = true;
+    const res = await post('librarian');
+    expect(res.status).toBe(200);
+    expect(assigned()).toHaveLength(1);
   });
 
   it('refuses when the target holds a privileged role as a second role', async () => {

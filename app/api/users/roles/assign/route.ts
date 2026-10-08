@@ -193,9 +193,9 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Target user not found' }, { status: 404 });
     }
 
-    // (b) The roles of someone with admin powers are not changed here, by
-    // anyone: a super admin flag, a legacy admin role, or any role held that
-    // is privileged.
+    // (b) Only a super admin changes the roles of someone with admin powers
+    // (Director, 1 Oct): a super admin flag, a legacy admin role, or any role
+    // held that is privileged.
     const { data: targetRoles, error: targetRolesErr } = await admin
       .from('user_roles')
       .select('custom_roles(role_key, is_privileged)')
@@ -210,9 +210,9 @@ export async function POST(request: NextRequest) {
           (r) => r != null && (r.is_privileged !== false || ADMIN_ROLE_KEYS.includes(r.role_key ?? ''))
         )
       );
-    if (targetHasAdminPowers) {
+    if (!callerIsSuperAdmin && targetHasAdminPowers) {
       return NextResponse.json(
-        { error: 'This person has admin powers. Their roles cannot be changed here.' },
+        { error: 'This person has admin powers. Only a super admin can change their roles.' },
         { status: 403 }
       );
     }
