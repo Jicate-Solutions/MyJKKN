@@ -61,6 +61,7 @@ import {
 import { BeatLoader } from 'react-spinners';
 import { toast } from 'sonner';
 import { ImsPageGuard } from '@/components/ims/ims-page-guard';
+import { RateIndentItemsCard } from '@/components/ims/rate-indent-items-card';
 import { usePermissions } from '@/hooks/use-permissions';
 
 export default function IndentDetailPage() {
@@ -520,6 +521,12 @@ function IndentDetailPageInner() {
             </Table>
           </CardContent>
         </Card>
+
+        {/* Requester rates what they received (shared pool with Procurement ratings) */}
+        {isRequester &&
+          ['delivered', 'received', 'received_with_variance'].includes(indent.status) && (
+            <RateIndentItemsCard indentId={indent.id} />
+          )}
 
         {/* Phase F: end-to-end audit trail */}
         <ImsActivityFeed entityType="indent" entityId={id} />

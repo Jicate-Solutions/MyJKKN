@@ -88,6 +88,22 @@ export function useActOnRefund() {
   });
 }
 
+const REAPPLY_FLOW_ERRORS: Record<string, string> = {
+  already_has_approvals: 'This request already has approvals, so its flow can no longer be changed',
+  flow_already_current: 'This request already uses the current approval flow',
+  no_flow_configured: 'No active approval flow is configured for this institution',
+  not_authorized: 'Only a super admin can re-apply the approval flow'
+};
+
+export function useReapplyRefundFlow() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (v: { requestId: string; reason: string }) => RefundWorkflowService.reapplyFlow(v.requestId, v.reason),
+    onSuccess: () => { invalidateRefundData(qc); toast.success('Approval flow re-applied'); },
+    onError: (e: Error) => toast.error(REAPPLY_FLOW_ERRORS[e.message] ?? e.message)
+  });
+}
+
 export function useDisburseRefund() {
   const qc = useQueryClient();
   return useMutation({

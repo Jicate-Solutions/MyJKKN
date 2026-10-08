@@ -13,8 +13,15 @@ import type {
 } from '@/types/ims';
 
 /** A–Z the way people read it: case-insensitive, numbers in order, spaces ignored. */
-const byName = (a: string | null | undefined, b: string | null | undefined) =>
-  (a ?? '').trim().localeCompare((b ?? '').trim(), 'en', { sensitivity: 'base', numeric: true });
+const byName = (a: string | null | undefined, b: string | null | undefined) => {
+  // Leading digits/punctuation are skipped so "2-ETHYL HEXANOL" files under E.
+  const letters = (s: string | null | undefined) => (s ?? '').trim().replace(/^[^A-Za-z]+/, '');
+  const opts = { sensitivity: 'base', numeric: true } as const;
+  return (
+    letters(a).localeCompare(letters(b), 'en', opts) ||
+    (a ?? '').trim().localeCompare((b ?? '').trim(), 'en', opts)
+  );
+};
 
 export class ImsStockService {
   private static get supabase() {

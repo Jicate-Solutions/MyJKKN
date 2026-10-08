@@ -34,6 +34,10 @@ export interface IgAccount {
   last_post_at: string | null;
   last_polled_at: string | null;
   is_active: boolean;
+  /** profiles.id of the team member who runs this account; null = nobody named yet. */
+  connected_by: string | null;
+  /** Display name of that team member, when one is named. */
+  connected_by_name: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -213,4 +217,43 @@ export async function syncIgMetrics(igUserId?: string): Promise<IgSyncResponse> 
       .filter((r) => r.status === 'error')
       .map((r) => `${r.username || r.ig_user_id}: ${r.error ?? 'unknown error'}`),
   };
+}
+
+/**
+ * Name (or clear, with null) the team member who runs an Instagram account.
+ * Calls PATCH /api/social/instagram/accounts/[id]. Throws with the route's
+ * own plain-language error so the caller can show it.
+ */
+/** A save that never answers must not leave the dialog stuck on "Saving…". */
+export const IG_RUNNER_SAVE_TIMEOUT_MS = 15_000;
+
+export async function setIgAccountRunner(
+  accountId: string,
+  personId: string | null,
+): Promise<{ id: string; connected_by: string | null; connected_by_name: string | null }> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), IG_RUNNER_SAVE_TIMEOUT_MS);
+  let res: Response;
+  try {
+    res = await fetch(`/api/social/instagram/accounts/${accountId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ connected_by: personId }),
+      signal: controller.signal,
+    });
+  } catch (e) {
+    if (controller.signal.aborted) {
+      throw new Error('Saving took too long. Check your connection and try again.');
+    }
+    throw e;
+  } finally {
+    clearTimeout(timer);
+  }
+  const json = (await res.json().catch(() => null)) as
+    | { success: boolean; error?: string; data?: { id: string; connected_by: string | null; connected_by_name: string | null } }
+    | null;
+  if (!res.ok || !json?.success || !json.data) {
+    throw new Error(json?.error || `Could not save (${res.status})`);
+  }
+  return json.data;
 }

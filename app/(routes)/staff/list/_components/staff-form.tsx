@@ -372,6 +372,27 @@ export function StaffForm({ staff, isEditing }: StaffFormProps) {
   );
   const isTeachingCategory = selectedCategory?.is_teaching ?? false;
 
+  // The database re-issues the Staff ID when an ACTIVE person's institution or
+  // teaching flag changes (trg_staff_autonumber). Mirror the rule so the operator
+  // is told before saving; the trigger stays the authority.
+  const watchedIsActive = form.watch('is_active');
+  const originalIsTeaching = useMemo(
+    () => categories.find((c) => c.id === staff?.category_id)?.is_teaching,
+    [categories, staff?.category_id]
+  );
+  const staffIdWillChange =
+    !!isEditing &&
+    !!staff?.staff_id &&
+    watchedIsActive !== false &&
+    ((!!watchedInstitutionId && watchedInstitutionId !== staff.institution_id) ||
+      (originalIsTeaching !== undefined &&
+        selectedCategory !== undefined &&
+        originalIsTeaching !== selectedCategory.is_teaching));
+  const previousStaffIds = [
+    ...(staff?.staff_id_history ?? []).map((h) => h.staff_id),
+    staff?.legacy_staff_id
+  ].filter((v): v is string => !!v);
+
   // ── Office tab ─────────────────────────────────────────────────────────────
   const officeStaffId = isEditing && staff && canManageOffice ? staff.id : null;
   const { data: currentPayer, isFetched: payerFetched, isError: payerError } =
@@ -773,12 +794,21 @@ export function StaffForm({ staff, isEditing }: StaffFormProps) {
 
       let savedStaffId: string;
       if (isEditing && staff) {
-        await StaffService.updateStaff(staff.id, formattedValues as any);
+        const updated = await StaffService.updateStaff(staff.id, formattedValues as any);
         savedStaffId = staff.id;
+        // trg_staff_autonumber re-issues the ID when institution or teaching type
+        // changed; the saved row carries the new value.
+        if (staff.staff_id && updated?.staff_id && updated.staff_id !== staff.staff_id) {
+          toast.success(`Staff ID changed from ${staff.staff_id} to ${updated.staff_id}.`, {
+            duration: 10000
+          });
+        }
       } else {
         const created = await StaffService.createStaff(formattedValues as any);
         savedStaffId = created.id;
       }
+      // List and detail views cache the ID; refetch so a re-issued one shows.
+      queryClient.invalidateQueries({ queryKey: ['staff'] });
 
       // Office tab: written after the staff row, through the HR payroll
       // services. Not one transaction - if a part fails, the staff record is
@@ -1392,10 +1422,11 @@ export function StaffForm({ staff, isEditing }: StaffFormProps) {
     <div className='space-y-4'>
       <h2 className='text-lg font-semibold'>Employment Information</h2>
       <div className='grid gap-4 md:grid-cols-2'>
-        {/* Read-only since 2026-08-28. The ID is issued by trg_staff_autonumber
-            from the institution code and the teaching flag (DCH001 / NOTDCH001)
-            and frozen thereafter — the database rejects any change with P0001,
-            for every role. The field stays registered so its value round-trips
+        {/* Read-only. The ID is issued by trg_staff_autonumber from the institution
+            code and the teaching flag (DCH001 / NOTDCH001). The database rejects a
+            manual change with P0001 for every role, but RE-ISSUES the ID itself when
+            an active person changes institution or teaching type (old code kept in
+            staff_id_history). The field stays registered so its value round-trips
             unchanged on save; sending a DIFFERENT value is what the guard
             rejects, not sending the same one. */}
         <FormField
@@ -1415,10 +1446,17 @@ export function StaffForm({ staff, isEditing }: StaffFormProps) {
                 />
               </FormControl>
               <FormDescription>
-                {staff?.legacy_staff_id
-                  ? `System-generated and permanent. Previously ${staff.legacy_staff_id}.`
-                  : 'System-generated from the institution and staff type, and permanent once issued.'}
+                System-generated from the institution and staff type. It is re-issued
+                automatically if either changes.
+                {previousStaffIds.length > 0 &&
+                  ` Previous ID${previousStaffIds.length > 1 ? 's' : ''}: ${previousStaffIds.join(', ')}.`}
               </FormDescription>
+              {staffIdWillChange && (
+                <p className='text-sm font-medium text-amber-600 dark:text-amber-400'>
+                  Saving will issue a new Staff ID and retire {staff?.staff_id}. The old ID
+                  stays on their history, so old cards and sheets can still find them.
+                </p>
+              )}
               <FormMessage />
             </FormItem>
           )}

@@ -19,6 +19,7 @@ describe('buildStaffSearchTokenGroups', () => {
       'last_name',
       'staff_id',
       'legacy_staff_id',
+      'retired_staff_ids',
       'email',
       'institution_email',
       'designation',

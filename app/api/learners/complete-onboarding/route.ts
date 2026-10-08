@@ -7,6 +7,7 @@ import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { logActivity, ActivityTemplates } from '@/lib/utils/activity-logger';
 import { generateTemporaryPassword } from '@/lib/utils/temporary-password';
 import { INDUCTION_ELIGIBLE_LIFECYCLE_STATUSES } from '@/lib/constants/induction-access';
+import { findDuplicateLearners, describeDuplicateLearner } from '@/lib/services/learner-duplicate-guard';
 
 // Statuses eligible for a login here, not just 'active'. The induction-access
 // spec (specs/pre-onboarding-induction-access-2026-06-29.md) already grants
@@ -133,7 +134,7 @@ export async function POST(request: NextRequest) {
     const { data: learner, error: learnerError } = await supabaseAdmin
       .from('learners_profiles')
       .select(
-        'id, first_name, last_name, college_email, student_mobile, gender, student_photo_url, institution_id, department_id, is_profile_complete, lifecycle_status'
+        'id, first_name, last_name, college_email, student_mobile, gender, student_photo_url, institution_id, department_id, admission_year_id, is_profile_complete, lifecycle_status'
       )
       .eq('id', learner_id)
       .single();
@@ -192,6 +193,21 @@ export async function POST(request: NextRequest) {
       );
       return NextResponse.json(
         { error: 'A user with this email already has a profile.' },
+        { status: 409 }
+      );
+    }
+
+    // 3b. Same person as another live learner? A login minted now forks the identity
+    // (the …26pb@ / …26bp@ incident). A failed check lands in the catch → 500, so no
+    // login is created blind.
+    const duplicates = await findDuplicateLearners(supabaseAdmin, learner, learner.id);
+    if (duplicates.length > 0) {
+      return NextResponse.json(
+        {
+          error:
+            `Possible duplicate learner: ${duplicates.map(describeDuplicateLearner).join('; ')}. ` +
+            'Resolve the duplicate before creating a login.',
+        },
         { status: 409 }
       );
     }
