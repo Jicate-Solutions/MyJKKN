@@ -24,6 +24,12 @@ import {
   referenceLaddersFor,
 } from '@/lib/hr/pay-scales/jkkn-reference-ladders';
 
+// The one teaching ladder Arts & Science has; its title is read from the data
+// so this file restates no job title of its own.
+const TEACHING_TITLE = referenceLaddersFor(ARTS_SCIENCE_INSTITUTION_ID).find(
+  (l) => l.staff_group === 'teaching'
+)!.designation;
+
 const ARTS_SCIENCE_ROW_AFTER_LOAD = {
   pay_matrix: [],
   overrides: { net_set_basic: null },
@@ -40,16 +46,16 @@ describe('a college with an empty pay_matrix and loaded ladders', () => {
     expect(policy?.rungs).toHaveLength(steps);
   });
 
-  it('spans the Assistant Professor ladder from its first step to its last', () => {
+  it('spans the teaching ladder from its first step to its last', () => {
     const policy = parsePayBandPolicy(ARTS_SCIENCE_ROW_AFTER_LOAD);
-    const result = checkPayBand({ designation: 'Assistant Professor', monthlyPay: 16000 }, policy);
+    const result = checkPayBand({ designation: TEACHING_TITLE, monthlyPay: 16000 }, policy);
     expect(result.verdict).toBe('within_band');
     expect(result.band).toEqual({ min: 15000, max: 21500 });
   });
 
   it('reads pay above the last step as above the band', () => {
     const policy = parsePayBandPolicy(ARTS_SCIENCE_ROW_AFTER_LOAD);
-    const result = checkPayBand({ designation: 'Assistant Professor', monthlyPay: 22000 }, policy);
+    const result = checkPayBand({ designation: TEACHING_TITLE, monthlyPay: 22000 }, policy);
     expect(result.verdict).toBe('above_band');
     expect(result.excess).toBe(500);
   });
@@ -72,13 +78,14 @@ describe('a college with an empty pay_matrix and loaded ladders', () => {
 
 describe('a college whose pay_matrix already has a usable rung', () => {
   it('keeps exactly its matrix band; the ladders are not merged in', () => {
-    const matrixRung = { designation: 'Assistant Professor', qualification: 'M.E (CSE/IT)', basic_pay: 20000 };
+    // Engineering's ladders carry a Librarian ladder too (10,000 to 19,799).
+    const matrixRung = { designation: 'Librarian', qualification: 'M.L.I.Sc', basic_pay: 40000 };
     const policy = parsePayBandPolicy({
       pay_matrix: [matrixRung],
       ladders: referenceLaddersFor(ENGINEERING_INSTITUTION_ID),
     });
     expect(policy?.rungs).toEqual([
-      { designation: 'Assistant Professor', qualification: 'M.E (CSE/IT)', basicPay: 20000 },
+      { designation: 'Librarian', qualification: 'M.L.I.Sc', basicPay: 40000 },
     ]);
   });
 
@@ -101,17 +108,17 @@ describe('hand-edited ladder JSON', () => {
         null,
         'ladder',
         { designation: '', steps: [{ basic_pay: 9000 }] },
-        { designation: 'Lab Technician', steps: 'none' },
+        { designation: 'Typist', steps: 'none' },
         {
-          designation: 'Lab Technician',
+          designation: 'Typist',
           qualification: 7,
           steps: [{ basic_pay: 'abc' }, null, { basic_pay: '7000' }, { basic_pay: 7350 }],
         },
       ],
     });
     expect(policy?.rungs).toEqual([
-      { designation: 'Lab Technician', qualification: null, basicPay: 7000 },
-      { designation: 'Lab Technician', qualification: null, basicPay: 7350 },
+      { designation: 'Typist', qualification: null, basicPay: 7000 },
+      { designation: 'Typist', qualification: null, basicPay: 7350 },
     ]);
   });
 
