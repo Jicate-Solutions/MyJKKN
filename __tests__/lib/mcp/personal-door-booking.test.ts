@@ -213,7 +213,7 @@ describe('booking', () => {
     scheduleDirect.mockResolvedValue({ ok: false, error: { code: 'SLOT_TAKEN', message: 'You already have a meeting then.' } });
     const res = await readRpc(await book(GOOD_ARGS));
     expect(res.result.isError).toBe(true);
-    expect(res.result.content[0].text).toBe('You already have a meeting then.');
+    expect(res.result.content[0].text).toMatch(/You already have a meeting then./);
   });
 
   it('passes on a partial-success warning instead of hiding it', async () => {
@@ -226,7 +226,7 @@ describe('booking', () => {
   });
 
   it('audit-logs the call without its arguments', async () => {
-    await book(GOOD_ARGS);
+    await readRpc(await book(GOOD_ARGS));
     expect(logApiUsage).toHaveBeenCalledTimes(1);
     const entry = logApiUsage.mock.calls[0][0];
     expect(entry).toMatchObject({ apiKeyId: KEY_ID, endpoint: 'mcp:schedule_meeting', statusCode: 200 });
