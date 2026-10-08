@@ -13,6 +13,14 @@
 //   - Every tool call is audit-logged (who = the key, which tool, when, the
 //     outcome — never the arguments or the data) and every request is
 //     rate-limited, with the existing logger and limiter.
+//   - ONE write exists (8 Oct 2026): schedule_meeting, listed only when the
+//     owner switched booking on for THIS key (ai_personal_key_booking_grants,
+//     20271008150000). It books on the OWNER's calendar only — the host is the
+//     key's user_id, never a value from the caller — through
+//     HostSchedulingService.scheduleDirect, the same path as /meetings/schedule.
+//     That service needs the service-role client by design (it writes
+//     meeting_bookings for the host and reads invitees' profiles); it is used
+//     only after the owner's identity and meetings access are fixed.
 
 import { createHash } from 'crypto';
 import type { SupabaseClient } from '@supabase/supabase-js';
@@ -31,6 +39,13 @@ import {
   type CatalogTool,
 } from '@/lib/ai-tools/catalog';
 import { mcpError, mcpSuccess, type McpToolResult } from '@/lib/mcp/tool-helpers';
+import {
+  CAMPUS_TZ,
+  HostSchedulingService,
+  type HostMeetingLocationMode,
+  type ScheduleAttendee,
+} from '@/lib/services/meetings/host-scheduling-service';
+import { zonedToUtc } from '@/lib/services/meetings/native-slot-engine';
 
 /** Every personal key starts with this; admin keys are `jkkn_` + 32 hex characters. */
 export const PERSONAL_KEY_PREFIX = 'jkkn_pk_';
@@ -62,6 +77,8 @@ export interface PersonalKeyContext {
   keyName: string;
   ownerId: string;
   institutionId: string | null;
+  /** The owner switched booking on for this key (fails closed to false). */
+  canBookMeetings: boolean;
 }
 
 /**
@@ -106,6 +123,186 @@ export async function verifyPersonalMcpToken(token: string): Promise<PersonalKey
     keyName: row.name,
     ownerId: row.user_id,
     institutionId: row.institution_id,
+    canBookMeetings: await keyMayBook(supabase as unknown as SupabaseClient, row.id),
+  };
+}
+
+/** Whether the owner switched booking on for this key. Any error reads as no. */
+async function keyMayBook(supabase: SupabaseClient, keyId: string): Promise<boolean> {
+  try {
+    const { data, error } = await supabase
+      .from('ai_personal_key_booking_grants')
+      .select('active')
+      .eq('key_id', keyId)
+      .maybeSingle();
+    return !error && (data as { active?: boolean } | null)?.active === true;
+  } catch {
+    return false;
+  }
+}
+
+// ─── schedule_meeting ──────────────────────────────────────────────────────
+
+export const SCHEDULE_TOOL_NAME = 'schedule_meeting';
+
+const LOCATION_MODES: HostMeetingLocationMode[] = ['online', 'phone', 'in_person'];
+const MAX_ATTENDEES = 50;
+const MAX_DURATION_MIN = 480;
+
+/** The tool as the outside AI sees it. Listed only for a key allowed to book. */
+export const SCHEDULE_TOOL = {
+  name: SCHEDULE_TOOL_NAME,
+  description:
+    "Book a meeting on the key owner's own MyJKKN calendar and send the invitations, exactly as the owner would on Meetings > Schedule. " +
+    'Times are India time (Asia/Kolkata). Fails with "slot taken" when the owner already has a meeting then.',
+  inputSchema: {
+    type: 'object' as const,
+    properties: {
+      title: { type: 'string', description: 'What the meeting is called.' },
+      start_local: {
+        type: 'string',
+        description: 'Start in India time, as YYYY-MM-DDTHH:MM, for example 2026-10-08T15:30.',
+      },
+      duration_min: { type: 'integer', minimum: 5, maximum: MAX_DURATION_MIN, description: 'Length in minutes.' },
+      location_mode: { type: 'string', enum: LOCATION_MODES, description: 'online makes a Google Meet link.' },
+      location_text: { type: 'string', description: 'Where, required for in_person.' },
+      note: { type: 'string', description: 'Text the invitees see in the invitation.' },
+      attendees: {
+        type: 'array',
+        minItems: 1,
+        maxItems: MAX_ATTENDEES,
+        items: {
+          type: 'object',
+          properties: { email: { type: 'string' }, name: { type: 'string' } },
+          required: ['email'],
+        },
+      },
+    },
+    required: ['title', 'start_local', 'duration_min', 'location_mode', 'attendees'],
+  },
+};
+
+export interface ScheduleArgs {
+  title: string;
+  startIso: string;
+  durationMin: number;
+  locationMode: HostMeetingLocationMode;
+  locationText: string | null;
+  note: string | null;
+  attendees: { email: string; name: string }[];
+}
+
+/** Reads India wall-clock "YYYY-MM-DDTHH:MM" as a real instant. */
+export function indiaLocalToIso(local: unknown): string | null {
+  if (typeof local !== 'string') return null;
+  const m = /^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})$/.exec(local.trim());
+  if (!m) return null;
+  const [y, mo, d, h, mi] = m.slice(1).map(Number);
+  if (mo < 1 || mo > 12 || d < 1 || d > 31 || h > 23 || mi > 59) return null;
+  return zonedToUtc(y, mo, d, h * 60 + mi, CAMPUS_TZ).toISOString();
+}
+
+/** Checks and shapes the outside AI's arguments. Throws ToolArgsError in plain words. */
+export function parseScheduleArgs(input: Record<string, unknown> | undefined): ScheduleArgs {
+  const a = input ?? {};
+  const title = typeof a.title === 'string' ? a.title.trim() : '';
+  if (!title) throw new ToolArgsError('Give the meeting a title.');
+  const startIso = indiaLocalToIso(a.start_local);
+  if (!startIso) throw new ToolArgsError('start_local must be India time as YYYY-MM-DDTHH:MM.');
+  if (new Date(startIso).getTime() < Date.now() - 5 * 60_000) {
+    throw new ToolArgsError('That start time has already passed.');
+  }
+  const durationMin = Number(a.duration_min);
+  if (!Number.isInteger(durationMin) || durationMin < 5 || durationMin > MAX_DURATION_MIN) {
+    throw new ToolArgsError(`duration_min must be a whole number from 5 to ${MAX_DURATION_MIN}.`);
+  }
+  const locationMode = a.location_mode as HostMeetingLocationMode;
+  if (!LOCATION_MODES.includes(locationMode)) {
+    throw new ToolArgsError('location_mode must be online, phone or in_person.');
+  }
+  if (!Array.isArray(a.attendees) || a.attendees.length < 1 || a.attendees.length > MAX_ATTENDEES) {
+    throw new ToolArgsError(`attendees must list 1 to ${MAX_ATTENDEES} people.`);
+  }
+  const attendees = a.attendees.map((p) => {
+    const o = (p ?? {}) as Record<string, unknown>;
+    const email = typeof o.email === 'string' ? o.email.trim() : '';
+    const name = typeof o.name === 'string' ? o.name.trim() : '';
+    return { email, name: name || email };
+  });
+  const text = (v: unknown) => (typeof v === 'string' && v.trim() ? v.trim() : null);
+  return {
+    title,
+    startIso,
+    durationMin,
+    locationMode,
+    locationText: text(a.location_text),
+    note: text(a.note),
+    attendees,
+  };
+}
+
+/**
+ * Books for the key's owner. The owner's meetings access is re-checked AS the
+ * owner on every call, so taking Meetings away stops the key at once.
+ */
+async function runScheduleTool(
+  ownerClient: SupabaseClient,
+  ownerId: string,
+  input: Record<string, unknown> | undefined
+): Promise<unknown> {
+  const args = parseScheduleArgs(input);
+
+  const [{ data: isSuper }, { data: canMeet }] = await Promise.all([
+    ownerClient.rpc('is_super_admin'),
+    ownerClient.rpc('user_has_permission', { permission_name: 'meetings.view' }),
+  ]);
+  if (isSuper !== true && canMeet !== true) {
+    throw new DoorRefusal('The owner of this key no longer has access to Meetings in MyJKKN.');
+  }
+
+  const db = createServiceRoleClient() as unknown as SupabaseClient;
+
+  // Link invitees who are MyJKKN people, the same way the Schedule page does
+  // when someone is picked from the list. Unknown addresses stay plain emails.
+  const emails = args.attendees.map((p) => p.email.toLowerCase());
+  const { data: known } = await db
+    .from('profiles')
+    .select('id, email')
+    .in('email', emails)
+    .eq('is_active', true);
+  const byEmail = new Map(
+    ((known ?? []) as { id: string; email: string }[]).map((r) => [r.email.toLowerCase(), r.id])
+  );
+  const attendees: ScheduleAttendee[] = args.attendees.map((p) => ({
+    email: p.email,
+    name: p.name,
+    profileId: byEmail.get(p.email.toLowerCase()) ?? null,
+  }));
+
+  const outcome = await HostSchedulingService.scheduleDirect(db, {
+    hostProfileId: ownerId,
+    title: args.title,
+    startIso: args.startIso,
+    durationMin: args.durationMin,
+    locationMode: args.locationMode,
+    locationText: args.locationText,
+    note: args.note,
+    attendees,
+  });
+  if (!outcome.ok) {
+    const code = outcome.error?.code;
+    if (code === 'VALIDATION') throw new ToolArgsError(outcome.error.message);
+    if (code === 'SLOT_TAKEN') throw new DoorRefusal(outcome.error.message);
+    throw new Error(outcome.error?.message ?? 'not booked');
+  }
+  return {
+    booked: true,
+    uid: outcome.data.uid,
+    start: outcome.data.startIso,
+    end: outcome.data.endIso,
+    meet_link: outcome.data.videoUrl,
+    // Booked, but the calendar or invitation step did not fully succeed.
+    warning: outcome.data.warning,
   };
 }
 
@@ -259,16 +456,44 @@ export async function handlePersonalKeyRequest(req: Request, token: string): Pro
   );
 
   server.setRequestHandler(ListToolsRequestSchema, async () => ({
-    tools: tools.map((t) => ({
-      name: t.name,
-      description: t.description,
-      inputSchema: publicInputSchema(t.params) as { type: 'object'; [k: string]: unknown },
-    })),
+    tools: [
+      ...tools.map((t) => ({
+        name: t.name,
+        description: t.description,
+        inputSchema: publicInputSchema(t.params) as { type: 'object'; [k: string]: unknown },
+      })),
+      ...(ctx.canBookMeetings ? [SCHEDULE_TOOL] : []),
+    ],
   }));
 
   server.setRequestHandler(CallToolRequestSchema, async (request) => {
     const startTime = Date.now();
     const name = request.params.name;
+    if (name === SCHEDULE_TOOL_NAME && ctx.canBookMeetings) {
+      try {
+        const data = await runScheduleTool(
+          client as unknown as SupabaseClient,
+          ctx.ownerId,
+          request.params.arguments as Record<string, unknown> | undefined
+        );
+        audit(name, 200, startTime);
+        return mcpSuccess(data);
+      } catch (err) {
+        if (err instanceof DoorRefusal) {
+          audit(name, 403, startTime);
+          return mcpError(err.message);
+        }
+        const isArgs = err instanceof ToolArgsError;
+        audit(name, isArgs ? 400 : 500, startTime);
+        if (!isArgs) {
+          console.error('[MCP personal] schedule_meeting failed', {
+            keyId: ctx.keyId,
+            error: err instanceof Error ? err.message : 'unknown',
+          });
+        }
+        return mcpError(isArgs ? err.message : "MyJKKN could not confirm that booking. Check the owner's Meetings inbox before trying again.");
+      }
+    }
     const tool = tools.find((t) => t.name === name);
     if (!tool) {
       audit(name, 404, startTime);
