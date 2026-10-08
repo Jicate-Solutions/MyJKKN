@@ -37,3 +37,36 @@ export async function boostArtworkForPrint(dataUrl: string | null): Promise<stri
     return dataUrl;
   }
 }
+
+// ── Printer back: strictly black & white ─────────────────────────────────────
+//
+// The card is "colour front, black back". The back is printed by the ribbon's
+// single black RESIN panel (Evolis "YMCO / K", SDK duplex type colour/mono),
+// which can only lay black or nothing: greys and colour either get dithered
+// into speckle or — worse — make a station that picks panels from the image
+// reach for a second full colour set. So the PNG handed to the print bridge is
+// thresholded to pure #000 / #fff. Anti-aliased edges fall to whichever side
+// they are nearer; the cut sits a little above mid-grey so thin strokes keep
+// their weight on plastic. Previews are NOT thresholded — only
+// side=back&format=png (the bridge download) goes through here.
+//
+// Output stays 3-channel sRGB: the bridge converts to RGB/BMP and should not
+// have to care that the content is two-tone. Fail-soft like the boost above.
+export const MONO_BACK_THRESHOLD = 150;
+
+export async function monochromeBackForPrint(png: ArrayBuffer): Promise<ArrayBuffer> {
+  try {
+    const sharp = (await import('sharp')).default;
+    const out = await sharp(Buffer.from(png))
+      .flatten({ background: '#ffffff' })
+      .greyscale()
+      .threshold(MONO_BACK_THRESHOLD)
+      .toColourspace('srgb')
+      .png({ compressionLevel: 9 })
+      .toBuffer();
+    return out.buffer.slice(out.byteOffset, out.byteOffset + out.byteLength) as ArrayBuffer;
+  } catch (err) {
+    console.warn('[id-cards/render] monochrome back skipped:', err);
+    return png;
+  }
+}

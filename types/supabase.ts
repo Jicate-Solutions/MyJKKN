@@ -74480,6 +74480,44 @@ export type Database = {
           },
         ]
       }
+      hostel_floors: {
+        Row: {
+          block_id: string
+          created_at: string
+          floor_number: number
+          id: string
+          is_active: boolean
+          name: string | null
+          updated_at: string
+        }
+        Insert: {
+          block_id: string
+          created_at?: string
+          floor_number: number
+          id?: string
+          is_active?: boolean
+          name?: string | null
+          updated_at?: string
+        }
+        Update: {
+          block_id?: string
+          created_at?: string
+          floor_number?: number
+          id?: string
+          is_active?: boolean
+          name?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "hostel_floors_block_id_fkey"
+            columns: ["block_id"]
+            isOneToOne: false
+            referencedRelation: "hostel_blocks"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       hostel_gate_passes: {
         Row: {
           accompanying_person: string | null
@@ -81452,6 +81490,128 @@ export type Database = {
           },
         ]
       }
+      hostel_damage_types: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          default_amount: number
+          id: string
+          is_active: boolean
+          name: string
+          sort_order: number
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          default_amount?: number
+          id?: string
+          is_active?: boolean
+          name: string
+          sort_order?: number
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          default_amount?: number
+          id?: string
+          is_active?: boolean
+          name?: string
+          sort_order?: number
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: []
+      }
+      hostel_vacate_approvals: {
+        Row: {
+          acted_at: string
+          action: string
+          actor_id: string | null
+          id: string
+          remarks: string | null
+          step: string
+          vacate_request_id: string
+        }
+        Insert: {
+          acted_at?: string
+          action: string
+          actor_id?: string | null
+          id?: string
+          remarks?: string | null
+          step: string
+          vacate_request_id: string
+        }
+        Update: {
+          acted_at?: string
+          action?: string
+          actor_id?: string | null
+          id?: string
+          remarks?: string | null
+          step?: string
+          vacate_request_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "hostel_vacate_approvals_vacate_request_id_fkey"
+            columns: ["vacate_request_id"]
+            isOneToOne: false
+            referencedRelation: "hostel_vacate_requests"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      hostel_vacate_damages: {
+        Row: {
+          amount: number
+          created_at: string
+          damage_name: string
+          damage_type_id: string | null
+          id: string
+          note: string | null
+          recorded_by: string | null
+          vacate_request_id: string
+        }
+        Insert: {
+          amount: number
+          created_at?: string
+          damage_name: string
+          damage_type_id?: string | null
+          id?: string
+          note?: string | null
+          recorded_by?: string | null
+          vacate_request_id: string
+        }
+        Update: {
+          amount?: number
+          created_at?: string
+          damage_name?: string
+          damage_type_id?: string | null
+          id?: string
+          note?: string | null
+          recorded_by?: string | null
+          vacate_request_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "hostel_vacate_damages_damage_type_id_fkey"
+            columns: ["damage_type_id"]
+            isOneToOne: false
+            referencedRelation: "hostel_damage_types"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hostel_vacate_damages_vacate_request_id_fkey"
+            columns: ["vacate_request_id"]
+            isOneToOne: false
+            referencedRelation: "hostel_vacate_requests"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       hostel_vacate_checklist_items: {
         Row: {
           applies_to_reasons:
@@ -81553,6 +81713,9 @@ export type Database = {
           allocation_id: string
           approval_chain_run_id: string | null
           approval_remarks: string | null
+          damage_total: number
+          fine_bill_id: string | null
+          room_inspected: boolean
           approved_at: string | null
           approved_by: string | null
           bills_snapshot: Json | null
@@ -81589,6 +81752,9 @@ export type Database = {
           allocation_id: string
           approval_chain_run_id?: string | null
           approval_remarks?: string | null
+          damage_total?: number
+          fine_bill_id?: string | null
+          room_inspected?: boolean
           approved_at?: string | null
           approved_by?: string | null
           bills_snapshot?: Json | null
@@ -81625,6 +81791,9 @@ export type Database = {
           allocation_id?: string
           approval_chain_run_id?: string | null
           approval_remarks?: string | null
+          damage_total?: number
+          fine_bill_id?: string | null
+          room_inspected?: boolean
           approved_at?: string | null
           approved_by?: string | null
           bills_snapshot?: Json | null
@@ -84315,6 +84484,7 @@ export type Database = {
         Row: {
           approved_at: string | null
           approved_by: string | null
+          claim_batch_id: string | null
           consumed_at: string | null
           consumed_by_application_id: string | null
           created_at: string
@@ -84341,6 +84511,7 @@ export type Database = {
         Insert: {
           approved_at?: string | null
           approved_by?: string | null
+          claim_batch_id?: string | null
           consumed_at?: string | null
           consumed_by_application_id?: string | null
           created_at?: string
@@ -84367,6 +84538,7 @@ export type Database = {
         Update: {
           approved_at?: string | null
           approved_by?: string | null
+          claim_batch_id?: string | null
           consumed_at?: string | null
           consumed_by_application_id?: string | null
           created_at?: string
@@ -88789,6 +88961,78 @@ export type Database = {
           },
         ]
       }
+      hr_payroll_document_settings: {
+        Row: {
+          addressee_title: string
+          approval_salutation: string
+          approver_title: string
+          bank_branch: string
+          bank_name: string
+          college_account_number: string
+          created_at: string
+          created_by: string | null
+          hr_organization_id: string
+          id: string
+          institution_id: string
+          non_teaching_suffix: string
+          reference_code: string
+          submitter_title: string
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          addressee_title?: string
+          approval_salutation?: string
+          approver_title?: string
+          bank_branch: string
+          bank_name: string
+          college_account_number: string
+          created_at?: string
+          created_by?: string | null
+          hr_organization_id: string
+          id?: string
+          institution_id: string
+          non_teaching_suffix?: string
+          reference_code: string
+          submitter_title?: string
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          addressee_title?: string
+          approval_salutation?: string
+          approver_title?: string
+          bank_branch?: string
+          bank_name?: string
+          college_account_number?: string
+          created_at?: string
+          created_by?: string | null
+          hr_organization_id?: string
+          id?: string
+          institution_id?: string
+          non_teaching_suffix?: string
+          reference_code?: string
+          submitter_title?: string
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "hr_payroll_document_settings_hr_organization_id_fkey"
+            columns: ["hr_organization_id"]
+            isOneToOne: true
+            referencedRelation: "hr_organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hr_payroll_document_settings_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       hr_payroll_periods: {
         Row: {
           accounts_verified_at: string | null
@@ -91058,6 +91302,11 @@ export type Database = {
           role_category: string
           salary_currency: string
           salary_duration: string
+          seo_description: string | null
+          seo_keywords: string[]
+          seo_noindex: boolean
+          seo_og_image: string | null
+          seo_title: string | null
           state: string | null
           status: string
           title: string
@@ -91093,6 +91342,11 @@ export type Database = {
           role_category: string
           salary_currency?: string
           salary_duration?: string
+          seo_description?: string | null
+          seo_keywords?: string[]
+          seo_noindex?: boolean
+          seo_og_image?: string | null
+          seo_title?: string | null
           state?: string | null
           status?: string
           title: string
@@ -91128,6 +91382,11 @@ export type Database = {
           role_category?: string
           salary_currency?: string
           salary_duration?: string
+          seo_description?: string | null
+          seo_keywords?: string[]
+          seo_noindex?: boolean
+          seo_og_image?: string | null
+          seo_title?: string | null
           state?: string | null
           status?: string
           title?: string
@@ -92157,6 +92416,91 @@ export type Database = {
           },
         ]
       }
+      hr_salary_register_manual_days: {
+        Row: {
+          business_working_days: number
+          casual_leave_days: number
+          comp_off_days: number
+          created_at: string
+          created_by: string | null
+          hr_organization_id: string
+          id: string
+          institution_id: string
+          monthly_gross: number | null
+          on_duty_days: number
+          other_paid_leave_days: number
+          period_month: number
+          period_year: number
+          reason: string
+          staff_id: string
+          unpaid_leave_days: number
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          business_working_days: number
+          casual_leave_days?: number
+          comp_off_days?: number
+          created_at?: string
+          created_by?: string | null
+          hr_organization_id: string
+          id?: string
+          institution_id: string
+          monthly_gross?: number | null
+          on_duty_days?: number
+          other_paid_leave_days?: number
+          period_month: number
+          period_year: number
+          reason: string
+          staff_id: string
+          unpaid_leave_days?: number
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          business_working_days?: number
+          casual_leave_days?: number
+          comp_off_days?: number
+          created_at?: string
+          created_by?: string | null
+          hr_organization_id?: string
+          id?: string
+          institution_id?: string
+          monthly_gross?: number | null
+          on_duty_days?: number
+          other_paid_leave_days?: number
+          period_month?: number
+          period_year?: number
+          reason?: string
+          staff_id?: string
+          unpaid_leave_days?: number
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "hr_salary_register_manual_days_hr_organization_id_fkey"
+            columns: ["hr_organization_id"]
+            isOneToOne: false
+            referencedRelation: "hr_organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hr_salary_register_manual_days_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hr_salary_register_manual_days_staff_id_fkey"
+            columns: ["staff_id"]
+            isOneToOne: false
+            referencedRelation: "staff"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       hr_salary_register_lines: {
         Row: {
           actual_gross: number
@@ -92173,11 +92517,17 @@ export type Database = {
           department_name: string | null
           designation: string | null
           employee_code: string | null
+          entry_source: string
           epf_deduction: number
           esi_deduction: number
           exclusion_reason: string | null
           id: string
           is_included: boolean
+          is_teaching: boolean
+          manual_entered_at: string | null
+          manual_entered_by: string | null
+          manual_entry_id: string | null
+          manual_reason: string | null
           net_pay: number
           on_duty_days: number
           other_paid_leave_days: number
@@ -92190,6 +92540,7 @@ export type Database = {
           remarks: string | null
           run_id: string
           serial_no: number
+          staff_category_name: string | null
           staff_id: string
           staff_name: string
           tds_deduction: number
@@ -92215,11 +92566,17 @@ export type Database = {
           department_name?: string | null
           designation?: string | null
           employee_code?: string | null
+          entry_source?: string
           epf_deduction?: number
           esi_deduction?: number
           exclusion_reason?: string | null
           id?: string
           is_included?: boolean
+          is_teaching: boolean
+          manual_entered_at?: string | null
+          manual_entered_by?: string | null
+          manual_entry_id?: string | null
+          manual_reason?: string | null
           net_pay?: number
           on_duty_days?: number
           other_paid_leave_days?: number
@@ -92232,6 +92589,7 @@ export type Database = {
           remarks?: string | null
           run_id: string
           serial_no: number
+          staff_category_name?: string | null
           staff_id: string
           staff_name: string
           tds_deduction?: number
@@ -92257,11 +92615,17 @@ export type Database = {
           department_name?: string | null
           designation?: string | null
           employee_code?: string | null
+          entry_source?: string
           epf_deduction?: number
           esi_deduction?: number
           exclusion_reason?: string | null
           id?: string
           is_included?: boolean
+          is_teaching?: boolean
+          manual_entered_at?: string | null
+          manual_entered_by?: string | null
+          manual_entry_id?: string | null
+          manual_reason?: string | null
           net_pay?: number
           on_duty_days?: number
           other_paid_leave_days?: number
@@ -92274,6 +92638,7 @@ export type Database = {
           remarks?: string | null
           run_id?: string
           serial_no?: number
+          staff_category_name?: string | null
           staff_id?: string
           staff_name?: string
           tds_deduction?: number
@@ -178356,6 +178721,7 @@ export type Database = {
           research_focus_areas: Json
           research_papers: number
           researchgate_url: string | null
+          retired_staff_ids: string | null
           role_key: string
           role_type: string | null
           slug: string | null
@@ -178430,6 +178796,7 @@ export type Database = {
           research_focus_areas?: Json
           research_papers?: number
           researchgate_url?: string | null
+          retired_staff_ids?: string | null
           role_key?: string
           role_type?: string | null
           slug?: string | null
@@ -178504,6 +178871,7 @@ export type Database = {
           research_focus_areas?: Json
           research_papers?: number
           researchgate_url?: string | null
+          retired_staff_ids?: string | null
           role_key?: string
           role_type?: string | null
           slug?: string | null
@@ -178993,6 +179361,70 @@ export type Database = {
           staff_uuid?: string
         }
         Relationships: []
+      }
+      staff_id_history: {
+        Row: {
+          changed_by: string | null
+          from_institution_id: string | null
+          from_is_teaching: boolean | null
+          id: string
+          new_staff_id: string | null
+          reason: string
+          retired_at: string
+          staff_id: string
+          staff_uuid: string
+          to_institution_id: string | null
+          to_is_teaching: boolean | null
+        }
+        Insert: {
+          changed_by?: string | null
+          from_institution_id?: string | null
+          from_is_teaching?: boolean | null
+          id?: string
+          new_staff_id?: string | null
+          reason: string
+          retired_at?: string
+          staff_id: string
+          staff_uuid: string
+          to_institution_id?: string | null
+          to_is_teaching?: boolean | null
+        }
+        Update: {
+          changed_by?: string | null
+          from_institution_id?: string | null
+          from_is_teaching?: boolean | null
+          id?: string
+          new_staff_id?: string | null
+          reason?: string
+          retired_at?: string
+          staff_id?: string
+          staff_uuid?: string
+          to_institution_id?: string | null
+          to_is_teaching?: boolean | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "staff_id_history_from_institution_id_fkey"
+            columns: ["from_institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "staff_id_history_staff_uuid_fkey"
+            columns: ["staff_uuid"]
+            isOneToOne: false
+            referencedRelation: "staff"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "staff_id_history_to_institution_id_fkey"
+            columns: ["to_institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       staff_import_unmatched: {
         Row: {
@@ -206906,8 +207338,20 @@ export type Database = {
         Args: { p_request_id: string }
         Returns: Database["public"]["Tables"]["hostel_vacate_requests"]["Row"]
       }
-      fn_cl_vacate_warden_approve: {
+      fn_cl_vacate_advance: {
         Args: { p_remarks?: string; p_request_id: string }
+        Returns: Json
+      }
+      fn_cl_vacate_complete_after_fine: {
+        Args: { p_request_id: string }
+        Returns: Json
+      }
+      fn_cl_vacate_recheck_bills: {
+        Args: { p_request_id: string }
+        Returns: Json
+      }
+      fn_cl_vacate_set_damages: {
+        Args: { p_lines: Json; p_no_damage: boolean; p_request_id: string }
         Returns: Json
       }
       fn_clarification_ask: {
@@ -212055,6 +212499,7 @@ export type Database = {
           age_days: number
           amount: number
           detail: string
+          due_at: string
           href: string
           item_id: string
           source: string
@@ -221154,6 +221599,11 @@ export type Database = {
         | "pending_warden"
         | "pending_chief"
         | "pending_dues"
+        | "pending_accountant"
+        | "pending_principal"
+        | "pending_mess"
+        | "pending_cao"
+        | "pending_fine"
         | "approved"
         | "completed"
         | "rejected"
@@ -222715,6 +223165,11 @@ export const Constants = {
         "pending_warden",
         "pending_chief",
         "pending_dues",
+        "pending_accountant",
+        "pending_principal",
+        "pending_mess",
+        "pending_cao",
+        "pending_fine",
         "approved",
         "completed",
         "rejected",

@@ -20,6 +20,7 @@
 //   MyJKKN account, so it is free text; a directory picker would exclude the
 //   common case.
 
+import { useState } from 'react';
 import { Plus, ShieldCheck, Star, Trash2, UserPlus, X } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -29,6 +30,8 @@ import {
   MemberPickerDialog,
   type PickedMember,
 } from '@/components/events/shared/member-picker-dialog';
+import { useAuth } from '@/hooks/use-auth';
+import { usePermissions } from '@/hooks/use-permissions';
 
 // ── Types ───────────────────────────────────────────────────────────────────
 
@@ -152,6 +155,25 @@ export function validatePeople(people: {
   return undefined;
 }
 
+/** Roles is_admin() accepts in the database (mirrors canCancelEvent). */
+const SELF_APPOINT_ROLES = ['admin', 'super_admin', 'administrator'];
+
+/**
+ * Nobody but an admin may make themselves an in-charge: the database refuses it
+ * (fn_guard_event_privileged_fields / fn_guard_event_incharges_on_insert), so
+ * the picker drops the viewer's own name rather than letting the save fail.
+ */
+export function dropSelfUnlessAdmin<T extends { member_id: string }>(
+  people: T[],
+  viewer: { userId?: string | null; isSuperAdmin?: boolean; role?: string | null },
+): { kept: T[]; droppedSelf: boolean } {
+  const isAdmin =
+    !!viewer.isSuperAdmin || (!!viewer.role && SELF_APPOINT_ROLES.includes(viewer.role));
+  if (isAdmin || !viewer.userId) return { kept: people, droppedSelf: false };
+  const kept = people.filter((p) => p.member_id !== viewer.userId);
+  return { kept, droppedSelf: kept.length !== people.length };
+}
+
 // ── UI ──────────────────────────────────────────────────────────────────────
 
 export function EventPeopleFields({
@@ -173,7 +195,17 @@ export function EventPeopleFields({
   error?: string;
   disabled?: boolean;
 }) {
-  const addIncharges = (people: PickedMember[]) => {
+  const { profile } = useAuth();
+  const { isSuperAdmin } = usePermissions();
+  const [selfNote, setSelfNote] = useState(false);
+
+  const addIncharges = (picked: PickedMember[]) => {
+    const { kept: people, droppedSelf } = dropSelfUnlessAdmin(picked, {
+      userId: profile?.id,
+      isSuperAdmin,
+      role: profile?.role,
+    });
+    setSelfNote(droppedSelf);
     const existing = new Set(incharges.map((i) => i.member_id));
     const fresh = people
       .filter((p) => !existing.has(p.member_id))
@@ -198,6 +230,11 @@ export function EventPeopleFields({
   return (
     <div className="space-y-4">
       {error && <p className="text-xs text-destructive">{error}</p>}
+      {selfNote && (
+        <p className="text-xs text-muted-foreground">
+          You can&apos;t make yourself an in-charge. Ask an admin to add you.
+        </p>
+      )}
 
       {/* ── In-charge ── */}
       <div className="space-y-3 rounded-lg border p-3">

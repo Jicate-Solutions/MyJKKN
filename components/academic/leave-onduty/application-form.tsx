@@ -77,6 +77,7 @@ import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Textarea } from '@/components/ui/textarea';
+import { Input } from '@/components/ui/input';
 import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Badge } from '@/components/ui/badge';
@@ -146,6 +147,8 @@ export function ApplicationForm({
   const [reason, setReason] = useState('');
   const [attachmentFile, setAttachmentFile] = useState<File | null>(null);
   const [sponsorId, setSponsorId] = useState<string | null>(null);
+  const [exitTime, setExitTime] = useState('');
+  const [returnTime, setReturnTime] = useState('');
   const [dayCount, setDayCount] = useState(0);
   const [isInitialized, setIsInitialized] = useState(false);
 
@@ -294,8 +297,13 @@ export function ApplicationForm({
 
   // Reset leave type when category changes (only after initialization)
   const [prevCategory, setPrevCategory] = useState<LeaveOndutyCategory | null>(null);
+  // Track the category only once the saved draft has been restored. Recording
+  // the mount-time default ('leave') first made a restored OnDuty draft look
+  // like a category switch, which wiped its on-duty type — the form then could
+  // not be submitted until the learner noticed and re-picked it.
   useEffect(() => {
-    if (isInitialized && prevCategory !== null && prevCategory !== category) {
+    if (!isInitialized) return;
+    if (prevCategory !== null && prevCategory !== category) {
       setLeaveTypeId('');
     }
     setPrevCategory(category);
@@ -315,6 +323,9 @@ export function ApplicationForm({
     (t) => t.id === leaveTypeId
   );
   const requiresSponsorApproval = !!selectedType?.requires_sponsor_approval;
+  // A hostel learner leaving campus gets a gate pass on approval; the pass needs a
+  // real exit/return time. The DB decides who actually gets one (fn_lo_sync_gate_pass).
+  const needsGatePassTimes = residency === 'hostel' && !!selectedType?.issues_gate_pass;
   const sponsorRoleHint = selectedType?.sponsor_role_hint || null;
 
   // Reset sponsor when category/leave type changes (would be invalid anyway)
@@ -434,6 +445,17 @@ export function ApplicationForm({
       return;
     }
 
+    if (needsGatePassTimes) {
+      if (!exitTime || !returnTime) {
+        toast.error('Please enter the time you will leave and the time you will return.');
+        return;
+      }
+      if (format(startDate, 'yyyy-MM-dd') === format(endDate, 'yyyy-MM-dd') && returnTime <= exitTime) {
+        toast.error('Return time must be after the exit time.');
+        return;
+      }
+    }
+
     const formData: ApplicationFormData = {
       category,
       leave_type_id: leaveTypeId,
@@ -444,6 +466,8 @@ export function ApplicationForm({
       selected_periods: selectedPeriods,
       reason,
       attachment_file: attachmentFile,
+      exit_time: needsGatePassTimes ? exitTime : null,
+      return_time: needsGatePassTimes ? returnTime : null,
       sponsor_id: requiresSponsorApproval ? sponsorId : null,
       applicable_type: 'individual',
       team_member_ids: [],
@@ -473,6 +497,8 @@ export function ApplicationForm({
           setReason('');
           setAttachmentFile(null);
           setSponsorId(null);
+          setExitTime('');
+          setReturnTime('');
           onSuccess?.();
         },
       }
@@ -482,22 +508,6 @@ export function ApplicationForm({
   // Dates whose periods could not be detected. `undefined` means "not reported
   // yet" (still loading) and must not block — only an explicit false does.
   const blockedDates = daysInRange.filter((d) => dateAvailability[d] === false);
-
-  const isFormValid = () => {
-    if (requiresSponsorApproval && !sponsorId) return false;
-    if (blockedDates.length > 0) return false;
-    if (selectedType?.max_duration_days && dayCount > selectedType.max_duration_days) return false;
-    return (
-      category &&
-      leaveTypeId &&
-      startDate &&
-      endDate &&
-      periodType &&
-      reason.length >= 1 &&
-      (periodType !== 'periodwise' || selectedPeriods.length > 0) &&
-      (!getFileRequirements().required || attachmentFile !== null)
-    );
-  };
 
   return (
     <form onSubmit={handleSubmit} className="space-y-6 sm:space-y-8">
@@ -569,7 +579,11 @@ export function ApplicationForm({
           {category === 'leave' ? 'Leave type' : 'On-duty type'}
           <span className="text-red-500 ml-1">*</span>
         </Label>
-        {residencyLoading || eligibleTypesLoading ? (
+        {/* !isInitialized: mount the Select only after the saved draft is
+            restored. Radix's hidden native <select> re-dispatches 'change' when
+            its value changes before its options exist, which reports '' and
+            wiped a restored type whenever the type list was already cached. */}
+        {!isInitialized || residencyLoading || eligibleTypesLoading ? (
           <Skeleton className="h-10 sm:h-11 w-full" />
         ) : !residency ? null : (eligibleTypes || []).length === 0 ? (
           <Alert>
@@ -622,6 +636,9 @@ export function ApplicationForm({
               </li>
             )}
             {!selectedType.affects_attendance && <li>Does not change class attendance</li>}
+            {needsGatePassTimes && (
+              <li>A gate pass is generated once the Chief Warden approves; it is valid for 12 hours from your exit time</li>
+            )}
           </ul>
         )}
       </div>
@@ -755,6 +772,34 @@ export function ApplicationForm({
         </div>
       ))}
 
+      {/* Gate pass times — hostel learners on an off-campus type */}
+      {needsGatePassTimes && (
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <div className="space-y-2">
+            <Label htmlFor="exit-time" className="text-sm sm:text-base font-medium">
+              Exit time (start date)<span className="text-red-500 ml-1">*</span>
+            </Label>
+            <Input
+              id="exit-time"
+              type="time"
+              value={exitTime}
+              onChange={(e) => setExitTime(e.target.value)}
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="return-time" className="text-sm sm:text-base font-medium">
+              Return time (end date)<span className="text-red-500 ml-1">*</span>
+            </Label>
+            <Input
+              id="return-time"
+              type="time"
+              value={returnTime}
+              onChange={(e) => setReturnTime(e.target.value)}
+            />
+          </div>
+        </div>
+      )}
+
       {/* Reason */}
       <div className="space-y-2 sm:space-y-3">
         <Label htmlFor="reason" className="text-sm sm:text-base font-medium">
@@ -803,9 +848,14 @@ export function ApplicationForm({
             Cancel
           </Button>
         )}
+        {/* Only a pending submit disables the button. Gating it on
+            a form-validity check made every toast in handleSubmit unreachable, so a
+            learner who had not picked an end date, a type, a reason or a
+            sponsor saw a grey button and no reason (BUG-006248, BUG-006249;
+            the BUG-003236 toasts never fired). handleSubmit names each gap. */}
         <Button
           type="submit"
-          disabled={!isFormValid() || createApplication.isPending}
+          disabled={createApplication.isPending}
           className="w-full sm:flex-1"
         >
           {createApplication.isPending && (

@@ -1133,10 +1133,16 @@ export class StaffService {
           department:departments(
             id,
             department_name
+          ),
+          staff_id_history(
+            staff_id,
+            reason,
+            retired_at
           )
         `
         )
         .eq('id', id)
+        .order('retired_at', { referencedTable: 'staff_id_history', ascending: false })
         .single();
 
       if (error) throw error;

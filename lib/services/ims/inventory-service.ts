@@ -26,6 +26,8 @@ export interface ImsImportError {
 export interface ImsImportResult {
   success: boolean;
   successCount: number;
+  /** Rows whose code already existed and were added as a new batch of that item. */
+  batchesAdded?: number;
   errorCount: number;
   totalRows: number;
   errors: ImsImportError[];
@@ -241,7 +243,11 @@ export class ImsInventoryService {
       const from = (page - 1) * limit;
       const to = from + limit - 1;
 
-      query = query.range(from, to).order('name', { ascending: true });
+      // name_sort skips leading digits/punctuation so "2-ETHYL HEXANOL" files under E.
+      query = query
+        .range(from, to)
+        .order('name_sort', { ascending: true })
+        .order('name', { ascending: true });
 
       const { data, error, count } = await query;
 
@@ -634,9 +640,16 @@ export class ImsInventoryService {
         query = query.eq('store_id', storeId);
       }
 
-      const { data, error } = await query;
+      const { data: rows, error } = await query;
 
       if (error) throw error;
+      // A–Z the way people read it (case-insensitive, numbers in order) — the
+      // database's byte order puts "acetone" after "Zinc".
+      const letters = (s: string | null) => (s ?? '').trim().replace(/^[^A-Za-z]+/, '');
+      const data = [...(rows || [])].sort((a: { name: string }, b: { name: string }) =>
+        letters(a.name).localeCompare(letters(b.name), 'en', { sensitivity: 'base', numeric: true }) ||
+        (a.name ?? '').localeCompare(b.name ?? '', 'en', { sensitivity: 'base', numeric: true })
+      );
 
       return (data || []) as ImsItemForSelect[];
     } catch (error) {

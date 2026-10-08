@@ -8,15 +8,79 @@
  * @created 2026-02-09
  */
 
-import { createServerSupabaseClient } from '@/lib/supabase/server';
+import { createServerSupabaseClient, createServiceRoleClient } from '@/lib/supabase/server';
 import {
   ALL_ROLES_WILDCARD,
+  SERVICE_REQUEST_FEE_CATEGORY_NAME,
   type ServiceType,
   type CreateServiceTypeDto,
   type UpdateServiceTypeDto,
 } from '@/types/service-request';
 
 const getSupabase = async () => await createServerSupabaseClient() as any;
+
+/**
+ * Approval-step row for the DB. A step that collects no fee never names the
+ * fee_* columns unless the caller knows they exist: PostgREST rejects the
+ * whole statement for an unknown column, so naming them unconditionally would
+ * break every service-type save on a database where the fee-step migration
+ * (20261021000000) has not landed yet.
+ */
+function toStepRow<T extends { fee_category_id?: string | null; fee_amount?: number | null }>(
+  step: T,
+  clearFeeColumns: boolean
+): Record<string, any> {
+  const { fee_category_id, fee_amount, ...rest } = step;
+  if (fee_category_id && Number(fee_amount) > 0) {
+    return { ...rest, fee_category_id, fee_amount: Number(fee_amount) };
+  }
+  return clearFeeColumns ? { ...rest, fee_category_id: null, fee_amount: null } : rest;
+}
+
+/** Message prefix the API routes map to a 400. */
+export const FEE_STEP_ERROR = 'Fee payment step';
+
+type FeeFields = { fee_category_id?: string | null; fee_amount?: number | null };
+
+/**
+ * Pin every fee step to the one permitted fee head and its set amount.
+ *
+ * The step builder shows both as read-only, but the PATCH route passes the
+ * body through as-is, so the rule has to live here: a fee step may bill ONLY
+ * SERVICE_REQUEST_FEE_CATEGORY_NAME, at that category's own amount. Any other
+ * category is refused outright (it would raise bills in a live fee head such
+ * as Tuition or Hostel), and whatever amount the client sent is discarded.
+ *
+ * Service-role read: service-type authors do not hold billing.categories.view.
+ */
+async function withFixedFee<T extends FeeFields>(steps: T[]): Promise<T[]> {
+  if (!steps.some((s) => s.fee_category_id || s.fee_amount)) return steps;
+
+  const db = createServiceRoleClient() as any;
+  const { data: category, error } = await db
+    .from('billing_categories')
+    .select('id, amount')
+    .eq('category_name', SERVICE_REQUEST_FEE_CATEGORY_NAME)
+    .eq('is_active', true)
+    .limit(1)
+    .maybeSingle();
+
+  if (error || !category || !(Number(category.amount) > 0)) {
+    throw new Error(
+      `${FEE_STEP_ERROR}: the "${SERVICE_REQUEST_FEE_CATEGORY_NAME}" category is not set up with an amount`
+    );
+  }
+
+  return steps.map((step) => {
+    if (!step.fee_category_id && !step.fee_amount) return step;
+    if (step.fee_category_id !== category.id) {
+      throw new Error(
+        `${FEE_STEP_ERROR}: only the "${SERVICE_REQUEST_FEE_CATEGORY_NAME}" category can be used`
+      );
+    }
+    return { ...step, fee_amount: Number(category.amount) };
+  });
+}
 
 export class ServiceTypeService {
   /**
@@ -207,7 +271,10 @@ export class ServiceTypeService {
     const supabase = await getSupabase();
 
     // Step 1: Insert the service type
-    const { fields, approval_steps, ...typeData } = dto;
+    const { fields, approval_steps: rawSteps, ...typeData } = dto;
+    // Validated before anything is written, so a refused fee step leaves no
+    // half-created type behind.
+    const approval_steps = rawSteps ? await withFixedFee(rawSteps) : rawSteps;
 
     const { data: serviceType, error: typeError } = await supabase
       .from('service_types')
@@ -245,7 +312,7 @@ export class ServiceTypeService {
     // Step 3: Insert approval steps with the new service_type_id
     if (approval_steps && approval_steps.length > 0) {
       const stepsToInsert = approval_steps.map((step) => ({
-        ...step,
+        ...toStepRow(step, false),
         service_type_id: serviceType.id,
       }));
 
@@ -275,7 +342,9 @@ export class ServiceTypeService {
   ): Promise<ServiceType> {
     const supabase = await getSupabase();
 
-    const { fields, approval_steps, ...typeData } = dto;
+    const { fields, approval_steps: rawSteps, ...typeData } = dto;
+    // Validated before anything is written (see withFixedFee).
+    const approval_steps = rawSteps ? await withFixedFee(rawSteps) : rawSteps;
 
     // Update the service type record itself
     if (Object.keys(typeData).length > 0) {
@@ -332,9 +401,12 @@ export class ServiceTypeService {
     if (approval_steps) {
       const { data: existingSteps } = await supabase
         .from('service_request_approval_steps')
-        .select('id, step_order')
+        .select('*')
         .eq('service_type_id', id)
         .eq('is_active', true);
+
+      // Only clear fee_* on an existing step when the columns are really there.
+      const hasFeeColumns = (existingSteps || []).some((s: any) => 'fee_category_id' in s);
 
       const existingStepIds = (existingSteps || []).map((s: any) => s.id);
 
@@ -351,11 +423,16 @@ export class ServiceTypeService {
         const existingId = existingByOrder.get(step.step_order);
         if (existingId) {
           // Update the existing step in-place
-          stepsToUpdate.push({ id: existingId, ...step, service_type_id: id, is_active: true });
+          stepsToUpdate.push({
+            id: existingId,
+            ...toStepRow(step, hasFeeColumns),
+            service_type_id: id,
+            is_active: true,
+          });
           keptStepIds.add(existingId);
         } else {
           // New step — will be inserted
-          stepsToInsert.push({ ...step, service_type_id: id, is_active: true });
+          stepsToInsert.push({ ...toStepRow(step, false), service_type_id: id, is_active: true });
         }
       }
 

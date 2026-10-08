@@ -13,6 +13,10 @@ import type {
   CreateVacateRequestDTO,
   VacateRequestFilters,
   VacateBillStatus,
+  VacateAdvanceResult,
+  VacateDamageLineInput,
+  VacateFineBill,
+  VacateLearnerDetails,
 } from '@/types/hostel-vacate';
 
 const LOG = 'campus-living/vacate';
@@ -26,13 +30,14 @@ function fail(context: string, error: unknown): never {
 /**
  * Hostel vacate workflow (2026-09-30).
  *
- * draft -> pending_warden -> completed | rejected | cancelled.
+ * (2026-10-01) draft -> pending_dues -> pending_principal -> pending_warden ->
+ * pending_mess -> pending_cao -> [pending_fine] -> completed | rejected | cancelled.
  *
  * Every state change is a SECURITY DEFINER RPC that re-checks permission, scope,
- * the bill gate and the required checklist items in the database — nothing here
- * decides whether a request may advance. Approval auto-vacates: allocation
- * vacated + bed freed, learner moved to Day Scholar, hostel/mess categories
- * cleared (fn_cl_vacate_warden_approve).
+ * the bill gate, the checklist and the room inspection in the database —
+ * nothing here decides whether a request may advance. The vacate itself
+ * (allocation vacated + bed freed, learner moved to Day Scholar, categories
+ * cleared) happens at the CAO approval, or when the damage-fine bill is settled.
  */
 export class HostelVacateRequestService {
   // ════════════════════════════════════════════════════════════════════
@@ -90,7 +95,9 @@ export class HostelVacateRequestService {
          resident:hostel_residents!hostel_vacate_requests_resident_id_fkey(id, profile_id, resident_type),
          learner_profile:profiles!hostel_vacate_requests_learner_id_fkey(id, full_name, email),
          documents:hostel_vacate_documents(*),
-         clearance_items:hostel_clearance_items(*)`
+         clearance_items:hostel_clearance_items(*),
+         damages:hostel_vacate_damages(*),
+         approvals:hostel_vacate_approvals(*)`
       )
       .eq('id', id)
       .maybeSingle();
@@ -128,6 +135,110 @@ export class HostelVacateRequestService {
     return data as unknown as VacateBillStatus;
   }
 
+  /**
+   * Full learner record for the request (profile -> learners_profiles + lookups).
+   * Every embed can come back NULL when RLS hides that lookup row for the viewer,
+   * so each field is optional and the UI renders '—' rather than failing.
+   * Returns null when the resident has no learner record.
+   */
+  static async getLearnerDetails(profileId: string): Promise<VacateLearnerDetails | null> {
+    const supabase = createClientSupabaseClient();
+    const { data: prof, error: profError } = await supabase
+      .from('profiles')
+      .select('learner_id')
+      .eq('id', profileId)
+      .maybeSingle();
+    if (profError) fail('Failed to load the learner profile', profError);
+    if (!prof?.learner_id) return null;
+
+    const { data, error } = await supabase
+      .from('learners_profiles')
+      .select(
+        `id, first_name, last_name, roll_number, college_email, student_mobile, student_email,
+         gender, blood_group, student_photo_url, lifecycle_status,
+         father_name, father_mobile, mother_name, mother_mobile,
+         permanent_address_street, permanent_address_taluk, permanent_address_district,
+         permanent_address_state, permanent_address_pin_code,
+         institution:institutions!fk_learners_profiles_institution(name),
+         degree:degrees!fk_learners_profiles_degree(degree_name),
+         program:programs!fk_learners_profiles_program(program_name),
+         department:departments!fk_learners_profiles_department(department_name),
+         semester:semesters!fk_learners_profiles_semester(semester_name),
+         section:sections!fk_learners_profiles_section(section_name),
+         batch:batches!fk_learners_profiles_batch(batch_name),
+         academic_year:academic_years!fk_learners_profiles_academic_year(academic_year_name),
+         accommodation:accommodation_types!learners_profiles_accommodation_type_id_fkey(name),
+         hostel_category:hostel_categories!learners_profiles_hostel_category_id_fkey(name),
+         mess_category:mess_categories!learners_profiles_mess_category_id_fkey(name)`,
+      )
+      .eq('id', prof.learner_id)
+      .maybeSingle();
+    if (error) fail('Failed to load the learner record', error);
+    if (!data) return null;
+
+    const row = data as unknown as Record<string, any>;
+    const address = [
+      row.permanent_address_street,
+      row.permanent_address_taluk,
+      row.permanent_address_district,
+      row.permanent_address_state,
+      row.permanent_address_pin_code,
+    ]
+      .filter(Boolean)
+      .join(', ');
+    return {
+      learner_profile_id: row.id,
+      name: [row.first_name, row.last_name].filter(Boolean).join(' ') || 'Unknown',
+      roll_number: row.roll_number ?? null,
+      college_email: row.college_email ?? null,
+      student_mobile: row.student_mobile ?? null,
+      student_email: row.student_email ?? null,
+      gender: row.gender ?? null,
+      blood_group: row.blood_group ?? null,
+      photo_url: row.student_photo_url ?? null,
+      lifecycle_status: row.lifecycle_status ?? null,
+      father_name: row.father_name ?? null,
+      father_mobile: row.father_mobile ?? null,
+      mother_name: row.mother_name ?? null,
+      mother_mobile: row.mother_mobile ?? null,
+      address: address || null,
+      institution: row.institution?.name ?? null,
+      degree: row.degree?.degree_name ?? null,
+      program: row.program?.program_name ?? null,
+      department: row.department?.department_name ?? null,
+      semester: row.semester?.semester_name ?? null,
+      section: row.section?.section_name ?? null,
+      batch: row.batch?.batch_name ?? null,
+      academic_year: row.academic_year?.academic_year_name ?? null,
+      accommodation: row.accommodation?.name ?? null,
+      hostel_category: row.hostel_category?.name ?? null,
+      mess_category: row.mess_category?.name ?? null,
+    };
+  }
+
+  /** id -> display name for the decision timeline (names RLS hides simply stay absent). */
+  static async getActorNames(ids: string[]): Promise<Record<string, string>> {
+    if (ids.length === 0) return {};
+    const supabase = createClientSupabaseClient();
+    const { data, error } = await supabase.from('profiles').select('id, full_name').in('id', ids);
+    if (error) fail('Failed to load approver names', error);
+    const names: Record<string, string> = {};
+    for (const row of data ?? []) if (row.full_name) names[row.id] = row.full_name;
+    return names;
+  }
+
+  /** The damage-fine bill raised at CAO approval (null until then). */
+  static async getFineBill(billId: string): Promise<VacateFineBill | null> {
+    const supabase = createClientSupabaseClient();
+    const { data, error } = await supabase
+      .from('billing_student_bills')
+      .select('id, final_amount, balance_amount, status, due_date, bill_description')
+      .eq('id', billId)
+      .maybeSingle();
+    if (error) fail('Failed to load the fine bill', error);
+    return (data as unknown as VacateFineBill | null) ?? null;
+  }
+
   // ════════════════════════════════════════════════════════════════════
   // WRITE — raise / submit
   // ════════════════════════════════════════════════════════════════════
@@ -157,8 +268,18 @@ export class HostelVacateRequestService {
   }
 
   // ════════════════════════════════════════════════════════════════════
-  // WRITE — warden actions
+  // WRITE — approver actions
   // ════════════════════════════════════════════════════════════════════
+
+  /** Step 1 refresh: moves the request on if every hostel/mess bill is now settled. */
+  static async recheckBills(requestId: string) {
+    const supabase = createClientSupabaseClient();
+    const { data, error } = await supabase.rpc('fn_cl_vacate_recheck_bills', {
+      p_request_id: requestId,
+    });
+    if (error) fail('Failed to re-check bills', error);
+    return data as unknown as { advanced: boolean; status: string; bills: VacateBillStatus };
+  }
 
   static async setChecklistItem(itemId: string, cleared: boolean, notes: string | null) {
     const supabase = createClientSupabaseClient();
@@ -172,31 +293,66 @@ export class HostelVacateRequestService {
   }
 
   /**
-   * Approve = auto-vacate. The RPC refuses while any hostel/mess bill has a
-   * balance or any required checklist item is unticked; there is no override.
+   * Warden's room inspection. noDamage=true with no lines = "no damage";
+   * otherwise at least one line. Replaces any earlier lines for the request.
    */
-  static async approve(requestId: string, remarks?: string | null) {
+  static async setDamages(requestId: string, lines: VacateDamageLineInput[], noDamage: boolean) {
     const supabase = createClientSupabaseClient();
-    const { data, error } = await supabase.rpc('fn_cl_vacate_warden_approve', {
+    const { data, error } = await supabase.rpc('fn_cl_vacate_set_damages', {
       p_request_id: requestId,
-      p_remarks: remarks ?? undefined,
+      p_lines: lines.map((l) => ({
+        damage_type_id: l.damage_type_id,
+        amount: l.amount,
+        note: l.note ?? null,
+      })),
+      p_no_damage: noDamage,
+    });
+    if (error) fail('Failed to save room inspection', error);
+    return data as unknown as { room_inspected: boolean; damage_total: number; lines: number };
+  }
+
+  /**
+   * Approve the step the request is at (principal / warden / mess / CAO). The RPC
+   * checks the step's permission and refuses while a gate is open (unpaid bills,
+   * unticked required items, missing room inspection). At the CAO step it either
+   * completes the vacate or raises the damage-fine bill (status pending_fine).
+   */
+  static async advance(requestId: string, remarks?: string | null) {
+    const supabase = createClientSupabaseClient();
+    const { data, error } = await supabase.rpc('fn_cl_vacate_advance', {
+      p_request_id: requestId,
+      p_remarks: remarks?.trim() ? remarks.trim() : undefined,
     });
     if (error) fail('Failed to approve vacate request', error);
+    const result = data as unknown as VacateAdvanceResult;
 
     // The vacate is already committed (bed freed). The premium-upgrade offer is
     // a best-effort follow-up: a failure here is logged loudly and swallowed so
-    // it never reads as a failed vacate.
-    try {
-      const vacancy = await detectVacancyOnVacate(requestId);
-      if (vacancy) await notifyUpgradePool(vacancy.id);
-    } catch (notifyError) {
-      logger.error(
-        LOG,
-        'Premium-vacancy detect/notify failed AFTER successful vacate (vacate stands; upgrade offer not sent)',
-        notifyError,
-      );
+    // it never reads as a failed vacate. (A vacate completed by the fine-payment
+    // trigger has no client call, so it is not offered here.)
+    if (result.status === 'completed') {
+      try {
+        const vacancy = await detectVacancyOnVacate(requestId);
+        if (vacancy) await notifyUpgradePool(vacancy.id);
+      } catch (notifyError) {
+        logger.error(
+          LOG,
+          'Premium-vacancy detect/notify failed AFTER successful vacate (vacate stands; upgrade offer not sent)',
+          notifyError,
+        );
+      }
     }
-    return data as unknown as { success: boolean; request_id: string; allocation_id: string };
+    return result;
+  }
+
+  /** Retry completion when the fine was settled but the automatic completion failed. */
+  static async completeAfterFine(requestId: string) {
+    const supabase = createClientSupabaseClient();
+    const { data, error } = await supabase.rpc('fn_cl_vacate_complete_after_fine', {
+      p_request_id: requestId,
+    });
+    if (error) fail('Failed to complete the vacate', error);
+    return data as unknown as { success: boolean };
   }
 
   static async reject(requestId: string, reason: string) {

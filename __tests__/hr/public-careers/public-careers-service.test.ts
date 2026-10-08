@@ -138,3 +138,54 @@ describe('submitExternalApplication', () => {
     expect(d.deleteFile).not.toHaveBeenCalled();
   });
 });
+
+describe('seo columns not migrated yet (42703)', () => {
+  /** Rejects any select naming a seo_* column, like a database without migration 20261006113500. */
+  function preMigrationDb(row: Record<string, unknown>) {
+    const selects: string[] = [];
+    const db = {
+      from: () => ({
+        select(columns: string) {
+          selects.push(columns);
+          const result = columns.includes('seo_title')
+            ? { data: null, error: { code: '42703', message: 'column hr_recruitment_jobs.seo_title does not exist' } }
+            : { data: [row], error: null };
+          const c: Record<string, unknown> = {};
+          for (const m of ['eq', 'or', 'order', 'limit']) c[m] = () => c;
+          c.maybeSingle = async () => ({ ...result, data: result.data ? row : null });
+          c.then = (res: (v: unknown) => unknown) => Promise.resolve(result).then(res);
+          return c;
+        },
+      }),
+    };
+    return { db: db as never, selects };
+  }
+
+  it('lists jobs without SEO instead of failing', async () => {
+    const { db, selects } = preMigrationDb(JOB);
+    const { data } = await listPublicJobs(db, {}, NOW);
+    expect(data).toHaveLength(1);
+    expect(data[0].seo).toEqual({ title: null, description: null, keywords: [], og_image: null, noindex: false });
+    expect(selects).toHaveLength(2);
+    expect(selects[1]).not.toContain('seo_');
+  });
+
+  it('returns one job without SEO instead of failing', async () => {
+    const { db } = preMigrationDb(JOB);
+    expect((await getPublicJob(db, JOB_ID, NOW))?.title).toBe('Store Keeper');
+  });
+
+  it('still throws other database errors', async () => {
+    const db = {
+      from: () => ({
+        select: () => {
+          const c: Record<string, unknown> = {};
+          for (const m of ['eq', 'or', 'order', 'limit']) c[m] = () => c;
+          c.then = (res: (v: unknown) => unknown) => Promise.resolve({ data: null, error: { code: '57014' } }).then(res);
+          return c;
+        },
+      }),
+    };
+    await expect(listPublicJobs(db as never, {}, NOW)).rejects.toMatchObject({ code: '57014' });
+  });
+});

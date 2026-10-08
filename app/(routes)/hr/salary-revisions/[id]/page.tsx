@@ -15,6 +15,10 @@
  *   - the reason for a stop or a no: only the asker, the principal of an HOD's
  *     request and the Director (ruling 14) — the server leaves it out for anyone else.
  * The person whose pay it is never reaches this page's data.
+ *
+ * 7 Oct 2026: an approved raise shows its two parts and the monthly target
+ * numbers (TargetSection); the principal may flag a month, the Director may
+ * decide a flagged one.
  */
 
 import { useState } from 'react';
@@ -30,14 +34,15 @@ import { Textarea } from '@/components/ui/textarea';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useRevisionAction, useRevisionDetail } from '@/hooks/hr/use-salary-revisions';
 import { ASKED_AS_LABELS, changeText, decisionSummary, longDate, toAmount } from '@/lib/hr/salary-revision';
+import { todayIST } from '@/lib/hr/raise-effective-date';
+import { TargetSection } from '../_components/target-section';
 import {
   BandWarning,
   RevisionFlags,
   RevisionPage,
   StatusBadge,
   SuggestionBeside,
-  rupees,
-} from '../_components/revision-bits';
+  rupees, BandChangedNote, RequestNote } from '../_components/revision-bits';
 
 export default function SalaryRevisionDetailPage() {
   const params = useParams<{ id: string }>();
@@ -74,7 +79,7 @@ export default function SalaryRevisionDetailPage() {
     );
   }
 
-  const { request: r, decisionNote, comments } = detail.data;
+  const { request: r, decisionNote, comments, targets } = detail.data;
   const current = toAmount(r.current_monthly_gross);
   const asked = toAmount(r.asked_monthly_gross);
   const typedFinal = finalFigure.trim() ? toAmount(finalFigure.replace(/[,\s₹]/g, '')) : null;
@@ -119,8 +124,36 @@ export default function SalaryRevisionDetailPage() {
                 {r.starts_on && <dd className='text-xs text-muted-foreground'>from {longDate(r.starts_on)}</dd>}
               </div>
             </dl>
+            {/* Below the tiles, not inside one: with a band warning too, the tile ran to seven lines (blind review, 1 Oct). */}
+            <BandChangedNote changed={r.band_changed} />
 
-            <p className='text-sm font-medium'>{decisionSummary(r)}</p>
+            {/* A cancelled request carries its own note (name and date), so the generic sentence would say it a third time. */}
+            {!(r.status === 'cancelled' && r.cancel_note) && (
+              <p className='text-sm font-medium'>{decisionSummary(r)}</p>
+            )}
+            <RequestNote text={r.cancel_note ?? r.apply_note} />
+
+            {targets?.plan && (r.status === 'approved' || r.status === 'applied') && (
+              <TargetSection
+                targets={targets}
+                today={todayIST()}
+                canFlag={canCheck}
+                canDecide={canApprove}
+                busy={act.isPending}
+                onFlag={(month, text) => act.mutate({ action: 'target_flag', month, note: text }, {
+                  onSuccess: () => toast.success('Flagged. The month goes to the Director with the numbers.'),
+                  onError: failed,
+                })}
+                onDecide={(month, met) => act.mutate({ action: 'target_decide', month, met }, {
+                  onSuccess: () => toast.success(met ? 'Counted as met.' : 'Counted as missed.'),
+                  onError: failed,
+                })}
+                onLapse={(text) => act.mutate({ action: 'target_lapse', note: text }, {
+                  onSuccess: () => toast.success('The held part lapsed. A new raise can now be asked for.'),
+                  onError: failed,
+                })}
+              />
+            )}
 
             <div className='rounded-md bg-muted/50 p-3 text-sm'>
               <p className='text-xs text-muted-foreground'>
@@ -150,7 +183,14 @@ export default function SalaryRevisionDetailPage() {
                       aria-label='Reason for stopping' placeholder='Why? The head of department will see this.' />
                     <div className='flex gap-2'>
                       <Button size='sm' variant='destructive' disabled={!reason.trim() || act.isPending}
-                        onClick={() => act.mutate({ action: 'college_stop', reason }, { onSuccess: ok('Stopped.'), onError: failed })}>
+                        onClick={() => act.mutate({ action: 'college_stop', reason }, {
+                          // 1 Oct 2026: a raise for someone on the Director list is not
+                          // stopped here; it goes on to the Director with the reason.
+                          onSuccess: (res) => ok(res?.status === 'waiting_director'
+                            ? 'Sent to the Director instead: only the Director himself decides a raise for someone on the Director list. Your reason is with it as a comment.'
+                            : 'Stopped.')(),
+                          onError: failed,
+                        })}>
                         Stop it
                       </Button>
                       <Button size='sm' variant='ghost' onClick={() => setStopping(false)}>Cancel</Button>
@@ -168,7 +208,15 @@ export default function SalaryRevisionDetailPage() {
               </section>
             )}
 
-            {canApprove && r.status === 'waiting_director' && (
+            {/* 1 Oct 2026: never one's own raise; a Director-list member's only for the Director himself. */}
+            {canApprove && r.status === 'waiting_director' && !r.can_decide && (
+              <p className='rounded-md border border-border p-4 text-sm text-muted-foreground' data-testid='not-yours'>
+                Not yours to decide: it is your own raise, or a raise for someone on the Director list,
+                which only the Director himself decides.
+              </p>
+            )}
+
+            {canApprove && r.status === 'waiting_director' && r.can_decide && (
               <section className='space-y-3 rounded-md border border-border p-4' data-testid='director-actions'>
                 <h2 className='font-semibold'>Your decision</h2>
                 {refusing ? (

@@ -13,7 +13,7 @@ export const dynamic = 'force-dynamic';
 // Reused, not reinvented
 // ---------------------------------------------------------------------------
 //   • URL → ig_posts resolution is the AI Pulse path: extractIgShortcode()
-//     then an ilike on ig_posts.permalink. Copied in behaviour from
+//     then an exact, case-sensitive like on ig_posts.permalink. Copied in behaviour from
 //     app/api/ai-pulse/submit/publication/route.ts, including the poller-lag
 //     wording — a post published minutes ago genuinely is not here yet.
 //   • "Engagement" means saves + shares + comments, never likes, per
@@ -56,6 +56,10 @@ import {
   type EventIgReception,
   type IgMetricSnapshot,
 } from '@/lib/services/events/event-ig-reception-service';
+import {
+  fetchLatestPostMetrics,
+  igPermalinkLikePattern,
+} from '@/lib/services/social/ig-post-lookup';
 import { logger } from '@/lib/utils/enhanced-logger';
 
 const MODULE = 'events/instagram';
@@ -128,22 +132,24 @@ async function hydrate(svc: any, posts: IgPostRow[]) {
   const accountIds = [...new Set(posts.map((p) => p.account_id))];
   const postIds = posts.map((p) => p.id);
 
-  const [{ data: acctRows }, { data: metricRows }] = await Promise.all([
+  // Metrics are read per post (newest snapshot only): one .in() read over
+  // ~627 snapshots a post hits the 1,000-row cap and drops whole posts.
+  const [{ data: acctRows }, { latest: latestRows }] = await Promise.all([
     svc
       .from('ig_accounts')
       .select('id, username, institution_id, metrics_source')
       .in('id', accountIds),
-    svc
-      .from('ig_post_metrics')
-      .select('post_id, snapshot_at, saves, shares, comments, reach')
-      .in('post_id', postIds)
-      .order('snapshot_at', { ascending: false }),
+    fetchLatestPostMetrics<IgMetricSnapshot>(
+      svc,
+      postIds,
+      'post_id, snapshot_at, saves, shares, comments, reach'
+    ),
   ]);
 
   const accounts = new Map<string, IgAccountRow>(
     ((acctRows ?? []) as IgAccountRow[]).map((a) => [a.id, a])
   );
-  const metrics = latestSnapshotByPost((metricRows ?? []) as IgMetricSnapshot[]);
+  const metrics = latestSnapshotByPost([...latestRows.values()]);
   return { accounts, metrics };
 }
 
@@ -355,7 +361,7 @@ export async function POST(
     const { data: igPost, error: igErr } = await svc
       .from('ig_posts')
       .select('id, permalink, account_id')
-      .ilike('permalink', `%/${shortcode}/%`)
+      .like('permalink', igPermalinkLikePattern(shortcode))
       .limit(1)
       .maybeSingle();
 

@@ -84,3 +84,60 @@ export function practicalPeriodsMarkedFromRecords(
   }
   return result;
 }
+
+const teachesBatch = (batch: any, staffId: string): boolean => {
+  const mapping = batch?.staff_mapping;
+  if (!mapping || typeof mapping !== 'object') return false;
+  return Object.values(mapping).some((list: any) => Array.isArray(list) && list.includes(staffId));
+};
+
+/**
+ * Learners of the practical batches this staff teaches, deduped in batch order.
+ * Returns null when the answer is unknown — the staff teaches no batch, or one
+ * of their batches names no learners (a whole-section batch) — so callers keep
+ * the old "any learners stored" test instead of guessing.
+ *
+ * Added: 2026-09-23 (BUG-006204) - every batch of a slot saves under one
+ * attendance_data[slot_id] key, so "is this batch marked?" needs the batch's
+ * own learners.
+ */
+export function practicalStudentIdsForStaff(batches: unknown, staffId: string): string[] | null {
+  if (!Array.isArray(batches)) return null;
+  const own = (batches as any[]).filter((batch) => teachesBatch(batch, staffId));
+  if (own.length === 0) return null;
+  const result: string[] = [];
+  for (const batch of own) {
+    const ids = Array.isArray(batch.student_ids) ? batch.student_ids : [];
+    if (ids.length === 0) return null;
+    for (const id of ids) {
+      if (typeof id === 'string' && id && !result.includes(id)) result.push(id);
+    }
+  }
+  return result;
+}
+
+/**
+ * Whether a stored attendance_data period counts as marked for these learners.
+ * With no learner list it is the old test (any learners stored); with one, at
+ * least one of THOSE learners must be stored — so Batch B's save no longer
+ * reads as Batch A's.
+ *
+ * Added: 2026-09-23 (BUG-006204)
+ */
+export function periodMarkedForLearners(
+  periodData: unknown,
+  learnerIds: string[] | null | undefined
+): boolean {
+  const p = periodData as any;
+  if (!p) return false;
+  const stored: any[] = [
+    ...(Array.isArray(p.students) ? p.students : []),
+    ...(Array.isArray(p.groups)
+      ? p.groups.flatMap((g: any) => (Array.isArray(g?.students) ? g.students : []))
+      : []),
+  ];
+  if (stored.length === 0) return false;
+  if (!learnerIds || learnerIds.length === 0) return true;
+  const wanted = new Set(learnerIds);
+  return stored.some((s) => wanted.has(s?.student_id));
+}

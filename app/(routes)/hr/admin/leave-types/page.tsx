@@ -16,11 +16,13 @@ import {
 } from '@/components/ui/breadcrumb';
 import { Card, CardContent } from '@/components/ui/card';
 import { PermissionGuard } from '@/components/auth/permission-guard';
+import { useAuth } from '@/hooks/use-auth';
 import { useHrOrgMappings } from '@/hooks/hr/use-hr-org-mappings';
 import {
   useDeleteHRLeaveType,
   useRestoreHRLeaveType,
   useHardDeleteHRLeaveType,
+  useSuperAdminDeleteHRLeaveType,
 } from '@/hooks/hr/use-hr-leave-types';
 import { LeaveTypeFormDialog } from './_components/leave-type-form-dialog';
 import { AssignmentManagerDialog } from './_components/assignment-manager-dialog';
@@ -31,11 +33,15 @@ import {
   type LeaveTypeFilterState,
 } from './_components/leave-type-filters';
 import { LeaveTypesDataTable } from './_components/leave-types-data-table';
-import type { HRLeaveTypeDeleteResult } from '@/lib/services/hr/leave-type-service';
+import type {
+  HRLeaveTypeDeleteResult,
+  HRLeaveTypeSuperDeleteResult,
+} from '@/lib/services/hr/leave-type-service';
 import { LeaveTypeDetailDialog } from './_components/leave-type-detail-dialog';
 import {
   LeaveTypeArchiveDialog,
   LeaveTypeDeleteDialog,
+  LeaveTypeSuperDeleteDialog,
 } from './_components/leave-type-confirm-dialogs';
 import type { HRLeaveType } from '@/types/hr-leave-types';
 import { getErrorMessage } from '@/lib/utils';
@@ -78,6 +84,18 @@ export default function HRLeaveTypesPage() {
   /** null while the dry run is in flight — the dialog offers no button yet. */
   const [deleteImpact, setDeleteImpact] = useState<HRLeaveTypeDeleteResult | null>(null);
 
+  // Super-admin delete: its own target and dry-run result, so it never shares a
+  // dialog (or its refusal rules) with the ordinary archive-then-delete above.
+  const [superDeleteFor, setSuperDeleteFor] = useState<HRLeaveType | null>(null);
+  const [superDeleteImpact, setSuperDeleteImpact] =
+    useState<HRLeaveTypeSuperDeleteResult | null>(null);
+
+  // profiles.is_super_admin ALONE — the exact predicate hr_leave_type_delete_super_admin()
+  // checks via is_super_admin(). The looser `|| role === 'super_admin'` used on
+  // other pages would show a menu item the RPC then refuses.
+  const { profile } = useAuth();
+  const isSuperAdmin = profile?.is_super_admin === true;
+
   const [refreshToken, setRefreshToken] = useState(0);
   const bumpRefresh = useCallback(() => setRefreshToken((n) => n + 1), []);
 
@@ -90,6 +108,11 @@ export default function HRLeaveTypesPage() {
   const archive = useDeleteHRLeaveType();
   const restore = useRestoreHRLeaveType();
   const hardDelete = useHardDeleteHRLeaveType();
+  const superDelete = useSuperAdminDeleteHRLeaveType();
+  // mutateAsync is stable across renders; the mutation object is not. Depending
+  // on the object would rebuild the table's columns every time the dry run moves
+  // idle -> pending, which is the churn this page already had to design around.
+  const superDeleteAsync = superDelete.mutateAsync;
 
   const handleFilterChange = useCallback((patch: Partial<LeaveTypeFilterState>) => {
     setFilters((prev) => ({ ...prev, ...patch }));
@@ -202,6 +225,46 @@ export default function HRLeaveTypesPage() {
     [deleteFor, hardDelete, bumpRefresh]
   );
 
+  /** Opens the confirmation and runs the dry run behind it. */
+  const handleRequestSuperDelete = useCallback(
+    async (t: HRLeaveType) => {
+      setSuperDeleteImpact(null);
+      setSuperDeleteFor(t);
+      try {
+        setSuperDeleteImpact(await superDeleteAsync({ id: t.id, dryRun: true }));
+      } catch (err) {
+        toast.error(getErrorMessage(err));
+        // A destructive dialog that could not verify anything must not offer
+        // the button; ok:false keeps it in its refused state.
+        setSuperDeleteImpact({ ok: false, error: 'check_failed' });
+      }
+    },
+    [superDeleteAsync]
+  );
+
+  const confirmSuperDelete = useCallback(
+    async () => {
+      const t = superDeleteFor;
+      if (!t) return;
+      try {
+        const result = await superDeleteAsync({ id: t.id, dryRun: false });
+        // Refusal arrives in the payload, not as an error — a type that gained an
+        // application between the check and the commit lands here and must not be
+        // announced as a success. The dialog stays open so the reason is visible.
+        if (!result?.ok) {
+          toast.error(result?.message ?? result?.error ?? 'Could not delete this leave type');
+          return;
+        }
+        setSuperDeleteFor(null);
+        toast.success(`${t.leave_type_name} deleted`);
+        bumpRefresh();
+      } catch (err) {
+        toast.error(getErrorMessage(err));
+      }
+    },
+    [superDeleteFor, superDeleteAsync, bumpRefresh]
+  );
+
   return (
     <PermissionGuard module="hr.leave.types" action="manage">
       <ContentLayout title="HR Leave Types">
@@ -245,6 +308,8 @@ export default function HRLeaveTypesPage() {
               onArchive={handleRequestArchive}
               onActivate={handleActivate}
               onDelete={handleRequestDelete}
+              isSuperAdmin={isSuperAdmin}
+              onSuperDelete={handleRequestSuperDelete}
               refreshToken={refreshToken}
             />
           </CardContent>
@@ -263,6 +328,16 @@ export default function HRLeaveTypesPage() {
           isDeleting={hardDelete.isPending && !hardDelete.variables?.dryRun}
           onOpenChange={(open) => !open && setDeleteFor(null)}
           onConfirm={() => void confirmDelete()}
+        />
+
+        {/* key resets the dialog's typed-name box for each target type. */}
+        <LeaveTypeSuperDeleteDialog
+          key={superDeleteFor?.id ?? 'none'}
+          leaveType={superDeleteFor}
+          impact={superDeleteImpact}
+          isDeleting={superDelete.isPending && !superDelete.variables?.dryRun}
+          onOpenChange={(open) => !open && setSuperDeleteFor(null)}
+          onConfirm={() => void confirmSuperDelete()}
         />
 
         <LeaveTypeDetailDialog

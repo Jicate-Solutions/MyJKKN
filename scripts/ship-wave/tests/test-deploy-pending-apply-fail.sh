@@ -107,6 +107,23 @@ N="$TMP/none"
 round "$N" r1 4 1 "" go --goal
 check "c2 CONTROL nothing merged this round (HELD #4 not approved) → deploy-pending not created" $([ -z "$(pend "$N")" ]; echo $?) "deploy-pending: $(pend "$N" | tr '\n' ' ')"
 
+echo "── dedupe (2026-10-07): zero-merge goal rounds re-add the whole main-ahead diff — deploy-pending must hold each path once ──"
+# 6 Oct: the receipt read 56 → 109 → 162 file(s) waiting while only 53 distinct files had changed since the last deploy.
+# Production stays put while a goal run defers, so each zero-merge round's §C diff (last deploy → main) is the SAME list.
+D="$TMP/dedupe"; mkdir -p "$D/.config/obsidian/.ship-wave"
+gitc fetch -q jicate main 2>/dev/null; gitc checkout -q --detach jicate/main 2>/dev/null
+gitc rev-parse jicate/main > "$D/.config/obsidian/.ship-wave/last-deployed"   # production = this sha (marker fallback; no Vercel token)
+mkdir -p "$WTDIR/app/api/d1" "$WTDIR/lib"; echo x > "$WTDIR/app/api/d1/route.ts"; echo y > "$WTDIR/lib/d2.ts"
+gitc add -A >/dev/null; gitc commit -q -m "two files on main, not deployed"; gitc push -q jicate HEAD:main 2>/dev/null
+round "$D" d1 4 0 "" go --goal     # HELD #4 not approved → zero merges → §C main-ahead trigger
+round "$D" d2 4 0 "" go --goal
+round "$D" d3 4 0 "" go --goal
+check "d0 the rounds really took the main-ahead path (not a vacuous pass)" $(has "$D/receipt-d1.txt" "main is ahead of production with zero merges" && has "$D/receipt-d3.txt" "main is ahead of production with zero merges"; echo $?) "$(grep -E 'ahead|production' "$D/receipt-d1.txt")"
+check "d1 after 3 zero-merge goal rounds deploy-pending holds each of the 2 files exactly once" $([ "$(pend "$D" | grep -c .)" -eq 2 ] && [ "$(pend "$D" | grep -cx 'app/api/d1/route.ts')" -eq 1 ] && [ "$(pend "$D" | grep -cx 'lib/d2.ts')" -eq 1 ]; echo $?) "deploy-pending: $(pend "$D" | tr '\n' ' ')"
+check "d2 the round-3 receipt counts 2 file(s) waiting, not 6" $(has "$D/receipt-d3.txt" "(2 file(s) waiting"; echo $?) "$(grep -E 'deferred' "$D/receipt-d3.txt")"
+round "$D" dfinal 4 0 FINAL go --goal
+check "d3 the end-of-run build fires once and its fire line says 2 file(s)" $([ "$(posts "$D/trace-dfinal.txt")" -eq 1 ] && has "$D/.config/obsidian/v5-deploy-fires.tsv" "batched: 2 file(s)"; echo $?) "$(grep -E 'deploy|hook' "$D/receipt-dfinal.txt"; cat "$D/.config/obsidian/v5-deploy-fires.tsv" 2>&1)"
+
 echo "── syntax ──"
 for f in "$SW/ship-wave.sh" "$0"; do /opt/homebrew/bin/bash -n "$f" && ok "bash -n $(basename "$f")" || bad "bash -n $(basename "$f")"; done
 echo; echo "=== $PASS passed · $FAIL failed · fixtures in $TMP ==="

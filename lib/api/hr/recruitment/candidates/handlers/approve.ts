@@ -4,6 +4,8 @@ import { NextResponse, connection } from 'next/server';
 import type { NextRequest } from 'next/server';
 import type { CookieOptions } from '@supabase/ssr';
 import { RecruitmentService } from '@/lib/services/hr/recruitment-service';
+import { createServiceRoleClient } from '@/lib/supabase/server';
+import { notifyNextApprover } from '@/lib/hr/recruitment/harness-run';
 import { getErrorMessage } from '@/lib/utils';
 
 async function getClient() {
@@ -38,6 +40,20 @@ export async function POST(
 
     const body = await request.json().catch(() => ({}));
     const updated = await RecruitmentService.approveCandidate(supabase, id, user.id, body.comment);
+
+    // HR harness R5: the chain moved on, so tell whoever decides the next step.
+    // Until now nobody was told — the next approver found out only by opening
+    // their approvals list. Service role because the notice goes to OTHER people.
+    // notifyNextApprover never throws; the guard covers a missing service key, so
+    // a recorded approval is never reported back as a failure.
+    if (updated?.status === 'pending_approval') {
+      try {
+        await notifyNextApprover(createServiceRoleClient(), id, user.id);
+      } catch (notifyErr) {
+        console.error('[hr/recruitment/candidates/:id/approve] next-approver notice skipped', notifyErr);
+      }
+    }
+
     return NextResponse.json({ data: updated });
   } catch (err) {
     console.error('[hr/recruitment/candidates/:id/approve] error', err);

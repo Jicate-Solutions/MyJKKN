@@ -23,6 +23,7 @@ import {
 } from '@/hooks/service-requests/use-eligible-approvers';
 import {
   SERVICE_TYPE_SCOPE_OPTIONS,
+  isFeeStep,
   type ServiceType,
 } from '@/types/service-request';
 import {
@@ -208,7 +209,11 @@ export default function ServiceTypeDetailPage({
           <StatTile
             icon={Layers}
             label="Max Active / User"
-            value={serviceType.max_active_requests}
+            value={
+              serviceType.max_active_requests > 0
+                ? serviceType.max_active_requests
+                : 'No limit'
+            }
           />
           <StatTile
             icon={CalendarClock}
@@ -426,12 +431,19 @@ function ApprovalStepRow({
               {roleKeyToLabel(step.approver_role)}
             </p>
           </div>
-          <Badge
-            variant={step.is_required ? 'outline' : 'secondary'}
-            className="text-[10px] shrink-0"
-          >
-            {step.is_required ? 'Required' : 'Optional'}
-          </Badge>
+          <div className="flex shrink-0 items-center gap-1.5">
+            {isFeeStep(step) && (
+              <Badge variant="secondary" className="text-[10px]">
+                Fee Rs. {Number(step.fee_amount)}
+              </Badge>
+            )}
+            <Badge
+              variant={step.is_required ? 'outline' : 'secondary'}
+              className="text-[10px]"
+            >
+              {step.is_required ? 'Required' : 'Optional'}
+            </Badge>
+          </div>
         </div>
 
         {/* Approvers */}

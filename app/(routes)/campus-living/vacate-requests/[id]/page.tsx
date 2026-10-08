@@ -1,12 +1,14 @@
 'use client';
 
-// Vacate request detail. Used by the learner (read-only + cancel), the warden
-// and hostel office.
+// Vacate request detail. Used by the learner (read-only + cancel) and by every
+// approver in the chain.
 //
-// Warden step: (1) the learner's hostel + mess bills, all years, must all be
-// settled; (2) every required checklist item must be ticked; then Approve
-// auto-vacates. Both gates are enforced again inside fn_cl_vacate_warden_approve
-// — the disabled button here is a convenience, not the control.
+//   Step 1 bills (automatic) -> 2 Principal -> 3 Warden (checklist + room
+//   inspection) -> 4 Mess in-charge -> 5 CAO -> [fine paid] -> vacated.
+//
+// Every gate (permission per step, unpaid bills, unticked required items, missing
+// inspection) is enforced again inside fn_cl_vacate_advance — the disabled button
+// here is a convenience, not the control.
 
 import { use, useState } from 'react';
 import Link from 'next/link';
@@ -15,10 +17,7 @@ import { PageBreadcrumb } from '@/components/navigation';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Checkbox } from '@/components/ui/checkbox';
-import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import {
   Dialog,
   DialogContent,
@@ -34,11 +33,18 @@ import {
   useVacateBillStatus,
   useCancelVacate,
   useRejectVacate,
-  useApproveVacate,
-  useSetChecklistItem,
+  useAdvanceVacate,
+  useRecheckVacateBills,
   useSubmitVacateDraft,
 } from '@/hooks/campus-living/use-hostel-vacate';
 import { DocumentUploader } from '../_components/document-uploader';
+import { BillsCard, formatInr } from '../_components/bills-card';
+import { ChecklistRow } from '../_components/checklist-row';
+import { DamageInspectionCard } from '../_components/damage-inspection-card';
+import { DecisionTimeline } from '../_components/decision-timeline';
+import { FineBillCard } from '../_components/fine-bill-card';
+import { LearnerDetailsCard } from '../_components/learner-details-card';
+import { VacateStepper } from '../_components/vacate-stepper';
 import {
   ArrowLeft,
   Loader2,
@@ -47,23 +53,50 @@ import {
   ShieldCheck,
   X,
   CheckCircle2,
-  Receipt,
 } from 'lucide-react';
-import { VACATE_REASON_LABELS } from '@/types/hostel-vacate';
-import type { HostelClearanceItem, VacateBillStatus } from '@/types/hostel-vacate';
+import {
+  VACATE_REASON_LABELS,
+  VACATE_STATUS_LABELS,
+  vacateStepPermission,
+} from '@/types/hostel-vacate';
+import type { VacateRequestStatus } from '@/types/hostel-vacate';
 
-const formatInr = (n: number) => `₹${Number(n).toLocaleString('en-IN')}`;
+const OPEN_STATUSES: VacateRequestStatus[] = [
+  'draft',
+  'pending_dues',
+  'pending_accountant',
+  'pending_principal',
+  'pending_warden',
+  'pending_cao',
+];
 
-const STATUS_LABEL: Record<string, string> = {
-  draft: 'Draft',
-  pending_parent: 'Parent consent',
-  pending_warden: 'With warden',
-  pending_chief: 'Chief warden',
-  pending_dues: 'Dues clearance',
-  approved: 'Approved',
-  completed: 'Vacated',
-  rejected: 'Rejected',
-  cancelled: 'Cancelled',
+const STEP_COPY: Partial<
+  Record<VacateRequestStatus, { title: string; blurb: string; approve: string; waiting: string }>
+> = {
+  pending_accountant: {
+    title: 'Accounts Decision',
+    blurb: 'Confirm all hostel and mess bills are settled. Approving sends this request to the Principal.',
+    approve: 'Approve',
+    waiting: 'With Accounts for bill verification.',
+  },
+  pending_principal: {
+    title: 'Principal Decision',
+    blurb: 'Approve to send this request to the Warden for the checklist and room inspection.',
+    approve: 'Approve',
+    waiting: 'With the Principal.',
+  },
+  pending_warden: {
+    title: 'Warden Decision',
+    blurb: 'Tick the clearance checklist, record the room inspection, then approve to send it to the CAO.',
+    approve: 'Approve & send to CAO',
+    waiting: 'With the Warden for the checklist and room inspection.',
+  },
+  pending_cao: {
+    title: 'CAO Final Approval',
+    blurb: 'Final approval. Remarks are optional.',
+    approve: 'Approve',
+    waiting: 'With the CAO for final approval.',
+  },
 };
 
 export default function VacateRequestDetailPage({ params }: { params: Promise<{ id: string }> }) {
@@ -72,16 +105,15 @@ export default function VacateRequestDetailPage({ params }: { params: Promise<{ 
   // usePermissions returns permissions as Record<string, boolean>; super admins
   // get an empty object and rely on isSuperAdmin, so every gate ORs against it.
   const { permissions, isSuperAdmin } = usePermissions();
-  const canApprove = isSuperAdmin || !!permissions?.['campus_living.vacate_requests.approve_warden'];
-  const canTick = isSuperAdmin || !!permissions?.['campus_living.vacate_requests.mark_clearance'];
-  const canStaffCancel = isSuperAdmin || !!permissions?.['campus_living.vacate_requests.cancel'];
+  const has = (key: string | null) => isSuperAdmin || (!!key && !!permissions?.[key]);
 
   const { data: request, isLoading } = useVacateRequest(id);
   const { data: bills, isLoading: billsLoading, error: billsError } = useVacateBillStatus(id, !!request);
 
   const cancelMut = useCancelVacate();
   const rejectMut = useRejectVacate();
-  const approveMut = useApproveVacate();
+  const advanceMut = useAdvanceVacate();
+  const recheckMut = useRecheckVacateBills();
   const submitMut = useSubmitVacateDraft();
 
   const [cancelOpen, setCancelOpen] = useState(false);
@@ -100,28 +132,54 @@ export default function VacateRequestDetailPage({ params }: { params: Promise<{ 
     );
   }
 
+  const status = request.status;
   const items = [...(request.clearance_items ?? [])].sort((a, b) => a.sort_order - b.sort_order);
-  const isPending = request.status === 'pending_warden';
-  const isDraft = request.status === 'draft';
-  const isClosed = ['completed', 'rejected', 'cancelled'].includes(request.status);
+  const damages = request.damages ?? [];
+  const approvals = request.approvals ?? [];
+
+  const isDraft = status === 'draft';
+  const isClosed = ['completed', 'rejected', 'cancelled'].includes(status);
   const isRequester = request.submitted_by_id === profile?.id || request.learner_id === profile?.id;
+
+  const stepCopy = STEP_COPY[status];
+  const canActOnStep = !!stepCopy && has(vacateStepPermission(status));
+  const isWardenStep = status === 'pending_warden';
+  const canTick = isWardenStep && has('campus_living.vacate_requests.mark_clearance');
+  const canStaffCancel = has('campus_living.vacate_requests.cancel');
 
   const pendingRequired = items.filter((i) => i.is_required && !i.is_cleared).length;
   const billsClear = !!bills && bills.total_outstanding === 0;
-  const canApproveNow = canApprove && isPending && billsClear && pendingRequired === 0;
 
   const blockers: string[] = [];
-  if (isPending) {
+  if (isWardenStep) {
+    if (pendingRequired > 0) blockers.push(`${pendingRequired} required checklist item(s) not cleared`);
+    if (!request.room_inspected) blockers.push('Room inspection not recorded (damages, or “No damage”)');
+  }
+  if (status === 'pending_cao') {
     if (billsLoading) blockers.push('Checking bills…');
     else if (billsError || !bills) blockers.push('Bill status could not be loaded');
     else if (!billsClear)
       blockers.push(`${formatInr(bills.total_outstanding)} unpaid across ${bills.unpaid_count} bill(s)`);
-    if (pendingRequired > 0) blockers.push(`${pendingRequired} required checklist item(s) not cleared`);
   }
+  const canApproveNow = canActOnStep && blockers.length === 0;
 
   const canCancel =
-    (isDraft || isPending) && (isRequester || (canStaffCancel && !isRequester) || canApprove);
+    OPEN_STATUSES.includes(status) && (isRequester || canStaffCancel || canActOnStep);
   const learnerName = request.learner_profile?.full_name ?? 'Unknown';
+  const hasFine = request.damage_total > 0;
+
+  const approveLabel =
+    status === 'pending_cao'
+      ? hasFine
+        ? `Approve & raise ${formatInr(request.damage_total)} fine`
+        : 'Approve & Vacate'
+      : (stepCopy?.approve ?? 'Approve');
+  const approveDialogDesc =
+    status === 'pending_cao'
+      ? hasFine
+        ? `A fine bill of ${formatInr(request.damage_total)} is raised for the room damage. ${learnerName} is vacated and the room and bed are released once it is paid.`
+        : `The bed is released immediately, ${learnerName} becomes a Day Scholar and the hostel / mess categories are cleared. This cannot be undone from here.`
+      : (stepCopy?.blurb ?? '');
 
   async function handleCancel() {
     if (!reason.trim()) return;
@@ -138,7 +196,7 @@ export default function VacateRequestDetailPage({ params }: { params: Promise<{ 
   }
 
   async function handleApprove() {
-    await approveMut.mutateAsync({ requestId: id, remarks: remarks || null });
+    await advanceMut.mutateAsync({ requestId: id, remarks: remarks || null });
     setApproveOpen(false);
     setRemarks('');
   }
@@ -164,8 +222,8 @@ export default function VacateRequestDetailPage({ params }: { params: Promise<{ 
           <div className='flex-1'>
             <div className='flex items-center gap-2'>
               <h1 className='text-2xl font-bold py-1'>Vacate Request</h1>
-              <Badge variant={request.status === 'completed' ? 'success' : request.status === 'rejected' ? 'destructive' : 'secondary'}>
-                {STATUS_LABEL[request.status] ?? request.status}
+              <Badge variant={status === 'completed' ? 'success' : status === 'rejected' ? 'destructive' : 'secondary'}>
+                {VACATE_STATUS_LABELS[status] ?? status}
               </Badge>
             </div>
             <p className='text-sm text-muted-foreground'>
@@ -181,12 +239,20 @@ export default function VacateRequestDetailPage({ params }: { params: Promise<{ 
           )}
         </div>
 
-        {request.status === 'rejected' && request.rejected_reason && (
+        {!isDraft && (
+          <Card>
+            <CardContent className='p-4'>
+              <VacateStepper request={request} approvals={approvals} />
+            </CardContent>
+          </Card>
+        )}
+
+        {status === 'rejected' && request.rejected_reason && (
           <div className='p-3 rounded-md border border-destructive/30 bg-destructive/5 text-sm'>
             <span className='font-medium text-destructive'>Rejected:</span> {request.rejected_reason}
           </div>
         )}
-        {request.status === 'cancelled' && request.cancelled_reason && (
+        {status === 'cancelled' && request.cancelled_reason && (
           <div className='p-3 rounded-md border bg-muted text-sm'>
             <span className='font-medium'>Cancelled:</span> {request.cancelled_reason}
           </div>
@@ -194,17 +260,17 @@ export default function VacateRequestDetailPage({ params }: { params: Promise<{ 
 
         <div className='grid grid-cols-1 lg:grid-cols-3 gap-6'>
           <div className='lg:col-span-2 space-y-6'>
+            <LearnerDetailsCard
+              learnerProfileId={request.learner_id}
+              fallbackName={learnerName}
+              fallbackEmail={request.learner_profile?.email ?? null}
+            />
+
             <Card>
               <CardHeader>
                 <CardTitle className='text-base'>Request Details</CardTitle>
               </CardHeader>
               <CardContent className='space-y-3'>
-                <Row label='Learner'>
-                  <div className='flex flex-col'>
-                    <span className='text-sm font-medium'>{learnerName}</span>
-                    <span className='text-xs text-muted-foreground'>{request.learner_profile?.email ?? ''}</span>
-                  </div>
-                </Row>
                 <Row label='Reason'>
                   <div className='flex items-center gap-2'>
                     <Badge variant='outline'>{VACATE_REASON_LABELS[request.reason_type] ?? request.reason_type}</Badge>
@@ -245,22 +311,26 @@ export default function VacateRequestDetailPage({ params }: { params: Promise<{ 
               </CardContent>
             </Card>
 
-            <BillsCard
-              bills={isClosed && request.bills_snapshot ? request.bills_snapshot : bills}
-              loading={billsLoading && !request.bills_snapshot}
-              error={!!billsError && !request.bills_snapshot}
-              snapshot={isClosed && !!request.bills_snapshot}
-            />
+            {!isDraft && (
+              <BillsCard
+                bills={status === 'completed' && request.bills_snapshot ? request.bills_snapshot : bills}
+                loading={billsLoading && !request.bills_snapshot}
+                error={!!billsError && !request.bills_snapshot}
+                snapshot={status === 'completed' && !!request.bills_snapshot}
+                onRecheck={status === 'pending_dues' ? () => recheckMut.mutate(id) : undefined}
+                rechecking={recheckMut.isPending}
+              />
+            )}
 
-            {(items.length > 0 || isPending) && (
+            {(items.length > 0 || isWardenStep) && (
               <Card>
                 <CardHeader>
                   <CardTitle className='text-base flex items-center gap-2'>
                     <ShieldCheck className='h-4 w-4' />
-                    Clearance Checklist
+                    Step 3 · Clearance Checklist
                   </CardTitle>
                   <CardDescription>
-                    {isPending && canTick
+                    {canTick
                       ? 'Tick each item once it is cleared. Every required item must be ticked before approval.'
                       : 'Items the warden confirms before the bed is released.'}
                   </CardDescription>
@@ -270,10 +340,29 @@ export default function VacateRequestDetailPage({ params }: { params: Promise<{ 
                     <p className='text-sm text-muted-foreground'>No checklist items apply to this request.</p>
                   )}
                   {items.map((item) => (
-                    <ChecklistRow key={item.id} requestId={id} item={item} canEdit={canTick && isPending} />
+                    <ChecklistRow key={item.id} requestId={id} item={item} canEdit={canTick} />
                   ))}
                 </CardContent>
               </Card>
+            )}
+
+            {(isWardenStep || request.room_inspected) && (
+              <DamageInspectionCard
+                requestId={id}
+                damages={damages}
+                roomInspected={request.room_inspected}
+                damageTotal={request.damage_total}
+                canEdit={canTick}
+              />
+            )}
+
+            {request.fine_bill_id && (
+              <FineBillCard
+                requestId={id}
+                billId={request.fine_bill_id}
+                requestStatus={status}
+                canComplete={has('campus_living.vacate_requests.approve_cao')}
+              />
             )}
 
             <Card>
@@ -297,7 +386,7 @@ export default function VacateRequestDetailPage({ params }: { params: Promise<{ 
               <Card>
                 <CardContent className='p-4 space-y-3'>
                   <p className='text-sm text-muted-foreground'>
-                    This request is still a draft. Submit it so the warden can review it.
+                    This request is still a draft. Submit it to start the approval process.
                   </p>
                   <Button className='w-full' onClick={() => submitMut.mutate(id)} disabled={submitMut.isPending}>
                     {submitMut.isPending && <Loader2 className='mr-2 h-4 w-4 animate-spin' />}
@@ -307,14 +396,27 @@ export default function VacateRequestDetailPage({ params }: { params: Promise<{ 
               </Card>
             )}
 
-            {isPending && canApprove && (
+            {status === 'pending_dues' && (
+              <Card>
+                <CardContent className='p-4 space-y-2 text-sm text-muted-foreground'>
+                  <p>
+                    Waiting for the learner&apos;s hostel and mess bills to be cleared. The request moves to the
+                    Principal automatically once every bill is paid.
+                  </p>
+                  {bills && bills.total_outstanding > 0 && (
+                    <p className='font-medium text-destructive'>
+                      {formatInr(bills.total_outstanding)} outstanding
+                    </p>
+                  )}
+                </CardContent>
+              </Card>
+            )}
+
+            {stepCopy && canActOnStep && (
               <Card>
                 <CardHeader>
-                  <CardTitle className='text-base'>Warden Decision</CardTitle>
-                  <CardDescription>
-                    Approving vacates the bed, moves the learner to Day Scholar and clears the hostel and mess
-                    categories.
-                  </CardDescription>
+                  <CardTitle className='text-base'>{stepCopy.title}</CardTitle>
+                  <CardDescription>{stepCopy.blurb}</CardDescription>
                 </CardHeader>
                 <CardContent className='space-y-3'>
                   {blockers.length > 0 && (
@@ -327,9 +429,13 @@ export default function VacateRequestDetailPage({ params }: { params: Promise<{ 
                       ))}
                     </ul>
                   )}
-                  <Button className='w-full' disabled={!canApproveNow || approveMut.isPending} onClick={() => setApproveOpen(true)}>
+                  <Button
+                    className='w-full'
+                    disabled={!canApproveNow || advanceMut.isPending}
+                    onClick={() => setApproveOpen(true)}
+                  >
                     <CheckCircle2 className='mr-2 h-4 w-4' />
-                    Approve &amp; Vacate
+                    {approveLabel}
                   </Button>
                   <Button className='w-full' variant='outline' onClick={() => setRejectOpen(true)}>
                     Reject
@@ -338,10 +444,17 @@ export default function VacateRequestDetailPage({ params }: { params: Promise<{ 
               </Card>
             )}
 
-            {isPending && !canApprove && (
+            {stepCopy && !canActOnStep && (
+              <Card>
+                <CardContent className='p-4 text-sm text-muted-foreground'>{stepCopy.waiting}</CardContent>
+              </Card>
+            )}
+
+            {status === 'pending_fine' && (
               <Card>
                 <CardContent className='p-4 text-sm text-muted-foreground'>
-                  With the warden. Bills and the clearance checklist are checked before the bed is released.
+                  Approved by the CAO. Waiting for the damage fine to be paid — the learner is vacated automatically
+                  once it is.
                 </CardContent>
               </Card>
             )}
@@ -350,20 +463,24 @@ export default function VacateRequestDetailPage({ params }: { params: Promise<{ 
               <Card>
                 <CardContent className='p-4 space-y-2'>
                   <div className='flex items-center gap-2'>
-                    {request.status === 'completed' && <CheckCircle2 className='h-5 w-5 text-green-600' />}
-                    {request.status === 'rejected' && <AlertCircle className='h-5 w-5 text-destructive' />}
-                    {request.status === 'cancelled' && <X className='h-5 w-5 text-muted-foreground' />}
-                    <span className='font-medium'>{STATUS_LABEL[request.status]}</span>
+                    {status === 'completed' && <CheckCircle2 className='h-5 w-5 text-green-600' />}
+                    {status === 'rejected' && <AlertCircle className='h-5 w-5 text-destructive' />}
+                    {status === 'cancelled' && <X className='h-5 w-5 text-muted-foreground' />}
+                    <span className='font-medium'>
+                      {status === 'completed' ? 'Vacated' : VACATE_STATUS_LABELS[status]}
+                    </span>
                   </div>
                   {request.completed_at && (
                     <p className='text-xs text-muted-foreground'>on {new Date(request.completed_at).toLocaleString()}</p>
                   )}
                   {request.approval_remarks && (
-                    <p className='text-xs text-muted-foreground'>Warden remarks: {request.approval_remarks}</p>
+                    <p className='text-xs text-muted-foreground'>CAO remarks: {request.approval_remarks}</p>
                   )}
                 </CardContent>
               </Card>
             )}
+
+            <DecisionTimeline approvals={approvals} />
           </div>
         </div>
       </div>
@@ -372,11 +489,8 @@ export default function VacateRequestDetailPage({ params }: { params: Promise<{ 
       <Dialog open={approveOpen} onOpenChange={setApproveOpen}>
         <DialogContent className='max-w-[480px]'>
           <DialogHeader>
-            <DialogTitle>Approve and vacate?</DialogTitle>
-            <DialogDescription>
-              The bed is released immediately, {learnerName} becomes a Day Scholar and the hostel / mess
-              categories are cleared. This cannot be undone from here.
-            </DialogDescription>
+            <DialogTitle>{approveLabel}?</DialogTitle>
+            <DialogDescription>{approveDialogDesc}</DialogDescription>
           </DialogHeader>
           <Textarea
             value={remarks}
@@ -385,12 +499,12 @@ export default function VacateRequestDetailPage({ params }: { params: Promise<{ 
             rows={3}
           />
           <DialogFooter>
-            <Button variant='outline' onClick={() => setApproveOpen(false)} disabled={approveMut.isPending}>
+            <Button variant='outline' onClick={() => setApproveOpen(false)} disabled={advanceMut.isPending}>
               Back
             </Button>
-            <Button onClick={handleApprove} disabled={approveMut.isPending}>
-              {approveMut.isPending && <Loader2 className='mr-2 h-4 w-4 animate-spin' />}
-              Approve &amp; Vacate
+            <Button onClick={handleApprove} disabled={advanceMut.isPending}>
+              {advanceMut.isPending && <Loader2 className='mr-2 h-4 w-4 animate-spin' />}
+              {approveLabel}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -446,161 +560,6 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
     <div className='grid grid-cols-[120px_1fr] gap-3 items-start'>
       <span className='text-xs text-muted-foreground uppercase tracking-wide pt-1'>{label}</span>
       <div>{children}</div>
-    </div>
-  );
-}
-
-function BillsCard({
-  bills,
-  loading,
-  error,
-  snapshot,
-}: {
-  bills: VacateBillStatus | null | undefined;
-  loading: boolean;
-  error: boolean;
-  snapshot: boolean;
-}) {
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle className='text-base flex items-center gap-2'>
-          <Receipt className='h-4 w-4' />
-          Hostel &amp; Mess Bills
-        </CardTitle>
-        <CardDescription>
-          {snapshot
-            ? 'Bill position recorded when the request was approved.'
-            : 'Every hostel, mess and upgrade bill, all years. All must be paid before approval.'}
-        </CardDescription>
-      </CardHeader>
-      <CardContent className='space-y-3'>
-        {loading ? (
-          <div className='flex justify-center py-6'>
-            <Loader2 className='h-5 w-5 animate-spin text-primary' />
-          </div>
-        ) : error || !bills ? (
-          <p className='text-sm text-destructive'>Bill status could not be loaded.</p>
-        ) : (
-          <>
-            {bills.total_outstanding > 0 ? (
-              <div className='rounded-md border border-destructive/30 bg-destructive/5 p-3 text-sm'>
-                <span className='font-medium text-destructive'>{formatInr(bills.total_outstanding)} outstanding</span>{' '}
-                across {bills.unpaid_count} bill(s)
-                {bills.overdue_amount > 0 && <> · {formatInr(bills.overdue_amount)} overdue</>}
-              </div>
-            ) : (
-              <div className='rounded-md border border-green-200 bg-green-50 p-3 text-sm text-green-900 flex items-center gap-2'>
-                <CheckCircle2 className='h-4 w-4' />
-                {bills.bills.length === 0 ? 'No hostel or mess bills on record.' : 'All hostel and mess bills are cleared.'}
-              </div>
-            )}
-            {!bills.has_learner_link && (
-              <p className='text-xs text-muted-foreground'>
-                This resident has no learner record, so no learner bills apply.
-              </p>
-            )}
-            {bills.bills.length > 0 && (
-              <div className='overflow-x-auto'>
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Bill</TableHead>
-                      <TableHead>Year</TableHead>
-                      <TableHead className='text-right'>Amount</TableHead>
-                      <TableHead className='text-right'>Paid</TableHead>
-                      <TableHead className='text-right'>Pending</TableHead>
-                      <TableHead>Due</TableHead>
-                      <TableHead>Status</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {bills.bills.map((b) => (
-                      <TableRow key={b.bill_id}>
-                        <TableCell className='text-sm'>{b.category_name ?? b.description ?? '—'}</TableCell>
-                        <TableCell className='text-xs text-muted-foreground'>{b.year_name ?? '—'}</TableCell>
-                        <TableCell className='text-right text-sm'>{formatInr(b.amount)}</TableCell>
-                        <TableCell className='text-right text-sm'>{formatInr(b.paid)}</TableCell>
-                        <TableCell className='text-right text-sm font-medium'>{formatInr(b.pending)}</TableCell>
-                        <TableCell className='text-xs text-muted-foreground'>{b.due_date ?? '—'}</TableCell>
-                        <TableCell>
-                          {b.pending === 0 ? (
-                            <Badge variant='success'>Paid</Badge>
-                          ) : b.is_overdue ? (
-                            <Badge variant='destructive'>Overdue</Badge>
-                          ) : (
-                            <Badge variant='secondary'>Unpaid</Badge>
-                          )}
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </div>
-            )}
-          </>
-        )}
-      </CardContent>
-    </Card>
-  );
-}
-
-function ChecklistRow({
-  requestId,
-  item,
-  canEdit,
-}: {
-  requestId: string;
-  item: HostelClearanceItem;
-  canEdit: boolean;
-}) {
-  const setItem = useSetChecklistItem();
-  const [notes, setNotes] = useState(item.notes ?? '');
-  const [showNotes, setShowNotes] = useState(false);
-
-  const save = (cleared: boolean) =>
-    setItem.mutate({ itemId: item.id, requestId, cleared, notes: notes.trim() || null });
-
-  return (
-    <div className='rounded-md border p-3'>
-      <div className='flex items-center gap-2'>
-        <Checkbox
-          checked={item.is_cleared}
-          disabled={!canEdit || setItem.isPending}
-          onCheckedChange={(v) => save(!!v)}
-          aria-label={item.item_label}
-        />
-        <div className='flex-1 min-w-0 flex items-center gap-2'>
-          <span className={'text-sm ' + (item.is_cleared ? 'text-muted-foreground' : 'font-medium')}>
-            {item.item_label}
-          </span>
-          {item.is_required ? (
-            <Badge variant='outline' className='text-xs'>Required</Badge>
-          ) : (
-            <Badge variant='secondary' className='text-xs'>Optional</Badge>
-          )}
-        </div>
-        {canEdit && (
-          <Button size='sm' variant='ghost' onClick={() => setShowNotes((s) => !s)}>
-            {showNotes ? 'Hide' : 'Remarks'}
-          </Button>
-        )}
-      </div>
-      {canEdit && (showNotes || item.notes) && (
-        <Input
-          value={notes}
-          onChange={(e) => setNotes(e.target.value)}
-          onBlur={() => notes.trim() !== (item.notes ?? '') && save(item.is_cleared)}
-          placeholder='Remarks'
-          className='mt-2 text-xs'
-        />
-      )}
-      {!canEdit && item.notes && <p className='text-xs text-muted-foreground mt-2'>{item.notes}</p>}
-      {item.is_cleared && item.cleared_at && (
-        <p className='text-[11px] text-muted-foreground mt-1'>
-          Cleared {new Date(item.cleared_at).toLocaleString()}
-        </p>
-      )}
     </div>
   );
 }

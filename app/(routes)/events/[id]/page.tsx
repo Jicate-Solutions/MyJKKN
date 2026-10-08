@@ -82,7 +82,7 @@ import {
 import type { Event, EventStatus } from '@/types/events';
 import { SOI_EVENT_TYPE } from '@/lib/services/school-of-influence/constants';
 import { EditGeneralEventDialog } from '../_components/edit-general-event-dialog';
-import { canEditEvent } from '../_components/event-display';
+import { canCancelEvent, canEditEvent } from '../_components/event-display';
 import { EventFormCards } from '@/components/events/registration/event-form-cards';
 import { EventWaitlistCard } from '@/components/events/registration/event-waitlist-card';
 import { EventFeedbackLinkCard } from '@/components/events/feedback/event-feedback-link-card';
@@ -379,9 +379,12 @@ function ReinstateEventDialog({
 function GeneralEventStatusControl({
   event,
   canEdit,
+  mayCancel,
 }: {
   event: Event;
   canEdit: boolean;
+  /** canCancelEvent — in-charge of this event or admin (Director 30 Sep). */
+  mayCancel: boolean;
 }) {
   const updateStatus = useUpdateGeneralEventStatus();
   const active = isGeneralEventActive(event.status);
@@ -389,7 +392,7 @@ function GeneralEventStatusControl({
   const target: EventStatus = active ? 'draft' : GENERAL_EVENT_ACTIVE_STATUS;
   // Read from the same map the service validates against, so the button cannot
   // offer a move the server will refuse.
-  const canCancel = (GENERAL_EVENT_STATUS_TRANSITIONS[event.status] ?? []).includes(
+  const cancelReachable = (GENERAL_EVENT_STATUS_TRANSITIONS[event.status] ?? []).includes(
     'cancelled'
   );
 
@@ -442,7 +445,9 @@ function GeneralEventStatusControl({
             {active ? 'Move to Draft' : 'Make Active'}
           </Button>
         ))}
-      {canEdit && canCancel && <CancelEventDialog event={event} />}
+      {/* Cancel follows its own rule, not canEdit: only an in-charge of this
+          event or an admin (canCancelEvent mirrors the database's). */}
+      {mayCancel && cancelReachable && <CancelEventDialog event={event} />}
     </div>
   );
 }
@@ -525,6 +530,15 @@ export default function GeneralEventDetailPage() {
       institutionId: profile?.institution_id,
       isSuperAdmin,
       canEditAny: canAccess('events', 'edit'),
+    });
+
+  // Cancelling is narrower than editing (Director 30 Sep): in-charges and admins.
+  const mayCancel =
+    !!event &&
+    canCancelEvent(event, {
+      userId: profile?.id,
+      isSuperAdmin,
+      role: profile?.role,
     });
 
   // Who to contact about this event (BUG-006129). Read BEFORE the loading and
@@ -681,7 +695,7 @@ export default function GeneralEventDetailPage() {
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <GeneralEventStatusControl event={event} canEdit={canEdit} />
+            <GeneralEventStatusControl event={event} canEdit={canEdit} mayCancel={mayCancel} />
             {canEdit ? (
               <Button
                 variant="outline"
@@ -763,7 +777,7 @@ export default function GeneralEventDetailPage() {
                 <Fact
                   icon={MapPin}
                   label="Venue"
-                  value={event.venue || event.venue_text}
+                  value={event.venue || event.venue_resource?.name || event.venue_text}
                 />
                 <Fact
                   icon={Building2}

@@ -164,6 +164,56 @@ export interface AttendanceMark {
   created_at: string | null;
 }
 
+// ── Institution / department / block breakdown (fn_cl_attendance_breakdown) ──
+// The RPC returns a small CUBE (grain: date × block × institution × department)
+// with short keys; lib/campus-living/attendance-cube.ts aggregates it in the
+// browser so a cross-filter click never refetches.
+
+export interface AttendanceCubeRow {
+  /** yyyy-MM-dd */
+  d: string;
+  b: string | null;
+  i: string | null;
+  p: string | null;
+  /** marks, present, late_entry, absent, on_leave, medical */
+  m: number;
+  pr: number;
+  la: number;
+  ab: number;
+  ol: number;
+  me: number;
+}
+
+export interface AttendanceResidentCell {
+  b: string | null;
+  i: string | null;
+  p: string | null;
+  residents: number;
+  marked: number;
+}
+
+export interface AttendanceRiskCell {
+  b: string | null;
+  i: string | null;
+  p: string | null;
+  learners: number;
+  at_risk: number;
+}
+
+export interface AttendanceBreakdown {
+  range: { from: string; to: string };
+  block_id: string | null;
+  risk_pct: number;
+  cube: AttendanceCubeRow[];
+  residents: AttendanceResidentCell[];
+  risk: AttendanceRiskCell[];
+  institutions: { id: string; name: string }[];
+  departments: { id: string; name: string; institution_id: string | null }[];
+  blocks: { id: string; name: string; code: string }[];
+  /** False when the caller cannot read allocations: residents[] is empty and must not be shown as "N of 0". */
+  residents_visible: boolean;
+}
+
 export interface AttendanceLearnerDetail {
   range: { from: string; to: string };
   /**

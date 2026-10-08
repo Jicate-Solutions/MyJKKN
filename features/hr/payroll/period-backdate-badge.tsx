@@ -4,7 +4,7 @@
  * PeriodBackdateBadge — amber pill rendered next to a status pill when
  * hr_payroll_periods.is_backdated = true.
  *
- * Per spec specs/t4-3-pr3-payroll-ui-design-lock-2026-05-19.md E2 + E5:
+ * No written spec; the rules live in this code:
  *   - Color amber (collision-resolved against accounts_verified purple).
  *   - Icon: clock-rewind (lucide History).
  *   - Hover tooltip shows backdate_reason.

@@ -55,11 +55,19 @@ function isNumericId(seg: string): boolean {
 }
 
 /**
+ * Opaque code segment, e.g. a QR sticker code `res_<hex>`. Title-casing it
+ * prints the raw code as a crumb, so it is shown like an id.
+ */
+function isOpaqueCode(seg: string): boolean {
+  return /^[a-z]{2,8}_[0-9a-f]{16,64}$/i.test(seg);
+}
+
+/**
  * Humanize an unknown URL segment: `my-page-name` → `My Page Name`.
  * UUIDs and numeric IDs map to "Details" — raw IDs are unreadable in a breadcrumb.
  */
 function humanizeSegment(seg: string): string {
-  if (isUuidLike(seg) || isNumericId(seg)) return 'Details';
+  if (isUuidLike(seg) || isNumericId(seg) || isOpaqueCode(seg)) return 'Details';
   return seg
     .replace(/-/g, ' ')
     .replace(/\b\w/g, (c) => c.toUpperCase());

@@ -74,6 +74,29 @@ export interface AttendancePreFillData {
 
 // ─────────────────────────────────────────────────────────────────────────────
 
+/**
+ * Roll back an application whose submission failed before any approver row
+ * existed. Must go through fn_discard_unseeded_application: a plain DELETE runs
+ * under the learner's RLS, whose only DELETE policy admits CANCELLED rows, so a
+ * pending rollback silently removed nothing and the learner's retries piled up
+ * as applications no approver can see. Never throws — the caller is already
+ * surfacing the real error.
+ */
+async function discardUnseededApplication(
+  supabase: ReturnType<typeof getSupabase>,
+  applicationId: string
+): Promise<void> {
+  const { data, error } = await supabase.rpc('fn_discard_unseeded_application', {
+    p_application_id: applicationId,
+  });
+  if (error || data !== true) {
+    console.error('[leave-onduty] rollback of failed submission did not delete it', {
+      applicationId,
+      error,
+    });
+  }
+}
+
 export class LeaveOndutyService {
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -632,7 +655,7 @@ export class LeaveOndutyService {
     // rule of the type is enforced server-side by fn_lo_seed_approvals.
     const { data: leaveType, error: leaveTypeError } = await supabase
       .from('learner_leave_types')
-      .select('id, code, category, requires_sponsor_approval, is_active')
+      .select('id, code, category, requires_sponsor_approval, issues_gate_pass, is_active')
       .eq('id', data.leave_type_id)
       .maybeSingle();
 
@@ -641,6 +664,15 @@ export class LeaveOndutyService {
     }
     if (!leaveType || !leaveType.is_active || leaveType.category !== data.category) {
       throw new Error('Please choose a valid leave type.');
+    }
+
+    // A gate-pass type needs the exit/return time so the pass has a real window.
+    // Day scholars get no pass (the DB decides), so the times are stored only when
+    // the learner supplied them.
+    if (leaveType.issues_gate_pass && data.exit_time && data.return_time) {
+      if (data.start_date === data.end_date && data.return_time <= data.exit_time) {
+        throw new Error('Return time must be after the exit time for a same-day leave.');
+      }
     }
 
     // Sponsor gate: the application waits at current_step 0 until the sponsor
@@ -683,6 +715,8 @@ export class LeaveOndutyService {
         selected_periods: selectedPeriods,
         reason: data.reason,
         attachment_url: attachmentUrl,
+        exit_time: leaveType.issues_gate_pass ? data.exit_time || null : null,
+        return_time: leaveType.issues_gate_pass ? data.return_time || null : null,
         status: 'pending',
         applicable_type: applicableType,
         // When sponsor approval is required, start at step 0 (sponsor gate).
@@ -712,10 +746,7 @@ export class LeaveOndutyService {
         .insert(rows);
 
       if (teamError) {
-        // Best-effort rollback — RLS may prevent the student from deleting
-        // their own application in some edge cases, which is why we log it
-        // explicitly rather than swallowing.
-        await supabase.from('leave_onduty_applications').delete().eq('id', application.id);
+        await discardUnseededApplication(supabase, application.id);
         throw new Error(`Failed to register team members: ${teamError.message}`);
       }
     }
@@ -768,7 +799,7 @@ export class LeaveOndutyService {
         // nobody can ever act on it, so roll it back rather than strand it.
         // The RPC's messages are written for the learner (e.g. "must be applied
         // at least 24 hour(s) in advance"), so surface them as-is.
-        await supabase.from('leave_onduty_applications').delete().eq('id', application.id);
+        await discardUnseededApplication(supabase, application.id);
         throw new Error(seedError.message || 'Failed to submit the application');
       }
 
@@ -790,7 +821,7 @@ export class LeaveOndutyService {
       // also fired for every learner whose flow was merely INVISIBLE to them
       // under RLS, which is what the reporter was actually hitting.
       if (seededApprovers === 0 && !requiresSponsor) {
-        await supabase.from('leave_onduty_applications').delete().eq('id', application.id);
+        await discardUnseededApplication(supabase, application.id);
         throw new Error(
           'No approver is set up for your class yet, so this request cannot be sent for approval. ' +
           'Please contact your department office to have the leave / on-duty approver configured, then submit again.'

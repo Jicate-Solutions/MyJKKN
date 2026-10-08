@@ -37,6 +37,7 @@ export const serviceRequestKeys = {
   detail: (id: string) => [...serviceRequestKeys.details(), id] as const,
   pendingApprovals: (filters?: any) => [...serviceRequestKeys.all, 'pending-approvals', filters] as const,
   pendingCount: () => [...serviceRequestKeys.all, 'pending-count'] as const,
+  myApprovalStats: () => [...serviceRequestKeys.all, 'my-approval-stats'] as const,
   analytics: (filters?: any) => [...serviceRequestKeys.all, 'analytics', filters] as const,
   countsByStatus: (filters?: any) => [...serviceRequestKeys.all, 'counts', filters] as const,
 };
@@ -181,6 +182,30 @@ export function usePendingApprovalCount() {
       }
       return res.json();
     },
+    refetchInterval: 60000,
+  });
+}
+
+/**
+ * The signed-in approver's own decisions, for the "N by you" captions on the
+ * hub's Approved / Rejected cards.
+ *
+ * The key sits under serviceRequestKeys.all, so the approve/reject mutation's
+ * existing prefix invalidation refreshes it without extra wiring.
+ */
+export function useMyApprovalStats(enabled = true) {
+  return useQuery<{ approved: number; rejected: number }>({
+    queryKey: serviceRequestKeys.myApprovalStats(),
+    queryFn: async () => {
+      const res = await fetch('/api/service-requests/approvals/my-stats');
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || 'Failed to fetch approval stats');
+      }
+      return res.json();
+    },
+    // Non-approvers have no queue to show, so don't spend a request on them.
+    enabled,
     refetchInterval: 60000,
   });
 }

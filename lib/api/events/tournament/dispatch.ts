@@ -37,12 +37,17 @@ import * as entries from './handlers/entries';
 import * as entriesEntry from './handlers/entries-entry';
 import * as entriesEntryPay from './handlers/entries-entry-pay';
 import * as fixtures from './handlers/fixtures';
+import * as fixtureMode from './handlers/fixture-mode';
+import * as manualMatches from './handlers/manual-matches';
+import * as manualMatchesMatch from './handlers/manual-matches-match';
 import * as matches from './handlers/matches';
 import * as matchesMatch from './handlers/matches-match';
 import * as matchesMatchResult from './handlers/matches-match-result';
+import * as matchesMatchSide from './handlers/matches-match-side';
 import * as paymentCallback from './handlers/payment-callback';
 import * as publicRegister from './handlers/public-register';
 import * as qrGenerate from './handlers/qr-generate';
+import * as spotEntry from './handlers/spot-entry';
 
 /** Route params as Next.js hands them to a route handler: always strings. */
 export type TournamentParams = Record<string, string>;
@@ -84,18 +89,23 @@ export const TOURNAMENT_ROUTES: TournamentRoute[] = [
   { name: 'award', path: 'award', segments: ['award'], methods: ['POST'], module: mod(award) },
   { name: 'entries', path: 'entries', segments: ['entries'], methods: ['GET'], module: mod(entries) },
   { name: 'fixtures', path: 'fixtures', segments: ['fixtures'], methods: ['POST'], module: mod(fixtures) },
+  { name: 'fixture-mode', path: 'fixture-mode', segments: ['fixture-mode'], methods: ['POST'], module: mod(fixtureMode) },
+  { name: 'manual-matches', path: 'manual-matches', segments: ['manual-matches'], methods: ['POST'], module: mod(manualMatches) },
   { name: 'matches', path: 'matches', segments: ['matches'], methods: ['GET'], module: mod(matches) },
   { name: 'public-register', path: 'public-register', segments: ['public-register'], methods: ['POST'], module: mod(publicRegister) },
+  { name: 'spot-entry', path: 'spot-entry', segments: ['spot-entry'], methods: ['POST'], module: mod(spotEntry) },
 
   // Two segments — literals first, then the dynamic ids.
   { name: 'payment-callback', path: 'payment/callback', segments: ['payment', 'callback'], methods: ['POST'], module: mod(paymentCallback) },
   { name: 'qr-generate', path: 'qr/generate', segments: ['qr', 'generate'], methods: ['GET'], module: mod(qrGenerate) },
   { name: 'entries-entry', path: 'entries/[entryId]', segments: ['entries', ':entryId'], methods: ['PATCH', 'DELETE'], module: mod(entriesEntry) },
   { name: 'matches-match', path: 'matches/[matchId]', segments: ['matches', ':matchId'], methods: ['PATCH'], module: mod(matchesMatch) },
+  { name: 'manual-matches-match', path: 'manual-matches/[matchId]', segments: ['manual-matches', ':matchId'], methods: ['PATCH', 'DELETE'], module: mod(manualMatchesMatch) },
 
   // Three segments.
   { name: 'entries-entry-pay', path: 'entries/[entryId]/pay', segments: ['entries', ':entryId', 'pay'], methods: ['POST'], module: mod(entriesEntryPay) },
   { name: 'matches-match-result', path: 'matches/[matchId]/result', segments: ['matches', ':matchId', 'result'], methods: ['POST'], module: mod(matchesMatchResult) },
+  { name: 'matches-match-side', path: 'matches/[matchId]/side', segments: ['matches', ':matchId', 'side'], methods: ['POST'], module: mod(matchesMatchSide) },
 ];
 
 export interface TournamentMatch {

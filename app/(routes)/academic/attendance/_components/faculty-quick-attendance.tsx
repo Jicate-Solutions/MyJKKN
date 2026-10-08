@@ -82,32 +82,25 @@ export function FacultyQuickAttendance({
 
       // Check which periods already have attendance marked
       if (result.periods.length > 0) {
-        const periodChecks = result.periods
-          .map((period) => {
-            const sectionId =
-              period.sections?.[0]?.id ||
-              result.searchContext?.section_id ||
-              '';
-
-            // Skip periods without valid section_id
-            if (!sectionId || sectionId.trim() === '') {
-              logger.warn('academic/attendance', 'Period missing section_id, skipping attendance check', {
-                timetable_slot_id: period.timetable_slot_id,
-                period_name: period.period_name
-              });
-              return null;
-            }
-
-            return {
-              timetable_slot_id: period.timetable_slot_id,
-              timetable_id: period.timetable_id,
-              section_id: sectionId,
-              attendance_date: targetDate
-            };
-          })
-          .filter(
-            (check): check is NonNullable<typeof check> => check !== null
-          );
+        // Updated: 2026-09-28 (BUG-004557) - Every period is checked, with ALL of
+        // its sections; one with no section is matched against every record of
+        // the day (the service used to need a first section and read one record).
+        const periodChecks = result.periods.map((period) => {
+          const sectionIds = (period.sections ?? []).map((s) => s.id).filter(Boolean);
+          if (sectionIds.length === 0 && result.searchContext?.section_id) {
+            sectionIds.push(result.searchContext.section_id);
+          }
+          return {
+            timetable_slot_id: period.timetable_slot_id,
+            timetable_id: period.timetable_id,
+            section_id: sectionIds[0] ?? '',
+            section_ids: sectionIds,
+            attendance_date: targetDate,
+            // Added: 2026-09-23 (BUG-006204) - a practical batch is marked only
+            // by its own learners, not by another batch sharing the slot.
+            student_ids: (period as any).practical_student_ids ?? null
+          };
+        });
 
         if (periodChecks.length > 0) {
           try {

@@ -3,6 +3,8 @@ export const dynamic = 'force-dynamic';
 /**
  * /api/hr/salary-revisions — the Director's 16 rulings of 29 Sep 2026.
  *
+ * GET ?view=held  (1 Oct 2026) yeses given before that day's rules that break
+ *     them; the Director list only — the database refuses everyone else.
  * GET ?view=mine|college|director|all  requests the caller may see, each with
  *     #4119's suggested figure beside it and — on the Director's list only —
  *     #4103's "above the band by ₹X" warning.
@@ -27,7 +29,23 @@ const VIEWS: ListView[] = ['mine', 'college', 'director', 'all'];
 export const GET = withAuth(
   async (request, auth) => {
     await connection();
-    const view = (request.nextUrl.searchParams.get('view') ?? 'all') as ListView;
+    const raw = request.nextUrl.searchParams.get('view') ?? 'all';
+    // 7 Oct 2026: held parts of raises waiting on the Director (Director list only).
+    if (raw === 'targets') {
+      try {
+        return NextResponse.json({ listed: await SalaryRevisionService.targetsListed(auth.supabase) });
+      } catch (err) {
+        return errorResponse(err, 'list');
+      }
+    }
+    if (raw === 'held') {
+      try {
+        return NextResponse.json({ held: await SalaryRevisionService.held(auth.supabase) });
+      } catch (err) {
+        return errorResponse(err, 'list');
+      }
+    }
+    const view = raw as ListView;
     if (!VIEWS.includes(view)) {
       return NextResponse.json({ error: 'Unknown list.' }, { status: 400 });
     }

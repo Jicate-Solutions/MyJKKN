@@ -458,7 +458,10 @@ export async function POST(request: NextRequest) {
     let distributionNote: string | null = null;
 
     const itemInsertFailed =
-      parsedRows.length > 0 && result.successCount === 0 && result.errors.length > 0;
+      parsedRows.length > 0 &&
+      result.successCount === 0 &&
+      !result.batchesAdded &&
+      result.errors.length > 0;
 
     const distRows = storeId ? parseDistributionSheet(workbook) : [];
 

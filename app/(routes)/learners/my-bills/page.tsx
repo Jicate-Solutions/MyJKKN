@@ -28,11 +28,17 @@
  * (fn_learner_bill_year_visible) — so a learner cannot pick a far-future year to
  * pay by mistake. Nothing to filter here; they never arrive, and the totals
  * follow. The window rolls forward on its own as the current AY changes.
+ *
+ * Year order (oldest year first): a bill is shown but its Pay button is locked
+ * while any bill of an OLDER academic year still has a balance — see
+ * academic-year-payment-order.ts. The payment route is the authoritative check;
+ * the lock here only explains it.
  */
 
 import { Suspense } from 'react';
 import { redirect } from 'next/navigation';
 import { createClient } from '@/lib/supabase/server';
+import { getUserWithRetry } from '@/lib/auth/auth-retry';
 import { StudentValidationService } from '@/lib/services/auth/student-validation-service';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
@@ -51,6 +57,7 @@ import {
   isBillLearnerVisible,
   LEARNER_HIDDEN_LINE_LABEL,
 } from '@/lib/utils/billing/learner-visibility';
+import { academicYearKey } from '@/lib/utils/billing/academic-year-payment-order';
 import { isOverdue } from './_components/shared';
 import { MyBillsClient } from './_components/my-bills-client';
 
@@ -77,7 +84,7 @@ export default async function MyBillsPage() {
   const supabase = await createClient();
 
   // 1) Authentication
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await getUserWithRetry(supabase);
   if (!user) redirect('/auth/login');
 
   // 2) Role gate — students only (never super admin / staff).
@@ -189,14 +196,16 @@ export default async function MyBillsPage() {
     ...new Set((billRows ?? []).map((b) => b.academic_year_id).filter(Boolean)),
   ] as string[];
   const yearName = new Map<string, string>();
+  const yearStart = new Map<string, string>();
   if (yearIds.length) {
     const { data: years } = await supabase
       .from('academic_years')
-      .select('id, academic_year_name')
+      .select('id, academic_year_name, start_date')
       .in('id', yearIds);
     for (const y of years ?? []) {
       // Names in the DB carry trailing-space duplicates ("2025-2026 ") — trim.
       if (y.academic_year_name) yearName.set(y.id, String(y.academic_year_name).trim());
+      if (y.start_date) yearStart.set(y.id, y.start_date);
     }
   }
 
@@ -249,6 +258,10 @@ export default async function MyBillsPage() {
         status: b.status ?? null,
         academicYear: y.year,
         yearInferred: y.inferred,
+        yearKey: academicYearKey(
+          b.academic_year_id ? yearStart.get(b.academic_year_id) : null,
+          b.due_date
+        ),
       };
     });
 

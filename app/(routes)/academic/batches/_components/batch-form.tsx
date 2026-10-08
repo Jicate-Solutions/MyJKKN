@@ -63,6 +63,20 @@ const formSchema = z
 
 type BatchFormValues = z.infer<typeof formSchema>;
 
+// Batches are routinely back-dated (a 2022 batch is edited in 2026), so the
+// pickers must open on the batch's own year and let the user jump years
+// directly instead of stepping a month at a time from today.
+const CALENDAR_FROM_YEAR = new Date().getFullYear() - 30;
+const CALENDAR_TO_YEAR = new Date().getFullYear() + 10;
+const CALENDAR_MIN_DATE = new Date(CALENDAR_FROM_YEAR, 0, 1);
+
+function monthForYear(batchYear?: string): Date | undefined {
+  const year = Number.parseInt((batchYear ?? '').trim().slice(0, 4), 10);
+  if (!Number.isFinite(year)) return undefined;
+  if (year < CALENDAR_FROM_YEAR || year > CALENDAR_TO_YEAR) return undefined;
+  return new Date(year, 0, 1);
+}
+
 interface BatchFormProps {
   batch?: Batch;
   isSubmitting: boolean;
@@ -158,6 +172,9 @@ export function BatchForm({
           is_active: true
         }
   });
+
+  const watchedBatchYear = form.watch('batch_year');
+  const watchedStartDate = form.watch('start_date');
 
   // Auto-set institution for non-super admin users
   useEffect(() => {
@@ -393,9 +410,13 @@ export function BatchForm({
                           mode='single'
                           selected={field.value}
                           onSelect={field.onChange}
-                          disabled={(date) =>
-                            date < new Date('1900-01-01')
+                          defaultMonth={
+                            field.value ?? monthForYear(watchedBatchYear)
                           }
+                          captionLayout='dropdown-buttons'
+                          fromYear={CALENDAR_FROM_YEAR}
+                          toYear={CALENDAR_TO_YEAR}
+                          disabled={(date) => date < CALENDAR_MIN_DATE}
                           initialFocus
                         />
                       </PopoverContent>
@@ -438,9 +459,15 @@ export function BatchForm({
                           mode='single'
                           selected={field.value}
                           onSelect={field.onChange}
-                          disabled={(date) =>
-                            date < new Date('1900-01-01')
+                          defaultMonth={
+                            field.value ??
+                            watchedStartDate ??
+                            monthForYear(watchedBatchYear)
                           }
+                          captionLayout='dropdown-buttons'
+                          fromYear={CALENDAR_FROM_YEAR}
+                          toYear={CALENDAR_TO_YEAR}
+                          disabled={(date) => date < CALENDAR_MIN_DATE}
                           initialFocus
                         />
                       </PopoverContent>

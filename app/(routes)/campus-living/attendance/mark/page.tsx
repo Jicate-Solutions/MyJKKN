@@ -356,7 +356,7 @@ export default function MarkAttendancePage() {
   // trigger on hostel_attendance refuses them — so including them would only
   // produce a bulk action that silently marks fewer people than it selected.
   const visibleIds = useMemo(
-    () => filteredStudents.filter((s) => !s.feedback_hold).map((s) => s.id),
+    () => filteredStudents.filter((s) => !s.feedback_hold && !s.leave_cover).map((s) => s.id),
     [filteredStudents]
   );
 
@@ -741,7 +741,11 @@ export default function MarkAttendancePage() {
                         </h4>
                         <div className="space-y-2">
                           {room.students.map((resident) => {
-                            const status = attendance[resident.id];
+                            // Approved off-campus leave/OD covers this date: the row is
+                            // On Leave and read-only. The DB trigger enforces it; this
+                            // only stops the sheet offering buttons that cannot stick.
+                            const onLeave = !!resident.leave_cover;
+                            const status = onLeave ? 'on_leave' : attendance[resident.id];
                             return (
                               <Card key={resident.id} className={status ? 'border-l-4' : ''} style={{
                                 borderLeftColor: status === 'present' ? '#16a34a' : status === 'absent' ? '#dc2626' : status === 'on_leave' ? '#d97706' : status === 'late_entry' ? '#ea580c' : status === 'medical' ? '#9333ea' : undefined,
@@ -752,7 +756,7 @@ export default function MarkAttendancePage() {
                                       <Checkbox
                                         checked={selectedIds.has(resident.id)}
                                         onCheckedChange={() => toggleResident(resident.id)}
-                                        disabled={!!resident.feedback_hold}
+                                        disabled={!!resident.feedback_hold || onLeave}
                                         aria-label={`Select ${resident.profile?.full_name ?? 'resident'}`}
                                         className="h-5 w-5"
                                       />
@@ -793,7 +797,16 @@ export default function MarkAttendancePage() {
                                         refuse the write anyway, so offering
                                         the buttons would only produce a
                                         confusing failure. */}
-                                    {resident.feedback_hold ? (
+                                    {onLeave ? (
+                                      <div className="flex items-center gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-200">
+                                        <Clock className="h-4 w-4 shrink-0" />
+                                        <span>
+                                          {resident.leave_cover?.is_clinical
+                                            ? 'On clinical / hospital duty — marked On Leave automatically; Medical is not available.'
+                                            : 'On approved leave / OD — marked On Leave automatically.'}
+                                        </span>
+                                      </div>
+                                    ) : resident.feedback_hold ? (
                                       <div className="flex items-center gap-2 rounded-md border border-destructive/50 bg-destructive/5 px-3 py-2 text-xs text-destructive">
                                         <AlertTriangle className="h-4 w-4 shrink-0" />
                                         <span>
