@@ -182,8 +182,12 @@ export async function fanoutNotification(
  * partial fan-out on the idempotent-skip path — adds only the missing rows and
  * never errors on the ones already present. Throws on a real DB error so the
  * caller's existing try/catch still surfaces it.
+ *
+ * Exported for a caller that finds its notification by idempotency key without
+ * re-sending it (lib/hr/recruitment/harness-run.ts, releaseStaleClaims) and must
+ * still repair a partial fan-out, as the idempotent paths above do.
  */
-async function ensureLinks(
+export async function ensureLinks(
   supabase: SupabaseClient,
   notificationId: string,
   userIds: string[]
