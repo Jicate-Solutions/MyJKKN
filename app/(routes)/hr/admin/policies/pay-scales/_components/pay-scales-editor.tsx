@@ -5,7 +5,7 @@
 // (designation × qualification → basic_pay) plus a small "overrides + governance"
 // strip. Never shows raw JSONB.
 
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { ShieldAlert, Info, Save, Plus, Trash2 } from 'lucide-react';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
@@ -84,11 +84,15 @@ export function PayScalesEditor() {
   const [draft, setDraft] = useState<PayScalesValue>(EMPTY_VALUE);
   const [dirty, setDirty] = useState(false);
 
-  useEffect(() => {
-    if (!policyQ.data) return;
+  // Reset the draft whenever a freshly loaded row arrives (a new institution,
+  // or a refetch after save). Done while rendering rather than in an effect,
+  // so the stale draft is never painted first.
+  const [loadedData, setLoadedData] = useState<typeof policyQ.data>(undefined);
+  if (policyQ.data && policyQ.data !== loadedData) {
+    setLoadedData(policyQ.data);
     setDraft(policyQ.data.value ?? EMPTY_VALUE);
     setDirty(false);
-  }, [policyQ.data, institutionId]);
+  }
 
   const totalRows = draft.pay_matrix.length;
   const totalBasicPay = useMemo(
