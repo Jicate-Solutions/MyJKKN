@@ -30,7 +30,7 @@ export class ProcurementApprovalChainService {
       .from('procurement_categories')
       .select(
         `id, name, description, sort_order, is_active,
-         steps:procurement_category_approval_steps(id, stage, step_order, label, approver_kind, role_key, same_college, user_id,
+         steps:procurement_category_approval_steps(id, stage, institution_id, step_order, label, approver_kind, role_key, same_college, user_id,
            user:profiles!user_id(id, full_name, email))`
       )
       .order('sort_order')
@@ -61,8 +61,16 @@ export class ProcurementApprovalChainService {
     return data as ProcurementCategory;
   }
 
-  /** Replace one of a category's two lists (0–10 approvers, in the order given). */
-  static async saveSteps(categoryId: string, steps: CategoryStep[], stage: ApprovalStage = 'request'): Promise<void> {
+  /**
+   * Replace one of a category's two lists (0–10 approvers, in the order given) —
+   * for the default chain, or for one college's own chain when `institutionId` is set.
+   */
+  static async saveSteps(
+    categoryId: string,
+    steps: CategoryStep[],
+    stage: ApprovalStage = 'request',
+    institutionId: string | null = null
+  ): Promise<void> {
     const payload = steps.map((s) => ({
       label: s.label.trim(),
       approver_kind: s.approver_kind,
@@ -74,6 +82,7 @@ export class ProcurementApprovalChainService {
       p_category_id: categoryId,
       p_steps: payload,
       p_stage: stage,
+      p_institution_id: institutionId,
     });
     if (error) throw error;
   }
