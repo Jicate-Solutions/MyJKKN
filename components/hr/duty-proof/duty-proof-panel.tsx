@@ -54,7 +54,7 @@ export function DutyProofPanel({ duty, itemId }: { duty: DutyProofCode; itemId?:
 
   // Scoped to one item that already has its proof: say so, briefly.
   if (itemId && gaps.length === 0) {
-    const proof = data.proofs.find((p) => p.item_id === itemId && p.kind === kind);
+    const proof = data.proofs.find((p) => p.item_id === itemId && p.kind === kind && !p.revoked_at);
     if (!proof) return null; // not at the done step yet
     return (
       <p className="flex items-center gap-2 text-sm text-emerald-700 dark:text-emerald-400">

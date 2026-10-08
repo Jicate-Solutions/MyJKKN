@@ -56,7 +56,7 @@ export const DutyProofService = {
     if (itemIds.length === 0) return [];
     const { data, error } = await supabase
       .from('hr_duty_proofs')
-      .select('id, duty_code, item_id, kind, storage_path, file_name, recorded_by, recorded_at, check_result, corrected_amount, check_note')
+      .select('id, duty_code, item_id, kind, storage_path, file_name, recorded_by, recorded_at, check_result, corrected_amount, check_note, revoked_at')
       .eq('duty_code', duty)
       .in('item_id', itemIds)
       .is('revoked_at', null);
@@ -85,6 +85,7 @@ export const DutyProofService = {
       check_result: (r.check_result as DutyProof['check_result']) ?? null,
       corrected_amount: r.corrected_amount === null || r.corrected_amount === undefined ? null : Number(r.corrected_amount),
       check_note: (r.check_note as string | null) ?? null,
+      revoked_at: (r.revoked_at as string | null) ?? null,
     }));
   },
 

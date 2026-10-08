@@ -55,6 +55,8 @@ export interface DutyProof {
   check_result: DutyProofCheckResult | null;
   corrected_amount: number | null;
   check_note: string | null;
+  /** Set when a newer check replaced this one; a revoked row is history, never shown as the proof. */
+  revoked_at?: string | null;
 }
 
 /** A done item that still has no proof (fn_hr_duty_proof_gaps). */

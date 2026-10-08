@@ -15,7 +15,7 @@ export function DutyProofBadge({ duty, itemId }: { duty: DutyProofCode; itemId: 
   if (!data) return null;
 
   const kind = DUTY_PROOF_KIND[duty];
-  const proof = data.proofs.find((p) => p.item_id === itemId && p.kind === kind);
+  const proof = data.proofs.find((p) => p.item_id === itemId && p.kind === kind && !p.revoked_at);
   const when = proof ? new Date(proof.recorded_at).toLocaleDateString('en-IN') : '';
   const who = proof?.recorded_by_name || 'a team member';
   // The database lists an item as a gap while its proof is missing OR stale (a

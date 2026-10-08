@@ -167,3 +167,59 @@ describe('review fixes — the panel and the badge', () => {
     expect(screen.getByText('Second check needed again')).toBeTruthy();
   });
 });
+
+// A re-check marks the old second check revoked and adds a new one, so one
+// item can carry both. The revoked row is listed FIRST on purpose: a plain
+// find() would pick it.
+describe('review fixes — a revoked check is never shown as the proof', () => {
+  const revoked = {
+    id: 'p-old', duty_code: 'L4' as const, item_id: OTHER, kind: 'second_check' as const,
+    storage_path: null, file_name: null,
+    recorded_by: 'u3', recorded_by_name: 'Meena Ravi', recorded_at: '2026-10-04T10:00:00Z',
+    check_result: 'corrected' as const, corrected_amount: 6500, check_note: 'Rate should be the basic pay per day',
+    revoked_at: '2026-10-06T09:00:00Z',
+  };
+  const live = {
+    id: 'p-new', duty_code: 'L4' as const, item_id: OTHER, kind: 'second_check' as const,
+    storage_path: null, file_name: null,
+    recorded_by: 'u2', recorded_by_name: 'Arun Kumar', recorded_at: '2026-10-06T09:00:00Z',
+    check_result: 'confirmed' as const, corrected_amount: null, check_note: null,
+    revoked_at: null,
+  };
+
+  it('the badge names the live check, not the revoked one', () => {
+    response = { gaps: [], proofs: [revoked, live] };
+    render(<DutyProofBadge duty="L4" itemId={OTHER} />);
+    expect(screen.getByText('Checked by Arun Kumar')).toBeTruthy();
+    expect(screen.queryByText(/Meena Ravi/)).toBeNull();
+  });
+
+  it('the badge shows nothing when the only check is revoked', () => {
+    response = { gaps: [], proofs: [revoked] };
+    const { container } = render(<DutyProofBadge duty="L4" itemId={OTHER} />);
+    expect(container.innerHTML).toBe('');
+  });
+
+  it('the badge says "Second check needed", not "again", when the only check on a listed item is revoked', () => {
+    response = {
+      gaps: [{ item_id: OTHER, done_at: '2026-10-04T10:00:00Z', institution_id: 'i1', amount: 7200, caller_is_doer: false }],
+      proofs: [revoked],
+    };
+    render(<DutyProofBadge duty="L4" itemId={OTHER} />);
+    expect(screen.getByText('Second check needed')).toBeTruthy();
+    expect(screen.queryByText('Second check needed again')).toBeNull();
+  });
+
+  it('the panel for one item names the live check, not the revoked one', () => {
+    response = { gaps: [], proofs: [revoked, live] };
+    render(<DutyProofPanel duty="L4" itemId={OTHER} />);
+    expect(screen.getByText(/checked by Arun Kumar/)).toBeTruthy();
+    expect(screen.queryByText(/Meena Ravi/)).toBeNull();
+  });
+
+  it('the panel for one item shows nothing when the only check is revoked', () => {
+    response = { gaps: [], proofs: [revoked] };
+    const { container } = render(<DutyProofPanel duty="L4" itemId={OTHER} />);
+    expect(container.innerHTML).toBe('');
+  });
+});
