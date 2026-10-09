@@ -30,7 +30,7 @@
 //      notice — migration 20271010020000) skip this ticket: they never touch
 //      a ticket marked metadata.about_superior (set below), nor one that
 //      already has an assignee. The SLA escalation run skips the HOD and
-//      Principal for it too and goes straight to the Director level.
+//      Principal for it too and goes straight to level 3 (the Joint MD).
 //   3. The dashboard work-item generator (fn_generate_unresolved_*_items)
 //      targets COALESCE(assigned_to, the institution's Director) — never the
 //      filer's department head. Tickets from this route also carry no

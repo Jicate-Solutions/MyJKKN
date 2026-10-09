@@ -25,7 +25,7 @@ DECLARE v_q text; v_ids uuid[];
 BEGIN
   SELECT substring(prosrc from 'grievance AS \((.*?)\n  \),') INTO v_q FROM pg_proc WHERE proname = 'fn_my_desk_waiting';
   IF v_q IS NULL THEN RAISE EXCEPTION 'FAIL: the grievance branch of fn_my_desk_waiting was not found'; END IF;
-  PERFORM set_config('request.jwt.claim.sub', p_uid::text, true);
+  PERFORM set_config('request.jwt.claim.sub', COALESCE(p_uid::text, ''), true);   -- NULL = nobody signed in
   EXECUTE 'SELECT COALESCE(array_agg(item_id), ''{}'') FROM (' || replace(v_q, 'v_is_super', 'true') || ') s' INTO v_ids;
   PERFORM set_config('request.jwt.claim.sub', '', true);
   RETURN v_ids;
@@ -164,18 +164,25 @@ SELECT t_ok(:anon_t = 0 AND :anon_c = 0 AND :anon_h = 0,
             'anon reads tickets, comments and history without an error and sees nothing, as before');
 
 -- My Desk (SECURITY DEFINER, skips row-level security): the real body, patched
-SELECT t_ok((SELECT prosrc LIKE '%fn_grievance_jmd_hidden_scope%' FROM pg_proc WHERE proname = 'fn_my_desk_waiting'),
+SELECT t_ok((SELECT prosrc LIKE '%fn_grievance_jmd_hidden_for%' FROM pg_proc WHERE proname = 'fn_my_desk_waiting'),
             'the real fn_my_desk_waiting body was patched in place');
 SELECT t_ok(NOT (t_desk_grievance_ids('a0000000-0000-0000-0000-000000000001') && ARRAY[(tk('J1-held')).id, (tk('J1b-held-named-jmd')).id, (tk('J3-policy-names-jmd')).id]),
             'My Desk: no held complaint about the Joint MD on the Joint MD''s desk');
--- THE SWITCH (round 3; recommended option, the default): left out for everyone
+-- THE SWITCH (round 3; recommended option, the default): left out for everyone but the Director
 SELECT t_ok(fn_grievance_jmd_hide_from_everyone(), 'the switch is seeded to the recommended option: hidden from everyone');
+-- Round 4 (H1): the configured Director ALWAYS has the held ones on his desk
+SELECT t_ok(t_desk_grievance_ids('a0000000-0000-0000-0000-00000000000e') @> ARRAY[(tk('J1-held')).id, (tk('J1b-held-named-jmd')).id, (tk('J3-policy-names-jmd')).id],
+            'My Desk, recommended option: every held complaint about the Joint MD IS on the Director''s desk');
 SELECT t_ok(NOT (t_desk_grievance_ids('a0000000-0000-0000-0000-00000000000f') && ARRAY[(tk('J1-held')).id, (tk('J1b-held-named-jmd')).id, (tk('J3-policy-names-jmd')).id]),
             'My Desk, recommended option: not on another super admin''s desk either');
 -- the other option: one row flips every patched reader
 UPDATE platform_policies SET value = 'false' WHERE policy_key = 'grievance.about_joint_md.hide_from_everyone' AND scope_type = 'global';
 SELECT t_ok(t_desk_grievance_ids('a0000000-0000-0000-0000-00000000000f') @> ARRAY[(tk('J1-held')).id, (tk('J1b-held-named-jmd')).id, (tk('J3-policy-names-jmd')).id],
             'My Desk, other option: every held one IS on another super admin''s desk');
+SELECT t_ok(t_desk_grievance_ids('a0000000-0000-0000-0000-00000000000e') @> ARRAY[(tk('J1-held')).id, (tk('J1b-held-named-jmd')).id, (tk('J3-policy-names-jmd')).id],
+            'My Desk, other option: and on the Director''s');
+SELECT t_ok(NOT (t_desk_grievance_ids(NULL) && ARRAY[(tk('J1-held')).id, (tk('J1b-held-named-jmd')).id, (tk('J3-policy-names-jmd')).id]),
+            'My Desk, other option: nobody signed in = hidden (fail closed)');
 SELECT t_ok(NOT (t_desk_grievance_ids('a0000000-0000-0000-0000-000000000001') && ARRAY[(tk('J1-held')).id, (tk('J1b-held-named-jmd')).id, (tk('J3-policy-names-jmd')).id]),
             'My Desk, other option: still never on the Joint MD''s');
 UPDATE platform_policies SET value = 'true' WHERE policy_key = 'grievance.about_joint_md.hide_from_everyone' AND scope_type = 'global';
@@ -479,6 +486,10 @@ SELECT t_ok(:all_open > :plain_open AND :all_breached > :plain_breached AND :all
             || :plain_open || '/' || :all_open || ', breached ' || :plain_breached || '/' || :all_breached);
 SELECT set_config('request.jwt.claim.sub', 'a0000000-0000-0000-0000-00000000000f', false);   -- a super admin, not the Joint MD
 CREATE TEMP TABLE sla_on AS SELECT get_grievance_sla_stats('10000000-0000-0000-0000-000000000001')::jsonb AS j;
+SELECT set_config('request.jwt.claim.sub', 'a0000000-0000-0000-0000-00000000000e', false);   -- the Director
+SELECT t_ok((get_grievance_sla_stats('10000000-0000-0000-0000-000000000001')::jsonb ->> 'total_open')::int = :all_open,
+            'recommended option: the Director''s own SLA counts DO include them');
+SELECT set_config('request.jwt.claim.sub', 'a0000000-0000-0000-0000-00000000000f', false);
 SELECT t_ok((SELECT (j ->> 'total_open')::int = :plain_open AND (j ->> 'sla_breached')::int = :plain_breached
                     AND (j ->> 'avg_satisfaction')::numeric = :plain_sat FROM sla_on),
             'SLA stats, recommended option: total_open, sla_breached and avg_satisfaction leave them out for everyone: '
@@ -492,6 +503,19 @@ SELECT t_ok((fn_dashboard_metrics('10000000-0000-0000-0000-000000000001') ->> 'e
             > (SELECT count(*) FROM grievance_tickets WHERE NOT about_joint_md AND status NOT IN ('resolved', 'closed', 'cancelled')
                  AND sla_deadline < now() AND institution_id = '10000000-0000-0000-0000-000000000001'),
             'dashboard, other option: another super admin counts them too (one switch for every reader)');
+-- Round 4 (M3): fail closed — nobody signed in, or a stored score
+SELECT set_config('request.jwt.claim.sub', '', false);
+SELECT t_ok((fn_dashboard_metrics('10000000-0000-0000-0000-000000000001') ->> 'escalations_open')::int
+            = (SELECT count(*) FROM grievance_tickets WHERE NOT about_joint_md AND status NOT IN ('resolved', 'closed', 'cancelled')
+                 AND sla_deadline < now() AND institution_id = '10000000-0000-0000-0000-000000000001'),
+            'other option, nobody signed in: left out (fail closed)');
+SELECT t_ok((get_grievance_sla_stats('10000000-0000-0000-0000-000000000001')::jsonb ->> 'total_open')::int = :plain_open,
+            'other option, nobody signed in: SLA stats leave them out too');
+SELECT set_config('request.jwt.claim.sub', 'a0000000-0000-0000-0000-00000000000f', false);
+SELECT t_ok((fn_compute_ohs_for_institution('10000000-0000-0000-0000-000000000001') ->> 'escalations_open')::int
+            = (SELECT count(*) FROM grievance_tickets WHERE NOT about_joint_md AND status NOT IN ('resolved', 'closed', 'cancelled')
+                 AND sla_deadline IS NOT NULL AND sla_deadline < now() AND institution_id = '10000000-0000-0000-0000-000000000001'),
+            'other option: a stored leaderboard score leaves them out even for a signed-in super admin');
 SELECT set_config('request.jwt.claim.sub', 'a0000000-0000-0000-0000-000000000001', false);   -- the Joint MD
 SELECT t_ok((get_grievance_sla_stats('10000000-0000-0000-0000-000000000001')::jsonb ->> 'total_open')::int = :plain_open
             AND (get_grievance_sla_stats('10000000-0000-0000-0000-000000000001')::jsonb ->> 'sla_breached')::int = :plain_breached,
@@ -525,6 +549,50 @@ SELECT t_ok((tk('M5-hand-moved')).escalation_level = 3 AND (tk('M5-hand-moved'))
             || COALESCE(((tk('M5-hand-moved')).metadata -> 'escalations')::text, 'null'));
 SELECT t_ok(NOT EXISTS (SELECT 1 FROM jsonb_array_elements((tk('M5-hand-moved')).metadata -> 'escalations') e
                         WHERE e ->> 'to' = 'a0000000-0000-0000-0000-000000000003'), 'no step pointed back at the HOD');
+
+-- ------------------------------------------------ 6c. one bad row never stops the run (round 4, M5)
+-- A trigger refuses some writes to some tickets, the way a legacy row failing
+-- a NOT VALID check would. The run must stamp and escalate everything else,
+-- record each failure on its ticket, count it in `failed`, and list no detail
+-- of a complaint about the Joint MD. Rolled back.
+BEGIN;
+CREATE FUNCTION t_boom() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+  IF NEW.subject = 'M5b-boom' AND NEW.escalation_level IS DISTINCT FROM OLD.escalation_level THEN
+    RAISE EXCEPTION 'boom: this ticket refuses to move';
+  END IF;
+  IF NEW.subject IN ('M5b-boom-all', 'M5b-boom-jmd') THEN
+    RAISE EXCEPTION 'boom: this ticket refuses every write';
+  END IF;
+  RETURN NEW;
+END $$;
+INSERT INTO grievance_tickets (institution_id, category_id, subject, description, raised_by_id, sla_deadline, about_joint_md) VALUES
+  ('10000000-0000-0000-0000-000000000001', 'c0000000-0000-0000-0000-000000000002', 'M5b-ok',       'an ordinary overdue one', 'a0000000-0000-0000-0000-000000000007', now() - interval '1 hour', false),
+  ('10000000-0000-0000-0000-000000000001', 'c0000000-0000-0000-0000-000000000002', 'M5b-boom',     'cannot be moved',         'a0000000-0000-0000-0000-000000000007', now() - interval '1 hour', false),
+  ('10000000-0000-0000-0000-000000000001', 'c0000000-0000-0000-0000-000000000002', 'M5b-boom-all', 'cannot be written',       'a0000000-0000-0000-0000-000000000007', now() - interval '1 hour', false),
+  ('10000000-0000-0000-0000-000000000001', 'c0000000-0000-0000-0000-000000000002', 'M5b-boom-jmd', 'about the joint md, cannot be written', 'a0000000-0000-0000-0000-000000000007', now() - interval '1 hour', true);
+CREATE TRIGGER t_boom BEFORE UPDATE ON grievance_tickets FOR EACH ROW EXECUTE FUNCTION t_boom();
+CREATE TEMP TABLE m5run AS SELECT fn_grievance_escalation_tick(false) r;
+SELECT t_ok((SELECT (r ->> 'success')::boolean FROM m5run), 'the run completes despite the bad rows: ' || (SELECT r::text FROM m5run));
+SELECT t_ok((tk('M5b-ok')).sla_breached_at IS NOT NULL AND (tk('M5b-ok')).escalation_level = 3,
+            'the ordinary one is still stamped and escalated');
+SELECT t_ok((tk('M5b-boom')).sla_breached_at IS NOT NULL AND (tk('M5b-boom')).escalation_level = 0
+            AND (tk('M5b-boom')).metadata -> 'escalation_error' ->> 'step' = 'escalation'
+            AND (tk('M5b-boom')).metadata -> 'escalation_error' ->> 'error' LIKE 'boom%',
+            'the one that refused to move is stamped, left where it was, and the failure is on it: '
+            || COALESCE(((tk('M5b-boom')).metadata -> 'escalation_error')::text, 'null'));
+SELECT t_ok((tk('M5b-boom-all')).sla_breached_at IS NULL, 'a ticket that refuses every write is skipped, not the whole stamp');
+SELECT t_ok((SELECT (r ->> 'failed')::int FROM m5run) = 4,
+            'failed counts every failure, the complaint about the Joint MD included: '
+            || (SELECT r ->> 'failed' FROM m5run) || ' (move, stamp + move, stamp)');
+SELECT t_ok(EXISTS (SELECT 1 FROM jsonb_array_elements((SELECT r -> 'tickets' FROM m5run)) e
+                    WHERE e ->> 'ticket' = (tk('M5b-boom')).ticket_number AND e ->> 'outcome' = 'failed' AND e ->> 'error' LIKE 'boom%'),
+            'an ordinary failure is listed with its error');
+SELECT t_ok(NOT EXISTS (SELECT 1 FROM jsonb_array_elements((SELECT r -> 'tickets' FROM m5run)) e
+                        WHERE e ->> 'ticket' = (tk('M5b-boom-jmd')).ticket_number)
+            AND (SELECT r::text FROM m5run) NOT LIKE '%M5b-boom-jmd%',
+            'the complaint about the Joint MD that failed is not listed, and no detail of it is in the answer');
+ROLLBACK;
 
 -- ------------------------------------------------ 7. across everything: never the Joint MD while ticked
 SELECT t_ok(NOT EXISTS (SELECT 1 FROM grievance_tickets WHERE about_joint_md AND assigned_to = 'a0000000-0000-0000-0000-000000000001'),

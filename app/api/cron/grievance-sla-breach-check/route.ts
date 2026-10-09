@@ -110,6 +110,8 @@ interface EscalationTickResult {
   levels_skipped?: number;
   at_ceiling?: number;
   switched_off?: number;
+  /** Tickets the run could not process (each recorded on its ticket); the run carried on. */
+  failed?: number;
   /**
    * Whether a usable Director is named for complaints about the Joint MD. A
    * fact about configuration, never about tickets: this route's JSON, status
@@ -164,6 +166,7 @@ export async function GET(request: NextRequest) {
     levels_skipped: Number(result.levels_skipped ?? 0),
     at_ceiling: Number(result.at_ceiling ?? 0),
     switched_off: Number(result.switched_off ?? 0),
+    failed: Number(result.failed ?? 0),
   };
   const routingNotConfigured = result.about_joint_md_routing_configured === false;
 
@@ -172,11 +175,12 @@ export async function GET(request: NextRequest) {
     `marked breached ${counters.breached}, no one to escalate to ${counters.skipped_no_target}, ` +
     `at the top level ${counters.at_ceiling}` +
     (counters.notify_failed > 0 ? `, ${counters.notify_failed} notice(s) FAILED to send` : '') +
+    (counters.failed > 0 ? `, ${counters.failed} ticket(s) could not be processed (see each ticket's escalation_error)` : '') +
     (result.enabled === false ? ' (escalation switched off)' : '');
 
   // A ticket nobody can take, or a notice that did not send, is something a
   // person must fix — say it loudly.
-  if (counters.skipped_no_target > 0 || counters.notify_failed > 0) {
+  if (counters.skipped_no_target > 0 || counters.notify_failed > 0 || counters.failed > 0) {
     logger.warn('grievance/cron/escalation', summary, { ...counters, tickets: result.tickets });
   } else {
     logger.info('grievance/cron/escalation', summary, counters);

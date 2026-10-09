@@ -184,6 +184,19 @@ describe('what the run does and reports', () => {
   });
 });
 
+describe('tickets the run could not process (round 4, M5)', () => {
+  it('a 200 that says so loudly, with the count at the top level', async () => {
+    warn.mockClear();
+    rpcData = { ...(rpcData as object), failed: 2 };
+    const res = await GET(request({ bearer: SECRET }));
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.failed).toBe(2);
+    expect(body.summary).toContain('2 ticket(s) could not be processed');
+    expect(warn).toHaveBeenCalled();
+  });
+});
+
 describe('about-Joint-MD routing not configured (round 3, M3)', () => {
   it('one generic warning, with no number, and nothing in the JSON or the status line', async () => {
     warn.mockClear();
