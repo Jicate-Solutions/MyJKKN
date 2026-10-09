@@ -14,7 +14,7 @@ const GRADES: Array<{ key: string; re: RegExp }> = [
   { key: 'GR', re: /\b(gr|g\.r\.|guaranteed\s+reagent)\b/i },
   { key: 'EP', re: /\b(ep|extra\s+pure)\b/i },
   // "Lab reagent" grade, written out in full or short.
-  { key: 'LR', re: /\b(lr|l\.r\.|lab(?:oratory)?\s+reagent)\b/i },
+  { key: 'LR', re: /\b(lr|l\.r\.|l(?:ab(?:oratory)?)\s+reagent)\b/i },
   { key: 'IP', re: /\b(ip|bp|usp)\b/i },
   { key: 'Commercial', re: /\b(commercial|technical|tech\.?)\s*(grade)?\b/i },
 ];
