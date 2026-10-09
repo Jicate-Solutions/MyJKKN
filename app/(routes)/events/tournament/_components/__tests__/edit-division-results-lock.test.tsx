@@ -8,7 +8,7 @@ import { render, screen, cleanup, fireEvent, waitFor } from '@testing-library/re
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-const state = vi.hoisted(() => ({ matches: [] as any[], heats: [] as any[] }));
+const state = vi.hoisted(() => ({ matches: [] as any[], heats: [] as any[], superAdmin: false }));
 const calls = vi.hoisted(() => ({ order: [] as string[], divisionFails: false }));
 
 vi.mock('react-hot-toast', () => ({ default: { success: vi.fn(), error: vi.fn() } }));
@@ -60,6 +60,9 @@ vi.mock('@/hooks/events/use-tournament-fixtures', () => ({
   useTournamentMatches: () => ({ data: state.matches }),
   useTournamentHeats: () => ({ data: state.heats }),
 }));
+vi.mock('@/hooks/use-permissions', () => ({
+  usePermissions: () => ({ isSuperAdmin: state.superAdmin }),
+}));
 vi.mock('@/hooks/organization/use-institutions-with-access', () => ({
   useInstitutionsWithAccess: () => ({ institutions: [], loading: false }),
 }));
@@ -93,6 +96,7 @@ afterEach(() => {
   cleanup();
   state.matches = [];
   state.heats = [];
+  state.superAdmin = false;
   calls.order = [];
   calls.divisionFails = false;
 });
@@ -119,6 +123,35 @@ describe('Edit dialog — division with recorded results', () => {
     expect(isDisabled('Sport')).toBe(false);
     expect(isDisabled('Format')).toBe(false);
     expect(screen.queryByText(/already has recorded results/)).toBeNull();
+  });
+});
+
+describe('Edit dialog — super admin override (Director ruling, 9 Oct 2026)', () => {
+  const OVERRIDE_NOTE = /You can change it as super admin; the change is recorded/;
+
+  it('keeps the controls enabled for a super admin and warns that the change is recorded', () => {
+    state.superAdmin = true;
+    state.matches = [{ id: 'm1', division_id: 'd-chess', status: 'completed' }];
+    renderDialog();
+    expect(isDisabled('Sport')).toBe(false);
+    expect(isDisabled('Category')).toBe(false);
+    expect(isDisabled('Format')).toBe(false);
+    expect(screen.getByText(OVERRIDE_NOTE)).toBeTruthy();
+    expect(screen.queryByText(/already has recorded results/)).toBeNull();
+  });
+
+  it('keeps them locked for an organiser, without the super admin warning', () => {
+    state.matches = [{ id: 'm1', division_id: 'd-chess', status: 'completed' }];
+    renderDialog();
+    expect(isDisabled('Sport')).toBe(true);
+    expect(screen.queryByText(OVERRIDE_NOTE)).toBeNull();
+  });
+
+  it('shows no warning to a super admin when there are no results', () => {
+    state.superAdmin = true;
+    renderDialog();
+    expect(isDisabled('Sport')).toBe(false);
+    expect(screen.queryByText(OVERRIDE_NOTE)).toBeNull();
   });
 });
 
@@ -212,5 +245,13 @@ describe('Database guard — trg_tournament_division_results_lock', () => {
     expect(g).toContain(
       'BEFORE INSERT OR UPDATE ON public.tournament_heat_entries FOR EACH ROW EXECUTE FUNCTION public.fn_tournament_result_lock_division()'
     );
+  });
+
+  it('lets a super admin through and records who, when and old/new values', () => {
+    const g = norm(guard);
+    expect(g).toContain('IF COALESCE(public.is_super_admin(), false) THEN INSERT INTO tournament_division_lock_overrides');
+    expect(g).toContain('(OLD.id, OLD.event_id, auth.uid(), now(), OLD.sport, NEW.sport, OLD.gender, NEW.gender, OLD.format, NEW.format)');
+    expect(g).toContain('ALTER TABLE public.tournament_division_lock_overrides ENABLE ROW LEVEL SECURITY');
+    expect(g).toContain('REVOKE ALL ON public.tournament_division_lock_overrides FROM PUBLIC, anon, authenticated');
   });
 });

@@ -35,14 +35,25 @@ const DBNAME = `div_results_lock_${randomUUID().replace(/-/g, '').slice(0, 16)}`
 
 const CHESS = '00000000-0000-4000-8000-0000000000a1';
 const RUN400 = '00000000-0000-4000-8000-0000000000a2';
+const EVENT = '00000000-0000-4000-8000-0000000000e1';
+const ADMIN_UID = '00000000-0000-4000-8000-0000000000f1';
+const ORGANISER_UID = '00000000-0000-4000-8000-0000000000f2';
 
 /** Only the columns the migration reads or the tests write. */
 const SCHEMA = `
 DO $$ BEGIN CREATE ROLE anon NOLOGIN;          EXCEPTION WHEN duplicate_object OR unique_violation THEN NULL; END $$;
 DO $$ BEGIN CREATE ROLE authenticated NOLOGIN; EXCEPTION WHEN duplicate_object OR unique_violation THEN NULL; END $$;
 
+-- The production helpers, driven by per-session settings (who is calling).
+CREATE SCHEMA IF NOT EXISTS auth;
+CREATE FUNCTION auth.uid() RETURNS uuid LANGUAGE sql STABLE AS $$
+  SELECT nullif(current_setting('test.uid', true), '')::uuid $$;
+CREATE FUNCTION public.is_super_admin() RETURNS boolean LANGUAGE sql STABLE AS $$
+  SELECT coalesce(nullif(current_setting('test.super', true), '')::boolean, false) $$;
+
 CREATE TABLE public.tournament_divisions (
   id        uuid PRIMARY KEY,
+  event_id  uuid NOT NULL,
   sport     text NOT NULL,
   gender    text,
   format    text NOT NULL DEFAULT 'knockout',
@@ -63,10 +74,11 @@ CREATE TABLE public.tournament_heat_entries (
 `;
 
 const FIXTURE = `
-TRUNCATE public.tournament_heat_entries, public.tournament_matches, public.tournament_divisions;
-INSERT INTO public.tournament_divisions (id, sport, gender, format, level) VALUES
-  ('${CHESS}',  'Chess',             'female', 'knockout', 'intra_college'),
-  ('${RUN400}', 'Athletics - 400 m', 'female', 'heats',    'intra_college');
+TRUNCATE public.tournament_division_lock_overrides, public.tournament_heat_entries,
+         public.tournament_matches, public.tournament_divisions;
+INSERT INTO public.tournament_divisions (id, event_id, sport, gender, format, level) VALUES
+  ('${CHESS}',  '${EVENT}', 'Chess',             'female', 'knockout', 'intra_college'),
+  ('${RUN400}', '${EVENT}', 'Athletics - 400 m', 'female', 'heats',    'intra_college');
 `;
 
 const LOCKED = /already has recorded results/;
@@ -115,8 +127,26 @@ afterAll(async () => {
   }
 });
 
+/** Act as this caller for the rest of the session on `db`. */
+const actAs = (uid: string, superAdmin: boolean) =>
+  db.query(`SELECT set_config('test.uid', $1, false), set_config('test.super', $2, false)`, [
+    uid,
+    String(superAdmin),
+  ]);
+
+const overrides = async () =>
+  (
+    await db.query(
+      `SELECT division_id, event_id, changed_by, old_sport, new_sport, old_gender, new_gender,
+              old_format, new_format, changed_at IS NOT NULL AS stamped
+         FROM public.tournament_division_lock_overrides`
+    )
+  ).rows;
+
 beforeEach(async () => {
   await db.query(FIXTURE);
+  // Default caller: an organiser who is not a super admin.
+  await actAs(ORGANISER_UID, false);
 });
 
 describe('trg_tournament_division_results_lock', () => {
@@ -204,5 +234,60 @@ describe('trg_tournament_division_results_lock', () => {
       await recorder.end();
       await editor.end();
     }
+  });
+
+});
+
+describe('super admin override (Director ruling, 9 Oct 2026)', () => {
+  it('lets a super admin change the sport and records exactly one override row', async () => {
+    await db.query(
+      `INSERT INTO public.tournament_matches (division_id, status) VALUES ('${CHESS}', 'completed')`
+    );
+    await actAs(ADMIN_UID, true);
+    expect(
+      await attempt(
+        db,
+        `UPDATE public.tournament_divisions SET sport = 'Carrom' WHERE id = '${CHESS}'`
+      )
+    ).toBeNull();
+    expect(await overrides()).toEqual([
+      {
+        division_id: CHESS,
+        event_id: EVENT,
+        changed_by: ADMIN_UID,
+        old_sport: 'Chess',
+        new_sport: 'Carrom',
+        old_gender: 'female',
+        new_gender: 'female',
+        old_format: 'knockout',
+        new_format: 'knockout',
+        stamped: true,
+      },
+    ]);
+  });
+
+  it('refuses an organiser and writes no override row', async () => {
+    await db.query(
+      `INSERT INTO public.tournament_matches (division_id, status) VALUES ('${CHESS}', 'completed')`
+    );
+    await actAs(ORGANISER_UID, false);
+    expect(
+      await attempt(
+        db,
+        `UPDATE public.tournament_divisions SET sport = 'Carrom' WHERE id = '${CHESS}'`
+      )
+    ).toMatch(LOCKED);
+    expect(await overrides()).toEqual([]);
+  });
+
+  it('writes no override row for a super admin edit on a division without results', async () => {
+    await actAs(ADMIN_UID, true);
+    expect(
+      await attempt(
+        db,
+        `UPDATE public.tournament_divisions SET sport = 'Carrom' WHERE id = '${CHESS}'`
+      )
+    ).toBeNull();
+    expect(await overrides()).toEqual([]);
   });
 });

@@ -66,6 +66,7 @@ import {
 import { useTournamentEntries } from '@/hooks/events/use-tournament-registrations';
 import { useTournamentMatches, useTournamentHeats } from '@/hooks/events/use-tournament-fixtures';
 import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
+import { usePermissions } from '@/hooks/use-permissions';
 import { HostInstitutionsPicker, hostInstitutionsDto } from './host-institutions-picker';
 import { NaacCriteriaField } from '@/components/events/shared/naac-criteria-field';
 
@@ -127,6 +128,7 @@ function DivisionFields({
   onEdit,
   onEditConfig,
   resultsLocked = false,
+  resultsOverride = false,
 }: {
   division: TournamentDivision;
   edits: UpdateDivisionDto;
@@ -134,6 +136,8 @@ function DivisionFields({
   onEditConfig: (patch: Record<string, unknown>) => void;
   /** Results are recorded: sport, category and format can no longer change. */
   resultsLocked?: boolean;
+  /** Results are recorded but the caller is a super admin: editable, with a warning. */
+  resultsOverride?: boolean;
 }) {
   const sport = (edits.sport ?? division.sport) || '';
   // Keep a legacy/renamed sport selectable even if it left the catalog.
@@ -153,6 +157,11 @@ function DivisionFields({
         <p className="text-xs text-muted-foreground">
           This division already has recorded results, so its sport, category and format are
           fixed. Use Add sport below to create a new division instead.
+        </p>
+      )}
+      {resultsOverride && (
+        <p className="text-xs text-amber-700 dark:text-amber-400">
+          This division has results. You can change it as super admin; the change is recorded.
         </p>
       )}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -320,6 +329,9 @@ function EditTournamentForm({
   const { data: matches } = useTournamentMatches(tournament.id);
   // Heats divisions (athletics, swimming) keep results per athlete instead.
   const { data: heats } = useTournamentHeats(tournament.id);
+  // Director ruling (9 Oct 2026): a super admin may still change them, and the
+  // database records each such override.
+  const { isSuperAdmin } = usePermissions();
 
   // Director decision (2026-09-07): an event's college may still be changed
   // while it is a DRAFT, and is fixed once it leaves draft. Before publication
@@ -845,7 +857,8 @@ function EditTournamentForm({
               edits={divisionEdits}
               onEdit={setDivision}
               onEditConfig={setDivisionConfig}
-              resultsLocked={selectedHasResults}
+              resultsLocked={selectedHasResults && !isSuperAdmin}
+              resultsOverride={selectedHasResults && !!isSuperAdmin}
             />
           ) : (
             <>

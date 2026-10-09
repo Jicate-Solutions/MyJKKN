@@ -14,6 +14,38 @@
 --
 -- No data is changed. Other division fields (level, age band, entry fee,
 -- max teams, config) stay editable.
+--
+-- Director ruling (9 Oct 2026, honest mistakes): a SUPER ADMIN may still make
+-- the change, and every such override is recorded (who, when, old and new
+-- values) in tournament_division_lock_overrides. Nobody else can.
+
+-- ── override record ─────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS public.tournament_division_lock_overrides (
+  id          uuid        PRIMARY KEY DEFAULT gen_random_uuid(),
+  division_id uuid        NOT NULL REFERENCES public.tournament_divisions(id) ON DELETE CASCADE,
+  event_id    uuid        NOT NULL,
+  changed_by  uuid,
+  changed_at  timestamptz NOT NULL DEFAULT now(),
+  old_sport   text,
+  new_sport   text,
+  old_gender  text,
+  new_gender  text,
+  old_format  text,
+  new_format  text
+);
+CREATE INDEX IF NOT EXISTS idx_tournament_division_lock_overrides_division
+  ON public.tournament_division_lock_overrides(division_id);
+
+ALTER TABLE public.tournament_division_lock_overrides ENABLE ROW LEVEL SECURITY;
+-- Written only by the trigger below (as definer); read by super admins only.
+REVOKE ALL ON public.tournament_division_lock_overrides FROM PUBLIC, anon, authenticated;
+GRANT SELECT ON public.tournament_division_lock_overrides TO authenticated;
+DROP POLICY IF EXISTS tournament_division_lock_overrides_select
+  ON public.tournament_division_lock_overrides;
+CREATE POLICY tournament_division_lock_overrides_select
+  ON public.tournament_division_lock_overrides
+  FOR SELECT TO authenticated
+  USING (COALESCE(public.is_super_admin(), false));
 
 CREATE OR REPLACE FUNCTION public.fn_tournament_division_results_lock()
 RETURNS trigger
@@ -33,6 +65,17 @@ BEGIN
                       WHERE division_id = OLD.id
                         AND (position IS NOT NULL OR mark_value IS NOT NULL
                              OR result_status <> 'ok'))) THEN
+    -- auth.uid() / is_super_admin() still describe the caller inside a
+    -- SECURITY DEFINER trigger (they read the request's JWT claims).
+    IF COALESCE(public.is_super_admin(), false) THEN
+      INSERT INTO tournament_division_lock_overrides
+        (division_id, event_id, changed_by, changed_at,
+         old_sport, new_sport, old_gender, new_gender, old_format, new_format)
+      VALUES
+        (OLD.id, OLD.event_id, auth.uid(), now(),
+         OLD.sport, NEW.sport, OLD.gender, NEW.gender, OLD.format, NEW.format);
+      RETURN NEW;
+    END IF;
     RAISE EXCEPTION 'This division already has recorded results; its sport, category or format cannot change. Add a new division instead.'
       USING ERRCODE = 'check_violation';
   END IF;
