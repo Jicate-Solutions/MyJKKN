@@ -61,12 +61,15 @@ export function PayScalesEditor() {
     HR_COMPENSATION_KEYS.PAY_SCALES,
     institutionId
   );
+  // The updated_at of the row the draft was seeded from; the save is locked to it.
+  const [baseUpdatedAt, setBaseUpdatedAt] = useState<string | null>(null);
   const updateM = useUpdateCompensationPolicy<PayScalesValue>(
     HR_COMPENSATION_KEYS.PAY_SCALES,
     institutionId,
-    // Lock the save to the row as loaded: a second person's Save must not
-    // silently replace the first one's ladders or matrix.
-    policyQ.data?.exists ? { expectedUpdatedAt: policyQ.data.updatedAt } : undefined
+    // Lock the save to the row the draft was loaded from (baseUpdatedAt, not
+    // the latest fetch): a second person's Save must not silently replace the
+    // first one's ladders or matrix.
+    policyQ.data?.exists ? { expectedUpdatedAt: baseUpdatedAt } : undefined
   );
 
   const referenceQ = useQuery({
@@ -87,14 +90,19 @@ export function PayScalesEditor() {
   const [draft, setDraft] = useState<PayScalesValue>(EMPTY_VALUE);
   const [dirty, setDirty] = useState(false);
 
-  // Reset the draft whenever a freshly loaded row arrives (a new institution,
-  // or a refetch after save). Done while rendering rather than in an effect,
-  // so the stale draft is never painted first.
+  // Seed the draft whenever a freshly loaded row arrives (a new institution,
+  // or a refetch after save), but never while there are unsaved changes: a
+  // background refetch (window focus) must not wipe what someone is typing.
+  // The institution picker is disabled while dirty, so a skipped refetch is
+  // always for the same college. Done while rendering rather than in an
+  // effect, so the stale draft is never painted first.
   const [loadedData, setLoadedData] = useState<typeof policyQ.data>(undefined);
   if (policyQ.data && policyQ.data !== loadedData) {
     setLoadedData(policyQ.data);
-    setDraft(policyQ.data.value ?? EMPTY_VALUE);
-    setDirty(false);
+    if (!dirty) {
+      setDraft(policyQ.data.value ?? EMPTY_VALUE);
+      setBaseUpdatedAt(policyQ.data.updatedAt);
+    }
   }
 
   const totalRows = draft.pay_matrix.length;
@@ -155,7 +163,12 @@ export function PayScalesEditor() {
   };
 
   const handleSave = () => {
-    updateM.mutate(draft, { onSuccess: () => setDirty(false) });
+    updateM.mutate(draft, {
+      onSuccess: ({ updatedAt }) => {
+        setDirty(false);
+        setBaseUpdatedAt(updatedAt);
+      },
+    });
   };
 
   const isLoading = policyQ.isLoading;
