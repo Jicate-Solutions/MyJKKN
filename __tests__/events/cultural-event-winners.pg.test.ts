@@ -72,7 +72,7 @@ CREATE FUNCTION public.fn_is_event_incharge(p_event_id uuid) RETURNS boolean LAN
   SELECT COALESCE(current_setting('test.incharge_event', true), '') = p_event_id::text;
 $$;
 GRANT USAGE ON SCHEMA public, auth TO anon, authenticated, service_role;
-GRANT SELECT, INSERT, UPDATE ON public.events_registrations TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.events_registrations TO authenticated;
 GRANT SELECT ON public.events TO authenticated;
 `;
 
@@ -507,6 +507,94 @@ describe('review round 3 (#4311)', () => {
       { event_id: ids.event, old_rank: 3, new_rank: null },
       { event_id: other, old_rank: null, new_rank: 3 },
     ]);
+  });
+});
+
+describe('review round 4 (#4311)', () => {
+  async function placed(rank = 1) {
+    await reset();
+    await asOwner();
+    await q(`DELETE FROM public.event_winner_rank_changes`);
+    const row = (await q(`INSERT INTO public.events_registrations (event_id) VALUES ($1) RETURNING id`, [ids.event]))[0].id;
+    await q(`UPDATE public.events_registrations SET final_rank = $2 WHERE id = $1`, [row, rank]);
+    await q(`DELETE FROM public.event_winner_rank_changes`);
+    return row;
+  }
+  async function history(row: string) {
+    await asOwner();
+    return q(
+      `SELECT event_id, form_id, old_rank, new_rank, changed_by FROM public.event_winner_rank_changes
+        WHERE registration_id = $1 ORDER BY changed_at, ctid`,
+      [row]
+    );
+  }
+
+  it('#1 someone without authority cannot cancel a placed registration', async () => {
+    const row = await placed();
+    await actAs(ids.outsider);
+    expect(await sqlstate(`UPDATE public.events_registrations SET status = 'cancelled' WHERE id = $1`, [row])).toBe('42501');
+    await asOwner();
+    expect((await q(`SELECT status FROM public.events_registrations WHERE id = $1`, [row]))[0].status).toBe('registered');
+    await q(`DELETE FROM public.events_registrations WHERE id = $1`, [row]);
+  });
+
+  it('#1 the creator may cancel a placed registration; the place stays and nothing extra is logged', async () => {
+    const row = await placed();
+    await actAs(ids.creator);
+    expect(await sqlstate(`UPDATE public.events_registrations SET status = 'cancelled' WHERE id = $1`, [row])).toBeNull();
+    await asOwner();
+    expect((await q(`SELECT status, final_rank FROM public.events_registrations WHERE id = $1`, [row]))[0]).toEqual({
+      status: 'cancelled',
+      final_rank: 1,
+    });
+    expect(await history(row)).toEqual([]);
+    await q(`DELETE FROM public.events_registrations WHERE id = $1`, [row]);
+  });
+
+  it('#2 someone without authority cannot delete a placed registration', async () => {
+    const row = await placed();
+    await actAs(ids.outsider);
+    expect(await sqlstate(`DELETE FROM public.events_registrations WHERE id = $1`, [row])).toBe('42501');
+    await asOwner();
+    expect(await q(`SELECT 1 FROM public.events_registrations WHERE id = $1`, [row])).toHaveLength(1);
+    await q(`DELETE FROM public.events_registrations WHERE id = $1`, [row]);
+  });
+
+  it('#2 the creator may delete a placed registration, and the removal is logged with who did it', async () => {
+    const row = await placed(2);
+    await actAs(ids.creator);
+    expect(await sqlstate(`DELETE FROM public.events_registrations WHERE id = $1`, [row])).toBeNull();
+    expect(await history(row)).toEqual([
+      { event_id: ids.event, form_id: null, old_rank: 2, new_rank: null, changed_by: ids.creator },
+    ]);
+  });
+
+  it('#2 an unplaced registration can still be deleted by anyone the table lets', async () => {
+    await asOwner();
+    const row = (await q(`INSERT INTO public.events_registrations (event_id) VALUES ($1) RETURNING id`, [ids.event]))[0].id;
+    await actAs(ids.outsider);
+    expect(await sqlstate(`DELETE FROM public.events_registrations WHERE id = $1`, [row])).toBeNull();
+  });
+
+  it('#3 moving a placed row to another form logs a clear on the old form and a set on the new', async () => {
+    const row = await placed(3);
+    const f = randomUUID();
+    await actAs(ids.creator);
+    expect(await sqlstate(`UPDATE public.events_registrations SET form_id = $1 WHERE id = $2`, [f, row])).toBeNull();
+    expect(await history(row)).toEqual([
+      { event_id: ids.event, form_id: null, old_rank: 3, new_rank: null, changed_by: ids.creator },
+      { event_id: ids.event, form_id: f, old_rank: null, new_rank: 3, changed_by: ids.creator },
+    ]);
+    await asOwner();
+    await q(`DELETE FROM public.events_registrations WHERE id = $1`, [row]);
+  });
+
+  it('#5 the service role cannot call the user-session function', async () => {
+    await asOwner();
+    const r = await q(
+      `SELECT has_function_privilege('service_role', 'public.fn_set_event_registration_ranks(uuid, jsonb)', 'EXECUTE') AS ok`
+    );
+    expect(r[0].ok).toBe(false);
   });
 });
 

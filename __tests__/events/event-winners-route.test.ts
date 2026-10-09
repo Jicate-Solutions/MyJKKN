@@ -82,6 +82,22 @@ describe('POST /api/events/[eventId]/winners', () => {
     expect(res.status).toBe(400);
   });
 
+  it('more than 100 changes is a 400 and never reaches the database', async () => {
+    const many = Array.from({ length: 101 }, () => ({ registrationId: REG, final_rank: null }));
+    const res = await post(EV, many);
+    expect(res.status).toBe(400);
+    expect(rpc).not.toHaveBeenCalled();
+  });
+
+  it('a deadlock or serialization failure (40P01 / 40001) is a 409', async () => {
+    for (const code of ['40P01', '40001']) {
+      rpc.mockResolvedValueOnce({ data: null, error: { code, message: 'deadlock detected' } });
+      const res = await post(EV, [{ registrationId: REG, final_rank: 1 }]);
+      expect(res.status).toBe(409);
+      expect((await res.json()).error).toMatch(/same moment/);
+    }
+  });
+
   it('42501 is a 403', async () => {
     rpc.mockResolvedValue({ data: null, error: { code: '42501', message: 'no' } });
     expect((await post(EV, [{ registrationId: REG, final_rank: 1 }])).status).toBe(403);

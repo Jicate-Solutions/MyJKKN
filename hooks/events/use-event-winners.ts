@@ -29,6 +29,18 @@ export type WinnerChange = { registrationId: string; final_rank: number | null }
 
 export const eventWinnersKey = (eventId: string) => ['event-winners', eventId] as const;
 
+/** A request never hangs the screen: 15 s timeout, plus React Query's cancel signal when given. */
+function requestSignal(signal?: AbortSignal): AbortSignal | undefined {
+  const timeout =
+    typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function'
+      ? AbortSignal.timeout(15000)
+      : undefined;
+  if (signal && timeout && typeof (AbortSignal as any).any === 'function') {
+    return (AbortSignal as any).any([signal, timeout]) as AbortSignal;
+  }
+  return timeout ?? signal;
+}
+
 async function readJson(res: Response) {
   const body = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(body?.error || 'Something went wrong. Please try again.');
@@ -38,8 +50,10 @@ async function readJson(res: Response) {
 export function useEventWinners(eventId: string, enabled = true) {
   return useQuery({
     queryKey: eventWinnersKey(eventId),
-    queryFn: async (): Promise<EventWinnersPayload> =>
-      readJson(await fetch(`/api/events/${eventId}/winners`, { cache: 'no-store' })),
+    queryFn: async ({ signal }): Promise<EventWinnersPayload> =>
+      readJson(
+        await fetch(`/api/events/${eventId}/winners`, { cache: 'no-store', signal: requestSignal(signal) }),
+      ),
     enabled: !!eventId && enabled,
   });
 }
@@ -54,6 +68,7 @@ export function useRecordEventWinners(eventId: string) {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ changes }),
+          signal: requestSignal(),
         }),
       ),
     onSuccess: () => {

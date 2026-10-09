@@ -42,6 +42,8 @@ describe('useRecordEventWinners', () => {
     expect(url).toBe('/api/events/ev-1/winners');
     expect(init.method).toBe('POST');
     expect(JSON.parse(init.body)).toEqual({ changes });
+    // A hung server cannot leave Save disabled for ever.
+    expect(init.signal).toBeInstanceOf(AbortSignal);
   });
 
   it('surfaces a refusal and still refreshes the winners', async () => {

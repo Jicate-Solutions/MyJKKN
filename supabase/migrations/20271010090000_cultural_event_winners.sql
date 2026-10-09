@@ -91,8 +91,21 @@ DECLARE
   v_rank_changed boolean;
   v_moved boolean := false;
   v_renamed boolean := false;
+  v_cancelled boolean := false;
   v_type text;
 BEGIN
+  -- Deleting a placed row removes a winner: same authority as changing one.
+  IF TG_OP = 'DELETE' THEN
+    IF OLD.final_rank IS NULL OR COALESCE(auth.role(), '') NOT IN ('anon', 'authenticated') THEN
+      RETURN OLD;
+    END IF;
+    IF NOT COALESCE(public.fn_can_record_event_winners(OLD.event_id), false) THEN
+      RAISE EXCEPTION 'Only the event''s creator, its in-charge or an administrator can remove a winner.'
+        USING ERRCODE = '42501';
+    END IF;
+    RETURN OLD;
+  END IF;
+
   IF TG_OP = 'INSERT' THEN
     IF NEW.final_rank IS NULL THEN
       RETURN NEW;
@@ -105,10 +118,14 @@ BEGIN
     v_renamed := NEW.participant_name IS DISTINCT FROM OLD.participant_name
               OR NEW.institution_name IS DISTINCT FROM OLD.institution_name
               OR NEW.department IS DISTINCT FROM OLD.department;
-    -- Nothing about a place changes: an unplaced row moving or being renamed,
-    -- or a placed row whose other columns change.
+    -- Cancelling a placed row: allowed for those who may record winners (the
+    -- place stays and the card marks it "(cancelled)"), refused for others.
+    v_cancelled := NEW.status = 'cancelled' AND OLD.status IS DISTINCT FROM 'cancelled';
+    -- Nothing about a place changes: an unplaced row moving, being renamed or
+    -- cancelled, or a placed row whose other columns change.
     IF NOT v_rank_changed
-       AND NOT ((v_moved OR v_renamed) AND (OLD.final_rank IS NOT NULL OR NEW.final_rank IS NOT NULL)) THEN
+       AND NOT ((v_moved OR v_renamed OR v_cancelled)
+                AND (OLD.final_rank IS NOT NULL OR NEW.final_rank IS NOT NULL)) THEN
       RETURN NEW;
     END IF;
   END IF;
@@ -145,7 +162,8 @@ REVOKE EXECUTE ON FUNCTION public.fn_events_registrations_final_rank_guard() FRO
 
 DROP TRIGGER IF EXISTS trg_events_registrations_final_rank_guard ON public.events_registrations;
 CREATE TRIGGER trg_events_registrations_final_rank_guard
-  BEFORE INSERT OR UPDATE OF final_rank, event_id, form_id, participant_name, institution_name, department
+  BEFORE INSERT OR DELETE
+      OR UPDATE OF final_rank, event_id, form_id, participant_name, institution_name, department, status
   ON public.events_registrations
   FOR EACH ROW
   EXECUTE FUNCTION public.fn_events_registrations_final_rank_guard();
@@ -213,6 +231,15 @@ BEGIN
       USING ERRCODE = '22023';
   END IF;
 
+  -- Lock the listed rows in a fixed order, so two overlapping saves queue
+  -- instead of deadlocking between pass 1 and pass 2.
+  PERFORM 1
+  FROM public.events_registrations r
+  WHERE r.id IN (SELECT (x->>'registration_id')::uuid FROM jsonb_array_elements(p_changes) AS t(x))
+    AND r.event_id = p_event_id
+  ORDER BY r.id
+  FOR UPDATE OF r;
+
   -- Pass 1: empty the places that must be emptied — a row being cleared, or a
   -- row whose current place another listed row is taking (a swap or a cycle).
   -- A plain move to a free place is left to pass 2, so its history is one row.
@@ -255,8 +282,10 @@ $$;
 COMMENT ON FUNCTION public.fn_set_event_registration_ranks(uuid, jsonb) IS
   'Records/clears 1st/2nd/3rd place on a cultural event''s registrations, atomically (empties changing places, then fills). Caller must pass fn_can_record_event_winners. BUG-006273.';
 
-REVOKE EXECUTE ON FUNCTION public.fn_set_event_registration_ranks(uuid, jsonb) FROM anon, PUBLIC;
-GRANT  EXECUTE ON FUNCTION public.fn_set_event_registration_ranks(uuid, jsonb) TO authenticated, service_role;
+-- A user-session function: it refuses a caller with no auth.uid(), so the
+-- service role gets no grant.
+REVOKE EXECUTE ON FUNCTION public.fn_set_event_registration_ranks(uuid, jsonb) FROM anon, PUBLIC, service_role;
+GRANT  EXECUTE ON FUNCTION public.fn_set_event_registration_ranks(uuid, jsonb) TO authenticated;
 
 -- ---------------------------------------------------------------------------
 -- 6. Change history (Director ruling, 9 Oct 23:20): places can change at any
@@ -267,6 +296,7 @@ CREATE TABLE IF NOT EXISTS public.event_winner_rank_changes (
   id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   event_id        uuid NOT NULL,
   registration_id uuid NOT NULL,
+  form_id         uuid,
   old_rank        smallint,
   new_rank        smallint,
   changed_by      uuid DEFAULT auth.uid(),
@@ -275,7 +305,7 @@ CREATE TABLE IF NOT EXISTS public.event_winner_rank_changes (
 CREATE INDEX IF NOT EXISTS idx_event_winner_rank_changes_event
   ON public.event_winner_rank_changes (event_id, changed_at DESC);
 COMMENT ON TABLE public.event_winner_rank_changes IS
-  'Every change of events_registrations.final_rank, from any write path, with who made it (NULL for service-role / direct sessions). A placed row moved between events logs a clear on the old event and a set on the new. Written only by trg_events_registrations_final_rank_history. BUG-006273.';
+  'Every change of events_registrations.final_rank, from any write path, with who made it (NULL for service-role / direct sessions). A placed row moved between events or forms logs a clear where it was and a set where it went; deleting a placed row logs a clear. Written only by trg_events_registrations_final_rank_history. BUG-006273.';
 
 ALTER TABLE public.event_winner_rank_changes ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON public.event_winner_rank_changes FROM anon, PUBLIC;
@@ -298,22 +328,28 @@ AS $$
 BEGIN
   IF TG_OP = 'INSERT' THEN
     IF NEW.final_rank IS NOT NULL THEN
-      INSERT INTO public.event_winner_rank_changes (event_id, registration_id, old_rank, new_rank, changed_by)
-      VALUES (NEW.event_id, NEW.id, NULL, NEW.final_rank, auth.uid());
+      INSERT INTO public.event_winner_rank_changes (event_id, registration_id, form_id, old_rank, new_rank, changed_by)
+      VALUES (NEW.event_id, NEW.id, NEW.form_id, NULL, NEW.final_rank, auth.uid());
     END IF;
-  ELSIF NEW.event_id IS DISTINCT FROM OLD.event_id
-        AND (OLD.final_rank IS NOT NULL OR NEW.final_rank IS NOT NULL) THEN
+  ELSIF TG_OP = 'DELETE' THEN
     IF OLD.final_rank IS NOT NULL THEN
-      INSERT INTO public.event_winner_rank_changes (event_id, registration_id, old_rank, new_rank, changed_by)
-      VALUES (OLD.event_id, NEW.id, OLD.final_rank, NULL, auth.uid());
+      INSERT INTO public.event_winner_rank_changes (event_id, registration_id, form_id, old_rank, new_rank, changed_by)
+      VALUES (OLD.event_id, OLD.id, OLD.form_id, OLD.final_rank, NULL, auth.uid());
+    END IF;
+  ELSIF (NEW.event_id IS DISTINCT FROM OLD.event_id OR NEW.form_id IS DISTINCT FROM OLD.form_id)
+        AND (OLD.final_rank IS NOT NULL OR NEW.final_rank IS NOT NULL) THEN
+    -- A move between events or forms: a clear where it was, a set where it went.
+    IF OLD.final_rank IS NOT NULL THEN
+      INSERT INTO public.event_winner_rank_changes (event_id, registration_id, form_id, old_rank, new_rank, changed_by)
+      VALUES (OLD.event_id, NEW.id, OLD.form_id, OLD.final_rank, NULL, auth.uid());
     END IF;
     IF NEW.final_rank IS NOT NULL THEN
-      INSERT INTO public.event_winner_rank_changes (event_id, registration_id, old_rank, new_rank, changed_by)
-      VALUES (NEW.event_id, NEW.id, NULL, NEW.final_rank, auth.uid());
+      INSERT INTO public.event_winner_rank_changes (event_id, registration_id, form_id, old_rank, new_rank, changed_by)
+      VALUES (NEW.event_id, NEW.id, NEW.form_id, NULL, NEW.final_rank, auth.uid());
     END IF;
   ELSIF NEW.final_rank IS DISTINCT FROM OLD.final_rank THEN
-    INSERT INTO public.event_winner_rank_changes (event_id, registration_id, old_rank, new_rank, changed_by)
-    VALUES (NEW.event_id, NEW.id, OLD.final_rank, NEW.final_rank, auth.uid());
+    INSERT INTO public.event_winner_rank_changes (event_id, registration_id, form_id, old_rank, new_rank, changed_by)
+    VALUES (NEW.event_id, NEW.id, NEW.form_id, OLD.final_rank, NEW.final_rank, auth.uid());
   END IF;
   RETURN NULL;
 END;
@@ -323,7 +359,7 @@ REVOKE EXECUTE ON FUNCTION public.fn_events_registrations_final_rank_history() F
 
 DROP TRIGGER IF EXISTS trg_events_registrations_final_rank_history ON public.events_registrations;
 CREATE TRIGGER trg_events_registrations_final_rank_history
-  AFTER INSERT OR UPDATE OF final_rank, event_id ON public.events_registrations
+  AFTER INSERT OR DELETE OR UPDATE OF final_rank, event_id, form_id ON public.events_registrations
   FOR EACH ROW
   EXECUTE FUNCTION public.fn_events_registrations_final_rank_history();
 
@@ -356,21 +392,24 @@ BEGIN
       AND (SELECT array_agg(a.attname::text ORDER BY a.attname)
              FROM pg_attribute a
             WHERE a.attrelid = t.tgrelid AND a.attnum = ANY (t.tgattr))
-          @> ARRAY['department', 'event_id', 'final_rank', 'form_id', 'institution_name', 'participant_name']
+          @> ARRAY['department', 'event_id', 'final_rank', 'form_id', 'institution_name', 'participant_name', 'status']
+      AND (t.tgtype & 8) <> 0  -- also fires on DELETE
   ) THEN
-    RAISE EXCEPTION 'final_rank guard trigger missing or not watching event_id/form_id/identity columns';
+    RAISE EXCEPTION 'final_rank guard trigger missing, not watching event_id/form_id/identity/status, or not firing on DELETE';
   END IF;
   IF NOT EXISTS (
     SELECT 1 FROM pg_trigger
     WHERE tgname = 'trg_events_registrations_final_rank_history'
       AND tgrelid = 'public.events_registrations'::regclass
       AND NOT tgisinternal
+      AND (tgtype & 8) <> 0  -- also fires on DELETE
   ) THEN
     RAISE EXCEPTION 'final_rank history trigger missing';
   END IF;
   IF has_function_privilege('anon', 'public.fn_set_event_registration_ranks(uuid, jsonb)', 'EXECUTE')
-     OR has_function_privilege('anon', 'public.fn_can_record_event_winners(uuid)', 'EXECUTE') THEN
-    RAISE EXCEPTION 'anon can still execute a winners function';
+     OR has_function_privilege('anon', 'public.fn_can_record_event_winners(uuid)', 'EXECUTE')
+     OR has_function_privilege('service_role', 'public.fn_set_event_registration_ranks(uuid, jsonb)', 'EXECUTE') THEN
+    RAISE EXCEPTION 'anon (or service_role, for the user-session RPC) can still execute a winners function';
   END IF;
   IF NOT has_function_privilege('authenticated', 'public.fn_set_event_registration_ranks(uuid, jsonb)', 'EXECUTE') THEN
     RAISE EXCEPTION 'authenticated cannot execute fn_set_event_registration_ranks';

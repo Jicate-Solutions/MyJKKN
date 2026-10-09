@@ -30,6 +30,9 @@ const EMPTY: EventWinnersPayload = { canManage: false, forms: [], registrations:
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+/** One save changes at most three places per competition; 100 is generous. */
+const MAX_CHANGES = 100;
+
 /** PostgREST returns at most 1000 rows a request; read the list in pages. */
 const PAGE = 1000;
 
@@ -118,6 +121,7 @@ export async function POST(
   if (
     !changes ||
     changes.length === 0 ||
+    changes.length > MAX_CHANGES ||
     changes.some(
       (c) =>
         !c.registration_id ||
@@ -139,6 +143,13 @@ export async function POST(
     if (error.code === '23505') {
       return NextResponse.json(
         { error: 'Another participant already holds one of those places. Reload to see the latest winners, then try again.' },
+        { status: 409 },
+      );
+    }
+    // Two saves on the same rows at once: one waited for, or lost to, the other.
+    if (error.code === '40P01' || error.code === '40001') {
+      return NextResponse.json(
+        { error: 'Someone else saved winners for this event at the same moment. Reload and try again.' },
         { status: 409 },
       );
     }
