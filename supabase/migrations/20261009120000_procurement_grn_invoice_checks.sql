@@ -15,24 +15,30 @@
 --      the receiver's limit was accepted)
 --   3. platform_policies 'procurement.invoice.near_expiry_days' = 30  (I2 window,
 --      one global value, changeable without new code)
---   4. trg_pgrn_invoice_checks - a duplicate confirmation is valid only when it is
+--   4. trg_pgrn_00_invoice_checks - a duplicate confirmation is valid only when it is
 --      made by the signed-in user themself, that user holds verify rights
 --      (super admin / admin / procurement.grn_verify, the same test
 --      fn_procurement_guard_approval applies to verifying), and that user is NOT
 --      the GRN's received_by. The time is stamped here, never trusted from the
---      client. Institution scope is already enforced by the pgrn_institution_scope
---      RLS policy on the INSERT/UPDATE itself.
+--      client. received_by is pinned to the signed-in user at INSERT and frozen
+--      after (admins excepted); invoice_number / supplier_id are frozen once the
+--      receipt leaves pending, and changing them while pending voids the
+--      confirmation. Institution scope is already enforced by the
+--      pgrn_institution_scope RLS policy on the INSERT/UPDATE itself.
 --
 --   5. I1 HELD SAVE (Director 2026-10-09): a receipt whose invoice number repeats an
---      earlier one from the same supplier is saved, but cannot be VERIFIED until
---      that confirmation exists. Enforced by extending the existing verify guard,
+--      EARLIER one from the same supplier is saved, but cannot be VERIFIED (moved
+--      into any posted status, 'completed' included) until that confirmation
+--      exists. Enforced by extending the existing verify guard,
 --      fn_procurement_guard_approval (procurement_grn branch), via
 --      fn_procurement_grn_has_duplicate. "Held" is derived live, not stored: a
---      later cancellation of the earlier receipt releases the hold by itself.
+--      later cancellation of the earlier receipt releases the hold by itself —
+--      cancelling an already-verified receipt needs grn_verify.
 --   6. Private bucket procurement-invoice-pdfs for the invoice PDFs the Max-lane
---      runner reads. Read/upload/delete for GRN rights only (grn_create /
---      grn_verify, super admin, admin) - quotation-only managers cannot read it.
---      Mirrors the procurement-quotation-pdfs bucket (20260805090000).
+--      runner reads. Read/upload for GRN rights only (grn_create / grn_verify,
+--      super admin, admin) AND only under a <po_id>/ folder of a purchase order
+--      the caller can see (RLS) - quotation-only managers cannot read it. Delete is
+--      admins only. Mirrors the procurement-quotation-pdfs bucket (20260805090000).
 --
 -- I1 is deliberately NOT a unique index: the Director chose "confirm and allow" for
 -- honest resends, which a unique constraint would forbid.
@@ -89,6 +95,20 @@ WHERE NOT EXISTS (
 -- ----------------------------------------------------------------------------
 -- SECURITY INVOKER, like fn_procurement_guard_approval: it reads nothing of its
 -- own; the permission helpers it calls are SECURITY DEFINER already.
+--
+-- Column rules only (status-transition rules live in fn_procurement_guard_approval):
+--   a. received_by is the signed-in user, set at INSERT; only an admin may change it
+--      later. The "confirmer is not the receiver" rule below therefore compares
+--      against a value the client cannot choose (review round, 2026-10-09).
+--   b. invoice_number / supplier_id are frozen once the receipt is no longer draft /
+--      pending_verification; while pending, changing either VOIDS any duplicate
+--      confirmation, so a confirmation always belongs to one number + supplier.
+--   c. Who may confirm a duplicate (the original rule).
+--
+-- ORDERING IS LOAD-BEARING: this trigger is named trg_pgrn_00_invoice_checks so it
+-- fires BEFORE trg_pgrn_guard_approval (Postgres fires same-timing triggers in name
+-- order). The guard's I1 check must see the confirmation AFTER rule (b) voided it.
+-- A later migration that renames either trigger must keep this one sorting first.
 CREATE OR REPLACE FUNCTION public.fn_procurement_grn_invoice_checks()
 RETURNS trigger
 LANGUAGE plpgsql
@@ -97,6 +117,31 @@ AS $$
 BEGIN
   IF coalesce(auth.role(), '') = 'service_role' THEN
     RETURN NEW;
+  END IF;
+
+  -- a. The receiver is whoever is signed in when the receipt is recorded.
+  IF TG_OP = 'INSERT' THEN
+    IF auth.uid() IS NOT NULL THEN
+      NEW.received_by := auth.uid();
+    END IF;
+  ELSE
+    IF NEW.received_by IS DISTINCT FROM OLD.received_by
+       AND NOT (public.is_super_admin() OR public.is_admin()) THEN
+      RAISE EXCEPTION 'the person who received the goods cannot be changed after the delivery is recorded'
+        USING ERRCODE = '42501';
+    END IF;
+
+    -- b. A confirmation is tied to one invoice number + supplier.
+    IF NEW.invoice_number IS DISTINCT FROM OLD.invoice_number
+       OR NEW.supplier_id IS DISTINCT FROM OLD.supplier_id THEN
+      IF OLD.status NOT IN ('draft', 'pending_verification') THEN
+        RAISE EXCEPTION 'the invoice number and supplier of a delivery cannot be changed once it is verified or cancelled'
+          USING ERRCODE = '42501';
+      END IF;
+      NEW.duplicate_confirmed_by := NULL;
+      NEW.duplicate_confirmed_at := NULL;
+      RETURN NEW;
+    END IF;
   END IF;
 
   -- No confirmation: nothing to judge. Clearing one is always allowed (stricter).
@@ -118,7 +163,9 @@ BEGIN
       USING ERRCODE = '42501';
   END IF;
 
-  IF NEW.duplicate_confirmed_by IS NOT DISTINCT FROM NEW.received_by THEN
+  -- Checked against the stored receiver too (OLD), never only the value sent now.
+  IF NEW.duplicate_confirmed_by IS NOT DISTINCT FROM NEW.received_by
+     OR (TG_OP = 'UPDATE' AND NEW.duplicate_confirmed_by IS NOT DISTINCT FROM OLD.received_by) THEN
     RAISE EXCEPTION 'the person who received the goods cannot confirm a duplicate invoice — the verifier must'
       USING ERRCODE = '42501';
   END IF;
@@ -137,8 +184,10 @@ $$;
 REVOKE EXECUTE ON FUNCTION public.fn_procurement_grn_invoice_checks() FROM anon, PUBLIC;
 GRANT  EXECUTE ON FUNCTION public.fn_procurement_grn_invoice_checks() TO authenticated;
 
+-- Old name dropped too (an earlier draft of this migration used it).
 DROP TRIGGER IF EXISTS trg_pgrn_invoice_checks ON public.procurement_grn;
-CREATE TRIGGER trg_pgrn_invoice_checks
+DROP TRIGGER IF EXISTS trg_pgrn_00_invoice_checks ON public.procurement_grn;
+CREATE TRIGGER trg_pgrn_00_invoice_checks
   BEFORE INSERT OR UPDATE ON public.procurement_grn
   FOR EACH ROW EXECUTE FUNCTION public.fn_procurement_grn_invoice_checks();
 
@@ -166,14 +215,18 @@ $$;
 REVOKE EXECUTE ON FUNCTION public.fn_procurement_normalise_invoice_number(text) FROM anon, PUBLIC;
 GRANT  EXECUTE ON FUNCTION public.fn_procurement_normalise_invoice_number(text) TO authenticated;
 
--- Does another, non-cancelled receipt from this supplier carry the same normalised
--- invoice number? SECURITY DEFINER so a duplicate recorded at a college the verifier
--- cannot see still holds the receipt. Answers only a yes/no, and only to procurement
--- users (grn_create / grn_verify / super admin / admin); anyone else gets false.
+-- Does an EARLIER, non-cancelled receipt from this supplier carry the same normalised
+-- invoice number? Only receipts recorded before this one count (created_at, then id
+-- as the tie-break), so the original receipt is never held by a later repeat of it —
+-- only the repeat is. p_created_at NULL = a receipt not saved yet: every other one is
+-- earlier. SECURITY DEFINER so a duplicate recorded at a college the verifier cannot
+-- see still holds the receipt. Answers only a yes/no, and only to procurement users
+-- (grn_create / grn_verify / super admin / admin); anyone else gets false.
 CREATE OR REPLACE FUNCTION public.fn_procurement_grn_has_duplicate(
   p_grn_id uuid,
   p_supplier_id uuid,
-  p_invoice_number text
+  p_invoice_number text,
+  p_created_at timestamptz DEFAULT NULL
 )
 RETURNS boolean
 LANGUAGE plpgsql
@@ -199,18 +252,33 @@ BEGIN
        AND g.id IS DISTINCT FROM p_grn_id
        AND g.status <> 'cancelled'
        AND public.fn_procurement_normalise_invoice_number(g.invoice_number) = v_key
+       AND (p_created_at IS NULL
+            OR g.created_at < p_created_at
+            OR (g.created_at = p_created_at AND g.id < p_grn_id))
   );
 END;
 $$;
 
-REVOKE EXECUTE ON FUNCTION public.fn_procurement_grn_has_duplicate(uuid, uuid, text) FROM anon, PUBLIC;
-GRANT  EXECUTE ON FUNCTION public.fn_procurement_grn_has_duplicate(uuid, uuid, text) TO authenticated;
+REVOKE EXECUTE ON FUNCTION public.fn_procurement_grn_has_duplicate(uuid, uuid, text, timestamptz) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_procurement_grn_has_duplicate(uuid, uuid, text, timestamptz) TO authenticated;
 
 -- The verify guard, extended. Copied from the live definition (identical to
 -- 20271006130000_procurement_final_approval_chain.sql, checked 2026-10-09); the
--- ONLY change is the I1 block in the procurement_grn branch. Re-check the live
--- definition before applying: if another migration has moved it since, merge the
--- I1 block into that version instead of applying this copy.
+-- ONLY changes are in the procurement_grn branch:
+--   * a move INTO a posted status (accepted / partially_accepted /
+--     replacement_requested / completed) from draft, pending_verification or
+--     cancelled needs grn_verify. 'completed' and 'cancelled' are new here: before,
+--     pending -> completed and cancelled -> accepted were unguarded. An INSERT keeps
+--     the old set (no 'completed'), so receiveReplacement's pre-inspected
+--     'completed' replacement receipt is unchanged.
+--   * any status change OUT of a posted status (including to cancelled) needs
+--     grn_verify — a receiver with grn_create only can no longer cancel an earlier
+--     accepted receipt to lift a hold.
+--   * I1: any entry into a posted status (INSERT or UPDATE) is refused while an
+--     earlier same-number receipt exists and nobody has confirmed it. A
+--     replacement receipt carries no invoice number, so it never matches.
+-- Re-check the live definition before applying: if another migration has moved it
+-- since, merge these blocks into that version instead of applying this copy.
 CREATE OR REPLACE FUNCTION public.fn_procurement_guard_approval()
  RETURNS trigger
  LANGUAGE plpgsql
@@ -282,19 +350,32 @@ BEGIN
         v_what := 'approve or reject a purchase order';
       END IF;
     WHEN 'procurement_grn' THEN
-      IF NEW.status IN ('accepted', 'partially_accepted', 'replacement_requested')
-         AND (TG_OP = 'INSERT' OR OLD.status IN ('draft', 'pending_verification')) THEN
+      IF (TG_OP = 'INSERT'
+          AND NEW.status IN ('accepted', 'partially_accepted', 'replacement_requested'))
+         OR (TG_OP = 'UPDATE'
+             AND NEW.status IN ('accepted', 'partially_accepted', 'replacement_requested', 'completed')
+             AND OLD.status IN ('draft', 'pending_verification', 'cancelled')) THEN
         v_key  := 'procurement.grn_verify';
         v_what := 'verify a goods receipt note';
-        -- Added 2026-10-09 (invoice check I1, held save): a receipt whose invoice
-        -- number repeats an earlier one from the same supplier cannot be verified
-        -- until a verifier other than the receiver has confirmed it is a different
-        -- invoice. Who may confirm is checked by fn_procurement_grn_invoice_checks.
-        IF NEW.duplicate_confirmed_by IS NULL
-           AND public.fn_procurement_grn_has_duplicate(NEW.id, NEW.supplier_id, NEW.invoice_number) THEN
-          RAISE EXCEPTION 'this delivery''s invoice number repeats an earlier one from the same supplier — a verifier other than the receiver must confirm it is a different invoice before it is added to stock'
-            USING ERRCODE = '42501';
-        END IF;
+      ELSIF TG_OP = 'UPDATE'
+            AND OLD.status IN ('accepted', 'partially_accepted', 'replacement_requested', 'completed') THEN
+        -- Added 2026-10-09 (review round): undoing or re-stating a verified receipt.
+        v_key  := 'procurement.grn_verify';
+        v_what := 'change the status of a verified goods receipt note';
+      END IF;
+      -- Added 2026-10-09 (invoice check I1, held save): a receipt whose invoice
+      -- number repeats an earlier one from the same supplier cannot be verified
+      -- until a verifier other than the receiver has confirmed it is a different
+      -- invoice. Who may confirm is checked by fn_procurement_grn_invoice_checks,
+      -- which fires first (trg_pgrn_00_invoice_checks) and voids a confirmation
+      -- whose invoice number or supplier changed.
+      IF NEW.status IN ('accepted', 'partially_accepted', 'replacement_requested', 'completed')
+         AND (TG_OP = 'INSERT'
+              OR OLD.status NOT IN ('accepted', 'partially_accepted', 'replacement_requested', 'completed'))
+         AND NEW.duplicate_confirmed_by IS NULL
+         AND public.fn_procurement_grn_has_duplicate(NEW.id, NEW.supplier_id, NEW.invoice_number, NEW.created_at) THEN
+        RAISE EXCEPTION 'this delivery''s invoice number repeats an earlier one from the same supplier — a verifier other than the receiver must confirm it is a different invoice before it is added to stock'
+          USING ERRCODE = '42501';
       END IF;
   END CASE;
   IF v_key IS NULL OR v_chain THEN
@@ -321,7 +402,8 @@ VALUES (
 )
 ON CONFLICT (id) DO NOTHING;
 
--- Upload: people who record or verify deliveries (or admins) only.
+-- Upload: people who record or verify deliveries (or admins) only, and only into
+-- the folder of an order they can see.
 DO $$
 BEGIN
   IF NOT EXISTS (
@@ -339,12 +421,24 @@ BEGIN
           OR public.user_has_permission('procurement.grn_create')
           OR public.user_has_permission('procurement.grn_verify')
         )
+        -- Only under <po_id>/ of an order the caller can see (the subquery runs
+        -- under the caller's RLS on procurement_purchase_orders). CASE keeps the
+        -- uuid cast from ever running on a name that is not one.
+        AND CASE
+              WHEN (storage.foldername(objects.name))[1]
+                   ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+              THEN EXISTS (
+                SELECT 1 FROM public.procurement_purchase_orders po
+                 WHERE po.id = ((storage.foldername(objects.name))[1])::uuid
+              )
+              ELSE false
+            END
       )
     $policy$;
   END IF;
 END $$;
 
--- Read: same gate. NOT public, and NOT quotation_manage — supplier bills.
+-- Read: same gate, same folder rule. NOT public, and NOT quotation_manage — supplier bills.
 -- (The Max-lane runner reads with the service role, which bypasses RLS.)
 DO $$
 BEGIN
@@ -363,6 +457,18 @@ BEGIN
           OR public.user_has_permission('procurement.grn_create')
           OR public.user_has_permission('procurement.grn_verify')
         )
+        -- Only under <po_id>/ of an order the caller can see (the subquery runs
+        -- under the caller's RLS on procurement_purchase_orders). CASE keeps the
+        -- uuid cast from ever running on a name that is not one.
+        AND CASE
+              WHEN (storage.foldername(objects.name))[1]
+                   ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+              THEN EXISTS (
+                SELECT 1 FROM public.procurement_purchase_orders po
+                 WHERE po.id = ((storage.foldername(objects.name))[1])::uuid
+              )
+              ELSE false
+            END
       )
     $policy$;
   END IF;
@@ -380,11 +486,9 @@ BEGIN
       ON storage.objects FOR DELETE TO authenticated
       USING (
         bucket_id = 'procurement-invoice-pdfs'
-        AND (
-          public.is_super_admin() OR public.is_admin()
-          OR public.user_has_permission('procurement.grn_create')
-          OR public.user_has_permission('procurement.grn_verify')
-        )
+        -- Admins only (review round, 2026-10-09): the route never deletes, and a
+        -- delete + re-upload at the same content-addressed key would swap the bytes.
+        AND (public.is_super_admin() OR public.is_admin())
       )
     $policy$;
   END IF;
