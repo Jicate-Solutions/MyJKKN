@@ -476,3 +476,19 @@ describe('move_meeting', () => {
     expect(cancelBooking).not.toHaveBeenCalled();
   });
 });
+
+describe('move_meeting stays inside the route time limit', () => {
+  it('when cancelling the old meeting is slow, answers with the new one and says the old may still be on', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
+    try {
+      cancelBooking.mockImplementation(() => new Promise(() => {}));
+      const pending = call('move_meeting', { uid: MEETING_UID, start_local: `${FUTURE_DATE}T18:00` });
+      await vi.advanceTimersByTimeAsync(56_000);
+      const body = JSON.parse(textOf(await readRpc(await pending)));
+      expect(body).toMatchObject({ booked: true, moved: false, old_uid: MEETING_UID });
+      expect(body.attention).toMatch(/may not be cancelled yet/);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});

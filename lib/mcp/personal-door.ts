@@ -742,6 +742,9 @@ export const MOVE_TOOL = {
   },
 };
 
+/** A move answers within this, leaving headroom under the route's maxDuration (60 s). */
+const MOVE_BUDGET_MS = 55_000;
+
 const NOT_THIS_KEYS = 'This key did not book a meeting with that uid, so it cannot change it.';
 
 interface DoorBooking {
@@ -814,13 +817,19 @@ async function runCancelTool(
 }
 
 /** Cancels as the host. Throws DoorRefusal when it was already closed, BookingTimeout when slow. */
-async function cancelThisKeysMeeting(db: SupabaseClient, ownerId: string, uid: string, reason: string): Promise<void> {
+async function cancelThisKeysMeeting(
+  db: SupabaseClient,
+  ownerId: string,
+  uid: string,
+  reason: string,
+  ms: number = BOOKING_LIMITS.BOOKING_TIMEOUT_MS
+): Promise<void> {
   // Loaded only here: the scheduling service builds clients when imported.
   const { NativeSchedulingService } = await import('@/lib/services/meetings/native-scheduling-service');
   const work = NativeSchedulingService.cancelBooking(db, uid, { actorProfileId: ownerId }, reason);
   let r: Awaited<typeof work>;
   try {
-    r = await withDeadline(work, BOOKING_LIMITS.BOOKING_TIMEOUT_MS);
+    r = await withDeadline(work, ms);
   } catch (err) {
     if (err instanceof BookingTimeout) keepRunningAfterResponse(work);
     throw err;
@@ -838,6 +847,7 @@ async function runMoveTool(
   input: Record<string, unknown> | undefined
 ): Promise<unknown> {
   const a = input ?? {};
+  const startedAt = Date.now();
   await assertOwnerMayMeet(ownerClient);
   const db = createServiceRoleClient() as unknown as SupabaseClient;
   const old = await beforeChange(loadThisKeysMeeting(db, ownerId, keyId, a.uid));
@@ -885,14 +895,26 @@ async function runMoveTool(
       attention: `${String(booked.attention)} The old meeting (${old.uid}) was NOT cancelled, so nobody lost their invitation.`,
     };
   }
+  // The whole move must answer inside the route's 60 s; what is left goes to
+  // cancelling the old meeting.
+  const left = MOVE_BUDGET_MS - (Date.now() - startedAt);
+  const cancelLater = {
+    ...booked,
+    moved: false,
+    old_uid: old.uid,
+    attention: `The new meeting is booked, but the old one (${old.uid}) may not be cancelled yet. Tell the person who asked, check the owner's Meetings inbox, and cancel it with cancel_meeting if it is still on.`,
+  };
+  if (left < 3_000) return cancelLater;
   try {
     await cancelThisKeysMeeting(
       db,
       ownerId,
       old.uid,
-      `Moved to ${isoToIndiaLocal(String(booked.start))} (India time).`
+      `Moved to ${isoToIndiaLocal(String(booked.start))} (India time).`,
+      Math.min(BOOKING_LIMITS.BOOKING_TIMEOUT_MS, left)
     );
-  } catch {
+  } catch (err) {
+    if (err instanceof BookingTimeout) return cancelLater;
     return {
       ...booked,
       moved: false,
