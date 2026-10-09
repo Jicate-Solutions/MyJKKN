@@ -42,6 +42,7 @@ import {
 } from '@/lib/hr/increment-engine';
 import { createServiceRoleClient } from '@/lib/supabase/server';
 import { departmentRate, parseSalarySuggestionRule } from '@/lib/hr/salary-suggestion';
+import { chunkIdsForIn } from '@/lib/utils/postgrest-in-chunks';
 
 export const INCREMENT_POLICY_KEY = 'hr.allowances_and_increments' as const;
 /**
@@ -99,17 +100,13 @@ function fullName(row: { first_name?: unknown; last_name?: unknown }): string {
   return joined === '' ? 'Unnamed team member record' : joined;
 }
 
-/**
- * Ids per `.in()` filter. Every id is ~37 characters in the request URL, and
- * proxies refuse very long URLs; ~675 team members in one filter is ~25KB.
- */
-const IDS_PER_READ = 200;
 /** Rows per page. PostgREST cuts a read off at 1000 rows without an error. */
 const ROWS_PER_PAGE = 1000;
 
 /**
- * Read EVERY row a filtered query matches: the ids in batches, each batch
- * paged until a short page. Any error on any page is returned, never
+ * Read EVERY row a filtered query matches: the ids in chunks small enough for
+ * the gateway (chunkIdsForIn: ~675 ids in one filter is ~25KB of URL, at the
+ * measured ~26KB cliff), each chunk paged until a short page. Any error on any page is returned, never
  * swallowed, so a caller can treat a partial read as a failed one.
  */
 async function readAll(
@@ -119,8 +116,7 @@ async function readAll(
   orderBy = 'id',
 ): Promise<{ rows: Array<Record<string, any>>; failed: boolean }> {
   const rows: Array<Record<string, any>> = [];
-  for (let i = 0; i < ids.length; i += IDS_PER_READ) {
-    const batch = ids.slice(i, i + IDS_PER_READ);
+  for (const batch of chunkIdsForIn(ids)) {
     for (let from = 0; ; from += ROWS_PER_PAGE) {
       const { data, error } = await query(batch)
         .order(orderBy, { ascending: true })

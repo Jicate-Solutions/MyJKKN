@@ -537,7 +537,7 @@ describe('IncrementReportService.build', () => {
     expect(pages.length).toBeGreaterThanOrEqual(2);
   });
 
-  it('asks for at most 200 ids per read', async () => {
+  it('asks for at most POSTGREST_IN_CHUNK_SIZE (100) ids per read', async () => {
     const extra = Array.from({ length: 450 }, (_, i) => ({
       id: `x${i}`,
       first_name: 'Extra',
@@ -554,7 +554,7 @@ describe('IncrementReportService.build', () => {
       .flatMap((q) => q.filters.filter((f) => f.startsWith('in:staff_id=')))
       .map((f) => Number(/\[(\d+)\]/.exec(f)![1]));
     expect(sizes.length).toBeGreaterThanOrEqual(3);
-    expect(Math.max(...sizes)).toBeLessThanOrEqual(200);
+    expect(Math.max(...sizes)).toBeLessThanOrEqual(100);
     expect(sizes.reduce((a, b) => a + b, 0)).toBe(452);
   });
 
