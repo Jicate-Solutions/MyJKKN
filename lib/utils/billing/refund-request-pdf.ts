@@ -4,16 +4,42 @@
  * Turns a RefundRequest (with its bills + approval trail) into a downloadable
  * PDF — used by the refund request detail page's "Export PDF" button.
  *
- * Built with jsPDF + jspdf-autotable, mirroring lib/utils/billing/receipt-pdf.ts.
+ * Layout: institution letterhead (shared banner) → request header → request /
+ * learner / academic / admission detail grids → bills → approval trail →
+ * supporting documents → disbursement or decline block. Built with jsPDF +
+ * jspdf-autotable, mirroring lib/utils/billing/receipt-pdf.ts.
  * Browser-only: doc.save() needs `document`, so this can't run in a server action.
  */
 
 import jsPDF from 'jspdf';
-import autoTable from 'jspdf-autotable';
-import type { RefundRequest } from '@/types/billing-refund-workflow';
+import autoTable, { type CellInput, type RowInput } from 'jspdf-autotable';
+import { RefundWorkflowService } from '@/lib/services/billing/refunds/refund-workflow-service';
+import { drawInstitutionBanner } from '@/lib/utils/internal-marks/internal-marks-pdf';
+import { getInstitutionHeader } from '@/lib/utils/internal-marks/institution-header';
+import { loadLogoDataUrl } from '@/lib/utils/pdf-export/attendance-report-pdf';
+import type {
+  RefundPdfInstitution,
+  RefundPdfLearner,
+  RefundRequest,
+  RefundRequestAction
+} from '@/types/billing-refund-workflow';
 
-// jsPDF's built-in fonts (helvetica/courier) are WinAnsi/CP1252 only — the
-// rupee sign ₹ (U+20B9) is NOT in that range and renders as garbage (same
+export interface RefundPdfContext {
+  learner?: RefundPdfLearner | null;
+  institution?: RefundPdfInstitution | null;
+  /** Data URLs. A missing logo degrades to a text-only letterhead. */
+  logos?: { left: string | null; right: string | null };
+}
+
+const FONT = 'times';
+const MARGIN_X = 10; // matches drawInstitutionBanner's logo margin
+const BRAND: [number, number, number] = [37, 99, 235];
+const LABEL_FILL: [number, number, number] = [243, 244, 246];
+const GRID_LINE: [number, number, number] = [200, 204, 210];
+const MUTED: [number, number, number] = [120, 120, 120];
+
+// jsPDF's built-in fonts (helvetica/times/courier) are WinAnsi/CP1252 only —
+// the rupee sign ₹ (U+20B9) is NOT in that range and renders as garbage (same
 // gotcha documented in receipt-pdf.ts / ims-receipt-pdf.ts). Format money
 // with an ASCII "Rs." prefix instead of relying on Intl's ₹ glyph.
 function formatINR(amount: number | null | undefined): string {
@@ -24,255 +50,448 @@ function formatINR(amount: number | null | undefined): string {
   return `Rs. ${value}`;
 }
 
-function formatDate(date?: string | null): string {
-  if (!date) return 'N/A';
+function formatDateTime(date?: string | null): string {
+  if (!date) return '-';
   const d = new Date(date);
-  if (isNaN(d.getTime())) return 'N/A';
-  return d.toLocaleDateString('en-IN', {
-    day: '2-digit',
-    month: 'long',
-    year: 'numeric'
+  if (isNaN(d.getTime())) return '-';
+  return d.toLocaleString('en-IN', {
+    day: '2-digit', month: 'short', year: 'numeric',
+    hour: '2-digit', minute: '2-digit', hour12: true
   });
 }
 
-const titleCase = (value?: string | null): string =>
-  (value || '').toString().replace(/_/g, ' ').toUpperCase();
+const ACRONYMS = new Set(['dd', 'upi', 'neft', 'rtgs', 'imps', 'utr', 'ifsc', 'id']);
+
+/**
+ * 'withdrawal_pending' → 'Withdrawal Pending', 'cheque_dd_number' → 'Cheque DD Number'.
+ * Values already stored in capitals ('FIRST YEAR', 'PMS SCHOLARSHIP') are free
+ * text, so they are left alone rather than mangled into 'Pms Scholarship'.
+ */
+function humanize(value?: string | null): string {
+  const s = (value ?? '').toString().replace(/_/g, ' ').trim();
+  if (!s) return '-';
+  if (!/[a-z]/.test(s)) return s;
+  return s
+    .split(/\s+/)
+    .map((w) => (ACRONYMS.has(w.toLowerCase()) ? w.toUpperCase() : w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()))
+    .join(' ');
+}
+
+const text = (value?: string | number | null): string => {
+  const s = value === null || value === undefined ? '' : String(value).trim();
+  return s || '-';
+};
+
+const ACTION_LABEL: Record<RefundRequestAction['action_type'], string> = {
+  initiated: 'Initiated',
+  approved: 'Approved',
+  declined: 'Declined',
+  disbursed: 'Disbursed',
+  flow_reapplied: 'Flow Re-applied'
+};
+
+function institutionAddress(inst?: RefundPdfInstitution | null): string {
+  if (!inst) return '';
+  const line = [inst.address_line1, inst.address_line2, inst.address_line3, inst.city, inst.state]
+    .map((p) => (p ?? '').trim())
+    .filter(Boolean)
+    .join(', ');
+  const pin = (inst.pin_code ?? '').trim();
+  return pin ? (line ? `${line} - ${pin}` : pin) : line;
+}
+
+interface Field {
+  label: string;
+  value: string;
+  /** Value spans the whole row (long text such as institution or program). */
+  wide?: boolean;
+}
 
 /**
  * Build (but do not save) the refund request PDF document.
  * Exported separately so callers can reuse the same layout without forcing
  * a download.
  */
-export function buildRefundRequestPdf(request: RefundRequest): jsPDF {
+export function buildRefundRequestPdf(request: RefundRequest, ctx: RefundPdfContext = {}): jsPDF {
   const doc = new jsPDF({ unit: 'mm', format: 'a4' });
   const pageWidth = doc.internal.pageSize.getWidth();
   const pageHeight = doc.internal.pageSize.getHeight();
-  const marginX = 14;
-  const marginTop = 18;
-  let y = marginTop;
+  const contentWidth = pageWidth - MARGIN_X * 2;
+  const bottomMargin = 16; // keeps tables clear of the page footer
+  const tableMargin = { left: MARGIN_X, right: MARGIN_X, bottom: bottomMargin };
+  let y = MARGIN_X;
 
-  // Advance past a page break when the next block won't fit.
-  const ensureSpace = (needed: number) => {
-    if (y + needed > pageHeight - 15) {
-      doc.addPage();
-      y = marginTop;
-    }
-  };
-
-  // ─── 1. Title: request number + status ──────────────────────────────────
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(16);
-  doc.text('REFUND REQUEST', pageWidth / 2, y, { align: 'center' });
-  y += 7;
-
-  doc.setFontSize(12);
-  doc.text(request.request_number, pageWidth / 2, y, { align: 'center' });
-  y += 6;
-
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(10);
-  doc.text(`Status: ${titleCase(request.status)}`, pageWidth / 2, y, {
-    align: 'center'
-  });
-  y += 9;
-
-  // ─── 2. Learner block ────────────────────────────────────────────────────
-  const studentName =
-    `${request.student?.first_name || ''} ${request.student?.last_name || ''}`.trim() ||
-    'N/A';
-
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(11);
-  doc.text('Learner', marginX, y);
-  y += 5;
-
-  autoTable(doc, {
-    startY: y,
-    margin: { left: marginX, right: marginX },
-    theme: 'plain',
-    styles: { fontSize: 10, cellPadding: 1.5 },
-    columnStyles: {
-      0: { fontStyle: 'bold', cellWidth: 45 },
-      1: { cellWidth: 'auto' }
-    },
-    body: [
-      ['Name', studentName],
-      ['Roll Number', request.student?.roll_number || 'N/A']
-    ]
-  });
-  y = (doc as any).lastAutoTable.finalY + 6;
-
-  // ─── 3. Request block ────────────────────────────────────────────────────
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(11);
-  doc.text('Request Details', marginX, y);
-  y += 5;
-
-  autoTable(doc, {
-    startY: y,
-    margin: { left: marginX, right: marginX },
-    theme: 'plain',
-    styles: { fontSize: 10, cellPadding: 1.5 },
-    columnStyles: {
-      0: { fontStyle: 'bold', cellWidth: 45 },
-      1: { cellWidth: 'auto' }
-    },
-    body: [
-      ['Refund Type', titleCase(request.refund_type)],
-      ['Initiated At', formatDate(request.initiated_at)],
-      ['Total Refund', formatINR(request.total_refund_amount)]
-    ]
-  });
-  y = (doc as any).lastAutoTable.finalY + 6;
-
-  // ─── 4. Bills table ──────────────────────────────────────────────────────
-  const bills = request.bills || [];
-  autoTable(doc, {
-    startY: y,
-    margin: { left: marginX, right: marginX },
-    theme: 'grid',
-    head: [['Description', 'Paid', 'Refund Amount']],
-    headStyles: {
-      fillColor: [37, 99, 235],
-      textColor: 255,
-      fontStyle: 'bold'
-    },
-    styles: { fontSize: 9, cellPadding: 2 },
-    columnStyles: { 1: { halign: 'right' }, 2: { halign: 'right' } },
-    body: bills.map((b) => [
-      b.bill?.bill_description || 'Bill',
-      formatINR(b.paid_amount_snapshot),
-      formatINR(b.refund_amount)
-    ]),
-    foot: [['Total', '', formatINR(request.total_refund_amount)]],
-    footStyles: {
-      fillColor: [243, 244, 246],
-      textColor: 20,
-      fontStyle: 'bold',
-      halign: 'right'
-    }
-  });
-  y = (doc as any).lastAutoTable.finalY + 8;
-
-  // ─── 5. Approval trail ───────────────────────────────────────────────────
+  const learner = ctx.learner ?? null;
+  const institution = ctx.institution ?? null;
   const actions = [...(request.actions || [])].sort(
     (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
   );
+  const actorOf = (type: RefundRequestAction['action_type']) =>
+    actions.find((a) => a.action_type === type);
 
-  ensureSpace(12);
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(11);
-  doc.text('Approval Trail', marginX, y);
+  const ensureSpace = (needed: number) => {
+    if (y + needed > pageHeight - bottomMargin) {
+      doc.addPage();
+      y = MARGIN_X;
+    }
+  };
+  const afterTable = (gap = 5) => {
+    y = (doc as any).lastAutoTable.finalY + gap;
+  };
+
+  // ─── 1. Letterhead ───────────────────────────────────────────────────────
+  // getInstitutionHeader() falls back to the Arts & Science letterhead when it
+  // has no name — never let that print on another college's document. With no
+  // institution record (RLS hid it), use the group name and omit the rest.
+  const branding = institution
+    ? getInstitutionHeader(institution.name, institution.counselling_code)
+    : null;
+  y = drawInstitutionBanner(
+    doc,
+    {
+      institution_name: (institution?.name || 'JKKN Educational Institutions').toUpperCase(),
+      institution_accreditation: institution?.university_affiliation_name
+        ? `(Affiliated to ${institution.university_affiliation_name})`
+        : branding?.institution_accreditation,
+      institution_address: institutionAddress(institution) || branding?.institution_address,
+      logoImage: ctx.logos?.left || undefined,
+      rightLogoImage: ctx.logos?.right || undefined
+    },
+    pageWidth,
+    y
+  );
+  doc.setDrawColor(0);
+  doc.setLineWidth(0.4);
+  doc.line(MARGIN_X, y, pageWidth - MARGIN_X, y);
   y += 6;
 
-  if (actions.length === 0) {
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(9);
-    doc.text('No actions recorded.', marginX, y);
+  // ─── 2. Document title + request number / status ────────────────────────
+  doc.setFont(FONT, 'bold');
+  doc.setFontSize(14);
+  doc.setTextColor(0);
+  doc.text('REFUND REQUEST', pageWidth / 2, y, { align: 'center' });
+  y += 6.5;
+
+  doc.setFontSize(10);
+  doc.text(`Request No: ${request.request_number}`, MARGIN_X, y);
+  doc.text(`Status: ${humanize(request.status)}`, pageWidth - MARGIN_X, y, { align: 'right' });
+  y += 5;
+
+  // ─── helpers: section bar + aligned key/value grid ──────────────────────
+  // `minSpace` keeps a heading from being stranded above a single table row at
+  // the foot of a page.
+  const sectionTitle = (title: string, minSpace = 20) => {
+    ensureSpace(minSpace);
+    doc.setFillColor(...BRAND);
+    doc.rect(MARGIN_X, y, contentWidth, 6, 'F');
+    doc.setFont(FONT, 'bold');
+    doc.setFontSize(10);
+    doc.setTextColor(255);
+    doc.text(title.toUpperCase(), MARGIN_X + 2, y + 4.2);
+    doc.setTextColor(0);
     y += 6;
-  }
+  };
 
-  for (const action of actions) {
-    ensureSpace(12);
+  const label = (content: string): CellInput => ({
+    content,
+    styles: { fontStyle: 'bold', fillColor: LABEL_FILL }
+  });
 
-    const actorName = action.actor?.full_name || 'Unknown';
-    const roleSuffix = action.actor_role_name ? ` (${action.actor_role_name})` : '';
-    const header = `[${action.stage_name}] ${titleCase(action.action_type)} by ${actorName}${roleSuffix} at ${formatDate(action.created_at)}`;
-
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(9);
-    const headerLines = doc.splitTextToSize(header, pageWidth - marginX * 2);
-    ensureSpace(headerLines.length * 4.5);
-    doc.text(headerLines, marginX, y);
-    y += headerLines.length * 4.5 + 1;
-
-    if (action.notes) {
-      doc.setFont('helvetica', 'normal');
-      doc.setFontSize(9);
-      const noteLines = doc.splitTextToSize(action.notes, pageWidth - marginX * 2 - 4);
-      ensureSpace(noteLines.length * 4.5);
-      doc.text(noteLines, marginX + 4, y);
-      y += noteLines.length * 4.5 + 1;
-    }
-
-    if (action.attachments && action.attachments.length > 0) {
-      doc.setFont('helvetica', 'italic');
-      doc.setFontSize(8);
-      for (const att of action.attachments) {
-        ensureSpace(4.5);
-        const line = `- ${att.name}: ${att.drive_url}`;
-        const lines = doc.splitTextToSize(line, pageWidth - marginX * 2 - 4);
-        doc.text(lines, marginX + 4, y);
-        y += lines.length * 4 + 0.5;
+  // Four equal-weight columns (label | value | label | value) so every block on
+  // the page lines up on the same vertical grid.
+  const kvSection = (title: string, fields: Field[], minSpace?: number) => {
+    sectionTitle(title, minSpace);
+    const body: RowInput[] = [];
+    let pending: Field | null = null;
+    // A field left without a partner takes the full row rather than leaving
+    // two empty bordered cells.
+    const full = (f: Field): RowInput => [label(f.label), { content: f.value, colSpan: 3 }];
+    for (const f of fields) {
+      if (f.wide) {
+        if (pending) {
+          body.push(full(pending));
+          pending = null;
+        }
+        body.push(full(f));
+      } else if (pending) {
+        body.push([label(pending.label), pending.value, label(f.label), f.value]);
+        pending = null;
+      } else {
+        pending = f;
       }
     }
+    if (pending) body.push(full(pending));
 
-    y += 3;
+    autoTable(doc, {
+      startY: y,
+      margin: tableMargin,
+      theme: 'grid',
+      styles: {
+        font: FONT,
+        fontSize: 9,
+        cellPadding: { top: 1.6, bottom: 1.6, left: 2, right: 2 },
+        lineColor: GRID_LINE,
+        lineWidth: 0.2,
+        textColor: 20,
+        valign: 'middle'
+      },
+      columnStyles: {
+        0: { cellWidth: 34 },
+        1: { cellWidth: 61 },
+        2: { cellWidth: 34 },
+        3: { cellWidth: 61 }
+      },
+      body
+    });
+    afterTable();
+  };
+
+  // ─── 3. Request details ─────────────────────────────────────────────────
+  const initiated = actorOf('initiated');
+  kvSection('Request Details', [
+    { label: 'Refund Type', value: humanize(request.refund_type) },
+    { label: 'Total Refund', value: formatINR(request.total_refund_amount) },
+    { label: 'Initiated On', value: formatDateTime(request.initiated_at) },
+    {
+      label: 'Initiated By',
+      value: initiated?.actor?.full_name
+        ? `${initiated.actor.full_name}${initiated.actor_role_name ? ` (${initiated.actor_role_name})` : ''}`
+        : '-'
+    }
+  ]);
+
+  // ─── 4. Academic details (learner identity + academic placement) ────────
+  const studentName =
+    `${learner?.first_name || request.student?.first_name || ''} ${learner?.last_name || request.student?.last_name || ''}`.trim();
+  kvSection('Academic Details', [
+    { label: 'Learner Name', value: text(studentName) },
+    { label: 'Application ID', value: text(learner?.application_id) },
+    { label: 'Mobile', value: text(learner?.student_mobile) },
+    { label: 'Current Status', value: humanize(learner?.lifecycle_status ?? request.student?.lifecycle_status) },
+    { label: 'Institution', value: text(institution?.name), wide: true },
+    { label: 'Degree', value: text(learner?.degree?.degree_name || learner?.degree?.display_name) },
+    { label: 'Program', value: text(learner?.program?.program_name || learner?.program?.display_name) },
+    { label: 'Department', value: text(learner?.department?.department_name || learner?.department?.display_name) },
+    { label: 'Regulation', value: text(learner?.regulation?.regulation_code) },
+    { label: 'Academic Year', value: text(learner?.academic_year?.academic_year_name) },
+    { label: 'Batch', value: text(learner?.batch?.batch_name || learner?.batch?.batch_code) },
+    { label: 'Semester', value: text(learner?.semester?.semester_name) },
+    { label: 'Section', value: text(learner?.section?.section_name) }
+  ]);
+
+  // ─── 5. Bills ───────────────────────────────────────────────────────────
+  const bills = request.bills || [];
+  const paidTotal = bills.reduce((s, b) => s + (Number(b.paid_amount_snapshot) || 0), 0);
+  const right = (content: string): CellInput => ({ content, styles: { halign: 'right' } });
+  sectionTitle('Bills');
+  autoTable(doc, {
+    startY: y,
+    margin: tableMargin,
+    theme: 'grid',
+    head: [[
+      { content: 'S.No', styles: { halign: 'center' } },
+      'Bill Description',
+      right('Amount Paid'),
+      right('Refund Amount')
+    ]],
+    headStyles: { fillColor: LABEL_FILL, textColor: 20, fontStyle: 'bold' },
+    styles: {
+      font: FONT,
+      fontSize: 9,
+      cellPadding: { top: 1.8, bottom: 1.8, left: 2, right: 2 },
+      lineColor: GRID_LINE,
+      lineWidth: 0.2,
+      textColor: 20,
+      valign: 'middle'
+    },
+    columnStyles: {
+      0: { cellWidth: 14, halign: 'center' },
+      2: { cellWidth: 38, halign: 'right' },
+      3: { cellWidth: 38, halign: 'right' }
+    },
+    body: bills.length
+      ? bills.map((b, i) => [
+          String(i + 1),
+          b.bill?.bill_description || 'Bill',
+          formatINR(b.paid_amount_snapshot),
+          formatINR(b.refund_amount)
+        ])
+      : [[{ content: 'No bills on this request.', colSpan: 4, styles: { halign: 'center', textColor: MUTED } }]],
+    foot: [[
+      { content: 'Total', colSpan: 2, styles: { halign: 'right' } },
+      right(formatINR(paidTotal)),
+      right(formatINR(request.total_refund_amount))
+    ]],
+    footStyles: { fillColor: LABEL_FILL, textColor: 20, fontStyle: 'bold' }
+  });
+  afterTable(6);
+
+  // ─── 6. Approval trail ──────────────────────────────────────────────────
+  const pendingStages = request.status === 'pending_review'
+    ? (request.flow_snapshot?.stages ?? []).slice(request.current_stage_index)
+    : [];
+  const showDisbursementTail = request.status === 'pending_review' || request.status === 'pending_disbursement';
+  const pendingCell = (content: string): CellInput => ({ content, styles: { textColor: MUTED } });
+
+  const trailRows: RowInput[] = actions.map((a, i) => [
+    String(i + 1),
+    a.stage_name,
+    ACTION_LABEL[a.action_type] ?? humanize(a.action_type),
+    a.actor?.full_name
+      ? `${a.actor.full_name}${a.actor_role_name ? `\n(${a.actor_role_name})` : ''}`
+      : '-',
+    formatDateTime(a.created_at),
+    a.notes?.trim() || '-'
+  ]);
+  const pendingRow = (name: string): RowInput => [
+    '', pendingCell(name), pendingCell('Pending'), pendingCell('-'), pendingCell('-'), pendingCell('-')
+  ];
+  pendingStages.forEach((s) => trailRows.push(pendingRow(s.name)));
+  if (showDisbursementTail) trailRows.push(pendingRow('Disbursement'));
+
+  sectionTitle('Approval Trail', 50);
+  autoTable(doc, {
+    startY: y,
+    margin: tableMargin,
+    theme: 'grid',
+    head: [[{ content: 'S.No', styles: { halign: 'center' } }, 'Stage', 'Action', 'By', 'Date & Time', 'Remarks']],
+    headStyles: { fillColor: LABEL_FILL, textColor: 20, fontStyle: 'bold' },
+    styles: {
+      font: FONT,
+      fontSize: 8.5,
+      cellPadding: { top: 1.6, bottom: 1.6, left: 2, right: 2 },
+      lineColor: GRID_LINE,
+      lineWidth: 0.2,
+      textColor: 20,
+      valign: 'top'
+    },
+    columnStyles: {
+      0: { cellWidth: 12, halign: 'center' },
+      1: { cellWidth: 32 },
+      2: { cellWidth: 22 },
+      3: { cellWidth: 40 },
+      4: { cellWidth: 34 },
+      5: { cellWidth: 'auto' }
+    },
+    body: trailRows.length
+      ? trailRows
+      : [[{ content: 'No actions recorded.', colSpan: 6, styles: { halign: 'center', textColor: MUTED } }]]
+  });
+  afterTable(6);
+
+  // ─── 7. Supporting documents (names are clickable links) ────────────────
+  const docs = actions.flatMap((a) =>
+    (a.attachments ?? []).map((att) => ({
+      stage: a.stage_name,
+      action: ACTION_LABEL[a.action_type] ?? humanize(a.action_type),
+      name: att.name,
+      url: att.drive_url
+    }))
+  );
+  if (docs.length > 0) {
+    sectionTitle('Supporting Documents');
+    autoTable(doc, {
+      startY: y,
+      margin: tableMargin,
+      theme: 'grid',
+      head: [[{ content: 'S.No', styles: { halign: 'center' } }, 'Stage', 'Action', 'Document']],
+      headStyles: { fillColor: LABEL_FILL, textColor: 20, fontStyle: 'bold' },
+      styles: {
+        font: FONT,
+        fontSize: 8.5,
+        cellPadding: { top: 1.6, bottom: 1.6, left: 2, right: 2 },
+        lineColor: GRID_LINE,
+        lineWidth: 0.2,
+        textColor: 20,
+        valign: 'middle'
+      },
+      columnStyles: {
+        0: { cellWidth: 12, halign: 'center' },
+        1: { cellWidth: 40 },
+        2: { cellWidth: 26 },
+        3: { cellWidth: 'auto' }
+      },
+      body: docs.map((d, i) => [String(i + 1), d.stage, d.action, d.name]),
+      didParseCell: (data) => {
+        if (data.section === 'body' && data.column.index === 3) data.cell.styles.textColor = BRAND;
+      },
+      didDrawCell: (data) => {
+        if (data.section === 'body' && data.column.index === 3) {
+          const url = docs[data.row.index]?.url;
+          if (url) doc.link(data.cell.x, data.cell.y, data.cell.width, data.cell.height, { url });
+        }
+      }
+    });
+    afterTable(6);
   }
 
-  // ─── 6. Disbursement block (only when disbursed) ────────────────────────
+  // ─── 8. Disbursement (only when disbursed) ─────────────────────────────
   if (request.status === 'disbursed') {
-    ensureSpace(16);
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(11);
-    doc.text('Disbursement', marginX, y);
-    y += 5;
-
-    const details = request.payment_details || {};
-    const rows: Array<[string, string]> = [
-      ['Payment Mode', titleCase(request.payment_mode)]
+    const disbursed = actorOf('disbursed');
+    const fields: Field[] = [
+      { label: 'Payment Mode', value: humanize(request.payment_mode) },
+      { label: 'Disbursed On', value: formatDateTime(request.disbursed_at) },
+      {
+        label: 'Disbursed By',
+        value: disbursed?.actor?.full_name
+          ? `${disbursed.actor.full_name}${disbursed.actor_role_name ? ` (${disbursed.actor_role_name})` : ''}`
+          : '-',
+        wide: true
+      }
     ];
-    Object.entries(details).forEach(([k, v]) => {
-      rows.push([k.replace(/_/g, ' '), String(v)]);
+    Object.entries(request.payment_details || {}).forEach(([k, v]) => {
+      fields.push({ label: humanize(k), value: text(v as string | number | null) });
     });
-    rows.push(['Disbursed At', formatDate(request.disbursed_at)]);
-
-    autoTable(doc, {
-      startY: y,
-      margin: { left: marginX, right: marginX },
-      theme: 'plain',
-      styles: { fontSize: 10, cellPadding: 1.5 },
-      columnStyles: {
-        0: { fontStyle: 'bold', cellWidth: 45 },
-        1: { cellWidth: 'auto' }
-      },
-      body: rows
-    });
-    y = (doc as any).lastAutoTable.finalY + 6;
+    kvSection('Disbursement', fields, 50);
   }
 
-  // ─── 7. Decline block (only when declined) ──────────────────────────────
+  // ─── 9. Decline (only when declined) ───────────────────────────────────
   if (request.status === 'declined') {
-    ensureSpace(16);
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(11);
-    doc.text('Decline', marginX, y);
-    y += 5;
+    const declined = actorOf('declined');
+    kvSection('Decline', [
+      { label: 'Declined Stage', value: text(request.declined_stage_name) },
+      { label: 'Declined On', value: formatDateTime(request.declined_at) },
+      { label: 'Declined By', value: text(declined?.actor?.full_name), wide: true },
+      { label: 'Reason', value: text(request.decline_reason), wide: true }
+    ]);
+  }
 
-    autoTable(doc, {
-      startY: y,
-      margin: { left: marginX, right: marginX },
-      theme: 'plain',
-      styles: { fontSize: 10, cellPadding: 1.5 },
-      columnStyles: {
-        0: { fontStyle: 'bold', cellWidth: 45 },
-        1: { cellWidth: 'auto' }
-      },
-      body: [
-        ['Declined Stage', request.declined_stage_name || 'N/A'],
-        ['Reason', request.decline_reason || 'N/A']
-      ]
-    });
-    y = (doc as any).lastAutoTable.finalY + 6;
+  // ─── Footer on every page ───────────────────────────────────────────────
+  const pages = doc.getNumberOfPages();
+  for (let i = 1; i <= pages; i++) {
+    doc.setPage(i);
+    doc.setFont(FONT, 'normal');
+    doc.setFontSize(7.5);
+    doc.setTextColor(90);
+    doc.text(`Generated ${new Date().toLocaleString('en-IN')}`, MARGIN_X, pageHeight - 6);
+    doc.text(request.request_number, pageWidth / 2, pageHeight - 6, { align: 'center' });
+    doc.text(`Page ${i} of ${pages}`, pageWidth - MARGIN_X, pageHeight - 6, { align: 'right' });
+    doc.setTextColor(0);
   }
 
   return doc;
 }
 
 /**
- * Generate the refund request PDF and trigger a browser download.
+ * Fetch the learner / institution context and logos, then generate the refund
+ * request PDF and trigger a browser download.
  */
-export function generateRefundRequestPdf(request: RefundRequest): void {
-  const doc = buildRefundRequestPdf(request);
+export async function generateRefundRequestPdf(request: RefundRequest): Promise<void> {
+  const { learner, institution } = await RefundWorkflowService.getPdfContext(
+    request.student_id,
+    request.institution_id
+  );
+
+  // Same logo sourcing as the attendance / internal-marks reports: trust mark on
+  // the left, the college's own mark on the right.
+  const branding = institution
+    ? getInstitutionHeader(institution.name, institution.counselling_code)
+    : null;
+  const [left, right] = await Promise.all([
+    loadLogoDataUrl(branding?.logoImage || '/logo.png'),
+    loadLogoDataUrl(institution?.logo_url || branding?.rightLogoImage)
+  ]);
+
+  const doc = buildRefundRequestPdf(request, { learner, institution, logos: { left, right } });
   doc.save(`${request.request_number}.pdf`);
 }

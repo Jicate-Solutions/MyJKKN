@@ -292,7 +292,14 @@ async function resolveSyllabusInstitution(institutionsId: string): Promise<{ nam
 function resolveContentModes(
   courseCategory: string | undefined,
   content: BosCourseSyllabus['course_content'],
-): { includeTheory: boolean; includePractical: boolean } {
+): { includeTheory: boolean; includePractical: boolean; includeProject: boolean } {
+  // Project mode is the author's explicit choice on the Content tab and stores
+  // its body in project_units[]. When that is what was authored, print it alone
+  // — units[]/topics[] may still hold leftovers from an earlier mode.
+  if (content?.is_project && (content?.project_units?.length ?? 0) > 0) {
+    return { includeTheory: false, includePractical: false, includeProject: true };
+  }
+
   const cat = (courseCategory || '').toLowerCase();
   const namesAMode = cat.includes('theory') || cat.includes('practical') || cat.includes('project');
 
@@ -319,10 +326,10 @@ function resolveContentModes(
   const hasTopics = (content?.topics?.length ?? 0) > 0;
   const rendersNothing = !(includeTheory && hasUnits) && !(includePractical && hasTopics);
   if (rendersNothing && (hasUnits || hasTopics)) {
-    return { includeTheory: hasUnits, includePractical: hasTopics };
+    return { includeTheory: hasUnits, includePractical: hasTopics, includeProject: false };
   }
 
-  return { includeTheory, includePractical };
+  return { includeTheory, includePractical, includeProject: false };
 }
 
 /**
@@ -557,6 +564,9 @@ export async function buildSyllabusPdfData(
       ? undefined
       : (contentModes.includePractical ? (syllabus.course_content?.topics ?? []) : undefined),
     number_practical_topics: syllabus.course_content?.number_practical_topics,
+    project_units: !isAhsDoc && contentModes.includeProject
+      ? (syllabus.course_content?.project_units ?? [])
+      : undefined,
     // AHS: exam scheme + internship folded into the instruction block after content.
     instruction: isAhsDoc ? ahsInstr : syllabus.course_content?.instruction,
     textbooks: syllabus.textbooks?.primary ?? [],
@@ -783,6 +793,9 @@ export function SyllabusDocxDownloadButton({
           ? (syllabus.course_content?.topics ?? [])
           : undefined,
         number_practical_topics: syllabus.course_content?.number_practical_topics,
+        project_units: contentModes.includeProject
+          ? (syllabus.course_content?.project_units ?? [])
+          : undefined,
         instruction: syllabus.course_content?.instruction,
         textbooks: syllabus.textbooks?.primary ?? [],
         references: syllabus.textbooks?.references ?? [],

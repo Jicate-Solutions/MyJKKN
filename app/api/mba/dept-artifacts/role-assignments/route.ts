@@ -116,16 +116,41 @@ export async function GET(request: NextRequest) {
       const admin = createServiceRoleClient();
       const { data: members } = await admin
         .from('staff')
-        .select('id, first_name, last_name, email')
+        .select('id, first_name, last_name, email, profile_id')
         .in('id', ids);
-      for (const m of (members ?? []) as Array<{
+      const memberRows = (members ?? []) as Array<{
         id: string;
         first_name: string | null;
         last_name: string | null;
         email: string | null;
-      }>) {
+        profile_id: string | null;
+      }>;
+
+      // Show the LOGIN email, not the team member record's. staff.email is the
+      // contact address HR captured and is often personal: on 2026-10-08, 323
+      // of 722 active records held a non-@jkkn.ac.in address, 215 of them for
+      // people whose login IS @jkkn.ac.in. The record's own email is the
+      // fallback only when the person has no login account.
+      const loginEmail = new Map<string, string | null>();
+      const loginIds = memberRows
+        .map((m) => m.profile_id)
+        .filter((v): v is string => Boolean(v));
+      if (loginIds.length > 0) {
+        const { data: logins } = await admin
+          .from('profiles')
+          .select('id, email')
+          .in('id', loginIds);
+        for (const l of (logins ?? []) as Array<{ id: string; email: string | null }>) {
+          loginEmail.set(l.id, l.email);
+        }
+      }
+
+      for (const m of memberRows) {
         const name = [m.first_name, m.last_name].filter(Boolean).join(' ').trim();
-        byId.set(m.id, { name: name || null, email: m.email });
+        byId.set(m.id, {
+          name: name || null,
+          email: (m.profile_id ? loginEmail.get(m.profile_id) : null) || m.email,
+        });
       }
     }
 

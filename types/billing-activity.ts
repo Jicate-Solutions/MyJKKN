@@ -4,7 +4,7 @@ export const BILLING_RESOURCE_TYPES = [
   'bill',
   'receipt',
   'invoice',
-  'discount',
+  'scholarship',
   'refund',
   'category'
 ] as const;
@@ -17,7 +17,7 @@ export const BILLING_ACTION_TYPES = [
   'delete',
   'payment_process',
   'invoice_generate',
-  'discount_apply',
+  'scholarship_apply',
   'refund_process',
   'approve',
   'reject',
@@ -39,7 +39,7 @@ export const BILLING_ACTION_LABELS: Record<string, string> = {
   delete: 'Deleted',
   payment_process: 'Payment',
   invoice_generate: 'Invoice',
-  discount_apply: 'Discount',
+  scholarship_apply: 'Scholarship',
   refund_process: 'Refund',
   approve: 'Approved',
   reject: 'Rejected',
@@ -56,7 +56,7 @@ export const BILLING_ACTION_COLORS: Record<string, string> = {
   delete: 'bg-red-100 text-red-800',
   payment_process: 'bg-emerald-100 text-emerald-800',
   invoice_generate: 'bg-purple-100 text-purple-800',
-  discount_apply: 'bg-amber-100 text-amber-800',
+  scholarship_apply: 'bg-amber-100 text-amber-800',
   refund_process: 'bg-orange-100 text-orange-800',
   approve: 'bg-teal-100 text-teal-800',
   reject: 'bg-rose-100 text-rose-800',
@@ -73,7 +73,7 @@ export const BILLING_RESOURCE_LABELS: Record<string, string> = {
   bill: 'Bill',
   receipt: 'Receipt',
   invoice: 'Invoice',
-  discount: 'Discount',
+  scholarship: 'Scholarship',
   refund: 'Refund',
   category: 'Category'
 };
@@ -82,7 +82,7 @@ export const BILLING_RESOURCE_COLORS: Record<string, string> = {
   bill: 'bg-sky-100 text-sky-800',
   receipt: 'bg-emerald-100 text-emerald-800',
   invoice: 'bg-violet-100 text-violet-800',
-  discount: 'bg-amber-100 text-amber-800',
+  scholarship: 'bg-amber-100 text-amber-800',
   refund: 'bg-orange-100 text-orange-800',
   category: 'bg-gray-100 text-gray-800'
 };

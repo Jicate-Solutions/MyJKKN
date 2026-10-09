@@ -22,11 +22,11 @@ const CONTEXTUAL_MAP: Record<string, string[]> = {
   '/academic/staff-planning': ['/academic/timetables', '/staff/list', '/academic/periods'],
 
   // Billing pages
-  '/billing/invoices': ['/billing/receipts', '/billing/schedule', '/billing/reports', '/billing/discounts'],
+  '/billing/invoices': ['/billing/receipts', '/billing/schedule', '/billing/reports', '/billing/scholarships'],
   '/billing/receipts': ['/billing/invoices', '/billing/schedule', '/billing/reports'],
   '/billing/schedule': ['/billing/invoices', '/billing/receipts', '/billing/categories'],
   '/billing/reports': ['/billing/invoices', '/billing/receipts', '/billing/refunds'],
-  '/billing/discounts': ['/billing/invoices', '/billing/schedule'],
+  '/billing/scholarships': ['/billing/invoices', '/billing/schedule'],
 
   // Admission pages
   '/admission/leads': ['/admission/applications', '/admission/dashboard', '/admission/counselors', '/admission/marketing/chat'],

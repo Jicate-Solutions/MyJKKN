@@ -13235,7 +13235,7 @@ AS $$
 DECLARE
   v_inst uuid[];
   v_billed numeric := 0; v_collected numeric := 0; v_refunds numeric := 0;
-  v_discounts numeric := 0; v_outstanding numeric := 0;
+  v_scholarships numeric := 0; v_outstanding numeric := 0;
   v_students int := 0; v_total int := 0; v_paid int := 0; v_unpaid int := 0; v_partial int := 0;
 BEGIN
   IF NOT public.user_has_permission('billing.analytics.view') THEN
@@ -13249,7 +13249,7 @@ BEGIN
   IF v_inst IS NULL THEN
     RETURN jsonb_build_object('total_billed',0,'total_collected',0,'net_collected',0,
       'total_outstanding',0,'collection_rate',0,'students_billed',0,'total_bills',0,
-      'bills_paid',0,'bills_unpaid',0,'bills_partially_paid',0,'total_discounts',0,'total_refunds',0);
+      'bills_paid',0,'bills_unpaid',0,'bills_partially_paid',0,'total_scholarships',0,'total_refunds',0);
   END IF;
 
   SELECT COALESCE(SUM(final_amount),0), COUNT(*),
@@ -13279,8 +13279,8 @@ BEGIN
     AND (p_date_from IS NULL OR r.refund_date >= p_date_from)
     AND (p_date_to   IS NULL OR r.refund_date <= p_date_to);
 
-  SELECT COALESCE(SUM(d.discount_amount),0) INTO v_discounts
-  FROM billing_discounts d JOIN billing_student_bills b ON b.id = d.bill_id
+  SELECT COALESCE(SUM(d.scholarship_amount),0) INTO v_scholarships
+  FROM billing_scholarships d JOIN billing_student_bills b ON b.id = d.bill_id
   WHERE b.institution_id = ANY(v_inst) AND d.approval_status = 'approved'
     AND (p_date_from IS NULL OR d.effective_date >= p_date_from)
     AND (p_date_to   IS NULL OR d.effective_date <= p_date_to);
@@ -13292,7 +13292,7 @@ BEGIN
     'collection_rate', CASE WHEN v_billed > 0 THEN round((v_collected / v_billed) * 100, 2) ELSE 0 END,
     'students_billed', v_students, 'total_bills', v_total,
     'bills_paid', v_paid, 'bills_unpaid', v_unpaid, 'bills_partially_paid', v_partial,
-    'total_discounts', v_discounts, 'total_refunds', v_refunds);
+    'total_scholarships', v_scholarships, 'total_refunds', v_refunds);
 END;
 $$;
 
@@ -13688,7 +13688,7 @@ CREATE OR REPLACE FUNCTION public.get_billing_user_activity(
   p_date_to date DEFAULT NULL
 ) RETURNS TABLE(
   user_id uuid, full_name text, role text, actions_count int, receipts_count int,
-  amount_collected numeric, discounts_count int, refunds_count int, last_active timestamptz)
+  amount_collected numeric, scholarships_count int, refunds_count int, last_active timestamptz)
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = public
 AS $$
 DECLARE v_inst uuid[];
@@ -13707,7 +13707,7 @@ BEGIN
     SELECT ual.user_id uid, COUNT(*) c, MAX(ual.created_at) last_at
     FROM user_activity_logs ual
     WHERE ual.institution_id = ANY(v_inst)
-      AND (ual.resource_type IN ('bill','receipt','invoice','discount','refund')
+      AND (ual.resource_type IN ('bill','receipt','invoice','scholarship','refund')
            OR (ual.resource_type = 'category' AND ual.metadata->>'sub_type' LIKE 'billing_%'))
       AND (p_date_from IS NULL OR ual.created_at >= p_date_from)
       AND (p_date_to   IS NULL OR (ual.created_at AT TIME ZONE 'Asia/Kolkata')::date <= p_date_to)
@@ -13721,7 +13721,7 @@ BEGIN
     GROUP BY COALESCE(created_by, accountant_id)),
   disc AS (
     SELECT d.created_by uid, COUNT(*) c
-    FROM billing_discounts d JOIN billing_student_bills b ON b.id = d.bill_id
+    FROM billing_scholarships d JOIN billing_student_bills b ON b.id = d.bill_id
     WHERE b.institution_id = ANY(v_inst)
       AND (p_date_from IS NULL OR d.created_at >= p_date_from)
       AND (p_date_to   IS NULL OR (d.created_at AT TIME ZONE 'Asia/Kolkata')::date <= p_date_to)
@@ -22783,6 +22783,70 @@ GRANT EXECUTE ON FUNCTION fn_my_refund_capabilities(uuid) TO authenticated;
 GRANT EXECUTE ON FUNCTION fn_initiate_refund_request(uuid,text,jsonb,text,jsonb) TO authenticated;
 GRANT EXECUTE ON FUNCTION fn_act_on_refund_request(uuid,text,text,jsonb,text) TO authenticated;
 GRANT EXECUTE ON FUNCTION fn_disburse_refund_request(uuid,text,jsonb,text,jsonb) TO authenticated;
+
+-- Re-apply the CURRENT flow to one open request with no approvals (super admin only).
+-- See migration 20261008140500.
+CREATE OR REPLACE FUNCTION public.fn_reapply_refund_flow(p_request_id uuid, p_reason text)
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = ''
+AS $$
+DECLARE
+  v_user uuid := auth.uid();
+  v_req public.billing_refund_requests;
+  v_cfg public.billing_refund_flow_configs;
+  v_snapshot jsonb;
+  v_actor_role text;
+BEGIN
+  IF v_user IS NULL THEN RAISE EXCEPTION 'not_authenticated'; END IF;
+  IF NOT public.is_super_admin() THEN RAISE EXCEPTION 'not_authorized'; END IF;
+  IF COALESCE(btrim(p_reason), '') = '' THEN RAISE EXCEPTION 'reason_required'; END IF;
+
+  SELECT * INTO v_req FROM public.billing_refund_requests WHERE id = p_request_id FOR UPDATE;
+  IF NOT FOUND THEN RAISE EXCEPTION 'request_not_found'; END IF;
+  IF v_req.status <> 'pending_review' THEN RAISE EXCEPTION 'invalid_status: %', v_req.status; END IF;
+  IF v_req.current_stage_index <> 0 OR EXISTS (
+    SELECT 1 FROM public.billing_refund_request_actions a
+    WHERE a.request_id = p_request_id AND a.action_type = 'approved'
+  ) THEN
+    RAISE EXCEPTION 'already_has_approvals';
+  END IF;
+
+  v_cfg := public.fn_resolve_refund_flow_config(v_req.institution_id);
+  IF v_cfg.id IS NULL THEN RAISE EXCEPTION 'no_flow_configured'; END IF;
+  IF jsonb_array_length(v_cfg.stages) = 0 THEN RAISE EXCEPTION 'flow_has_no_stages'; END IF;
+
+  -- Same shape as fn_initiate_refund_request: uuids as strings so jsonb ? works in gating.
+  v_snapshot := jsonb_build_object(
+    'config_id', v_cfg.id::text,
+    'initiator', jsonb_build_object('assignee_roles', to_jsonb(v_cfg.initiator_roles::text[]), 'assignee_users', to_jsonb(v_cfg.initiator_users::text[])),
+    'stages', v_cfg.stages,
+    'disburser', jsonb_build_object('assignee_roles', to_jsonb(v_cfg.disburser_roles::text[]), 'assignee_users', to_jsonb(v_cfg.disburser_users::text[])));
+
+  IF v_req.flow_snapshot IS NOT DISTINCT FROM v_snapshot THEN
+    RAISE EXCEPTION 'flow_already_current';
+  END IF;
+
+  SELECT cr.role_name INTO v_actor_role
+    FROM public.user_roles ur JOIN public.custom_roles cr ON cr.id = ur.role_id
+    WHERE ur.user_id = v_user ORDER BY ur.is_primary DESC NULLS LAST LIMIT 1;
+
+  UPDATE public.billing_refund_requests
+    SET flow_snapshot = v_snapshot, current_stage_index = 0
+    WHERE id = p_request_id;
+
+  INSERT INTO public.billing_refund_request_actions
+    (request_id, action_type, stage_index, stage_name, actor_id, actor_role_name, notes, attachments)
+  VALUES (p_request_id, 'flow_reapplied', NULL, 'Approval flow re-applied', v_user, v_actor_role,
+    format('Flow re-applied from current settings (%s -> %s stages). %s',
+      jsonb_array_length(v_req.flow_snapshot->'stages'), jsonb_array_length(v_cfg.stages), btrim(p_reason)),
+    '[]'::jsonb);
+END; $$;
+
+-- Revoke from BOTH anon and PUBLIC (anon holds a direct default grant on top of PUBLIC).
+REVOKE EXECUTE ON FUNCTION public.fn_reapply_refund_flow(uuid,text) FROM anon, PUBLIC;
+GRANT EXECUTE ON FUNCTION public.fn_reapply_refund_flow(uuid,text) TO authenticated;
 
 -- Role→member pairs for active roles (settings user-picker role filter). See
 -- migration 20260711130000. Self-authorizing DEFINER (config authors only).
@@ -37786,11 +37850,10 @@ GRANT  EXECUTE ON FUNCTION public.fn_check_duplicate_person(text, text, text, da
 -- teaches its user that people do not exist.
 -- ---------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION public.fn_resolve_person(p_query text)
-RETURNS jsonb
-LANGUAGE plpgsql
-STABLE
-SECURITY DEFINER
-SET search_path = public
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ STABLE SECURITY DEFINER
+ SET search_path TO 'public'
 AS $fn$
 DECLARE
   v_q        text := btrim(coalesce(p_query, ''));
@@ -37855,20 +37918,11 @@ BEGIN
         ELSE 'name'
       END AS matched_on,
       lp.first_name, lp.last_name, lp.student_photo_url, lp.institution_id,
-      -- Updated: 2026-08-14 (migration 20260819010000) — was lp.admission_year,
-      -- which does not exist on learners_profiles and made every call raise
-      -- 42703. The cohort lives behind admission_year_id.
       lp.program_id, ay.year AS admission_year, lp.lifecycle_status, lp.roll_number,
       lp.register_number, lp.application_id, ji.jkkn_id
     FROM public.learners_profiles lp
     LEFT JOIN public.jkkn_identities ji ON ji.learner_profile_id = lp.id
-    -- LEFT, not inner: admission_year_id is nullable, and a learner whose
-    -- cohort was never filled in must still be findable by name or roll
-    -- number. They come back with a null admission_year, not absent.
     LEFT JOIN public.admission_years ay ON ay.id = lp.admission_year_id
-    -- EXISTS, not a LEFT JOIN: two alias types can carry the same value
-    -- (a roll number that is also a legacy number), and a join would then
-    -- return the same person twice.
     WHERE (v_all OR public.role_has_institution_access(lp.institution_id))
       AND (
            (ji.jkkn_id IS NOT NULL AND btrim(ji.jkkn_id) = v_q)
@@ -37895,6 +37949,8 @@ BEGIN
       CASE
         WHEN ji.jkkn_id IS NOT NULL AND btrim(ji.jkkn_id) = v_q      THEN 'jkkn_id'
         WHEN lower(btrim(coalesce(st.staff_id, '')))       = v_lower  THEN 'team_code'
+        WHEN v_lower = ANY (string_to_array(lower(coalesce(st.retired_staff_ids, '')), ' '))
+                                                                      THEN 'team_code'
         WHEN v_phone IS NOT NULL
              AND right(regexp_replace(coalesce(st.phone, ''), '[^0-9]', '', 'g'), 10) = v_phone
                                                                       THEN 'phone'
@@ -37920,6 +37976,7 @@ BEGIN
                 AND lower(btrim(al.alias_value)) = v_lower
            )
         OR lower(btrim(coalesce(st.staff_id, ''))) = v_lower
+        OR v_lower = ANY (string_to_array(lower(coalesce(st.retired_staff_ids, '')), ' '))
         OR lower(coalesce(st.email, ''))             = v_lower
         OR lower(coalesce(st.institution_email, '')) = v_lower
         OR (v_phone IS NOT NULL
@@ -37928,10 +37985,6 @@ BEGIN
       )
     LIMIT 25
   ),
-  -- Added 2026-08-27: profile-anchored identities (associates and external
-  -- participants). INNER join to jkkn_identities on purpose — a profile is
-  -- only findable here once it holds a register row, so a name search does
-  -- not flood with every account in the cluster.
   associate_hits AS (
     SELECT
       p.id,
@@ -38218,23 +38271,11 @@ REVOKE ALL ON FUNCTION public.tg_jkkn_auto_issue_associate() FROM anon, authenti
 -- fn_resolve_person, institution-scoped for non-admins. Sort keys are
 -- whitelisted, the limit clamps to 1..100, and the page clamps to the
 -- last page so narrowing a filter mid-list never blanks the table.
-CREATE OR REPLACE FUNCTION public.fn_jkkn_directory(
-  p_kind           text DEFAULT 'learner',
-  p_institution_id uuid DEFAULT NULL,
-  p_status         text DEFAULT NULL,
-  p_issued         text DEFAULT NULL,   -- 'issued' | 'not_issued' | NULL = any
-  p_admission_year int  DEFAULT NULL,   -- learners only
-  p_search         text DEFAULT NULL,
-  p_sort_by        text DEFAULT 'name',
-  p_sort_order     text DEFAULT 'asc',
-  p_page           int  DEFAULT 1,
-  p_limit          int  DEFAULT 25
-)
-RETURNS jsonb
-LANGUAGE plpgsql
-STABLE
-SECURITY DEFINER
-SET search_path = public
+CREATE OR REPLACE FUNCTION public.fn_jkkn_directory(p_kind text DEFAULT 'learner'::text, p_institution_id uuid DEFAULT NULL::uuid, p_status text DEFAULT NULL::text, p_issued text DEFAULT NULL::text, p_admission_year integer DEFAULT NULL::integer, p_search text DEFAULT NULL::text, p_sort_by text DEFAULT 'name'::text, p_sort_order text DEFAULT 'asc'::text, p_page integer DEFAULT 1, p_limit integer DEFAULT 25)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ STABLE SECURITY DEFINER
+ SET search_path TO 'public'
 AS $fn$
 DECLARE
   v_all    boolean;
@@ -38364,6 +38405,7 @@ BEGIN
        AND (v_q = ''
             OR lower(btrim(st.first_name || ' ' || coalesce(st.last_name, ''))) LIKE '%' || v_q || '%'
             OR lower(btrim(coalesce(st.staff_id, ''))) LIKE '%' || v_q || '%'
+            OR lower(coalesce(st.retired_staff_ids, '')) LIKE '%' || v_q || '%'
             OR lower(coalesce(st.email, ''))             LIKE '%' || v_q || '%'
             OR lower(coalesce(st.institution_email, '')) LIKE '%' || v_q || '%'
             OR btrim(coalesce(ji.jkkn_id, '')) = btrim(coalesce(p_search, '')));
@@ -38402,6 +38444,7 @@ BEGIN
          AND (v_q = ''
               OR lower(btrim(st.first_name || ' ' || coalesce(st.last_name, ''))) LIKE '%' || v_q || '%'
               OR lower(btrim(coalesce(st.staff_id, ''))) LIKE '%' || v_q || '%'
+              OR lower(coalesce(st.retired_staff_ids, '')) LIKE '%' || v_q || '%'
               OR lower(coalesce(st.email, ''))             LIKE '%' || v_q || '%'
               OR lower(coalesce(st.institution_email, '')) LIKE '%' || v_q || '%'
               OR btrim(coalesce(ji.jkkn_id, '')) = btrim(coalesce(p_search, '')))
@@ -55995,9 +56038,10 @@ REVOKE ALL ON FUNCTION public.hr_trig_comp_off_require_biometric() FROM PUBLIC, 
 -- =============================================================================
 -- Mirrored from supabase/migrations/20260911180000_hr_comp_off_auto_reject_expired_claims.sql
 -- Pending claims past their expiry (IST today) are rejected nightly by pg_cron
--- job 'hr-comp-off-reject-expired-claims' (50 18 * * * = 00:20 IST); claims in a
--- LOCKED attendance month are skipped (the lock guard would abort the batch).
--- An expired claim can no longer be approved (trigger in 04_triggers.sql).
+-- job 'hr-comp-off-reject-expired-claims' (50 18 * * * = 00:20 IST). Claims in a
+-- LOCKED attendance month are rejected too (20271009100000: the lock guard now
+-- allows a claim to be decided). An expired claim can no longer be approved
+-- (trigger in 04_triggers.sql).
 -- =============================================================================
 
 CREATE OR REPLACE FUNCTION public.fn_hr_comp_off_reject_expired_claims()
@@ -56006,21 +56050,9 @@ LANGUAGE plpgsql
 SET search_path TO 'public'
 AS $function$
 DECLARE
-  v_today   date := (now() AT TIME ZONE 'Asia/Kolkata')::date;
-  v_count   integer;
-  v_skipped integer;
+  v_today date := (now() AT TIME ZONE 'Asia/Kolkata')::date;
+  v_count integer;
 BEGIN
-  WITH locked AS (
-    SELECT c.id
-    FROM public.hr_comp_off_credits c
-    JOIN public.staff s ON s.id = c.employee_id
-    JOIN public.hr_attendance_periods ap
-      ON ap.institution_id = s.institution_id
-     AND ap.status = 'locked'
-     AND make_date(ap.period_year, ap.period_month, 1) <= c.worked_date
-     AND (make_date(ap.period_year, ap.period_month, 1) + interval '1 month')::date > c.worked_date
-    WHERE c.status = 'pending' AND c.expires_on < v_today
-  )
   UPDATE public.hr_comp_off_credits c
      SET status = 'rejected',
          approved_at = now(),
@@ -56028,18 +56060,12 @@ BEGIN
            'Automatically rejected: not approved before the credit''s one-month expiry on %s.',
            to_char(c.expires_on, 'DD/MM/YYYY'))
    WHERE c.status = 'pending'
-     AND c.expires_on < v_today
-     AND c.id NOT IN (SELECT id FROM locked);
+     AND c.expires_on < v_today;
 
   GET DIAGNOSTICS v_count = ROW_COUNT;
 
-  SELECT count(*) INTO v_skipped
-  FROM public.hr_comp_off_credits c
-  WHERE c.status = 'pending' AND c.expires_on < v_today;
-
-  IF v_count > 0 OR v_skipped > 0 THEN
-    RAISE NOTICE 'fn_hr_comp_off_reject_expired_claims: rejected %, left pending in locked months %',
-      v_count, v_skipped;
+  IF v_count > 0 THEN
+    RAISE NOTICE 'fn_hr_comp_off_reject_expired_claims: rejected %', v_count;
   END IF;
 
   RETURN v_count;
@@ -56187,10 +56213,12 @@ END $function$;
 -- =============================================================================
 -- Mirrored from supabase/migrations/20260827200000_hr_comp_off_claims_respect_locked_month.sql
 -- (functions half; the trigger is mirrored in 04_triggers.sql)
+-- Body as of 20271009100000_hr_comp_off_claims_after_month_close.sql: a claim may
+-- still be raised, decided, withdrawn or revoked for a day in a locked month.
 -- =============================================================================
 
 CREATE OR REPLACE FUNCTION public.hr_trig_block_comp_off_claim_in_locked_period()
-RETURNS TRIGGER
+RETURNS trigger
 LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path TO 'public'
@@ -56202,17 +56230,35 @@ DECLARE
 BEGIN
   v_row := COALESCE(NEW, OLD);
 
-  -- Spending a credit is not a change to the closed month. Both directions of
-  -- hr_trig_comp_off_consume's toggle are allowed; worked_date and credit_days
-  -- must be untouched, so this cannot be used to smuggle an edit through.
+  -- worked_date and credit_days must be untouched for any exemption below, so
+  -- none of them can be used to smuggle an edit of the closed month through.
   IF TG_OP = 'UPDATE'
      AND NEW.worked_date = OLD.worked_date
      AND NEW.credit_days = OLD.credit_days
-     AND (
-       (NEW.status = 'consumed' AND OLD.status = 'approved')
-       OR (NEW.status = 'approved' AND OLD.status = 'consumed')
-     )
   THEN
+    -- Spending a credit is not a change to the closed month. Both directions of
+    -- hr_trig_comp_off_consume's toggle (any source).
+    IF (NEW.status = 'consumed' AND OLD.status = 'approved')
+       OR (NEW.status = 'approved' AND OLD.status = 'consumed')
+    THEN
+      RETURN NEW;
+    END IF;
+
+    -- The life of a CLAIM: decided, withdrawn by the claimant, or an approved
+    -- one taken back. A 'consumed' credit is not here; revoking it is refused by
+    -- fn_hr_comp_off_revoke_block_reason until its leave is revoked.
+    IF OLD.source = 'claim' AND NEW.source = 'claim'
+       AND (
+         (OLD.status = 'pending'  AND NEW.status IN ('approved', 'rejected', 'withdrawn'))
+         OR (OLD.status = 'approved' AND NEW.status = 'rejected')
+       )
+    THEN
+      RETURN NEW;
+    END IF;
+  END IF;
+
+  -- Raising a claim. Only the claimant's shape: source 'claim', still pending.
+  IF TG_OP = 'INSERT' AND NEW.source = 'claim' AND NEW.status = 'pending' THEN
     RETURN NEW;
   END IF;
 
@@ -56234,7 +56280,7 @@ BEGIN
 
   IF FOUND THEN
     RAISE EXCEPTION
-      'Attendance for %-% is closed (locked %). Compensatory off cannot be claimed or decided for a day in that month.',
+      'Attendance for %-% is closed (locked %). This change to a compensatory off credit is not allowed for a day in that month.',
       v_locked.period_year, lpad(v_locked.period_month::text, 2, '0'),
       to_char(v_locked.locked_at, 'DD Mon YYYY')
       USING ERRCODE = 'P0001';
@@ -56243,6 +56289,9 @@ BEGIN
   RETURN COALESCE(NEW, OLD);
 END;
 $fn$;
+
+-- A trigger function is never an API endpoint (20271009110000).
+REVOKE ALL ON FUNCTION public.hr_trig_block_comp_off_claim_in_locked_period() FROM PUBLIC, anon, authenticated;
 
 CREATE OR REPLACE FUNCTION public.fn_hr_lock_attendance_period(
   p_institution_id uuid,
@@ -56796,9 +56845,6 @@ BEGIN
       USING ERRCODE = 'P0001';
   END IF;
 
-  -- NULL means the employment category did not resolve, so teaching cannot be
-  -- told from non-teaching. Refusing beats guessing: a wrong bucket is a wrong
-  -- PERMANENT code.
   IF p_is_teaching IS NULL THEN
     RAISE EXCEPTION 'Cannot issue a staff ID: this staff member has no employment category, so teaching / non-teaching is unknown.'
       USING ERRCODE = 'P0001';
@@ -56821,8 +56867,6 @@ BEGIN
         USING ERRCODE = 'P0001';
     END IF;
 
-    -- Atomic claim. On the INSERT path next_seq lands at 2 so this returns 1;
-    -- on the UPDATE path it returns the freshly incremented value minus one.
     INSERT INTO public.staff_id_counters AS c (institution_id, is_teaching, next_seq)
     VALUES (p_institution_id, p_is_teaching, 2)
     ON CONFLICT (institution_id, is_teaching)
@@ -56831,8 +56875,10 @@ BEGIN
 
     v_code := v_full || lpad(v_seq::text, 3, '0');
 
-    -- A legacy code may still be squatting on this value.
-    EXIT WHEN NOT EXISTS (SELECT 1 FROM public.staff s WHERE s.staff_id = v_code);
+    -- Free means: held by nobody now AND never held by anybody. The second half
+    -- is what keeps an old printed card or sheet from pointing at a stranger.
+    EXIT WHEN NOT EXISTS (SELECT 1 FROM public.staff s WHERE s.staff_id = v_code)
+          AND NOT EXISTS (SELECT 1 FROM public.staff_id_history h WHERE h.staff_id = v_code);
   END LOOP;
 
   RETURN v_code;
@@ -56840,7 +56886,10 @@ END;
 $function$;
 
 COMMENT ON FUNCTION public.fn_next_staff_code(uuid, boolean) IS
-  'Claims and returns the next staff ID for an institution x teaching bucket. SECURITY DEFINER because staff_id_counters grants no direct writes.';
+  'Claims and returns the next staff ID for an institution x teaching bucket, skipping any code '
+  'a living or retired staff member holds. SECURITY DEFINER because staff_id_counters grants no direct writes.';
+
+-- ── 4. Trigger function: generate on creation, re-issue on a bucket change ───
 
 CREATE OR REPLACE FUNCTION public.fn_staff_autonumber()
 RETURNS trigger
@@ -56849,7 +56898,14 @@ SECURITY DEFINER
 SET search_path = ''
 AS $function$
 DECLARE
-  v_is_teaching boolean;
+  v_new_teaching    boolean;
+  v_old_teaching    boolean;
+  v_inst_changed    boolean;
+  v_teach_changed   boolean := false;
+  v_reactivated     boolean;
+  v_reason          text;
+  v_new_code        text;
+  v_expected_prefix text;
 BEGIN
   -- The edit form defaults this field to `staff?.staff_id || ''`, so a staff
   -- member with no code submits '' against a NULL OLD value. Without this
@@ -56858,12 +56914,15 @@ BEGIN
   NEW.staff_id := nullif(btrim(coalesce(NEW.staff_id, '')), '');
 
   IF TG_OP = 'INSERT' THEN
-    -- Active staff only. Anything the caller supplied is discarded.
+    NEW.retired_staff_ids := NULL;
+
+    -- Active staff only. Anything the caller supplied is discarded: creation
+    -- is never manual.
     IF coalesce(NEW.is_active, false) THEN
-      SELECT ec.is_teaching INTO v_is_teaching
+      SELECT ec.is_teaching INTO v_new_teaching
       FROM public.employment_categories ec WHERE ec.id = NEW.category_id;
 
-      NEW.staff_id := public.fn_next_staff_code(NEW.institution_id, v_is_teaching);
+      NEW.staff_id := public.fn_next_staff_code(NEW.institution_id, v_new_teaching);
     ELSE
       NEW.staff_id := NULL;
     END IF;
@@ -56871,23 +56930,77 @@ BEGIN
     RETURN NEW;
   END IF;
 
+  -- UPDATE. retired_staff_ids is derived; a caller never sets it.
+  NEW.retired_staff_ids := OLD.retired_staff_ids;
+
   -- One guard covers every manual path: changing a code, clearing a code, and
-  -- setting a code on a row that has none. No super-admin escape hatch —
-  -- correcting a wrong code requires a migration.
+  -- setting a code on a row that has none. There is deliberately no super-admin
+  -- escape hatch. A re-issue below is the trigger's own doing, never a caller's
+  -- -- the form round-trips the UNCHANGED value, which passes this guard.
   IF NEW.staff_id IS DISTINCT FROM OLD.staff_id THEN
-    RAISE EXCEPTION 'Staff ID is system-generated and permanent; it cannot be set or changed manually.'
+    RAISE EXCEPTION 'Staff ID is system-generated and cannot be set or changed manually; it is re-issued automatically when the institution or staff type changes.'
       USING ERRCODE = 'P0001';
   END IF;
 
-  -- Rejoin path. Only reaches staff who never held a code — deactivation does
-  -- NOT clear one, so a returning staff member keeps the code they had.
-  IF coalesce(NEW.is_active, false)
-     AND NOT coalesce(OLD.is_active, false)
-     AND NEW.staff_id IS NULL THEN
-    SELECT ec.is_teaching INTO v_is_teaching
-    FROM public.employment_categories ec WHERE ec.id = NEW.category_id;
+  v_inst_changed := NEW.institution_id IS DISTINCT FROM OLD.institution_id;
+  v_reactivated  := coalesce(NEW.is_active, false) AND NOT coalesce(OLD.is_active, false);
 
-    NEW.staff_id := public.fn_next_staff_code(NEW.institution_id, v_is_teaching);
+  -- Only look the categories up when something that could matter moved; this
+  -- trigger fires on every staff UPDATE, including bulk edits.
+  IF v_inst_changed
+     OR v_reactivated
+     OR NEW.category_id IS DISTINCT FROM OLD.category_id THEN
+
+    SELECT ec.is_teaching INTO v_new_teaching
+    FROM public.employment_categories ec WHERE ec.id = NEW.category_id;
+    SELECT ec.is_teaching INTO v_old_teaching
+    FROM public.employment_categories ec WHERE ec.id = OLD.category_id;
+
+    v_teach_changed := v_old_teaching IS DISTINCT FROM v_new_teaching;
+
+    IF coalesce(NEW.is_active, false)
+       AND OLD.staff_id IS NOT NULL
+       AND (v_inst_changed OR v_teach_changed) THEN
+      -- The person moved bucket. Same-flag category changes do not land here.
+      v_reason := CASE
+        WHEN v_inst_changed AND v_teach_changed THEN 'institution_and_teaching_change'
+        WHEN v_inst_changed                     THEN 'institution_change'
+        ELSE                                         'teaching_change'
+      END;
+
+    ELSIF v_reactivated AND NEW.staff_id IS NULL THEN
+      -- Rejoin path. Only reaches staff who never held a code -- deactivation
+      -- does NOT clear one, so a returning staff member keeps theirs.
+      NEW.staff_id := public.fn_next_staff_code(NEW.institution_id, v_new_teaching);
+
+    ELSIF v_reactivated AND NEW.staff_id IS NOT NULL AND v_new_teaching IS NOT NULL THEN
+      -- An inactive person's code is left alone while they are away, so it may
+      -- have gone stale. Prefixes are [A-Z]{2,8} by CHECK, so this is regex-safe.
+      SELECT CASE WHEN v_new_teaching THEN i.staff_code_prefix
+                  ELSE 'NOT' || i.staff_code_prefix END
+        INTO v_expected_prefix
+      FROM public.institutions i WHERE i.id = NEW.institution_id;
+
+      IF v_expected_prefix IS NOT NULL
+         AND NEW.staff_id !~ ('^' || v_expected_prefix || '[0-9]+$') THEN
+        v_reason := 'reactivation';
+      END IF;
+    END IF;
+  END IF;
+
+  IF v_reason IS NOT NULL THEN
+    v_new_code := public.fn_next_staff_code(NEW.institution_id, v_new_teaching);
+
+    INSERT INTO public.staff_id_history (
+      staff_uuid, staff_id, new_staff_id, reason,
+      from_institution_id, to_institution_id, from_is_teaching, to_is_teaching, changed_by
+    ) VALUES (
+      OLD.id, OLD.staff_id, v_new_code, v_reason,
+      OLD.institution_id, NEW.institution_id, v_old_teaching, v_new_teaching, auth.uid()
+    );
+
+    NEW.retired_staff_ids := nullif(btrim(coalesce(OLD.retired_staff_ids, '') || ' ' || OLD.staff_id), '');
+    NEW.staff_id := v_new_code;
   END IF;
 
   RETURN NEW;
@@ -56895,16 +57008,15 @@ END;
 $function$;
 
 COMMENT ON FUNCTION public.fn_staff_autonumber() IS
-  'Issues a staff ID on creation (active staff only) and freezes it thereafter. Bulk backfills must DISABLE TRIGGER trg_staff_autonumber - the permanence guard blocks any rewrite, including their own.';
+  'Issues a staff ID on creation (active staff only), re-issues it when an ACTIVE staff member changes '
+  'institution or teaching type (or is reactivated with a stale code), and rejects every manual change. '
+  'Bulk backfills must DISABLE TRIGGER trg_staff_autonumber -- the manual-change guard blocks any rewrite, '
+  'including their own.';
 
--- Keep both out of the REST API. PostgREST publishes SECURITY DEFINER functions
--- at /rest/v1/rpc/<name>, and fn_next_staff_code CLAIMS a number on every call —
--- an anon caller could burn the sequence and tear permanent gaps in it.
--- REVOKE FROM PUBLIC alone is a no-op: Supabase grants EXECUTE directly to anon
--- and authenticated. Neither needs a grant back — fn_next_staff_code is only
--- called from inside fn_staff_autonumber (SECURITY DEFINER, runs as owner), and
--- Postgres checks EXECUTE on a trigger function at CREATE TRIGGER time, not when
--- it fires.
+-- Both are SECURITY DEFINER and CLAIM a number on every call; keep them off the
+-- REST API. REVOKE FROM PUBLIC alone leaves Supabase's direct anon/authenticated
+-- grants in place, so name them. CREATE OR REPLACE kept the earlier ACL, this
+-- just re-asserts it.
 REVOKE ALL ON FUNCTION public.fn_next_staff_code(uuid, boolean) FROM anon, authenticated, PUBLIC;
 REVOKE ALL ON FUNCTION public.fn_staff_autonumber() FROM anon, authenticated, PUBLIC;
 
@@ -66893,8 +67005,6 @@ DECLARE
   v_uid    uuid := (SELECT auth.uid());
   v_credit record;
   v_leave  record;
-  v_inst   uuid;
-  v_locked record;
 BEGIN
   IF v_uid IS NULL THEN
     RETURN 'You must be signed in to revoke a claim.';
@@ -66932,26 +67042,8 @@ BEGIN
     RETURN 'You cannot revoke your own claim.';
   END IF;
 
-  SELECT s.institution_id INTO v_inst
-    FROM public.staff s WHERE s.id = v_credit.employee_id;
-
-  IF v_inst IS NOT NULL THEN
-    SELECT ap.period_year, ap.period_month, ap.locked_at
-      INTO v_locked
-      FROM public.hr_attendance_periods ap
-     WHERE ap.institution_id = v_inst
-       AND ap.status = 'locked'
-       AND make_date(ap.period_year, ap.period_month, 1) <= v_credit.worked_date
-       AND (make_date(ap.period_year, ap.period_month, 1) + interval '1 month')::date > v_credit.worked_date
-     LIMIT 1;
-
-    IF FOUND THEN
-      RETURN format(
-        'Attendance for %s-%s is closed (locked %s). Reopen the month before revoking this claim.',
-        v_locked.period_year, lpad(v_locked.period_month::text, 2, '0'),
-        to_char(v_locked.locked_at, 'DD Mon YYYY'));
-    END IF;
-  END IF;
+  -- A closed attendance month is no longer a reason to refuse (20271009100000):
+  -- revoking an unspent claim removes entitlement and never touches the month.
 
   IF public.is_super_admin() THEN
     RETURN NULL;
@@ -84312,6 +84404,348 @@ COMMENT ON FUNCTION public.fn_my_desk_waiting() IS
 -- re-asserted: every SECURITY DEFINER RPC is locked from anon.
 REVOKE EXECUTE ON FUNCTION public.fn_my_desk_waiting() FROM anon, PUBLIC;
 GRANT  EXECUTE ON FUNCTION public.fn_my_desk_waiting() TO authenticated;
+
+
+-- Updated: 2026-10-07 - Mirrored from supabase/migrations/20261022000100_learner_ig_post_claims_hardening.sql
+-- ig_learner_post_claims: a learner could INSERT a claim already confirmed (review finding #1, PR #4193).
+-- Guard: every new claim is born pending and unreviewed; a decision is final and never self-made.
+CREATE OR REPLACE FUNCTION public.fn_ig_learner_post_claim_guard()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+  IF TG_OP = 'INSERT' THEN
+    -- A claim is born pending and unreviewed, filed by whoever is calling.
+    -- Anything the caller sent for these is discarded, not trusted.
+    NEW.status      := 'pending';
+    NEW.reviewed_by := NULL;
+    NEW.reviewed_at := NULL;
+    NEW.review_note := NULL;
+    -- A signed-in caller is always the filer. Only a service-role write (no
+    -- auth.uid(), e.g. a future auto_collab job) may name the filer itself.
+    NEW.claimed_by  := coalesce(auth.uid(), NEW.claimed_by);
+    NEW.claimed_at  := now();
+    NEW.created_at  := now();
+    RETURN NEW;
+  END IF;
+
+  -- UPDATE: a claim is decided once, by someone other than its filer, and only
+  -- the decision fields may move.
+  IF OLD.status <> 'pending' THEN
+    RAISE EXCEPTION 'ig_learner_post_claims: this claim was already %; a decision is final', OLD.status
+      USING ERRCODE = '23514';
+  END IF;
+  IF NEW.status IS NULL OR NEW.status NOT IN ('confirmed', 'rejected') THEN
+    RAISE EXCEPTION 'ig_learner_post_claims: a claim can only be confirmed or rejected'
+      USING ERRCODE = '23514';
+  END IF;
+
+  NEW.id          := OLD.id;
+  NEW.learner_id  := OLD.learner_id;
+  NEW.institution_id := OLD.institution_id;
+  NEW.ig_post_id  := OLD.ig_post_id;
+  NEW.origin      := OLD.origin;
+  NEW.claimed_by  := OLD.claimed_by;
+  NEW.claimed_at  := OLD.claimed_at;
+  NEW.created_at  := OLD.created_at;
+  -- The decider is whoever is calling. A service-role call has no auth.uid(),
+  -- so it must name the decider itself; the table CHECK still requires one.
+  NEW.reviewed_by := coalesce(auth.uid(), NEW.reviewed_by);
+  NEW.reviewed_at := now();
+
+  IF NEW.reviewed_by IS NOT NULL AND NEW.reviewed_by = OLD.claimed_by THEN
+    RAISE EXCEPTION 'ig_learner_post_claims: the person who filed a claim cannot also decide it'
+      USING ERRCODE = '42501';
+  END IF;
+  -- Nor may the learner the claim credits decide it, even holding the review key.
+  -- Matched on the stamped decider, so a service-role write naming them is refused too.
+  IF EXISTS (SELECT 1 FROM public.profiles p
+              WHERE p.id = NEW.reviewed_by AND p.learner_id = OLD.learner_id) THEN
+    RAISE EXCEPTION 'ig_learner_post_claims: a learner cannot decide a claim about themselves'
+      USING ERRCODE = '42501';
+  END IF;
+
+  RETURN NEW;
+END;
+$$;
+REVOKE EXECUTE ON FUNCTION public.fn_ig_learner_post_claim_guard() FROM anon, authenticated, PUBLIC;
+
+-- ============================================================================
+-- Updated: 2026-10-08 - 20271008110106_hr_playbooks_review_followup.sql (#4229 review):
+-- G2 harvest reads each history time safely (fn_hr_duty_safe_timestamptz);
+-- fn_hr_playbook_decide keeps the first 500 characters of an accept note.
+-- The migration also carries an apply-time drift check, not copied here.
+-- ============================================================================
+-- ----------------------------------------------------------------------------
+-- Read a text as timestamptz, or NULL when it cannot be read. Not SECURITY
+-- DEFINER (it reads nothing); STABLE because the result depends on the
+-- session's time zone. Service role only, like the file's other helpers.
+-- ----------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.fn_hr_duty_safe_timestamptz(p_text text)
+RETURNS timestamptz
+LANGUAGE plpgsql
+STABLE
+SET search_path = public
+AS $$
+BEGIN
+  RETURN p_text::timestamptz;
+EXCEPTION WHEN data_exception THEN
+  RETURN NULL;
+END $$;
+REVOKE EXECUTE ON FUNCTION public.fn_hr_duty_safe_timestamptz(text) FROM anon, PUBLIC, authenticated;
+GRANT  EXECUTE ON FUNCTION public.fn_hr_duty_safe_timestamptz(text) TO service_role;
+
+-- ----------------------------------------------------------------------------
+-- 1. The harvest — only the G2 block differs from 20271007161139.
+-- ----------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.fn_hr_duty_lessons_harvest(p_since timestamptz)
+RETURNS jsonb
+LANGUAGE plpgsql
+VOLATILE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_out jsonb := '{}'::jsonb;
+  v_n   integer;
+BEGIN
+  IF p_since IS NULL THEN
+    RAISE EXCEPTION 'p_since is required' USING ERRCODE = '22004';
+  END IF;
+
+  -- L1 — leave: a rejection, or a reversal of an approved request (revoked_at set).
+  BEGIN
+    INSERT INTO public.hr_duty_lessons
+      (duty_code, institution_id, item_table, item_id, kind, reason_code, source, occurred_at)
+    SELECT 'L1', s.institution_id, 'hr_leave_applications', a.id, x.kind,
+           public.fn_hr_duty_reason_match('L1', x.txt), 'harvest', x.at
+      FROM public.hr_leave_applications a
+      LEFT JOIN public.staff s ON s.id = a.employee_id
+      CROSS JOIN LATERAL (SELECT
+        CASE WHEN a.revoked_at IS NOT NULL THEN 'reversal' ELSE 'reject' END AS kind,
+        CASE WHEN a.revoked_at IS NOT NULL THEN COALESCE(a.revoke_reason, a.rejection_reason)
+             ELSE a.rejection_reason END AS txt,
+        CASE WHEN a.revoked_at IS NOT NULL THEN a.revoked_by ELSE a.final_approver_id END AS decider,
+        COALESCE(a.revoked_at, a.final_decided_at) AS at) x
+     WHERE a.status = 'rejected'
+       AND x.at IS NOT NULL AND x.at >= p_since
+       AND x.decider IS NOT NULL
+       AND NOT public.fn_hr_duty_reason_is_system(x.txt)
+    ON CONFLICT (duty_code, item_table, item_id, kind, occurred_at) DO NOTHING;
+    GET DIAGNOSTICS v_n = ROW_COUNT;
+    v_out := v_out || jsonb_build_object('L1', v_n);
+  EXCEPTION WHEN undefined_table OR undefined_column OR data_exception THEN
+    v_out := v_out || jsonb_build_object('L1', jsonb_build_object('error', SQLERRM));
+  END;
+
+  -- L2 — comp-off claims. A claim decided before its decider was recorded
+  -- (approved_by NULL) is skipped: nothing tells it apart from the nightly
+  -- automatic rejection.
+  BEGIN
+    INSERT INTO public.hr_duty_lessons
+      (duty_code, institution_id, item_table, item_id, kind, reason_code, source, occurred_at)
+    SELECT 'L2', s.institution_id, 'hr_comp_off_credits', c.id, x.kind,
+           public.fn_hr_duty_reason_match('L2', x.txt), 'harvest', x.at
+      FROM public.hr_comp_off_credits c
+      LEFT JOIN public.staff s ON s.id = c.employee_id
+      CROSS JOIN LATERAL (SELECT
+        CASE WHEN c.revoked_at IS NOT NULL THEN 'reversal' ELSE 'reject' END AS kind,
+        CASE WHEN c.revoked_at IS NOT NULL THEN COALESCE(c.revoke_reason, c.rejection_reason)
+             ELSE c.rejection_reason END AS txt,
+        CASE WHEN c.revoked_at IS NOT NULL THEN c.revoked_by ELSE c.approved_by END AS decider,
+        COALESCE(c.revoked_at, c.approved_at) AS at) x
+     WHERE c.status = 'rejected'
+       AND x.at IS NOT NULL AND x.at >= p_since
+       AND x.decider IS NOT NULL
+       AND NOT public.fn_hr_duty_reason_is_system(x.txt)
+    ON CONFLICT (duty_code, item_table, item_id, kind, occurred_at) DO NOTHING;
+    GET DIAGNOSTICS v_n = ROW_COUNT;
+    v_out := v_out || jsonb_build_object('L2', v_n);
+  EXCEPTION WHEN undefined_table OR undefined_column OR data_exception THEN
+    v_out := v_out || jsonb_build_object('L2', jsonb_build_object('error', SQLERRM));
+  END;
+
+  -- A3 — attendance corrections.
+  BEGIN
+    INSERT INTO public.hr_duty_lessons
+      (duty_code, institution_id, item_table, item_id, kind, reason_code, source, occurred_at)
+    SELECT 'A3', s.institution_id, 'hr_attendance_regularizations', r.id, 'reject',
+           public.fn_hr_duty_reason_match('A3', r.rejection_reason), 'harvest', r.approved_at
+      FROM public.hr_attendance_regularizations r
+      LEFT JOIN public.staff s ON s.id = r.employee_id
+     WHERE r.status = 'rejected'
+       AND r.approved_at >= p_since
+       AND r.approver_id IS NOT NULL
+       AND NOT public.fn_hr_duty_reason_is_system(r.rejection_reason)
+    ON CONFLICT (duty_code, item_table, item_id, kind, occurred_at) DO NOTHING;
+    GET DIAGNOSTICS v_n = ROW_COUNT;
+    v_out := v_out || jsonb_build_object('A3', v_n);
+  EXCEPTION WHEN undefined_table OR undefined_column OR data_exception THEN
+    v_out := v_out || jsonb_build_object('A3', jsonb_build_object('error', SQLERRM));
+  END;
+
+  -- S2 — document verification.
+  BEGIN
+    INSERT INTO public.hr_duty_lessons
+      (duty_code, institution_id, item_table, item_id, kind, reason_code, source, occurred_at)
+    SELECT 'S2', d.institution_id, 'hr_employee_documents', d.id, 'reject',
+           public.fn_hr_duty_reason_match('S2', d.verification_notes), 'harvest', d.verified_at
+      FROM public.hr_employee_documents d
+     WHERE d.verification_status = 'rejected'
+       AND d.verified_at >= p_since
+       AND d.verified_by IS NOT NULL
+       AND NOT public.fn_hr_duty_reason_is_system(d.verification_notes)
+    ON CONFLICT (duty_code, item_table, item_id, kind, occurred_at) DO NOTHING;
+    GET DIAGNOSTICS v_n = ROW_COUNT;
+    v_out := v_out || jsonb_build_object('S2', v_n);
+  EXCEPTION WHEN undefined_table OR undefined_column OR data_exception THEN
+    v_out := v_out || jsonb_build_object('S2', jsonb_build_object('error', SQLERRM));
+  END;
+
+  -- S3 — team member photographs.
+  BEGIN
+    INSERT INTO public.hr_duty_lessons
+      (duty_code, institution_id, item_table, item_id, kind, reason_code, source, occurred_at)
+    SELECT 'S3', p.institution_id, 'hr_staff_photo_submissions', p.id, 'reject',
+           public.fn_hr_duty_reason_match('S3', p.review_note), 'harvest', p.reviewed_at
+      FROM public.hr_staff_photo_submissions p
+     WHERE p.status = 'rejected'
+       AND p.reviewed_at >= p_since
+       AND p.reviewed_by IS NOT NULL
+       AND NOT public.fn_hr_duty_reason_is_system(p.review_note)
+    ON CONFLICT (duty_code, item_table, item_id, kind, occurred_at) DO NOTHING;
+    GET DIAGNOSTICS v_n = ROW_COUNT;
+    v_out := v_out || jsonb_build_object('S3', v_n);
+  EXCEPTION WHEN undefined_table OR undefined_column OR data_exception THEN
+    v_out := v_out || jsonb_build_object('S3', jsonb_build_object('error', SQLERRM));
+  END;
+
+  -- G2 — HR forms: each 'reject' entry in approval_history made by a person
+  -- (actor_id set; the service writes the actor of every entry).
+  BEGIN
+    INSERT INTO public.hr_duty_lessons
+      (duty_code, institution_id, item_table, item_id, kind, reason_code, source, occurred_at)
+    SELECT 'G2', f.institution_id, 'hr_form_submissions', f.id, 'reject',
+           public.fn_hr_duty_reason_match('G2', e->>'reason'), 'harvest', t.at
+      FROM public.hr_form_submissions f
+      CROSS JOIN LATERAL jsonb_array_elements(
+        CASE WHEN jsonb_typeof(f.approval_history) = 'array' THEN f.approval_history ELSE '[]'::jsonb END
+      ) e
+      -- the entry's time, or NULL when it does not read as a date: the shape
+      -- test keeps out words such as 'yesterday' or 'now' that Postgres would
+      -- accept, and the safe parse turns an impossible date such as
+      -- '2026-13-45T25:99' into NULL instead of an error (20271008110106)
+      CROSS JOIN LATERAL (SELECT CASE
+        WHEN (e->>'at') ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}[T ][0-9]{2}:[0-9]{2}'
+        THEN public.fn_hr_duty_safe_timestamptz(e->>'at') END AS at) t
+     WHERE e->>'action' = 'reject'
+       AND NULLIF(btrim(e->>'actor_id'), '') IS NOT NULL
+       AND NOT public.fn_hr_duty_reason_is_system(e->>'reason')
+       -- only entries whose time reads as a date; one malformed entry is
+       -- skipped and must not stop the whole source
+       AND t.at IS NOT NULL AND t.at >= p_since
+    ON CONFLICT (duty_code, item_table, item_id, kind, occurred_at) DO NOTHING;
+    GET DIAGNOSTICS v_n = ROW_COUNT;
+    v_out := v_out || jsonb_build_object('G2', v_n);
+  EXCEPTION WHEN undefined_table OR undefined_column OR data_exception THEN
+    v_out := v_out || jsonb_build_object('G2', jsonb_build_object('error', SQLERRM));
+  END;
+
+  RETURN v_out;
+END $$;
+REVOKE EXECUTE ON FUNCTION public.fn_hr_duty_lessons_harvest(timestamptz) FROM anon, PUBLIC, authenticated;
+GRANT  EXECUTE ON FUNCTION public.fn_hr_duty_lessons_harvest(timestamptz) TO service_role;
+
+-- ----------------------------------------------------------------------------
+-- 2. Decide — only decision_note on accept differs from 20271007161139.
+-- ----------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.fn_hr_playbook_decide(
+  p_id uuid, p_decision text, p_edited_text text, p_note text)
+RETURNS uuid
+LANGUAGE plpgsql
+VOLATILE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_ok   boolean;
+  v_uid  uuid := auth.uid();
+  v_p    public.hr_playbook_line_proposals%ROWTYPE;
+  v_text text;
+  v_note text := NULLIF(btrim(COALESCE(p_note, '')), '');
+  v_pos  integer;
+  v_line uuid;
+BEGIN
+  -- 1. NULL from either check must refuse, so test IS NOT TRUE, never NOT (a OR b).
+  v_ok := public.is_super_admin() OR public.user_has_permission('hr.harness.playbooks.manage');
+  IF v_ok IS NOT TRUE OR v_uid IS NULL THEN
+    RAISE EXCEPTION 'Only the HR head can decide playbook lines.' USING ERRCODE = '42501';
+  END IF;
+
+  -- 2. Must still be waiting.
+  SELECT * INTO v_p FROM public.hr_playbook_line_proposals WHERE id = p_id FOR UPDATE;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Proposal not found.' USING ERRCODE = 'P0002';
+  END IF;
+  IF v_p.status <> 'proposed' THEN
+    RAISE EXCEPTION 'This proposal was already %.', v_p.status USING ERRCODE = '55000';
+  END IF;
+
+  -- 3. Nobody decides their own suggestion.
+  IF v_p.suggested_by = v_uid THEN
+    RAISE EXCEPTION 'You cannot decide your own suggestion. Another person with this duty must decide it.'
+      USING ERRCODE = '42501';
+  END IF;
+
+  IF p_decision = 'accept' THEN
+    v_text := COALESCE(NULLIF(btrim(COALESCE(p_edited_text, '')), ''), v_p.proposed_text);
+    IF char_length(v_text) NOT BETWEEN 10 AND 240 THEN
+      RAISE EXCEPTION 'A playbook line is 10 to 240 characters.' USING ERRCODE = '22023';
+    END IF;
+
+    SELECT COALESCE(max(position), 0) + 1 INTO v_pos
+      FROM public.hr_playbook_lines WHERE duty_code = v_p.duty_code AND status = 'active';
+
+    -- 4. Credit: the suggester for a suggestion; the decider for a drafted line.
+    --    If the decider changed the words, they are named too (edited_by), so a
+    --    rewritten line is never shown as the suggester's alone.
+    INSERT INTO public.hr_playbook_lines
+      (duty_code, line_text, position, status, authored_by, source, source_proposal_id,
+       lesson_count, accepted_by, accepted_at, edited_by)
+    VALUES
+      (v_p.duty_code, v_text, v_pos, 'active',
+       CASE WHEN v_p.source = 'suggestion' THEN v_p.suggested_by ELSE v_uid END,
+       v_p.source, v_p.id,
+       CASE WHEN v_p.source = 'lesson_pattern' THEN (v_p.evidence->>'count')::integer END,
+       v_uid, now(),
+       CASE WHEN v_text <> v_p.proposed_text THEN v_uid END)
+    RETURNING id INTO v_line;
+
+    UPDATE public.hr_playbook_line_proposals
+       SET status = 'accepted', decided_by = v_uid, decided_at = now(),
+           decision_note = left(v_note, 500),
+           edited_text = CASE WHEN v_text <> v_p.proposed_text THEN v_text END
+     WHERE id = v_p.id;
+    RETURN v_line;
+
+  ELSIF p_decision = 'decline' THEN
+    -- 5. A decline says why.
+    IF v_note IS NULL THEN
+      RAISE EXCEPTION 'Please write a short note saying why this line is declined.' USING ERRCODE = '22023';
+    END IF;
+    UPDATE public.hr_playbook_line_proposals
+       SET status = 'declined', decided_by = v_uid, decided_at = now(), decision_note = left(v_note, 500)
+     WHERE id = v_p.id;
+    RETURN v_p.id;
+
+  ELSE
+    RAISE EXCEPTION 'Decision must be accept or decline.' USING ERRCODE = '22023';
+  END IF;
+END $$;
+REVOKE EXECUTE ON FUNCTION public.fn_hr_playbook_decide(uuid, text, text, text) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_hr_playbook_decide(uuid, text, text, text) TO authenticated;
 
 -- =====================================================================
 -- Updated: 2026-09-28 - Grievance: route on create, escalate on breach (policies + functions)

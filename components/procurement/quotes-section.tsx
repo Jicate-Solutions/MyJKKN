@@ -56,7 +56,7 @@ import {
   ChevronRight,
 } from 'lucide-react';
 import { QuotationChatPanel } from '@/components/procurement/quotation-chat-panel';
-import { BulkQuotationUpload } from '@/components/procurement/bulk-quotation-upload';
+import { BulkQuotationUpload, QUOTE_FILE_ACCEPT } from '@/components/procurement/bulk-quotation-upload';
 import { VendorScoreBadge } from '@/components/procurement/vendor-score-badge';
 import { useVendorScores } from '@/hooks/procurement/use-ratings';
 import { ProcurementRfqService } from '@/lib/services/procurement/rfq-service';
@@ -77,6 +77,25 @@ import { priceWarning, trustedLowest } from '@/lib/procurement/price-checks';
  */
 
 const rupees = (n: number) => `₹${n.toLocaleString('en-IN', { maximumFractionDigits: 2 })}`;
+
+/**
+ * What the vendor actually quoted, under their price: their own name for the item
+ * (when it isn't ours) and a quantity that differs from what was asked. Empty when
+ * both match, or for quotes saved before these were kept.
+ */
+function QuotedAs({ quote, row }: { quote: ComparisonRow['quotes'][number]; row: ComparisonRow }) {
+  const name = quote.quoted_name?.trim();
+  const otherName = !!name && name.toLowerCase() !== row.item_name.trim().toLowerCase();
+  const qtyOff = quote.quoted_qty != null && Number(quote.quoted_qty) !== Number(row.quantity);
+  if (!otherName && !qtyOff) return null;
+  return (
+    <span className="block max-w-[200px] truncate text-[11px] text-muted-foreground" title={name ?? undefined}>
+      {otherName && `“${name}”`}
+      {otherName && qtyOff && ' · '}
+      {qtyOff && <span className="font-medium text-foreground">qty {Number(quote.quoted_qty)}</span>}
+    </span>
+  );
+}
 
 export function QuotesSection({
   rfqId,
@@ -547,10 +566,10 @@ export function QuotesSection({
                   )}
                   {canFinalApprove && (
                     <>
-                      <Button variant="outline" className="h-10 sm:h-9 px-4" onClick={() => setSendBackOpen(true)}>
+                      <Button variant="outline" className="h-11 px-4 sm:h-9" onClick={() => setSendBackOpen(true)}>
                         Send back
                       </Button>
-                      <Button className="h-10 sm:h-9 px-5" onClick={handleApprove} disabled={approveAward.isPending || approveStep.isPending}>
+                      <Button className="h-11 px-5 sm:h-9" onClick={handleApprove} disabled={approveAward.isPending || approveStep.isPending}>
                         <Check className="mr-1.5 h-4 w-4" />
                         {approveAward.isPending || approveStep.isPending ? 'Approving…' : several ? `Approve ${vendors.length} orders` : 'Approve & order'}
                       </Button>
@@ -603,7 +622,7 @@ export function QuotesSection({
             {canManage && quotations.length > 0 && (
               <Button size="sm" variant="outline" className="h-10 sm:h-9" onClick={pickPdfs}>
                 <Upload className="mr-1.5 h-4 w-4" />
-                Add quote PDFs
+                Add quotes
               </Button>
             )}
             {!canManage && quotations.length > 1 && (
@@ -655,11 +674,11 @@ export function QuotesSection({
               {canManage ? (
                 <>
                   <p className="text-sm text-muted-foreground">
-                    Upload the vendors&apos; quotation PDFs — the AI reads the prices for you.
+                    Upload the vendors&apos; quotations (PDF, photo or Excel) — the AI reads the prices and picks the lowest.
                   </p>
                   <Button className="h-11 w-full px-6 sm:h-9 sm:w-auto" onClick={pickPdfs}>
                     <Upload className="mr-2 h-4 w-4" />
-                    Upload quote PDFs
+                    Upload quotes
                   </Button>
                   <button type="button" className="text-sm text-primary underline-offset-4 hover:underline" onClick={typeQuote}>
                     or type the prices
@@ -689,12 +708,12 @@ export function QuotesSection({
                       {terms.length > 0 && <p className="text-xs text-muted-foreground">{terms.join(' · ')}</p>}
                     </div>
                     {q.document_file_id ? (
-                      <Button size="sm" variant="outline" onClick={() => setPdfQuote({ fileId: q.document_file_id!, name: v.name })}>
+                      <Button size="sm" variant="outline" className="h-10 sm:h-8" onClick={() => setPdfQuote({ fileId: q.document_file_id!, name: v.name })}>
                         <FileText className="mr-1.5 h-4 w-4" />
                         Quote PDF
                       </Button>
                     ) : q.document_url ? (
-                      <Button size="sm" variant="outline" asChild>
+                      <Button size="sm" variant="outline" className="h-10 sm:h-8" asChild>
                         <a href={q.document_url} target="_blank" rel="noopener noreferrer">
                           <ExternalLink className="mr-1.5 h-4 w-4" />
                           Quote PDF
@@ -891,7 +910,7 @@ export function QuotesSection({
                                   disabled={!canManage}
                                   onClick={toggle}
                                   aria-pressed={qt.awarded}
-                                  title={offered || undefined}
+                                  title={[offered, qt.match_note].filter(Boolean).join(' — ') || undefined}
                                   className={cn(
                                     'flex w-full items-center gap-2 px-4 py-2 text-left transition-colors',
                                     qt.awarded ? 'bg-primary/10 shadow-[inset_3px_0_0_hsl(var(--primary))]' : '',
@@ -915,6 +934,7 @@ export function QuotesSection({
                                     {isLowest && vendorColumns.length > 1 && (
                                       <span className="ml-1.5 text-[10px] font-semibold text-primary">LOWEST</span>
                                     )}
+                                    <QuotedAs quote={qt} row={row} />
                                     {warning && (
                                       <span className="block text-[11px] font-medium text-destructive" title={warning}>
                                         ⚠ Check price
@@ -993,6 +1013,7 @@ export function QuotesSection({
                                 {isLowest && vendorColumns.length > 1 && (
                                   <span className="text-[10px] font-semibold text-primary">LOWEST</span>
                                 )}
+                                <QuotedAs quote={qt} row={row} />
                                 {warning && <span className="block text-[11px] font-medium text-destructive">⚠ Check price</span>}
                               </span>
                               <span className="shrink-0 text-right">
@@ -1083,7 +1104,7 @@ export function QuotesSection({
       <input
         ref={pickerRef}
         type="file"
-        accept="application/pdf,.pdf"
+        accept={QUOTE_FILE_ACCEPT}
         multiple
         className="hidden"
         onChange={(e) => {

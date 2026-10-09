@@ -10,7 +10,7 @@ import type {
   OutstandingReport,
   CollectionReport,
   CollectionDaywiseRow,
-  DiscountReport,
+  ScholarshipReport,
   RefundReport,
   InvoiceReport,
   BillingDashboardMetrics,
@@ -102,16 +102,16 @@ export class BillingReportService extends BaseService {
     return this.page(rows) as ReportPage<InvoiceReport>;
   }
 
-  static async getDiscountReport(
+  static async getScholarshipReport(
     filters: BillingReportFilters = {},
     page = 1,
     pageSize = REPORT_PAGE_SIZE
-  ): Promise<ReportPage<DiscountReport>> {
+  ): Promise<ReportPage<ScholarshipReport>> {
     const rows = await this.executeDashboardRPC<any[]>(
-      'get_billing_reports_discounts',
+      'get_billing_reports_scholarships',
       { ...buildReportScope(filters), ...buildReportPage(page, pageSize) }
     );
-    return this.page(rows) as ReportPage<DiscountReport>;
+    return this.page(rows) as ReportPage<ScholarshipReport>;
   }
 
   static async getRefundReport(
@@ -130,7 +130,7 @@ export class BillingReportService extends BaseService {
     outstanding: 'get_billing_reports_outstanding',
     collection: 'get_billing_reports_collection',
     invoice: 'get_billing_reports_invoices',
-    discount: 'get_billing_reports_discounts',
+    scholarship: 'get_billing_reports_scholarships',
     refund: 'get_billing_reports_refunds',
   };
 

@@ -5,7 +5,7 @@
 // types/health-sports.ts — do NOT define parallel sport enums here.
 // Created: 2026-06-22 (Sports Tournament PR1).
 
-import { TEAM_SPORTS, type SportLevel } from '@/types/health-sports';
+import { ATHLETICS_EVENTS, TEAM_SPORTS, type SportLevel } from '@/types/health-sports';
 import type { Event, EventStatus } from '@/types/events';
 
 // ============================================================================
@@ -64,14 +64,29 @@ export function isTournamentActive(status: string): boolean {
 }
 
 /** How a division's matches are organised. Matches the DB CHECK constraint. */
-export type TournamentFormat = 'knockout' | 'round_robin' | 'league' | 'pools_ko';
+export type TournamentFormat = 'knockout' | 'round_robin' | 'league' | 'pools_ko' | 'heats';
 
 export const TOURNAMENT_FORMATS: { value: TournamentFormat; label: string }[] = [
   { value: 'knockout', label: 'Knockout' },
   { value: 'round_robin', label: 'Round Robin' },
   { value: 'league', label: 'League' },
   { value: 'pools_ko', label: 'Pools + Knockout' },
+  { value: 'heats', label: 'Heats (group rounds)' },
 ];
+
+/**
+ * Sports contested as heats of 5-10 athletes ranked by position / mark, not 1-vs-1.
+ * New divisions of these sports default to the 'heats' format.
+ */
+export const HEAT_SPORTS: readonly string[] = ['Athletics', ...ATHLETICS_EVENTS, 'Swimming'];
+
+/** Heat sports where the BIGGER mark wins (distance); the rest are timed (smaller wins). */
+export const HIGHER_IS_BETTER_SPORTS: readonly string[] = ['Athletics - Long Jump', 'Athletics - Shot Put'];
+
+/** Default division format for a sport. */
+export function defaultFormatForSport(sport: string): TournamentFormat {
+  return HEAT_SPORTS.includes(sport) ? 'heats' : 'knockout';
+}
 
 /** Eligibility gender bands a division can be restricted to. */
 export type DivisionGender = 'male' | 'female' | 'mixed' | 'open';
@@ -354,6 +369,8 @@ export type FormFieldType =
   | 'number'
   | 'phone'
   | 'email'
+  /** A link the registrant shares (portfolio, video, drive folder). http(s) only. */
+  | 'url'
   | 'select'
   | 'multi_select'
   | 'date'
@@ -362,6 +379,8 @@ export type FormFieldType =
   | 'image'
   /** Display-only: the organizer attaches an image, registrants just see it. */
   | 'image_display'
+  /** Display-only: formatted text the organizer writes, registrants just read it. */
+  | 'rich_text'
   | 'checkbox'
   | 'radio';
 
@@ -370,6 +389,7 @@ export const FORM_FIELD_TYPES: { value: FormFieldType; label: string }[] = [
   { value: 'number', label: 'Number' },
   { value: 'phone', label: 'Phone' },
   { value: 'email', label: 'Email' },
+  { value: 'url', label: 'Link (URL)' },
   { value: 'select', label: 'Dropdown (single choice)' },
   { value: 'multi_select', label: 'Dropdown (multiple choice)' },
   { value: 'date', label: 'Date' },
@@ -377,6 +397,7 @@ export const FORM_FIELD_TYPES: { value: FormFieldType; label: string }[] = [
   { value: 'file', label: 'File upload (PDF / Word / image)' },
   { value: 'image', label: 'Image upload (with preview)' },
   { value: 'image_display', label: 'Image (display only — no answer)' },
+  { value: 'rich_text', label: 'Rich text (display only — no answer)' },
   { value: 'checkbox', label: 'Checkbox' },
   { value: 'radio', label: 'Radio (single choice)' },
 ];
@@ -392,7 +413,7 @@ export const UPLOAD_FIELD_TYPES = new Set<FormFieldType>(['file', 'image']);
  * a field with no input, and the responses table would grow an always-empty
  * column.
  */
-export const DISPLAY_ONLY_FIELD_TYPES = new Set<FormFieldType>(['image_display']);
+export const DISPLAY_ONLY_FIELD_TYPES = new Set<FormFieldType>(['image_display', 'rich_text']);
 
 /** True when the field asks the registrant for something. */
 export function isAnswerableField(type: FormFieldType): boolean {
@@ -400,18 +421,63 @@ export function isAnswerableField(type: FormFieldType): boolean {
 }
 
 /**
+ * True for an absolute http(s) link with a real-looking host — what a 'url'
+ * field accepts. Shared by the input, the submit gate and the server check so
+ * all three agree. Rejects javascript:/data: links, which matter because
+ * organizers click these answers.
+ */
+export function isValidHttpUrl(value: unknown): boolean {
+  if (typeof value !== 'string') return false;
+  const trimmed = value.trim();
+  if (!trimmed || /\s/.test(trimmed)) return false;
+  try {
+    const url = new URL(trimmed);
+    return (url.protocol === 'http:' || url.protocol === 'https:') && url.hostname.includes('.');
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * The formatted text a 'rich_text' field shows, stored as the editor's JSON
+ * document rather than HTML. JSON on purpose: the public form renders it by
+ * walking these nodes into React elements (RichTextDisplay), so there is no
+ * HTML string to sanitise and nothing an organizer could inject.
+ */
+export interface RichTextMark {
+  type: string;
+  attrs?: { color?: string | null } | null;
+}
+export interface RichTextNode {
+  type: string;
+  text?: string;
+  marks?: RichTextMark[];
+  content?: RichTextNode[];
+}
+export interface RichTextDoc {
+  type: 'doc';
+  content?: RichTextNode[];
+}
+
+/**
  * What a 'file' / 'image' answer actually stores in
  * events_registrations.custom_fields.
  *
- * An OBJECT, not a URL string, and deliberately not a public URL: the bucket is
- * private, so a stored URL would be dead on arrival. `path` is the storage key —
- * organizers exchange it for a short-lived signed URL when they want to look at
- * the file. name/size/mime are denormalised so a responses list can be rendered
- * without touching storage at all.
+ * An OBJECT, not a URL string, and deliberately not a public URL: the file is
+ * private, so a stored URL would be dead on arrival. name/size/mime are
+ * denormalised so a responses list can be rendered without touching storage at
+ * all.
+ *
+ * WHERE THE BYTES ARE: `driveFileId` (Google Drive, no sharing permission) for
+ * everything uploaded since 2026-10-08. Older answers have only `path`, a key
+ * in the private Supabase `event-registration-uploads` bucket; once migrated
+ * they carry both, and `driveFileId` is the one that still resolves.
  */
 export interface EventFormUpload {
-  /** Storage key inside the `event-registration-uploads` bucket. */
+  /** LEGACY storage key in the Supabase bucket. '' on Drive-era uploads. */
   path: string;
+  /** Google Drive file id. Prefer this over `path` whenever it is set. */
+  driveFileId?: string;
   /** Original filename, for display and download. */
   name: string;
   /** Bytes. */
@@ -429,9 +495,12 @@ export interface EventFormUpload {
 export function asFormUpload(value: unknown): EventFormUpload | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
   const v = value as Record<string, unknown>;
-  return typeof v.path === 'string' && v.path.trim() !== ''
+  const path = typeof v.path === 'string' ? v.path.trim() : '';
+  const driveFileId = typeof v.driveFileId === 'string' ? v.driveFileId.trim() : '';
+  return path !== '' || driveFileId !== ''
     ? {
-        path: v.path,
+        path,
+        ...(driveFileId ? { driveFileId } : {}),
         name: typeof v.name === 'string' ? v.name : 'attachment',
         size: typeof v.size === 'number' ? v.size : 0,
         mime: typeof v.mime === 'string' ? v.mime : 'application/octet-stream',
@@ -480,6 +549,8 @@ export interface EventRegistrationFormField {
    * while the form is still live.
    */
   media_url: string | null;
+  /** The text a 'rich_text' field shows. NULL for every other field type. */
+  rich_content?: RichTextDoc | null;
   /**
    * Profile attribute a signed-in registrant's answer is seeded from (see
    * lib/services/events/registration/form-prefill.ts). NULL = no prefill.
@@ -736,6 +807,33 @@ export interface ScheduleMatchDto {
   venue_text?: string | null;    // free-text venue label
   resource_id?: string | null;   // optional court/ground resource → books a resource_reservation
   official_name?: string | null; // optional umpire/referee (free text)
+}
+
+/** One athlete inside a heat, with their result. */
+export interface TournamentHeatAthlete {
+  id: string;
+  heat_id: string;
+  entry_id: string;
+  entry_name: string | null;
+  institution_name: string | null;
+  lane_no: number | null;
+  position: number | null;
+  mark: string | null;
+  mark_value: number | null;
+  result_status: 'ok' | 'dns' | 'dnf' | 'dq';
+}
+
+/** A heat (group round) of a 'heats' division. */
+export interface TournamentHeat {
+  id: string;
+  event_id: string;
+  division_id: string;
+  heat_no: number;
+  label: string | null;
+  scheduled_at: string | null;
+  venue_text: string | null;
+  status: 'pending' | 'scheduled' | 'completed';
+  athletes: TournamentHeatAthlete[];
 }
 
 export interface GenerateFixturesResult {

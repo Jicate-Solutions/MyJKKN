@@ -6,7 +6,7 @@
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import toast from 'react-hot-toast';
-import { TournamentFixturesService } from '@/lib/services/events/tournament/tournament-fixtures-service';
+import { TournamentFixturesService, type UpdateHeatDto } from '@/lib/services/events/tournament/tournament-fixtures-service';
 import type {
   ScheduleMatchDto,
   RecordResultDto,
@@ -17,6 +17,7 @@ import type {
 
 const KEYS = {
   matches: (eventId: string) => ['tournament-matches', eventId] as const,
+  heats: (eventId: string) => ['tournament-heats', eventId] as const,
 };
 
 export function useTournamentMatches(eventId: string) {
@@ -176,5 +177,72 @@ export function useAwardAchievements(eventId: string) {
       }
     },
     onError: (e: Error) => toast.error(e.message || 'Failed to award achievements'),
+  });
+}
+
+// ── Heats ──────────────────────────────────────────────────────────────────
+
+export function useTournamentHeats(eventId: string) {
+  return useQuery({
+    queryKey: KEYS.heats(eventId),
+    queryFn: () => TournamentFixturesService.listHeats(eventId),
+    enabled: !!eventId,
+  });
+}
+
+export function useGenerateHeats(eventId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (v: { divisionId: string; heatSize: number; regenerate?: boolean }) =>
+      TournamentFixturesService.generateHeats(eventId, v.divisionId, v.heatSize, v.regenerate),
+    onSuccess: (res) => {
+      qc.invalidateQueries({ queryKey: KEYS.heats(eventId) });
+      toast.success(`Created ${res.heats_created} heat${res.heats_created === 1 ? '' : 's'}`);
+    },
+    onError: (e: Error) => toast.error(e.message || 'Failed to generate heats'),
+  });
+}
+
+export function useAddHeat(eventId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (divisionId: string) => TournamentFixturesService.addHeat(eventId, divisionId),
+    onSuccess: () => qc.invalidateQueries({ queryKey: KEYS.heats(eventId) }),
+    onError: (e: Error) => toast.error(e.message || 'Failed to add heat'),
+  });
+}
+
+export function useUpdateHeat(eventId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (v: { heatId: string; dto: UpdateHeatDto }) =>
+      TournamentFixturesService.updateHeat(eventId, v.heatId, v.dto),
+    onSuccess: () => qc.invalidateQueries({ queryKey: KEYS.heats(eventId) }),
+    onError: (e: Error) => toast.error(e.message || 'Failed to update heat'),
+  });
+}
+
+export function useDeleteHeat(eventId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (heatId: string) => TournamentFixturesService.deleteHeat(eventId, heatId),
+    onSuccess: () => qc.invalidateQueries({ queryKey: KEYS.heats(eventId) }),
+    onError: (e: Error) => toast.error(e.message || 'Failed to delete heat'),
+  });
+}
+
+export function useFinalizeHeats(eventId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (divisionId: string) => TournamentFixturesService.finalizeHeats(eventId, divisionId),
+    onSuccess: (res) => {
+      qc.invalidateQueries({ queryKey: KEYS.heats(eventId) });
+      toast.success(
+        res.achievements_written > 0
+          ? `Finalized — ${res.achievements_written} achievement${res.achievements_written === 1 ? '' : 's'} awarded`
+          : 'Finalized — no JKKN learners linked to the placed entries.',
+      );
+    },
+    onError: (e: Error) => toast.error(e.message || 'Failed to finalize'),
   });
 }

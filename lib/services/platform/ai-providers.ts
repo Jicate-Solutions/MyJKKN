@@ -123,6 +123,19 @@ export const AI_PROVIDER_REGISTRY: ProviderRegistryEntry[] = [
         notes: 'Always the newest Fable (CLI resolves --model fable — verified 2026-08-06). ₹0 on the Max subscription; API-lane rates are $10/$50 per million tokens.',
       },
       {
+        id: 'claude-haiku-5-5',
+        label: 'Claude Haiku 5.5 (cheapest, fast)',
+        // Published rates: $0.10 / million input, $0.50 / million output for prompts up to
+        // 100K tokens ($0.50 / $2.50 beyond that). Converted at the ₹85/USD basis used
+        // throughout this list. The registry holds one rate per model, so this is the
+        // up-to-100K tier; procurement prompts (quotation / invoice PDFs, compare chat) stay well under it.
+        // Source: https://platform.claude.com/docs/en/about-claude/pricing
+        inputPer1KTokensInr: 0.0085,
+        outputPer1KTokensInr: 0.0425,
+        modality: 'chat',
+        notes: 'Adaptive thinking on by default (effort default medium); rejects temperature/top_p/top_k, budget_tokens and assistant prefill.',
+      },
+      {
         id: 'claude-haiku-4-5',
         label: 'Claude Haiku 4.5 (cheap, fast)',
         inputPer1KTokensInr: 0.085,

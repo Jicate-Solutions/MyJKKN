@@ -1005,15 +1005,56 @@ CREATE TABLE IF NOT EXISTS public.billing_receipt_items (
     created_at TIMESTAMPTZ DEFAULT now()
 );
 
--- Billing Discounts
-CREATE TABLE IF NOT EXISTS public.billing_discounts (
+-- Billing Scholarship Categories (global, admin-defined; 20271009090000)
+CREATE TABLE IF NOT EXISTS public.billing_scholarship_categories (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    code TEXT NOT NULL CHECK (code ~ '^[a-z0-9_]+$'),
+    name TEXT NOT NULL CHECK (btrim(name) <> ''),
+    description TEXT,
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    is_active BOOLEAN NOT NULL DEFAULT true,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    created_by UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
+    updated_by UUID REFERENCES public.profiles(id) ON DELETE SET NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS billing_scholarship_categories_code_uq
+    ON public.billing_scholarship_categories (code);
+CREATE UNIQUE INDEX IF NOT EXISTS billing_scholarship_categories_name_uq
+    ON public.billing_scholarship_categories (lower(name));
+
+-- Billing Scholarship Types (children of a category; default value mode/value columns dropped, 20271009140000)
+CREATE TABLE IF NOT EXISTS public.billing_scholarship_types (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    category_id UUID NOT NULL REFERENCES public.billing_scholarship_categories(id) ON DELETE RESTRICT,
+    code TEXT NOT NULL CHECK (code ~ '^[a-z0-9_]+$'),
+    name TEXT NOT NULL CHECK (btrim(name) <> ''),
+    description TEXT,
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    is_active BOOLEAN NOT NULL DEFAULT true,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    created_by UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
+    updated_by UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
+    CONSTRAINT billing_scholarship_types_id_category_uq UNIQUE (id, category_id)
+);
+CREATE INDEX IF NOT EXISTS billing_scholarship_types_category_idx
+    ON public.billing_scholarship_types (category_id);
+CREATE UNIQUE INDEX IF NOT EXISTS billing_scholarship_types_category_code_uq
+    ON public.billing_scholarship_types (category_id, code);
+CREATE UNIQUE INDEX IF NOT EXISTS billing_scholarship_types_category_name_uq
+    ON public.billing_scholarship_types (category_id, lower(name));
+
+-- Billing Scholarships (renamed from billing_discounts, 20271009130000)
+CREATE TABLE IF NOT EXISTS public.billing_scholarships (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     bill_id UUID NOT NULL,
-    discount_category VARCHAR(50) NOT NULL,
-    discount_type VARCHAR(20) NOT NULL,
-    discount_value NUMERIC(15,2) NOT NULL,
-    discount_amount NUMERIC(15,2) NOT NULL,
-    discount_reason TEXT NOT NULL,
+    scholarship_category_id UUID NOT NULL,
+    scholarship_type_id UUID NOT NULL,
+    value_mode VARCHAR(20) NOT NULL,
+    scholarship_value NUMERIC(15,2) NOT NULL,
+    scholarship_amount NUMERIC(15,2) NOT NULL,
+    scholarship_reason TEXT NOT NULL,
     supporting_documents JSONB,
     authorizer_id UUID,
     approval_date DATE,
@@ -1116,7 +1157,7 @@ CREATE INDEX IF NOT EXISTS idx_refund_request_bills_bill ON billing_refund_reque
 CREATE TABLE IF NOT EXISTS public.billing_refund_request_actions (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     request_id UUID NOT NULL REFERENCES billing_refund_requests(id) ON DELETE CASCADE,
-    action_type TEXT NOT NULL CHECK (action_type IN ('initiated','approved','declined','disbursed')),
+    action_type TEXT NOT NULL CHECK (action_type IN ('initiated','approved','declined','disbursed','flow_reapplied')),
     stage_index INT NULL,
     stage_name TEXT NOT NULL,
     actor_id UUID NOT NULL REFERENCES profiles(id),
@@ -8819,6 +8860,52 @@ COMMENT ON TABLE public.staff_id_crosswalk IS
   'Old -> new staff ID mapping from the 2026-08-28 standardisation. Read via v_staff_id_crosswalk.';
 
 -- =============================================================================
+-- Mirrored from supabase/migrations/20261008120000_staff_id_reissue_on_transfer.sql (tables)
+-- =============================================================================
+
+CREATE TABLE IF NOT EXISTS public.staff_id_history (
+  id                  uuid        PRIMARY KEY DEFAULT gen_random_uuid(),
+  staff_uuid          uuid        NOT NULL REFERENCES public.staff(id) ON DELETE CASCADE,
+  staff_id            text        NOT NULL,
+  new_staff_id        text,
+  reason              text        NOT NULL,
+  from_institution_id uuid        REFERENCES public.institutions(id) ON DELETE SET NULL,
+  to_institution_id   uuid        REFERENCES public.institutions(id) ON DELETE SET NULL,
+  from_is_teaching    boolean,
+  to_is_teaching      boolean,
+  changed_by          uuid,
+  retired_at          timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT staff_id_history_reason_chk CHECK (reason IN (
+    'institution_change', 'teaching_change', 'institution_and_teaching_change',
+    'reactivation', 'corrective_reissue'
+  ))
+);
+
+COMMENT ON TABLE public.staff_id_history IS
+  'Staff IDs that were retired when the holder changed institution or teaching type. '
+  'staff_id here is the RETIRED code. Written only by fn_staff_autonumber (SECURITY DEFINER) '
+  'and the one-off corrective re-issue; there is no policy granting any user a write.';
+
+-- A retired code is retired exactly once: fn_next_staff_code never re-issues it.
+CREATE UNIQUE INDEX IF NOT EXISTS staff_id_history_staff_id_uq
+  ON public.staff_id_history (staff_id);
+
+CREATE INDEX IF NOT EXISTS idx_staff_id_history_staff_uuid
+  ON public.staff_id_history (staff_uuid, retired_at DESC);
+CREATE INDEX IF NOT EXISTS idx_staff_id_history_from_institution
+  ON public.staff_id_history (from_institution_id);
+CREATE INDEX IF NOT EXISTS idx_staff_id_history_to_institution
+  ON public.staff_id_history (to_institution_id);
+
+ALTER TABLE public.staff
+  ADD COLUMN IF NOT EXISTS retired_staff_ids text;
+
+COMMENT ON COLUMN public.staff.retired_staff_ids IS
+  'Space-separated staff IDs this person held before being re-issued one on a change of '
+  'institution or teaching type. Derived from staff_id_history by trg_staff_autonumber; '
+  'a value supplied by a caller is discarded. Search-only.';
+
+-- =============================================================================
 -- Mirrored from supabase/migrations/20260828140000_staff_address_standardisation.sql
 -- and 20260828150000_custom_roles_is_privileged.sql
 -- =============================================================================
@@ -12221,6 +12308,14 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_hr_intake_match_rules_title_institution
   ON public.hr_intake_match_rules (cvviz_job_title_norm, institution_id);
 CREATE INDEX IF NOT EXISTS idx_hr_intake_match_rules_job
   ON public.hr_intake_match_rules (job_id);
+
+-- Updated: 2026-10-08 - one auto-issued memo per triggering event
+-- (migration 20271008110108, #4259 deep review finding 1). The detector
+-- inserts the memo first and treats 23505 as "this event already has its
+-- memo", then links the event to it. Manual memos (NULL event) never collide.
+CREATE UNIQUE INDEX IF NOT EXISTS ux_hr_memos_triggered_by_event
+  ON public.hr_memos (triggered_by_event_id)
+  WHERE triggered_by_event_id IS NOT NULL;
 
 -- =====================================================================
 -- Updated: 2026-09-28 - Grievance: route on create, escalate on breach (columns)

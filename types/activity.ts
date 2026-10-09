@@ -148,7 +148,7 @@ export const ACTIVITY_TYPES = {
   // Billing Operations
   PAYMENT_PROCESS: 'payment_process',
   INVOICE_GENERATE: 'invoice_generate',
-  DISCOUNT_APPLY: 'discount_apply',
+  SCHOLARSHIP_APPLY: 'scholarship_apply',
   REFUND_PROCESS: 'refund_process',
 
   // System Operations
@@ -191,7 +191,7 @@ export const RESOURCE_TYPES = {
   BILL: 'bill',
   RECEIPT: 'receipt',
   INVOICE: 'invoice',
-  DISCOUNT: 'discount',
+  SCHOLARSHIP: 'scholarship',
   REFUND: 'refund',
   ROLE: 'role',
   PERMISSION: 'permission',

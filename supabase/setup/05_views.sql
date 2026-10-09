@@ -2062,3 +2062,41 @@ GRANT SELECT ON TABLE public.v_staff_id_crosswalk TO authenticated;
 --
 -- Full definitions in the migration.
 -- ===========================================================================
+
+
+-- Updated: 2026-10-07 - Mirrored from supabase/migrations/20261022000100_learner_ig_post_claims_hardening.sql
+-- ig_learner_post_claims: a learner could INSERT a claim already confirmed (review finding #1, PR #4193).
+-- One row per post: the latest metric snapshot (posts average ~627 snapshots; PostgREST caps at 1,000 rows).
+CREATE OR REPLACE VIEW public.v_ig_post_latest_metrics
+WITH (security_invoker = on) AS
+SELECT DISTINCT ON (m.post_id)
+       m.post_id, m.snapshot_at, m.saves, m.shares, m.comments, m.likes, m.reach
+  FROM public.ig_post_metrics m
+ WHERE m.snapshot_at IS NOT NULL
+ ORDER BY m.post_id, m.snapshot_at DESC, m.id DESC;
+
+COMMENT ON VIEW public.v_ig_post_latest_metrics IS
+  'Latest ig_post_metrics snapshot per post, exactly one row each. Exists because posts average ~627 snapshots (2026-10-07) and an unbounded read of a few posts passes PostgREST''s 1,000-row cap, silently returning a random subset. Service-role only.';
+
+REVOKE ALL ON public.v_ig_post_latest_metrics FROM anon, authenticated, PUBLIC;
+GRANT SELECT ON public.v_ig_post_latest_metrics TO service_role;
+
+-- Updated: 2026-10-07 - Mirrored from supabase/migrations/20271007200100_session_feedback_pending_ingest_service_only.sql
+-- v_session_feedback_pending_ingest (created in 20261021000100) is read only by the
+-- feedback-adapter-session cron through the service role; signed-in callers lose access.
+-- Guarded: setup never creates this view, so a fresh setup run must not abort here.
+DO $$
+BEGIN
+  IF to_regclass('public.v_session_feedback_pending_ingest') IS NOT NULL THEN
+    REVOKE ALL ON public.v_session_feedback_pending_ingest FROM anon, authenticated, PUBLIC;
+    REVOKE ALL ON public.v_session_feedback_pending_ingest FROM service_role;
+    GRANT SELECT ON public.v_session_feedback_pending_ingest TO service_role;
+    IF has_table_privilege('anon', 'public.v_session_feedback_pending_ingest',
+                           'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
+       OR has_table_privilege('authenticated', 'public.v_session_feedback_pending_ingest',
+                              'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
+       OR NOT has_table_privilege('service_role', 'public.v_session_feedback_pending_ingest', 'SELECT') THEN
+      RAISE EXCEPTION 'v_session_feedback_pending_ingest grants did not land as intended';
+    END IF;
+  END IF;
+END $$;

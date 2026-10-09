@@ -162,13 +162,13 @@ export const billingKeys = {
       [...billingKeys.bills.all, 'student', studentId] as const
   },
 
-  // Discounts
-  discounts: {
-    all: ['billing', 'discounts'] as const,
+  // Scholarships
+  scholarships: {
+    all: ['billing', 'scholarships'] as const,
     list: (filters?: Record<string, unknown>) =>
-      [...billingKeys.discounts.all, 'list', filters] as const,
+      [...billingKeys.scholarships.all, 'list', filters] as const,
     detail: (id: string) =>
-      [...billingKeys.discounts.all, 'detail', id] as const
+      [...billingKeys.scholarships.all, 'detail', id] as const
   },
 
   // Refunds

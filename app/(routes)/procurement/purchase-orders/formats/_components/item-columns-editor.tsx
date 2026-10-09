@@ -95,10 +95,10 @@ export function ItemColumnsEditor({ columns, onChange }: ItemColumnsEditorProps)
             <CardContent className="p-4">
               <div className="flex items-start gap-2">
                 <div className="flex flex-col gap-1 pt-1">
-                  <Button type="button" variant="ghost" size="icon" className="h-10 w-10 sm:h-6 sm:w-6" aria-label="Move column up" onClick={() => moveColumn(index, 'up')} disabled={index === 0}>
+                  <Button type="button" variant="ghost" size="icon" className="h-10 w-10 sm:h-8 sm:w-8" aria-label="Move column up" onClick={() => moveColumn(index, 'up')} disabled={index === 0}>
                     <ChevronUp className="h-3 w-3" />
                   </Button>
-                  <Button type="button" variant="ghost" size="icon" className="h-10 w-10 sm:h-6 sm:w-6" aria-label="Move column down" onClick={() => moveColumn(index, 'down')} disabled={index === columns.length - 1}>
+                  <Button type="button" variant="ghost" size="icon" className="h-10 w-10 sm:h-8 sm:w-8" aria-label="Move column down" onClick={() => moveColumn(index, 'down')} disabled={index === columns.length - 1}>
                     <ChevronDown className="h-3 w-3" />
                   </Button>
                 </div>

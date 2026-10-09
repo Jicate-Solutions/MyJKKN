@@ -133,6 +133,11 @@ function Content({ params }: { params: Promise<{ id: string }> }) {
   const [attendedOnly, setAttendedOnly] = useState(true);
   const [zip, setZip] = useState<{ done: number; total: number } | null>(null);
   const [search, setSearch] = useState('');
+  // Cascading filters: Institution -> UG / PG -> Program -> Semester.
+  const [institution, setInstitution] = useState('all');
+  const [level, setLevel] = useState('all');
+  const [program, setProgram] = useState('all');
+  const [semester, setSemester] = useState('all');
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const [remarks, setRemarks] = useState('');
   const [uploadType, setUploadType] = useState<CdcDocumentType>('offer_letter');
@@ -163,15 +168,71 @@ function Content({ params }: { params: Promise<{ id: string }> }) {
   });
 
   const rows = useMemo(() => data?.rows ?? [], [data]);
+  // Each list only offers what the participants actually hold under the
+  // choice above it.
+  const institutionOptions = useMemo(() => {
+    const map = new Map<string, string>();
+    rows.forEach((r) => {
+      if (r.institution_id && !map.has(r.institution_id)) map.set(r.institution_id, r.institution_name ?? 'Unnamed institution');
+    });
+    return Array.from(map, ([value, label]) => ({ value, label })).sort((a, b) => a.label.localeCompare(b.label));
+  }, [rows]);
+  const levelOptions = useMemo(() => {
+    const set = new Set<string>();
+    rows.forEach((r) => {
+      if (institution !== 'all' && r.institution_id !== institution) return;
+      if (r.degree_level) set.add(r.degree_level);
+    });
+    // UG first, then PG, then anything else.
+    const rank = (v: string) => (v === 'UG' ? 0 : v === 'PG' ? 1 : 2);
+    return Array.from(set).sort((a, b) => rank(a) - rank(b) || a.localeCompare(b));
+  }, [rows, institution]);
+  const programOptions = useMemo(() => {
+    const map = new Map<string, string>();
+    rows.forEach((r) => {
+      if (!r.program_id) return;
+      if (institution !== 'all' && r.institution_id !== institution) return;
+      if (level !== 'all' && r.degree_level !== level) return;
+      if (!map.has(r.program_id)) map.set(r.program_id, r.program_name ?? 'Unnamed program');
+    });
+    return Array.from(map, ([value, label]) => ({ value, label })).sort((a, b) => a.label.localeCompare(b.label));
+  }, [rows, institution, level]);
+  const semesterOptions = useMemo(() => {
+    const set = new Set<number>();
+    rows.forEach((r) => {
+      if (institution !== 'all' && r.institution_id !== institution) return;
+      if (level !== 'all' && r.degree_level !== level) return;
+      if (program !== 'all' && r.program_id !== program) return;
+      if (r.semester_order != null) set.add(r.semester_order);
+    });
+    return Array.from(set).sort((a, b) => a - b);
+  }, [rows, institution, level, program]);
+  const scoped = useMemo(
+    () =>
+      rows.filter(
+        (r) =>
+          (institution === 'all' || r.institution_id === institution) &&
+          (level === 'all' || r.degree_level === level) &&
+          (program === 'all' || r.program_id === program) &&
+          (semester === 'all' || r.semester_order === parseInt(semester, 10))
+      ),
+    [rows, institution, level, program, semester]
+  );
+  const scopeActive = institution !== 'all' || level !== 'all' || program !== 'all' || semester !== 'all';
+  const scopeQuery =
+    (institution !== 'all' ? `&institution_id=${institution}` : '') +
+    (level !== 'all' ? `&degree_level=${encodeURIComponent(level)}` : '') +
+    (program !== 'all' ? `&program_id=${program}` : '') +
+    (semester !== 'all' ? `&semester_order=${semester}` : '');
   const visible = useMemo(() => {
     const q = search.trim().toLowerCase();
-    return rows.filter((r) => {
+    return scoped.filter((r) => {
       if (tab === 'pending' ? !!r.decision : r.decision !== tab) return false;
       if (attendedOnly && r.attendance_status !== 'present' && r.attendance_status !== 'late') return false;
       if (!q) return true;
       return [r.learner_name, r.register_number, r.department_name].filter(Boolean).some((v) => String(v).toLowerCase().includes(q));
     });
-  }, [rows, tab, attendedOnly, search]);
+  }, [scoped, tab, attendedOnly, search]);
   const pager = usePager(visible, 50);
   const zipCount = useMemo(
     () => visible.filter((r) => r.documents.some((d) => d.document_type === uploadType)).length,
@@ -179,12 +240,12 @@ function Content({ params }: { params: Promise<{ id: string }> }) {
   );
   const tabCounts = useMemo(() => {
     const c: Record<SelectionTab, number> = { pending: 0, selected: 0, waitlisted: 0, rejected: 0, hold: 0 };
-    rows.forEach((r) => {
+    scoped.forEach((r) => {
       if (attendedOnly && r.attendance_status !== 'present' && r.attendance_status !== 'late') return;
       c[r.decision ?? 'pending'] += 1;
     });
     return c;
-  }, [rows, attendedOnly]);
+  }, [scoped, attendedOnly]);
 
   if (isLoading) {
     return (
@@ -383,7 +444,7 @@ function Content({ params }: { params: Promise<{ id: string }> }) {
           </div>
           <div className="flex flex-wrap gap-2">
             <Button asChild variant="outline">
-              <a href={`/api/cdc/drives/${id}/selection?format=xlsx&decision=${tab === 'pending' ? 'undecided' : tab}${attendedOnly ? '&attended=1' : ''}`}>
+              <a href={`/api/cdc/drives/${id}/selection?format=xlsx&decision=${tab === 'pending' ? 'undecided' : tab}${attendedOnly ? '&attended=1' : ''}${scopeQuery}`}>
                 <Download className="h-4 w-4 mr-2" /> Download Excel
               </a>
             </Button>
@@ -453,6 +514,95 @@ function Content({ params }: { params: Promise<{ id: string }> }) {
                   <Input className="pl-8 w-56" placeholder="Search name / register no" value={search} onChange={(e) => setSearch(e.target.value)} />
                 </div>
               </div>
+            </div>
+
+            {/* Institution -> UG / PG -> Program -> Semester. Ticks are cleared on change so a
+                decision is never applied to learners no longer on screen. */}
+            <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
+              <Select
+                value={institution}
+                onValueChange={(v) => {
+                  setInstitution(v);
+                  setLevel('all');
+                  setProgram('all');
+                  setSemester('all');
+                  setPicked(new Set());
+                  pager.setPage(1);
+                }}
+              >
+                <SelectTrigger><SelectValue placeholder="Institution" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All institutions</SelectItem>
+                  {institutionOptions.map((o) => (
+                    <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Select
+                value={level}
+                onValueChange={(v) => {
+                  setLevel(v);
+                  setProgram('all');
+                  setSemester('all');
+                  setPicked(new Set());
+                  pager.setPage(1);
+                }}
+              >
+                <SelectTrigger><SelectValue placeholder="UG / PG" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">UG &amp; PG (all)</SelectItem>
+                  {levelOptions.map((o) => (
+                    <SelectItem key={o} value={o}>{o} programs</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Select
+                value={program}
+                onValueChange={(v) => {
+                  setProgram(v);
+                  setSemester('all');
+                  setPicked(new Set());
+                  pager.setPage(1);
+                }}
+              >
+                <SelectTrigger><SelectValue placeholder="Program" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All programs</SelectItem>
+                  {programOptions.map((o) => (
+                    <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Select
+                value={semester}
+                onValueChange={(v) => {
+                  setSemester(v);
+                  setPicked(new Set());
+                  pager.setPage(1);
+                }}
+              >
+                <SelectTrigger><SelectValue placeholder="Semester" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All semesters</SelectItem>
+                  {semesterOptions.map((o) => (
+                    <SelectItem key={o} value={String(o)}>Semester {o}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Button
+                variant="outline"
+                disabled={!scopeActive}
+                onClick={() => {
+                  setInstitution('all');
+                  setLevel('all');
+                  setProgram('all');
+                  setSemester('all');
+                  setPicked(new Set());
+                  pager.setPage(1);
+                }}
+              >
+                Clear filters
+              </Button>
             </div>
 
             {/* Pending | Selected | Waitlisted | Rejected | Hold */}

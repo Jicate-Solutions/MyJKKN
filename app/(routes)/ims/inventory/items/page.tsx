@@ -74,6 +74,8 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useImsStoreContext } from '@/hooks/ims/use-ims-store-context';
+import { useImsItemRatingSummaries } from '@/hooks/ims/use-ims-item-ratings';
+import { ItemRatingChip } from '@/components/ims/item-rating-chip';
 import {
   useImsItems,
   useCreateImsItem,
@@ -437,6 +439,9 @@ function InventoryItemsPageInner() {
     mutation.mutate(input, { onSuccess: clearSelection });
   };
   const { data: pendingChangeIds } = useImsPendingItemChangeIds(institutionId);
+  const { data: ratingSummaries } = useImsItemRatingSummaries(
+    (items?.data ?? []).map((i: ImsItemWithRelations) => i.id)
+  );
   const deleteItem = useDeleteImsItem();
   const toggleActive = useToggleImsItemActive();
 
@@ -1733,7 +1738,10 @@ function InventoryItemsPageInner() {
                           </div>
                         </TableCell>
                         <TableCell>
-                          <p className="font-medium">{item.name}</p>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <p className="font-medium">{item.name}</p>
+                            <ItemRatingChip itemId={item.id} summary={ratingSummaries?.get(item.id)} />
+                          </div>
                           {/* Visible to everyone who can see the item, not just
                               the requester: it explains why a value someone
                               expected to have changed still reads the old one. */}

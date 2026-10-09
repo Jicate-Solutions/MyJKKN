@@ -325,8 +325,10 @@ export function QuestionMarkMatrix({
                     // row can show between the two sticky rows.
                     style={{ top: GROUP_H - 1 }}
                   >
-                    {q.is_choice_alternative && (
+                    {q.is_choice_alternative && questions[i - 1]?.branch_id !== q.branch_id && (
                       // Sits on the divider between the two alternatives: "6a or 6b".
+                      // Once per branch — a split alternative (6b i, 6b ii) shows it
+                      // on its first sub-division only.
                       <span className='absolute left-0 top-1.5 -translate-x-1/2 rounded-full bg-amber-100 px-1 text-[9px] font-semibold uppercase leading-4 text-amber-800 ring-1 ring-amber-300'>
                         or
                       </span>

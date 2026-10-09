@@ -32,6 +32,7 @@ import {
 import {
   asFormUpload,
   isAnswerableField,
+  isValidHttpUrl,
   UPLOAD_FIELD_TYPES,
   type EventRegistrationFormField,
 } from '@/types/tournament';
@@ -41,7 +42,7 @@ import {
  * needs the full width — long text, pictures, uploads, multi-choice — spans
  * both columns. Everything is one column on a phone.
  */
-const FULL_WIDTH_TYPES = new Set(['textarea', 'image_display', 'file', 'image', 'multi_select', 'checkbox']);
+const FULL_WIDTH_TYPES = new Set(['textarea', 'image_display', 'rich_text', 'url', 'file', 'image', 'multi_select', 'checkbox']);
 
 interface SectionWithFields {
   id: string;
@@ -181,10 +182,18 @@ export function EventRegisterForm({
   const contactEmail = derived ? derived.email : email;
   const contactPhone = derived ? derived.phone : phone;
 
+  // A link is checked whenever one was typed, required or not; the server
+  // refuses it too, this just keeps the button honest.
+  const hasBadLink = visibleFields.some((f) => {
+    const v = customFields[f.field_key];
+    return f.field_type === 'url' && typeof v === 'string' && v.trim() !== '' && !isValidHttpUrl(v);
+  });
+
   const canSubmit =
     contactName.trim().length > 0 &&
     (contactPhone.trim().length > 0 || contactEmail.trim().length > 0) &&
-    !missingRequired;
+    !missingRequired &&
+    !hasBadLink;
 
   async function submit() {
     setBusy(true);

@@ -58,6 +58,12 @@ const NAV_EXCLUDE = new Set<string>([
   // `/hr/recruitment/intake/batch?batchId=<id>`; it shows a "no upload chosen"
   // state without the id. Static (not [batchId]) to stay under the route budget.
   '/hr/recruitment/intake/batch',
+  // InstaSolver one report path (Director, 5–6 Oct 2026). The desk's old
+  // "Report an issue" and "Request an item" forms are now redirect stubs to the
+  // chooser (/instasolver?moved=1). Only old bookmarks reach them, so they have
+  // no chip surface on purpose.
+  '/instasolver/issues/new',
+  '/instasolver/requirements/new',
   // My Pay Changes — the salary revision outcome notice (20270519090000).
   // Reached from the in-app notice sent at the Director's yes; a team member
   // has nothing to find there before one, so it has no sidebar row.
@@ -273,7 +279,6 @@ const NAV_EXCLUDE = new Set<string>([
 
   // Billing /new forms
   '/billing/categories/new',
-  '/billing/discounts/new',
   // Billing button-invoked bulk-action pages (linked from /billing/schedule header)
   '/billing/schedule/bulk-edit',
 

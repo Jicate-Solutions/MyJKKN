@@ -15,7 +15,7 @@ import { CompOffService } from '@/lib/services/hr/comp-off-service';
 import { addOneMonth, claimBatchPosition, claimDayProblem, priorClaimStatus } from '@/types/hr-comp-off';
 
 const TODAY = '2026-10-05';
-const free = { closedMonth: false, clash: null };
+const free = { clash: null };
 
 describe('claimDayProblem — why one picked day cannot be claimed', () => {
   it('accepts a recent worked day', () => {
@@ -35,10 +35,9 @@ describe('claimDayProblem — why one picked day cannot be claimed', () => {
     expect(claimDayProblem('2026-09-05', TODAY, free)).toBeNull();
   });
 
-  it('refuses a closed month and an occupied day, naming the clash', () => {
-    expect(claimDayProblem('2026-09-21', TODAY, { closedMonth: true, clash: null })).toMatch(/closed/i);
+  it('refuses an occupied day, naming the clash', () => {
     expect(
-      claimDayProblem('2026-09-21', TODAY, { closedMonth: false, clash: 'Casual Leave on 21/09/2026' })
+      claimDayProblem('2026-09-21', TODAY, { clash: 'Casual Leave on 21/09/2026' })
     ).toMatch(/Casual Leave on 21\/09\/2026/);
   });
 });

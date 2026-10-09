@@ -448,8 +448,10 @@ export default function AttendanceMonthClosePage() {
             </AlertDialogTitle>
             <AlertDialogDescription>
               Day counts will be frozen — working days, present, absent, leave by type, comp off
-              and loss of pay. After this, leave, short time off and compensatory off covering
-              this month can no longer be raised, approved or withdrawn.
+              and loss of pay. After this, leave, short time off and compensatory off bookings
+              covering this month can no longer be raised, approved or withdrawn. Staff can
+              still claim compensatory off for a day they worked in this month, until that
+              claim&apos;s one-month window ends.
             </AlertDialogDescription>
           </AlertDialogHeader>
 

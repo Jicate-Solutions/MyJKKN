@@ -176,12 +176,12 @@ export function KpiCards({
           href={drilldown.receipts(scope)}
         />
         <KpiCard
-          label='Discounts'
-          value={formatINRCompact(data.total_discounts)}
+          label='Scholarships'
+          value={formatINRCompact(data.total_scholarships)}
           icon={BadgePercent}
           tone='warning'
-          title={formatCurrency(num(data.total_discounts))}
-          href={drilldown.discounts()}
+          title={formatCurrency(num(data.total_scholarships))}
+          href={drilldown.scholarships()}
         />
         <KpiCard
           label='Refunds'

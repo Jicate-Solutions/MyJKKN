@@ -100,7 +100,13 @@ CREATE TRIGGER trigger_billing_receipts_updated_at BEFORE UPDATE ON billing_rece
 CREATE TRIGGER trigger_billing_invoices_updated_at BEFORE UPDATE ON billing_invoices
     FOR EACH ROW EXECUTE FUNCTION update_billing_updated_at();
 
-CREATE TRIGGER trigger_billing_discounts_updated_at BEFORE UPDATE ON billing_discounts
+CREATE TRIGGER trigger_billing_scholarships_updated_at BEFORE UPDATE ON billing_scholarships
+    FOR EACH ROW EXECUTE FUNCTION update_billing_updated_at();
+
+CREATE TRIGGER trigger_billing_scholarship_categories_updated_at BEFORE UPDATE ON billing_scholarship_categories
+    FOR EACH ROW EXECUTE FUNCTION update_billing_updated_at();
+
+CREATE TRIGGER trigger_billing_scholarship_types_updated_at BEFORE UPDATE ON billing_scholarship_types
     FOR EACH ROW EXECUTE FUNCTION update_billing_updated_at();
 
 CREATE TRIGGER trigger_billing_refunds_updated_at BEFORE UPDATE ON billing_refunds
@@ -3073,6 +3079,15 @@ DROP TRIGGER IF EXISTS hr_intake_match_rules_updated_at ON public.hr_intake_matc
 CREATE TRIGGER hr_intake_match_rules_updated_at
   BEFORE UPDATE ON public.hr_intake_match_rules
   FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+
+
+-- Updated: 2026-10-07 - Mirrored from supabase/migrations/20261022000100_learner_ig_post_claims_hardening.sql
+-- ig_learner_post_claims: a learner could INSERT a claim already confirmed (review finding #1, PR #4193).
+-- Fires before trg_ig_learner_post_claims_scope (name order), so the tenant stamp reads the pinned learner.
+DROP TRIGGER IF EXISTS trg_ig_learner_post_claims_guard ON public.ig_learner_post_claims;
+CREATE TRIGGER trg_ig_learner_post_claims_guard
+  BEFORE INSERT OR UPDATE ON public.ig_learner_post_claims
+  FOR EACH ROW EXECUTE FUNCTION public.fn_ig_learner_post_claim_guard();
 
 -- =====================================================================
 -- Updated: 2026-09-28 - Grievance: route on create, escalate on breach (triggers)

@@ -6,7 +6,9 @@ import {
   Breadcrumb, BreadcrumbItem, BreadcrumbLink, BreadcrumbList, BreadcrumbPage, BreadcrumbSeparator,
 } from '@/components/ui/breadcrumb';
 import { Card, CardContent } from '@/components/ui/card';
-import { ClipboardEdit, Loader2, ListChecks, PenLine } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import Link from 'next/link';
+import { ClipboardEdit, Layers, Loader2, ListChecks, PenLine } from 'lucide-react';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useAuth } from '@/hooks/use-auth';
 import { useCiaSettings, useExamSessions } from '@/hooks/internal-marks/use-cia-settings';
@@ -30,9 +32,9 @@ import { DirectEntryTab } from './_components/direct-entry-tab';
  *
  * The ROUND's configured mode (COE cia_rounds[].mark_entry_type) decides which
  * ONE entry screen renders — there is no tab to pick between them. A
- * question-wise round that has no authored paper is still never a dead end: the
- * question-wise screen explains the gap and renders the component grid beneath
- * it (`renderFallback`) until the paper is ready.
+ * question-wise round opens only against an APPROVED question paper for the
+ * course; with no paper, or one still draft / submitted, the screen shows that
+ * status and stays closed. It does not fall back to direct entry.
  */
 export default function MarkEntryPage() {
   const { isSuperAdmin, canAccess, isLoading: isLoadingPermissions } = usePermissions();
@@ -40,6 +42,8 @@ export default function MarkEntryPage() {
 
   const canView = isLoadingPermissions || isSuperAdmin || canAccess('academic.mark-entry', 'view');
   const canEnter = isSuperAdmin || canAccess('academic.mark-entry', 'enter');
+  // Same gate as the report page itself, so the button never leads to a refusal.
+  const canViewReport = isSuperAdmin || canAccess('academic.internal-marks', 'view');
 
   const [filters, setFilters] = useState<Partial<MarkEntryFilterState>>({});
 
@@ -105,6 +109,23 @@ export default function MarkEntryPage() {
     []
   );
 
+  /**
+   * The consolidated total-marks sheet (learners × every course of the program)
+   * lives on the Internal Marks report page. Question-wise marks reach it as
+   * each course's total, because a save always writes the component sum. The
+   * link carries the filters already chosen here so the report opens on the
+   * same session, round and program — only the semester is left to pick.
+   */
+  const consolidatedReportHref = useMemo(() => {
+    const params = new URLSearchParams({ tab: 'consolidated' });
+    if (isSuperAdmin && filters.institution_id) params.set('institution', filters.institution_id);
+    if (filters.exam_session_id) params.set('session', filters.exam_session_id);
+    if (filters.setting_id) params.set('setting', filters.setting_id);
+    if (filters.cia_round != null) params.set('round', String(filters.cia_round));
+    if (filters.program_code) params.set('program', filters.program_code);
+    return `/academic/internal-marks/report?${params.toString()}`;
+  }, [isSuperAdmin, filters]);
+
   if (!canView) {
     return (
       <ContentLayout title='Mark Entry'>
@@ -138,15 +159,24 @@ export default function MarkEntryPage() {
           min-width:auto, the wide entry table stretches the page, and the frozen
           columns drift out over the sidebar. */}
       <div className='min-w-0 space-y-6 overflow-x-hidden'>
-        <div>
-          <h1 className='flex items-center gap-2 py-1 text-2xl font-bold'>
-            <ClipboardEdit className='h-6 w-6' /> Mark Entry
-          </h1>
-          <p className='text-sm text-muted-foreground'>
-            Enter Continuous Internal Assessment marks question by question against the round&apos;s
-            question paper, or as component totals. Subjects are shown only for staff-planned
-            programs.
-          </p>
+        <div className='flex flex-wrap items-start justify-between gap-3'>
+          <div>
+            <h1 className='flex items-center gap-2 py-1 text-2xl font-bold'>
+              <ClipboardEdit className='h-6 w-6' /> Mark Entry
+            </h1>
+            <p className='text-sm text-muted-foreground'>
+              Enter Continuous Internal Assessment marks question by question against the
+              round&apos;s question paper, or as component totals. Subjects are shown only for
+              staff-planned programs.
+            </p>
+          </div>
+          {canViewReport && (
+            <Button asChild variant='outline' size='sm'>
+              <Link href={consolidatedReportHref}>
+                <Layers className='mr-1 h-4 w-4' /> Consolidated Report
+              </Link>
+            </Button>
+          )}
         </div>
 
         <Card>
@@ -208,18 +238,6 @@ export default function MarkEntryPage() {
                 maxInternalMarks={maxInternalMarks}
                 canEnter={canEnter}
                 pdf={pdfContext}
-                renderFallback={() => (
-                  <DirectEntryTab
-                    institutionId={institutionId!}
-                    examSessionId={filters.exam_session_id!}
-                    ciaSettingId={filters.setting_id!}
-                    round={selectedRound}
-                    learners={learners}
-                    maxInternalMarks={maxInternalMarks}
-                    canEnter={canEnter}
-                    courseCode={filters.course_code}
-                  />
-                )}
               />
             ) : (
               <DirectEntryTab

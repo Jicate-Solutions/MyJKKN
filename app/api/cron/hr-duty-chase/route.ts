@@ -23,18 +23,31 @@
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
-export const maxDuration = 60;
+// 120 s: the AI-routine dispatcher waits 120 s for this route. The run itself
+// stops starting new work at RUN_BUDGET_MS (100 s), so it still answers the
+// dispatcher and writes its run record instead of being cut off mid-way.
+export const maxDuration = 120;
 
+import { timingSafeEqual } from 'node:crypto';
 import { NextRequest, NextResponse } from 'next/server';
 import { runHrDutyChase } from '@/lib/services/hr/duty-harness/chase-service';
 import { createHarnessDbDeps } from '@/lib/services/hr/duty-harness/db-deps';
+
+/** Constant-time compare, as the sibling cron routes do. */
+function secretMatches(presented: string | null | undefined, secret: string): boolean {
+  const a = Buffer.from(presented ?? '');
+  const b = Buffer.from(secret);
+  return a.length === b.length && timingSafeEqual(a, b);
+}
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
   const cronSecret = process.env.CRON_SECRET;
   if (!cronSecret) {
     return NextResponse.json({ ok: false, error: 'CRON_SECRET not configured' }, { status: 500 });
   }
-  if (request.headers.get('authorization') !== `Bearer ${cronSecret}`) {
+  const authHeader = request.headers.get('authorization');
+  const bearer = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null;
+  if (bearer === null || !secretMatches(bearer, cronSecret)) {
     return NextResponse.json({ ok: false, error: 'unauthorized' }, { status: 401 });
   }
 

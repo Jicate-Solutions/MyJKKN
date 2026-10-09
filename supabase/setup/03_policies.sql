@@ -1679,20 +1679,75 @@ CREATE POLICY "invoice_items_all_billing" ON billing_invoice_items
         )
     );
 
--- BILLING_DISCOUNTS TABLE (1 policy)
-ALTER TABLE billing_discounts ENABLE ROW LEVEL SECURITY;
+-- BILLING_SCHOLARSHIPS TABLE (4 policies; renamed from billing_discounts, 20271009130000)
+-- Gated on billing.scholarships.{view,create,edit,delete}; super admin / admin pass without a key.
+ALTER TABLE billing_scholarships ENABLE ROW LEVEL SECURITY;
 
--- Updated: 2026-04-13 - Migrated to dynamic permission-based policies
-CREATE POLICY "discounts_all_billing" ON billing_discounts
-    FOR ALL USING (
-        is_super_admin() OR is_admin()
-        OR EXISTS (
-            SELECT 1 FROM billing_student_bills bsb
-            WHERE bsb.id = billing_discounts.bill_id
-            AND bsb.institution_id = get_current_user_institution_id()
-            AND user_has_permission('billing.discounts.view')
-        )
+CREATE POLICY billing_scholarships_select_permission ON billing_scholarships
+    FOR SELECT USING (
+        (SELECT is_super_admin()) OR (SELECT is_admin())
+        OR (SELECT user_has_permission('billing.scholarships.view'))
     );
+
+CREATE POLICY billing_scholarships_insert_permission ON billing_scholarships
+    FOR INSERT WITH CHECK (
+        (SELECT is_super_admin()) OR (SELECT is_admin())
+        OR (SELECT user_has_permission('billing.scholarships.create'))
+    );
+
+CREATE POLICY billing_scholarships_update_permission ON billing_scholarships
+    FOR UPDATE USING (
+        (SELECT is_super_admin()) OR (SELECT is_admin())
+        OR (SELECT user_has_permission('billing.scholarships.edit'))
+    );
+
+CREATE POLICY billing_scholarships_delete_permission ON billing_scholarships
+    FOR DELETE USING (
+        (SELECT is_super_admin()) OR (SELECT is_admin())
+        OR (SELECT user_has_permission('billing.scholarships.delete'))
+    );
+
+-- BILLING_SCHOLARSHIP_CATEGORIES / BILLING_SCHOLARSHIP_TYPES (4 policies each; 20271009090000)
+-- Read: any signed-in user (the Apply form needs the lists). Write: super admin /
+-- admin / billing.scholarship_setup.{create,edit,delete}.
+ALTER TABLE billing_scholarship_categories ENABLE ROW LEVEL SECURITY;
+ALTER TABLE billing_scholarship_types ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY billing_scholarship_categories_select ON billing_scholarship_categories
+    FOR SELECT TO authenticated USING ((SELECT auth.uid()) IS NOT NULL);
+CREATE POLICY billing_scholarship_categories_insert ON billing_scholarship_categories
+    FOR INSERT TO authenticated WITH CHECK (
+        (SELECT is_super_admin()) OR (SELECT is_admin())
+        OR (SELECT user_has_permission('billing.scholarship_setup.create')));
+CREATE POLICY billing_scholarship_categories_update ON billing_scholarship_categories
+    FOR UPDATE TO authenticated USING (
+        (SELECT is_super_admin()) OR (SELECT is_admin())
+        OR (SELECT user_has_permission('billing.scholarship_setup.edit')))
+    WITH CHECK (
+        (SELECT is_super_admin()) OR (SELECT is_admin())
+        OR (SELECT user_has_permission('billing.scholarship_setup.edit')));
+CREATE POLICY billing_scholarship_categories_delete ON billing_scholarship_categories
+    FOR DELETE TO authenticated USING (
+        (SELECT is_super_admin()) OR (SELECT is_admin())
+        OR (SELECT user_has_permission('billing.scholarship_setup.delete')));
+
+CREATE POLICY billing_scholarship_types_select ON billing_scholarship_types
+    FOR SELECT TO authenticated USING ((SELECT auth.uid()) IS NOT NULL);
+CREATE POLICY billing_scholarship_types_insert ON billing_scholarship_types
+    FOR INSERT TO authenticated WITH CHECK (
+        (SELECT is_super_admin()) OR (SELECT is_admin())
+        OR (SELECT user_has_permission('billing.scholarship_setup.create')));
+CREATE POLICY billing_scholarship_types_update ON billing_scholarship_types
+    FOR UPDATE TO authenticated USING (
+        (SELECT is_super_admin()) OR (SELECT is_admin())
+        OR (SELECT user_has_permission('billing.scholarship_setup.edit')))
+    WITH CHECK (
+        (SELECT is_super_admin()) OR (SELECT is_admin())
+        OR (SELECT user_has_permission('billing.scholarship_setup.edit')));
+CREATE POLICY billing_scholarship_types_delete ON billing_scholarship_types
+    FOR DELETE TO authenticated USING (
+        (SELECT is_super_admin()) OR (SELECT is_admin())
+        OR (SELECT user_has_permission('billing.scholarship_setup.delete')));
 
 -- BILLING_REFUNDS TABLE (1 policy)
 ALTER TABLE billing_refunds ENABLE ROW LEVEL SECURITY;
@@ -10009,6 +10064,22 @@ CREATE POLICY staff_id_crosswalk_select_super_admin
   USING (public.is_super_admin());
 
 -- =============================================================================
+-- Mirrored from supabase/migrations/20261008120000_staff_id_reissue_on_transfer.sql (policies and grants)
+-- =============================================================================
+
+ALTER TABLE public.staff_id_history ENABLE ROW LEVEL SECURITY;
+
+REVOKE ALL ON public.staff_id_history FROM anon, authenticated;
+GRANT SELECT ON public.staff_id_history TO authenticated;
+
+-- Visible exactly to whoever can see the staff row: the EXISTS runs under the
+-- caller's own RLS on staff, so institution scope is inherited, not restated.
+DROP POLICY IF EXISTS staff_id_history_select ON public.staff_id_history;
+CREATE POLICY staff_id_history_select
+  ON public.staff_id_history FOR SELECT TO authenticated
+  USING (EXISTS (SELECT 1 FROM public.staff s WHERE s.id = staff_id_history.staff_uuid));
+
+-- =============================================================================
 -- Mirrored from supabase/migrations/20260828140000_staff_address_standardisation.sql
 -- =============================================================================
 
@@ -12177,7 +12248,7 @@ GRANT ALL ON TABLE public.hr_memo_detector_runs TO service_role;
 DROP POLICY IF EXISTS hr_memo_detector_runs_select ON public.hr_memo_detector_runs;
 CREATE POLICY hr_memo_detector_runs_select ON public.hr_memo_detector_runs
   FOR SELECT TO authenticated
-  USING ((SELECT public.is_super_admin()) OR (SELECT public.is_admin()));
+  USING ((SELECT public.is_super_admin()));
 
 ALTER TABLE public.hr_memo_nudges ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON TABLE public.hr_memo_nudges FROM anon, PUBLIC;
@@ -12187,7 +12258,7 @@ GRANT ALL ON TABLE public.hr_memo_nudges TO service_role;
 DROP POLICY IF EXISTS hr_memo_nudges_select ON public.hr_memo_nudges;
 CREATE POLICY hr_memo_nudges_select ON public.hr_memo_nudges
   FOR SELECT TO authenticated
-  USING ((SELECT public.is_super_admin()) OR (SELECT public.is_admin()));
+  USING ((SELECT public.is_super_admin()));
 
 
 
@@ -12280,4 +12351,49 @@ CREATE POLICY hr_intake_match_rules_select ON public.hr_intake_match_rules
     OR ((SELECT public.user_has_permission('hr.recruitment.create'))
         AND institution_id IS NOT NULL
         AND public.role_has_institution_access(institution_id))
+  );
+
+
+-- Updated: 2026-10-07 - Mirrored from supabase/migrations/20261022000100_learner_ig_post_claims_hardening.sql
+-- ig_learner_post_claims: a learner could INSERT a claim already confirmed (review finding #1, PR #4193).
+-- INSERT ties origin to who may use it; SELECT admits the review key; DELETE only while pending.
+-- The UPDATE policy is unchanged from 20261022000000.
+DROP POLICY IF EXISTS ig_learner_post_claims_insert ON public.ig_learner_post_claims;
+CREATE POLICY ig_learner_post_claims_insert ON public.ig_learner_post_claims
+  FOR INSERT
+  WITH CHECK (
+    origin IN ('learner_link', 'staff_link')
+    AND (
+      public.is_super_admin()
+      OR public.is_admin()
+      OR (origin = 'learner_link'
+          AND learner_id = (SELECT p.learner_id FROM public.profiles p WHERE p.id = auth.uid()))
+      OR (origin = 'staff_link'
+          AND public.user_has_permission('social.learner_credit.review')
+          AND public.role_has_institution_access(institution_id))
+    )
+  );
+
+DROP POLICY IF EXISTS ig_learner_post_claims_select ON public.ig_learner_post_claims;
+CREATE POLICY ig_learner_post_claims_select ON public.ig_learner_post_claims
+  FOR SELECT
+  USING (
+    public.is_super_admin()
+    OR public.is_admin()
+    OR learner_id = (SELECT p.learner_id FROM public.profiles p WHERE p.id = auth.uid())
+    OR ((public.user_has_permission('social.learner_credit.view')
+         OR public.user_has_permission('social.learner_credit.review'))
+        AND public.role_has_institution_access(institution_id))
+  );
+
+DROP POLICY IF EXISTS ig_learner_post_claims_delete ON public.ig_learner_post_claims;
+CREATE POLICY ig_learner_post_claims_delete ON public.ig_learner_post_claims
+  FOR DELETE
+  USING (
+    public.is_super_admin()
+    OR (status = 'pending' AND (
+          public.is_admin()
+          OR learner_id = (SELECT p.learner_id FROM public.profiles p WHERE p.id = auth.uid())
+          OR (public.user_has_permission('social.learner_credit.review')
+              AND public.role_has_institution_access(institution_id))))
   );
