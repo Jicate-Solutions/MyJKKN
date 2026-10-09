@@ -659,6 +659,16 @@ describe('review round 5: a check is recorded only against the amount the checke
     expect(r.error).toMatch(/This screen is out of date\. Reload the page and check again\./);
   });
 
+  it('but asks a signed-in caller for the checker key first, so only a checker is told to reload', async () => {
+    const call = `SELECT public.fn_hr_duty_proof_second_check(p_duty => 'L4', p_item_id => '${ENC}', p_result => 'confirmed') AS id`;
+    expect((await as({ perms: '' }, call)).error).toMatch(/You do not have the permission to check this duty/);
+    expect((await as({ perms: G5_KEY }, call)).error).toMatch(/You do not have the permission to check this duty/);
+    expect((await as({ perms: '', superAdmin: true }, call)).error).toMatch(/This screen is out of date/);
+    expect((await as({ perms: L4_KEY },
+      `SELECT public.fn_hr_duty_proof_second_check(p_duty => 'NOPE', p_item_id => '${ENC}', p_result => 'confirmed') AS id`)).error)
+      .toMatch(/Duty NOPE does not take a second check/);
+  });
+
   it('and refuses even its owner', async () => {
     await client.query('BEGIN');
     try {

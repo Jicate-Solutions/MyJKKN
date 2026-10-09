@@ -85042,6 +85042,11 @@ GRANT  EXECUTE ON FUNCTION public.fn_hr_duty_proof_second_check(text, uuid, text
 --     screen built before this file gets a clear "reload" message rather than
 --     "permission denied" (review round 6: deploy order). The body records
 --     nothing, so the grant opens no path. The function itself stays.
+--     A signed-in caller is still asked for the duty's checker key first, as
+--     the six-argument function asks, so only a checker is told to reload;
+--     anyone else gets the refusal a reload would bring them to anyway.
+--     postgres / service_role (no auth.uid()) go straight to the reload
+--     message.
 CREATE OR REPLACE FUNCTION public.fn_hr_duty_proof_second_check(
   p_duty text,
   p_item_id uuid,
@@ -85054,7 +85059,21 @@ LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path = public
 AS $$
+DECLARE
+  v_rule public.hr_duty_proof_rules%ROWTYPE;
 BEGIN
+  IF auth.uid() IS NOT NULL THEN
+    SELECT * INTO v_rule FROM public.hr_duty_proof_rules r
+    WHERE r.config_key = p_duty AND r.is_active;
+    IF NOT FOUND OR v_rule.proof_kind <> 'second_check' THEN
+      RAISE EXCEPTION 'Duty % does not take a second check', p_duty USING ERRCODE = '22023';
+    END IF;
+    IF (public.is_super_admin()
+        OR public.user_has_permission(v_rule.checker_permission_key)) IS NOT TRUE THEN
+      RAISE EXCEPTION 'You do not have the permission to check this duty' USING ERRCODE = '42501';
+    END IF;
+  END IF;
+
   RAISE EXCEPTION 'This screen is out of date. Reload the page and check again.' USING ERRCODE = '55000';
 END $$;
 
