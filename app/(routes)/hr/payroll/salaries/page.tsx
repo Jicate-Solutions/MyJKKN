@@ -259,7 +259,9 @@ export default function EmployeeSalariesPage() {
   const stats = useMemo(() => {
     const roster = list.filter((r) => r.is_active);
     const salaried = roster.filter((r) => r.salary_id !== null);
-    const monthly = salaried.reduce((sum, r) => sum + (r.monthly_gross ?? 0), 0);
+    // The pay in force today: a change saved for next month is not yet paid
+    // (2026-10-09).
+    const monthly = salaried.reduce((sum, r) => sum + (r.in_force_monthly_gross ?? 0), 0);
     return {
       people: roster.length,
       salaried: salaried.length,

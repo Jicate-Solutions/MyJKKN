@@ -289,11 +289,13 @@ export default function PayBandCheckPage() {
           name: row.person_name,
           code: row.staff_code,
           designation: row.role_title,
-          monthlyPay: row.monthly_gross,
+          // The pay in force today, not a change saved for next month
+          // (2026-10-09).
+          monthlyPay: row.in_force_monthly_gross,
           collegeId: row.works_at_id,
           collegeName: row.works_at_name,
           result: checkPayBand(
-            { designation: row.role_title, monthlyPay: row.monthly_gross },
+            { designation: row.role_title, monthlyPay: row.in_force_monthly_gross },
             policy
           ),
         };

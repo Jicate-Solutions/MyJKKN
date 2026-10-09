@@ -52,6 +52,42 @@ function formatDate(iso: string | null): string {
   });
 }
 
+/** "1 Nov 2026": the date a scheduled change starts. Same parsing as above. */
+function formatStart(iso: string | null): string {
+  if (!iso) return '';
+  const [y, m, d] = iso.split('-').map(Number);
+  if (!y || !m || !d) return iso;
+  return new Date(y, m - 1, d).toLocaleDateString('en-IN', {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+  });
+}
+
+/**
+ * A change saved for later (2026-10-09): the newest row is not the one in
+ * force today. A change usually starts on the 1st of next month, so the
+ * directory shows today's pay and, under it, "₹X from 1 Nov 2026".
+ * hr_staff_salary_directory() returns both (20270603090000).
+ */
+export function scheduledSalary(
+  row: StaffSalaryDirectoryRow
+): { monthlyGross: number; from: string | null } | null {
+  if (!row.salary_id || row.monthly_gross === null) return null;
+  if (row.salary_id === row.in_force_salary_id) return null;
+  return { monthlyGross: row.monthly_gross, from: row.effective_from };
+}
+
+function ScheduledLine({ row }: { row: StaffSalaryDirectoryRow }) {
+  const next = scheduledSalary(row);
+  if (!next) return null;
+  return (
+    <span className='block text-right text-xs tabular-nums text-muted-foreground'>
+      {INR.format(next.monthlyGross)} from {formatStart(next.from)}
+    </span>
+  );
+}
+
 function NotSet() {
   return <span className='text-xs italic text-muted-foreground'>Not set</span>;
 }
@@ -162,30 +198,39 @@ export function getSalaryColumns(
         ),
     },
     {
-      accessorKey: 'monthly_gross',
-      size: 130,
+      // The pay in force TODAY, not the newest row (2026-10-09): a change saved
+      // for the 1st of next month shows underneath, with its start date.
+      id: 'monthly_gross',
+      size: 150,
       header: ({ column }) => <DataTableColumnHeader column={column} title='Monthly' />,
-      cell: ({ row }) =>
-        row.original.monthly_gross === null ? (
-          <span className='block text-right'><NotSet /></span>
-        ) : (
-          <span className='block text-right text-sm font-medium tabular-nums'>
-            {INR.format(row.original.monthly_gross)}
-          </span>
-        ),
+      accessorFn: (r) => r.in_force_monthly_gross,
+      cell: ({ row }) => {
+        const r = row.original;
+        if (!r.salary_id) return <span className='block text-right'><NotSet /></span>;
+        return (
+          <>
+            <span className='block text-right text-sm font-medium tabular-nums'>
+              {r.in_force_monthly_gross === null ? '—' : INR.format(r.in_force_monthly_gross)}
+            </span>
+            <ScheduledLine row={r} />
+          </>
+        );
+      },
     },
     {
-      accessorKey: 'annual_gross',
+      id: 'annual_gross',
       size: 140,
       header: ({ column }) => <DataTableColumnHeader column={column} title='Annual gross' />,
-      cell: ({ row }) =>
-        row.original.annual_gross === null ? (
-          <span className='block text-right'><NotSet /></span>
-        ) : (
+      accessorFn: (r) => r.in_force_annual_gross,
+      cell: ({ row }) => {
+        const r = row.original;
+        if (!r.salary_id) return <span className='block text-right'><NotSet /></span>;
+        return (
           <span className='block text-right text-sm tabular-nums text-muted-foreground'>
-            {INR.format(row.original.annual_gross)}
+            {r.in_force_annual_gross === null ? '—' : INR.format(r.in_force_annual_gross)}
           </span>
-        ),
+        );
+      },
     },
     
     {
@@ -194,13 +239,15 @@ export function getSalaryColumns(
       header: ({ column }) => <DataTableColumnHeader column={column} title='Total monthly' />,
       // Derived, so there is no accessorKey to sort on — the figure the person
       // is actually paid each month, gross plus allowance.
-      accessorFn: (r) => (r.monthly_gross ?? 0) + (r.allowance_amount ?? 0),
+      accessorFn: (r) => (r.in_force_monthly_gross ?? 0) + (r.in_force_allowance_amount ?? 0),
       cell: ({ row }) => {
         const r = row.original;
-        if (r.monthly_gross === null) return <span className='block text-right'><NotSet /></span>;
+        if (!r.salary_id) return <span className='block text-right'><NotSet /></span>;
         return (
           <span className='block text-right text-sm font-medium tabular-nums'>
-            {INR.format(r.monthly_gross + (r.allowance_amount ?? 0))}
+            {r.in_force_monthly_gross === null
+              ? '—'
+              : INR.format(r.in_force_monthly_gross + (r.in_force_allowance_amount ?? 0))}
           </span>
         );
       },

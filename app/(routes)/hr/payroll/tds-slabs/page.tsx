@@ -476,8 +476,9 @@ export default function TdsSlabsPage() {
    * leaves somebody out.
    */
   const coverage = useMemo(() => {
+    // The pay in force today, not a change saved for next month (2026-10-09).
     const salaried = (staff ?? []).filter(
-      (s) => s.salary_id !== null && (s.monthly_gross ?? 0) > 0
+      (s) => s.salary_id !== null && (s.in_force_monthly_gross ?? 0) > 0
     );
     // Keeps the PEOPLE, not a tally: the count in the table and the list in the
     // details dialog are then the same array read two ways, so a band can never
@@ -486,7 +487,7 @@ export default function TdsSlabsPage() {
     const uncovered: BandMember[] = [];
 
     for (const s of salaried) {
-      const gross = s.monthly_gross ?? 0;
+      const gross = s.in_force_monthly_gross ?? 0;
       const hit = resolveTds(gross, bands);
       const member: BandMember = {
         id: s.staff_uuid,
