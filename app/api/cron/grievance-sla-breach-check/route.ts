@@ -1,6 +1,6 @@
 // app/api/cron/grievance-sla-breach-check/route.ts
 // ============================================================================
-// GRIEVANCE SLA — hourly breach stamp + escalation (HOD -> Principal -> Director)
+// GRIEVANCE SLA — hourly breach stamp + escalation (HOD -> Principal -> Joint MD)
 // ============================================================================
 // Until 2026-09-28 this route only stamped sla_breached_at. It told nobody and
 // never raised escalation_level: on production 6 of 8 open tickets were past
@@ -10,7 +10,7 @@
 // (migration 20271010020000_grievance_sla_escalation.sql):
 //   * newly overdue tickets are stamped breached (what this route always did);
 //   * a ticket overdue at its current level moves up ONE level — HOD, then
-//     Principal, then Director — is reassigned, notified and given that
+//     Principal, then the Joint MD (level 3) — is reassigned, notified and given that
 //     level's own deadline; level 3 is the ceiling;
 //   * ICC-only, anonymous and about-my-superior complaints never go to a HOD or
 //     Principal; nobody gets a complaint they filed; test profiles get nothing;
@@ -110,8 +110,13 @@ interface EscalationTickResult {
   levels_skipped?: number;
   at_ceiling?: number;
   switched_off?: number;
-  /** Complaints about the Joint MD with nobody handling them (no usable Director): a bare count. */
-  held_for_director?: number;
+  /**
+   * Whether a usable Director is named for complaints about the Joint MD. A
+   * fact about configuration, never about tickets: this route's JSON, status
+   * line and logs are readable by super admins, the Joint MD among them, so
+   * nothing here counts those complaints (deep review of #4079 round 3, M3).
+   */
+  about_joint_md_routing_configured?: boolean;
   tickets?: unknown[];
 }
 
@@ -159,25 +164,28 @@ export async function GET(request: NextRequest) {
     levels_skipped: Number(result.levels_skipped ?? 0),
     at_ceiling: Number(result.at_ceiling ?? 0),
     switched_off: Number(result.switched_off ?? 0),
-    held_for_director: Number(result.held_for_director ?? 0),
   };
+  const routingNotConfigured = result.about_joint_md_routing_configured === false;
 
   const summary =
     `${result.dry_run ? 'DRY RUN — would escalate' : 'escalated'} ${counters.escalated}, ` +
     `marked breached ${counters.breached}, no one to escalate to ${counters.skipped_no_target}, ` +
     `at the top level ${counters.at_ceiling}` +
     (counters.notify_failed > 0 ? `, ${counters.notify_failed} notice(s) FAILED to send` : '') +
-    (counters.held_for_director > 0
-      ? `, ${counters.held_for_director} held with nobody to handle them (set grievance.escalation.about_joint_md_profile_id)`
-      : '') +
     (result.enabled === false ? ' (escalation switched off)' : '');
 
   // A ticket nobody can take, or a notice that did not send, is something a
   // person must fix — say it loudly.
-  if (counters.skipped_no_target > 0 || counters.notify_failed > 0 || counters.held_for_director > 0) {
+  if (counters.skipped_no_target > 0 || counters.notify_failed > 0) {
     logger.warn('grievance/cron/escalation', summary, { ...counters, tickets: result.tickets });
   } else {
     logger.info('grievance/cron/escalation', summary, counters);
+  }
+  // A configuration error, not a metric: one generic warning, no numbers, no
+  // notification. The Director's setting is
+  // grievance.escalation.about_joint_md_profile_id.
+  if (routingNotConfigured) {
+    logger.warn('grievance/cron/escalation', 'about-Joint-MD routing is not configured');
   }
 
   return NextResponse.json({

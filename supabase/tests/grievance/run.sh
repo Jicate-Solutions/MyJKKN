@@ -25,10 +25,12 @@ sed -nE '/^CREATE (OR REPLACE )?FUNCTION public\.fn_my_desk_waiting\(\)/,/^\$fun
 # schema "replay" (30_ patches and re-creates them): replay_readers.py.
 REPLAY="$(mktemp)"; trap 'rm -f "$REPLAY"' EXIT
 python3 "$HERE/replay_readers.py" "$ROOT/supabase/migrations" 20271010020000_grievance_sla_escalation.sql > "$REPLAY"
-psql -d "$DB" -v ON_ERROR_STOP=1 -q -f "$REPLAY"
 psql -d "$DB" -v ON_ERROR_STOP=1 -q -f "$MIG"
 # the migration must be safe to apply twice
 psql -d "$DB" -v ON_ERROR_STOP=1 -q -f "$MIG"
+# Loaded AFTER the migration: its reader gate (section 14) would rightly refuse
+# these unwrapped copies. 30_ patches them and runs the gate again.
+psql -d "$DB" -v ON_ERROR_STOP=1 -q -f "$REPLAY"
 # Every scenario file, in order, on the same database (20_ builds on 10_'s people).
 for T in "$HERE"/[1-9][0-9]_*.sql; do
   OUT=$(psql -d "$DB" -v ON_ERROR_STOP=1 -At -f "$T" 2>&1) || { echo "$(basename "$T"):"; echo "$OUT" | grep -E "FAIL|ERROR" | head -5; exit 1; }

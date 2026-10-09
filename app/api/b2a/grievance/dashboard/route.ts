@@ -5,7 +5,7 @@ import { authenticateApiKey, resolveInstitutionId } from '@/lib/api-keys/authent
 import { checkRateLimit } from '@/lib/api-keys/rate-limiter';
 import { logApiUsage, extractRequestMeta } from '@/lib/api-keys/audit-logger';
 import { createServiceRoleClient } from '@/lib/supabase/server';
-import { ABOUT_JOINT_MD_COLUMN, isMissingGrievanceSchema } from '@/lib/grievance/schema-compat';
+import { leaveOutAboutJointMd, readLeavingOutAboutJointMd } from '@/lib/grievance/about-joint-md-filter';
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
   const startTime = Date.now();
@@ -99,13 +99,13 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     // Mirrors the read path in lib/mcp/tools/grievance.ts.
     // Complaints about the Joint MD are left out of every counter for the same
     // reason (Director ruling, 9 Oct 2026: not even a count reaches the Joint MD).
-    const countAll = (leaveOutAboutJointMd: boolean) => {
+    const countAll = (leaveOut: boolean) => {
       const counted = () => {
         const base = supabase
           .from('grievance_tickets')
           .select('id', { count: 'exact', head: true })
           .eq('is_icc_only', false);
-        const scoped = leaveOutAboutJointMd ? base.eq(ABOUT_JOINT_MD_COLUMN, false) : base;
+        const scoped = leaveOut ? leaveOutAboutJointMd(base) : base;
         return institutionId ? scoped.eq('institution_id', institutionId) : scoped;
       };
       return Promise.all([
@@ -120,14 +120,10 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       ]);
     };
 
-    let results = await countAll(true);
-    // The app reached production before migration 20271010020000: the column
-    // does not exist yet, so no complaint can be marked about the Joint MD and
-    // the counts as they were before that migration are exact
-    // (lib/grievance/schema-compat).
-    if (results.some(r => r.error && isMissingGrievanceSchema(r.error, ABOUT_JOINT_MD_COLUMN))) {
-      results = await countAll(false);
-    }
+    // Leaves out complaints about the Joint MD; before migration 20271010020000
+    // reaches the database, counts as before. These are head:true counts, whose
+    // errors arrive EMPTY — the helper probes once to tell (round 3, M4).
+    const results = await readLeavingOutAboutJointMd(supabase, countAll);
 
     const [
       openResult,

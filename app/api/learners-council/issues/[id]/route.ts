@@ -65,6 +65,7 @@ import {
   createServerSupabaseClient,
   createServiceRoleClient
 } from '@/lib/supabase/server';
+import { leaveOutAboutJointMd, readLeavingOutAboutJointMd } from '@/lib/grievance/about-joint-md-filter';
 import { notifyFilerOfChange } from '@/lib/grievance/filer-updates';
 import type {
   FilerUpdateAfter,
@@ -239,11 +240,16 @@ export async function PATCH(
   // ── 3. An executive — but only over non-ICC tickets in their own college ──
   const admin = createServiceRoleClient();
 
-  const { data: ticket, error: ticketError } = await admin
-    .from('grievance_tickets')
-    .select('id, institution_id, is_icc_only')
-    .eq('id', id)
-    .maybeSingle();
+  // A complaint marked "about the Joint MD" is never reachable through this
+  // elevated (service-role) path: to the council it does not exist here, so
+  // it is neither changed nor returned (deep review of #4079 round 3).
+  const { data: ticket, error: ticketError } = await readLeavingOutAboutJointMd(admin, (leaveOut) => {
+    const q = admin
+      .from('grievance_tickets')
+      .select('id, institution_id, is_icc_only')
+      .eq('id', id);
+    return (leaveOut ? leaveOutAboutJointMd(q) : q).maybeSingle();
+  });
 
   if (ticketError) {
     console.error('[lc/issues] Ticket lookup failed:', ticketError);
@@ -300,12 +306,13 @@ export async function PATCH(
   }
 
   // ── 4. Cleared. Write it ─────────────────────────────────────────────────
-  const { data: elevatedRow, error: elevatedError } = await admin
-    .from('grievance_tickets')
-    .update(updateData)
-    .eq('id', id)
-    .select(TICKET_SELECT)
-    .maybeSingle();
+  const { data: elevatedRow, error: elevatedError } = await readLeavingOutAboutJointMd(admin, (leaveOut) => {
+    const q = admin
+      .from('grievance_tickets')
+      .update(updateData)
+      .eq('id', id);
+    return (leaveOut ? leaveOutAboutJointMd(q) : q).select(TICKET_SELECT).maybeSingle();
+  });
 
   if (elevatedError) {
     console.error('[lc/issues] Elevated update failed:', elevatedError);

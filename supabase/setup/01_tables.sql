@@ -12333,7 +12333,7 @@ ALTER TABLE public.grievance_tickets
   ADD COLUMN IF NOT EXISTS escalation_deadline timestamptz;
 
 COMMENT ON COLUMN public.grievance_tickets.escalated_at IS
-  'When fn_grievance_escalation_tick last moved this ticket up the chain (HOD -> Principal -> Director). NULL = never escalated.';
+  'When fn_grievance_escalation_tick last moved this ticket up the chain (HOD -> Principal -> the Joint MD). NULL = never escalated.';
 COMMENT ON COLUMN public.grievance_tickets.escalation_deadline IS
   'The deadline of the CURRENT escalation level (now + grievance.escalation.level<N>_hours when it moved up). Passing it moves the ticket up one more level. sla_deadline stays the original SLA.';
 

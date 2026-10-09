@@ -17,24 +17,42 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 type Result = { data?: unknown; error: { code?: string; message: string } | null; count?: number | null };
 
-/** 'applied' = the column exists; 'missing' = 42703 when it is filtered on; 'broken' = any read fails. */
-let dbState: 'applied' | 'missing' | 'broken' = 'applied';
-const reads: { jmdFilter: boolean }[] = [];
+/**
+ * 'applied' = the column exists; 'missing' = 42703 when it is filtered on;
+ * 'broken' = any read fails. A head:true count's failure arrives EMPTY (no
+ * code, no message — PostgREST sends no body for HEAD; round 3, M4), so the
+ * mock answers head requests that way, as postgrest-js does.
+ * 'broken-head' = head counts fail empty for some other reason (column there).
+ */
+let dbState: 'applied' | 'missing' | 'broken' | 'broken-head' = 'applied';
+const reads: { jmdFilter: boolean; head: boolean; probe: boolean }[] = [];
 
 function chain() {
   let jmdFilter = false;
   let single = false;
+  let head = false;
+  let probe = false;
   const settle = (): Result => {
-    reads.push({ jmdFilter });
+    reads.push({ jmdFilter, head, probe });
     if (dbState === 'broken') return { error: { code: '57014', message: 'canceling statement due to statement timeout' } };
+    if (dbState === 'broken-head' && head) return { error: { message: '' } };
     if (dbState === 'missing' && jmdFilter) {
+      if (head) return { error: { message: '' } };
       return { error: { code: '42703', message: 'column grievance_tickets.about_joint_md does not exist' } };
     }
     if (single) return { data: { id: ID, ticket_number: 'GRV-1' }, error: null };
     return { data: [{ id: ID, ticket_number: 'GRV-1' }], error: null, count: 3 };
   };
   const c: Record<string, unknown> = {};
-  for (const m of ['select', 'not', 'in', 'is', 'lt', 'order', 'range']) c[m] = () => c;
+  for (const m of ['not', 'in', 'is', 'lt', 'order', 'range']) c[m] = () => c;
+  c.select = (_cols: string, opts?: { head?: boolean }) => {
+    head = opts?.head === true;
+    return c;
+  };
+  c.limit = () => {
+    probe = true;
+    return Promise.resolve(settle());
+  };
   c.eq = (col: string) => {
     if (col === 'about_joint_md') jmdFilter = true;
     return c;
@@ -103,10 +121,21 @@ describe('app deployed before the migration: answers as before, not a 500', () =
     expect(reads.map(r => r.jmdFilter)).toEqual([true, false]);
   });
 
-  it('dashboard', async () => {
+  it('dashboard: its head:true counts fail EMPTY, so one probe decides (round 3, M4)', async () => {
     const res = await dashboardGET(req('/api/b2a/grievance/dashboard'));
     expect(res.status).toBe(200);
-    expect(reads.filter(r => !r.jmdFilter)).toHaveLength(8);
+    expect(reads.filter(r => r.probe)).toHaveLength(1);
+    expect(reads.filter(r => !r.jmdFilter && r.head)).toHaveLength(8);
+  });
+});
+
+describe('an empty head-count failure with the column present is still a 500', () => {
+  it('dashboard: the probe finds the column, so nothing is re-run without the filter', async () => {
+    dbState = 'broken-head';
+    const res = await dashboardGET(req('/api/b2a/grievance/dashboard'));
+    expect(res.status).toBe(500);
+    expect(reads.filter(r => r.probe)).toHaveLength(1);
+    expect(reads.every(r => r.jmdFilter)).toBe(true);
   });
 });
 

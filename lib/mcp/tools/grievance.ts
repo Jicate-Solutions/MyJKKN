@@ -3,6 +3,7 @@ import { z } from 'zod';
 import type { McpAuthContext } from '@/lib/mcp/types';
 import { applyScopeFilters, parsePagination } from '@/lib/mcp/scoping';
 import { checkModuleAccess, mcpSuccess, mcpError, logMcpToolCall, buildPaginatedResult } from '@/lib/mcp/tool-helpers';
+import { leaveOutAboutJointMd, readLeavingOutAboutJointMd } from '@/lib/grievance/about-joint-md-filter';
 
 export function registerGrievanceTool(server: McpServer): void {
   server.tool(
@@ -33,6 +34,7 @@ export function registerGrievanceTool(server: McpServer): void {
       try {
         const { page, limit, offset } = parsePagination(params);
 
+        const buildQuery = (leaveOut: boolean) => {
         let query = ctx.supabase
           .from('grievance_tickets')
           .select(
@@ -64,10 +66,19 @@ export function registerGrievanceTool(server: McpServer): void {
         if (params.is_anonymous !== undefined) {
           query = query.eq('is_anonymous', params.is_anonymous);
         }
+        // Complaints marked "about the Joint MD" never leave over MCP: this
+        // client is the service role (no row-level security), and an MCP key
+        // cannot prove its holder is not the Joint MD (deep review of #4079).
+        if (leaveOut) {
+          query = leaveOutAboutJointMd(query);
+        }
 
-        const { data, count, error } = await query
+        return query
           .order('created_at', { ascending: false })
           .range(offset, offset + limit - 1);
+        };
+
+        const { data, count, error } = await readLeavingOutAboutJointMd(ctx.supabase, buildQuery);
 
         if (error) throw error;
 

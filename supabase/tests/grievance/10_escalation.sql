@@ -169,8 +169,10 @@ CREATE TEMP TABLE before_dry AS SELECT md5(string_agg(t::text, '|' ORDER BY id))
 CREATE TEMP TABLE dry AS SELECT fn_grievance_escalation_tick(true) r;
 SELECT t_ok((SELECT md5(string_agg(t::text, '|' ORDER BY id)) FROM grievance_tickets t) = (SELECT h FROM before_dry), 'a dry run changes no ticket');
 SELECT t_ok((SELECT count(*) FROM notifications WHERE category = 'grievance:escalated') = 0, 'a dry run sends no notice');
-SELECT t_ok((SELECT (r ->> 'dry_run')::boolean AND (r ->> 'escalated')::int = 6 AND (r ->> 'skipped_no_target')::int = 2
-             AND (r ->> 'breached_stamped')::int = 8 FROM dry), 'the dry run reports what it would do: ' || (SELECT r::text FROM dry));
+-- Round 3 (M5, never down): E9 is already with the Joint MD (the I8 route
+-- gave it to her on filing), so it sits at the ceiling — 5 escalations, not 6.
+SELECT t_ok((SELECT (r ->> 'dry_run')::boolean AND (r ->> 'escalated')::int = 5 AND (r ->> 'skipped_no_target')::int = 2
+             AND (r ->> 'at_ceiling')::int = 1 AND (r ->> 'breached_stamped')::int = 8 FROM dry), 'the dry run reports what it would do: ' || (SELECT r::text FROM dry));
 
 -- ------------------------------------------------ 5. switch off
 UPDATE platform_policies SET value = 'false' WHERE policy_key = 'grievance.escalation.enabled' AND scope_type = 'global';
@@ -193,7 +195,7 @@ END $$;
 CREATE TRIGGER t_break_one_notice BEFORE INSERT ON notifications FOR EACH ROW EXECUTE FUNCTION t_break_one_notice();
 CREATE TEMP TABLE run1 AS SELECT fn_grievance_escalation_tick(false) r;
 DROP TRIGGER t_break_one_notice ON notifications;
-SELECT t_ok((SELECT (r ->> 'escalated')::int = 6 AND (r ->> 'notified')::int = 5 AND (r ->> 'notify_failed')::int = 1
+SELECT t_ok((SELECT (r ->> 'escalated')::int = 5 AND (r ->> 'notified')::int = 4 AND (r ->> 'notify_failed')::int = 1
              AND (r ->> 'skipped_no_target')::int = 2 AND (r ->> 'breached_stamped')::int = 0 FROM run1), 'run 1 counters ' || (SELECT r::text FROM run1));
 SELECT t_ok((tk('E7-two-hods')).escalation_level = 2, 'a failed notice does not undo the escalation');
 SELECT t_ok((tk('E7-two-hods')).metadata -> 'escalations' -> -1 ->> 'notify_error' LIKE '%simulated notice failure%', 'the failed notice is recorded on the ticket');
@@ -220,8 +222,12 @@ SELECT t_ok((tk('E6-raised-by-hod')).metadata -> 'escalations' -> 0 -> 'skipped'
             'why the HOD level was skipped is recorded: ' || ((tk('E6-raised-by-hod')).metadata -> 'escalations')::text);
 SELECT t_ok((tk('E7-two-hods')).escalation_level = 2 AND (tk('E7-two-hods')).metadata::text LIKE '%more_than_one_hod:2%',
             'two HODs and none designated: the level is skipped, not guessed');
-SELECT t_ok((tk('E9-about-superior')).escalation_level = 3 AND (tk('E9-about-superior')).assigned_to = 'a0000000-0000-0000-0000-000000000001',
-            'a complaint about my superior skips HOD and Principal');
+-- Round 3 (M5): the I8 route had already given E9 to level 3's person, the
+-- Joint MD. It is not "moved up" to the person who already holds it (that sent
+-- her a misleading "has moved up to you" notice), and never down to the HOD.
+SELECT t_ok((tk('E9-about-superior')).escalation_level = 0 AND (tk('E9-about-superior')).assigned_to = 'a0000000-0000-0000-0000-000000000001'
+            AND NOT EXISTS (SELECT 1 FROM notifications n WHERE n.category = 'grievance:escalated' AND (n.metadata ->> 'ticket_id')::uuid = (tk('E9-about-superior')).id),
+            'a complaint about my superior already with level 3 stays there: never to the HOD or Principal, no second notice');
 SELECT t_ok((tk('E8-nobody-anywhere')).escalation_level = 0 AND (tk('E8-nobody-anywhere')).assigned_to IS NULL,
             'nobody usable anywhere: the ticket is not moved');
 SELECT t_ok((tk('E8-nobody-anywhere')).metadata -> 'escalation_blocked' ->> 'from_level' = '0', 'the blocked reason is recorded on the ticket');
@@ -267,7 +273,7 @@ SELECT set_config('request.jwt.claim.sub', '', false);
 CREATE TEMP TABLE blocked_at AS SELECT (tk('E8-nobody-anywhere')).metadata -> 'escalation_blocked' ->> 'at' a;
 CREATE TEMP TABLE run2 AS SELECT fn_grievance_escalation_tick(false) r;
 SELECT t_ok((SELECT (r ->> 'escalated')::int = 0 AND (r ->> 'skipped_no_target')::int = 2 FROM run2), 'run 2 moves nothing, still counts the blocked tickets ' || (SELECT r::text FROM run2));
-SELECT t_ok((SELECT count(*) FROM notifications WHERE category = 'grievance:escalated') = 5, 'run 2 sends no second notice');
+SELECT t_ok((SELECT count(*) FROM notifications WHERE category = 'grievance:escalated') = 4, 'run 2 sends no second notice (4: E9 is at the ceiling since round 3)');
 SELECT t_ok((tk('E8-nobody-anywhere')).metadata -> 'escalation_blocked' ->> 'at' = (SELECT a FROM blocked_at), 'the blocked reason is written once, not every hour');
 
 -- ------------------------------------------------ 9. the chain, one level per breach, ceiling 3
@@ -282,7 +288,8 @@ SELECT t_ok((tk('E1-unassigned')).escalation_deadline BETWEEN now() + interval '
 UPDATE grievance_tickets SET escalation_deadline = now() - interval '1 minute' WHERE subject IN ('E1-unassigned', 'E4-anonymous');
 CREATE TEMP TABLE run_ceiling AS SELECT fn_grievance_escalation_tick(false) r;
 SELECT t_ok((tk('E1-unassigned')).escalation_level = 3, 'level 3 is the ceiling');
-SELECT t_ok((SELECT (r ->> 'at_ceiling')::int = 2 AND (r ->> 'escalated')::int = 0 FROM run_ceiling), 'the run counts tickets at the ceiling ' || (SELECT r::text FROM run_ceiling));
+-- 3 since round 3: E1, E4, and E9 (already with level 3's person since it was filed)
+SELECT t_ok((SELECT (r ->> 'at_ceiling')::int = 3 AND (r ->> 'escalated')::int = 0 FROM run_ceiling), 'the run counts tickets at the ceiling ' || (SELECT r::text FROM run_ceiling));
 SELECT t_ok((SELECT count(*) FROM notifications n JOIN user_notifications un ON un.notification_id = n.id
              WHERE n.category = 'grievance:escalated' AND (n.metadata ->> 'ticket_id')::uuid = (tk('E1-unassigned')).id) = 3, 'one notice per step, three in all');
 

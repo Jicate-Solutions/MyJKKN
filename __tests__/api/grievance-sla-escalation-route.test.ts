@@ -45,6 +45,12 @@ vi.mock('@/lib/supabase/server', () => ({
   createServiceRoleClient: () => ({ rpc, from }),
 }));
 
+// The logger, so a test can read exactly what the route writes to the logs.
+const { warn } = vi.hoisted(() => ({ warn: vi.fn() }));
+vi.mock('@/lib/utils/enhanced-logger', () => ({
+  logger: { warn, info: vi.fn(), error: vi.fn(), debug: vi.fn() },
+}));
+
 import { GET } from '@/app/api/cron/grievance-sla-breach-check/route';
 import { summarizeRoutineResult } from '@/lib/ai-routines/summarize-routine-result';
 
@@ -178,20 +184,28 @@ describe('what the run does and reports', () => {
   });
 });
 
-describe('complaints held with nobody to handle them (round 2, M4)', () => {
-  it('reports the bare count every run, and says so loudly', async () => {
-    rpcData = { ...(rpcData as object), held_for_director: 2 };
+describe('about-Joint-MD routing not configured (round 3, M3)', () => {
+  it('one generic warning, with no number, and nothing in the JSON or the status line', async () => {
+    warn.mockClear();
+    rpcData = { ...(rpcData as object), about_joint_md_routing_configured: false };
     const res = await GET(request({ bearer: SECRET }));
     expect(res.status).toBe(200);
     const body = await res.json();
-    expect(body.held_for_director).toBe(2);
-    expect(body.summary).toContain('2 held with nobody to handle them');
+    expect(JSON.stringify(body)).not.toMatch(/held/i);
+    expect(body.summary).not.toMatch(/joint md|director/i);
+    const line = summarizeRoutineResult(200, body);
+    expect(line).not.toMatch(/held|joint md/i);
+    const configWarnings = warn.mock.calls.filter((c) => String(c[1]).includes('about-Joint-MD routing is not configured'));
+    expect(configWarnings).toHaveLength(1);
+    expect(configWarnings[0]).toHaveLength(2);           // module + message, no payload
+    expect(String(configWarnings[0][1])).not.toMatch(/\d/);
   });
 
-  it('says nothing about it when there are none', async () => {
-    const body = await (await GET(request({ bearer: SECRET }))).json();
-    expect(body.held_for_director).toBe(0);
-    expect(body.summary).not.toContain('held');
+  it('says nothing when it is configured', async () => {
+    warn.mockClear();
+    rpcData = { ...(rpcData as object), about_joint_md_routing_configured: true };
+    await GET(request({ bearer: SECRET }));
+    expect(warn.mock.calls.some((c) => String(c[1]).includes('not configured'))).toBe(false);
   });
 });
 

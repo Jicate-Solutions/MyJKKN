@@ -105,7 +105,7 @@ SELECT t_ok(true, 'section 14 refuses grievance_tickets.<col> when no read carri
 -- them: the rewritten text of every real body parses.
 SELECT t_ok(count(*) = 5, 'five real readers replayed: ' || string_agg(p.proname, ', '))
   FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace AND n.nspname = 'replay';
-SELECT t_ok(fn_grievance_jmd_patch_reader(p.oid::regprocedure, CASE p.proname WHEN 'replay_fn_my_desk_waiting' THEN 'caller' ELSE 'all' END) >= 1,
+SELECT t_ok(fn_grievance_jmd_patch_reader(p.oid::regprocedure, 'switch') >= 1,
             'replay.' || p.proname || ': patched and re-created')
   FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace AND n.nspname = 'replay';
 SELECT t_ok(w.wrapped = 0 AND w.already >= 1, 'replay.' || p.proname || ': every read wrapped (' || w.already || ')')
@@ -155,5 +155,53 @@ SELECT t_ok(w.wrapped = 0 AND w.already >= 1, p.proname || ': every read of grie
 SELECT t_ok(NOT has_function_privilege(r, f, 'EXECUTE'), r || ' cannot run ' || f)
 FROM unnest(ARRAY['anon', 'authenticated']) AS r,
      unnest(ARRAY['fn_grievance_jmd_wrap_reads(text,text,text)', 'fn_grievance_jmd_patch_reader(regprocedure,text)']) AS f;
+
+-- ------------------------------------------------ 4. THE READER GATE (round 3)
+-- Every function / view / materialized view in the database that reads
+-- grievance_tickets, _comments or _history is wrapped or allow-listed. The
+-- rehearsal's own fixtures are named here; nothing else is excused.
+\set fixtures '{tk,t_break_one_notice,t_desk_grievance_ids,t_sb,t_jmd_forms,t_jmd_caller,t_jmd_qualified}'
+SELECT t_ok(NOT EXISTS (SELECT 1 FROM fn_grievance_jmd_reader_gate(:'fixtures'::text[])),
+            'the gate passes: ' || COALESCE((SELECT string_agg(object || ' — ' || problem, '; ') FROM fn_grievance_jmd_reader_gate(:'fixtures'::text[])), 'nothing unfiltered'));
+SELECT t_ok((SELECT count(*) FROM fn_grievance_jmd_reader_allow_list() WHERE reason IS NULL OR length(reason) < 10) = 0,
+            'every allow-list entry carries its reason');
+
+-- it catches what a panel would have had to find by hand
+CREATE FUNCTION t_leak_count() RETURNS bigint LANGUAGE sql SECURITY DEFINER SET search_path = public AS $fn$
+  SELECT count(*) FROM grievance_tickets $fn$;
+CREATE SCHEMA t_elsewhere;
+CREATE FUNCTION t_elsewhere.t_leak_join(p uuid) RETURNS bigint LANGUAGE plpgsql AS $fn$
+BEGIN
+  RETURN (SELECT count(*) FROM institutions i JOIN public.grievance_tickets g ON g.institution_id = i.id WHERE i.id = p);
+END $fn$;
+CREATE FUNCTION t_leak_comments() RETURNS bigint LANGUAGE sql AS $fn$ SELECT count(*) FROM grievance_comments $fn$;
+CREATE FUNCTION t_leak_dynamic() RETURNS bigint LANGUAGE plpgsql AS $fn$
+DECLARE n bigint; BEGIN EXECUTE 'SELECT count(*) FROM grievance_tickets' INTO n; RETURN n; END $fn$;
+CREATE FUNCTION t_leak_atomic() RETURNS bigint LANGUAGE sql BEGIN ATOMIC SELECT count(*) FROM public.grievance_tickets; END;
+CREATE VIEW t_leak_view AS SELECT id, subject FROM grievance_tickets;
+CREATE FUNCTION t_only_a_comment() RETURNS int LANGUAGE sql AS $fn$ SELECT 1 -- grievance_tickets is only named here
+$fn$;
+CREATE TEMP TABLE gate_hits AS SELECT * FROM fn_grievance_jmd_reader_gate(:'fixtures'::text[]);
+SELECT t_ok((SELECT count(*) FROM gate_hits WHERE object = o) = 1, 'the gate names ' || o || ': '
+            || COALESCE((SELECT problem FROM gate_hits WHERE object = o), 'MISSED'))
+FROM unnest(ARRAY['t_leak_count()', 't_elsewhere.t_leak_join(uuid)', 't_leak_comments()', 't_leak_dynamic()',
+                  't_leak_atomic()', 'public.t_leak_view']) AS o;
+SELECT t_ok(NOT EXISTS (SELECT 1 FROM gate_hits WHERE object = 't_only_a_comment()'), 'a name in a comment is not a read');
+SELECT t_ok((SELECT count(*) FROM gate_hits) = 6, 'and nothing else: ' || (SELECT string_agg(object, ', ') FROM gate_hits));
+-- the migration's own self-check refuses the same (section 14 runs the gate)
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM fn_grievance_jmd_reader_gate() WHERE object = 't_leak_count()') THEN
+    RAISE EXCEPTION 'FAIL: the self-check''s gate call does not see the leak';
+  END IF;
+END $$;
+-- wrapped, it passes
+SELECT t_ok(fn_grievance_jmd_patch_reader('t_leak_count()'::regprocedure, 'switch') = 1, 'the leak, wrapped');
+SELECT t_ok(NOT EXISTS (SELECT 1 FROM fn_grievance_jmd_reader_gate(:'fixtures'::text[]) WHERE object = 't_leak_count()'),
+            'wrapped, the gate lets it through');
+SELECT t_ok(t_leak_count() = (SELECT count(*) FROM grievance_tickets WHERE NOT about_joint_md), 'and it no longer counts them');
+DROP VIEW t_leak_view;
+DROP FUNCTION t_leak_count(), t_leak_comments(), t_leak_dynamic(), t_leak_atomic(), t_only_a_comment();
+DROP SCHEMA t_elsewhere CASCADE;
+SELECT t_ok(NOT EXISTS (SELECT 1 FROM fn_grievance_jmd_reader_gate(:'fixtures'::text[])), 'clean again');
 
 SELECT 'READER PATCH SCENARIOS PASSED' AS result;

@@ -5,7 +5,7 @@ import { authenticateApiKey, resolveInstitutionId } from '@/lib/api-keys/authent
 import { checkRateLimit } from '@/lib/api-keys/rate-limiter';
 import { logApiUsage, extractRequestMeta } from '@/lib/api-keys/audit-logger';
 import { createServiceRoleClient } from '@/lib/supabase/server';
-import { ABOUT_JOINT_MD_COLUMN, isMissingGrievanceSchema } from '@/lib/grievance/schema-compat';
+import { leaveOutAboutJointMd, readLeavingOutAboutJointMd } from '@/lib/grievance/about-joint-md-filter';
 
 // Status values match production grievance_tickets_status_check constraint.
 const VALID_STATUSES = [
@@ -130,7 +130,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   try {
     const supabase = createServiceRoleClient();
 
-    const buildQuery = (leaveOutAboutJointMd: boolean) => {
+    const buildQuery = (leaveOut: boolean) => {
       let query = supabase
         .from('grievance_tickets')
         .select(
@@ -152,8 +152,8 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       query = query.eq('is_icc_only', false);
       // A complaint about the Joint MD (Director ruling, 9 Oct 2026) is never
       // exposed over B2A either: a key cannot prove it is not the Joint MD's.
-      if (leaveOutAboutJointMd) {
-        query = query.eq(ABOUT_JOINT_MD_COLUMN, false);
+      if (leaveOut) {
+        query = leaveOutAboutJointMd(query);
       }
 
       if (status) {
@@ -173,14 +173,9 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         .range(offset, offset + limit - 1);
     };
 
-    let result = await buildQuery(true);
-    // The app reached production before migration 20271010020000: the column
-    // does not exist yet, so no complaint can be marked about the Joint MD and
-    // the read as it was before that migration is exact (lib/grievance/schema-compat).
-    if (result.error && isMissingGrievanceSchema(result.error, ABOUT_JOINT_MD_COLUMN)) {
-      result = await buildQuery(false);
-    }
-    const { data, error, count } = result;
+    // Leaves out complaints about the Joint MD; before migration 20271010020000
+    // reaches the database, reads as it did before (lib/grievance/about-joint-md-filter).
+    const { data, error, count } = await readLeavingOutAboutJointMd(supabase, buildQuery);
 
     if (error) {
       statusCode = 500;

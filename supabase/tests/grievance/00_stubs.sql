@@ -142,6 +142,107 @@ CREATE OR REPLACE FUNCTION public.calculate_grievance_sla_deadline(p_institution
 RETURNS timestamptz LANGUAGE sql STABLE AS $$
   SELECT COALESCE(p_start_ts, now()) + make_interval(hours => p_sla_hours) $$;
 
+-- Round 3 (deep review of #4079): the two SECURITY DEFINER paths the first
+-- rounds missed.
+-- NAAC / UGC evidence on resolve: production's function, verbatim from
+-- 20260809101400 (the newest migration that defines it), its trigger from
+-- 20260422, and the table's shape (unique key as the ON CONFLICT names it).
+CREATE TABLE public.quality_evidence_mappings (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(), source_table text NOT NULL, source_id uuid NOT NULL,
+  institution_id uuid NOT NULL, body_code text NOT NULL, metric_code text NOT NULL, period_label text,
+  mapped_by uuid, mapped_at timestamptz NOT NULL DEFAULT now(), is_auto boolean NOT NULL DEFAULT false,
+  metadata jsonb DEFAULT '{}'::jsonb, programme_id uuid);
+CREATE UNIQUE INDEX quality_evidence_mappings_key
+  ON public.quality_evidence_mappings (source_table, source_id, body_code, metric_code, programme_id, institution_id);
+CREATE OR REPLACE FUNCTION public.emit_grievance_evidence()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_period TEXT;
+BEGIN
+  -- Only fire on transition INTO resolved (ignore other updates, ignore re-updates)
+  IF (NEW.status = 'resolved' AND (OLD.status IS NULL OR OLD.status <> 'resolved')) THEN
+    -- Academic year label from resolved_at (fallback: current date)
+    -- Format 'YYYY-YY' e.g. '2026-27' for July-June academic year
+    v_period := CASE
+      WHEN EXTRACT(MONTH FROM COALESCE(NEW.resolved_at, NOW())) >= 7
+        THEN EXTRACT(YEAR FROM COALESCE(NEW.resolved_at, NOW()))::TEXT
+             || '-' || RIGHT((EXTRACT(YEAR FROM COALESCE(NEW.resolved_at, NOW()))+1)::TEXT, 2)
+      ELSE (EXTRACT(YEAR FROM COALESCE(NEW.resolved_at, NOW()))-1)::TEXT
+             || '-' || RIGHT(EXTRACT(YEAR FROM COALESCE(NEW.resolved_at, NOW()))::TEXT, 2)
+    END;
+
+    -- NAAC 7.7.1
+    INSERT INTO quality_evidence_mappings (
+      source_table, source_id, institution_id,
+      body_code, metric_code, period_label,
+      mapped_by, is_auto, metadata
+    ) VALUES (
+      'grievance_tickets', NEW.id, NEW.institution_id,
+      'NAAC', '7.7.1', v_period,
+      NEW.resolved_by, true,
+      jsonb_build_object(
+        'ticket_number', NEW.ticket_number,
+        'sla_status', NEW.sla_status,
+        'is_emergency', NEW.is_emergency,
+        'source_trigger', 'emit_grievance_evidence'
+      )
+    )
+    ON CONFLICT (source_table, source_id, body_code, metric_code, programme_id, institution_id) DO NOTHING;
+
+    -- UGC grievance
+    INSERT INTO quality_evidence_mappings (
+      source_table, source_id, institution_id,
+      body_code, metric_code, period_label,
+      mapped_by, is_auto, metadata
+    ) VALUES (
+      'grievance_tickets', NEW.id, NEW.institution_id,
+      'UGC', 'grievance', v_period,
+      NEW.resolved_by, true,
+      jsonb_build_object(
+        'ticket_number', NEW.ticket_number,
+        'sla_status', NEW.sla_status,
+        'is_emergency', NEW.is_emergency,
+        'source_trigger', 'emit_grievance_evidence'
+      )
+    )
+    ON CONFLICT (source_table, source_id, body_code, metric_code, programme_id, institution_id) DO NOTHING;
+  END IF;
+
+  RETURN NEW;
+END;
+$function$;
+CREATE TRIGGER emit_grievance_evidence_on_resolve
+AFTER UPDATE OF status ON public.grievance_tickets
+FOR EACH ROW
+WHEN (NEW.status = 'resolved' AND (OLD.status IS NULL OR OLD.status <> 'resolved'))
+EXECUTE FUNCTION emit_grievance_evidence();
+
+-- get_grievance_sla_stats exists only on production (no migration in the
+-- repo defines it; GrievanceService.getDashboardStats calls it). Its live
+-- body was NOT read for this rehearsal: this is a stand-in in the shapes the
+-- patch must handle (a plain FROM, an aliased FROM inside a subquery, and a
+-- JOIN), so the patch and the gate are exercised on it.
+CREATE OR REPLACE FUNCTION public.get_grievance_sla_stats(p_institution_id uuid)
+RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+DECLARE v_total int; v_breached int; v_by_category jsonb;
+BEGIN
+  SELECT count(*), count(*) FILTER (WHERE sla_status = 'breached')
+    INTO v_total, v_breached
+  FROM grievance_tickets
+  WHERE institution_id = p_institution_id;
+  SELECT COALESCE(jsonb_object_agg(c.name, x.n), '{}'::jsonb) INTO v_by_category
+  FROM (SELECT g.category_id, count(*) AS n FROM grievance_tickets g
+        WHERE g.institution_id = p_institution_id GROUP BY g.category_id) x
+  JOIN grievance_categories c ON c.id = x.category_id;
+  RETURN jsonb_build_object('total', v_total, 'breached', v_breached, 'by_category', v_by_category,
+    'open', (SELECT count(*) FROM grievance_categories c2 JOIN grievance_tickets t2 ON t2.category_id = c2.id
+             WHERE t2.institution_id = p_institution_id AND t2.status = 'open'));
+END $$;
+
 -- What fn_generate_unresolved_issue_items calls (production signatures).
 CREATE OR REPLACE FUNCTION public.fn_get_generator_config(p_name text, p_default jsonb) RETURNS jsonb LANGUAGE sql AS $$ SELECT p_default $$;
 CREATE OR REPLACE FUNCTION public.fn_resolve_dashboard_target(p_institution_id uuid DEFAULT NULL) RETURNS uuid LANGUAGE sql AS $$

@@ -25,7 +25,7 @@ import sys
 
 READERS = ['fn_my_desk_waiting', 'fn_dashboard_metrics', 'fn_compute_ohs_for_institution',
            'fn_hod_metrics', 'fn_compute_dhs_for_user']
-REPLACED = READERS + ['fn_generate_unresolved_issue_items']
+REPLACED = READERS + ['fn_generate_unresolved_issue_items', 'get_grievance_sla_stats', 'emit_grievance_evidence']
 
 mig_dir, ours = sys.argv[1], sys.argv[2]
 files = sorted(f for f in os.listdir(mig_dir) if re.match(r'^\d+_.*\.sql$', f))

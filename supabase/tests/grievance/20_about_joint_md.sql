@@ -164,12 +164,21 @@ SELECT t_ok(:anon_t = 0 AND :anon_c = 0 AND :anon_h = 0,
             'anon reads tickets, comments and history without an error and sees nothing, as before');
 
 -- My Desk (SECURITY DEFINER, skips row-level security): the real body, patched
-SELECT t_ok((SELECT prosrc LIKE '%fn_grievance_caller_joint_md_scope%' FROM pg_proc WHERE proname = 'fn_my_desk_waiting'),
+SELECT t_ok((SELECT prosrc LIKE '%fn_grievance_jmd_hidden_scope%' FROM pg_proc WHERE proname = 'fn_my_desk_waiting'),
             'the real fn_my_desk_waiting body was patched in place');
 SELECT t_ok(NOT (t_desk_grievance_ids('a0000000-0000-0000-0000-000000000001') && ARRAY[(tk('J1-held')).id, (tk('J1b-held-named-jmd')).id, (tk('J3-policy-names-jmd')).id]),
             'My Desk: no held complaint about the Joint MD on the Joint MD''s desk');
+-- THE SWITCH (round 3; recommended option, the default): left out for everyone
+SELECT t_ok(fn_grievance_jmd_hide_from_everyone(), 'the switch is seeded to the recommended option: hidden from everyone');
+SELECT t_ok(NOT (t_desk_grievance_ids('a0000000-0000-0000-0000-00000000000f') && ARRAY[(tk('J1-held')).id, (tk('J1b-held-named-jmd')).id, (tk('J3-policy-names-jmd')).id]),
+            'My Desk, recommended option: not on another super admin''s desk either');
+-- the other option: one row flips every patched reader
+UPDATE platform_policies SET value = 'false' WHERE policy_key = 'grievance.about_joint_md.hide_from_everyone' AND scope_type = 'global';
 SELECT t_ok(t_desk_grievance_ids('a0000000-0000-0000-0000-00000000000f') @> ARRAY[(tk('J1-held')).id, (tk('J1b-held-named-jmd')).id, (tk('J3-policy-names-jmd')).id],
-            'My Desk: every held one IS on another super admin''s desk');
+            'My Desk, other option: every held one IS on another super admin''s desk');
+SELECT t_ok(NOT (t_desk_grievance_ids('a0000000-0000-0000-0000-000000000001') && ARRAY[(tk('J1-held')).id, (tk('J1b-held-named-jmd')).id, (tk('J3-policy-names-jmd')).id]),
+            'My Desk, other option: still never on the Joint MD''s');
+UPDATE platform_policies SET value = 'true' WHERE policy_key = 'grievance.about_joint_md.hide_from_everyone' AND scope_type = 'global';
 SELECT t_ok(t_desk_grievance_ids('a0000000-0000-0000-0000-000000000001') && ARRAY[(tk('E2-not-yet-due')).id],
             'My Desk: the Joint MD still sees ordinary unassigned complaints');
 
@@ -286,20 +295,20 @@ CREATE TEMP TABLE jrun2 AS SELECT fn_grievance_escalation_tick(false) r;
 SELECT t_ok(NOT EXISTS (SELECT 1 FROM jsonb_array_elements((SELECT r -> 'tickets' FROM jrun2)) e WHERE e ->> 'ticket' = (tk('J4-held-overdue')).ticket_number)
             AND (SELECT (r ->> 'skipped_no_target')::int = (SELECT count(*) FROM jsonb_array_elements(r -> 'tickets') e WHERE e ->> 'outcome' = 'no_target') FROM jrun2),
             'a blocked complaint about the Joint MD is neither listed nor counted as skipped_no_target: ' || (SELECT r::text FROM jrun2));
--- M4 (round 2): held with nobody handling them = counted every hour, as a bare number
-SELECT count(*) AS held_now FROM grievance_tickets
- WHERE about_joint_md AND assigned_to IS NULL AND status IN ('open', 'in_progress', 'pending_info', 'reopened')
-   AND resolved_at IS NULL AND withdrawn_at IS NULL \gset
-SELECT t_ok(:held_now >= 1 AND (SELECT (r ->> 'held_for_director')::int FROM jrun2) = :held_now,
-            'the run counts the complaints held for want of a Director: ' || (SELECT r ->> 'held_for_director' FROM jrun2) || ' of ' || :held_now);
-CREATE TEMP TABLE jrun2b AS SELECT fn_grievance_escalation_tick(true) r;
-SELECT t_ok((SELECT (r ->> 'held_for_director')::int FROM jrun2b) = :held_now, 'and again the next hour (dry run too)');
+-- Round 3 (M3): no count of held complaints in the answer, anywhere; only
+-- whether the routing is CONFIGURED — a fact about the setting, not tickets.
+SELECT t_ok((SELECT NOT (r ? 'held_for_director') AND r::text NOT LIKE '%held%' FROM jrun2), 'the run''s answer carries no held count');
+SELECT t_ok((SELECT (r ->> 'about_joint_md_routing_configured')::boolean IS FALSE FROM jrun2),
+            'Director setting empty: routing reported as not configured');
 SELECT t_ok((tk('J4-held-overdue')).assigned_to IS NULL AND (tk('J4-held-overdue')).escalation_level = 0,
             'no Director set and overdue: NOT moved (never to the Joint MD)');
 SELECT t_ok((tk('J4-held-overdue')).metadata -> 'escalation_blocked' -> 'skipped' -> -1 ->> 'reason' LIKE 'no_director_set%',
             'the block names the missing Director: ' || COALESCE((tk('J4-held-overdue')).metadata::text, 'null'));
 UPDATE platform_policies SET value = to_jsonb('a0000000-0000-0000-0000-00000000000e'::text)
  WHERE policy_key = 'grievance.escalation.about_joint_md_profile_id' AND scope_type = 'global';
+
+SELECT t_ok((SELECT (fn_grievance_escalation_tick(true) ->> 'about_joint_md_routing_configured')::boolean),
+            'Director set: routing reported as configured');
 
 -- the dashboard work item: the unassigned fallback is the OLDEST super admin = the Joint MD here
 SELECT fn_generate_unresolved_issue_items();
@@ -309,6 +318,20 @@ SELECT t_ok(NOT EXISTS (SELECT 1 FROM stub_work_items w JOIN grievance_tickets t
 SELECT t_ok(EXISTS (SELECT 1 FROM stub_work_items WHERE target = 'a0000000-0000-0000-0000-00000000000e'
                     AND (metadata ->> 'grievance_id')::uuid = (tk('J2-director')).id),
             'the Director gets the work item for the overdue one he holds');
+-- round 3: a HELD one (nobody holds it) is a work item for nobody, not for
+-- whichever super admin is oldest — here made someone other than the Joint MD
+BEGIN;
+UPDATE profiles SET created_at = '2000-01-01' WHERE id = 'a0000000-0000-0000-0000-00000000000f';
+DELETE FROM stub_work_items;
+SELECT fn_generate_unresolved_issue_items();
+SELECT t_ok(EXISTS (SELECT 1 FROM grievance_tickets WHERE about_joint_md AND assigned_to IS NULL AND sla_deadline < now()),
+            'setup: an overdue complaint about the Joint MD is held');
+SELECT t_ok(NOT EXISTS (SELECT 1 FROM stub_work_items w JOIN grievance_tickets t ON t.id = (w.metadata ->> 'grievance_id')::uuid
+                        WHERE t.about_joint_md AND t.assigned_to IS NULL),
+            'a held complaint about the Joint MD becomes nobody''s work item (not the oldest super admin''s)');
+SELECT t_ok(EXISTS (SELECT 1 FROM stub_work_items WHERE target = 'a0000000-0000-0000-0000-00000000000f'),
+            'while ordinary unassigned ones still go to that super admin');
+ROLLBACK;
 
 -- the counts (SECURITY DEFINER readers, patched in place): complaints about the Joint MD are left out
 SELECT count(*) AS overdue_plain FROM grievance_tickets WHERE NOT about_joint_md
@@ -430,6 +453,57 @@ SELECT t_ok(fn_grievance_send_back_to_normal_path(:'j1') ->> 'error' = 'You are 
 RESET ROLE;
 SELECT set_config('request.jwt.claim.role', '', false);
 SELECT t_ok((tk('J1b-held-named-jmd')).assigned_to = 'a0000000-0000-0000-0000-000000000003', 'J1b sent back: the HOD category goes to HOD ONE');
+
+-- ------------------------------------------------ 6b. round 3: counts, SLA stats, evidence, never down
+-- get_grievance_sla_stats (production-only; a stand-in here) is patched like
+-- the other readers and obeys the switch.
+SELECT count(*) FILTER (WHERE NOT about_joint_md) AS plain_all, count(*) AS all_all,
+       count(*) FILTER (WHERE NOT about_joint_md AND status = 'open') AS plain_open
+  FROM grievance_tickets WHERE institution_id = '10000000-0000-0000-0000-000000000001' \gset
+SELECT t_ok(:all_all > :plain_all, 'college A holds complaints about the Joint MD: ' || (:all_all - :plain_all));
+SELECT set_config('request.jwt.claim.sub', 'a0000000-0000-0000-0000-00000000000f', false);   -- a super admin, not the Joint MD
+SELECT t_ok((get_grievance_sla_stats('10000000-0000-0000-0000-000000000001') ->> 'total')::int = :plain_all,
+            'SLA stats, recommended option: left out for everyone (' || (get_grievance_sla_stats('10000000-0000-0000-0000-000000000001') ->> 'total') || ')');
+SELECT t_ok((get_grievance_sla_stats('10000000-0000-0000-0000-000000000001') ->> 'open')::int = :plain_open,
+            'and its JOIN read is filtered too');
+UPDATE platform_policies SET value = 'false' WHERE policy_key = 'grievance.about_joint_md.hide_from_everyone' AND scope_type = 'global';
+SELECT t_ok((get_grievance_sla_stats('10000000-0000-0000-0000-000000000001') ->> 'total')::int = :all_all,
+            'SLA stats, other option: another super admin counts them');
+SELECT t_ok((fn_dashboard_metrics('10000000-0000-0000-0000-000000000001') ->> 'escalations_open')::int
+            > (SELECT count(*) FROM grievance_tickets WHERE NOT about_joint_md AND status NOT IN ('resolved', 'closed', 'cancelled')
+                 AND sla_deadline < now() AND institution_id = '10000000-0000-0000-0000-000000000001'),
+            'dashboard, other option: another super admin counts them too (one switch for every reader)');
+SELECT set_config('request.jwt.claim.sub', 'a0000000-0000-0000-0000-000000000001', false);   -- the Joint MD
+SELECT t_ok((get_grievance_sla_stats('10000000-0000-0000-0000-000000000001') ->> 'total')::int = :plain_all,
+            'SLA stats, other option: never the Joint MD');
+UPDATE platform_policies SET value = 'true' WHERE policy_key = 'grievance.about_joint_md.hide_from_everyone' AND scope_type = 'global';
+SELECT set_config('request.jwt.claim.sub', '', false);
+
+-- NAAC / UGC evidence on resolve
+SELECT t_ok((SELECT prosrc LIKE '%about_joint_md%' FROM pg_proc WHERE proname = 'emit_grievance_evidence'),
+            'emit_grievance_evidence was patched in place');
+UPDATE grievance_tickets SET status = 'resolved', resolved_at = now() WHERE subject = 'J2b-icc-and-jmd';
+SELECT t_ok(NOT EXISTS (SELECT 1 FROM quality_evidence_mappings WHERE source_id = (tk('J2b-icc-and-jmd')).id),
+            'a resolved complaint about the Joint MD leaves no NAAC / UGC evidence');
+UPDATE grievance_tickets SET status = 'resolved', resolved_at = now() WHERE subject = 'E2-not-yet-due';
+SELECT t_ok((SELECT count(*) FROM quality_evidence_mappings WHERE source_id = (tk('E2-not-yet-due')).id) = 2,
+            'an ordinary resolved complaint still does (NAAC 7.7.1 + UGC)');
+
+-- M5: never down the chain. Routed to the HOD, moved BY HAND to the Principal,
+-- then overdue: it goes up to level 3, never back down to the HOD.
+INSERT INTO grievance_tickets (institution_id, category_id, department_id, subject, description, raised_by_id, sla_deadline) VALUES
+  ('10000000-0000-0000-0000-000000000001', 'c0000000-0000-0000-0000-000000000001', '20000000-0000-0000-0000-000000000001',
+   'M5-hand-moved', 'routed to the HOD, then given to the Principal', 'a0000000-0000-0000-0000-000000000007', now() + interval '3 days');
+SELECT t_ok((tk('M5-hand-moved')).assigned_to = 'a0000000-0000-0000-0000-000000000003'
+            AND (tk('M5-hand-moved')).metadata -> 'auto_route' ->> 'level' = '1', 'setup: routed to HOD ONE');
+UPDATE grievance_tickets SET assigned_to = 'a0000000-0000-0000-0000-000000000002', sla_deadline = now() - interval '1 hour'
+ WHERE subject = 'M5-hand-moved';
+SELECT fn_grievance_escalation_tick(false);
+SELECT t_ok((tk('M5-hand-moved')).escalation_level = 3 AND (tk('M5-hand-moved')).assigned_to = 'a0000000-0000-0000-0000-000000000001',
+            'hand-moved to the Principal, then overdue: up to level 3, not back to the HOD: '
+            || COALESCE(((tk('M5-hand-moved')).metadata -> 'escalations')::text, 'null'));
+SELECT t_ok(NOT EXISTS (SELECT 1 FROM jsonb_array_elements((tk('M5-hand-moved')).metadata -> 'escalations') e
+                        WHERE e ->> 'to' = 'a0000000-0000-0000-0000-000000000003'), 'no step pointed back at the HOD');
 
 -- ------------------------------------------------ 7. across everything: never the Joint MD while ticked
 SELECT t_ok(NOT EXISTS (SELECT 1 FROM grievance_tickets WHERE about_joint_md AND assigned_to = 'a0000000-0000-0000-0000-000000000001'),
