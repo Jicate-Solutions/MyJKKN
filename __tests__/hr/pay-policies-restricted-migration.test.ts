@@ -11,6 +11,9 @@
  *     pinned below (hr.salary_suggestion_rule included; it is locked here but
  *     served by the salary suggestion feature's own route, not the editors' route);
  *   - fn_get_policy's main SELECT is byte-identical to 20260731180000;
+ *   - the setup mirror of fn_get_policy is what the database runs: the newest
+ *     migration that creates it, plus the Director-list guard 20270520090000
+ *     patches in place when that patch came later;
  *   - fn_prepare_payroll_period is 20260629000000's body byte for byte except
  *     the role check (NULL = refused) and the one v_pay_matrix assignment,
  *     which is fn_get_policy's SELECT with the
@@ -31,6 +34,11 @@ const MIG_DIR = join(ROOT, 'supabase', 'migrations');
 const FILE = '20270506090000_hr_pay_policies_readable_only_with_salary_view.sql';
 const RESOLVER_FILE = '20260731180000_platform_policies_cohort_scope.sql';
 const PREPARE_FILE = '20260629000000_t4_3_pr2_payroll_rpcs.sql';
+/** Patches fn_get_policy IN PLACE (section 7): no CREATE of its own. */
+const DIRECTOR_LIST_FILE = '20270520090000_the_director_list.sql';
+const DIRECTOR_LIST_GUARD =
+  " AND (p_key IS DISTINCT FROM 'platform.the_director_profile_ids'" +
+  ' OR (SELECT public.is_super_admin()) OR (SELECT public.fn_is_the_director()))';
 
 const read = (p: string) => readFileSync(p, 'utf8');
 const stripSqlComments = (sql: string) => sql.replace(/--[^\n]*/g, '');
@@ -194,8 +202,35 @@ describe('fn_get_policy guard', () => {
     expect(code).not.toMatch(/GRANT[^;]*TO[^;]*\banon\b/);
   });
 
-  it('is mirrored in setup/02_functions.sql', () => {
-    expect(norm(fnGetPolicy(setupFunctions))).toBe(norm(fn));
+  it('is mirrored in setup/02_functions.sql as the database runs it', () => {
+    // The newest migration that CREATEs fn_get_policy, so a later re-create is
+    // followed rather than this test pinning an old body.
+    const definers = readdirSync(MIG_DIR)
+      .filter((f) => f.endsWith('.sql'))
+      .sort()
+      .filter((f) => read(join(MIG_DIR, f)).includes('CREATE OR REPLACE FUNCTION public.fn_get_policy(p_key text'));
+    const newest = definers[definers.length - 1];
+    let live = fnGetPolicy(read(join(MIG_DIR, newest)));
+    // 20270520090000 adds its guard after every "policy_key = p_key" of the
+    // body the database holds. A CREATE newer than it must carry the guard itself.
+    if (newest < DIRECTOR_LIST_FILE) {
+      live = live.replace(/(policy_key\s*=\s*p_key)\b/g, `$1${DIRECTOR_LIST_GUARD}`);
+    }
+    expect(live.split('the_director_profile_ids')).toHaveLength(3);
+    expect(norm(fnGetPolicy(setupFunctions))).toBe(norm(live));
+  });
+
+  it("the guard is the one 20270520090000's in-place patch adds", () => {
+    const patch = read(join(MIG_DIR, DIRECTOR_LIST_FILE));
+    // c_guard is two concatenated SQL literals; quotes are doubled inside them.
+    const [first, second] = [
+      DIRECTOR_LIST_GUARD.slice(0, DIRECTOR_LIST_GUARD.indexOf(' OR (SELECT')),
+      DIRECTOR_LIST_GUARD.slice(DIRECTOR_LIST_GUARD.indexOf(' OR (SELECT')),
+    ];
+    expect(patch).toContain(`'${first.replace(/'/g, "''")}'`);
+    expect(patch).toContain(`'${second}'`);
+    expect(patch).toContain("'public.fn_get_policy(text, uuid)'");
+    expect(patch).toContain("regexp_replace(v_def, '(policy_key\\s*=\\s*p_key)\\M', '\\1' || c_guard, 'g')");
   });
 });
 
