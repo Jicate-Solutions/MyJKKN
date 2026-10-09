@@ -13,6 +13,8 @@ import { registeredDomainOptions } from '@/lib/services/procurement/domain-adapt
 import type { DomainCtx, ProcurementDomain } from '@/lib/services/procurement/domain-adapters/types';
 import type { CreatePurchaseRequestItemDto } from '@/types/procurement';
 import { Button } from '@/components/ui/button';
+import { DetailHeader } from '@/components/procurement/detail-header';
+import { FormActionBar } from '@/components/procurement/form-action-bar';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import {
@@ -22,7 +24,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Plus, X, ChevronLeft } from 'lucide-react';
+import { Plus, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { errorMessage } from '@/lib/utils/supabase-error';
 import { displayRequestNumber } from '@/lib/procurement/display-number';
@@ -79,6 +81,8 @@ export default function NewPurchaseRequestPage() {
   // reason the approver reads; it also fills each new item's reason (the server
   // needs one per new line) unless an AI-read reason is already there.
   const [title, setTitle] = useState('');
+  // Field errors show only after a first Send, so an untouched form isn't all red.
+  const [triedSubmit, setTriedSubmit] = useState(false);
 
   // Institution scope — carries over whatever the requester had filtered the
   // Requests list to (?institution=…), so a multi-institution user isn't asked to
@@ -115,6 +119,7 @@ export default function NewPurchaseRequestPage() {
     setItems((rows) => (rows.length > 1 ? rows.filter((_, i) => i !== idx) : rows));
 
   const handleSubmit = async () => {
+    setTriedSubmit(true);
     if (!profile?.id || !effectiveInstitution) {
       toast.error('No institution selected — pick one or contact an administrator.');
       return;
@@ -193,20 +198,16 @@ export default function NewPurchaseRequestPage() {
   };
 
   return (
-    <ContentLayout title="New Request">
+    <ContentLayout title="New request">
       {/* Full width, several fields to a row: the header fields share one line, each
           item is one line (what · size/brand · qty), so a long list stays short. */}
       <div className="w-full space-y-5">
-        <Button variant="link" className="h-8 px-0" onClick={() => router.back()}>
-          <ChevronLeft className="mr-1 h-4 w-4" />
-          Back
-        </Button>
-        <h1 className="text-2xl font-bold">What do you need?</h1>
+        <DetailHeader backLabel="Back" onBack={() => router.back()} title="What do you need?" />
 
-        <section className="space-y-5 rounded-2xl border bg-card p-5 shadow-sm">
+        <section className="space-y-5 rounded-xl border bg-background p-5 shadow">
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
             <InstitutionFilter
-              className="w-full space-y-1 [&_button]:h-10 [&_label]:text-xs [&_label]:font-semibold"
+              className="w-full space-y-1 [&_label]:text-xs [&_label]:font-semibold"
               value={effectiveInstitution || undefined}
               onChange={(id) => {
                 setInstitutionId(id);
@@ -227,7 +228,7 @@ export default function NewPurchaseRequestPage() {
                     setItems([emptyRow()]);
                   }}
                 >
-                  <SelectTrigger className="h-10">
+                  <SelectTrigger className="h-9">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -246,13 +247,20 @@ export default function NewPurchaseRequestPage() {
               </Label>
               <Input
                 id="request-title"
-                className="h-10"
+                className="h-9"
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
                 maxLength={80}
                 autoComplete="off"
                 placeholder="e.g. Microbiology practicals, 2026-27 batch"
+                aria-invalid={triedSubmit && !title.trim()}
+                aria-describedby={triedSubmit && !title.trim() ? 'request-title-error' : undefined}
               />
+              {triedSubmit && !title.trim() && (
+                <p id="request-title-error" className="text-xs text-destructive">
+                  Say what it is for.
+                </p>
+              )}
             </div>
           </div>
           <ApprovalRoutePicker
@@ -271,6 +279,14 @@ export default function NewPurchaseRequestPage() {
           {/* Items: a light row each — what, a hint, qty, remove */}
           <fieldset className="space-y-2">
             <legend className="mb-1 text-xs font-semibold">Items</legend>
+            {triedSubmit && !items.some((i) => i.item_name.trim()) && (
+              <p className="text-xs text-destructive">Add at least one item.</p>
+            )}
+            {triedSubmit && items.some((i) => i.item_name.trim() && !i.is_new && !i.domain_item_id) && (
+              <p className="text-xs text-destructive">
+                Pick each item from the list, or choose &ldquo;New item&rdquo; for one that isn&rsquo;t in the store yet.
+              </p>
+            )}
             {items.map((item, idx) => (
               <div
                 key={idx}
@@ -348,7 +364,7 @@ export default function NewPurchaseRequestPage() {
               </div>
             ))}
             <div className="flex flex-wrap items-center gap-1">
-              <Button variant="ghost" size="sm" className="text-primary" onClick={addRow}>
+              <Button variant="ghost" size="sm" className="h-10 text-primary sm:h-8" onClick={addRow}>
                 <Plus className="mr-1 h-4 w-4" />
                 Add item
               </Button>
@@ -361,15 +377,20 @@ export default function NewPurchaseRequestPage() {
             </div>
           </fieldset>
 
-          <div className="flex items-center justify-end gap-2 pt-1">
-            <Button variant="ghost" onClick={() => router.back()}>
-              Cancel
-            </Button>
-            <Button className="h-11 px-6" onClick={handleSubmit} disabled={createPR.isPending}>
-              {createPR.isPending ? 'Sending…' : 'Send for approval'}
-            </Button>
-          </div>
         </section>
+
+        <FormActionBar
+          status={`${items.filter((i) => i.item_name.trim()).length} item${
+            items.filter((i) => i.item_name.trim()).length === 1 ? '' : 's'
+          }`}
+        >
+          <Button variant="ghost" className="h-11 sm:h-9" onClick={() => router.back()}>
+            Cancel
+          </Button>
+          <Button className="h-11 px-6 sm:h-9" onClick={handleSubmit} disabled={createPR.isPending}>
+            {createPR.isPending ? 'Sending…' : 'Send for approval'}
+          </Button>
+        </FormActionBar>
       </div>
     </ContentLayout>
   );

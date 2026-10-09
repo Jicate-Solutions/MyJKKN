@@ -357,6 +357,21 @@ export interface HRSalaryRegisterLine {
   // lines generated before 2026-09-23.
   work_institution_id: string | null;
   work_institution_name: string | null;
+  // TEACHING OR NOT, snapshotted from employment_categories at generation
+  // (2026-10-07). Splits the register into Teaching / Non-Teaching sheets,
+  // tabs and documents. Lines generated before then were backfilled from the
+  // person's CURRENT category.
+  staff_category_name: string | null;
+  is_teaching: boolean;
+  // WHERE THE DAYS CAME FROM (2026-10-07). 'manual' = entered by hand by a super
+  // admin / HR Head for someone with no attendance summary
+  // (hr_salary_register_manual_days); pay is still computed by the register's
+  // formula. The reason / who / when are snapshotted for the badge and export.
+  entry_source: SalaryRegisterEntrySource;
+  manual_entry_id: string | null;
+  manual_reason: string | null;
+  manual_entered_by: string | null;
+  manual_entered_at: string | null;
 
   business_working_days: number;
   /**
@@ -456,4 +471,108 @@ export interface SalaryRegisterRunDetail {
   lines: HRSalaryRegisterLine[];
   organisation_name: string;
   institution_name: string;
+}
+
+/** The two halves a register is split into for the per-category sheets and documents. */
+export type StaffCategoryKey = 'teaching' | 'non_teaching';
+
+/** The two Word documents generated per register, per category. */
+export type PayrollDocumentKind = 'bank_letter' | 'chairperson_approval';
+
+/**
+ * The constants the Bank Letter and Chairperson Approval need that exist
+ * nowhere else in the schema — one row per paying institution
+ * (hr_payroll_document_settings, 2026-10-07).
+ */
+export interface HRPayrollDocumentSettings {
+  hr_organization_id: string;
+  institution_id: string;
+  /** "JKKNCOP" in "JKKNCOP/ AUGUST SALARY/ 2026". */
+  reference_code: string;
+  /** Appended for non-teaching: "JKKNCOP" + "NT" = "JKKNCOPNT". */
+  non_teaching_suffix: string;
+  /** The COLLEGE's bank — the letter's addressee and the cheque's source account. */
+  bank_name: string;
+  bank_branch: string;
+  college_account_number: string;
+  addressee_title: string;
+  approval_salutation: string;
+  submitter_title: string;
+  approver_title: string;
+  updated_at: string | null;
+}
+
+/**
+ * What the settings endpoint answers. `saved: false` means nobody has filled
+ * the form for this institution yet — `settings` then carries SUGGESTED values
+ * (ref code from the staff-code prefix, bank from the staff accounts) so the
+ * form opens pre-filled, but no document may be generated from them.
+ */
+export interface PayrollDocumentSettingsResponse {
+  saved: boolean;
+  settings: HRPayrollDocumentSettings;
+}
+
+export type PayrollDocumentSettingsInput = Omit<
+  HRPayrollDocumentSettings,
+  'hr_organization_id' | 'institution_id' | 'updated_at'
+>;
+
+export type SalaryRegisterEntrySource = 'biometric' | 'manual';
+
+/**
+ * The days HR types for a person with no attendance summary. Worked days are
+ * NOT here: they are derived (working − leave − on duty − LOP), so an entry
+ * cannot be saved that fails to add up.
+ */
+export interface ManualDaysInput {
+  business_working_days: number;
+  casual_leave_days: number;
+  comp_off_days: number;
+  other_paid_leave_days: number;
+  on_duty_days: number;
+  /** LOP. */
+  unpaid_leave_days: number;
+}
+
+export interface ManualEntryInput extends ManualDaysInput {
+  /** Required only when the person has no salary recorded for the month. */
+  monthly_gross: number | null;
+  reason: string;
+}
+
+/** What the manual-entry form needs to open: the pay in force and any saved entry. */
+export interface ManualEntryContext {
+  line_id: string;
+  staff_name: string;
+  employee_code: string | null;
+  /** The run's working-days basis — the form's default for working days. */
+  working_days_basis: number;
+  /** null = no salary recorded; the form then asks for a monthly gross. */
+  recorded_gross: number | null;
+  allowance: number;
+  epf: number;
+  esi: number;
+  saved: (ManualEntryInput & { updated_at: string | null }) | null;
+}
+
+/** A computed preview (dry run) or the saved line. */
+export interface ManualEntryResult {
+  saved: boolean;
+  figures: {
+    business_working_days: number;
+    worked_days: number;
+    paid_days: number;
+    unpaid_leave_days: number;
+    actual_gross: number;
+    unpaid_leave_deduction: number;
+    epf_deduction: number;
+    esi_deduction: number;
+    tds_deduction: number;
+    total_earnings: number;
+    total_deductions: number;
+    adjustment_amount: number;
+    net_pay: number;
+  };
+  line: HRSalaryRegisterLine | null;
 }

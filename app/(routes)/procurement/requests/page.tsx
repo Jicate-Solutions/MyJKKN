@@ -21,6 +21,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ChevronRight, Plus, Search } from 'lucide-react';
 import { useMyApprovals } from '@/hooks/procurement/use-approval-chains';
+import { ResponsiveList } from '@/components/procurement/responsive-list';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { BeatLoader } from 'react-spinners';
 
@@ -57,15 +58,16 @@ export default function PurchasesPage() {
   const [search, setSearch] = useState('');
   const debouncedSearch = useDebounceValue(search, 300);
   const searchParams = useSearchParams();
-  // Opens on "Waiting for you"; a link that names a stage (Overview bars) opens on All instead.
-  const [waitingForMe, setWaitingForMe] = useState(
-    () => !(searchParams.get('stage') ?? searchParams.get('status'))
-  );
-  // The Overview status bars link here with ?institution=<id|all>&status=<status>.
+  const [view, setView] = useState<'list' | 'table'>('table');
+  // The Status dropdown's first choice is "Waiting for you" (not a stage — worked
+  // out below from My approvals), and the page opens on it. The Overview status
+  // bars link here with ?institution=<id|all>&status=<status>, which opens on that
+  // stage instead.
   const [stageFilter, setStageFilter] = useState<string>(() => {
     const raw = searchParams.get('stage') ?? searchParams.get('status');
-    return raw ? LEGACY_STATUS_TO_STAGE[raw] ?? raw : 'all';
+    return raw ? LEGACY_STATUS_TO_STAGE[raw] ?? raw : 'waiting';
   });
+  const waitingForMe = stageFilter === 'waiting';
   // Opens on every college the viewer may see (RLS scopes the rows): requesters
   // usually raise purchases for a college other than their profile's, and a list
   // pinned to the profile college hid their own requests from them.
@@ -93,7 +95,7 @@ export default function PurchasesPage() {
 
   const filters: PurchaseRequestFilters = {
     search: debouncedSearch || undefined,
-    stage: stageFilter !== 'all' ? stageFilter : undefined,
+    stage: stageFilter !== 'all' && !waitingForMe ? stageFilter : undefined,
     institution_id: allColleges ? undefined : effectiveInstitution,
     all_institutions: allColleges,
     requested_by: mineOnly ? profile?.id : undefined,
@@ -117,7 +119,10 @@ export default function PurchasesPage() {
   const approvalIds = new Set(myApprovals.map((a) => a.request_id));
   const yourTurn = (req: ProcurementPurchaseRequest) => approvalIds.has(req.id);
 
-  const waitingCount = requests.filter(yourTurn).length;
+  // With a stage picked the rows are only that stage, so fall back to every
+  // request waiting on this viewer (My approvals) for the dropdown's count.
+  const waitingCount =
+    waitingForMe || stageFilter === 'all' ? requests.filter(yourTurn).length : approvalIds.size;
   const shown = (waitingForMe ? requests.filter(yourTurn) : requests)
     .slice()
     .sort((x, y) => Number(yourTurn(y)) - Number(yourTurn(x)));
@@ -125,33 +130,61 @@ export default function PurchasesPage() {
   return (
     <ContentLayout title="Requests">
       <div className="w-full space-y-5">
-        <header className="flex flex-wrap items-center justify-between gap-3">
-          {/* One switch: what needs me, or everything. Each row carries its own status. */}
-          <div role="group" aria-label="Show" className="flex gap-1 rounded-xl border bg-card p-1">
-            {[
-              { value: true, label: 'Waiting for you', count: waitingCount },
-              { value: false, label: 'All', count: requests.length },
-            ].map((t) => {
-              const on = waitingForMe === t.value;
-              return (
-                <button
-                  key={t.label}
-                  type="button"
-                  aria-pressed={on}
-                  onClick={() => setWaitingForMe(t.value)}
-                  className={`inline-flex h-9 items-center justify-center gap-2 rounded-lg px-4 text-sm font-semibold transition-colors ${
-                    on ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground'
-                  }`}
-                >
-                  {t.label}
-                  <span className="min-w-6 rounded-full bg-current/15 px-2 text-xs tabular-nums">{t.count}</span>
-                </button>
-              );
-            })}
+        <div className="flex flex-wrap gap-2">
+          <div className="relative min-w-[220px] flex-1">
+            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              placeholder="Search item, purchase no. or title"
+              aria-label="Search purchases"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="h-9 pl-9"
+            />
           </div>
+          <Select value={stageFilter} onValueChange={setStageFilter}>
+            <SelectTrigger className="h-9 w-full sm:w-48" aria-label="Status">
+              <SelectValue placeholder="All statuses" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="waiting">Waiting for you ({waitingCount})</SelectItem>
+              <SelectItem value="all">All statuses</SelectItem>
+              {STAGE_FILTERS.map((f) => (
+                <SelectItem key={f.value} value={f.value}>
+                  {f.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <label className="flex h-9 cursor-pointer items-center gap-2 rounded-md border bg-background px-3 text-sm shadow">
+            <Checkbox checked={mineOnly} onCheckedChange={(v) => setMineOnly(v === true)} />
+            Raised by me
+          </label>
+          <InstitutionFilter
+            value={allColleges ? 'all' : effectiveInstitution}
+            onChange={setInstitutionId}
+            allLabel="All colleges"
+            label={null}
+            className="w-full sm:w-52 [&_button]:h-9"
+          />
+          <div role="group" aria-label="Layout" className="inline-flex gap-0.5 rounded-lg bg-muted p-[3px] sm:ml-auto">
+            {(['list', 'table'] as const).map((v) => (
+              <button
+                key={v}
+                type="button"
+                aria-pressed={view === v}
+                onClick={() => setView(v)}
+                className={`h-7 rounded-md px-2.5 text-[13px] font-medium capitalize transition-colors ${
+                  view === v ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
+                }`}
+              >
+                {v}
+              </button>
+            ))}
+          </div>
+          {/* The primary action ends the filter row instead of sitting alone above it. */}
           {canCreate && (
             <Button
-              className="h-10"
+              className="h-9"
               onClick={() =>
                 router.push(
                   effectiveInstitution ? `/procurement/requests/new?institution=${effectiveInstitution}` : '/procurement/requests/new'
@@ -162,48 +195,11 @@ export default function PurchasesPage() {
               New request
             </Button>
           )}
-        </header>
-
-        <div className="flex flex-wrap gap-2">
-          <div className="relative min-w-[220px] flex-1">
-            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              placeholder="Search item, purchase no. or title"
-              aria-label="Search purchases"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className="h-10 pl-9"
-            />
-          </div>
-          <Select value={stageFilter} onValueChange={setStageFilter}>
-            <SelectTrigger className="h-10 w-full sm:w-48" aria-label="Status">
-              <SelectValue placeholder="All statuses" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All statuses</SelectItem>
-              {STAGE_FILTERS.map((f) => (
-                <SelectItem key={f.value} value={f.value}>
-                  {f.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <label className="flex h-10 cursor-pointer items-center gap-2 rounded-md border bg-card px-3 text-sm">
-            <Checkbox checked={mineOnly} onCheckedChange={(v) => setMineOnly(v === true)} />
-            Raised by me
-          </label>
-          <InstitutionFilter
-            value={allColleges ? 'all' : effectiveInstitution}
-            onChange={setInstitutionId}
-            allLabel="All colleges"
-            label={null}
-            className="w-full sm:w-52 [&_button]:h-10"
-          />
         </div>
 
         {/* Rows read like a sentence: what · number · college · who · stage. Rows that
             need this viewer are lightly tinted. */}
-        <section className="overflow-hidden rounded-2xl border bg-card shadow-sm">
+        <section className="overflow-hidden rounded-xl border bg-background shadow">
           {isLoading ? (
             <div className="flex items-center justify-center py-12">
               <BeatLoader color="hsl(var(--primary))" size={10} />
@@ -216,6 +212,61 @@ export default function PurchasesPage() {
             <EmptyState
               title={waitingForMe ? 'Nothing is waiting for you' : 'No requests found'}
               description={waitingForMe ? 'Requests that need your approval appear here.' : 'Requests you raise, or that are routed to you, appear here.'}
+            />
+          ) : view === 'table' ? (
+            <ResponsiveList
+              rows={shown}
+              getRowKey={(req) => req.id}
+              onRowClick={(req) => router.push(`/procurement/requests/${req.id}`)}
+              rowLabel={(req) => `Open purchase ${[req.title, displayRequestNumber(req.request_number)].filter(Boolean).join(' ')}`}
+              columns={[
+                {
+                  key: 'request',
+                  header: 'Request',
+                  mobile: 'title',
+                  className: 'max-w-[280px] truncate',
+                  cell: (req) => (
+                    <>
+                      <span className="font-medium">{req.title || whatIsNeeded(req)}</span>
+                      {req.title && <span className="font-normal text-muted-foreground"> · {whatIsNeeded(req)}</span>}
+                    </>
+                  ),
+                },
+                { key: 'no', header: 'Purchase no.', className: 'whitespace-nowrap', cell: (req) => displayRequestNumber(req.request_number) },
+                {
+                  key: 'college',
+                  header: 'College',
+                  className: 'max-w-[200px] truncate',
+                  cell: (req) => collegeName(req.institution_id) ?? '—',
+                },
+                { key: 'by', header: 'Raised by', className: 'whitespace-nowrap', cell: (req) => req.requested_by_profile?.full_name ?? '—' },
+                { key: 'date', header: 'Date', className: 'whitespace-nowrap', cell: (req) => formatDateDMY(req.created_at) },
+                {
+                  key: 'status',
+                  header: 'Status',
+                  mobile: 'badge',
+                  cell: (req) => <StatusBadge status={stageOf(req)} config={STAGE_CONFIG} />,
+                },
+                {
+                  key: 'act',
+                  header: '',
+                  mobile: 'hidden',
+                  className: 'text-right',
+                  cell: (req) => {
+                    const mine = yourTurn(req);
+                    return (
+                      <span
+                        className={`inline-flex h-8 items-center gap-1 rounded-md px-3 text-xs font-medium ${
+                          mine ? 'bg-primary font-semibold text-primary-foreground' : 'text-muted-foreground'
+                        }`}
+                      >
+                        {mine ? 'Review' : 'Open'}
+                        <ChevronRight className="h-4 w-4" />
+                      </span>
+                    );
+                  },
+                },
+              ]}
             />
           ) : (
             <ul>
@@ -258,7 +309,7 @@ export default function PurchasesPage() {
                       </span>
 
                       <span
-                        className={`inline-flex h-8 items-center gap-1 rounded-md px-3 text-sm font-medium ${
+                        className={`inline-flex h-8 items-center gap-1 rounded-md px-3 text-xs font-medium ${
                           mine ? 'bg-primary font-semibold text-primary-foreground' : 'text-muted-foreground'
                         }`}
                       >

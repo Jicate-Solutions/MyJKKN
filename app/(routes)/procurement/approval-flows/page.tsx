@@ -11,29 +11,34 @@
 
 import { useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { AlertCircle, Check, ChevronLeft, Plus, ShieldAlert } from 'lucide-react';
+import { ChevronLeft, Plus, Search, ShieldAlert } from 'lucide-react';
 import { BeatLoader } from 'react-spinners';
 import { toast } from 'sonner';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useProcurementCategories, useSaveProcurementCategory } from '@/hooks/procurement/use-approval-chains';
 import { errorMessage } from '@/lib/utils/supabase-error';
 import { cn } from '@/lib/utils';
 import type { ProcurementCategory } from '@/types/procurement';
-import { CategoryDetail, stepsOf } from './_components/category-detail';
+import { CategoryDetail, customisedColleges, stepsOf } from './_components/category-detail';
 
 const isReady = (c: ProcurementCategory) => c.is_active && stepsOf(c, 'request').length > 0;
 const names = (c: ProcurementCategory, stage: 'request' | 'final') => stepsOf(c, stage).map((s) => s.label).join(' → ');
+
+type StatusFilter = 'all' | 'ready' | 'setup' | 'hidden';
+const statusOf = (c: ProcurementCategory): Exclude<StatusFilter, 'all'> =>
+  !c.is_active ? 'hidden' : isReady(c) ? 'ready' : 'setup';
 
 function StatusPill({ c }: { c: ProcurementCategory }) {
   const [label, tone] = !c.is_active
     ? ['Hidden', 'bg-muted text-muted-foreground']
     : isReady(c)
       ? ['Ready', 'bg-green-100 text-green-800 dark:bg-green-950/50 dark:text-green-300']
-      : ['Not set up', 'bg-amber-100 text-amber-900 dark:bg-amber-950/50 dark:text-amber-200'];
+      : ['Needs approvers', 'bg-amber-100 text-amber-900 dark:bg-amber-950/50 dark:text-amber-200'];
   return <span className={cn('shrink-0 rounded-full px-1.5 py-px text-[11px] font-semibold', tone)}>{label}</span>;
 }
 
@@ -45,11 +50,21 @@ export default function ApprovalFlowsPage() {
   const saveCategory = useSaveProcurementCategory();
   const [adding, setAdding] = useState(false);
   const [newName, setNewName] = useState('');
+  const [search, setSearch] = useState('');
+  const [status, setStatus] = useState<StatusFilter>('all');
 
+  // Search and the status dropdown narrow the left list; a category opened by
+  // link (?c=) stays open even if the filter would hide it.
+  const term = search.trim().toLowerCase();
+  const listed = categories.filter(
+    (c) =>
+      (status === 'all' || statusOf(c) === status) &&
+      (!term || c.name.toLowerCase().includes(term) || (c.steps ?? []).some((st) => st.label.toLowerCase().includes(term)))
+  );
   const chosenId = searchParams.get('c');
   const selected = categories.find((c) => c.id === chosenId) ?? null;
   // Wide screens always show a category; on a phone the list comes first.
-  const shown = selected ?? categories[0] ?? null;
+  const shown = selected ?? listed[0] ?? null;
   const select = (id: string | null) =>
     router.replace(id ? `/procurement/approval-flows?c=${id}` : '/procurement/approval-flows', { scroll: false });
 
@@ -67,8 +82,13 @@ export default function ApprovalFlowsPage() {
     );
   }
 
-  const ready = categories.filter(isReady).length;
-  const needSetup = categories.filter((c) => c.is_active && !isReady(c)).length;
+  const count = (f: StatusFilter) => (f === 'all' ? categories.length : categories.filter((c) => statusOf(c) === f).length);
+  const STATUS_OPTIONS: Array<{ value: StatusFilter; label: string }> = [
+    { value: 'all', label: 'All categories' },
+    { value: 'ready', label: 'Ready' },
+    { value: 'setup', label: 'Needs approvers' },
+    { value: 'hidden', label: 'Hidden' },
+  ];
 
   const addCategory = async () => {
     if (!newName.trim()) return;
@@ -85,26 +105,35 @@ export default function ApprovalFlowsPage() {
 
   return (
     <ContentLayout title="Approval flows">
-      <div className="mx-auto w-full max-w-5xl space-y-3">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <h1 className="text-xl font-bold tracking-tight">Approval flows</h1>
-          <Button size="sm" className="h-9" onClick={() => setAdding(true)}>
+      <div className="mx-auto w-full max-w-6xl space-y-3">
+        {/* One toolbar row, as on Requests: search · status · the primary action last. */}
+        <div className="flex flex-wrap gap-2">
+          <div className="relative min-w-[200px] flex-1">
+            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              placeholder="Search category or approver"
+              aria-label="Search categories"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="h-9 pl-9"
+            />
+          </div>
+          <Select value={status} onValueChange={(v) => setStatus(v as StatusFilter)}>
+            <SelectTrigger className="h-9 w-full sm:w-52" aria-label="Status">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {STATUS_OPTIONS.map((o) => (
+                <SelectItem key={o.value} value={o.value}>
+                  {o.label} ({count(o.value)})
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Button className="h-9 w-full sm:w-auto" onClick={() => setAdding(true)}>
             <Plus className="mr-1.5 h-4 w-4" /> New category
           </Button>
         </div>
-
-        {!loadingCats && categories.length > 0 && (
-          <div className="flex flex-wrap gap-2">
-            <span className="inline-flex items-center gap-1.5 rounded-full bg-green-100 px-2.5 py-1 text-xs font-semibold text-green-800 dark:bg-green-950/50 dark:text-green-300">
-              <Check className="h-3.5 w-3.5" /> {ready} {ready === 1 ? 'category' : 'categories'} ready
-            </span>
-            {needSetup > 0 && (
-              <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-100 px-2.5 py-1 text-xs font-semibold text-amber-900 dark:bg-amber-950/50 dark:text-amber-200">
-                <AlertCircle className="h-3.5 w-3.5" /> {needSetup} need approvers
-              </span>
-            )}
-          </div>
-        )}
 
         {adding && (
           <Card>
@@ -118,10 +147,10 @@ export default function ApprovalFlowsPage() {
                 onKeyDown={(e) => e.key === 'Enter' && addCategory()}
               />
               <div className="flex gap-2">
-                <Button size="sm" className="h-9" onClick={addCategory} disabled={!newName.trim() || saveCategory.isPending}>
+                <Button size="sm" className="h-10 sm:h-9" onClick={addCategory} disabled={!newName.trim() || saveCategory.isPending}>
                   Add
                 </Button>
-                <Button size="sm" variant="ghost" className="h-9" onClick={() => setAdding(false)}>
+                <Button size="sm" variant="ghost" className="h-10 sm:h-9" onClick={() => setAdding(false)}>
                   Cancel
                 </Button>
               </div>
@@ -137,9 +166,12 @@ export default function ApprovalFlowsPage() {
           <div className="flex flex-col gap-3 lg:flex-row lg:items-start">
             <nav
               aria-label="Categories"
-              className={cn('flex flex-col divide-y overflow-hidden rounded-xl border bg-card lg:w-64 lg:shrink-0', selected && 'hidden lg:flex')}
+              className={cn('flex flex-col divide-y overflow-hidden rounded-xl border bg-background shadow lg:w-72 lg:shrink-0', selected && 'hidden lg:flex')}
             >
-              {categories.map((c) => {
+              {listed.length === 0 && (
+                <p className="px-3 py-4 text-sm text-muted-foreground">No categories match.</p>
+              )}
+              {listed.map((c) => {
                 const active = shown?.id === c.id;
                 return (
                   <button
@@ -160,6 +192,8 @@ export default function ApprovalFlowsPage() {
                     <span className="truncate text-xs text-muted-foreground">
                       {stepsOf(c, 'request').length ? names(c, 'request') : 'No approvers yet'}
                       {stepsOf(c, 'final').length > 0 && ` · Final: ${names(c, 'final')}`}
+                      {customisedColleges(c).length > 0 &&
+                        ` · ${customisedColleges(c).length} college${customisedColleges(c).length === 1 ? '' : 's'} customised`}
                     </span>
                   </button>
                 );

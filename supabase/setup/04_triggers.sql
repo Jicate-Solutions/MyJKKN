@@ -2916,3 +2916,169 @@ CREATE TRIGGER trg_guard_director_list_removals_for_raises
   FOR EACH ROW
   WHEN (OLD.policy_key = 'platform.the_director_profile_ids')
   EXECUTE FUNCTION public.fn_guard_director_list_removals_for_raises();
+
+-- Mirrored from supabase/migrations/20271007120000_hr_payroll_documents.sql
+DROP TRIGGER IF EXISTS trg_hr_payroll_document_settings_touch ON public.hr_payroll_document_settings;
+CREATE TRIGGER trg_hr_payroll_document_settings_touch
+  BEFORE UPDATE ON public.hr_payroll_document_settings
+  FOR EACH ROW EXECUTE FUNCTION public.fn_touch_updated_at();
+
+
+-- Mirrored from supabase/migrations/20271007130000_hostel_floors.sql
+DROP TRIGGER IF EXISTS trg_hostel_floors_updated_at ON public.hostel_floors;
+CREATE TRIGGER trg_hostel_floors_updated_at
+  BEFORE UPDATE ON public.hostel_floors
+  FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
+
+DROP TRIGGER IF EXISTS trg_hostel_floors_identity_guard ON public.hostel_floors;
+CREATE TRIGGER trg_hostel_floors_identity_guard
+  BEFORE UPDATE ON public.hostel_floors
+  FOR EACH ROW EXECUTE FUNCTION public.fn_hostel_floors_identity_guard();
+
+DROP TRIGGER IF EXISTS trg_hostel_floors_sync_total ON public.hostel_floors;
+CREATE TRIGGER trg_hostel_floors_sync_total
+  AFTER INSERT OR DELETE ON public.hostel_floors
+  FOR EACH ROW EXECUTE FUNCTION public.fn_hostel_floors_sync_total();
+
+DROP TRIGGER IF EXISTS trg_hostel_blocks_seed_floors ON public.hostel_blocks;
+CREATE TRIGGER trg_hostel_blocks_seed_floors
+  AFTER INSERT ON public.hostel_blocks
+  FOR EACH ROW EXECUTE FUNCTION public.fn_hostel_blocks_seed_floors();
+
+
+-- Mirrored from supabase/migrations/20271007150000_hr_salary_register_manual_days.sql
+DROP TRIGGER IF EXISTS trg_hr_salary_register_manual_days_touch ON public.hr_salary_register_manual_days;
+CREATE TRIGGER trg_hr_salary_register_manual_days_touch
+  BEFORE UPDATE ON public.hr_salary_register_manual_days
+  FOR EACH ROW EXECUTE FUNCTION public.fn_touch_updated_at();
+
+-- Updated: 2026-10-07 - Target-gated raises: only the Director list changes the
+-- measurement switch 'hr.salary_revision.target_measurement_on' (true or false) and
+-- 'hr.salary_revision.target_rules' (shape checked), each change is logged, and
+-- each period's first marking is recorded in attendance_first_marks.
+-- Source: 20271007180207_hr_salary_revision_target_gated_raises.sql
+DROP TRIGGER IF EXISTS trg_guard_hr_salary_revision_target_rules ON public.platform_policies;
+CREATE TRIGGER trg_guard_hr_salary_revision_target_rules
+  BEFORE INSERT OR UPDATE OR DELETE ON public.platform_policies
+  FOR EACH ROW
+  EXECUTE FUNCTION public.fn_guard_hr_salary_revision_target_rules();
+
+DROP TRIGGER IF EXISTS trg_audit_hr_salary_revision_target_rules ON public.platform_policies;
+CREATE TRIGGER trg_audit_hr_salary_revision_target_rules
+  AFTER INSERT ON public.platform_policies
+  FOR EACH ROW
+  WHEN (NEW.policy_key IN ('hr.salary_revision.target_rules', 'hr.salary_revision.target_measurement_on'))
+  EXECUTE FUNCTION public.fn_audit_hr_salary_revision_target_rules();
+
+-- Round 8: an UPDATE is logged when either the old or the new key is one of
+-- the two settings, so renaming a setting away (it then reads as missing,
+-- i.e. OFF) is on record too.
+DROP TRIGGER IF EXISTS trg_audit_hr_salary_revision_target_rules_update ON public.platform_policies;
+CREATE TRIGGER trg_audit_hr_salary_revision_target_rules_update
+  AFTER UPDATE ON public.platform_policies
+  FOR EACH ROW
+  WHEN (NEW.policy_key IN ('hr.salary_revision.target_rules', 'hr.salary_revision.target_measurement_on') OR OLD.policy_key IN ('hr.salary_revision.target_rules', 'hr.salary_revision.target_measurement_on'))
+  EXECUTE FUNCTION public.fn_audit_hr_salary_revision_target_rules();
+
+DROP TRIGGER IF EXISTS trg_audit_hr_salary_revision_target_rules_delete ON public.platform_policies;
+CREATE TRIGGER trg_audit_hr_salary_revision_target_rules_delete
+  AFTER DELETE ON public.platform_policies
+  FOR EACH ROW
+  WHEN (OLD.policy_key IN ('hr.salary_revision.target_rules', 'hr.salary_revision.target_measurement_on'))
+  EXECUTE FUNCTION public.fn_audit_hr_salary_revision_target_rules();
+
+DROP TRIGGER IF EXISTS trg_zz_student_attendance_first_marks ON public.student_attendance;
+CREATE TRIGGER trg_zz_student_attendance_first_marks
+  AFTER INSERT OR UPDATE OF attendance_data ON public.student_attendance
+  FOR EACH ROW
+  EXECUTE FUNCTION public.fn_record_attendance_first_marks();
+
+
+-- ============================================================================
+-- Updated: 2026-10-07 - HR duty proofs: a file or a second-person check on the
+-- duties that move money or end a job (migration 20271007161123). Rule touch + audit triggers.
+-- ============================================================================
+DROP TRIGGER IF EXISTS hr_duty_proof_rules_touch_trg ON public.hr_duty_proof_rules;
+CREATE TRIGGER hr_duty_proof_rules_touch_trg
+  BEFORE UPDATE ON public.hr_duty_proof_rules
+  FOR EACH ROW EXECUTE FUNCTION public.fn_hr_duty_proof_rules_touch();
+
+DROP TRIGGER IF EXISTS hr_duty_proof_rules_audit_trg ON public.hr_duty_proof_rules;
+CREATE TRIGGER hr_duty_proof_rules_audit_trg
+  AFTER UPDATE ON public.hr_duty_proof_rules
+  FOR EACH ROW EXECUTE FUNCTION public.fn_hr_duty_proof_rules_audit();
+
+-- ===========================================================================
+-- Source: 20271007161139_hr_duty_playbooks_and_lessons.sql (triggers)
+-- HR staff harness — playbooks, the lessons log and credited authorship.
+-- Seeds (reason codes, two platform_policies rows, the ai_routine_schedules
+-- row) and the apply-time guards live only in the migration.
+-- ===========================================================================
+DROP TRIGGER IF EXISTS hr_duty_reason_codes_audit_trg ON public.hr_duty_reason_codes;
+
+CREATE TRIGGER hr_duty_reason_codes_audit_trg
+  BEFORE UPDATE ON public.hr_duty_reason_codes
+  FOR EACH ROW EXECUTE FUNCTION public.fn_hr_duty_reason_codes_audit();
+
+-- ============================================================================
+-- HR staff harness — chase ladder: triggers (functions in 02_functions.sql)
+-- Migration: 20270613101207_hr_duty_chase_ladder.sql
+-- Added: 2026-10-01 - duty register (config table), chase ledger, blocked marks,
+-- run log. Seed rows (38 duties, policies, schedule, loop row) live in the
+-- migration only.
+-- ============================================================================
+DROP TRIGGER IF EXISTS hr_duty_definitions_touch_trg ON public.hr_duty_definitions;
+CREATE TRIGGER hr_duty_definitions_touch_trg
+  BEFORE UPDATE ON public.hr_duty_definitions
+  FOR EACH ROW EXECUTE FUNCTION public.fn_hr_duty_definitions_touch();
+
+DROP TRIGGER IF EXISTS hr_duty_definitions_audit_trg ON public.hr_duty_definitions;
+CREATE TRIGGER hr_duty_definitions_audit_trg
+  AFTER UPDATE ON public.hr_duty_definitions
+  FOR EACH ROW EXECUTE FUNCTION public.fn_hr_duty_definitions_audit();
+
+-- Cold-read config (read once per cron run), so no pg_notify cache trigger.
+
+-- =====================================================================
+-- Updated: 2026-10-01 - HR memo detector run log + acknowledgement nudges
+-- Migration: 20270613101223_hr_memo_detector_schedule_disabled_with_dry_run.sql
+-- =====================================================================
+DROP TRIGGER IF EXISTS trg_hr_memo_nudges_updated_at ON public.hr_memo_nudges;
+CREATE TRIGGER trg_hr_memo_nudges_updated_at
+  BEFORE UPDATE ON public.hr_memo_nudges
+  FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+
+
+-- Updated: 2026-10-01 - HR staff harness (migration 20270613101125_hr_recruitment_nudges.sql)
+DROP TRIGGER IF EXISTS hr_recruitment_nudges_sent_updated_at ON public.hr_recruitment_nudges_sent;
+CREATE TRIGGER hr_recruitment_nudges_sent_updated_at
+  BEFORE UPDATE ON public.hr_recruitment_nudges_sent
+  FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+
+
+-- ============================================================================
+-- Updated: 2026-10-01 - HR intake helper (source: migrations/20270613101241_hr_intake_helper.sql)
+-- ============================================================================
+DROP TRIGGER IF EXISTS hr_intake_batches_updated_at ON public.hr_intake_batches;
+CREATE TRIGGER hr_intake_batches_updated_at
+  BEFORE UPDATE ON public.hr_intake_batches
+  FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+
+DROP TRIGGER IF EXISTS hr_intake_rows_updated_at ON public.hr_intake_rows;
+CREATE TRIGGER hr_intake_rows_updated_at
+  BEFORE UPDATE ON public.hr_intake_rows
+  FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+
+DROP TRIGGER IF EXISTS hr_intake_match_rules_updated_at ON public.hr_intake_match_rules;
+CREATE TRIGGER hr_intake_match_rules_updated_at
+  BEFORE UPDATE ON public.hr_intake_match_rules
+  FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+
+
+-- Updated: 2026-10-07 - Mirrored from supabase/migrations/20261022000100_learner_ig_post_claims_hardening.sql
+-- ig_learner_post_claims: a learner could INSERT a claim already confirmed (review finding #1, PR #4193).
+-- Fires before trg_ig_learner_post_claims_scope (name order), so the tenant stamp reads the pinned learner.
+DROP TRIGGER IF EXISTS trg_ig_learner_post_claims_guard ON public.ig_learner_post_claims;
+CREATE TRIGGER trg_ig_learner_post_claims_guard
+  BEFORE INSERT OR UPDATE ON public.ig_learner_post_claims
+  FOR EACH ROW EXECUTE FUNCTION public.fn_ig_learner_post_claim_guard();

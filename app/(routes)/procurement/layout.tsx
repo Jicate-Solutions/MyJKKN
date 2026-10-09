@@ -40,7 +40,7 @@ export default function ProcurementLayout({ children }: { children: React.ReactN
               You do not have permission to access the Procurement module. Please contact
               your administrator if you believe this is a mistake.
             </p>
-            <Button variant="outline" size="sm" onClick={() => router.push('/dashboard')}>
+            <Button variant="outline" size="sm" className="h-10 sm:h-8" onClick={() => router.push('/dashboard')}>
               Back to Dashboard
             </Button>
           </CardContent>
@@ -49,5 +49,9 @@ export default function ProcurementLayout({ children }: { children: React.ReactN
     );
   }
 
-  return <>{children}</>;
+  // The floating buttons (AI, share, quick actions, bug report) stack down the right
+  // edge of every page and covered whatever sat there: the last button of an action
+  // bar, a table's right-hand column. Every procurement page keeps a gutter clear of
+  // them. Phones are handled per bar (FormActionBar pads its right side).
+  return <div className="md:pr-16">{children}</div>;
 }

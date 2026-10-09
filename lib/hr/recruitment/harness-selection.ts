@@ -1,0 +1,687 @@
+// =====================================================================================
+// Recruitment harness — who is due a nudge, and who receives it (pure logic)
+// =====================================================================================
+// HR staff harness, duty cards R5 (approval steps), R6 (interview scorecards) and
+// R8 (issue the offer, record the joining). Design:
+// artifacts/hr-staff-harness-design-2026-10-01.html.
+//
+// Every function in this file is pure: the loader (harness-run.ts) reads the rows,
+// these decide, the runner sends. That split is what lets the tests prove the
+// rules without a database.
+//
+// THE FIVE NUDGES
+//   approval_reminder        a candidate has waited at one approval step longer than
+//                            that step's frozen escalate_after_hours (seeded 72) —
+//                            ONE reminder to the step's approver.
+//   approval_escalation      48 hours after that reminder the step is still waiting —
+//                            ONE notice to the HR Head (role key 'hr_head').
+//   scorecard_missing        24 hours after an interview an interviewer on the panel
+//                            has no scorecard — ONE nudge to that interviewer.
+//   offer_not_issued         a candidate has sat at 'package_fixed' for 2 days —
+//                            ONE nudge to the job's creator, or HR if there is none.
+//   joining_outcome_missing  'offer_issued' and the joining date passed 2 days ago
+//                            with nothing recorded — ONE nudge to the same people.
+//
+// GO-LIVE CUTOFF (Director, 7 Oct 2026: reminders stay on, but no backlog flood)
+//   Every nudge measures a wait that started at some moment — the step began
+//   waiting, the interview took place, the package was fixed, the joining date
+//   came. A wait that started BEFORE go-live is never nudged; one that starts
+//   after is nudged as before. Go-live is the moment migration 20270613101125
+//   applied, stored in the platform_policies row GO_LIVE_POLICY_KEY. If that row
+//   is missing or unreadable, go-live is taken as the run's own `now`, so nothing
+//   older than now is nudged — the cutoff fails toward silence, never a flood.
+//
+// "ONE" is enforced by hr_recruitment_nudges_sent (UNIQUE (kind, ref_key)). A nudge
+// is recorded even when it found nobody to send to: for approval_reminder that is
+// what starts the 48-hour clock, so a step whose role NOBODY holds still reaches the
+// HR Head instead of waiting for ever.
+//
+// WHO IS "THE STEP'S APPROVER" — mirrors fn_decide_recruitment_candidate
+//   * a step pinned to a user (approver_user_id)  -> that user
+//   * otherwise                                    -> holders of approver_role
+//     (user_roles, compared lower-case, as the RPC and fn_my_desk_waiting do),
+//     confined to people who can reach the candidate's institution, because the
+//     RPC refuses an 'own'-scoped HOD of another college — telling them would be a
+//     nudge they cannot act on.
+//   A deactivated or login-disabled account is never a recipient.
+// =====================================================================================
+
+export const HOUR_MS = 60 * 60 * 1000;
+
+/** Frozen default, same as RecruitmentService.toChainSteps (R3.3). */
+export const DEFAULT_ESCALATE_AFTER_HOURS = 72;
+/** After the approver's reminder, how long before the HR Head hears about it. */
+export const ESCALATION_GRACE_HOURS = 48;
+/** How long after the interview start a missing scorecard is nudged. */
+export const SCORECARD_DUE_HOURS = 24;
+/** Interviews older than this are not chased — a scorecard written weeks later is not a record of the interview. */
+export const SCORECARD_LOOKBACK_DAYS = 14;
+/** 'package_fixed' for this long with no offer -> nudge. */
+export const OFFER_DUE_HOURS = 48;
+/** Days after the expected joining date before the outcome is chased. */
+export const JOINING_OUTCOME_GRACE_DAYS = 2;
+/** The role that owns a stuck approval once the approver has been reminded. */
+export const HR_HEAD_ROLE_KEY = 'hr_head';
+/** Global platform_policies row the migration seeds with now(): the go-live moment. */
+export const GO_LIVE_POLICY_KEY = 'hr.recruitment.nudges_go_live_at';
+
+/**
+ * The go-live moment from the stored policy value (a JSON timestamp string).
+ * Anything missing or unparseable answers `now`: nothing older than this run
+ * is nudged, so a broken config row can never release the backlog.
+ */
+export function goLiveFromPolicy(value: unknown, now: Date): Date {
+  if (typeof value === 'string') {
+    const t = Date.parse(value);
+    if (!Number.isNaN(t)) return new Date(t);
+  }
+  return now;
+}
+
+/** True when the wait began before go-live, or its start cannot be read. */
+export function startedBeforeGoLive(startIso: string | null | undefined, goLiveAt: Date): boolean {
+  const t = Date.parse(startIso ?? '');
+  return Number.isNaN(t) || t < goLiveAt.getTime();
+}
+
+export type NudgeKind =
+  | 'approval_reminder'
+  | 'approval_escalation'
+  | 'scorecard_missing'
+  | 'offer_not_issued'
+  | 'joining_outcome_missing';
+
+export const NUDGE_KINDS: readonly NudgeKind[] = [
+  'approval_reminder',
+  'approval_escalation',
+  'scorecard_missing',
+  'offer_not_issued',
+  'joining_outcome_missing',
+];
+
+// ---------------------------------------------------------------------------
+// Input shapes (what the loader hands in)
+// ---------------------------------------------------------------------------
+
+export interface ChainStep {
+  approver_role?: string | null;
+  approver_user_id?: string | null;
+  status?: string | null;
+  decided_at?: string | null;
+  escalate_after_hours?: number | null;
+}
+
+export interface HarnessCandidate {
+  id: string;
+  name: string;
+  role_title: string;
+  status: string;
+  institution_id: string | null;
+  approval_chain: ChainStep[] | null;
+  current_step: number;
+  submitted_at: string;
+  final_decided_at: string | null;
+  expected_joining_date: string | null;
+  actual_joining_date: string | null;
+  offer_issued_at: string | null;
+  /** role_specific_details->>job_id when it is uuid-shaped, else null. */
+  job_id: string | null;
+}
+
+export interface HarnessInterview {
+  id: string;
+  candidate_id: string;
+  round_number: number;
+  round_name: string | null;
+  scheduled_at: string;
+  status: string;
+  panel_member_ids: string[];
+}
+
+export interface DirectoryUser {
+  id: string;
+  fullName: string;
+  institutionId: string | null;
+  /** profiles.is_active AND NOT profiles.is_login_disabled */
+  active: boolean;
+  isSuperAdmin: boolean;
+  /** Role keys from user_roles, lower-cased. The step-matching set. */
+  roleKeys: string[];
+  /** Any role (user_roles OR the legacy profiles.role) has institution_scope = 'all'. */
+  allScope: boolean;
+  /** Active user_institution_access grants. */
+  grantInstitutionIds: string[];
+  /** A role (user_roles OR legacy profiles.role) grants hr.recruitment.edit. */
+  canEditRecruitment: boolean;
+}
+
+export interface Directory {
+  users: Map<string, DirectoryUser>;
+  /** institution id -> counselling_code (non-blank only); siblings share a code. */
+  counsellingCodeOf: Map<string, string>;
+  /** role key (lower) -> display name. */
+  roleNameOf: Map<string, string>;
+}
+
+export interface SentNudge {
+  kind: NudgeKind;
+  ref_key: string;
+  sent_at: string;
+  /** Row id — present when read by the runner; the selection rules ignore it. */
+  id?: string;
+  /** Set once the send landed; NULL on a claim whose send never finished. */
+  notification_id?: string | null;
+  /** {} = the nudge fell due and found nobody to tell (a terminal record). */
+  recipient_ids?: string[] | null;
+}
+
+/**
+ * A claim older than this with people to tell and no notification recorded is a
+ * send that never finished (the run was killed between the claim and the send).
+ * Comfortably longer than the route's 120-second maxDuration, so a run still in
+ * progress never has its own claims taken away.
+ */
+export const STALE_CLAIM_MINUTES = 15;
+
+/**
+ * Claims whose send MAY not have finished: the row has people to tell and no
+ * notification recorded. Either the run died between the claim and the send, or
+ * the send landed and recording its id did not (a failed update, or a row written
+ * by the code before this follow-up). The runner tells the two apart by the
+ * notification's idempotency key (releaseStaleClaims): a landed send is recorded
+ * on the row with its original sent_at kept, so the HR Head's clock does not
+ * restart; only a send that never happened is released for a new claim (review of
+ * #4149, finding 3; review of #4260, finding 1).
+ *
+ * Never returned: a row with recipient_ids = {} (it found nobody — that row is the
+ * record which starts the HR Head's 48-hour clock), a row with a notification, a
+ * row younger than STALE_CLAIM_MINUTES, or one whose sent_at cannot be read.
+ */
+export function staleUnsentClaims(rows: SentNudge[], now: Date): string[] {
+  const cutoff = now.getTime() - STALE_CLAIM_MINUTES * 60 * 1000;
+  const out: string[] = [];
+  for (const r of rows) {
+    if (!r.id || r.notification_id) continue;
+    if (!Array.isArray(r.recipient_ids) || r.recipient_ids.length === 0) continue;
+    const t = Date.parse(r.sent_at ?? '');
+    if (Number.isNaN(t) || t > cutoff) continue;
+    out.push(r.id);
+  }
+  return out;
+}
+
+export interface Nudge {
+  kind: NudgeKind;
+  refKey: string;
+  candidateId: string;
+  recipients: string[];
+  title: string;
+  body: string;
+  url: string;
+}
+
+// ---------------------------------------------------------------------------
+// Small helpers
+// ---------------------------------------------------------------------------
+
+const TERMINAL_CANDIDATE_STATUSES = new Set(['rejected', 'withdrawn', 'offer_rescinded', 'no_show']);
+const WAITING_STATUSES = new Set(['submitted', 'pending_approval']);
+
+/** metadata.source of every recruitment nudge, and the prefix of its notification key. */
+export const NUDGE_SOURCE = 'hr_recruitment_harness';
+
+/**
+ * notifications.idempotency_key of a scheduled nudge. One definition, used by the
+ * send and by the check that finds a send which landed without its id recorded.
+ */
+export function nudgeIdempotencyKey(kind: NudgeKind, refKey: string): string {
+  return `${NUDGE_SOURCE}:${kind}:${refKey}`;
+}
+
+export function sentKey(kind: NudgeKind, refKey: string): string {
+  return `${kind}|${refKey}`;
+}
+
+export function indexSent(sent: SentNudge[]): Map<string, SentNudge> {
+  return new Map(sent.map((s) => [sentKey(s.kind, s.ref_key), s]));
+}
+
+function hoursBetween(fromIso: string, now: Date): number {
+  const t = Date.parse(fromIso);
+  if (Number.isNaN(t)) return 0;
+  return (now.getTime() - t) / HOUR_MS;
+}
+
+function wholeDays(hours: number): number {
+  return Math.floor(hours / 24);
+}
+
+function plural(n: number, one: string, many: string): string {
+  return `${n} ${n === 1 ? one : many}`;
+}
+
+/** YYYY-MM-DD of `now` in India time. */
+export function istDate(now: Date): string {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Kolkata',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(now);
+}
+
+function addDays(ymd: string, days: number): string {
+  const d = new Date(`${ymd}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+
+function formatIstDate(isoOrYmd: string): string {
+  const d = /^\d{4}-\d{2}-\d{2}$/.test(isoOrYmd)
+    ? new Date(`${isoOrYmd}T12:00:00+05:30`)
+    : new Date(isoOrYmd);
+  return new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Asia/Kolkata',
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+  }).format(d);
+}
+
+function candidateLabel(c: { name: string; role_title: string }): string {
+  const role = (c.role_title ?? '').trim();
+  return role ? `${c.name.trim()} — ${role}` : c.name.trim();
+}
+
+export function roleLabel(roleKey: string | null | undefined, dir: Directory): string {
+  const key = (roleKey ?? '').toLowerCase();
+  if (!key) return 'an unnamed role';
+  return dir.roleNameOf.get(key) ?? key.replace(/_/g, ' ');
+}
+
+// ---------------------------------------------------------------------------
+// Reach and recipients
+// ---------------------------------------------------------------------------
+
+/**
+ * Can this user act on a record of `institutionId`? Mirrors
+ * role_has_institution_access(), evaluated for another user instead of auth.uid():
+ * NULL institution, super admin, any 'all'-scoped role, own institution, a sibling
+ * institution sharing a non-blank counselling code, or an active grant.
+ *
+ * NOT mirrored: Director handovers (fn_handover_grants_key). A handover grants a
+ * permission key, not institution reach, so it does not change this answer.
+ */
+export function userReachesInstitution(
+  user: DirectoryUser,
+  institutionId: string | null,
+  dir: Directory,
+): boolean {
+  if (institutionId === null) return true;
+  if (user.isSuperAdmin || user.allScope) return true;
+  if (user.institutionId === institutionId) return true;
+  if (user.institutionId) {
+    const mine = dir.counsellingCodeOf.get(user.institutionId);
+    if (mine && mine === dir.counsellingCodeOf.get(institutionId)) return true;
+  }
+  return user.grantInstitutionIds.includes(institutionId);
+}
+
+/** The step a candidate is waiting at, or null when there is none to wait at. */
+export function currentPendingStep(c: HarnessCandidate): ChainStep | null {
+  const chain = Array.isArray(c.approval_chain) ? c.approval_chain : [];
+  const idx = c.current_step;
+  if (!Number.isInteger(idx) || idx < 0 || idx >= chain.length) return null;
+  const step = chain[idx];
+  if (!step || step.status !== 'pending') return null;
+  return step;
+}
+
+/**
+ * When the current step started waiting: the moment the previous step was decided,
+ * or the submission for the first step. A previous step with no decided_at (an
+ * old, hand-repaired chain) falls back to the submission — the older clock, so a
+ * malformed chain can only make a reminder earlier, never suppress it.
+ */
+export function stepWaitingSince(c: HarnessCandidate): string {
+  const chain = Array.isArray(c.approval_chain) ? c.approval_chain : [];
+  if (c.current_step > 0) {
+    const prev = chain[c.current_step - 1];
+    if (prev?.decided_at) return prev.decided_at;
+  }
+  return c.submitted_at;
+}
+
+export function stepEscalateAfterHours(step: ChainStep): number {
+  const h = Number(step.escalate_after_hours);
+  return Number.isFinite(h) && h > 0 ? h : DEFAULT_ESCALATE_AFTER_HOURS;
+}
+
+/** Who may decide this step — see the file header. Sorted for stable output. */
+export function resolveStepApprovers(
+  step: ChainStep,
+  candidateInstitutionId: string | null,
+  dir: Directory,
+): string[] {
+  const pinned = step.approver_user_id ?? null;
+  if (pinned) {
+    // A pinned step is routed to one person by name; fn_my_desk_waiting shows it
+    // on their desk whatever their institution, so they are told too.
+    const u = dir.users.get(pinned);
+    return u && u.active ? [u.id] : [];
+  }
+  const role = (step.approver_role ?? '').toLowerCase();
+  if (!role) return [];
+  return holdersOfRole(role, candidateInstitutionId, dir);
+}
+
+export function holdersOfRole(
+  roleKeyLower: string,
+  institutionId: string | null,
+  dir: Directory,
+): string[] {
+  const out: string[] = [];
+  for (const u of dir.users.values()) {
+    if (!u.active) continue;
+    if (!u.roleKeys.includes(roleKeyLower)) continue;
+    if (!userReachesInstitution(u, institutionId, dir)) continue;
+    out.push(u.id);
+  }
+  return out.sort();
+}
+
+/**
+ * Who follows up an offer: the job's creator when they can still edit recruitment,
+ * otherwise the college's HR editors as hr_recruitment_application_recipient_ids()
+ * defines them — the SAME list the public-careers "new applicant" bell uses:
+ * hr.recruitment.edit holders who can reach the candidate's institution, falling
+ * back to all-scope editors only when the college has none, super admins excluded.
+ *
+ * @param hrEditors that function's answer for this candidate's institution.
+ */
+export function offerRecipients(
+  jobCreatorId: string | null,
+  hrEditors: string[],
+  dir: Directory,
+): string[] {
+  if (jobCreatorCanAct(jobCreatorId, dir)) return [jobCreatorId as string];
+  return Array.from(new Set(hrEditors)).sort();
+}
+
+/** The job's creator is still active and can still edit recruitment. */
+export function jobCreatorCanAct(jobCreatorId: string | null, dir: Directory): boolean {
+  if (!jobCreatorId) return false;
+  const creator = dir.users.get(jobCreatorId);
+  return !!creator && creator.active && creator.canEditRecruitment;
+}
+
+/**
+ * The candidates the offer rules may look at when some colleges' HR-editor lookup
+ * failed. Only a candidate whose nudge would FALL BACK to those editors waits for
+ * the next run; one whose job creator can act is nudged as usual, because it never
+ * needed the list (review of #4260, finding 3).
+ *
+ * @param unavailable institutionKey() of each college whose lookup failed
+ * @param jobCreatorOf job id -> hr_recruitment_jobs.created_by
+ */
+export function offerCandidatesToCheck(
+  candidates: HarnessCandidate[],
+  unavailable: Set<string>,
+  jobCreatorOf: Map<string, string | null>,
+  dir: Directory,
+): HarnessCandidate[] {
+  return candidates.filter((c) => {
+    if (!unavailable.has(institutionKey(c.institution_id))) return true;
+    const creator = c.job_id ? jobCreatorOf.get(c.job_id) ?? null : null;
+    return jobCreatorCanAct(creator, dir);
+  });
+}
+
+/** Map key for an institution id, including the NULL institution. */
+export function institutionKey(institutionId: string | null): string {
+  return institutionId ?? 'none';
+}
+
+// ---------------------------------------------------------------------------
+// R5 — approval steps
+// ---------------------------------------------------------------------------
+
+export function approvalRefKey(candidateId: string, stepIndex: number): string {
+  return `${candidateId}:${stepIndex}`;
+}
+
+export function selectApprovalNudges(
+  candidates: HarnessCandidate[],
+  sent: Map<string, SentNudge>,
+  dir: Directory,
+  now: Date,
+  goLiveAt: Date,
+): Nudge[] {
+  const out: Nudge[] = [];
+  for (const c of candidates) {
+    if (!WAITING_STATUSES.has(c.status)) continue;
+    const step = currentPendingStep(c);
+    if (!step) continue;
+    if (startedBeforeGoLive(stepWaitingSince(c), goLiveAt)) continue;
+
+    const chainLen = c.approval_chain?.length ?? 0;
+    const stepNo = c.current_step + 1;
+    const waited = hoursBetween(stepWaitingSince(c), now);
+    const limit = stepEscalateAfterHours(step);
+    if (waited < limit) continue;
+
+    const refKey = approvalRefKey(c.id, c.current_step);
+    const label = candidateLabel(c);
+    const who = roleLabel(step.approver_role, dir);
+    const days = wholeDays(waited);
+
+    const reminder = sent.get(sentKey('approval_reminder', refKey));
+    if (!reminder) {
+      out.push({
+        kind: 'approval_reminder',
+        refKey,
+        candidateId: c.id,
+        recipients: resolveStepApprovers(step, c.institution_id, dir),
+        title: `Approval waiting ${plural(days, 'day', 'days')}: ${label}`,
+        body:
+          `This hire has waited ${plural(Math.floor(waited), 'hour', 'hours')} at step ${stepNo} of ${chainLen} ` +
+          `(${who}). The step should be decided within ${limit} hours. ` +
+          'Open your approvals list to approve or reject.',
+        url: '/hr/recruitment/approvals',
+      });
+      continue;
+    }
+
+    if (sent.has(sentKey('approval_escalation', refKey))) continue;
+    if (hoursBetween(reminder.sent_at, now) < ESCALATION_GRACE_HOURS) continue;
+
+    const approvers = resolveStepApprovers(step, c.institution_id, dir);
+    const whyStuck = approvers.length === 0
+      ? `Nobody who can decide it could be found (${who}), so the reminder reached no one. ` +
+        'Reassign the step or fix the approval flow.'
+      : `The approver (${who}) was reminded ${plural(wholeDays(hoursBetween(reminder.sent_at, now)), 'day', 'days')} ago and has not decided.`;
+    out.push({
+      kind: 'approval_escalation',
+      refKey,
+      candidateId: c.id,
+      recipients: holdersOfRole(HR_HEAD_ROLE_KEY, c.institution_id, dir),
+      title: `Stuck approval, ${plural(days, 'day', 'days')}: ${label}`,
+      body: `Step ${stepNo} of ${chainLen} has waited ${plural(days, 'day', 'days')}. ${whyStuck}`,
+      url: `/hr/recruitment/candidates/${c.id}`,
+    });
+  }
+  return out;
+}
+
+// ---------------------------------------------------------------------------
+// R6 — interview scorecards
+// ---------------------------------------------------------------------------
+
+export function scorecardRefKey(interviewId: string, interviewerId: string): string {
+  return `${interviewId}:${interviewerId}`;
+}
+
+/**
+ * @param submitted  keys `${interview_id}:${interviewer_id}` of scorecards that exist
+ * @param candidateOf candidate id -> the candidate (for the name and status)
+ */
+export function selectScorecardNudges(
+  interviews: HarnessInterview[],
+  submitted: Set<string>,
+  candidateOf: Map<string, Pick<HarnessCandidate, 'id' | 'name' | 'role_title' | 'status'>>,
+  sent: Map<string, SentNudge>,
+  dir: Directory,
+  now: Date,
+  goLiveAt: Date,
+): Nudge[] {
+  const out: Nudge[] = [];
+  for (const iv of interviews) {
+    if (iv.status !== 'scheduled' && iv.status !== 'completed') continue;
+    if (startedBeforeGoLive(iv.scheduled_at, goLiveAt)) continue;
+    const age = hoursBetween(iv.scheduled_at, now);
+    if (age < SCORECARD_DUE_HOURS || age > SCORECARD_LOOKBACK_DAYS * 24) continue;
+    const cand = candidateOf.get(iv.candidate_id);
+    if (!cand || TERMINAL_CANDIDATE_STATUSES.has(cand.status)) continue;
+
+    const round = iv.round_name?.trim() || `Round ${iv.round_number}`;
+    for (const interviewerId of Array.from(new Set(iv.panel_member_ids ?? []))) {
+      const refKey = scorecardRefKey(iv.id, interviewerId);
+      if (submitted.has(refKey)) continue;
+      if (sent.has(sentKey('scorecard_missing', refKey))) continue;
+      const u = dir.users.get(interviewerId);
+      out.push({
+        kind: 'scorecard_missing',
+        refKey,
+        candidateId: cand.id,
+        recipients: u && u.active ? [u.id] : [],
+        title: `Scorecard due: ${candidateLabel(cand)}`,
+        body:
+          `You were on the panel for ${round} on ${formatIstDate(iv.scheduled_at)}. ` +
+          'Your scorecard is not in yet. Please add it while the interview is fresh.',
+        url: `/hr/recruitment/interviews/${iv.id}`,
+      });
+    }
+  }
+  return out;
+}
+
+// ---------------------------------------------------------------------------
+// R8 — issue the offer, record the joining
+// ---------------------------------------------------------------------------
+
+function candidatePageFor(c: HarnessCandidate): string {
+  // Both pages carry the Issue Offer control (fn_my_desk_waiting's offer href rule).
+  return c.job_id ? `/hr/recruitment/approvals/${c.job_id}` : `/hr/recruitment/candidates/${c.id}`;
+}
+
+/**
+ * @param packageFixedAt candidate id -> when the package was fixed (earliest
+ *   approved package). Falls back to final_decided_at, then submitted_at.
+ * @param jobCreatorOf job id -> hr_recruitment_jobs.created_by
+ * @param hrEditorsOf institutionKey() -> hr_recruitment_application_recipient_ids()
+ */
+export function selectOfferNudges(
+  candidates: HarnessCandidate[],
+  packageFixedAt: Map<string, string>,
+  jobCreatorOf: Map<string, string | null>,
+  hrEditorsOf: Map<string, string[]>,
+  sent: Map<string, SentNudge>,
+  dir: Directory,
+  now: Date,
+  goLiveAt: Date,
+): Nudge[] {
+  const out: Nudge[] = [];
+  const today = istDate(now);
+  const goLiveDay = istDate(goLiveAt);
+  for (const c of candidates) {
+    const creator = c.job_id ? jobCreatorOf.get(c.job_id) ?? null : null;
+    const hrEditors = hrEditorsOf.get(institutionKey(c.institution_id)) ?? [];
+
+    if (c.status === 'package_fixed') {
+      const since = packageFixedAt.get(c.id) ?? c.final_decided_at ?? c.submitted_at;
+      const waited = hoursBetween(since, now);
+      const refKey = c.id;
+      if (startedBeforeGoLive(since, goLiveAt)) continue;
+      if (waited >= OFFER_DUE_HOURS && !sent.has(sentKey('offer_not_issued', refKey))) {
+        out.push({
+          kind: 'offer_not_issued',
+          refKey,
+          candidateId: c.id,
+          recipients: offerRecipients(creator, hrEditors, dir),
+          title: `Offer not issued: ${candidateLabel(c)}`,
+          body:
+            `The salary package was fixed ${plural(wholeDays(waited), 'day', 'days')} ago and no offer has gone out. ` +
+            'Issue the offer, or record why the hire is not going ahead.',
+          url: candidatePageFor(c),
+        });
+      }
+      continue;
+    }
+
+    if (c.status === 'offer_issued') {
+      if (!c.expected_joining_date || c.actual_joining_date) continue;
+      const joining = c.expected_joining_date.slice(0, 10);
+      // A joining day that fell before go-live is backlog.
+      if (joining < goLiveDay) continue;
+      if (today < addDays(joining, JOINING_OUTCOME_GRACE_DAYS)) continue;
+      // Keyed on the date: if HR moves the joining date, the new date is chased once too.
+      const refKey = `${c.id}:${joining}`;
+      if (sent.has(sentKey('joining_outcome_missing', refKey))) continue;
+      out.push({
+        kind: 'joining_outcome_missing',
+        refKey,
+        candidateId: c.id,
+        recipients: offerRecipients(creator, hrEditors, dir),
+        title: `Joining date passed: ${candidateLabel(c)}`,
+        body:
+          `${c.name.trim()} was due to join on ${formatIstDate(joining)}. ` +
+          'Record the outcome: joined, or did not come (no-show).',
+        url: `/hr/recruitment/candidates/${c.id}`,
+      });
+    }
+  }
+  return out;
+}
+
+// ---------------------------------------------------------------------------
+// Step-ready notice (sent at the moment a chain advances, not by the schedule)
+// ---------------------------------------------------------------------------
+
+export interface StepReadyNotice {
+  candidateId: string;
+  stepIndex: number;
+  recipients: string[];
+  title: string;
+  body: string;
+  url: string;
+}
+
+/**
+ * The notice for the NEXT approver after a step is approved. Returns null when the
+ * candidate is not waiting at a pending step (the chain finished, or was rejected).
+ * The person who just acted is left out: they are looking at the screen already.
+ */
+export function buildStepReadyNudge(
+  c: HarnessCandidate,
+  actorId: string,
+  actorName: string,
+  dir: Directory,
+): StepReadyNotice | null {
+  if (!WAITING_STATUSES.has(c.status)) return null;
+  const step = currentPendingStep(c);
+  if (!step) return null;
+  const chainLen = c.approval_chain?.length ?? 0;
+  const recipients = resolveStepApprovers(step, c.institution_id, dir).filter((id) => id !== actorId);
+  const stepNo = c.current_step + 1;
+  const limit = stepEscalateAfterHours(step);
+  return {
+    candidateId: c.id,
+    stepIndex: c.current_step,
+    recipients,
+    title: `Your approval is needed: ${candidateLabel(c)}`,
+    body:
+      `${actorName} approved step ${stepNo - 1} of ${chainLen}. Step ${stepNo} (${roleLabel(step.approver_role, dir)}) ` +
+      `is now waiting on you. Please decide within ${limit} hours.`,
+    url: '/hr/recruitment/approvals',
+  };
+}

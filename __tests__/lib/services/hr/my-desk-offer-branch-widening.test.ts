@@ -36,7 +36,6 @@ const DIR = path.join(process.cwd(), 'supabase', 'migrations');
 /** The NEWEST authored CREATE OR REPLACE of this function — see the note above. */
 const PREV = path.join(DIR, '20260908170000_leave_approval_org_scope.sql');
 const NEXT = path.join(DIR, '20261202090000_fn_my_desk_waiting_offer_issued.sql');
-const SETUP = path.join(process.cwd(), 'supabase', 'setup', '02_functions.sql');
 
 const BRANCHES = [
   'recruitment',
@@ -188,34 +187,21 @@ describe('fn_my_desk_waiting — 20261202090000 widens the offer branch and noth
   });
 });
 
-describe('fn_my_desk_waiting — the setup/02_functions.sql mirror is byte-identical', () => {
+describe('fn_my_desk_waiting — 20261202090000 on its own terms', () => {
+  // The setup/02_functions.sql mirror checks that stood here moved on
+  // 2026-10-01: 20270613101149 (HR queues + due_at) superseded this body, and
+  // the setup file now carries the function ONCE, as that migration left it.
+  // __tests__/lib/services/hr/my-desk-hr-queues.test.ts holds the mirror to
+  // the new migration byte for byte, and re-proves that the six branches this
+  // file protects survive there unchanged apart from their due_at line.
   const migBlocks = fnBlocks(NEXT);
-  const setupBlocks = fnBlocks(SETUP);
 
   it('the migration declares the function exactly once', () => {
     expect(migBlocks).toHaveLength(1);
   });
 
-  it('the setup file still carries TWO blocks of it — the later one wins on apply', () => {
-    // Not a defect to fix here: the file has held two since 2026-09-08. What
-    // matters is that neither is stale, so a reader diffing them sees no drift.
-    expect(setupBlocks).toHaveLength(2);
-  });
-
-  it.each([0, 1])('setup block %i is byte-identical to the migration, comments included', (i) => {
-    expect(sha(setupBlocks[i])).toBe(sha(migBlocks[0]));
-  });
-
-  it("the mirror's COMMENT ON FUNCTION is byte-identical to the migration's", () => {
-    // This is the assertion round 1 lacked. The mirror kept the old COMMENT, which
-    // still said `offer_issued` "has never been used in production" and that the
-    // candidate page "carries no control for it — a known product gap". A whole-block
-    // compare that stopped at $$; could not see a COMMENT that sits after it.
-    const migComment = fnComments(NEXT);
-    const setupComment = fnComments(SETUP);
-    expect(migComment).toHaveLength(1);
-    expect(setupComment).toHaveLength(1);
-    expect(sha(setupComment[0])).toBe(sha(migComment[0]));
+  it('declares exactly one COMMENT ON FUNCTION', () => {
+    expect(fnComments(NEXT)).toHaveLength(1);
   });
 
   it('the rewritten COMMENT no longer asserts the three things this PR made false', () => {

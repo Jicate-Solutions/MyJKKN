@@ -119,6 +119,18 @@ const ADDED: Expected[] = [
   },
 ];
 
+ADDED.push(
+  { url: 'fixture-mode', slug: ['fixture-mode'], name: 'fixture-mode', params: {}, methods: ['POST'] },
+  { url: 'manual-matches', slug: ['manual-matches'], name: 'manual-matches', params: {}, methods: ['POST'] },
+  {
+    url: `manual-matches/${MATCH_ID}`,
+    slug: ['manual-matches', MATCH_ID],
+    name: 'manual-matches-match',
+    params: { matchId: MATCH_ID },
+    methods: ['PATCH', 'DELETE'],
+  }
+);
+
 const ALL_ROUTES: Expected[] = [...ORIGINALS, ...ADDED];
 
 const ALL_METHODS: TournamentMethod[] = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'];
@@ -208,6 +220,8 @@ describe('tournament catch-all dispatch', () => {
     [['public-register', 'extra']],
     [['fixtures', 'extra']],
     [['spot-entry', 'extra']],
+    [['fixture-mode', 'extra']],
+    [['manual-matches', MATCH_ID, 'extra']],
     [['matches', MATCH_ID, 'side', 'extra']],
   ])('rejects the unknown path /%s', (slug) => {
     expect(matchTournamentRoute(slug)).toBeNull();

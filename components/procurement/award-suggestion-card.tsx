@@ -157,7 +157,7 @@ export function AwardSuggestionCard({
         ) : lockedReason ? (
           <span className="text-xs text-muted-foreground">{lockedReason}</span>
         ) : (
-          <Button size="sm" onClick={apply} disabled={applying || !messageId}>
+          <Button size="sm" className="h-10 sm:h-8" onClick={apply} disabled={applying || !messageId}>
             {applying ? 'Applying…' : messageId ? 'Apply these choices' : 'Saving…'}
           </Button>
         )}

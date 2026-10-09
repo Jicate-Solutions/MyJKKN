@@ -5,6 +5,7 @@ import { NextResponse, connection } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { generateTemporaryPassword } from '@/lib/utils/temporary-password';
 import { INDUCTION_ELIGIBLE_LIFECYCLE_STATUSES } from '@/lib/constants/induction-access';
+import { findDuplicateLearners, describeDuplicateLearner } from '@/lib/services/learner-duplicate-guard';
 
 // Must match check-missing-profiles/route.ts and complete-onboarding/route.ts
 // exactly — all three create/preview the same login and must agree on scope.
@@ -109,6 +110,7 @@ export async function POST(request: Request) {
         student_mobile,
         institution_id,
         department_id,
+        admission_year_id,
         gender,
         lifecycle_status,
         is_profile_complete
@@ -376,6 +378,21 @@ export async function POST(request: Request) {
               success: true
             });
           }
+          continue;
+        }
+
+        // Same person as another live learner → a login minted now forks the identity
+        // (the …26pb@ / …26bp@ incident). Staff merge or remove the duplicate first.
+        // A failed check throws into the catch below, so no login is created blind.
+        const duplicates = await findDuplicateLearners(supabaseAdmin, learner, learner.id);
+        if (duplicates.length > 0) {
+          errors.push({
+            learner_id: learner.id,
+            email: learner.college_email,
+            full_name: fullName,
+            error: `Possible duplicate of ${duplicates.map(describeDuplicateLearner).join('; ')} — resolve it before creating a login`,
+            success: false
+          });
           continue;
         }
 

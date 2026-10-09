@@ -53,10 +53,27 @@ const SIDEBAR = 'lib/sidebarMenuLink.ts';
  * etc.). This mirrors `NAV_EXCLUDE` in the predecessor script.
  */
 const NAV_EXCLUDE = new Set<string>([
+  // Bring in Candidates — review one upload. Reached by clicking an upload on the
+  // chip-reachable /hr/recruitment/intake list (or right after preparing one), as
+  // `/hr/recruitment/intake/batch?batchId=<id>`; it shows a "no upload chosen"
+  // state without the id. Static (not [batchId]) to stay under the route budget.
+  '/hr/recruitment/intake/batch',
+  // InstaSolver one report path (Director, 5–6 Oct 2026). The desk's old
+  // "Report an issue" and "Request an item" forms are now redirect stubs to the
+  // chooser (/instasolver?moved=1). Only old bookmarks reach them, so they have
+  // no chip surface on purpose.
+  '/instasolver/issues/new',
+  '/instasolver/requirements/new',
   // My Pay Changes — the salary revision outcome notice (20270519090000).
   // Reached from the in-app notice sent at the Director's yes; a team member
   // has nothing to find there before one, so it has no sidebar row.
   '/hr/my-pay-changes',
+  // HR Playbooks (20271007161139). Reached from the "How this is done" card on
+  // each HR duty screen (leave approvals, attendance corrections, document
+  // verification, photo review, HR form inbox, recruitment approvals), whose
+  // link opens /hr/playbooks?duty=<code>. It has no sidebar row: the HR nav
+  // files belong to other in-flight work (#4163).
+  '/hr/playbooks',
   // Induction Session Catalog — the curated cross-college "best sessions" library.
   // Reached via the "Session catalog" button on the chip-reachable /events/induction
   // landing page (not a tier-strip destination). Gated induction.view in MENU_PERMISSIONS.

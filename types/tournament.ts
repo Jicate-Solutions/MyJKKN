@@ -812,6 +812,36 @@ export interface SetMatchSideDto {
   expected_entry_id: string | null;
 }
 
+/**
+ * A division's fixtures are drawn by fn_generate_fixtures ('auto', the default)
+ * or built match by match by the organiser ('manual', config.fixture_mode).
+ */
+export type FixtureMode = 'auto' | 'manual';
+
+export function divisionFixtureMode(config: Record<string, unknown> | null | undefined): FixtureMode {
+  return config?.fixture_mode === 'manual' ? 'manual' : 'auto';
+}
+
+/** Switch a division's fixture mode; 'auto' also regenerates the bracket. */
+export interface SetFixtureModeDto {
+  division_id: string;
+  mode: FixtureMode;
+}
+
+/**
+ * Add (no match id) or edit a match in a manual-mode division. For an edit,
+ * expected_side_* are the sides the organiser saw; a changed match is refused.
+ */
+export interface ManualMatchDto {
+  division_id: string;
+  round_no: number;
+  round_label?: string | null;
+  side_a_entry_id: string;
+  side_b_entry_id: string;
+  expected_side_a?: string | null;
+  expected_side_b?: string | null;
+}
+
 /** How an organiser collected a spot entry's fee (fee divisions only). */
 export type SpotEntryPaymentMethod = 'cash' | 'upi' | 'card' | 'other';
 

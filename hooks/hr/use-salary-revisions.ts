@@ -9,7 +9,7 @@
  */
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import type { HeldApprovalRow, SalaryRevisionRow } from '@/lib/hr/salary-revision';
+import type { HeldApprovalRow, ListedTargetRow, RaiseTargets, SalaryRevisionRow } from '@/lib/hr/salary-revision';
 
 /** Declared here so this file imports nothing server-side. */
 export interface SuggestionNote {
@@ -42,10 +42,15 @@ export interface RevisionDetail {
   request: SalaryRevisionListRow;
   decisionNote: { kind: 'stopped' | 'refused'; reason: string; created_at: string } | null;
   comments: Array<{ id: string; body: string; created_at: string; author_name: string }>;
+  /** 7 Oct 2026: the held part and its monthly target numbers, as RLS lets the caller see them. */
+  targets?: RaiseTargets;
 }
 
 export interface PayOutcome {
   id: string;
+  request_id?: string;
+  /** 7 Oct 2026: the held part of this raise and its monthly numbers (read-only), when there is one. */
+  targets?: RaiseTargets | null;
   previous_monthly_gross: number | string;
   new_monthly_gross: number | string;
   is_cut: boolean;
@@ -61,6 +66,7 @@ export const SALARY_REVISION_KEYS = {
   detail: (id: string) => ['hr', 'salary-revisions', 'detail', id] as const,
   outcomes: ['hr', 'salary-revisions', 'my-outcomes'] as const,
   held: ['hr', 'salary-revisions', 'held'] as const,
+  targetsListed: ['hr', 'salary-revisions', 'targets-listed'] as const,
 };
 
 /** A refusal from the server, with the waiting request's id when there is one. */
@@ -115,6 +121,16 @@ export function useHeldApprovals(enabled = true) {
   });
 }
 
+/** 7 Oct 2026: held parts waiting on the Director. The database answers the Director list only. */
+export function useTargetsListed(enabled = true) {
+  return useQuery({
+    queryKey: SALARY_REVISION_KEYS.targetsListed,
+    enabled,
+    retry: false,
+    queryFn: () => call<{ listed: ListedTargetRow[] }>('/api/hr/salary-revisions?view=targets').then((b) => b.listed),
+  });
+}
+
 export function useRevisionPeople(enabled = true) {
   return useQuery({
     queryKey: SALARY_REVISION_KEYS.people,
@@ -147,7 +163,9 @@ export function useRevisionDetail(id: string | null) {
 export function useMyPayOutcomes() {
   return useQuery({
     queryKey: SALARY_REVISION_KEYS.outcomes,
-    queryFn: () => call<{ outcomes: PayOutcome[] }>('/api/hr/salary-revisions/my-outcomes').then((b) => b.outcomes),
+    queryFn: () =>
+      call<{ outcomes: PayOutcome[]; targets?: Record<string, RaiseTargets> }>('/api/hr/salary-revisions/my-outcomes')
+        .then((b) => b.outcomes.map((o) => ({ ...o, targets: (o.request_id && b.targets?.[o.request_id]) || null }))),
   });
 }
 
@@ -170,7 +188,11 @@ export type RevisionAction =
   | { action: 'college_agree'; note?: string }
   | { action: 'college_stop'; reason: string }
   | { action: 'approve'; finalMonthlyGross?: number | null; note?: string }
-  | { action: 'refuse'; reason: string };
+  | { action: 'refuse'; reason: string }
+  // 7 Oct 2026: target-gated raises.
+  | { action: 'target_flag'; month: string; note: string }
+  | { action: 'target_decide'; month: string; met: boolean; note?: string }
+  | { action: 'target_lapse'; note: string };
 
 export function useRevisionAction(id: string) {
   const invalidate = useInvalidateAll();
@@ -185,6 +207,17 @@ export function useApproveMany() {
   const invalidate = useInvalidateAll();
   return useMutation({
     mutationFn: (ids: string[]) => post<{ approved: number }>('/api/hr/salary-revisions/approve-many', { ids }),
+    onSuccess: invalidate,
+  });
+}
+
+/** 7 Oct 2026: the Director decides a flagged month from his list. */
+export function useTargetDecide() {
+  const invalidate = useInvalidateAll();
+  return useMutation({
+    mutationFn: (input: { id: string; month: string; met: boolean }) =>
+      post<{ status: string }>(`/api/hr/salary-revisions/${encodeURIComponent(input.id)}`,
+        { action: 'target_decide', month: input.month, met: input.met }),
     onSuccess: invalidate,
   });
 }

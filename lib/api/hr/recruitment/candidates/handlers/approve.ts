@@ -1,9 +1,11 @@
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
-import { NextResponse, connection } from 'next/server';
+import { NextResponse, after, connection } from 'next/server';
 import type { NextRequest } from 'next/server';
 import type { CookieOptions } from '@supabase/ssr';
 import { RecruitmentService } from '@/lib/services/hr/recruitment-service';
+import { createServiceRoleClient } from '@/lib/supabase/server';
+import { notifyNextApprover } from '@/lib/hr/recruitment/harness-run';
 import { getErrorMessage } from '@/lib/utils';
 
 async function getClient() {
@@ -38,6 +40,27 @@ export async function POST(
 
     const body = await request.json().catch(() => ({}));
     const updated = await RecruitmentService.approveCandidate(supabase, id, user.id, body.comment);
+
+    // HR harness R5: the chain moved on, so tell whoever decides the next step.
+    // Until now nobody was told — the next approver found out only by opening
+    // their approvals list. Service role because the notice goes to OTHER people.
+    // notifyNextApprover never throws; the guard covers a missing service key, so
+    // a recorded approval is never reported back as a failure.
+    //
+    // Sent AFTER the response (review of #4149, finding 4). The notice reads the
+    // role directory and fans out; awaited here, a slow database held a recorded
+    // approval's response open, and an approver who saw it hang could try again.
+    if (updated?.status === 'pending_approval') {
+      const approverId = user.id;
+      after(async () => {
+        try {
+          await notifyNextApprover(createServiceRoleClient(), id, approverId);
+        } catch (notifyErr) {
+          console.error('[hr/recruitment/candidates/:id/approve] next-approver notice skipped', notifyErr);
+        }
+      });
+    }
+
     return NextResponse.json({ data: updated });
   } catch (err) {
     console.error('[hr/recruitment/candidates/:id/approve] error', err);

@@ -38,6 +38,23 @@ export const PLATFORM_OPS_ROUTINES: AIRoutine[] = [
     "notes": "DUAL-LANE ROUTE: only the daily rank+escalate lane moved to the dispatcher. The hourly '17,47 * * * *' ?mode=collect lane REMAINS a vercel.json cron — the dispatcher cannot express sub-daily schedules and triggerPath cannot carry a query string (registry-cron-wiring test checks the path exists on disk). Auth: Bearer or ?secret=. IST math: 04:43 UTC = 10:13 IST → slot 10:00 (minute_of_day 613)."
   },
   {
+    "id": "hr-playbook-lessons",
+    "name": "HR playbooks — gather rejection reasons + draft playbook lines",
+    "category": "platform-ops",
+    "type": "cron",
+    "schedule": "Weekly · Monday 07:13 IST (editable via dispatcher)",
+    "cronExpr": "43 1 * * 1 UTC equivalent (dispatcher only, never in vercel.json; minute_of_day 433 = 07:13 IST, the 07:00 slot)",
+    "triggerPath": "/api/cron/hr-playbook-lessons",
+    "callsClaude": false,
+    "featureKey": null,
+    "featureKeyNote": "Rules-based: two SECURITY DEFINER functions (fn_hr_duty_lessons_harvest, fn_hr_playbook_propose_from_lessons), keyword matching only; no model involved.",
+    "whatItDoes": "Gathers the reason text people already type when rejecting or reversing HR work (leave, comp-off, attendance corrections, documents, photographs, HR forms) from the last 35 days into hr_duty_lessons, sorted into a reason code by keyword ('other' when none match). Then, for any reason seen at least the threshold number of times inside the window, drafts one proposed playbook line for the HR head on /hr/playbooks.",
+    "configKnobs": "platform_policies hr.harness.playbooks.pattern_threshold (3) and hr.harness.playbooks.pattern_window_days (30) — unreadable or not a positive whole number = nothing proposed. Keywords and suggested lines: hr_duty_reason_codes rows. Day/time editable at /admin/ai-routines.",
+    "sideEffects": "writes lessons and proposals; sends nothing",
+    "safeToManualTrigger": true,
+    "notes": "Idempotent: the lessons log is unique on (duty_code, item_table, item_id, kind, occurred_at) and at most one lesson-pattern proposal per reason can wait at a time. Answers 500 when a harvest source cannot be read. Auth: Bearer CRON_SECRET only. Migration 20271007161139."
+  },
+  {
     "id": "teaching-cohort-sync",
     "name": "Teaching-enterprise cohort sync",
     "category": "platform-ops",
@@ -429,6 +446,38 @@ export const PLATFORM_OPS_ROUTINES: AIRoutine[] = [
     "notes": "Auth: Bearer or ?secret=. IST math: 07:00 UTC = 12:30 IST (minute_of_day 750)."
   },
   {
+    "id": "hr-intake-cleanup",
+    "name": "HR intake helper — close idle uploads",
+    "category": "platform-ops",
+    "type": "cron",
+    "schedule": "Daily · 03:30 IST (editable via dispatcher)",
+    "triggerPath": "/api/cron/hr-intake-cleanup",
+    "callsClaude": false,
+    "featureKey": null,
+    "featureKeyNote": "Rules-based storage and status sweep over hr_intake_batches; no model involved.",
+    "whatItDoes": "Closes every CVViZ intake upload that nobody has touched for 30 days (the batch and its rows), removes the applicants' resume copies it still holds in the private hr-intake bucket, and clears the paths on its rows. Applications already filed into MyJKKN are left as they are.",
+    "configKnobs": "IDLE_BATCH_DAYS (30) in lib/services/hr/intake/intake-service.ts; at most 200 batches a run. Day/time editable at /admin/ai-routines.",
+    "sideEffects": "Deletes storage objects under hr-intake/<batch id>/ and sets hr_intake_batches.status = 'closed'. SENDS NOTHING.",
+    "safeToManualTrigger": true,
+    "notes": "Rules-based, no LLM. Fires via the AI-routine dispatcher (ai_routine_schedules row 'hr-intake-cleanup', seeded by migration 20270613101319), NOT a raw vercel.json cron. Auth: CRON_SECRET (Bearer ONLY, constant-time). Idempotent: a closed batch is never picked again. IST slot 03:30 (minute_of_day 210)."
+  },
+  {
+    "id": "hr-memo-auto-detector",
+    "name": "HR memo detector + acknowledgement nudges",
+    "category": "platform-ops",
+    "type": "cron",
+    "schedule": "Daily · 07:30 IST (seeded OFF — enable at /admin/ai-routines)",
+    "triggerPath": "/api/cron/hr-memo-auto-detector",
+    "callsClaude": false,
+    "featureKey": null,
+    "featureKeyNote": "Rules-based detector and reminder windows; no model involved.",
+    "whatItDoes": "Finds memo-worthy events (leave taken before approval, too many loss-of-pay days in a month), issues the memo, and chases memos nobody has answered: one reminder to the team member after 3 days, then one notice to their reporting head 3 days later.",
+    "configKnobs": "platform_policies 'hr.memo_auto_detector' = { mode: off | dry_run | live, staff_reminder_after_days: 3, hod_notice_after_days: 3, nudge_max_age_days: 30 }. Seeded dry_run. Trigger thresholds come from fn_get_hr_memo_triggers. Day/time editable at /admin/ai-routines.",
+    "sideEffects": "mode live: writes hr_memo_eligibility_events, hr_memos, hr_memo_state_transitions and hr_memo_nudges, and SENDS in-app notices (bell + web push; no WhatsApp). mode dry_run: writes ONE hr_memo_detector_runs row describing what it would do, and nothing else. mode off: nothing.",
+    "safeToManualTrigger": false,
+    "notes": "Schedule row seeded DISABLED by migration 20270613101223; the header of that migration has the exact statements to enable it. Auth: Bearer ONLY. ?dry_run=1 forces a preview of a live detector. IST math: 02:00 UTC = 07:30 IST (minute_of_day 450)."
+  },
+  {
     "id": "hr-policy-promote-detector",
     "name": "HR policy promotion detector (weekly)",
     "category": "platform-ops",
@@ -680,5 +729,37 @@ export const PLATFORM_OPS_ROUTINES: AIRoutine[] = [
     "sideEffects": "WRITES one notifications row (+ user_notifications link) per recipient per ISO week and SENDS one email per recipient via Resend when that row is freshly created. Moves no money and releases nothing.",
     "safeToManualTrigger": true,
     "notes": "Idempotent per ISO week (IST calendar): notifications.idempotency_key walkin-claims-weekly-note:<week>:<user>, and the email is gated on that row being new, so a re-run in the same week sends nothing. Auth: CRON_SECRET, Bearer ONLY (constant-time). Migration 20270610100000."
+  },
+  {
+    "id": "hr-duty-chase",
+    "name": "HR harness — duty chase ladder + weekly late lists",
+    "category": "platform-ops",
+    "type": "cron",
+    "schedule": "Daily · 10:15 IST (editable via dispatcher)",
+    "triggerPath": "/api/cron/hr-duty-chase",
+    "callsClaude": false,
+    "featureKey": null,
+    "featureKeyNote": "Rules-based ladder over HR queues (lib/services/hr/duty-harness); no model involved.",
+    "whatItDoes": "Walks the chase ladder for every enabled HR duty in hr_duty_definitions: a due item nudges its owner in-app, two working days late its owner's supervisor, four working days late it joins the HR head's weekly late list; on the digest weekday the Director gets one digest of late items per desk (never per person). Nobody on approved leave, no night run, no holiday; a 'blocked, because…' mark parks the item and moves it up one step. SHIPS SWITCHED OFF — until the Director flips platform_policies 'hr.harness.chase.enabled' every run is a recorded preview that sends nothing.",
+    "configKnobs": "platform_policies hr.harness.chase.enabled (master switch, default false), hr.harness.chase.max_messages_per_run (volume fuse, default 50), max_owners_per_item (5), working_hours (09:00-18:00 IST), weekly_off_days ([0] = Sunday), digest_weekday (1 = Monday), hr_head_role_keys (['hr_head']). Per duty: due rule, ladder rungs and enabled flag in hr_duty_definitions. Day/time editable at /admin/ai-routines.",
+    "sideEffects": "Switched off: one hr_duty_chase_runs row per run, nothing else. Switched on: hr_duty_chase_ledger rows (one per item per rung reached), in-app notifications to owners/supervisors, and once a week the HR head list and the Director digest. A run over the fuse sends nothing and alerts the Director alone.",
+    "safeToManualTrigger": false,
+    "notes": "Migration 20270613101207. Idempotent per rung (ledger UNIQUE + notification idempotency key) and per ISO week for the weekly lists, but it messages people once switched on, so manual runs are marked unsafe. Auth: CRON_SECRET Bearer only. Slot 10:15 IST (minute_of_day 615), every day; the route itself skips weekly-off days and runs outside working hours."
+  },
+  {
+    "id": "hr-recruitment-nudges",
+    "name": "HR recruitment nudges — approvals, scorecards, offers",
+    "category": "platform-ops",
+    "type": "cron",
+    "schedule": "Mon–Sat · 09:15 IST (editable via dispatcher)",
+    "triggerPath": "/api/cron/hr-recruitment-nudges",
+    "callsClaude": false,
+    "featureKey": null,
+    "featureKeyNote": "Rules-based deadline checks; no model involved.",
+    "whatItDoes": "HR harness, duty cards R5/R6/R8. Sends one in-app reminder when a candidate has waited at an approval step longer than that step's escalate_after_hours (seeded 72), then one notice to the HR Head 48 hours after that reminder if the step is still waiting; one nudge to each interviewer whose scorecard is missing 24 hours after the interview (interviews from the last 14 days only); one nudge when a candidate has sat at 'package_fixed' for 2 days with no offer, and one when an issued offer's joining date passed 2 days ago with no outcome recorded — both to the job's creator if they are active and can still edit recruitment, otherwise to that college's HR editors (everyone whose role grants hr.recruitment.edit for it). Go-live cutoff: a wait that started before the nudges went live (platform_policies row 'hr.recruitment.nudges_go_live_at', set once by the migration) is never nudged, so old items are not sent as a backlog; if the row is missing or unreadable, the run's own time is used.",
+    "configKnobs": "Thresholds are constants in lib/hr/recruitment/harness-selection.ts, except each approval step's own escalate_after_hours, which is frozen into the candidate's chain from the approval flow. Day/time editable at /admin/ai-routines.",
+    "sideEffects": "SENDS in-app notifications (notifications + user_notifications, category 'staff', kind 'work_item'); writes one hr_recruitment_nudges_sent row per nudge, which is what makes every nudge fire only once.",
+    "safeToManualTrigger": false,
+    "notes": "Rules-based, no LLM. Auth: Bearer or ?secret=. Idempotent: each nudge is claimed in hr_recruitment_nudges_sent (UNIQUE (kind, ref_key)) before sending, so a re-run sends nothing twice. The claim is released if the send throws; only a send that explicitly found no recipients keeps it as a found-nobody record, and a send that returned no notification and no reason, or was skipped for having no sender, is reported as failed. A claim left without a notification for 15 minutes is settled by the next run: if the notification exists under the nudge's key, its id is recorded and the original sent time kept (no re-send, the HR Head's clock does not restart); otherwise the claim is released and the nudge sent again. If that check or release fails, the claim is not counted as a sent reminder for the HR Head's clock that run, and the run reports not-ok. If one college's HR-editor lookup fails, only that college's offer nudges that would go to its HR editors wait for the next run (a nudge to an active job creator still goes) and the run reports not-ok; every other nudge is still sent. The step-ready notice (next approver told the moment a step is approved) is NOT this routine — it is sent by the approve route. Migration 20270613101125; IST slot 09:15 (minute_of_day 555, days {1..6})."
   }
 ];

@@ -1130,6 +1130,11 @@ export const PERMISSION_CATEGORIES = [
       // anyone), so THAT is what is gated, and the RLS + the review function
       // both demand this key.
       { key: 'hr.staff_photo.review', label: 'Approve Team Member Photographs' },
+      // HR staff harness (20270613101207): the desk-level late counts —
+      // fn_hr_duty_desk_summary(). Desks only, never a person's numbers; the
+      // Director (fn_is_the_director) and super admins see them without it.
+      // Meant for the HR head; switch it on in Role Management.
+      { key: 'hr.harness.desks.view', label: 'View HR Desk Late Counts' },
       { key: 'hr.attendance.view_all', label: 'View Attendance for Everyone' },
       { key: 'hr.attendance.approve_team', label: 'Approve Attendance for Own Team' },
       { key: 'hr.attendance.regularize_approve', label: 'Approve Attendance Regularization Requests' },
@@ -1209,6 +1214,11 @@ export const PERMISSION_CATEGORIES = [
       { key: 'hr.policies.create', label: 'Create Policy Entries' },
       { key: 'hr.policies.edit', label: 'Edit Policy Entries' },
       { key: 'hr.policies.history.view', label: 'View Policy Change History' },
+      // HR staff harness — playbooks (20271007161139): accept, edit or decline
+      // proposed playbook lines and retire old ones on /hr/playbooks. Meant for
+      // the HR head. The migration grants it to no role; until it is granted in
+      // Role Management only super admins decide.
+      { key: 'hr.harness.playbooks.manage', label: 'Decide HR Playbook Lines' },
       // Onboarding (Sprint 4) — hr_onboarding_checklists cadre templates
       { key: 'hr.onboarding.view', label: 'View Onboarding Checklists' },
       { key: 'hr.onboarding.manage', label: 'Manage Onboarding Templates' },
@@ -3523,6 +3533,8 @@ export const PERMISSION_CATEGORIES = [
       { key: 'social.insights.view', label: 'View Social Insights' },
       { key: 'social.instagram.view', label: 'View Instagram Analytics' },
       { key: 'social.instagram.manage', label: 'Manage Instagram Accounts (connect / discover / sync)' },
+      { key: 'social.learner_credit.view', label: 'View Learner Instagram Credit (claims + the award board)' },
+      { key: 'social.learner_credit.review', label: 'Confirm or Reject a Learner Instagram Claim' },
       { key: 'social.facebook.view', label: 'View Facebook Analytics' },
       { key: 'social.facebook.manage', label: 'Manage Facebook Pages (discover / sync)' },
       { key: 'social.lead_ads.view', label: 'View Lead Ads' },

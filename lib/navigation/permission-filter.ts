@@ -109,7 +109,31 @@ function hasAdminBypass(userRole: string, isSuperAdmin: boolean): boolean {
  * true for everyone, handled above. They are listed here so this constant is the
  * single, greppable answer to "which MENU_PERMISSIONS values are not keys".
  */
-const SENTINEL_PERMISSIONS = new Set(['super_admin', 'view_dashboard', 'view_profile']);
+const SIGN_IN_ONLY_KEYS = ['view_dashboard', 'view_profile'];
+const SIGN_IN_ONLY_PERMISSIONS = new Set(SIGN_IN_ONLY_KEYS);
+
+const SENTINEL_PERMISSIONS = new Set(['super_admin', ...SIGN_IN_ONLY_KEYS]);
+
+/**
+ * True when a MENU_PERMISSIONS value means "any signed-in person" rather than a
+ * key someone has to hold (`view_dashboard`, `view_profile`).
+ *
+ * ONE answer, used by every gate that reads MENU_PERMISSIONS: the sidebar
+ * (filterByPermissions), the client route guard (isPageAccessible) and the edge
+ * middleware (routeMatcher.hasAccess in lib/auth/route-matcher.ts). Before this
+ * helper the middleware had no copy of the list, so a custom role whose stored
+ * permission map lacked a literal `view_profile: true` was turned away at the
+ * edge from a page the client guard would have opened (#4272 review: the HR
+ * head on /hr/playbooks).
+ *
+ * It grants exactly "signed in" and nothing more: whoever calls it has already
+ * established that a user is signed in (the middleware redirects a signed-out
+ * request to the login page before it ever consults the route matcher), and
+ * what the page then SHOWS is still decided by its own gates and by RLS.
+ */
+export function isSignInOnlyPermission(permission: string): boolean {
+  return SIGN_IN_ONLY_PERMISSIONS.has(permission);
+}
 
 /**
  * True when the value is a bypass marker rather than a grantable permission key.
@@ -139,7 +163,7 @@ export function filterByPermissions(
     if (!page.permission) return true;
 
     // Universal permissions — always accessible
-    if (['view_dashboard', 'view_profile'].includes(page.permission)) return true;
+    if (isSignInOnlyPermission(page.permission)) return true;
 
     // Admin roles (mirrors DB is_admin()) see everything except student-only pages
     if (hasAdminBypass(userRole, isSuperAdmin)) {
@@ -214,7 +238,7 @@ export function isPageAccessible(
   userRole: string
 ): boolean {
   if (!permission) return true;
-  if (['view_dashboard', 'view_profile'].includes(permission)) return true;
+  if (isSignInOnlyPermission(permission)) return true;
   if (hasAdminBypass(userRole, isSuperAdmin)) return true;
   // Marathon ops & committees — page-level guards handle committee membership
   if (permission === 'events.marathon.live_ops.manage' ||

@@ -1,5 +1,6 @@
 'use client';
 
+import { useState, type ReactNode } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { ChevronRight } from 'lucide-react';
@@ -13,7 +14,9 @@ import {
 } from '@/hooks/procurement/use-overview-waiting';
 import { displayRequestNumber } from '@/lib/procurement/display-number';
 import { AlertBox } from '@/components/ui/alert-box';
-import { Segmented } from './segmented';
+import { ResponsiveList } from '@/components/procurement/responsive-list';
+import { BeatLoader } from 'react-spinners';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 
 /**
  * The staff Overview (Super Admin, approvers, store): where every purchase is, what
@@ -62,12 +65,14 @@ const purchaseHref = (r: ProcurementWaitingRow) =>
     isPriceRevision(r) || r.gate >= 4 ? '#orders' : r.gate === 3 || r.gate === 2 ? '#quotes' : ''
   }`;
 
-export function StaffOverview() {
+export function StaffOverview({ toolbarRight }: { toolbarRight?: ReactNode }) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { canAccess, isSuperAdmin } = usePermissions();
   const counts = useProcurementOverviewCounts(7);
   const waiting = useProcurementOverviewWaiting();
+  // A step picked in the strip filters the table below it on this same page.
+  const [step, setStep] = useState(0);
 
   // Filters live in the address so Back and shared links keep them.
   const college = searchParams.get('institution') ?? 'all';
@@ -135,231 +140,255 @@ export function StaffOverview() {
   const mode: Mode = modeParam ?? (needsYou.length > 0 || heldUp.length === 0 ? 'mine' : 'held');
 
   const loading = counts.isLoading || waiting.isLoading;
+
+  const stepRows = step
+    ? waitRows.filter((r) => r.gate === step).sort((x, y) => daysSince(y.waiting_since) - daysSince(x.waiting_since))
+    : null;
+  const list = stepRows ?? (mode === 'mine' ? needsYou : mode === 'held' ? heldUp : null);
+  const stepName = step ? GATE_NAME[step] : null;
+
+  const columns = [
+    {
+      key: 'purchase',
+      header: 'Purchase',
+      mobile: 'title' as const,
+      className: 'max-w-[320px]',
+      cell: (r: ProcurementWaitingRow) => (
+        <div className="min-w-0">
+          <p className="truncate font-medium">{r.label}</p>
+          <p className="truncate text-xs text-muted-foreground">
+            {displayRequestNumber(r.request_number)}
+            {r.vendor_names ? ` · ${r.vendor_names}` : ''}
+            {r.quote_count != null ? ` · ${r.quote_count === 0 ? 'no quotes yet' : `${r.quote_count} quote${r.quote_count === 1 ? '' : 's'}`}` : ''}
+            {r.detail ? ` · ${r.detail}` : ''}
+          </p>
+        </div>
+      ),
+    },
+    { key: 'college', header: 'College', className: 'max-w-[220px] truncate', cell: (r: ProcurementWaitingRow) => r.institution_name },
+    {
+      key: 'step',
+      header: 'Step',
+      mobile: 'badge' as const,
+      className: 'whitespace-nowrap',
+      cell: (r: ProcurementWaitingRow) => (
+        <span className="inline-flex items-center rounded-full border border-primary px-2 py-0.5 text-xs font-medium text-primary">
+          {GATE_NAME[r.gate]}
+        </span>
+      ),
+    },
+    { key: 'waiting', header: 'Waiting on', className: 'whitespace-nowrap', cell: (r: ProcurementWaitingRow) => GATE_ACTOR[r.gate] },
+    {
+      key: 'amount',
+      header: 'Amount',
+      className: 'whitespace-nowrap text-right tabular-nums',
+      cell: (r: ProcurementWaitingRow) => money(r.chosen_total) ?? '—',
+    },
+    {
+      key: 'days',
+      header: 'Days',
+      className: 'whitespace-nowrap text-right tabular-nums',
+      cell: (r: ProcurementWaitingRow) => {
+        const age = daysSince(r.waiting_since);
+        return <span className={age >= 60 ? 'font-semibold text-destructive' : undefined}>{age}d</span>;
+      },
+    },
+    {
+      key: 'act',
+      header: '',
+      mobile: 'hidden' as const,
+      className: 'text-right',
+      cell: (r: ProcurementWaitingRow) => {
+        const mineRow = isSuperAdmin ? r.gate === 3 : actsAt(r.gate);
+        const g = GATES.find((x) => x.gate === r.gate);
+        return (
+          <span
+            className={cn(
+              'inline-flex h-8 items-center rounded-md px-3 text-xs',
+              mineRow ? 'bg-primary font-semibold text-primary-foreground' : 'font-medium text-muted-foreground'
+            )}
+          >
+            {mineRow ? (isPriceRevision(r) ? 'Review new prices' : g?.action ?? 'Open') : 'Open'}
+          </span>
+        );
+      },
+    },
+  ];
+
+  const panels: Array<{ value: Mode; label: string; count: number }> = [
+    { value: 'mine', label: 'Waiting for you', count: needsYou.length },
+    { value: 'held', label: `Held up ${HELD_UP_DAYS}+ days`, count: heldUp.length },
+    { value: 'colleges', label: 'By college', count: colleges.length },
+  ];
+
   return (
-    <div className="space-y-6">
+    <div className="space-y-5">
       {(counts.isError || waiting.isError) && (
         <AlertBox type="error" message="Some procurement figures could not be loaded. Refresh the page to try again." />
       )}
 
-      {/* ── Steps ─────────────────────────────────────────────────────── */}
-      <section aria-label="Purchases at each step" className="space-y-2.5">
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+      {/* One toolbar row: which panel · what the step counts show · college · New request last */}
+      <div className="flex flex-wrap items-center gap-2">
+        {/* Which panel, as a dropdown like the Status filter on Requests and
+            Quotations. A picked step strip below overrides it until cleared. */}
+        <Select
+          value={step ? '' : mode}
+          onValueChange={(v) => {
+            setStep(0);
+            setParam('mode', v);
+          }}
+        >
+          <SelectTrigger className="h-9 w-full sm:w-56" aria-label="Show">
+            <SelectValue placeholder="Pick a view" />
+          </SelectTrigger>
+          <SelectContent>
+            {panels.map((t) => (
+              <SelectItem key={t.value} value={t.value}>
+                {t.label} ({t.count})
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Select value={view} onValueChange={(v) => setParam('view', v === 'pending' ? null : v)}>
+          <SelectTrigger className="h-9 w-full sm:w-56" aria-label="What the step counts show">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="pending">Pending now</SelectItem>
+            <SelectItem value="updated">Moved in the last 7 days</SelectItem>
+            <SelectItem value="recent">Raised in the last 7 days</SelectItem>
+          </SelectContent>
+        </Select>
+        <div className="w-full sm:ml-auto sm:w-auto">{toolbarRight}</div>
+      </div>
+
+      {/* ── Steps: one connected strip; a step filters the table below ───── */}
+      <section aria-label="Purchases at each step" className="overflow-hidden rounded-xl border bg-background shadow">
+        {/* 5 tiles: the last spans two cells on 2- and 3-column grids so no cell sits empty. */}
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 [&>*:last-child]:col-span-2 lg:[&>*:last-child]:col-span-1 [&>*]:border-l [&>*]:border-t [&>*:first-child]:border-l-0 lg:[&>*]:border-t-0">
           {stages.built.map((s) => {
-            const highlightYou = isSuperAdmin ? s.gate === 3 : s.you;
-            const isSlow = view === 'pending' && s.gate === stages.slowestGate && !highlightYou;
+            const mineStep = isSuperAdmin ? s.gate === 3 : s.you;
+            const on = step === s.gate;
+            const hot = view === 'pending' && s.oldest != null && s.oldest >= HELD_UP_DAYS;
             return (
-              <Link
+              <button
                 key={s.gate}
-                href={`${s.listHref}&institution=${college}`}
+                type="button"
+                aria-pressed={on}
+                title={s.who}
+                onClick={() => setStep(on ? 0 : s.gate)}
                 className={cn(
-                  'flex flex-col gap-1 rounded-2xl bg-card p-4 shadow-[0_1px_2px_rgba(16,24,40,.06),0_4px_14px_rgba(16,24,40,.07)] transition hover:-translate-y-0.5 hover:shadow-[0_2px_4px_rgba(16,24,40,.08),0_12px_28px_rgba(16,24,40,.12)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
-                  highlightYou && 'bg-primary/10 ring-2 ring-primary',
-                  isSlow && 'bg-secondary/20 ring-1 ring-secondary'
+                  'flex min-w-0 flex-col gap-0.5 px-4 py-3 text-left transition-colors hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring',
+                  on && 'bg-muted shadow-[inset_0_-2px_0_hsl(var(--primary))]'
                 )}
               >
-                <span className="flex items-center justify-between gap-2">
-                  <span className="text-sm font-bold">{s.name}</span>
-                  {highlightYou && (
-                    <span className="rounded-full bg-primary px-1.5 py-0.5 text-[10px] font-extrabold tracking-wide text-white">YOU</span>
-                  )}
-                  {isSlow && (
-                    <span className="rounded-full bg-secondary px-1.5 py-0.5 text-[10px] font-extrabold tracking-wide text-secondary-foreground">SLOWEST</span>
-                  )}
+                <span className="flex flex-wrap items-center gap-x-1.5 text-sm font-medium text-muted-foreground">
+                  {s.name}
+                  {mineStep && <span className="text-xs font-semibold text-primary">Your step</span>}
                 </span>
-                <span className="flex items-baseline gap-2">
-                  <span className={cn('text-3xl font-extrabold tabular-nums', loading && 'text-muted-foreground/40')}>
-                    {loading ? '—' : s.count}
-                  </span>
-                  {view === 'pending' && s.oldest != null && (
-                    <span className={cn('text-xs font-semibold', s.oldest >= HELD_UP_DAYS ? 'text-foreground' : 'text-muted-foreground')}>
-                      oldest {s.oldest}d
-                    </span>
-                  )}
+                <span className={cn('text-2xl font-semibold tabular-nums', loading && 'text-muted-foreground/40')}>
+                  {loading ? '—' : s.count}
                 </span>
-                <span className="text-xs text-muted-foreground">{s.who}</span>
-              </Link>
+                <span className={cn('text-xs', hot ? 'font-semibold text-destructive' : 'text-muted-foreground')}>
+                  {view === 'pending' && s.oldest != null ? `oldest ${s.oldest}d` : '\u00a0'}
+                </span>
+              </button>
             );
           })}
         </div>
       </section>
 
-      {/* ── One panel, three modes ───────────────────────────────────── */}
-      <section className="overflow-hidden rounded-2xl bg-card shadow-[0_1px_2px_rgba(16,24,40,.06),0_4px_14px_rgba(16,24,40,.07)]">
-        <div className="flex flex-wrap items-center justify-between gap-2 border-b px-4 py-3">
-          <Segmented
-            label="Show"
-            value={mode}
-            onChange={(m) => setParam('mode', m)}
-            options={[
-              { value: 'mine', label: isSuperAdmin ? 'Final approval' : 'Needs you', count: needsYou.length },
-              { value: 'held', label: `Held up ${HELD_UP_DAYS}+ days`, count: heldUp.length, warn: true },
-              { value: 'colleges', label: 'By college', count: colleges.length },
+      {/* ── One table ───────────────────────────────────────────────────── */}
+      <section className="overflow-hidden rounded-xl border bg-background shadow">
+        {/* Only a picked step needs a bar here: the chip that clears it. */}
+        {step ? (
+          <div className="border-b px-4 py-2">
+            <button
+              type="button"
+              onClick={() => setStep(0)}
+              className="inline-flex h-7 items-center gap-1.5 rounded-full border bg-muted px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              Step: {stepName} <span aria-hidden>×</span>
+              <span className="sr-only">Clear step filter</span>
+            </button>
+          </div>
+        ) : null}
+
+        {list !== null ? (
+          list.length === 0 ? (
+            loading ? (
+              <div className="flex justify-center py-12">
+                <BeatLoader color="hsl(var(--primary))" size={10} />
+              </div>
+            ) : (
+            <p className="px-4 py-12 text-center text-sm text-muted-foreground">
+              {step
+                  ? 'Nothing is at this step.'
+                  : mode === 'mine'
+                    ? `Nothing is waiting for ${isSuperAdmin ? 'your final approval' : 'you'} right now.`
+                    : `Nothing has waited ${HELD_UP_DAYS}+ days at one step.`}
+            </p>
+            )
+          ) : (
+            <ResponsiveList
+              rows={list}
+              getRowKey={(r) => `${r.gate}-${r.request_id}-${r.detail ?? ''}`}
+              onRowClick={(r) => router.push(purchaseHref(r))}
+              rowLabel={(r) => `Open ${r.label} ${displayRequestNumber(r.request_number)}`}
+              columns={columns}
+            />
+          )
+        ) : (
+          <ResponsiveList
+            rows={colleges}
+            getRowKey={(c) => c.id}
+            onRowClick={(c) => setParam('institution', c.id)}
+            rowLabel={(c) => `Show ${c.name}`}
+            columns={[
+              { key: 'college', header: 'College', mobile: 'title', className: 'font-medium', cell: (c) => c.name },
+              ...GATES.map((g, i) => ({
+                key: `g${g.gate}`,
+                header: g.name,
+                className: 'text-right tabular-nums',
+                cell: (c: (typeof colleges)[number]) => (
+                  <span className={cn(c.g[i] === 0 && 'text-muted-foreground/50')}>{c.g[i]}</span>
+                ),
+              })),
+              {
+                key: 'oldest',
+                header: 'Oldest',
+                className: 'text-right tabular-nums',
+                cell: (c) => (
+                  <span className={c.oldest >= HELD_UP_DAYS ? 'font-semibold text-destructive' : 'text-muted-foreground'}>
+                    {c.oldest}d
+                  </span>
+                ),
+              },
+              {
+                key: 'open',
+                header: 'Open',
+                mobile: 'badge',
+                className: 'w-[22%]',
+                cell: (c) => (
+                  <span className="flex items-center gap-2.5 tabular-nums">
+                    <span className="hidden h-1.5 flex-1 overflow-hidden rounded-full bg-muted md:block">
+                      <span className="block h-full rounded-full bg-primary" style={{ width: `${c.pct}%` }} />
+                    </span>
+                    <span className="min-w-[22px] text-right font-semibold">{c.total}</span>
+                  </span>
+                ),
+              },
             ]}
           />
-          <span className="text-xs text-muted-foreground">
-            {mode === 'mine'
-              ? isSuperAdmin
-                ? 'Vendor chosen and quotes compared by the store.'
-                : 'Purchases at the steps you act on, oldest first.'
-              : mode === 'held'
-                ? 'Oldest first — days at the current step.'
-                : 'Open purchases per college and step.'}
-          </span>
-        </div>
-
-        {mode === 'mine' &&
-          (needsYou.length === 0 ? (
-            <p className="px-4 py-10 text-center text-sm text-muted-foreground">
-              {loading ? 'Loading…' : `Nothing is waiting for ${isSuperAdmin ? 'your final approval' : 'you'} right now.`}
-            </p>
-          ) : (
-            <div className="flex flex-col gap-2.5 bg-muted/30 p-3">
-              {needsYou.map((r) => {
-                const age = daysSince(r.waiting_since);
-                const g = GATES.find((x) => x.gate === r.gate);
-                return (
-                  <article
-                    key={`${r.gate}-${r.request_id}-${r.detail ?? ''}`}
-                    className="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-card px-4 py-3 shadow-[0_1px_2px_rgba(16,24,40,.06),0_4px_14px_rgba(16,24,40,.07)]"
-                  >
-                    <div className="min-w-0 flex-[1_1_300px] space-y-0.5">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <h3 className="text-[15px] font-bold">{r.label}</h3>
-                        <span
-                          className={cn(
-                            'rounded-full px-2 py-0.5 text-[11px] font-bold',
-                            age >= 3 ? 'bg-secondary/20 text-foreground' : 'bg-muted text-muted-foreground'
-                          )}
-                        >
-                          {age === 0 ? 'today' : `${age} day${age === 1 ? '' : 's'}`}
-                        </span>
-                      </div>
-                      <p className="text-xs text-muted-foreground">
-                        {displayRequestNumber(r.request_number)} · {r.institution_name}
-                        {r.requester_name ? ` · ${r.requester_name}` : ''}
-                        {!isSuperAdmin && ` · ${GATE_NAME[r.gate]}`}
-                      </p>
-                      {(r.vendor_names || r.quote_count != null || r.detail) && (
-                        <p className="text-xs">
-                          {r.vendor_names && <b>{r.vendor_names}</b>}
-                          {r.quote_count != null && (
-                            <span className="text-muted-foreground">
-                              {r.vendor_names ? ' — ' : ''}
-                              {r.quote_count} quote{r.quote_count === 1 ? '' : 's'}
-                            </span>
-                          )}
-                          {r.detail && <span className="text-muted-foreground">{r.vendor_names || r.quote_count != null ? ' · ' : ''}{r.detail}</span>}
-                        </p>
-                      )}
-                    </div>
-                    <div className="flex items-center gap-3">
-                      {money(r.chosen_total) && (
-                        <span className="min-w-[96px] text-right text-[17px] font-extrabold tabular-nums">{money(r.chosen_total)}</span>
-                      )}
-                      <Link
-                        href={purchaseHref(r)}
-                        className="inline-flex min-h-10 items-center rounded-lg bg-primary px-4 text-sm font-semibold text-primary-foreground hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                      >
-                        {isPriceRevision(r) ? 'Review new prices' : g?.action ?? 'Open'}
-                      </Link>
-                    </div>
-                  </article>
-                );
-              })}
-            </div>
-          ))}
-
-        {mode === 'held' &&
-          (heldUp.length === 0 ? (
-            <p className="px-4 py-10 text-center text-sm text-muted-foreground">
-              {loading ? 'Loading…' : `Nothing has waited ${HELD_UP_DAYS}+ days at one step.`}
-            </p>
-          ) : (
-            <ul>
-              {heldUp.map((r) => {
-                const age = daysSince(r.waiting_since);
-                return (
-                  <li key={`${r.gate}-${r.request_id}-${r.detail ?? ''}`} className="border-t first:border-t-0">
-                    <Link
-                      href={purchaseHref(r)}
-                      className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 gap-y-0.5 px-4 py-3 hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring sm:grid-cols-[minmax(0,1fr)_170px_130px_56px]"
-                    >
-                      <span className="min-w-0">
-                        <span className="block truncate text-sm font-semibold">{r.label}</span>
-                        <span className="block text-xs text-muted-foreground">
-                          {displayRequestNumber(r.request_number)} · {r.institution_name}
-                        </span>
-                      </span>
-                      <span className="col-start-1 text-xs sm:col-start-auto sm:text-sm">
-                        {GATE_NAME[r.gate]}
-                        {r.gate === 2 && r.quote_count != null && (
-                          <span className="text-muted-foreground"> — {r.quote_count === 0 ? 'no quotes yet' : `${r.quote_count} in`}</span>
-                        )}
-                      </span>
-                      <span className="hidden text-sm text-muted-foreground sm:block">{GATE_ACTOR[r.gate]}</span>
-                      <span
-                        className={cn(
-                          'row-start-1 text-right text-sm font-extrabold tabular-nums sm:row-start-auto',
-                          age >= 60 ? 'text-destructive' : 'text-foreground'
-                        )}
-                      >
-                        {age}d
-                      </span>
-                    </Link>
-                  </li>
-                );
-              })}
-            </ul>
-          ))}
-
-        {mode === 'colleges' && (
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[680px] border-collapse text-sm">
-              <thead>
-                <tr className="bg-muted/40 text-left text-[11px] uppercase tracking-wide text-muted-foreground">
-                  <th scope="col" className="px-4 py-2.5 font-bold">College</th>
-                  {GATES.map((g) => (
-                    <th key={g.gate} scope="col" className="px-2 py-2.5 text-right font-bold">
-                      {g.name}
-                    </th>
-                  ))}
-                  <th scope="col" className="px-2 py-2.5 text-right font-bold">Oldest</th>
-                  <th scope="col" className="w-[22%] px-4 py-2.5 font-bold">Open</th>
-                </tr>
-              </thead>
-              <tbody>
-                {colleges.map((c) => (
-                  <tr key={c.id} className="border-t tabular-nums hover:bg-muted/40">
-                    <th scope="row" className="px-4 py-3 text-left font-semibold">
-                      <button type="button" className="text-left hover:underline" onClick={() => setParam('institution', c.id)}>
-                        {c.name}
-                      </button>
-                    </th>
-                    {c.g.map((n, i) => (
-                      <td key={i} className={cn('px-2 py-3 text-right', n === 0 && 'text-muted-foreground/50')}>
-                        {n}
-                      </td>
-                    ))}
-                    <td className="px-2 py-3 text-right text-muted-foreground">{c.oldest}d</td>
-                    <td className="px-4 py-3">
-                      <span className="flex items-center gap-2.5">
-                        <span className="h-1.5 flex-1 overflow-hidden rounded-full bg-muted">
-                          <span className="block h-full rounded-full bg-primary" style={{ width: `${c.pct}%` }} />
-                        </span>
-                        <span className="min-w-[22px] text-right font-bold">{c.total}</span>
-                      </span>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
         )}
 
-        {mode !== 'colleges' && (mode === 'mine' ? needsYou.length : heldUp.length) > 0 && (
-          <div className="flex justify-end border-t px-4 py-2.5">
-            <Link href="/procurement/requests" className="inline-flex items-center text-sm font-semibold text-primary hover:underline">
-              All requests <ChevronRight className="ml-0.5 h-4 w-4" aria-hidden />
+        {list !== null && list.length > 0 && (
+          <div className="flex justify-end border-t px-4 py-2">
+            <Link
+              href={step ? `${GATES.find((g) => g.gate === step)?.listHref}&institution=${college}` : '/procurement/requests'}
+              className="inline-flex items-center text-sm font-medium text-primary hover:underline"
+            >
+              {step ? 'Open all in this step' : 'All requests'} <ChevronRight className="ml-0.5 h-4 w-4" aria-hidden />
             </Link>
           </div>
         )}

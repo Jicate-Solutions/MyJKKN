@@ -33,6 +33,7 @@ import { HealthSummaryTiles } from './_components/health-summary-tiles';
 import { AccountRow } from './_components/account-row';
 import { DiscoverButton } from './_components/discover-button';
 import { SubscribedAssetsPanel } from '@/components/admin/social/subscribed-assets-panel';
+import { usePermissions } from '@/hooks/use-permissions';
 
 const breadcrumbItems = [
   { label: 'Home', href: '/' },
@@ -43,6 +44,8 @@ const breadcrumbItems = [
 
 export default function InstagramAdminPage() {
   const queryClient = useQueryClient();
+  const { canAccess } = usePermissions();
+  const canManage = canAccess('social.instagram', 'manage');
 
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<IgAccountStatus | 'all'>('all');
@@ -216,6 +219,7 @@ export default function InstagramAdminPage() {
                 <TableHead className="w-[160px]">Username</TableHead>
                 <TableHead>Institution</TableHead>
                 <TableHead>Department</TableHead>
+                <TableHead className="min-w-[180px]">Runs this account</TableHead>
                 <TableHead className="w-[110px]">Type</TableHead>
                 <TableHead className="text-right w-[90px]">Followers</TableHead>
                 <TableHead className="w-[130px]">Last Post</TableHead>
@@ -229,7 +233,7 @@ export default function InstagramAdminPage() {
               {isLoading ? (
                 Array.from({ length: 8 }).map((_, i) => (
                   <TableRow key={i}>
-                    {Array.from({ length: 10 }).map((__, j) => (
+                    {Array.from({ length: 11 }).map((__, j) => (
                       <TableCell key={j}>
                         <Skeleton className="h-4 w-full" />
                       </TableCell>
@@ -238,7 +242,7 @@ export default function InstagramAdminPage() {
                 ))
               ) : paginated.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={10} className="text-center py-16">
+                  <TableCell colSpan={11} className="text-center py-16">
                     <div className="flex flex-col items-center gap-3">
                       <p className="text-muted-foreground text-sm">
                         {error
@@ -255,7 +259,12 @@ export default function InstagramAdminPage() {
                 </TableRow>
               ) : (
                 paginated.map((account) => (
-                  <AccountRow key={account.id} account={account} />
+                  <AccountRow
+                    key={account.id}
+                    account={account}
+                    canManage={canManage}
+                    onRunnerSaved={handleRefresh}
+                  />
                 ))
               )}
             </TableBody>
