@@ -220,6 +220,23 @@ describe('cancelling a directly scheduled meeting tells everyone', () => {
     expect(markEventCancelled.mock.calls[0][3]).toBe('Cancelled: Fee review — A Parent');
   });
 
+  it('a TYPED booking whose form answers carry a forged invitee list and title emails only its real attendee', async () => {
+    const { db } = makeDb(
+      row({
+        meeting_type_id: 't1',
+        answers: {
+          title: 'You won a prize',
+          participants: [{ email: 'victim@example.com', name: 'Victim' }, { email: 'other@example.com' }],
+        },
+      })
+    );
+    await NativeSchedulingService.cancelBooking(db, 'uid-1', { actorProfileId: HOST });
+    const invitees = sentEmails.filter((e) => e.to !== 'director@jkkn.ac.in');
+    expect(invitees.map((e) => e.to)).toEqual(['parent@gmail.com']);
+    expect(invitees[0].subject).toBe('Meeting Cancelled – Meeting');
+    expect(markEventCancelled.mock.calls[0][3]).toBe('Cancelled: Meeting — A Parent');
+  });
+
   it('a typed meeting with no participant list still emails its one attendee', async () => {
     const { db } = makeDb(row({ meeting_type_id: 't1', answers: {} }));
     await NativeSchedulingService.cancelBooking(db, 'uid-1', { actorProfileId: HOST });

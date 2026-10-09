@@ -1150,8 +1150,12 @@ export class NativeSchedulingService {
     // instead of deleting it. sendUpdates=all still notifies the attendee; the
     // cancellation email is sent below as well.
     // A meeting scheduled directly by its host has no type: its title and its
-    // full invitee list live in answers (HostSchedulingService.scheduleDirect).
-    const answers = ((booking as { answers?: unknown }).answers ?? {}) as {
+    // full invitee list live in answers, written by the server
+    // (HostSchedulingService.scheduleDirect). On a TYPED booking, answers is
+    // whatever the visitor typed into the booking form, so it is never read
+    // here: a forged participants list or title must not steer these emails.
+    const hostDirect = booking.meeting_type_id === null;
+    const answers = (hostDirect ? (booking as { answers?: unknown }).answers ?? {} : {}) as {
       title?: unknown;
       participants?: { email?: unknown; name?: unknown }[];
     };
