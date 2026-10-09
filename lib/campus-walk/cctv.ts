@@ -20,13 +20,21 @@
  *      seat and names; the room's HOD is copied.
  *   6. Fans or lights left on go to the room's HOD like any other report.
  *
- * Staff repeats to HR (his decision 4) are deliberately NOT here: everything
- * else is room-and-time only, so there is no name to count a person's repeats
- * by. Parked by the front desk for its own design.
- *
- * Front-desk default, not yet the Director's words (Q-1009-10): a room whose
- * department has no HOD on record goes to that college's principal, marked
- * `no_hod_on_record`. NO_HOD_FALLBACK is the one switch.
+ * Edge cases (Director's interview, 9 Oct 2026, 20:30 IST):
+ *   - No HOD on record -> the CAO (NO_HOD_FALLBACK is the one switch).
+ *   - Two or more HODs -> one owner (the recorded head, else the first HOD
+ *     found); the others are copied.
+ *   - "1 day" is a WORKING day: Sundays are skipped, for the due date and
+ *     for the climb (cctv-categories.ts addWorkingDays / workingDaysPastDue).
+ *   - The reply must name an action; "noted" is refused (thinReplyReason).
+ *   - Team-member conduct may carry a name. The HOD sees it; the SAME person
+ *     3 times in 30 days goes to HR (hr_head) with the name. The principal's
+ *     climb and repeat-room messages never carry it.
+ *   - Any kind of report counts toward a repeat room.
+ *   - HOD on leave -> what Campus Walk does today (department head, else the
+ *     estate office), via createWalkTask's leave rule.
+ *   - The video shows the HOD -> the operator ticks it; it goes to the
+ *     principal and the HOD is not told.
  */
 
 import type { SupabaseClient } from '@supabase/supabase-js';
@@ -38,19 +46,34 @@ import { createWalkTask, type CreateWalkTaskResult } from '@/lib/services/campus
 export const CCTV_FRONT_DOOR = 'cctv';
 
 export { CCTV_CATEGORIES, isCctvCategory, cctvCategoryLabel, type CctvCategory } from './cctv-categories';
-import { cctvCategoryLabel, type CctvCategory } from './cctv-categories';
+import { addWorkingDays, cctvCategoryLabel, type CctvCategory } from './cctv-categories';
 
-/** HOD replies within 1 day; exam copying is the same day. */
-export function cctvDueInDays(category: CctvCategory): number {
-  return category === 'exam_copying' ? 0 : 1;
+/**
+ * HOD replies within 1 WORKING day (Sundays skipped); exam copying is the
+ * same day. Returned as whole calendar days from today, which is what
+ * createWalkTask's `dueInDays` takes (it counts from the same UTC date).
+ */
+export function cctvDueInDays(category: CctvCategory, nowMs: number = Date.now()): number {
+  if (category === 'exam_copying') return 0;
+  const today = new Date(nowMs).toISOString().slice(0, 10);
+  const due = addWorkingDays(today, 1);
+  return Math.round((Date.parse(due) - Date.parse(today)) / 86_400_000);
 }
+
+/** Kinds where a name may be written down (Director, 9 Oct 2026). */
+export function namesAllowedFor(category: CctvCategory): boolean {
+  return category === 'exam_copying' || category === 'staff_conduct';
+}
+
+/** The same team member this many times in REPEAT_WINDOW_DAYS -> HR, with the name. */
+export const STAFF_REPEAT_THRESHOLD = 3;
 
 /** Same room this many times in REPEAT_WINDOW_DAYS -> principal + Director's Monday list. */
 export const REPEAT_THRESHOLD = 3;
 export const REPEAT_WINDOW_DAYS = 30;
 
-/** Q-1009-10 default. 'principal' or 'cao'. */
-export const NO_HOD_FALLBACK: 'principal' | 'cao' = 'principal';
+/** No HOD on record -> the CAO (Director, Q-1009-10, 9 Oct 2026). 'principal' or 'cao'. */
+export const NO_HOD_FALLBACK: 'principal' | 'cao' = 'cao';
 
 export type CctvOwnerSource =
   | 'hod'
@@ -58,6 +81,7 @@ export type CctvOwnerSource =
   | 'controller_of_examinations'
   | 'principal_no_hod'
   | 'cao_no_hod'
+  | 'principal_hod_involved'
   | 'unresolved';
 
 export interface CctvRoom {
@@ -212,9 +236,31 @@ export async function resolveCctvRoom(
 export async function routeCctvReport(
   db: SupabaseClient,
   room: CctvRoom,
-  category: CctvCategory
+  category: CctvCategory,
+  opts: { involvesHod?: boolean } = {}
 ): Promise<CctvRouting> {
   const hods = await resolveDepartmentHods(db, room.departmentId);
+
+  // Edge case (Director, 9 Oct 2026): the video shows the HOD themself. It goes
+  // to the principal instead, and the HOD is NOT told — not even copied.
+  if (opts.involvesHod) {
+    const principals = await resolveCollegeHeadIds(db, room.institutionId);
+    if (principals.length > 0) {
+      return {
+        accountableProfileId: principals[0],
+        consultedProfileIds: principals.slice(1),
+        ownerSource: 'principal_hod_involved',
+        hodProfileIds: []
+      };
+    }
+    const cao = await profileIdsWithRole(db, 'cao');
+    return {
+      accountableProfileId: cao[0] ?? null,
+      consultedProfileIds: cao.slice(1),
+      ownerSource: cao.length > 0 ? 'cao_no_hod' : 'unresolved',
+      hodProfileIds: []
+    };
+  }
 
   if (category === 'exam_copying') {
     // Controller of Examinations of the hall's college first, then any CoE.
@@ -347,8 +393,10 @@ export interface FileCctvReportInput {
   note?: string | null;
   /** Exam copying only. */
   seat?: string | null;
-  /** Exam copying only. */
+  /** Exam copying and team-member conduct only (namesAllowedFor). */
   names?: string | null;
+  /** The video shows the room's HOD: route to the principal, HOD not told. */
+  involvesHod?: boolean;
   raisedByProfileId: string;
 }
 
@@ -359,6 +407,7 @@ export interface FileCctvReportResult {
   room: CctvRoom;
   repeatCount: number;
   principalToldOfRepeat: boolean | null;
+  hrToldOfRepeat: boolean | null;
 }
 
 const IST_MS = 330 * 60_000;
@@ -392,8 +441,9 @@ export async function fileCctvReport(
   input: FileCctvReportInput
 ): Promise<FileCctvReportResult | { ok: false; error: string }> {
   const room = await resolveCctvRoom(db, input);
-  const routing = await routeCctvReport(db, room, input.category);
+  const routing = await routeCctvReport(db, room, input.category, { involvesHod: input.involvesHod });
   const isExam = input.category === 'exam_copying';
+  const withNames = namesAllowedFor(input.category);
   const roomKey = roomKeyOf(room);
   const title = cctvTitle(input.category, room.label, input.observedAt);
 
@@ -404,19 +454,22 @@ export async function fileCctvReport(
     room_key: roomKey,
     department: room.departmentName,
     owner_source: routing.ownerSource,
-    no_hod_on_record: routing.hodProfileIds.length === 0 && Boolean(room.departmentId)
+    involves_hod: Boolean(input.involvesHod),
+    no_hod_on_record: routing.hodProfileIds.length === 0 && Boolean(room.departmentId) && !input.involvesHod
   };
-  // Decision 5: names and seat are STORED only for exam copying — not hidden, absent.
-  if (isExam) {
-    cctv.seat = (input.seat ?? '').trim() || null;
+  // Decision 5 + 9 Oct edge cases: a seat is stored only for exam copying, a
+  // name only for exam copying and team-member conduct — not hidden, absent.
+  if (isExam) cctv.seat = (input.seat ?? '').trim() || null;
+  if (withNames) {
     cctv.names = (input.names ?? '').trim() || null;
+    cctv.person_key = personKeyOf(cctv.names as string | null);
   }
 
   const description = [
     `Seen on CCTV in ${room.label}${room.departmentName ? ` (${room.departmentName})` : ''} at ${istStamp(input.observedAt)}.`,
     (input.note ?? '').trim(),
     isExam && cctv.seat ? `Seat: ${cctv.seat}.` : '',
-    isExam && cctv.names ? `Names: ${cctv.names}.` : ''
+    withNames && cctv.names ? `Names: ${cctv.names}.` : ''
   ]
     .filter(Boolean)
     .join(' ');
@@ -521,7 +574,59 @@ export async function fileCctvReport(
     console.error('[campus-walk/cctv] repeat check failed:', e?.message ?? e);
   }
 
-  return { ok: true, task, routing, room, repeatCount, principalToldOfRepeat };
+  // 9 Oct edge cases: the SAME team member 3 times in 30 days -> HR, with the
+  // name (the name is seen only by the HOD and HR, never the principal's climb).
+  let hrToldOfRepeat: boolean | null = null;
+  const personKey = (cctv.person_key as string | null | undefined) ?? null;
+  if (input.category === 'staff_conduct' && personKey) {
+    try {
+      const since = new Date(Date.now() - REPEAT_WINDOW_DAYS * 86_400_000).toISOString();
+      const rows = (await cctvTasksSince(db, since)).filter((r) => (r.metadata?.cctv ?? {}).person_key === personKey);
+      if (rows.length >= STAFF_REPEAT_THRESHOLD) {
+        const hr = await profileIdsWithRole(db, 'hr_head');
+        if (hr.length === 0) {
+          hrToldOfRepeat = false;
+          console.error('[campus-walk/cctv] team-member repeat reached 3 but nobody holds hr_head');
+        } else {
+          const seen = rows
+            .map((r) => `${(r.metadata?.cctv ?? {}).room ?? 'a room'} at ${istStamp(String((r.metadata?.cctv ?? {}).observed_at ?? r.created_at))}`)
+            .join('; ');
+          const id = await createBellNotification(db, {
+            recipientIds: hr,
+            createdBy: input.raisedByProfileId,
+            title: `Same team member on CCTV ${rows.length} times this month: ${String(cctv.names).slice(0, 80)}`,
+            body: `${cctv.names} has been seen on CCTV ${rows.length} times in the last ${REPEAT_WINDOW_DAYS} days for conduct on duty: ${seen}. Each report also went to the HOD of that room.`,
+            url: '/notifications',
+            category: 'campus-walk:cctv-staff-repeat',
+            metadata: { task_id: task.taskId, source: 'campus-walk', front_door: CCTV_FRONT_DOOR, repeat_count: rows.length },
+            idempotencyKey: `campus-walk-cctv-staff-repeat:${personKey}:${rows.length}:${since.slice(0, 7)}`
+          });
+          hrToldOfRepeat = Boolean(id);
+        }
+      }
+    } catch (e: any) {
+      console.error('[campus-walk/cctv] team-member repeat check failed:', e?.message ?? e);
+    }
+  }
+
+  return { ok: true, task, routing, room, repeatCount, principalToldOfRepeat, hrToldOfRepeat };
+}
+
+/** One key per named person: lower-case letters only, so "R. Kumar" and "r kumar" match. */
+export function personKeyOf(names: string | null | undefined): string | null {
+  const k = (names ?? '').toLowerCase().replace(/[^a-z]+/g, ' ').trim().replace(/\s+/g, '-');
+  return k.length >= 2 ? k : null;
+}
+
+/** Rooms that are repeats right now (3+ CCTV reports in the last 30 days). */
+export async function listRepeatRooms(db: SupabaseClient, now: Date = new Date()): Promise<RepeatRoom[]> {
+  const since = new Date(now.getTime() - REPEAT_WINDOW_DAYS * 86_400_000).toISOString();
+  return groupRepeatRooms(await cctvTasksSince(db, since));
+}
+
+/** One summary line per repeat room — room, department, count, latest. Never a name. */
+export function repeatRoomLine(r: RepeatRoom): string {
+  return `${r.room}${r.department ? ` (${r.department})` : ''}: ${r.count} CCTV reports in ${REPEAT_WINDOW_DAYS} days, latest ${istStamp(r.lastAt)}`;
 }
 
 // ── The Director's Monday list (decision 4) ─────────────────────────────────
@@ -541,9 +646,7 @@ export async function sendRepeatRoomsList(
   db: SupabaseClient,
   opts: { weekStart: string; now?: Date; dryRun?: boolean }
 ): Promise<RepeatRoomsListResult> {
-  const now = opts.now ?? new Date();
-  const since = new Date(now.getTime() - REPEAT_WINDOW_DAYS * 86_400_000).toISOString();
-  const rooms = groupRepeatRooms(await cctvTasksSince(db, since));
+  const rooms = await listRepeatRooms(db, opts.now ?? new Date());
   if (rooms.length === 0) return { rooms, sent: false, skippedReason: 'no repeat rooms' };
   if (opts.dryRun) return { rooms, sent: false, skippedReason: 'dry run' };
 
@@ -551,9 +654,7 @@ export async function sendRepeatRoomsList(
   const check = validateTargeting(directors.ids);
   if (!check.ok) return { rooms, sent: false, skippedReason: `no Director to tell (${check.reason})` };
 
-  const lines = rooms
-    .slice(0, 30)
-    .map((r) => `${r.room}${r.department ? ` (${r.department})` : ''}: ${r.count} reports, last ${istStamp(r.lastAt)}`);
+  const lines = rooms.slice(0, 30).map(repeatRoomLine);
   const more = rooms.length > 30 ? ` …and ${rooms.length - 30} more.` : '';
   const id = await createBellNotification(db, {
     recipientIds: check.userIds,

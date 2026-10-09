@@ -17,7 +17,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server';
 import { isCampusWalkReporter } from '@/lib/campus-walk/reporters';
-import { fileCctvReport, isCctvCategory } from '@/lib/campus-walk/cctv';
+import { fileCctvReport, isCctvCategory, namesAllowedFor } from '@/lib/campus-walk/cctv';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -108,9 +108,12 @@ export async function POST(request: NextRequest) {
 
   const note = typeof body.note === 'string' ? body.note.trim().slice(0, 500) : '';
   const isExam = category === 'exam_copying';
-  // Decision 5: outside exam copying, seat and names are not accepted at all.
+  // Decision 5 + 9 Oct edge cases: a seat only for exam copying, a name only
+  // for exam copying and team-member conduct. Anything else is not accepted.
   const seat = isExam && typeof body.seat === 'string' ? body.seat.trim().slice(0, 60) : null;
-  const names = isExam && typeof body.names === 'string' ? body.names.trim().slice(0, 300) : null;
+  const names =
+    namesAllowedFor(category) && typeof body.names === 'string' ? body.names.trim().slice(0, 300) : null;
+  const involvesHod = body.involves_hod === true && category !== 'exam_copying';
   if (isExam && !seat) return fail('For exam copying, enter the seat number.', 400);
 
   const admin = createServiceRoleClient();
@@ -123,6 +126,7 @@ export async function POST(request: NextRequest) {
     note,
     seat,
     names,
+    involvesHod,
     raisedByProfileId: user!.id
   });
   if (result.ok === false) return fail(result.error, 500);

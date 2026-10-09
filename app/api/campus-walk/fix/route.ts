@@ -53,6 +53,7 @@ import { createBellNotification } from '@/lib/services/meetings/meeting-trigger-
 import { resolveDirectors, validateTargeting } from '@/lib/services/director-desk/handover-chase-service';
 import { closeCampusWalkTask } from '@/lib/campus-walk/closure';
 import { updateTaskKeepingJoins } from '@/lib/campus-walk/join-report';
+import { thinReplyReason } from '@/lib/campus-walk/cctv-categories';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -685,11 +686,10 @@ export async function POST(request: NextRequest) {
       );
     }
     const reply = String(form.get('note') ?? '').trim().slice(0, 1000);
-    if (reply.length < 10) {
-      return NextResponse.json(
-        { ok: false, code: 'bad_request', error: 'Please say in a sentence what action was taken.' },
-        { status: 400 }
-      );
+    // The reply must name an action (Director, 9 Oct 2026): "noted" is refused.
+    const thin = thinReplyReason(reply);
+    if (thin) {
+      return NextResponse.json({ ok: false, code: 'thin_reply', error: thin }, { status: 400 });
     }
     if (task.status_key === 'done' && metadata.fix?.approval?.state === 'approved') {
       return NextResponse.json({

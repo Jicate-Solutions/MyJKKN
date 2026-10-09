@@ -139,6 +139,7 @@
  * the same departure.
  */
 
+import { workingDaysPastDue } from '@/lib/campus-walk/cctv-categories';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { createServiceRoleClient } from '@/lib/supabase/server';
 import { createBellNotification } from '@/lib/services/meetings/meeting-trigger-service';
@@ -1370,7 +1371,11 @@ export async function runCampusWalkChaseUp(
 
   for (const task of tasks) {
     try {
-      const daysOverdue = daysPastDue(task.due_date, todayISO);
+      // CCTV reports count WORKING days late (Sundays skipped, Director 9 Oct 2026).
+      const daysOverdue =
+        (task.metadata ?? {}).front_door === 'cctv'
+          ? workingDaysPastDue(task.due_date, todayISO)
+          : daysPastDue(task.due_date, todayISO);
       if (daysOverdue < 1) {
         // Defensive only — the query's `.lt('due_date', todayISO)` already
         // guarantees this, kept in case a caller passes a `now` override.

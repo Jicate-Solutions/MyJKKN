@@ -39,6 +39,7 @@ import {
   type CctvRoom
 } from '@/lib/campus-walk/cctv';
 import { ladderFor, rungsDue, isCatchUpPrincipalStep } from '@/lib/campus-walk/chase-up';
+import { addWorkingDays, workingDaysPastDue, thinReplyReason } from '@/lib/campus-walk/cctv-categories';
 
 // ── A small campus ──────────────────────────────────────────────────────────
 // dept-pharm: recorded head hod-a. dept-ip: no recorded head, HOD-role holder hod-b
@@ -53,7 +54,7 @@ interface World {
 
 function world(): World {
   return {
-    roles: { hod: ['hod-a', 'hod-b'], cao: ['cao-1'], coe: ['coe-x', 'coe-1'] },
+    roles: { hod: ['hod-a', 'hod-b'], cao: ['cao-1'], coe: ['coe-x', 'coe-1'], hr_head: ['hr-1'] },
     staff: {
       'hod-a': { institution_id: 'inst-1', department_id: 'dept-pharm' },
       'hod-b': { institution_id: 'inst-1', department_id: 'dept-ip' },
@@ -142,9 +143,17 @@ describe('who a CCTV report goes to', () => {
     expect(r).toMatchObject({ accountableProfileId: 'cao-1', ownerSource: 'cao_shared_place' });
   });
 
-  it('no HOD on record -> the college principal, marked as such', async () => {
+  it('no HOD on record -> the CAO (Director, 9 Oct 2026)', async () => {
     const r = await routeCctvReport(dbFor(world()), room({ departmentId: 'dept-empty' }), 'staff_conduct');
-    expect(r).toMatchObject({ accountableProfileId: 'principal-1', ownerSource: 'principal_no_hod', hodProfileIds: [] });
+    expect(r).toMatchObject({ accountableProfileId: 'cao-1', ownerSource: 'cao_no_hod', hodProfileIds: [] });
+  });
+
+  it('the video shows the HOD -> the principal, and the HOD is not even copied', async () => {
+    const r = await routeCctvReport(dbFor(world()), room({ departmentId: 'dept-pharm' }), 'staff_conduct', {
+      involvesHod: true
+    });
+    expect(r).toMatchObject({ accountableProfileId: 'principal-1', ownerSource: 'principal_hod_involved' });
+    expect(r.consultedProfileIds).not.toContain('hod-a');
   });
 
   it('exam copying -> the hall’s own college CoE first, the room’s HOD copied', async () => {
@@ -156,10 +165,19 @@ describe('who a CCTV report goes to', () => {
 });
 
 describe('how fast it climbs', () => {
-  it('HOD has one day; exam copying is the same day', () => {
-    expect(cctvDueInDays('learner_conduct')).toBe(1);
-    expect(cctvDueInDays('power_left_on')).toBe(1);
-    expect(cctvDueInDays('exam_copying')).toBe(0);
+  it('HOD has one WORKING day; exam copying is the same day', () => {
+    const thu = Date.parse('2026-10-08T06:00:00Z');
+    const sat = Date.parse('2026-10-10T06:00:00Z');
+    expect(cctvDueInDays('learner_conduct', thu)).toBe(1);
+    expect(cctvDueInDays('power_left_on', sat)).toBe(2); // Saturday -> due Monday
+    expect(cctvDueInDays('exam_copying', sat)).toBe(0);
+  });
+
+  it('Sundays do not count toward being late', () => {
+    expect(workingDaysPastDue('2026-10-10', '2026-10-11')).toBe(0); // Sat due, Sun today
+    expect(workingDaysPastDue('2026-10-10', '2026-10-12')).toBe(1); // Mon
+    expect(workingDaysPastDue('2026-10-12', '2026-10-12')).toBe(0);
+    expect(addWorkingDays('2026-10-10', 1)).toBe('2026-10-12');
   });
 
   it('no reply goes STRAIGHT to the principal at 1 day late — no boss step', () => {
@@ -191,7 +209,7 @@ describe('what is stored', () => {
     expect(res.ok).toBe(true);
     const t = createdTasks[0];
     expect(t.accountableProfileId).toBe('hod-b');
-    expect(t.dueInDays).toBe(1);
+    expect(t.dueInDays).toBeGreaterThanOrEqual(1);
     expect(t.extraMetadata.front_door).toBe('cctv');
     expect(t.extraMetadata.cctv).not.toHaveProperty('names');
     expect(t.extraMetadata.cctv).not.toHaveProperty('seat');
@@ -215,6 +233,62 @@ describe('what is stored', () => {
     expect(t.dueInDays).toBe(0);
     expect(t.extraMetadata.cctv).toMatchObject({ seat: 'B12', names: 'A. Learner' });
     expect(t.description).toContain('Seat: B12');
+  });
+});
+
+describe('a reply must name an action', () => {
+  it('refuses "noted" and one-word replies, accepts a real action', () => {
+    expect(thinReplyReason('Noted.')).toMatch(/does not say what was done/);
+    expect(thinReplyReason('will check')).toMatch(/does not say what was done/);
+    expect(thinReplyReason('Spoke to them')).toMatch(/full sentence/);
+    expect(thinReplyReason('Spoke to the class; phones are collected at the start of the hour.')).toBeNull();
+  });
+});
+
+describe('team-member names', () => {
+  it('a name is stored for team-member conduct, and the HOD sees it', async () => {
+    await fileCctvReport(dbFor(world()), {
+      category: 'staff_conduct',
+      observedAt: '2026-10-09T09:10:00.000Z',
+      resourceId: 'res-lab',
+      names: 'R. Kumar',
+      raisedByProfileId: 'operator'
+    });
+    expect(createdTasks[0].extraMetadata.cctv).toMatchObject({ names: 'R. Kumar', person_key: 'r-kumar' });
+    expect(bells[0].recipientIds).toEqual(['hod-b']);
+    expect(bells[0].body).toContain('R. Kumar');
+  });
+
+  it('the same person 3 times in 30 days -> HR, with the name; the principal never gets it', async () => {
+    const w = world();
+    w.cctvTasks = [1, 2, 3].map((i) => ({
+      id: `t${i}`,
+      created_at: `2026-10-0${i}`,
+      metadata: { cctv: { room_key: `resource:r${i}`, person_key: 'r-kumar', room: `Room ${i}`, observed_at: `2026-10-0${i}T05:00:00Z` } }
+    }));
+    const res = await fileCctvReport(dbFor(w), {
+      category: 'staff_conduct',
+      observedAt: '2026-10-09T09:10:00.000Z',
+      resourceId: 'res-lab',
+      names: 'r kumar',
+      raisedByProfileId: 'operator'
+    });
+    expect(res.ok && res.hrToldOfRepeat).toBe(true);
+    const hr = bells.find((b) => b.category === 'campus-walk:cctv-staff-repeat');
+    expect(hr.recipientIds).toEqual(['hr-1']);
+    expect(hr.body).toContain('r kumar');
+    expect(bells.filter((b) => b.recipientIds.includes('principal-1'))).toEqual([]);
+  });
+
+  it('a learner-conduct report never stores a name', async () => {
+    await fileCctvReport(dbFor(world()), {
+      category: 'learner_conduct',
+      observedAt: '2026-10-09T09:10:00.000Z',
+      resourceId: 'res-lab',
+      names: 'Somebody',
+      raisedByProfileId: 'operator'
+    });
+    expect(createdTasks[0].extraMetadata.cctv).not.toHaveProperty('names');
   });
 });
 
@@ -255,5 +329,17 @@ describe('repeat rooms', () => {
     expect(cctvTitle('staff_conduct', 'Main office', '2026-10-09T05:00:00.000Z')).toBe(
       'CCTV: Team member conduct — Main office, 9 Oct, 10:30 am'
     );
+  });
+});
+
+describe('the Director’s daily summary', () => {
+  it('a morning with only CCTV repeat rooms still sends, naming rooms and never people', async () => {
+    const { buildDirectorDigest } = await import('@/lib/campus-walk/director-digest');
+    const copy = buildDirectorDigest([], {
+      earlierStillOpen: 0,
+      cctvRepeatRooms: ['CP IP room (Pharmacy Practice): 3 CCTV reports in 30 days, latest 9 Oct, 2:40 pm']
+    });
+    expect(copy.title).toBe('Morning summary: 1 CCTV repeat room with a new report');
+    expect(copy.body).toContain('CP IP room (Pharmacy Practice)');
   });
 });

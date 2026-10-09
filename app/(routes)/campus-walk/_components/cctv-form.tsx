@@ -36,7 +36,8 @@ const OWNER_LABEL: Record<string, string> = {
   cao_shared_place: 'the CAO, because the room has no department',
   controller_of_examinations: 'the Controller of Examinations, with the HOD copied',
   principal_no_hod: 'the principal, because no HOD is on record for that department',
-  cao_no_hod: 'the CAO, because no HOD or principal is on record',
+  principal_hod_involved: 'the principal, because it involves the HOD (the HOD is not told)',
+  cao_no_hod: 'the CAO, because no HOD is on record for that department',
   unresolved: 'the estate office, because nobody else is on record'
 };
 
@@ -61,6 +62,7 @@ export function CctvForm() {
   const [note, setNote] = useState('');
   const [seat, setSeat] = useState('');
   const [names, setNames] = useState('');
+  const [involvesHod, setInvolvesHod] = useState(false);
 
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -98,6 +100,7 @@ export function CctvForm() {
   }, [roomQuery, rooms, room]);
 
   const isExam = category === 'exam_copying';
+  const isStaff = category === 'staff_conduct';
   const roomReady = typedRoom ? roomQuery.trim().length > 1 : Boolean(room);
   const canSend = Boolean(category) && roomReady && Boolean(observedAt) && (!isExam || seat.trim()) && !sending;
 
@@ -111,6 +114,7 @@ export function CctvForm() {
     setNote('');
     setSeat('');
     setNames('');
+    setInvolvesHod(false);
     setError(null);
   }
 
@@ -130,7 +134,8 @@ export function CctvForm() {
           department_id: typedRoom && deptId ? deptId : null,
           note: note.trim() || null,
           seat: isExam ? seat.trim() : undefined,
-          names: isExam ? names.trim() : undefined
+          names: isExam || isStaff ? names.trim() : undefined,
+          involves_hod: !isExam && involvesHod
         })
       });
       const j = await res.json().catch(() => ({}) as any);
@@ -309,6 +314,36 @@ export function CctvForm() {
           </div>
         )}
 
+        {isStaff && (
+          <div className="space-y-1.5 rounded-md border p-3">
+            <Label htmlFor="cctv-staff-name">Name of the team member, if known (optional)</Label>
+            <Input
+              id="cctv-staff-name"
+              value={names}
+              onChange={(e) => setNames(e.target.value)}
+              maxLength={300}
+            />
+            <p className="text-xs text-muted-foreground">
+              Only the HOD sees the name. If the same person is reported 3 times in a month, HR is told.
+            </p>
+          </div>
+        )}
+
+        {!isExam && category && (
+          <label className="flex items-start gap-2 rounded-md border p-3 text-sm">
+            <input
+              type="checkbox"
+              className="mt-0.5 h-4 w-4"
+              checked={involvesHod}
+              onChange={(e) => setInvolvesHod(e.target.checked)}
+            />
+            <span>
+              <span className="font-medium">This involves the HOD.</span> It goes to the principal instead, and the
+              HOD is not told.
+            </span>
+          </label>
+        )}
+
         <div className="space-y-1.5">
           <Label htmlFor="cctv-note">What happened? (optional)</Label>
           <Textarea
@@ -319,7 +354,9 @@ export function CctvForm() {
             maxLength={500}
             placeholder="e.g. Five learners on phones during the lecture, back two rows."
           />
-          {!isExam && <p className="text-xs text-muted-foreground">Room and time only — please do not write names.</p>}
+          <p className="text-xs text-muted-foreground">
+            {isExam || isStaff ? 'Put any names in the name box above, not here.' : 'Room and time only — please do not write names.'}
+          </p>
         </div>
 
         {error && (

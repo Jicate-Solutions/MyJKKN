@@ -47,6 +47,7 @@ import { compressImage } from '@/lib/utils/compress-image';
 import { stripImageMetadata } from '@/lib/services/pde/strip-image-metadata';
 import { JoinedReportsList, type JoinedReportItem } from '@/components/campus-walk/joined-reports-list';
 import { PHOTO_UNREADABLE } from '@/lib/instasolver/to-jpeg';
+import { thinReplyReason } from '@/lib/campus-walk/cctv-categories';
 
 // ── Types shared with the server component ──────────────────────────────────
 
@@ -314,8 +315,9 @@ export function FixClient({ ticket }: FixClientProps) {
 
   const sendReply = useCallback(async () => {
     if (sending) return;
-    if (note.trim().length < 10) {
-      setSendError('Please say in a sentence what action was taken.');
+    const thin = thinReplyReason(note);
+    if (thin) {
+      setSendError(thin);
       return;
     }
     setSending(true);
@@ -624,9 +626,10 @@ export function FixClient({ ticket }: FixClientProps) {
         <Card>
           <CardContent className="space-y-4 pt-6">
             <div>
-              <h3 className="font-semibold">What action was taken?</h3>
+              <h3 className="font-semibold">What did you do about it?</h3>
               <p className="text-sm text-muted-foreground">
-                This came from CCTV. Reply with what you did about it. Your reply closes the report.
+                This came from CCTV. Write the action you took, not just &ldquo;noted&rdquo;. Your reply closes the
+                report; the person who reported it can still mark it &ldquo;not dealt with&rdquo;.
               </p>
             </div>
             <div className="space-y-1.5">
@@ -649,7 +652,7 @@ export function FixClient({ ticket }: FixClientProps) {
             <Button
               className="h-14 w-full text-base"
               onClick={() => void sendReply()}
-              disabled={sending || note.trim().length < 10}
+              disabled={sending || note.trim().length < 20}
             >
               {sending ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : <Send className="mr-2 h-5 w-5" />}
               {sending ? 'Sending…' : 'Send reply and close'}
