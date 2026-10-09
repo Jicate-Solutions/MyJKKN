@@ -259,7 +259,10 @@ SELECT set_config('request.jwt.claim.sub', 'a0000000-0000-0000-0000-00000000000a
 -- does not exist yet) or are an admin. Today no college has an ICC committee.
 SELECT t_ok(NOT EXISTS (SELECT 1 FROM grievance_tickets WHERE subject = 'E5-icc'), 'known gap: an ICC chair without icc_member cannot open the ICC ticket assigned to him');
 SELECT set_config('request.jwt.claim.sub', 'a0000000-0000-0000-0000-000000000007', false);   -- the filer
-SELECT t_ok(EXISTS (SELECT 1 FROM grievance_tickets WHERE subject = 'E4-anonymous'), 'the filer still sees her own anonymous ticket');
+-- Changed by 20271010030000 (anonymous means anonymous, ruling 30 Sep kept on
+-- 9 Oct): no filer is stored on an anonymous ticket, so she follows it by its
+-- private code (30_privacy.sql), not by who she is.
+SELECT t_ok(NOT EXISTS (SELECT 1 FROM grievance_tickets WHERE subject = 'E4-anonymous'), 'the filer no longer finds her anonymous ticket by who she is');
 RESET ROLE;
 SELECT set_config('request.jwt.claim.sub', '', false);
 

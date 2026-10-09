@@ -29,6 +29,12 @@ psql -d "$DB" -v ON_ERROR_STOP=1 -q -f "$REPLAY"
 psql -d "$DB" -v ON_ERROR_STOP=1 -q -f "$MIG"
 # the migration must be safe to apply twice
 psql -d "$DB" -v ON_ERROR_STOP=1 -q -f "$MIG"
+# Stacked: anonymity + tracking-code follow-up (20271010030000), on the state
+# production is in before it, applied twice. PRIVACY_MIGRATION: a mutated copy.
+PRIV="${PRIVACY_MIGRATION:-$ROOT/supabase/migrations/20271010030000_grievance_anonymity_tracking.sql}"
+psql -d "$DB" -v ON_ERROR_STOP=1 -q -f "$HERE/06_privacy_preseed.sql"
+psql -d "$DB" -v ON_ERROR_STOP=1 -q -f "$PRIV"
+psql -d "$DB" -v ON_ERROR_STOP=1 -q -f "$PRIV"
 # Every scenario file, in order, on the same database (20_ builds on 10_'s people).
 for T in "$HERE"/[1-9][0-9]_*.sql; do
   OUT=$(psql -d "$DB" -v ON_ERROR_STOP=1 -At -f "$T" 2>&1) || { echo "$(basename "$T"):"; echo "$OUT" | grep -E "FAIL|ERROR" | head -5; exit 1; }

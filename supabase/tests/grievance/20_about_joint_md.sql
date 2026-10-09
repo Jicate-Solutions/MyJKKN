@@ -118,6 +118,7 @@ INSERT INTO grievance_history (ticket_id, action, new_value, performed_by)
 -- ------------------------------------------------ 3. what the Joint MD can see: nothing
 SELECT count(*) AS visible_to_jmd FROM grievance_tickets WHERE NOT about_joint_md \gset
 SELECT count(*) AS ticked_now FROM grievance_tickets WHERE about_joint_md \gset
+SELECT array_agg(id)::text AS jids FROM grievance_tickets WHERE about_joint_md \gset
 SELECT t_ok(:ticked_now = 6, 'six complaints about the Joint MD exist: ' || :ticked_now);
 SET ROLE authenticated;
 SELECT set_config('request.jwt.claim.sub', 'a0000000-0000-0000-0000-000000000001', false),
@@ -126,15 +127,15 @@ SELECT t_ok(cardinality(fn_grievance_caller_joint_md_scope()) > 0, 'the Joint MD
 SELECT t_ok((SELECT count(*) FROM grievance_tickets WHERE about_joint_md) = 0, 'Joint MD (a super admin): 0 rows about the Joint MD');
 SELECT t_ok(NOT EXISTS (SELECT 1 FROM grievance_tickets WHERE subject LIKE 'J%'), 'Joint MD: not one J-ticket by any route');
 SELECT t_ok((SELECT count(*) FROM grievance_tickets) = :visible_to_jmd, 'Joint MD: her total count leaves them out (sees ' || (SELECT count(*) FROM grievance_tickets) || ', expected ' || :visible_to_jmd || ')');
-SELECT t_ok((SELECT count(*) FROM grievance_comments) = 0, 'Joint MD: 0 comments of a complaint about her');
-SELECT t_ok((SELECT count(*) FROM grievance_history) = 0, 'Joint MD: 0 history lines of a complaint about her');
+SELECT t_ok((SELECT count(*) FROM grievance_comments WHERE ticket_id = ANY (:'jids'::uuid[])) = 0, 'Joint MD: 0 comments of a complaint about her');
+SELECT t_ok((SELECT count(*) FROM grievance_history WHERE ticket_id = ANY (:'jids'::uuid[])) = 0, 'Joint MD: 0 history lines of a complaint about her');
 WITH u AS (UPDATE grievance_tickets SET status = 'in_progress' WHERE about_joint_md RETURNING 1)
 SELECT t_ok((SELECT count(*) FROM u) = 0, 'Joint MD: cannot change one either');
 SELECT t_ok(NOT fn_grievance_ticket_hidden_from_caller('00000000-0000-0000-0000-000000000000'), 'the hidden-check answers false for a ticket that does not exist');
 SELECT set_config('request.jwt.claim.sub', 'a0000000-0000-0000-0000-00000000000f', false);   -- another super admin
 SELECT t_ok((SELECT count(*) FROM grievance_tickets WHERE about_joint_md) = :ticked_now, 'another super admin sees all of them, held ones included');
 SELECT t_ok(cardinality(fn_grievance_caller_joint_md_scope()) = 0, 'a super admin who is not the Joint MD has no seat');
-SELECT t_ok((SELECT count(*) FROM grievance_comments) = 1, 'another super admin still sees the comment');
+SELECT t_ok((SELECT count(*) FROM grievance_comments WHERE ticket_id = ANY (:'jids'::uuid[])) = 1, 'another super admin still sees the comment');
 SELECT set_config('request.jwt.claim.sub', 'a0000000-0000-0000-0000-00000000000e', false);   -- the Director (not a super admin)
 SELECT t_ok(EXISTS (SELECT 1 FROM grievance_tickets WHERE subject = 'J2-director'), 'the Director sees the complaint given to him');
 SELECT set_config('request.jwt.claim.sub', 'a0000000-0000-0000-0000-000000000007', false);   -- the filer
