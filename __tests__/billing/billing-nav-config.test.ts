@@ -20,18 +20,25 @@ const activeTier3 = (pathname: string) =>
   (resolveTiers(pathname)[1] ?? []).filter((c) => c.isActive).map((c) => c.label);
 
 describe('Billing top navigation (AutoTabNav)', () => {
-  // 'Settings' added 2026-10-01 (58c6987f64), mirroring the sidebar's fourth menu.
-  it('is registered and exposes the four sidebar domains as tier-2', () => {
+  // 'Settings' added 2026-10-01 (58c6987f64); 'Scholarships' added 2026-10-09 (dbaaf9e323),
+  // mirroring the sidebar's own Scholarships menu.
+  it('is registered and exposes the five sidebar domains as tier-2', () => {
     expect(config().module).toBe('billing');
-    expect(tier2('/billing/schedule')).toEqual(['Colleges', 'Transport Fees', 'Schools', 'Settings']);
+    expect(tier2('/billing/schedule')).toEqual(['Colleges', 'Transport Fees', 'Schools', 'Scholarships', 'Settings']);
   });
 
   it('mirrors the sidebar split, plus the orphaned Receipt Templates page', () => {
-    const [colleges, transport, schools, settings] = config().groups;
-    // 13 sidebar submenus + Receipt Templates, which has no other entry point.
-    expect(colleges.children).toHaveLength(14);
+    const [colleges, transport, schools, scholarships, settings] = config().groups;
+    // 12 sidebar submenus + Receipt Templates, which has no other entry point.
+    // (Discounts left Colleges for its own Scholarships group on 2026-10-09.)
+    expect(colleges.children).toHaveLength(13);
     expect(transport.children).toBeUndefined(); // single page, no tier-3
     expect(schools.children).toHaveLength(5);
+    expect((scholarships.children ?? []).map((c) => c.href)).toEqual([
+      '/billing/scholarships',
+      '/billing/scholarships/new',
+      '/billing/scholarships/setup',
+    ]);
     expect((settings.children ?? []).map((c) => c.href)).toEqual([
       '/billing/categories',
       '/billing/reports',

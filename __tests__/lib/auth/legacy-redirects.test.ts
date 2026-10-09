@@ -28,8 +28,9 @@ describe('legacy redirects served from proxy.ts (route budget, 2026-09-14)', () 
     expect(resolveLegacyRedirect('/')).toBeNull();
   });
 
-  it('carries every entry that next.config.ts used to hold (27) plus the 3 campaign 301s', () => {
-    expect(LEGACY_REDIRECTS).toHaveLength(30);
+  // + /billing/discounts → /billing/scholarships (308), added by 7cddfde755 on 2026-10-09.
+  it('carries every entry that next.config.ts used to hold (27) plus the 3 campaign 301s and the scholarships rename', () => {
+    expect(LEGACY_REDIRECTS).toHaveLength(31);
     const exactBeforePrefix = (from: string) => {
       const i = LEGACY_REDIRECTS.findIndex((r) => r.from === from && r.exact);
       const j = LEGACY_REDIRECTS.findIndex((r) => r.from === from && !r.exact);
