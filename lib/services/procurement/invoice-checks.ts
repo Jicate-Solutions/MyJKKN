@@ -22,6 +22,17 @@ export function daysBetween(from: string | null | undefined, to: string | null |
   return Math.round((b - a) / DAY_MS);
 }
 
+/**
+ * A real calendar date written as YYYY-MM-DD. "2025-02-30" and "03/04/2025" are not.
+ * Used to refuse an AI-read or posted date the rules below would otherwise skip
+ * (daysBetween returns null for a non-ISO value, which disables I2 and I4).
+ */
+export function isIsoDate(v: unknown): v is string {
+  if (typeof v !== 'string' || !ISO_DATE.test(v)) return false;
+  const t = Date.parse(`${v}T00:00:00Z`);
+  return !Number.isNaN(t) && new Date(t).toISOString().slice(0, 10) === v;
+}
+
 /** Today's date in the viewer's local calendar, as YYYY-MM-DD. */
 export function localToday(now: Date = new Date()): string {
   const y = now.getFullYear();
@@ -50,6 +61,18 @@ export interface DuplicateCandidate {
   supplier_id: string;
   invoice_number: string | null;
   status?: string | null;
+  created_at?: string | null;
+}
+
+/** True when `g` was recorded before `ref` — created_at first, id as the tie-break. */
+function recordedBefore(
+  g: { id: string; created_at?: string | null },
+  ref: { id: string; created_at: string },
+): boolean {
+  const a = Date.parse(g.created_at ?? '');
+  const b = Date.parse(ref.created_at);
+  if (Number.isNaN(a) || Number.isNaN(b)) return false;
+  return a < b || (a === b && g.id < ref.id);
 }
 
 /**
@@ -57,12 +80,17 @@ export interface DuplicateCandidate {
  *
  * Cancelled receipts are excluded: a cancelled GRN was undone, and re-recording the same
  * invoice is the expected way to fix it. `excludeGrnId` skips the record being edited.
+ *
+ * `earlierThan` (an already-saved receipt) keeps only receipts recorded BEFORE it, the
+ * same rule as fn_procurement_grn_has_duplicate: the original receipt is never held by
+ * a later repeat of it — only the repeat is. Omit it for a receipt not saved yet.
  */
 export function findDuplicateGrns<T extends DuplicateCandidate>(
   candidates: readonly T[],
   supplierId: string | null | undefined,
   invoiceNumber: string | null | undefined,
   excludeGrnId?: string | null,
+  earlierThan?: { id: string; created_at: string } | null,
 ): T[] {
   const key = normaliseInvoiceNumber(invoiceNumber);
   if (!key || !supplierId) return [];
@@ -71,7 +99,8 @@ export function findDuplicateGrns<T extends DuplicateCandidate>(
       g.supplier_id === supplierId &&
       g.id !== excludeGrnId &&
       g.status !== 'cancelled' &&
-      normaliseInvoiceNumber(g.invoice_number) === key,
+      normaliseInvoiceNumber(g.invoice_number) === key &&
+      (!earlierThan || recordedBefore(g, earlierThan)),
   );
 }
 
@@ -215,4 +244,142 @@ export function duplicateHold(input: {
     !!input.viewerId &&
     input.viewerId !== input.receivedBy;
   return { held, canConfirm, blocksVerify: held };
+}
+
+// ── Filling the form from a finished read (review round, 2026-10-09) ─────────
+
+/** The per-line fields an AI read may fill. */
+export interface MergeableLine {
+  po_item_id: string;
+  item_name: string;
+  invoice_quantity?: number | null;
+  received_quantity: number;
+  accepted_quantity: number;
+  rejected_quantity: number;
+  batch_number?: string | null;
+  expiry_date?: string | null;
+  manufacturing_date?: string | null;
+  cost?: number | null;
+}
+
+export type ReadMark = 'ai' | 'uncertain';
+type HeaderKey = 'invoice_number' | 'invoice_date' | 'invoice_amount';
+
+/**
+ * Merge a finished AI read into what is on the form. A value the person typed ALWAYS
+ * wins over an AI-read one (the read can land while they are still typing):
+ *   - a header field is filled only while it is blank or still holds an AI value
+ *     (`aiMarked` — a mark is cleared the moment a person edits the field);
+ *   - a line the person edited (`touched`) gets only its blank batch / dates / price,
+ *     never its quantities; an untouched line takes the read quantity, and accepted
+ *     is the read quantity less whatever is already rejected;
+ *   - rejected and missing quantities are never written;
+ *   - a date that is not a real YYYY-MM-DD is left out and reported in `unreadable`
+ *     (its line is marked uncertain): a date input cannot show it, and the expiry and
+ *     invoice-age checks would silently skip it.
+ * Lines billed twice against one order line come back in `duplicates` (see
+ * splitInvoiceLines) — the caller must show them, never drop them.
+ */
+export function mergeInvoiceRead<L extends MergeableLine>(input: {
+  header: Record<HeaderKey, string>;
+  aiMarked: Partial<Record<string, unknown>>;
+  lines: readonly L[];
+  touched: ReadonlySet<string>;
+  invoice?: {
+    invoice_number?: string | null;
+    invoice_date?: string | null;
+    invoice_amount?: number | null;
+  } | null;
+  readLines?: readonly ReadInvoiceLine[] | null;
+}): {
+  header: Partial<Record<HeaderKey, string>>;
+  lines: L[];
+  marks: Record<string, ReadMark>;
+  notOrdered: ReadInvoiceLine[];
+  duplicates: ReadInvoiceLine[];
+  unreadable: string[];
+  kept: number;
+  matched: number;
+} {
+  const marks: Record<string, ReadMark> = {};
+  const header: Partial<Record<HeaderKey, string>> = {};
+  const unreadable: string[] = [];
+  let kept = 0;
+  const canFill = (key: HeaderKey) => !input.header[key].trim() || !!input.aiMarked[key];
+
+  const inv = input.invoice ?? null;
+  const offer = (key: HeaderKey, value: string) => {
+    if (canFill(key)) {
+      header[key] = value;
+      marks[key] = 'ai';
+    } else kept++;
+  };
+  if (inv?.invoice_number) offer('invoice_number', inv.invoice_number);
+  if (inv?.invoice_date) {
+    if (isIsoDate(inv.invoice_date)) offer('invoice_date', inv.invoice_date);
+    else unreadable.push(`invoice date read as "${inv.invoice_date}" — type it in`);
+  }
+  if (inv?.invoice_amount != null && Number.isFinite(Number(inv.invoice_amount))) {
+    offer('invoice_amount', String(inv.invoice_amount));
+  }
+
+  const split = splitInvoiceLines(input.readLines, input.lines.map((l) => l.po_item_id));
+  const doubled = new Set(split.duplicates.map((l) => l.po_item_id as string));
+  const byPo = new Map(split.ordered.map((l) => [l.po_item_id as string, l]));
+
+  const lines = input.lines.map((l) => {
+    const ex = byPo.get(l.po_item_id);
+    if (!ex) return l;
+    const touched = input.touched.has(l.po_item_id);
+    let uncertain = !!ex.uncertain || doubled.has(l.po_item_id);
+    const patch: Partial<MergeableLine> = {};
+    let keptHere = false;
+
+    const qty = Number(ex.invoice_quantity);
+    if (ex.invoice_quantity != null && Number.isFinite(qty) && qty >= 0) {
+      if (touched) keptHere = true;
+      else {
+        patch.invoice_quantity = qty;
+        patch.received_quantity = qty;
+        patch.accepted_quantity = Math.max(0, qty - (Number(l.rejected_quantity) || 0));
+      }
+    }
+    if (ex.batch_number) {
+      if (!touched || !l.batch_number?.trim()) patch.batch_number = ex.batch_number;
+      else keptHere = true;
+    }
+    for (const [field, label] of [
+      ['expiry_date', 'expiry'],
+      ['manufacturing_date', 'mfg'],
+    ] as const) {
+      const raw = ex[field];
+      if (!raw) continue;
+      if (!isIsoDate(raw)) {
+        uncertain = true;
+        unreadable.push(`"${l.item_name}": ${label} date read as "${raw}" — type it in`);
+      } else if (!touched || !l[field]) patch[field] = raw;
+      else keptHere = true;
+    }
+    if (ex.invoice_unit_price != null) {
+      if (!touched || l.cost == null) patch.cost = ex.invoice_unit_price;
+      else keptHere = true;
+    }
+
+    if (keptHere) kept++;
+    if (!touched || Object.keys(patch).length) {
+      marks[`line:${l.po_item_id}`] = uncertain ? 'uncertain' : 'ai';
+    }
+    return { ...l, ...patch };
+  });
+
+  return {
+    header,
+    lines,
+    marks,
+    notOrdered: split.notOrdered,
+    duplicates: split.duplicates,
+    unreadable,
+    kept,
+    matched: split.ordered.length,
+  };
 }

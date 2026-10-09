@@ -13,7 +13,7 @@ import {
   invoiceAgeCheck,
   lateReasonMissing,
   localToday,
-  splitInvoiceLines,
+  mergeInvoiceRead,
   type ReadInvoiceLine,
 } from '@/lib/services/procurement/invoice-checks';
 import { ProcurementGrnService, type SupplierInvoiceGrn } from '@/lib/services/procurement/grn-service';
@@ -133,6 +133,11 @@ export function GrnForm({ poId, onSaved, onCancel, compact, onDirtyChange }: Grn
   const [aiNote, setAiNote] = useState<string | null>(null);
   // I3: invoice lines that are not on this order. Shown, never added to the receipt.
   const [notOrdered, setNotOrdered] = useState<ReadInvoiceLine[]>([]);
+  // Invoice lines billed a second time against an order line already filled from the
+  // invoice. Shown so their quantity is never silently dropped; never added either.
+  const [alsoBilled, setAlsoBilled] = useState<ReadInvoiceLine[]>([]);
+  // Order lines the person has edited. A late AI result never overwrites them.
+  const touchedLines = useRef<Set<string>>(new Set());
   // I4: why an invoice older than the receiver's limit is being accepted.
   const [lateReason, setLateReason] = useState('');
   // I1: earlier receipts with the same invoice number from this supplier.
@@ -217,7 +222,10 @@ export function GrnForm({ poId, onSaved, onCancel, compact, onDirtyChange }: Grn
 
   const update = (idx: number, patch: Partial<LineDraft>) => {
     const id = drafts[idx]?.po_item_id;
-    if (id) clearAiMark(`line:${id}`);
+    if (id) {
+      clearAiMark(`line:${id}`);
+      touchedLines.current.add(id);
+    }
     setLines((prev) => {
       const base = prev ?? drafts;
       return base.map((l, i) => (i === idx ? { ...l, ...patch } : l));
@@ -226,64 +234,40 @@ export function GrnForm({ poId, onSaved, onCancel, compact, onDirtyChange }: Grn
 
   // Fill the form from a finished read. Every value lands in an editable field, marked
   // as AI-filled until a person edits it. Whether a line is ordered, expired or a
-  // duplicate is decided by invoice-checks.ts, never by the model.
+  // duplicate is decided by invoice-checks.ts, never by the model. What the person
+  // typed always wins over the read — see mergeInvoiceRead.
   const applyExtraction = useCallback(
     (result: InvoiceReadResult | null | undefined) => {
       if (!po) return;
       const r = result ?? {};
-      const marks: Record<string, AiMark> = {};
-      const inv = r.invoice ?? null;
-      if (inv?.invoice_number) {
-        setInvoiceNumber(inv.invoice_number);
-        marks.invoice_number = 'ai';
-      }
-      if (inv?.invoice_date) {
-        setInvoiceDate(inv.invoice_date);
-        marks.invoice_date = 'ai';
-      }
-      if (inv?.invoice_amount != null && Number.isFinite(Number(inv.invoice_amount))) {
-        setInvoiceAmount(String(inv.invoice_amount));
-        marks.invoice_amount = 'ai';
-      }
-
-      const split = splitInvoiceLines(r.lines, po.items.map((i) => i.id));
-      const doubled = new Set(split.duplicates.map((l) => l.po_item_id as string));
-      const byPo = new Map(split.ordered.map((l) => [l.po_item_id as string, l]));
-      byPo.forEach((ex, id) => {
-        marks[`line:${id}`] = ex.uncertain || doubled.has(id) ? 'uncertain' : 'ai';
+      const m = mergeInvoiceRead({
+        header: { invoice_number: invoiceNumber, invoice_date: invoiceDate, invoice_amount: invoiceAmount },
+        aiMarked: aiFilled,
+        lines: drafts,
+        touched: touchedLines.current,
+        invoice: r.invoice,
+        readLines: r.lines,
       });
-      setLines((prev) => {
-        const base = prev ?? drafts;
-        return base.map((l) => {
-          const ex = byPo.get(l.po_item_id);
-          if (!ex) return l;
-          const qty = Number(ex.invoice_quantity);
-          const hasQty = Number.isFinite(qty) && qty >= 0 && ex.invoice_quantity != null;
-          return {
-            ...l,
-            ...(hasQty
-              ? { invoice_quantity: qty, received_quantity: qty, accepted_quantity: qty, rejected_quantity: 0 }
-              : {}),
-            batch_number: ex.batch_number ?? l.batch_number,
-            expiry_date: ex.expiry_date ?? l.expiry_date,
-            manufacturing_date: ex.manufacturing_date ?? l.manufacturing_date,
-            cost: ex.invoice_unit_price ?? l.cost,
-          };
-        });
-      });
-      setAiFilled(marks);
-      setNotOrdered(split.notOrdered);
+      if (m.header.invoice_number != null) setInvoiceNumber(m.header.invoice_number);
+      if (m.header.invoice_date != null) setInvoiceDate(m.header.invoice_date);
+      if (m.header.invoice_amount != null) setInvoiceAmount(m.header.invoice_amount);
+      setLines(m.lines);
+      setAiFilled(m.marks);
+      setNotOrdered(m.notOrdered);
+      setAlsoBilled(m.duplicates);
       setAiFromScan(r.from_scan === true);
-      setAiNote(r.unmatched_note?.trim() || null);
+      setAiNote([r.unmatched_note?.trim(), ...m.unreadable].filter(Boolean).join(' · ') || null);
       setAiNotice(null);
 
-      const matched = split.ordered.length;
+      const matched = m.matched;
       toast.success(
         `Read ${matched} of ${po.items.length} line${matched === 1 ? '' : 's'} — check every AI-marked value before recording` +
-          (split.notOrdered.length ? ` · ${split.notOrdered.length} not on this order` : '')
+          (m.notOrdered.length ? ` · ${m.notOrdered.length} not on this order` : '') +
+          (m.duplicates.length ? ` · ${m.duplicates.length} billed again on a line` : '') +
+          (m.kept ? ` · kept ${m.kept} value${m.kept === 1 ? '' : 's'} you typed` : '')
       );
     },
-    [po, drafts]
+    [po, drafts, aiFilled, invoiceNumber, invoiceDate, invoiceAmount]
   );
   // The poll below reads the latest applyExtraction through a ref, so typing in the
   // form does not restart its timers.
@@ -1103,6 +1087,40 @@ export function GrnForm({ poId, onSaved, onCancel, compact, onDirtyChange }: Grn
                 {notOrdered.map((l, i) => (
                   <li key={i} className="flex flex-wrap justify-between gap-2">
                     <span className="min-w-0 break-words">{l.item_name || 'Unnamed line'}</span>
+                    <span className="tabular-nums text-muted-foreground">
+                      {l.invoice_quantity != null ? `× ${l.invoice_quantity}` : ''}
+                      {l.invoice_unit_price != null
+                        ? ` @ ₹${Number(l.invoice_unit_price).toLocaleString('en-IN')}`
+                        : ''}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {/* Billed twice against one order line — only the first filled the form. */}
+          {alsoBilled.length > 0 && (
+            <div className="rounded-lg border border-dashed p-3 space-y-2">
+              <p className="text-sm font-medium">
+                Also billed against a line above ({alsoBilled.length})
+              </p>
+              <p className="text-xs text-muted-foreground">
+                The invoice bills these again on an order line that was already filled from its
+                first entry. They are not added — check that line&apos;s quantity and batch and
+                change them yourself if these also arrived.
+              </p>
+              <ul className="space-y-1 text-sm">
+                {alsoBilled.map((l, i) => (
+                  <li key={i} className="flex flex-wrap justify-between gap-2">
+                    <span className="min-w-0 break-words">
+                      {l.item_name || 'Unnamed line'}
+                      {(() => {
+                        const onPo = po?.items.find((it) => it.id === l.po_item_id)?.item_name;
+                        return onPo ? ` → ${onPo}` : '';
+                      })()}
+                      {l.batch_number ? ` · batch ${l.batch_number}` : ''}
+                    </span>
                     <span className="tabular-nums text-muted-foreground">
                       {l.invoice_quantity != null ? `× ${l.invoice_quantity}` : ''}
                       {l.invoice_unit_price != null

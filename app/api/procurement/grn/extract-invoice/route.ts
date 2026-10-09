@@ -66,8 +66,14 @@ const str = (v: unknown) => (typeof v === 'string' && v.trim() ? v.trim().slice(
  *   expectations  JSON    { tolerance_pct, require_batch_expiry, max_invoice_age_days, watch_for }
  *
  * JOB PAYLOAD (what the runner receives):
- *   { storage_bucket, storage_path, sha256, po_id, grn_id, po_items,
+ *   { storage_bucket, storage_path, sha256, po_id, grn_id, po_items, notify_url,
  *     expectations: { watch_for, require_batch_expiry } }
+ * grn_id is always null today (the form reads the invoice before the receipt exists).
+ * The runner's "invoice read" notification uses notify_url as its link
+ * (`/procurement/grn/new?po=<po_id>` — never `/procurement/grn/<grn_id>`), with
+ * idempotency_key `procurement.invoice_extract:<job_id>` and category
+ * `procurement:invoice`. The runner should also check the downloaded bytes against
+ * payload.sha256 before reading them.
  * tolerance_pct / max_invoice_age_days are deliberately NOT sent: the app enforces them
  * (three-way-match.ts, invoice-checks.ts). The model only reads; it never decides.
  */
@@ -217,9 +223,10 @@ export async function POST(req: NextRequest) {
     // Can't tell — let fn_ai_enqueue decide.
   }
 
-  // ── Park the PDF (content-addressed; "already exists" = these exact bytes) ─
-  // Uploaded as the signed-in user, so the bucket's own policy (GRN rights) applies.
-  // Never upsert: an overwrite needs UPDATE on storage.objects, which is not granted.
+  // ── Park the PDF (content-addressed) ────────────────────────────────────────
+  // Uploaded as the signed-in user, so the bucket's own policy (GRN rights + a folder
+  // of an order they can see) applies. Never upsert: an overwrite needs UPDATE on
+  // storage.objects, which is not granted.
   const storagePath = `${poId}/${sha256}.pdf`;
   const { error: uploadError } = await supabase.storage
     .from(BUCKET)
@@ -237,6 +244,21 @@ export async function POST(req: NextRequest) {
           : COULD_NOT_START,
     );
   }
+  // "Already exists" is trusted only after re-hashing what is stored: the key names a
+  // hash, but nothing else guarantees the object at it still has those bytes.
+  if (alreadyStored) {
+    const { data: stored, error: dlError } = await admin.storage.from(BUCKET).download(storagePath);
+    const storedSha = stored
+      ? createHash('sha256').update(Buffer.from(await stored.arrayBuffer())).digest('hex')
+      : null;
+    if (dlError || storedSha !== sha256) {
+      console.error('[procurement grn extract-invoice] stored PDF does not match its hash:', {
+        storagePath,
+        dlError,
+      });
+      return manual(COULD_NOT_START);
+    }
+  }
 
   // ── Enqueue on the ₹0 Max lane, as the signed-in user ──────────────────────
   const { data: enq, error: enqError } = await supabase.rpc('fn_ai_enqueue', {
@@ -248,6 +270,7 @@ export async function POST(req: NextRequest) {
       po_id: poId,
       grn_id: grnId,
       po_items: items,
+      notify_url: `/procurement/grn/new?po=${poId}`,
       expectations: {
         watch_for: expectations.watch_for,
         require_batch_expiry: expectations.require_batch_expiry,

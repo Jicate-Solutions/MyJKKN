@@ -42,7 +42,10 @@ export function useCreateGrn() {
  * (that the viewer can see) carry it — for the side-by-side on the receipt page.
  */
 export function useGrnDuplicateInvoice(
-  grn: { id: string; supplier_id: string; invoice_number: string | null } | null | undefined
+  grn:
+    | { id: string; supplier_id: string; invoice_number: string | null; created_at: string }
+    | null
+    | undefined
 ) {
   return useQuery({
     queryKey: ['procurement-grn-duplicate', grn?.id, grn?.supplier_id, grn?.invoice_number],
@@ -54,7 +57,8 @@ export function useGrnDuplicateInvoice(
       ]);
       return {
         hasDuplicate,
-        earlier: findDuplicateGrns(visible, g.supplier_id, g.invoice_number, g.id),
+        // Only receipts recorded BEFORE this one: the original is never shown as held.
+        earlier: findDuplicateGrns(visible, g.supplier_id, g.invoice_number, g.id, g),
       };
     },
     enabled: !!grn?.id && !!grn.invoice_number,

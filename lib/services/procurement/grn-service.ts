@@ -17,6 +17,7 @@ import {
   duplicateHold,
   expiredLineBlocks,
   findDuplicateGrns,
+  isIsoDate,
   lateReasonMissing,
   localToday,
   type DuplicateCandidate,
@@ -181,6 +182,11 @@ export class ProcurementGrnService {
       if (!input.invoice_date) {
         throw new Error('Invoice date is required to record a delivery.');
       }
+      // A non-ISO date would silently switch off I4 (and I2 for line dates) — the rules
+      // treat an unreadable date as "nothing to judge" — so it is refused here.
+      if (!isIsoDate(input.invoice_date)) {
+        throw new Error(`Invoice date "${input.invoice_date}" is not a valid date — re-enter it.`);
+      }
 
       // 1) Load PO header + lines (ordered qty and remaining-to-receive per line).
       const { data: po, error: poErr } = await this.supabase
@@ -221,6 +227,15 @@ export class ProcurementGrnService {
 
         const orderedRemaining =
           Number(poItem.ordered_quantity) - Number(poItem.received_quantity ?? 0);
+
+        for (const [label, value] of [
+          ['expiry', line.expiry_date],
+          ['manufacturing', line.manufacturing_date],
+        ] as const) {
+          if (value && !isIsoDate(value)) {
+            throw new Error(`"${poItem.item_name}": the ${label} date "${value}" is not a valid date — re-enter it.`);
+          }
+        }
 
         // Catalog lookup for chemical flag + cost (null domain_item_id => new item).
         let isChemical = false;
@@ -345,28 +360,48 @@ export class ProcurementGrnService {
 
       // 3) Insert header, then lines.
       const grnNumber = await this.generateGrnNumber(po.institution_id);
-      const { data: grn, error: grnErr } = await this.supabase
+      const header = {
+        institution_id: po.institution_id,
+        store_id: po.store_id ?? null,
+        grn_number: grnNumber,
+        purchase_order_id: po.id,
+        supplier_id: po.supplier_id,
+        domain,
+        invoice_number: input.invoice_number ?? null,
+        invoice_date: input.invoice_date ?? null,
+        invoice_amount: input.invoice_amount ?? null,
+        invoice_document_url: input.invoice_document_url ?? null,
+        status: 'pending_verification',
+        received_by: userId,
+        notes: this.composeNotes(input.notes, expectations),
+      };
+      let { data: grn, error: grnErr } = await this.supabase
         .from('procurement_grn')
-        .insert({
-          institution_id: po.institution_id,
-          store_id: po.store_id ?? null,
-          grn_number: grnNumber,
-          purchase_order_id: po.id,
-          supplier_id: po.supplier_id,
-          domain,
-          invoice_number: input.invoice_number ?? null,
-          invoice_date: input.invoice_date ?? null,
-          invoice_amount: input.invoice_amount ?? null,
-          invoice_document_url: input.invoice_document_url ?? null,
-          status: 'pending_verification',
-          received_by: userId,
-          notes: this.composeNotes(input.notes, expectations),
-          // Sent only when set, so recording a delivery keeps working on a database where
-          // 20261009120000_procurement_grn_invoice_checks has not been applied yet.
-          ...(lateReason ? { late_invoice_reason: lateReason } : {}),
-        })
+        .insert({ ...header, ...(lateReason ? { late_invoice_reason: lateReason } : {}) })
         .select()
         .single();
+      // late_invoice_reason is sent only when I4 fired. On a database where
+      // 20261009120000_procurement_grn_invoice_checks is not applied yet the column does
+      // not exist (PostgREST PGRST204): save anyway, with the reason kept in the notes,
+      // so an old invoice can still be recorded and its reason is not lost.
+      if (
+        grnErr &&
+        lateReason &&
+        grnErr.code === 'PGRST204' &&
+        /late_invoice_reason/.test(String(grnErr.message ?? ''))
+      ) {
+        ({ data: grn, error: grnErr } = await this.supabase
+          .from('procurement_grn')
+          .insert({
+            ...header,
+            notes: this.composeNotes(
+              [input.notes?.trim(), `Late invoice reason: ${lateReason}`].filter(Boolean).join('\n'),
+              expectations
+            ),
+          })
+          .select()
+          .single());
+      }
       if (grnErr) throw grnErr;
 
       const { error: lineErr } = await this.supabase
@@ -408,16 +443,20 @@ export class ProcurementGrnService {
    * to the caller's own view where that function does not exist yet.
    */
   static async hasDuplicateInvoice(
-    grn: Pick<ProcurementGrn, 'id' | 'supplier_id' | 'invoice_number'>
+    grn: Pick<ProcurementGrn, 'id' | 'supplier_id' | 'invoice_number' | 'created_at'>
   ): Promise<boolean> {
+    // Only EARLIER receipts count: the original is never held by a later repeat of it.
     const { data, error } = await this.supabase.rpc('fn_procurement_grn_has_duplicate', {
       p_grn_id: grn.id,
       p_supplier_id: grn.supplier_id,
       p_invoice_number: grn.invoice_number,
+      p_created_at: grn.created_at,
     });
     if (!error && typeof data === 'boolean') return data;
     const visible = await this.getSupplierInvoiceGrns(grn.supplier_id);
-    return findDuplicateGrns(visible, grn.supplier_id, grn.invoice_number, grn.id).length > 0;
+    return (
+      findDuplicateGrns(visible, grn.supplier_id, grn.invoice_number, grn.id, grn).length > 0
+    );
   }
 
   /**
@@ -472,6 +511,19 @@ export class ProcurementGrnService {
         })
       );
       if (errors.length) throw new Error(errors.join(' '));
+
+      // 1a) I2 — expired goods never go into stock, whenever they are verified: a line
+      //     that expired after it was recorded, or whose expiry was edited on the receipt
+      //     page (updateGrnItem), is refused here, before anything is posted.
+      const today = localToday();
+      const expired = grn.items
+        .filter((i) => expiredLineBlocks(i, today))
+        .map((i) => `"${i.item_name}" expired on ${i.expiry_date}`);
+      if (expired.length) {
+        throw new Error(
+          `Expired goods cannot be accepted — reject them or correct the expiry date:\n${expired.join('\n')}`
+        );
+      }
 
       // 1b) I1 held save — a repeated invoice number must be confirmed as a different
       //     invoice before stock is added. The DB verify guard refuses it too.
@@ -806,6 +858,22 @@ export class ProcurementGrnService {
       expiry_date: input.expiry_date,
     });
     if (errors.length) throw new Error(errors.join(' '));
+
+    // 2b) I2 — an expired replacement is never accepted into stock (same rule as save
+    //     and verify). A non-ISO date is refused rather than skipped.
+    for (const [label, value] of [
+      ['expiry', input.expiry_date],
+      ['manufacturing', input.manufacturing_date],
+    ] as const) {
+      if (value && !isIsoDate(value)) {
+        throw new Error(`The ${label} date "${value}" is not a valid date — re-enter it.`);
+      }
+    }
+    if (expiredLineBlocks({ expiry_date: input.expiry_date, accepted_quantity: accepted }, localToday())) {
+      throw new Error(
+        `Expired goods cannot be accepted — "${originItem.item_name}" expired on ${input.expiry_date}. Correct the expiry date or do not receive it.`
+      );
+    }
 
     // 3) Claim the replacement (mutex). Only one receiver wins the pending->received flip.
     const { data: claimed, error: claimErr } = await this.supabase
