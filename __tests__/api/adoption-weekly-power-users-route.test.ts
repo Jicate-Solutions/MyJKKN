@@ -23,7 +23,14 @@ type Call = { table: string; op: string; args: unknown[] };
 let rpcResult: Result;
 let tableResults: Record<string, Result>;
 let calls: Call[];
-const rpc = vi.fn((_name: string, _args?: Record<string, unknown>) => Promise.resolve(rpcResult));
+const MERGE_FN = 'fn_adoption_power_user_weeks_merge_jobs';
+let mergeResult: Result;
+const rpc = vi.fn((name: string, _args?: Record<string, unknown>) =>
+  Promise.resolve(name === MERGE_FN ? mergeResult : rpcResult)
+);
+/** The job ids the run merged into agenda_jobs (only the ones it changed). */
+const merged = (): Record<string, string> | undefined =>
+  (rpc.mock.calls.find((c) => c[0] === MERGE_FN)?.[1] as { p_jobs: Record<string, string> } | undefined)?.p_jobs;
 
 function builder(table: string) {
   const record = (op: string, args: unknown[]) => calls.push({ table, op, args });
@@ -105,7 +112,10 @@ function request(opts: { bearer?: string; query?: string } = {}) {
   } as never;
 }
 
-const writes = () => calls.filter((c) => c.op === 'upsert' || c.op === 'update');
+const writes = () => [
+  ...calls.filter((c) => c.op === 'upsert' || c.op === 'update'),
+  ...rpc.mock.calls.filter((c) => c[0] === MERGE_FN),
+];
 
 beforeEach(() => {
   rpc.mockClear();
@@ -115,6 +125,7 @@ beforeEach(() => {
   enqueueJobsLane.mockImplementation(() => Promise.resolve({ ok: true, jobId: `job-${++n}` }));
   calls = [];
   rpcResult = { data: payload(10), error: null };
+  mergeResult = { data: null, error: null };
   tableResults = {
     bug_reports: {
       data: [
@@ -220,8 +231,9 @@ describe('a real run', () => {
     const upsert = calls.find((c) => c.op === 'upsert');
     expect(upsert?.table).toBe('adoption_power_user_weeks');
     expect(upsert?.args[0]).not.toHaveProperty('agenda_jobs'); // a re-run keeps the stored ids
-    const update = calls.find((c) => c.op === 'update');
-    expect((update?.args[0] as { agenda_jobs: Record<string, string> }).agenda_jobs['u-01']).toBe('job-1');
+    expect(calls.find((c) => c.op === 'update')).toBeUndefined(); // never a whole-map write
+    expect(merged()?.['u-01']).toBe('job-1');
+    expect(rpc.mock.calls.find((c) => c[0] === MERGE_FN)?.[1]).toMatchObject({ p_week_start: WEEK });
   });
 
   it('never queues more than 10 jobs even if the report lists more people', async () => {
@@ -269,8 +281,7 @@ describe('a real run', () => {
     expect(users).not.toContain('u-01');
     expect(users).not.toContain('u-03');
     expect(users).toContain('u-02');
-    const update = calls.find((c) => c.op === 'update');
-    const stored = (update?.args[0] as { agenda_jobs: Record<string, string> }).agenda_jobs;
+    const stored = merged() ?? {};
     expect(stored['u-01']).toBe('old-1');
     expect(stored['u-03']).toBe('old-3');
     expect(stored['u-02']).not.toBe('old-2');
@@ -285,8 +296,7 @@ describe('a real run', () => {
     expect(lookup[0]?.args[1]).toContain(`adoption-agenda:${WEEK}:u-01`);
     const users = enqueueJobsLane.mock.calls.map((c) => (c[1] as { context: { user_id: string } }).context.user_id);
     expect(users).not.toContain('u-01');
-    const update = calls.find((c) => c.op === 'update');
-    const stored = (update?.args[0] as { agenda_jobs: Record<string, string> }).agenda_jobs;
+    const stored = merged() ?? {};
     expect(stored['u-01']).toBe('lost-1');
   });
 
@@ -330,6 +340,37 @@ describe('a real run', () => {
     const perPerson = calls.filter((c) => c.table === 'bug_reports' && c.op === 'eq');
     expect(perPerson).toHaveLength(10);
     expect(perPerson.every((c) => c.args[0] === 'reporter_user_id')).toBe(true);
+  });
+
+  it('only merges the ids this run changed — a stored id that did not change is not rewritten', async () => {
+    tableResults.adoption_power_user_weeks = { data: { agenda_jobs: { 'u-01': 'old-1' } }, error: null };
+    tableResults.ai_jobs = {
+      data: [{ id: 'old-1', status: 'pending', result: null, dedupe: `adoption-agenda:${WEEK}:u-01` }],
+      error: null,
+    };
+    await GET(request({ bearer: SECRET, query: `?week=${WEEK}` }));
+    expect(merged()).not.toHaveProperty('u-01');
+    expect(Object.keys(merged() ?? {})).toHaveLength(9);
+  });
+
+  it('is a 500 when the job ids cannot be saved', async () => {
+    mergeResult = { data: null, error: { message: 'boom' } };
+    const res = await GET(request({ bearer: SECRET, query: `?week=${WEEK}` }));
+    expect(res.status).toBe(500);
+  });
+
+  it('is a 500 when SOME agenda jobs fail, after saving the ones that queued', async () => {
+    let n = 0;
+    enqueueJobsLane.mockImplementation(() =>
+      Promise.resolve(++n % 2 === 0 ? { ok: false, reason: 'error', error: 'drain down' } : { ok: true, jobId: `job-${n}` })
+    );
+    const res = await GET(request({ bearer: SECRET, query: `?week=${WEEK}` }));
+    expect(res.status).toBe(500);
+    const body = await res.json();
+    expect(body.ok).toBe(false);
+    expect(body.failed).toBe(5);
+    expect(body.enqueued).toBe(5);
+    expect(Object.keys(merged() ?? {})).toHaveLength(5); // the 5 that queued are kept
   });
 
   it('is a 500 when every agenda job fails to queue', async () => {

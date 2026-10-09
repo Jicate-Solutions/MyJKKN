@@ -230,6 +230,31 @@ REVOKE EXECUTE ON FUNCTION public.fn_adoption_power_users(date) FROM PUBLIC, ano
 GRANT  EXECUTE ON FUNCTION public.fn_adoption_power_users(date) TO service_role;
 
 -- ---------------------------------------------------------------------
+-- 3b) record agenda job ids by MERGING, never by replacing the whole map
+-- ---------------------------------------------------------------------
+-- Two runs at the same moment each add their own ids. A read-modify-write of
+-- the whole agenda_jobs map would let the later writer drop the earlier one's
+-- ids; `||` inside one UPDATE takes the row lock, so both survive. Only the
+-- route (service role) calls it.
+CREATE OR REPLACE FUNCTION public.fn_adoption_power_user_weeks_merge_jobs(p_week_start date, p_jobs jsonb)
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+  IF p_jobs IS NULL OR jsonb_typeof(p_jobs) <> 'object' THEN
+    RAISE EXCEPTION 'p_jobs must be a json object of user_id -> job id';
+  END IF;
+  UPDATE public.adoption_power_user_weeks
+     SET agenda_jobs = COALESCE(agenda_jobs, '{}'::jsonb) || p_jobs
+   WHERE week_start = p_week_start;
+END;
+$$;
+REVOKE EXECUTE ON FUNCTION public.fn_adoption_power_user_weeks_merge_jobs(date, jsonb) FROM PUBLIC, anon, authenticated;
+GRANT  EXECUTE ON FUNCTION public.fn_adoption_power_user_weeks_merge_jobs(date, jsonb) TO service_role;
+
+-- ---------------------------------------------------------------------
 -- 4) the agenda job type (copy of improvement.rank_ideas)
 -- ---------------------------------------------------------------------
 INSERT INTO public.ai_job_types
@@ -265,5 +290,9 @@ BEGIN
   IF has_function_privilege('anon', 'public.fn_adoption_power_users(date)', 'EXECUTE')
      OR has_function_privilege('authenticated', 'public.fn_adoption_power_users(date)', 'EXECUTE') THEN
     RAISE EXCEPTION 'fn_adoption_power_users is callable by a client role';
+  END IF;
+  IF has_function_privilege('anon', 'public.fn_adoption_power_user_weeks_merge_jobs(date, jsonb)', 'EXECUTE')
+     OR has_function_privilege('authenticated', 'public.fn_adoption_power_user_weeks_merge_jobs(date, jsonb)', 'EXECUTE') THEN
+    RAISE EXCEPTION 'fn_adoption_power_user_weeks_merge_jobs is callable by a client role';
   END IF;
 END $$;

@@ -54,3 +54,4 @@ bash "$HERE/21_concurrency.sh" "$DB"
 build
 psql -d "$DB" -v ON_ERROR_STOP=1 -q -f "$ROOT/supabase/migrations/20271009115500_adoption_weekly_power_users.sql"
 psql -d "$DB" -v ON_ERROR_STOP=1 -f "$HERE/25_power_users.sql" 2>&1 | grep -E "FAIL|ERROR|POWER USERS SCENARIOS PASSED"
+bash "$HERE/26_power_users_concurrency.sh" "$DB"

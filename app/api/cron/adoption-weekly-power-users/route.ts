@@ -31,10 +31,12 @@
 // Messages nobody: no notifications, no meetings, no emails, no other table.
 //
 // Auth: CRON_SECRET via `Authorization: Bearer <secret>` only — the dispatcher
-// sends Bearer, and a secret in the URL ends up in request logs. An RPC or write error is HTTP 500, and so is a
-// run where EVERY agenda job failed to queue (no seat, job type missing) — the
-// agendas are the whole reason this routine uses the AI, so a dead pipe must
-// not read as a healthy 200.
+// sends Bearer, and a secret in the URL ends up in request logs.
+// An RPC or write error is HTTP 500, and so is a run where ANY agenda job
+// failed to queue (no seat, job type missing) — partial failure is a failure,
+// reported after the report row and the queued ids are saved. The agendas are
+// the whole reason this routine uses the AI, so a broken pipe must not read as
+// a healthy 200.
 // Created: 2026-10-09.
 
 export const dynamic = 'force-dynamic';
@@ -216,7 +218,7 @@ export async function GET(request: NextRequest) {
   }
 
   // 5b) one agenda job per top person, unless they already have a usable one
-  const savedBefore = JSON.stringify(agendaJobs);
+  const savedBefore: Record<string, string> = { ...agendaJobs };
   let enqueued = 0;
   let inFlight = 0;
   let failed = 0;
@@ -251,13 +253,18 @@ export async function GET(request: NextRequest) {
     }
   }
 
-  // 6) remember the job ids
-  if (JSON.stringify(agendaJobs) !== savedBefore) {
-    const { error: updateErr } = await admin
-      .from('adoption_power_user_weeks')
-      .update({ agenda_jobs: agendaJobs })
-      .eq('week_start', weekStart);
-    if (updateErr) return fail(`agenda job ids not saved: ${updateErr.message}`, started);
+  // 6) remember the job ids — only the ones this run changed, MERGED in the
+  // database, so a second run at the same moment cannot drop this run's ids.
+  const changed: Record<string, string> = {};
+  for (const [userId, jobId] of Object.entries(agendaJobs)) {
+    if (savedBefore[userId] !== jobId) changed[userId] = jobId;
+  }
+  if (Object.keys(changed).length > 0) {
+    const { error: mergeErr } = await admin.rpc('fn_adoption_power_user_weeks_merge_jobs', {
+      p_week_start: weekStart,
+      p_jobs: changed,
+    });
+    if (mergeErr) return fail(`agenda job ids not saved: ${mergeErr.message}`, started);
   }
 
   const counts = {
@@ -271,8 +278,28 @@ export async function GET(request: NextRequest) {
   };
   const summary = summarisePowerUsersRun(counts);
 
-  if (failed > 0 && enqueued + inFlight + kept === 0) {
-    return fail(`no agenda job could be queued (${failures[0]}) — ${summary}`, started);
+  // Any agenda that could not be queued is a failed run (HTTP 500), even when
+  // the others went through: the report row and the queued jobs are already
+  // saved, and the next run retries only the missing people.
+  if (failed > 0) {
+    logger.error(LOG_MODULE, `${failed} agenda job(s) not queued (${failures[0]}) — ${summary}`);
+    return NextResponse.json(
+      {
+        ok: false,
+        error: `${failed} of ${prompts.length} agenda jobs not queued: ${failures[0]}`,
+        summary,
+        week_start: weekStart,
+        top: counts.top,
+        one_day_staff: counts.oneDayStaff,
+        enqueued,
+        in_flight: inFlight,
+        failed,
+        kept,
+        failures,
+        elapsed_ms: Date.now() - started,
+      },
+      { status: 500 }
+    );
   }
   logger.info(LOG_MODULE, summary, { week_start: weekStart });
 
