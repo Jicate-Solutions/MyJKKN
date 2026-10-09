@@ -250,3 +250,125 @@ describe('fn_set_event_registration_ranks', () => {
     expect(r[0].ok).toBe(false);
   });
 });
+
+describe('no ties (Director ruling 9 Oct): one registration per place per set', () => {
+  const call = (eventId: string, changes: unknown) =>
+    sqlstate(`SELECT public.fn_set_event_registration_ranks($1, $2::jsonb)`, [eventId, JSON.stringify(changes)]);
+
+  it('refuses a tie made by the creator with a direct UPDATE', async () => {
+    await reset();
+    await actAs(ids.creator);
+    expect(await sqlstate(`UPDATE public.events_registrations SET final_rank = 1 WHERE id = $1`, [ids.regA])).toBeNull();
+    expect(await sqlstate(`UPDATE public.events_registrations SET final_rank = 1 WHERE id = $1`, [ids.regB])).toBe('23505');
+    expect(await ranks()).toMatchObject({ [ids.regA]: 1, [ids.regB]: null });
+  });
+
+  it('refuses a tie made through the function, and keeps nothing of that call', async () => {
+    await reset();
+    await actAs(ids.creator);
+    expect(await call(ids.event, [{ registration_id: ids.regA, final_rank: 1 }])).toBeNull();
+    expect(
+      await call(ids.event, [
+        { registration_id: ids.regC, final_rank: 3 },
+        { registration_id: ids.regB, final_rank: 1 },
+      ])
+    ).toBe('23505');
+    expect(await ranks()).toMatchObject({ [ids.regA]: 1, [ids.regB]: null, [ids.regC]: null });
+  });
+
+  it('still lets the function swap winner and runner-up', async () => {
+    await reset();
+    await actAs(ids.creator);
+    expect(
+      await call(ids.event, [
+        { registration_id: ids.regA, final_rank: 1 },
+        { registration_id: ids.regB, final_rank: 2 },
+      ])
+    ).toBeNull();
+    expect(
+      await call(ids.event, [
+        { registration_id: ids.regA, final_rank: 2 },
+        { registration_id: ids.regB, final_rank: 1 },
+      ])
+    ).toBeNull();
+    expect(await ranks()).toMatchObject({ [ids.regA]: 2, [ids.regB]: 1 });
+  });
+
+  it('a direct swap inside one transaction passes (the check waits for commit)', async () => {
+    await reset();
+    await actAs(ids.creator);
+    await q(`UPDATE public.events_registrations SET final_rank = 1 WHERE id = $1`, [ids.regA]);
+    await q(`UPDATE public.events_registrations SET final_rank = 2 WHERE id = $1`, [ids.regB]);
+    await q(`BEGIN`);
+    await q(`UPDATE public.events_registrations SET final_rank = 1 WHERE id = $1`, [ids.regB]);
+    await q(`UPDATE public.events_registrations SET final_rank = 2 WHERE id = $1`, [ids.regA]);
+    expect(await sqlstate(`COMMIT`)).toBeNull();
+    expect(await ranks()).toMatchObject({ [ids.regA]: 2, [ids.regB]: 1 });
+  });
+
+  it('two competitions (forms) each keep their own winner', async () => {
+    await asOwner();
+    const ev = (await q(`INSERT INTO public.events (created_by) VALUES ($1) RETURNING id`, [ids.creator]))[0].id;
+    const [f1, f2] = [randomUUID(), randomUUID()];
+    const r1 = (await q(`INSERT INTO public.events_registrations (event_id, form_id) VALUES ($1, $2) RETURNING id`, [ev, f1]))[0].id;
+    const r2 = (await q(`INSERT INTO public.events_registrations (event_id, form_id) VALUES ($1, $2) RETURNING id`, [ev, f2]))[0].id;
+    const r3 = (await q(`INSERT INTO public.events_registrations (event_id, form_id) VALUES ($1, $2) RETURNING id`, [ev, f1]))[0].id;
+    await actAs(ids.creator);
+    expect(await call(ev, [{ registration_id: r1, final_rank: 1 }, { registration_id: r2, final_rank: 1 }])).toBeNull();
+    expect(await call(ev, [{ registration_id: r3, final_rank: 1 }])).toBe('23505');
+  });
+});
+
+describe('change history (Director ruling 9 Oct): every change saved with who made it', () => {
+  const call = (changes: unknown) =>
+    sqlstate(`SELECT public.fn_set_event_registration_ranks($1, $2::jsonb)`, [ids.event, JSON.stringify(changes)]);
+
+  it('records set, change and clear with changed_by = the caller', async () => {
+    await reset();
+    await asOwner();
+    await q(`DELETE FROM public.event_winner_rank_changes`);
+    await actAs(ids.creator);
+    expect(await call([{ registration_id: ids.regC, final_rank: 3 }])).toBeNull();
+    expect(await call([{ registration_id: ids.regC, final_rank: 2 }])).toBeNull();
+    await actAs(ids.outsider, { 'test.incharge_event': ids.event });
+    expect(await call([{ registration_id: ids.regC, final_rank: null }])).toBeNull();
+
+    await asOwner();
+    const rows = await q(
+      `SELECT old_rank, new_rank, changed_by FROM public.event_winner_rank_changes
+        WHERE registration_id = $1 ORDER BY changed_at, ctid`,
+      [ids.regC]
+    );
+    expect(rows).toEqual([
+      { old_rank: null, new_rank: 3, changed_by: ids.creator },
+      { old_rank: 3, new_rank: 2, changed_by: ids.creator },
+      { old_rank: 2, new_rank: null, changed_by: ids.outsider },
+    ]);
+  });
+
+  it('records a direct UPDATE too, and nothing when the place did not change', async () => {
+    await reset();
+    await asOwner();
+    await q(`DELETE FROM public.event_winner_rank_changes`);
+    await actAs(ids.creator);
+    await q(`UPDATE public.events_registrations SET final_rank = 1 WHERE id = $1`, [ids.regA]);
+    await q(`UPDATE public.events_registrations SET final_rank = 1, status = 'registered' WHERE id = $1`, [ids.regA]);
+    await asOwner();
+    const rows = await q(`SELECT new_rank, changed_by FROM public.event_winner_rank_changes WHERE registration_id = $1`, [ids.regA]);
+    expect(rows).toEqual([{ new_rank: 1, changed_by: ids.creator }]);
+  });
+
+  it('the creator can read the history; an outsider sees none and cannot write it', async () => {
+    await actAs(ids.creator);
+    expect((await q(`SELECT 1 FROM public.event_winner_rank_changes WHERE event_id = $1`, [ids.event])).length).toBeGreaterThan(0);
+    await actAs(ids.outsider);
+    expect(await q(`SELECT 1 FROM public.event_winner_rank_changes WHERE event_id = $1`, [ids.event])).toEqual([]);
+    expect(
+      await sqlstate(
+        `INSERT INTO public.event_winner_rank_changes (event_id, registration_id, new_rank) VALUES ($1, $2, 1)`,
+        [ids.event, ids.regA]
+      )
+    ).toBe('42501');
+    await asOwner();
+  });
+});

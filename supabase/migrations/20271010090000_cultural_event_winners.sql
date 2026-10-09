@@ -177,7 +177,123 @@ REVOKE EXECUTE ON FUNCTION public.fn_set_event_registration_ranks(uuid, jsonb) F
 GRANT  EXECUTE ON FUNCTION public.fn_set_event_registration_ranks(uuid, jsonb) TO authenticated, service_role;
 
 -- ---------------------------------------------------------------------------
--- 5. Self-check
+-- 5. No ties (Director ruling, 9 Oct 23:20): one registration per place per set
+-- ---------------------------------------------------------------------------
+-- A "set" is the registration form when the event has registrations on more
+-- than one form (several competitions, one set of places each), else the whole
+-- event — the same grouping the Winners card shows. Enforced for EVERY write
+-- path (the function, a direct UPDATE, the service role). DEFERRABLE INITIALLY
+-- DEFERRED: checked at commit, so a swap inside one transaction (clear, then
+-- set) still works.
+CREATE OR REPLACE FUNCTION public.fn_events_registrations_final_rank_no_tie()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_per_form boolean;
+  v_rank smallint;
+  v_form uuid;
+BEGIN
+  -- Re-read the row at commit: a later statement in the transaction may have moved it.
+  SELECT r.final_rank, r.form_id INTO v_rank, v_form
+  FROM public.events_registrations r WHERE r.id = NEW.id;
+  IF NOT FOUND OR v_rank IS NULL THEN
+    RETURN NULL;
+  END IF;
+
+  SELECT count(DISTINCT COALESCE(r.form_id::text, '')) > 1 INTO v_per_form
+  FROM public.events_registrations r
+  WHERE r.event_id = NEW.event_id;
+
+  IF EXISTS (
+    SELECT 1
+    FROM public.events_registrations r
+    WHERE r.event_id = NEW.event_id
+      AND r.id <> NEW.id
+      AND r.final_rank = v_rank
+      AND (NOT v_per_form OR r.form_id IS NOT DISTINCT FROM v_form)
+  ) THEN
+    RAISE EXCEPTION 'Another participant already holds place % in this event. Clear that place first.', v_rank
+      USING ERRCODE = '23505';
+  END IF;
+  RETURN NULL;
+END;
+$$;
+
+REVOKE EXECUTE ON FUNCTION public.fn_events_registrations_final_rank_no_tie() FROM anon, PUBLIC;
+
+DROP TRIGGER IF EXISTS trg_events_registrations_final_rank_no_tie ON public.events_registrations;
+CREATE CONSTRAINT TRIGGER trg_events_registrations_final_rank_no_tie
+  AFTER INSERT OR UPDATE OF final_rank ON public.events_registrations
+  DEFERRABLE INITIALLY DEFERRED
+  FOR EACH ROW
+  WHEN (NEW.final_rank IS NOT NULL)
+  EXECUTE FUNCTION public.fn_events_registrations_final_rank_no_tie();
+
+-- ---------------------------------------------------------------------------
+-- 6. Change history (Director ruling, 9 Oct 23:20): places can change at any
+--    time, and every change is saved with who made it
+-- ---------------------------------------------------------------------------
+-- No foreign keys on purpose: the history outlives a deleted registration.
+CREATE TABLE IF NOT EXISTS public.event_winner_rank_changes (
+  id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  event_id        uuid NOT NULL,
+  registration_id uuid NOT NULL,
+  old_rank        smallint,
+  new_rank        smallint,
+  changed_by      uuid DEFAULT auth.uid(),
+  changed_at      timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_event_winner_rank_changes_event
+  ON public.event_winner_rank_changes (event_id, changed_at DESC);
+COMMENT ON TABLE public.event_winner_rank_changes IS
+  'Every change of events_registrations.final_rank, from any write path, with who made it (NULL for service-role / direct sessions). Written only by trg_events_registrations_final_rank_history. BUG-006273.';
+
+ALTER TABLE public.event_winner_rank_changes ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON public.event_winner_rank_changes FROM anon, PUBLIC;
+REVOKE ALL ON public.event_winner_rank_changes FROM authenticated;
+GRANT SELECT ON public.event_winner_rank_changes TO authenticated;
+GRANT ALL ON public.event_winner_rank_changes TO service_role;
+
+DROP POLICY IF EXISTS event_winner_rank_changes_read ON public.event_winner_rank_changes;
+CREATE POLICY event_winner_rank_changes_read ON public.event_winner_rank_changes
+  FOR SELECT TO authenticated
+  USING (public.fn_can_record_event_winners(event_id));
+-- No INSERT / UPDATE / DELETE policy: clients cannot write history.
+
+CREATE OR REPLACE FUNCTION public.fn_events_registrations_final_rank_history()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+  IF TG_OP = 'INSERT' THEN
+    IF NEW.final_rank IS NULL THEN
+      RETURN NULL;
+    END IF;
+    INSERT INTO public.event_winner_rank_changes (event_id, registration_id, old_rank, new_rank, changed_by)
+    VALUES (NEW.event_id, NEW.id, NULL, NEW.final_rank, auth.uid());
+  ELSIF NEW.final_rank IS DISTINCT FROM OLD.final_rank THEN
+    INSERT INTO public.event_winner_rank_changes (event_id, registration_id, old_rank, new_rank, changed_by)
+    VALUES (NEW.event_id, NEW.id, OLD.final_rank, NEW.final_rank, auth.uid());
+  END IF;
+  RETURN NULL;
+END;
+$$;
+
+REVOKE EXECUTE ON FUNCTION public.fn_events_registrations_final_rank_history() FROM anon, PUBLIC;
+
+DROP TRIGGER IF EXISTS trg_events_registrations_final_rank_history ON public.events_registrations;
+CREATE TRIGGER trg_events_registrations_final_rank_history
+  AFTER INSERT OR UPDATE OF final_rank ON public.events_registrations
+  FOR EACH ROW
+  EXECUTE FUNCTION public.fn_events_registrations_final_rank_history();
+
+-- ---------------------------------------------------------------------------
+-- 7. Self-check
 -- ---------------------------------------------------------------------------
 DO $assert$
 BEGIN
@@ -201,6 +317,37 @@ BEGIN
   END IF;
   IF NOT has_function_privilege('authenticated', 'public.fn_set_event_registration_ranks(uuid, jsonb)', 'EXECUTE') THEN
     RAISE EXCEPTION 'authenticated cannot execute fn_set_event_registration_ranks';
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_trigger
+    WHERE tgname = 'trg_events_registrations_final_rank_no_tie'
+      AND tgrelid = 'public.events_registrations'::regclass
+      AND tgdeferrable AND tginitdeferred
+  ) THEN
+    RAISE EXCEPTION 'deferred no-tie trigger missing';
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_trigger
+    WHERE tgname = 'trg_events_registrations_final_rank_history'
+      AND tgrelid = 'public.events_registrations'::regclass
+      AND NOT tgisinternal
+  ) THEN
+    RAISE EXCEPTION 'final_rank history trigger missing';
+  END IF;
+  IF NOT (SELECT relrowsecurity FROM pg_class WHERE oid = 'public.event_winner_rank_changes'::regclass) THEN
+    RAISE EXCEPTION 'RLS is off on event_winner_rank_changes';
+  END IF;
+  IF has_table_privilege('anon', 'public.event_winner_rank_changes', 'SELECT')
+     OR has_table_privilege('authenticated', 'public.event_winner_rank_changes', 'INSERT')
+     OR has_table_privilege('authenticated', 'public.event_winner_rank_changes', 'UPDATE')
+     OR has_table_privilege('authenticated', 'public.event_winner_rank_changes', 'DELETE') THEN
+    RAISE EXCEPTION 'event_winner_rank_changes is writable by clients or readable by anon';
+  END IF;
+  IF EXISTS (
+    SELECT 1 FROM pg_policies
+    WHERE schemaname = 'public' AND tablename = 'event_winner_rank_changes' AND cmd <> 'SELECT'
+  ) THEN
+    RAISE EXCEPTION 'event_winner_rank_changes has a client write policy';
   END IF;
 END
 $assert$;

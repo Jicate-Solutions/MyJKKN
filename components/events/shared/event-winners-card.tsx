@@ -199,15 +199,17 @@ export function EventWinnersCard({ eventId }: { eventId: string }) {
   const { data } = useEventWinners(eventId);
   if (!data) return null;
 
-  const { canManage, forms, registrations } = data;
+  const { canManage, splitByForm, forms, registrations } = data;
   const anyPlaced = registrations.some((r) => r.final_rank != null);
   if (!canManage && !anyPlaced) return null;
 
-  // One set of places per registration form when the event runs several
-  // competitions; a single set otherwise.
+  // One set of places per registration form when the event has registrations
+  // on more than one form (several competitions); a single set otherwise. The
+  // database's no-tie trigger groups the same way; the server decides from
+  // every registration (a viewer only receives the placed ones).
   const formName = new Map(forms.map((f) => [f.id, f.name]));
   const usedFormIds = [...new Set(registrations.map((r) => r.form_id ?? ''))];
-  const split = forms.length > 1 && usedFormIds.length > 1;
+  const split = splitByForm;
   const groups = split
     ? usedFormIds.map((fid) => ({
         key: fid || 'none',

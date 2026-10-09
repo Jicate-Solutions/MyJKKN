@@ -94,6 +94,7 @@ describe('EventWinnersCard', () => {
   it('keeps a separate set of places for each competition (registration form)', () => {
     winners.data = {
       canManage: true,
+      splitByForm: true,
       forms: [
         { id: 'f1', name: 'Solo dance' },
         { id: 'f2', name: 'Group song' },
@@ -105,5 +106,32 @@ describe('EventWinnersCard', () => {
     expect(screen.getByText('Solo dance')).toBeTruthy();
     expect(screen.getByText('Group song')).toBeTruthy();
     expect(screen.getAllByRole('button', { name: /Record winners/ })).toHaveLength(2);
+  });
+
+  it('one set for the whole event when the server says registrations sit on one form', () => {
+    winners.data = {
+      canManage: false,
+      splitByForm: false,
+      forms: [
+        { id: 'f1', name: 'Solo dance' },
+        { id: 'f2', name: 'Group song' },
+      ],
+      registrations: [reg('a', 'Kavya', 1, { form_id: 'f1' })],
+    };
+    render(<EventWinnersCard eventId="ev-1" />);
+    expect(screen.getAllByTestId('event-winners-group')).toHaveLength(1);
+    expect(screen.queryByText('Solo dance')).toBeNull();
+  });
+
+  it('moving the runner-up to winner refuses until runner-up is changed (no shared place, no double pick)', () => {
+    winners.data = { canManage: true, forms: [], registrations: [reg('a', 'Kavya', 1), reg('b', 'Arun', 2)] };
+    render(<EventWinnersCard eventId="ev-1" />);
+    fireEvent.click(screen.getByRole('button', { name: /Record winners/ }));
+    fireEvent.change(screen.getByLabelText(/Winner/), { target: { value: 'b' } });
+    expect(screen.getByRole('alert').textContent).toMatch(/two places/);
+    fireEvent.change(screen.getByLabelText(/Runner-up/), { target: { value: 'a' } });
+    expect(screen.queryByRole('alert')).toBeNull();
+    // Each place is a single choice, so one place can never take two people.
+    expect((screen.getByLabelText(/Winner/) as HTMLSelectElement).multiple).toBe(false);
   });
 });

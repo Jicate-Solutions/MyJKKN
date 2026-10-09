@@ -26,7 +26,7 @@ import type { EventWinnersPayload, WinnerRegistration } from '@/hooks/events/use
 const NO_ACCESS =
   "Only the event's creator, its in-charge or an administrator can record winners.";
 
-const EMPTY: EventWinnersPayload = { canManage: false, forms: [], registrations: [] };
+const EMPTY: EventWinnersPayload = { canManage: false, splitByForm: false, forms: [], registrations: [] };
 
 export async function GET(
   _request: NextRequest,
@@ -63,9 +63,12 @@ export async function GET(
     .eq('event_id', eventId)
     .order('participant_name', { ascending: true });
   if (!canManage) regQuery = regQuery.not('final_rank', 'is', null);
-  const [{ data: regs, error: regErr }, { data: forms }] = await Promise.all([
+  const [{ data: regs, error: regErr }, { data: forms }, { data: allForms }] = await Promise.all([
     regQuery,
     (svc as any).from('event_registration_forms').select('id, name').eq('event_id', eventId),
+    // Grouping must match the database's no-tie trigger, which looks at EVERY
+    // registration, not only the placed ones a viewer receives.
+    (svc as any).from('events_registrations').select('form_id').eq('event_id', eventId),
   ]);
   if (regErr) {
     return NextResponse.json({ error: 'Could not load the winners. Please try again.' }, { status: 500 });
@@ -73,6 +76,8 @@ export async function GET(
 
   const payload: EventWinnersPayload = {
     canManage,
+    splitByForm:
+      new Set(((allForms ?? []) as { form_id: string | null }[]).map((r) => r.form_id ?? '')).size > 1,
     forms: (forms ?? []) as { id: string; name: string }[],
     registrations: (regs ?? []) as WinnerRegistration[],
   };
