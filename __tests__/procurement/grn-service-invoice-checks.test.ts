@@ -343,10 +343,72 @@ describe('receiveReplacement — I2', () => {
           error: null,
         };
       if (c.table === 'procurement_grn' && c.op === 'select')
-        return { data: { id: 'g1', institution_id: 'inst1', domain: 'ims', grn_number: 'GRN-1' }, error: null };
+        return {
+          data: { id: 'g1', institution_id: 'inst1', domain: 'ims', grn_number: 'GRN-1', status: parentStatus },
+          error: null,
+        };
       return { data: null, error: { message: 'stop: write reached' } };
     };
   }
+  let parentStatus = 'replacement_requested';
+  beforeEach(() => {
+    parentStatus = 'replacement_requested';
+  });
+  it.each(['pending_verification', 'draft', 'cancelled'])(
+    'I1: refuses a replacement on a delivery that is "%s" (not checked into stock), before any write',
+    async (status) => {
+      repWorld();
+      parentStatus = status;
+      await expect(
+        ProcurementGrnService.receiveReplacement(
+          { replacement_id: 'rep1', accepted_quantity: 5, expiry_date: '2027-12-31' } as any,
+          'u1'
+        )
+      ).rejects.toThrow(/has not been checked into stock/);
+      expect(calls.filter((c) => c.op !== 'select')).toHaveLength(0);
+    }
+  );
+  it('marks the replacement line posted once its stock is added (so it cannot be deleted)', async () => {
+    onTable = (c) => {
+      if (c.table === 'procurement_grn_replacements' && c.op === 'select')
+        return {
+          data: {
+            id: 'rep1',
+            status: 'pending',
+            rejected_quantity: 5,
+            grn_item: {
+              id: 'gi1', item_name: 'Acid', is_chemical: false, grn_id: 'g1', po_item_id: 'poi1',
+              domain_item_id: 'item1', cost_price: 2,
+            },
+          },
+          error: null,
+        };
+      if (c.table === 'procurement_grn' && c.op === 'select')
+        return {
+          data: { id: 'g1', institution_id: 'inst1', domain: 'ims', grn_number: 'GRN-1', status: 'replacement_requested', purchase_order_id: 'po1' },
+          error: null,
+        };
+      if (c.table === 'procurement_grn_replacements' && c.op === 'update') return { data: { id: 'rep1' }, error: null };
+      if (c.table === 'procurement_grn' && c.op === 'insert') return { data: { id: 'g-rep' }, error: null };
+      if (c.table === 'procurement_grn_items' && c.op === 'insert') return { data: { id: 'gi-rep' }, error: null };
+      return { data: null, error: null };
+    };
+    onRpc = (fn) => (fn === 'procurement_next_number' ? { data: 3, error: null } : { data: null, error: null });
+    await ProcurementGrnService.receiveReplacement(
+      { replacement_id: 'rep1', accepted_quantity: 5, expiry_date: '2027-12-31' } as any,
+      'u1'
+    );
+    expect(adapter.postReceipt).toHaveBeenCalledTimes(1);
+    const mark = writesTo('procurement_grn_items').find(
+      (c) => c.op === 'update' && (c.payload as any)?.domain_posted_at
+    );
+    expect(mark?.filters).toEqual(
+      expect.arrayContaining([
+        ['eq', 'id', 'gi-rep'],
+        ['is', 'domain_posted_at', null],
+      ])
+    );
+  });
   it('refuses an expired replacement before claiming it', async () => {
     repWorld();
     await expect(

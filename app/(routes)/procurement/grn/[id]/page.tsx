@@ -15,7 +15,7 @@ import {
   useGrnDuplicateInvoice,
   useConfirmDifferentInvoice,
 } from '@/hooks/procurement/use-grns';
-import { duplicateHold } from '@/lib/services/procurement/invoice-checks';
+import { duplicateHold, POSTED_GRN_STATUSES } from '@/lib/services/procurement/invoice-checks';
 import { DuplicateInvoiceCompare } from '@/components/procurement/duplicate-invoice-compare';
 import { validateLineForVerify } from '@/lib/services/procurement/three-way-match';
 import { GRN_STATUS_CONFIG, GRN_MATCH_CONFIG, type ProcurementGrnReplacement } from '@/types/procurement';
@@ -168,6 +168,10 @@ export default function GrnDetailPage() {
     viewerCanVerify: canVerify,
   });
   const canVerifyNow = pending && canVerify;
+  // Replacement goods are received only against a delivery already checked into stock —
+  // never one that is pending (and possibly held under I1). The service and the database
+  // refuse it too (review round 2, red team).
+  const canReceiveReplacement = canVerify && POSTED_GRN_STATUSES.includes(grn.status);
   const verify = () =>
     run(
       () => verifyGrn.mutateAsync({ id, userId: profile!.id }),
@@ -435,7 +439,7 @@ export default function GrnDetailPage() {
                 rows={replacements}
                 getRowKey={(r) => r.id}
                 mobileFooter={(r) =>
-                  r.status === 'pending' && canVerify ? (
+                  r.status === 'pending' && canReceiveReplacement ? (
                     <Button variant="outline" className="h-10 sm:h-9" onClick={() => openReceive(r)}>
                       <PackagePlus className="mr-2 h-4 w-4" />
                       Receive
@@ -482,7 +486,7 @@ export default function GrnDetailPage() {
                     mobile: 'hidden',
                     className: 'text-right',
                     cell: (r) =>
-                      r.status === 'pending' && canVerify && (
+                      r.status === 'pending' && canReceiveReplacement && (
                         <Button variant="outline" className="h-10 sm:h-9" onClick={() => openReceive(r)}>
                           <PackagePlus className="mr-2 h-4 w-4" />
                           Receive

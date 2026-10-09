@@ -47,6 +47,30 @@
 --      the caller can see (RLS) - quotation-only managers cannot read it. Delete is
 --      admins only. Mirrors the procurement-quotation-pdfs bucket (20260805090000).
 --
+--   7. Review round 2 (red team) — closing the remaining ways around the I1 hold:
+--      a. procurement_grn.first_posted_at, stamped by the server the first time a receipt
+--         enters a posted status and never cleared. A receipt that was EVER posted counts
+--         for the hold forever (cancelled included) and its invoice number + supplier
+--         stay frozen, so cancelling or reopening the original no longer lifts the hold
+--         on its repeat.
+--      b. trg_pgrn_delete_guard: a receipt that was ever posted, or has a line posted to
+--         stock, cannot be deleted except by an admin (a deleted original took the hold
+--         with it). The one app delete — receiveReplacement's rollback of the
+--         invoice-less receipt it just created, before any stock moved — still works.
+--      c. INSERT straight into 'completed' now needs grn_verify like every other posted
+--         status (a receiver could insert a 'completed' receipt with a repeated number).
+--      d. The I1 check takes a transaction-scoped advisory lock on supplier + normalised
+--         number, so two receipts posted at the same moment cannot both pass unseen.
+--      e. fn_procurement_grn_has_duplicate answers the trigger for every caller; its
+--         permission gate applies only to the page's direct RPC call.
+--      f. trg_pgrnr_replacement_checks: a replacement row can be raised only by a
+--         verifier, only on a line of a receipt already posted, and for no more than
+--         that line rejected — a held receipt cannot reach stock through a forged
+--         replacement.
+--      g. The invoice-number normaliser also folds compatibility forms (NFKC) and strips
+--         invisible characters (zero-width, soft hyphen, bidi and other format marks),
+--         from one explicit code-point list shared with the TS normaliser.
+--
 -- I1 is deliberately NOT a unique index: the Director chose "confirm and allow" for
 -- honest resends, which a unique constraint would forbid.
 --
@@ -67,6 +91,23 @@ COMMENT ON COLUMN public.procurement_grn.duplicate_confirmed_at IS
   'I1: when duplicate_confirmed_by confirmed. Stamped by trg_pgrn_invoice_checks.';
 COMMENT ON COLUMN public.procurement_grn.late_invoice_reason IS
   'I4: typed reason for accepting an invoice older than the receiver''s max_invoice_age_days.';
+
+-- 7a. Ever posted (review round 2, red team). Server-owned: set by
+-- fn_procurement_grn_invoice_checks the first time the receipt is in a posted status,
+-- never changed by a client after. Read by fn_procurement_grn_has_duplicate and the
+-- delete guard.
+ALTER TABLE public.procurement_grn
+  ADD COLUMN IF NOT EXISTS first_posted_at timestamptz;
+
+COMMENT ON COLUMN public.procurement_grn.first_posted_at IS
+  'I1: when this receipt first entered a posted status (accepted / partially_accepted / replacement_requested / completed). Server-stamped by trg_pgrn_00_invoice_checks, never cleared. An ever-posted receipt counts for the duplicate-invoice hold forever, cancelled included.';
+
+-- Backfill receipts already posted (this runs before the stamping trigger is created on
+-- a first apply; on a re-apply the trigger stamps now() instead, which is also non-null).
+UPDATE public.procurement_grn
+   SET first_posted_at = coalesce(verified_at, updated_at, created_at, now())
+ WHERE first_posted_at IS NULL
+   AND status IN ('accepted', 'partially_accepted', 'replacement_requested', 'completed');
 
 -- ----------------------------------------------------------------------------
 -- 3. Near-expiry window (I2) - substrate shape of 20260429000002 / ...000011
@@ -121,6 +162,12 @@ WHERE NOT EXISTS (
 --      pending_verification; while pending, changing either VOIDS any duplicate
 --      confirmation, so a confirmation always belongs to one number + supplier.
 --   c. Who may confirm a duplicate (the original rule).
+--   d. first_posted_at (review round 2, red team) is the server's: NULL at INSERT, kept
+--      from OLD on UPDATE, and stamped now() whenever the row is in a posted status
+--      without one. This runs for EVERY caller, the service role included, before
+--      anything else, so no client value ever survives. Rule (b) also freezes the
+--      invoice number + supplier of an ever-posted receipt, so a posted -> pending
+--      round trip cannot reopen them.
 --
 -- ORDERING IS LOAD-BEARING: this trigger is named trg_pgrn_00_invoice_checks so it
 -- fires BEFORE trg_pgrn_guard_approval (Postgres fires same-timing triggers in name
@@ -135,6 +182,16 @@ AS $$
 DECLARE
   v_po_supplier uuid;
 BEGIN
+  -- d. Ever posted: server-owned for everyone, decided first (no early return above it).
+  IF TG_OP = 'INSERT' THEN
+    NEW.first_posted_at := NULL;
+  ELSE
+    NEW.first_posted_at := OLD.first_posted_at;
+  END IF;
+  IF NEW.status IN ('accepted', 'partially_accepted', 'replacement_requested', 'completed') THEN
+    NEW.first_posted_at := coalesce(NEW.first_posted_at, now());
+  END IF;
+
   IF coalesce(auth.role(), '') = 'service_role' THEN
     RETURN NEW;
   END IF;
@@ -189,7 +246,8 @@ BEGIN
     -- b. A confirmation is tied to one invoice number + supplier.
     IF NEW.invoice_number IS DISTINCT FROM OLD.invoice_number
        OR NEW.supplier_id IS DISTINCT FROM OLD.supplier_id THEN
-      IF OLD.status NOT IN ('draft', 'pending_verification') THEN
+      IF OLD.status NOT IN ('draft', 'pending_verification')
+         OR OLD.first_posted_at IS NOT NULL THEN
         RAISE EXCEPTION 'the invoice number and supplier of a delivery cannot be changed once it is verified or cancelled'
           USING ERRCODE = '42501';
       END IF;
@@ -250,9 +308,22 @@ CREATE TRIGGER trg_pgrn_00_invoice_checks
 -- 5. I1 held save - verify is refused while a detected duplicate is unconfirmed
 -- ----------------------------------------------------------------------------
 -- Same normalisation as normaliseInvoiceNumber() in
--- lib/services/procurement/invoice-checks.ts: case-folded, every whitespace
--- character (incl. the Unicode spaces JS \s matches) and every dash removed.
--- Empty -> NULL, which never matches.
+-- lib/services/procurement/invoice-checks.ts: compatibility-folded (NFKC — full-width
+-- letters, digits and dashes become their plain forms), case-folded, and every space,
+-- dash and INVISIBLE character removed (review round 2, red team: a zero-width space or
+-- soft hyphen hidden in a number made a repeat look new while it showed identically on
+-- screen). Visible punctuation such as '/' is kept. Empty -> NULL, which never matches.
+--
+-- The strip set is an explicit code-point list, identical to INVOICE_NUMBER_STRIP in the
+-- TS file, because Postgres's [[:space:]] / [[:alnum:]] follow the C library and match no
+-- JS class. Uses ARE \u / \U escapes, so the pattern contains no raw special characters:
+-- C0 controls + space, hyphen-minus, DEL + C1 controls + no-break space, soft hyphen,
+-- combining grapheme joiner, Arabic letter mark, Hangul fillers, Khmer inherent vowels,
+-- Mongolian selectors, U+2000-2015 (spaces, zero-widths, bidi marks, dashes),
+-- U+2028-202F (separators, bidi embeddings, narrow no-break space), U+205F-2064 (word
+-- joiner, invisible operators), U+2066-206F (bidi isolates, deprecated format), minus
+-- sign, ideographic space, Hangul filler, variation selectors, BOM, half-width Hangul
+-- filler, interlinear annotation marks, tag characters.
 CREATE OR REPLACE FUNCTION public.fn_procurement_normalise_invoice_number(p_raw text)
 RETURNS text
 LANGUAGE sql
@@ -261,8 +332,8 @@ SET search_path = public
 AS $$
   SELECT nullif(
     regexp_replace(
-      lower(coalesce(p_raw, '')),
-      U&'[[:space:]\00A0\1680\2000-\200A\2028\2029\202F\205F\3000\FEFF\2010-\2015\2212-]+',
+      lower(normalize(coalesce(p_raw, ''), NFKC)),
+      '[\u0001-\u0020\u002d\u007f-\u00a0\u00ad\u034f\u061c\u115f\u1160\u1680\u17b4\u17b5\u180b-\u180f\u2000-\u2015\u2028-\u202f\u205f-\u2064\u2066-\u206f\u2212\u3000\u3164\ufe00-\ufe0f\ufeff\uffa0\ufff9-\ufffb\U000e0000-\U000e007f]+',
       '', 'g'),
     '');
 $$;
@@ -270,18 +341,24 @@ $$;
 REVOKE EXECUTE ON FUNCTION public.fn_procurement_normalise_invoice_number(text) FROM anon, PUBLIC;
 GRANT  EXECUTE ON FUNCTION public.fn_procurement_normalise_invoice_number(text) TO authenticated;
 
--- Does another non-cancelled receipt from this supplier carry the same normalised
--- invoice number AND is it either already POSTED (accepted / partially_accepted /
--- replacement_requested / completed) or recorded EARLIER than this one (created_at,
+-- Does another receipt from this supplier carry the same normalised invoice number AND
+-- is it either EVER POSTED (now in accepted / partially_accepted / replacement_requested /
+-- completed, or first_posted_at set — cancelled included, review round 2 red team: a
+-- verifier who received the repeat could otherwise cancel or reopen the stocked original
+-- to lift the hold) or a non-cancelled one recorded EARLIER than this one (created_at,
 -- then id as the tie-break)? A posted one always counts, whenever it was recorded —
 -- so cancelling the original, posting the repeat, then reviving the original holds
 -- the original (review round 2). Recording order only decides which of two
 -- never-posted receipts is the original: the original is never held by a later,
 -- unposted repeat of it — only the repeat is. p_created_at NULL = a receipt not
 -- saved yet: every other one counts. created_at, id and supplier_id are
--- server-owned (fn_procurement_grn_invoice_checks, rule a2). SECURITY DEFINER so a
--- duplicate recorded at a college the verifier cannot see still holds the receipt. Answers only a yes/no, and only to procurement users
--- (grn_create / grn_verify / super admin / admin); anyone else gets false.
+-- server-owned (fn_procurement_grn_invoice_checks, rules a2 and d). SECURITY DEFINER so
+-- a duplicate recorded at a college the verifier cannot see still holds the receipt.
+-- Called directly (the page's RPC) it answers only a yes/no, and only to procurement
+-- users (grn_create / grn_verify / super admin / admin); anyone else gets false. Called
+-- from inside a trigger (pg_trigger_depth() > 0 — the verify guard) it always answers:
+-- the gate is for the RPC, and must never switch the guard's own check off (review round
+-- 2, red team: a caller without procurement rights got "no duplicate" from the guard).
 CREATE OR REPLACE FUNCTION public.fn_procurement_grn_has_duplicate(
   p_grn_id uuid,
   p_supplier_id uuid,
@@ -301,6 +378,7 @@ BEGIN
     RETURN false;
   END IF;
   IF NOT (coalesce(auth.role(), '') = 'service_role'
+          OR pg_trigger_depth() > 0
           OR public.is_super_admin() OR public.is_admin()
           OR public.user_has_permission('procurement.grn_create')
           OR public.user_has_permission('procurement.grn_verify')) THEN
@@ -310,12 +388,13 @@ BEGIN
     SELECT 1 FROM public.procurement_grn g
      WHERE g.supplier_id = p_supplier_id
        AND g.id IS DISTINCT FROM p_grn_id
-       AND g.status <> 'cancelled'
        AND public.fn_procurement_normalise_invoice_number(g.invoice_number) = v_key
-       AND (g.status IN ('accepted', 'partially_accepted', 'replacement_requested', 'completed')
-            OR p_created_at IS NULL
-            OR g.created_at < p_created_at
-            OR (g.created_at = p_created_at AND g.id < p_grn_id))
+       AND (g.first_posted_at IS NOT NULL
+            OR g.status IN ('accepted', 'partially_accepted', 'replacement_requested', 'completed')
+            OR (g.status <> 'cancelled'
+                AND (p_created_at IS NULL
+                     OR g.created_at < p_created_at
+                     OR (g.created_at = p_created_at AND g.id < p_grn_id))))
   );
 END;
 $$;
@@ -329,9 +408,11 @@ GRANT  EXECUTE ON FUNCTION public.fn_procurement_grn_has_duplicate(uuid, uuid, t
 --   * a move INTO a posted status (accepted / partially_accepted /
 --     replacement_requested / completed) from draft, pending_verification or
 --     cancelled needs grn_verify. 'completed' and 'cancelled' are new here: before,
---     pending -> completed and cancelled -> accepted were unguarded. An INSERT keeps
---     the old set (no 'completed'), so receiveReplacement's pre-inspected
---     'completed' replacement receipt is unchanged.
+--     pending -> completed and cancelled -> accepted were unguarded. An INSERT straight
+--     into a posted status needs grn_verify too, 'completed' included (review round 2,
+--     red team: a receiver could insert a 'completed' receipt carrying a repeated
+--     number). The one app path that inserts 'completed' is receiveReplacement, whose
+--     Receive button is shown only to verifiers.
 --   * any status change OUT of a posted status (including to cancelled) needs
 --     grn_verify — a receiver with grn_create only can no longer cancel an earlier
 --     accepted receipt to lift a hold.
@@ -340,9 +421,12 @@ GRANT  EXECUTE ON FUNCTION public.fn_procurement_grn_has_duplicate(uuid, uuid, t
 --     draft / pending_verification is the third. A revived pending receipt is
 --     judged by the same I1 rule below when it is verified.
 --   * I1: any entry into a posted status (INSERT or UPDATE) is refused while
---     another same-number receipt that is posted, or was recorded earlier, exists
---     and nobody has confirmed it. A
---     replacement receipt carries no invoice number, so it never matches.
+--     another same-number receipt that was ever posted, or was recorded earlier,
+--     exists and nobody has confirmed it. A replacement receipt carries no invoice
+--     number, so it never matches. The check first takes a transaction-scoped advisory
+--     lock on supplier + normalised number (review round 2, red team): two receipts
+--     entering stock at the same moment are serialised, and the second one's check
+--     (a new statement under READ COMMITTED) sees the first once it commits.
 -- Re-check the live definition before applying: if another migration has moved it
 -- since, merge these blocks into that version instead of applying this copy.
 CREATE OR REPLACE FUNCTION public.fn_procurement_guard_approval()
@@ -353,6 +437,7 @@ AS $function$
 DECLARE
   v_key   text;
   v_what  text;
+  v_inv   text;
   v_chain boolean := current_setting('procurement.chain_ok', true) = 'on';
 BEGIN
   IF coalesce(auth.role(), '') = 'service_role' THEN
@@ -417,7 +502,7 @@ BEGIN
       END IF;
     WHEN 'procurement_grn' THEN
       IF (TG_OP = 'INSERT'
-          AND NEW.status IN ('accepted', 'partially_accepted', 'replacement_requested'))
+          AND NEW.status IN ('accepted', 'partially_accepted', 'replacement_requested', 'completed'))
          OR (TG_OP = 'UPDATE'
              AND NEW.status IN ('accepted', 'partially_accepted', 'replacement_requested', 'completed')
              AND OLD.status IN ('draft', 'pending_verification', 'cancelled')) THEN
@@ -444,10 +529,18 @@ BEGIN
       IF NEW.status IN ('accepted', 'partially_accepted', 'replacement_requested', 'completed')
          AND (TG_OP = 'INSERT'
               OR OLD.status NOT IN ('accepted', 'partially_accepted', 'replacement_requested', 'completed'))
-         AND NEW.duplicate_confirmed_by IS NULL
-         AND public.fn_procurement_grn_has_duplicate(NEW.id, NEW.supplier_id, NEW.invoice_number, NEW.created_at) THEN
-        RAISE EXCEPTION 'this delivery''s invoice number repeats another delivery from the same supplier (already in stock, or recorded earlier) — a verifier other than the receiver must confirm it is a different invoice before it is added to stock'
-          USING ERRCODE = '42501';
+         AND NEW.duplicate_confirmed_by IS NULL THEN
+        v_inv := public.fn_procurement_normalise_invoice_number(NEW.invoice_number);
+        IF v_inv IS NOT NULL AND NEW.supplier_id IS NOT NULL THEN
+          -- Review round 2 (red team): serialise every entry into stock for this
+          -- supplier + number, so two at once cannot both pass unseen. Held to commit.
+          PERFORM pg_advisory_xact_lock(
+            hashtextextended('procurement_grn_i1:' || NEW.supplier_id::text || ':' || v_inv, 0));
+          IF public.fn_procurement_grn_has_duplicate(NEW.id, NEW.supplier_id, NEW.invoice_number, NEW.created_at) THEN
+            RAISE EXCEPTION 'this delivery''s invoice number repeats another delivery from the same supplier (already in stock, or recorded earlier) — a verifier other than the receiver must confirm it is a different invoice before it is added to stock'
+              USING ERRCODE = '42501';
+          END IF;
+        END IF;
       END IF;
   END CASE;
   IF v_key IS NULL OR v_chain THEN
@@ -460,6 +553,112 @@ BEGIN
     USING ERRCODE = '42501';
 END;
 $function$;
+
+-- ----------------------------------------------------------------------------
+-- 7b. A receipt that reached stock cannot be deleted (review round 2, red team)
+-- ----------------------------------------------------------------------------
+-- pgrn_institution_scope is FOR ALL, so before this anyone with institution access could
+-- DELETE a posted original (its lines cascade away); its repeat then had nothing to match
+-- and went into stock with no hold. Refused here unless the caller is an admin / the
+-- service role, when the receipt was ever posted (first_posted_at), is posted now, or has
+-- a line posted to stock (domain_posted_at). One carve-out keeps receiveReplacement's
+-- rollback working: the invoice-less receipt the signed-in user just recorded, with no
+-- line in stock (the rollback deletes its line first, and only when nothing posted). An
+-- invoice-less receipt never takes part in the I1 hold. Draft / pending / never-posted
+-- cancelled receipts are unchanged: deleting one is no different from cancelling it.
+CREATE OR REPLACE FUNCTION public.fn_procurement_grn_delete_guard()
+RETURNS trigger
+LANGUAGE plpgsql
+SET search_path = public
+AS $$
+DECLARE
+  v_line_posted boolean;
+BEGIN
+  IF coalesce(auth.role(), '') = 'service_role'
+     OR public.is_super_admin() OR public.is_admin() THEN
+    RETURN OLD;
+  END IF;
+  v_line_posted := EXISTS (
+    SELECT 1 FROM public.procurement_grn_items gi
+     WHERE gi.grn_id = OLD.id AND gi.domain_posted_at IS NOT NULL);
+  IF NOT (v_line_posted
+          OR OLD.first_posted_at IS NOT NULL
+          OR OLD.status IN ('accepted', 'partially_accepted', 'replacement_requested', 'completed')) THEN
+    RETURN OLD;
+  END IF;
+  IF public.fn_procurement_normalise_invoice_number(OLD.invoice_number) IS NULL
+     AND OLD.received_by IS NOT DISTINCT FROM auth.uid()
+     AND NOT v_line_posted THEN
+    RETURN OLD;
+  END IF;
+  RAISE EXCEPTION 'a delivery that has been checked into stock cannot be deleted — ask an admin'
+    USING ERRCODE = '42501';
+END;
+$$;
+
+REVOKE EXECUTE ON FUNCTION public.fn_procurement_grn_delete_guard() FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_procurement_grn_delete_guard() TO authenticated;
+
+DROP TRIGGER IF EXISTS trg_pgrn_delete_guard ON public.procurement_grn;
+CREATE TRIGGER trg_pgrn_delete_guard
+  BEFORE DELETE ON public.procurement_grn
+  FOR EACH ROW EXECUTE FUNCTION public.fn_procurement_grn_delete_guard();
+
+-- ----------------------------------------------------------------------------
+-- 7f. Replacement rows come only from a verified receipt (review round 2, red team)
+-- ----------------------------------------------------------------------------
+-- pgrnr_parent_scope is FOR ALL with an institution check only, so anyone could insert a
+-- 'pending' replacement against a line of a HELD receipt and have it received into stock
+-- (receiveReplacement creates an invoice-less 'completed' receipt, which the I1 check
+-- cannot match). The only real writer is verifyGrn, which inserts the row while the
+-- receipt is in a posted status (provisionally 'accepted'), for the line's rejected
+-- quantity. Enforced here for every caller but the service role: a verifier (or admin),
+-- a parent receipt in a posted status, and 0 < rejected_quantity <= the line's.
+CREATE OR REPLACE FUNCTION public.fn_procurement_grn_replacement_checks()
+RETURNS trigger
+LANGUAGE plpgsql
+SET search_path = public
+AS $$
+DECLARE
+  v_status   text;
+  v_rejected numeric;
+BEGIN
+  IF coalesce(auth.role(), '') = 'service_role' THEN
+    RETURN NEW;
+  END IF;
+  IF NOT (public.is_super_admin() OR public.is_admin()
+          OR public.user_has_permission('procurement.grn_verify')) THEN
+    RAISE EXCEPTION 'not authorized to raise a replacement — this requires the procurement.grn_verify permission'
+      USING ERRCODE = '42501';
+  END IF;
+  SELECT g.status, gi.rejected_quantity INTO v_status, v_rejected
+    FROM public.procurement_grn_items gi
+    JOIN public.procurement_grn g ON g.id = gi.grn_id
+   WHERE gi.id = NEW.grn_item_id;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'delivery line not found for this replacement'
+      USING ERRCODE = '42501';
+  END IF;
+  IF v_status NOT IN ('accepted', 'partially_accepted', 'replacement_requested', 'completed') THEN
+    RAISE EXCEPTION 'a replacement can only be raised on a delivery that has been checked into stock'
+      USING ERRCODE = '42501';
+  END IF;
+  IF NEW.rejected_quantity IS NULL OR NEW.rejected_quantity <= 0
+     OR NEW.rejected_quantity > coalesce(v_rejected, 0) THEN
+    RAISE EXCEPTION 'a replacement cannot be for more than the quantity rejected on that line'
+      USING ERRCODE = '42501';
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+REVOKE EXECUTE ON FUNCTION public.fn_procurement_grn_replacement_checks() FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_procurement_grn_replacement_checks() TO authenticated;
+
+DROP TRIGGER IF EXISTS trg_pgrnr_replacement_checks ON public.procurement_grn_replacements;
+CREATE TRIGGER trg_pgrnr_replacement_checks
+  BEFORE INSERT ON public.procurement_grn_replacements
+  FOR EACH ROW EXECUTE FUNCTION public.fn_procurement_grn_replacement_checks();
 
 -- ----------------------------------------------------------------------------
 -- 6. Private bucket for the supplier invoice PDFs (mirrors 20260805090000)

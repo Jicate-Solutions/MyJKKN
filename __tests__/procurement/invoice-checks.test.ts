@@ -50,7 +50,46 @@ describe('I1 normaliseInvoiceNumber', () => {
     expect(normaliseInvoiceNumber('INV/2041')).toBe('inv/2041');
     expect(normaliseInvoiceNumber('INV/2041')).not.toBe(normaliseInvoiceNumber('INV-2041'));
   });
+  it('strips invisible characters a verifier cannot see on screen (review round 2, red team)', () => {
+    for (const ch of [
+      '\u200b', // zero-width space
+      '\u200c', // zero-width non-joiner
+      '\u200d', // zero-width joiner
+      '\u2060', // word joiner
+      '\u00ad', // soft hyphen
+      '\ufeff', // byte-order mark
+      '\u180e', // Mongolian vowel separator
+      '\u202e', // right-to-left override
+      '\u2066', // left-to-right isolate
+      '\u0007', // a control character
+      '\u{e0041}', // a tag character
+    ]) {
+      expect(normaliseInvoiceNumber(`INV-001${ch}`)).toBe('inv001');
+      expect(normaliseInvoiceNumber(`IN${ch}V-0${ch}01`)).toBe('inv001');
+    }
+  });
+  it('folds look-alike compatibility forms (full-width letters, digits and dashes)', () => {
+    expect(normaliseInvoiceNumber('\uff29\uff2e\uff36\uff0d\uff10\uff10\uff11')).toBe('inv001');
+    expect(normaliseInvoiceNumber('INV\u2011001')).toBe('inv001'); // non-breaking hyphen
+    expect(normaliseInvoiceNumber('\uff29\uff2e\uff36\uff0f\uff10\uff10\uff11')).toBe('inv/001');
+  });
+  it('agrees with fn_procurement_normalise_invoice_number on the same inputs', () => {
+    // Expected values are what the migration's SQL function returned for these exact
+    // inputs (scratch Postgres 16 with the migration loaded, and the same expression on
+    // production Postgres 15.6, read-only). The two must never drift apart.
+    const pairs: Array<[string, string | null]> = [
+      ['INV-\u200b001', 'inv001'],
+      ['INV\u00ad-0\u206001', 'inv001'],
+      ['\uff29\uff2e\uff36\uff0d\uff10\uff10\uff11', 'inv001'],
+      ['inv / 2041', 'inv/2041'],
+      ['  Inv\u201320 41\u3000', 'inv2041'],
+      ['\u0baa\u0bbf\u0bb2\u0bcd-12', '\u0baa\u0bbf\u0bb2\u0bcd12'],
+      ['\u200b\u00ad -', null],
+    ];
+    for (const [raw, sql] of pairs) expect(normaliseInvoiceNumber(raw)).toBe(sql);
+  });
   it('returns null for empty, blank, dash-only or missing numbers', () => {
+    expect(normaliseInvoiceNumber('\u200b\u00ad')).toBeNull();
     expect(normaliseInvoiceNumber('')).toBeNull();
     expect(normaliseInvoiceNumber('   ')).toBeNull();
     expect(normaliseInvoiceNumber(' - ')).toBeNull();

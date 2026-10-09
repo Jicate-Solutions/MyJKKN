@@ -44,14 +44,33 @@ export function localToday(now: Date = new Date()): string {
 // ── I1 duplicate invoice number ──────────────────────────────────────────────
 
 /**
- * Normalise an invoice number for comparison: trimmed, case-folded, spaces and dashes
- * removed. "INV-2041", " inv 2041 ", "inv–2041" (en dash) all become "inv2041".
+ * Normalise an invoice number for comparison: compatibility-folded (NFKC, so full-width
+ * "ＩＮＶ－００１" is "INV-001"), case-folded, and with every space, dash and INVISIBLE
+ * character removed. "INV-2041", " inv 2041 ", "inv–2041" (en dash) and "INV-2041" with a
+ * zero-width space or soft hyphen hidden in it all become "inv2041". Other visible
+ * punctuation (a slash) is kept: it is part of the number.
  * Returns null for an empty or missing number — an empty number never matches anything.
+ *
+ * MUST stay identical to fn_procurement_normalise_invoice_number (migration
+ * 20261009120000): the strip set below is an explicit list of code points, the same list
+ * in both, because Postgres's character classes follow the server's C library and match
+ * no JS class (measured on production: 840 BMP code points only Postgres's [[:alnum:]]
+ * counts, 419 only JS [\p{L}\p{N}] counts). Pinned by the "agrees with
+ * fn_procurement_normalise_invoice_number" test.
  */
+// C0 controls + space, hyphen-minus, DEL + C1 controls + no-break space, soft hyphen,
+// combining grapheme joiner, Arabic letter mark, Hangul fillers, Khmer inherent vowels,
+// Mongolian selectors, the Unicode spaces / zero-widths / bidi marks / dashes
+// (U+2000-2015), line + paragraph separators and bidi embeddings (U+2028-202F), word
+// joiner + invisible operators (U+205F-2064), bidi isolates + deprecated format
+// (U+2066-206F), minus sign, ideographic space, variation selectors, BOM, interlinear
+// annotation marks and tag characters.
+const INVOICE_NUMBER_STRIP =
+  /[\u0000-\u0020\u002d\u007f-\u00a0\u00ad\u034f\u061c\u115f\u1160\u1680\u17b4\u17b5\u180b-\u180f\u2000-\u2015\u2028-\u202f\u205f-\u2064\u2066-\u206f\u2212\u3000\u3164\ufe00-\ufe0f\ufeff\uffa0\ufff9-\ufffb\u{e0000}-\u{e007f}]+/gu;
+
 export function normaliseInvoiceNumber(raw: string | null | undefined): string | null {
   if (typeof raw !== 'string') return null;
-  // Hyphen-minus plus the Unicode dash family (‐ ‑ ‒ – — ―) and the minus sign.
-  const n = raw.trim().toLowerCase().replace(/[\s\-‐-―−]+/g, '');
+  const n = raw.normalize('NFKC').toLowerCase().replace(INVOICE_NUMBER_STRIP, '');
   return n || null;
 }
 

@@ -20,6 +20,7 @@ import {
   isIsoDate,
   lateReasonMissing,
   localToday,
+  POSTED_GRN_STATUSES,
   type DuplicateCandidate,
 } from './invoice-checks';
 import {
@@ -845,10 +846,19 @@ export class ProcurementGrnService {
 
     const { data: parentGrn, error: pgErr } = await this.supabase
       .from('procurement_grn')
-      .select('id,institution_id,store_id,domain,purchase_order_id,supplier_id,grn_number')
+      .select('id,institution_id,store_id,domain,purchase_order_id,supplier_id,grn_number,status')
       .eq('id', originItem.grn_id)
       .single();
     if (pgErr) throw pgErr;
+    // 1b) I1 (review round 2, red team): a replacement exists only for a line of a delivery
+    //     that was checked into stock. A pending (possibly HELD) receipt cannot reach stock
+    //     through its replacements. The database refuses such a replacement row too
+    //     (trg_pgrnr_replacement_checks).
+    if (!POSTED_GRN_STATUSES.includes(parentGrn.status)) {
+      throw new Error(
+        `Delivery record ${parentGrn.grn_number} has not been checked into stock ("${parentGrn.status}") — a replacement can only be received after it is verified.`
+      );
+    }
 
     // 2) Chemical gate — same rule as verify: batch + expiry required to post.
     const errors = validateLineForVerify({
@@ -1017,6 +1027,15 @@ export class ProcurementGrnService {
           ctx
         );
         posted = true;
+        // Mark the line posted, as verifyGrn does (the RM RPC already claimed it; this
+        // then matches 0 rows). The database refuses to delete a receipt with a posted
+        // line, so the rollback below can never erase a replacement that reached stock.
+        const { error: postedErr } = await this.supabase
+          .from('procurement_grn_items')
+          .update({ domain_posted_at: new Date().toISOString() })
+          .eq('id', newItem.id)
+          .is('domain_posted_at', null);
+        if (postedErr) throw postedErr;
       }
 
       // 7) Recompute the PO line's received_quantity — atomic single-statement
