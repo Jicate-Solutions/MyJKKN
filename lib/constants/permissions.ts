@@ -3112,6 +3112,9 @@ export const PERMISSION_CATEGORIES = [
     permissions: [
       // Gateway — required for any access to /procurement/*
       { key: 'procurement.view', label: 'Access Procurement Module' },
+      // Without this, requests / quotations / POs are limited to the viewer's own
+      // department (plus what they raised or must approve). Principal, Procurement Manager.
+      { key: 'procurement.view_all_departments', label: 'View All Departments (whole college)' },
 
       // Purchase Requests / Requisitions (raise vs approve are separate)
       { key: 'procurement.request_create', label: 'Create Purchase Requests' },
