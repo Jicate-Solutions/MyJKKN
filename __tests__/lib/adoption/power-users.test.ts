@@ -3,7 +3,10 @@
  * Monday check, the one-person prompt and the agenda parser.
  */
 import { describe, it, expect } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import {
+  MAX_AGENDAS,
   buildAgendaPrompt,
   isMondayDate,
   parseAgenda,
@@ -145,5 +148,24 @@ describe('stale agenda jobs', () => {
   });
   it('a finished job is never stale', () => {
     expect(isStaleAgendaJob({ status: 'done', requested_at: '2020-01-01T00:00:00Z' }, now)).toBe(false);
+  });
+});
+
+describe('the agenda job type can hold one whole weekly batch', () => {
+  // One run queues up to MAX_AGENDAS jobs of 'adoption.chat_agenda'. If the
+  // job type's max_inflight were lower, jobs past it could be refused or held
+  // back every week. The seed and the run must agree.
+  const sql = readFileSync(
+    join(process.cwd(), 'supabase/migrations/20271009115500_adoption_weekly_power_users.sql'),
+    'utf8'
+  );
+  it('seeds max_inflight at least MAX_AGENDAS', () => {
+    const seed = sql.slice(sql.indexOf("('adoption.chat_agenda',"));
+    const m = seed.match(/'max',\s*'seat_owner',\s*(\d+),/);
+    expect(m).not.toBeNull();
+    expect(Number(m![1])).toBeGreaterThanOrEqual(MAX_AGENDAS);
+  });
+  it('raises an existing row instead of leaving it at a lower limit', () => {
+    expect(sql).toMatch(/ON CONFLICT \(job_type\) DO UPDATE\s+SET max_inflight = GREATEST\(/);
   });
 });

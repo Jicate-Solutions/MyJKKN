@@ -13,6 +13,7 @@
  *     dedupe key adoption-agenda:<week>:<user>, and stores the job ids;
  *   - a person's prompt holds only that person's data;
  *   - a re-run keeps people whose agenda job is queued or readable, found by dedupe key;
+ *   - a job stuck over 24 h is cancelled and replaced (that run is a 500; the next run is a 200);
  *   - an RPC error, or a run where ANY job failed to queue, is a 500.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -26,9 +27,11 @@ let rpcResult: Result;
 let tableResults: Record<string, Result | ((ops: Call[]) => Result)>;
 let calls: Call[];
 const MERGE_FN = 'fn_adoption_power_user_weeks_merge_jobs';
+const SUPERSEDE_FN = 'fn_adoption_agenda_supersede_stale';
 let mergeResult: Result;
+let supersedeResult: Result;
 const rpc = vi.fn((name: string, _args?: Record<string, unknown>) =>
-  Promise.resolve(name === MERGE_FN ? mergeResult : rpcResult)
+  Promise.resolve(name === MERGE_FN ? mergeResult : name === SUPERSEDE_FN ? supersedeResult : rpcResult)
 );
 /** The job ids the run merged into agenda_jobs (only the ones it changed). */
 const merged = (): Record<string, string> | undefined =>
@@ -131,6 +134,7 @@ beforeEach(() => {
   calls = [];
   rpcResult = { data: payload(10), error: null };
   mergeResult = { data: null, error: null };
+  supersedeResult = { data: true, error: null };
   tableResults = {
     bug_reports: {
       data: [
@@ -376,13 +380,62 @@ describe('a real run', () => {
     expect(merged()?.['u-01']).toBe('done-1');
   });
 
-  it('reports a job stuck in the queue for over a day as a failure (500), not a quiet 200', async () => {
+  it('replaces a job stuck in the queue for over a day: cancels it, queues a fresh one, and still reports it (500)', async () => {
     const old = new Date(Date.now() - 30 * 3600_000).toISOString();
     tableResults.ai_jobs = { data: [job('u-01', 'stuck-1', 'pending', null, old)], error: null };
     const res = await GET(request({ bearer: SECRET, query: `?week=${WEEK}` }));
     expect(res.status).toBe(500);
     const body = await res.json();
     expect(body.failures.join(' ')).toContain('24 h');
+    expect(body.stale_replaced).toBe(1);
+    expect(body.failed).toBe(0);
+    expect(body.enqueued).toBe(10);
+    expect(rpc).toHaveBeenCalledWith(SUPERSEDE_FN, { p_job_id: 'stuck-1' });
+    const users = enqueueJobsLane.mock.calls.map((c) => (c[1] as { context: { user_id: string } }).context.user_id);
+    expect(users).toContain('u-01');
+    const stored = merged() ?? {};
+    expect(stored['u-01']).toBeDefined();
+    expect(stored['u-01']).not.toBe('stuck-1');
+  });
+
+  it('the run after a stuck job was replaced succeeds (200): the fresh job is kept', async () => {
+    // Run 1: u-01's job is stuck -> replaced.
+    const old = new Date(Date.now() - 30 * 3600_000).toISOString();
+    tableResults.ai_jobs = { data: [job('u-01', 'stuck-1', 'pending', null, old)], error: null };
+    const first = await GET(request({ bearer: SECRET, query: `?week=${WEEK}` }));
+    expect(first.status).toBe(500);
+    const fresh = (merged() ?? {})['u-01'];
+    expect(fresh).toBeDefined();
+    expect(fresh).not.toBe('stuck-1');
+    // Run 2: the lookup now finds the cancelled job and, newer, the fresh pending one.
+    rpc.mockClear();
+    enqueueJobsLane.mockClear();
+    const now = new Date().toISOString();
+    tableResults.ai_jobs = {
+      data: [job('u-01', fresh, 'pending', null, now), job('u-01', 'stuck-1', 'canceled', null, old)],
+      error: null,
+    };
+    const second = await GET(request({ bearer: SECRET, query: `?week=${WEEK}` }));
+    expect(second.status).toBe(200);
+    const body = await second.json();
+    expect(body.stale_replaced).toBe(0);
+    expect(body.failed).toBe(0);
+    expect(rpc).not.toHaveBeenCalledWith(SUPERSEDE_FN, expect.anything());
+    const users = enqueueJobsLane.mock.calls.map((c) => (c[1] as { context: { user_id: string } }).context.user_id);
+    expect(users).not.toContain('u-01');
+  });
+
+  it('keeps a stuck job and queues nothing for that person when it cannot be cancelled', async () => {
+    const old = new Date(Date.now() - 30 * 3600_000).toISOString();
+    tableResults.ai_jobs = { data: [job('u-01', 'stuck-1', 'pending', null, old)], error: null };
+    supersedeResult = { data: false, error: null };
+    const res = await GET(request({ bearer: SECRET, query: `?week=${WEEK}` }));
+    expect(res.status).toBe(500);
+    const body = await res.json();
+    expect(body.failed).toBe(1);
+    expect(body.stale_replaced).toBe(0);
+    const users = enqueueJobsLane.mock.calls.map((c) => (c[1] as { context: { user_id: string } }).context.user_id);
+    expect(users).not.toContain('u-01');
   });
 
   it("reads problem reports from the 30 days that END with the reported week", async () => {

@@ -107,3 +107,12 @@ CREATE TABLE public.ai_job_types (
   schedulable boolean NOT NULL DEFAULT false, enabled boolean NOT NULL DEFAULT true,
   input_schema jsonb NOT NULL DEFAULT '[]'::jsonb, expected_seconds int, provider text, model_id text,
   created_at timestamptz NOT NULL DEFAULT now(), updated_at timestamptz NOT NULL DEFAULT now());
+-- The job queue (shape from 20260712183000), for the stuck-agenda replacement
+-- fn_adoption_agenda_supersede_stale (#4298 panel round 4).
+CREATE TABLE public.ai_jobs (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(), job_type text NOT NULL REFERENCES public.ai_job_types(job_type),
+  payload jsonb NOT NULL DEFAULT '{}'::jsonb, requested_by uuid NOT NULL, status text NOT NULL DEFAULT 'pending',
+  lane text NOT NULL DEFAULT 'max', priority int NOT NULL DEFAULT 100, claimed_by text, attempts int NOT NULL DEFAULT 0,
+  result jsonb, error text, requested_at timestamptz NOT NULL DEFAULT now(), claimed_at timestamptz,
+  started_at timestamptz, completed_at timestamptz, delivered_at timestamptz,
+  CONSTRAINT ai_jobs_status_chk CHECK (status IN ('pending','claimed','running','done','error','canceled')));

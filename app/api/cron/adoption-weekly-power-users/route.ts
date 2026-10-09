@@ -24,7 +24,10 @@
 //   5. one agenda job per top-10 person (dedupe key adoption-agenda:<week>:<user>).
 //      Someone whose newest job this week (found by dedupe key) is still queued,
 //      or finished with a readable agenda, is skipped ('kept'); an errored job or
-//      an unreadable answer is replaced — a re-run never makes a second agenda;
+//      an unreadable answer is replaced — a re-run never makes a second agenda.
+//      A job queued over 24 h ago and never finished is cancelled
+//      (fn_adoption_agenda_supersede_stale) and a fresh one queued; that run
+//      still answers 500 (the Max drain looked down), the next one recovers;
 //   6. the job ids are merged into agenda_jobs.
 // Privacy: problem reports reach the model as status + which part of MyJKKN
 // only, never their free text, which can name other people.
@@ -239,6 +242,7 @@ export async function GET(request: NextRequest) {
   let inFlight = 0;
   let failed = 0;
   let kept = 0;
+  let staleReplaced = 0;
   const failures: string[] = [];
   for (const { user_id: userId, prompt } of prompts) {
     const dedupeKey = keyOf(userId);
@@ -253,13 +257,25 @@ export async function GET(request: NextRequest) {
       continue; // the whole run answers 500 below (lookupFailed), so the next run retries
     }
     if (latest && isStaleAgendaJob(latest)) {
-      // Queued more than a day ago and never picked up: the Max drain is down.
-      // A new job cannot replace it (the dedupe blocks a second live job), so
-      // the run reports it as a failure instead of a quiet 200.
-      agendaJobs[userId] = latest.id;
-      failed++;
-      failures.push('agenda job queued over 24 h ago and never picked up (is the Max drain down?)');
-      continue;
+      // Queued more than a day ago and never finished: the Max drain looked
+      // down. The dedupe guard blocks a second live job, so cancel this one
+      // first, then queue a fresh one below. The run still answers 500 so the
+      // stuck job is reported; the next run finds the fresh job and recovers.
+      const { data: superseded, error: supErr } = await admin.rpc('fn_adoption_agenda_supersede_stale', {
+        p_job_id: latest.id,
+      });
+      if (supErr || superseded !== true) {
+        // Not cancelled (an error, or the drain took it just now): keep it and
+        // let the next run look again — never risk a second agenda.
+        agendaJobs[userId] = latest.id;
+        failed++;
+        failures.push(
+          `agenda job queued over 24 h ago could not be replaced${supErr ? `: ${supErr.message}` : ' (it changed meanwhile)'}`
+        );
+        continue;
+      }
+      staleReplaced++;
+      failures.push('agenda job queued over 24 h ago and never picked up (is the Max drain down?) — replaced with a fresh job');
     }
     if (latest && isUsableAgendaJob(latest)) {
       agendaJobs[userId] = latest.id;
@@ -339,12 +355,16 @@ export async function GET(request: NextRequest) {
   // Any agenda that could not be queued is a failed run (HTTP 500), even when
   // the others went through: the report row and the queued jobs are already
   // saved, and the next run retries only the missing people.
-  if (failed > 0 || lookupFailed) {
-    logger.error(LOG_MODULE, `${failed} agenda job(s) not queued (${failures[0]}) — ${summary}`);
+  if (failed > 0 || lookupFailed || staleReplaced > 0) {
+    const error =
+      failed > 0 || lookupFailed
+        ? `${failed} of ${prompts.length} agenda jobs not queued: ${failures.find((f) => !f.includes('replaced with a fresh job')) ?? failures[0]}`
+        : `${staleReplaced} agenda job(s) stuck over 24 h were replaced with fresh ones (is the Max drain down?)`;
+    logger.error(LOG_MODULE, `${error} — ${summary}`);
     return NextResponse.json(
       {
         ok: false,
-        error: `${failed} of ${prompts.length} agenda jobs not queued: ${failures[0]}`,
+        error,
         summary,
         week_start: weekStart,
         top: counts.top,
@@ -353,6 +373,7 @@ export async function GET(request: NextRequest) {
         in_flight: inFlight,
         failed,
         kept,
+        stale_replaced: staleReplaced,
         failures,
         elapsed_ms: Date.now() - started,
       },
@@ -373,6 +394,7 @@ export async function GET(request: NextRequest) {
     in_flight: inFlight,
     failed,
     kept,
+    stale_replaced: staleReplaced,
     failures,
     elapsed_ms: Date.now() - started,
   });

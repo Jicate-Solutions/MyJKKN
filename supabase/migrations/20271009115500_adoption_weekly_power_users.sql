@@ -21,16 +21,26 @@
 --        one_day_learners_by_college  COUNTS ONLY, never names
 --        window, excluded_institution_ids
 --      Never counted: super admins (role or flag), anyone whose college is in
---      the policy list (their profile's college, else the college on their
---      latest event that week), test accounts (email starting 'test' or name
---      starting 'test '), and usage with no profile.
+--      the policy list (their profile's college, OR the college on ANY of their
+--      events that week — usage_events can be written from the browser, so an
+--      event's college can only add an exclusion, never lift one), test
+--      accounts (email starting 'test' or name starting 'test '), and usage
+--      with no profile.
 --      A module, and a (module, feature) pair, counts only if 3+ counted people
 --      used it that week (usage_events can be written from the browser); a visit
 --      with no feature counts whenever its module does.
 --      FAILS CLOSED: a missing, switched-off, draft or malformed policy row
---      raises, so the run stops instead of reporting the excluded colleges.
+--      (including a null or any other non-text item in the list) raises, so
+--      the run stops instead of reporting the excluded colleges.
+--   3b. fn_adoption_power_user_weeks_merge_jobs — merges agenda job ids into
+--      the week row; raises if the week row is missing.
+--   3c. fn_adoption_agenda_supersede_stale — cancels ONE agenda job that has
+--      sat queued/running for over 24 h, so the route can queue a fresh one.
 --   4. ai_job_types 'adoption.chat_agenda' — a copy of 'improvement.rank_ideas'
---      (glue template {{prompt}}, interactive=false, max lane, seat_owner).
+--      (glue template {{prompt}}, interactive=false, max lane, seat_owner),
+--      except max_inflight = 10: one weekly run queues up to 10 agendas
+--      (MAX_AGENDAS in lib/adoption/power-users.ts), so all of them may be in
+--      flight at once.
 --   5. ai_routine_schedules 'adoption-weekly-power-users' — Mondays 10:50 IST,
 --      dispatcher-managed (after the 10:33 adoption-daily-tick).
 --
@@ -122,6 +132,11 @@ BEGIN
   IF v_raw IS NULL OR jsonb_typeof(v_raw) <> 'array' THEN
     RAISE EXCEPTION 'fn_adoption_power_users: policy adoption.power_users.exclude_institution_ids is missing, off, a draft or not a list';
   END IF;
+  -- A JSON null would become a NULL college id, and `x = ANY (list with a NULL)`
+  -- is NULL for every other college, which would silently drop everyone.
+  IF EXISTS (SELECT 1 FROM jsonb_array_elements(v_raw) AS e WHERE jsonb_typeof(e) <> 'string') THEN
+    RAISE EXCEPTION 'fn_adoption_power_users: policy adoption.power_users.exclude_institution_ids holds something that is not a college id';
+  END IF;
   BEGIN
     SELECT COALESCE(array_agg(x::uuid), '{}'::uuid[]) INTO v_excluded
       FROM jsonb_array_elements_text(v_raw) AS x;
@@ -148,6 +163,18 @@ BEGIN
   -- The 3 people are counted only among people the report itself counts (a
   -- profile, not a super admin, not a test account, not an excluded college),
   -- so excluded or test accounts cannot vouch for an invented name.
+  --
+  -- People left out for their college: the profile's college is excluded, OR
+  -- ANY of their events that week carries an excluded college. The event's
+  -- college comes from the browser, so it can only add an exclusion — tagging
+  -- the latest events with another college no longer lifts one.
+  excluded_people AS (
+    SELECT DISTINCT ev.user_id
+      FROM ev
+      LEFT JOIN public.profiles xp ON xp.id = ev.user_id
+     WHERE xp.institution_id = ANY (v_excluded)
+        OR ev.institution_id = ANY (v_excluded)
+  ),
   vouch_ev AS (
     SELECT ev.user_id, ev.module, ev.feature
       FROM ev
@@ -155,7 +182,7 @@ BEGIN
      WHERE COALESCE(vp.role, '') <> 'super_admin'
        AND COALESCE(vp.is_super_admin, false) = false
        AND NOT (COALESCE(vp.email, '') ILIKE 'test%' OR COALESCE(vp.full_name, '') ILIKE 'test %')
-       AND NOT (COALESCE(COALESCE(vp.institution_id, ev.institution_id) = ANY (v_excluded), false))
+       AND ev.user_id NOT IN (SELECT x.user_id FROM excluded_people x)
   ),
   valid_modules AS (
     SELECT v.module
@@ -208,7 +235,7 @@ BEGIN
     SELECT pe.*, i.name AS institution_name
       FROM people pe
       LEFT JOIN public.institutions i ON i.id = pe.institution_id
-     WHERE pe.institution_id IS NULL OR NOT (pe.institution_id = ANY (v_excluded))
+     WHERE pe.user_id NOT IN (SELECT x.user_id FROM excluded_people x)
   ),
   ranked AS (
     SELECT k.*,
@@ -295,10 +322,44 @@ BEGIN
   UPDATE public.adoption_power_user_weeks
      SET agenda_jobs = COALESCE(agenda_jobs, '{}'::jsonb) || p_jobs
    WHERE week_start = p_week_start;
+  -- No week row = the ids would be dropped while the route reports success.
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'fn_adoption_power_user_weeks_merge_jobs: no week row for %', p_week_start;
+  END IF;
 END;
 $$;
 REVOKE EXECUTE ON FUNCTION public.fn_adoption_power_user_weeks_merge_jobs(date, jsonb) FROM PUBLIC, anon, authenticated;
 GRANT  EXECUTE ON FUNCTION public.fn_adoption_power_user_weeks_merge_jobs(date, jsonb) TO service_role;
+
+-- ---------------------------------------------------------------------
+-- 3c) retire ONE agenda job that has been stuck for over 24 h
+-- ---------------------------------------------------------------------
+-- The dedupe guard blocks a second live job for the same person and week, so a
+-- job the drain never picked up would block that person for ever and every
+-- re-run would answer 500. The route calls this for such a job, then queues a
+-- fresh one. Only an adoption.chat_agenda job, only while still live, only if
+-- requested over 24 h ago — so a job the drain has just taken is left alone.
+-- Returns true when the job was cancelled.
+CREATE OR REPLACE FUNCTION public.fn_adoption_agenda_supersede_stale(p_job_id uuid)
+RETURNS boolean
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+  UPDATE public.ai_jobs
+     SET status = 'canceled',
+         error = 'superseded: queued over 24 h and never finished; the weekly power users run queued a fresh job',
+         completed_at = now()
+   WHERE id = p_job_id
+     AND job_type = 'adoption.chat_agenda'
+     AND status IN ('pending', 'claimed', 'running')
+     AND requested_at < now() - interval '24 hours';
+  RETURN FOUND;
+END;
+$$;
+REVOKE EXECUTE ON FUNCTION public.fn_adoption_agenda_supersede_stale(uuid) FROM PUBLIC, anon, authenticated;
+GRANT  EXECUTE ON FUNCTION public.fn_adoption_agenda_supersede_stale(uuid) TO service_role;
 
 -- ---------------------------------------------------------------------
 -- 4) the agenda job type (copy of improvement.rank_ideas)
@@ -312,10 +373,13 @@ VALUES
    'Adoption — weekly chat agenda for one power user (Max lane)',
    'Writes 3 short questions and 2-4 topics for a chat with one of last week''s top-10 MyJKKN users, from that person''s own usage only (modules used, records saved, active days, their own recent bug reports). Returns strict JSON {questions, topics}. Shown on /admin/adoption to super admins.',
    '{{prompt}}',
-   'none', 'job.result', false, 'max', 'seat_owner', 3, true, true,
+   'none', 'job.result', false, 'max', 'seat_owner', 10, true, true,
    '[{"key":"prompt","type":"textarea","label":"Assembled agenda prompt","required":true}]'::jsonb,
    45, 'anthropic', 'claude-sonnet-4-6')
-ON CONFLICT (job_type) DO NOTHING;
+-- A row made by an earlier copy of this file (max_inflight 3) is raised to 10;
+-- nothing else on an existing row is touched, and a higher value is kept.
+ON CONFLICT (job_type) DO UPDATE
+  SET max_inflight = GREATEST(public.ai_job_types.max_inflight, EXCLUDED.max_inflight);
 
 -- ---------------------------------------------------------------------
 -- 5) the clock — Mondays 10:50 IST, dispatcher-managed
@@ -340,5 +404,12 @@ BEGIN
   IF has_function_privilege('anon', 'public.fn_adoption_power_user_weeks_merge_jobs(date, jsonb)', 'EXECUTE')
      OR has_function_privilege('authenticated', 'public.fn_adoption_power_user_weeks_merge_jobs(date, jsonb)', 'EXECUTE') THEN
     RAISE EXCEPTION 'fn_adoption_power_user_weeks_merge_jobs is callable by a client role';
+  END IF;
+  IF has_function_privilege('anon', 'public.fn_adoption_agenda_supersede_stale(uuid)', 'EXECUTE')
+     OR has_function_privilege('authenticated', 'public.fn_adoption_agenda_supersede_stale(uuid)', 'EXECUTE') THEN
+    RAISE EXCEPTION 'fn_adoption_agenda_supersede_stale is callable by a client role';
+  END IF;
+  IF (SELECT max_inflight FROM public.ai_job_types WHERE job_type = 'adoption.chat_agenda') < 10 THEN
+    RAISE EXCEPTION 'adoption.chat_agenda max_inflight is below the 10 agendas one run queues';
   END IF;
 END $$;

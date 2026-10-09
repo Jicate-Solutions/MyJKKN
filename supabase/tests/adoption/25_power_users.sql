@@ -257,6 +257,35 @@ DO $$ DECLARE r jsonb; BEGIN
     RAISE EXCEPTION 'FAIL: a feature only 1 person used counted %', r->'one_day_staff'; END IF;
 END $$;
 
+\echo '--- excluded colleges: EXPECT a person is left out if their profile college OR ANY of their events'' colleges is excluded (#4298 panel round 4)'
+-- usage_events carries a college id the browser sends. The Escaper has no profile college;
+-- one Tuesday event says JKKN Arts and Science (Aided), and every later event says College A.
+-- Before the fix only the LATEST event's college counted, so the Escaper (6 real modules,
+-- 18 records) ranked #1. The Jicate Tagger's profile says Jicate; every event says College A.
+INSERT INTO profiles (id, email, full_name, role, institution_id, is_super_admin, created_at) VALUES
+  ('5d000000-0000-0000-0000-000000000001','esc@x','Escaper No Profile College','hod',NULL,false,'2026-01-01'),
+  ('5d000000-0000-0000-0000-000000000002','jtag@x','Jicate Tagger','hod','479eac7f-3e5b-479e-bd91-dee9e0186b9b',false,'2026-01-01');
+SELECT _ev('5d000000-0000-0000-0000-000000000001', ARRAY['m1'], '2026-09-29 09:00+05:30', 'page_visit', 1,
+           'a33138b6-4eea-4675-941f-1071bf88b127');
+SELECT _ev(u::uuid, ARRAY['m1','m2','m3','m4','m5','m6'], '2026-09-30 10:00+05:30', 'create', 3,
+           'aaaaaaaa-0000-0000-0000-000000000001')
+  FROM unnest(ARRAY['5d000000-0000-0000-0000-000000000001','5d000000-0000-0000-0000-000000000002']) u;
+DO $$ DECLARE r jsonb; got text[]; want text[]; BEGIN
+  r := fn_adoption_power_users('2026-09-28');
+  IF position('5d000000-0000-0000-0000-000000000001' IN r::text) > 0 THEN
+    RAISE EXCEPTION 'FAIL: a person from an excluded college escaped by tagging later events with another college %',
+      (SELECT string_agg(t->>'full_name', ', ') FROM jsonb_array_elements(r->'top') t); END IF;
+  IF position('5d000000-0000-0000-0000-000000000002' IN r::text) > 0 THEN
+    RAISE EXCEPTION 'FAIL: a person whose profile college is excluded was counted'; END IF;
+  SELECT array_agg(t->>'user_id' ORDER BY o) INTO got FROM jsonb_array_elements(r->'top') WITH ORDINALITY x(t, o);
+  want := ARRAY['50000000-0000-0000-0000-000000000001','50000000-0000-0000-0000-000000000003',
+                '50000000-0000-0000-0000-000000000002','50000000-0000-0000-0000-000000000004',
+                '50000000-0000-0000-0000-000000000005','50000000-0000-0000-0000-000000000011',
+                '50000000-0000-0000-0000-000000000006','50000000-0000-0000-0000-000000000007',
+                '50000000-0000-0000-0000-000000000008','50000000-0000-0000-0000-000000000009'];
+  IF got IS DISTINCT FROM want THEN RAISE EXCEPTION 'FAIL: top order with the excluded taggers %', got; END IF;
+END $$;
+
 \echo '--- one-day team members: EXPECT OD1, OD8, OD5, OD6, OD7 (cap 5); never OD2 (new account), OD3 (came back), OD4 (two days)'
 -- OD1 and OD8 have 2 features each (OD8's bare m7 visit, above); OD5..OD7 have 1; OD9 is 6th.
 DO $$ DECLARE r jsonb; got text[]; BEGIN
@@ -306,6 +335,28 @@ DO $$ BEGIN
   BEGIN PERFORM fn_adoption_power_users('2026-09-28'); RAISE EXCEPTION 'FAIL: ran with a broken exclusion setting';
   EXCEPTION WHEN raise_exception THEN
     IF SQLERRM LIKE 'FAIL:%' THEN RAISE; END IF; END;
+  -- A JSON null (or any non-text item) in the list would turn into a NULL college id and
+  -- silently drop everyone who has a college: it must stop the run instead.
+  UPDATE platform_policies SET value = '["479eac7f-3e5b-479e-bd91-dee9e0186b9b", null]'::jsonb
+   WHERE policy_key = 'adoption.power_users.exclude_institution_ids';
+  BEGIN PERFORM fn_adoption_power_users('2026-09-28'); RAISE EXCEPTION 'FAIL: ran with a null in the exclusion setting';
+  EXCEPTION WHEN raise_exception THEN
+    IF SQLERRM LIKE 'FAIL:%' THEN RAISE; END IF; END;
+  UPDATE platform_policies SET value = '[null]'::jsonb
+   WHERE policy_key = 'adoption.power_users.exclude_institution_ids';
+  BEGIN PERFORM fn_adoption_power_users('2026-09-28'); RAISE EXCEPTION 'FAIL: ran with only a null in the exclusion setting';
+  EXCEPTION WHEN raise_exception THEN
+    IF SQLERRM LIKE 'FAIL:%' THEN RAISE; END IF; END;
+  UPDATE platform_policies SET value = '["479eac7f-3e5b-479e-bd91-dee9e0186b9b", 42]'::jsonb
+   WHERE policy_key = 'adoption.power_users.exclude_institution_ids';
+  BEGIN PERFORM fn_adoption_power_users('2026-09-28'); RAISE EXCEPTION 'FAIL: ran with a number in the exclusion setting';
+  EXCEPTION WHEN raise_exception THEN
+    IF SQLERRM LIKE 'FAIL:%' THEN RAISE; END IF; END;
+  -- an empty list is valid: nobody is left out, and the run works
+  UPDATE platform_policies SET value = '[]'::jsonb
+   WHERE policy_key = 'adoption.power_users.exclude_institution_ids';
+  IF jsonb_array_length(fn_adoption_power_users('2026-09-28')->'top') <> 10 THEN
+    RAISE EXCEPTION 'FAIL: an empty exclusion list did not run'; END IF;
   UPDATE platform_policies SET value = '["479eac7f-3e5b-479e-bd91-dee9e0186b9b", "a33138b6-4eea-4675-941f-1071bf88b127"]'::jsonb
    WHERE policy_key = 'adoption.power_users.exclude_institution_ids';
 END $$;
@@ -335,6 +386,61 @@ DO $$ DECLARE r text; n int; BEGIN
   PERFORM set_config('request.jwt.claim.sub', '', false);
 END $$;
 
+\echo '--- saving job ids: EXPECT a missing week row is an error, not a silent no-op (#4298 panel round 4)'
+DO $$ BEGIN
+  BEGIN
+    PERFORM fn_adoption_power_user_weeks_merge_jobs('2026-08-31', '{"u-x":"job-x"}'::jsonb);
+    RAISE EXCEPTION 'FAIL: job ids for a week with no row were accepted and dropped';
+  EXCEPTION WHEN raise_exception THEN
+    IF SQLERRM LIKE 'FAIL:%' THEN RAISE; END IF; END;
+  IF EXISTS (SELECT 1 FROM adoption_power_user_weeks WHERE week_start = '2026-08-31') THEN
+    RAISE EXCEPTION 'FAIL: a week row was invented'; END IF;
+  PERFORM fn_adoption_power_user_weeks_merge_jobs('2026-09-21', '{"u-x":"job-x"}'::jsonb);
+  IF (SELECT agenda_jobs->>'u-x' FROM adoption_power_user_weeks WHERE week_start = '2026-09-21') IS DISTINCT FROM 'job-x' THEN
+    RAISE EXCEPTION 'FAIL: job ids for an existing week were not saved'; END IF;
+END $$;
+
+\echo '--- stuck agenda jobs: EXPECT only a live adoption.chat_agenda job over 24 h old is cancelled'
+INSERT INTO ai_job_types (job_type, title) VALUES ('other.job', 'Other');
+INSERT INTO ai_jobs (id, job_type, requested_by, status, requested_at) VALUES
+  ('a1000000-0000-0000-0000-000000000001','adoption.chat_agenda','60000000-0000-0000-0000-000000000001','pending', now() - interval '30 hours'),
+  ('a1000000-0000-0000-0000-000000000002','adoption.chat_agenda','60000000-0000-0000-0000-000000000001','running', now() - interval '30 hours'),
+  ('a1000000-0000-0000-0000-000000000003','adoption.chat_agenda','60000000-0000-0000-0000-000000000001','pending', now() - interval '2 hours'),
+  ('a1000000-0000-0000-0000-000000000004','adoption.chat_agenda','60000000-0000-0000-0000-000000000001','done',    now() - interval '30 hours'),
+  ('a1000000-0000-0000-0000-000000000005','other.job',           '60000000-0000-0000-0000-000000000001','pending', now() - interval '30 hours');
+DO $$ BEGIN
+  IF NOT fn_adoption_agenda_supersede_stale('a1000000-0000-0000-0000-000000000001') THEN
+    RAISE EXCEPTION 'FAIL: a stuck pending agenda job was not cancelled'; END IF;
+  IF NOT fn_adoption_agenda_supersede_stale('a1000000-0000-0000-0000-000000000002') THEN
+    RAISE EXCEPTION 'FAIL: a stuck running agenda job was not cancelled'; END IF;
+  IF fn_adoption_agenda_supersede_stale('a1000000-0000-0000-0000-000000000003')
+     OR fn_adoption_agenda_supersede_stale('a1000000-0000-0000-0000-000000000004')
+     OR fn_adoption_agenda_supersede_stale('a1000000-0000-0000-0000-000000000005')
+     OR fn_adoption_agenda_supersede_stale('a1000000-0000-0000-0000-000000000001') THEN
+    RAISE EXCEPTION 'FAIL: a fresh, finished, other-type or already-cancelled job was cancelled'; END IF;
+  IF (SELECT string_agg(status, ',' ORDER BY id) FROM ai_jobs) IS DISTINCT FROM 'canceled,canceled,pending,done,pending' THEN
+    RAISE EXCEPTION 'FAIL: job states after superseding %', (SELECT string_agg(status, ',' ORDER BY id) FROM ai_jobs); END IF;
+  IF (SELECT error FROM ai_jobs WHERE id = 'a1000000-0000-0000-0000-000000000001') NOT LIKE 'superseded:%' THEN
+    RAISE EXCEPTION 'FAIL: a cancelled stuck job does not say why'; END IF;
+END $$;
+DO $$ DECLARE r text; BEGIN
+  FOREACH r IN ARRAY ARRAY['anon','authenticated'] LOOP
+    EXECUTE format('SET ROLE %I', r);
+    BEGIN PERFORM fn_adoption_agenda_supersede_stale('a1000000-0000-0000-0000-000000000003');
+      RAISE EXCEPTION 'FAIL: % could cancel an agenda job', r;
+    EXCEPTION WHEN insufficient_privilege THEN NULL; END;
+    RESET ROLE;
+  END LOOP;
+END $$;
+
+\echo '--- the agenda job type: EXPECT max_inflight covers a whole weekly batch (10 agendas), and a re-apply raises a lower value'
+DO $$ BEGIN
+  IF (SELECT max_inflight FROM ai_job_types WHERE job_type = 'adoption.chat_agenda') < 10 THEN
+    RAISE EXCEPTION 'FAIL: adoption.chat_agenda max_inflight % is below the 10 agendas one run queues',
+      (SELECT max_inflight FROM ai_job_types WHERE job_type = 'adoption.chat_agenda'); END IF;
+END $$;
+UPDATE ai_job_types SET max_inflight = 3 WHERE job_type = 'adoption.chat_agenda';  -- as an earlier copy seeded it
+
 \echo '--- the seeds: EXPECT one Monday 10:50 managed schedule row and the agenda job type (applied twice, still one of each)'
 \ir ../../migrations/20271009115500_adoption_weekly_power_users.sql
 DO $$ BEGIN
@@ -347,5 +453,7 @@ DO $$ BEGIN
   IF (SELECT count(*) FROM platform_policies WHERE policy_key = 'adoption.power_users.exclude_institution_ids') <> 1 THEN
     RAISE EXCEPTION 'FAIL: exclusion setting duplicated on re-apply'; END IF;
   IF (SELECT count(*) FROM notifications) <> 0 THEN RAISE EXCEPTION 'FAIL: someone was messaged'; END IF;
+  IF (SELECT max_inflight FROM ai_job_types WHERE job_type = 'adoption.chat_agenda') <> 10 THEN
+    RAISE EXCEPTION 'FAIL: re-applying left max_inflight at %', (SELECT max_inflight FROM ai_job_types WHERE job_type = 'adoption.chat_agenda'); END IF;
 END $$;
 \echo '=== POWER USERS SCENARIOS PASSED ==='
