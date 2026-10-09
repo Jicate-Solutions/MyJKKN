@@ -14,9 +14,11 @@
  * role_title is exactly an official job title (normalizeDesignationKey), its id
  * comes back as `roleTitleMatchId` so the picker can start on it.
  *
- * PATCH writes ONLY those four columns, and only after checking that the job
- * title belongs to the candidate's HR organisation and the department to the
- * candidate's college. The route asks for `hr.recruitment.edit`; the row's own
+ * PATCH writes ONLY those four columns, and of them only the ones the body
+ * names: a key left out of the body is left as it is; an explicit null clears
+ * it. A body naming none of the four is refused. A job title or department in
+ * the body is checked first: the job title must belong to the candidate's HR
+ * organisation and the department to the candidate's college. The route asks for `hr.recruitment.edit`; the row's own
  * UPDATE policy (hr.recruitment.edit + role_has_institution_access) decides
  * again, and a write that reaches no row answers 403.
  *
@@ -190,38 +192,55 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
   }
 }
 
-/** Validate the body: each field may be a value or null; anything else is refused. */
-function parseBody(body: unknown): CandidateSalaryDetails | string {
+const FIELDS = ['designation_id', 'department_id', 'prior_experience_years', 'prior_experience_source'] as const;
+
+/**
+ * Validate the body. Each of the four fields may be a value, null (clear it),
+ * or absent (leave it as it is); anything else is refused. Only the fields
+ * present come back, so the write never touches the others.
+ */
+function parseBody(body: unknown): Partial<CandidateSalaryDetails> | string {
   if (typeof body !== 'object' || body === null || Array.isArray(body)) return 'Send the details.';
   const b = body as Record<string, unknown>;
-  const designation = b.designation_id ?? null;
-  const department = b.department_id ?? null;
-  const years = b.prior_experience_years ?? null;
-  const source = b.prior_experience_source ?? null;
-  if (designation !== null && (typeof designation !== 'string' || !UUID.test(designation))) {
-    return 'The job title is not a valid choice.';
+  const has = (k: (typeof FIELDS)[number]) => Object.prototype.hasOwnProperty.call(b, k);
+  if (!FIELDS.some(has)) return 'Send at least one of the details to change.';
+  const out: Partial<CandidateSalaryDetails> = {};
+
+  if (has('designation_id')) {
+    const designation = b.designation_id ?? null;
+    if (designation !== null && (typeof designation !== 'string' || !UUID.test(designation))) {
+      return 'The job title is not a valid choice.';
+    }
+    out.designation_id = designation as string | null;
   }
-  if (department !== null && (typeof department !== 'string' || !UUID.test(department))) {
-    return 'The department is not a valid choice.';
+  if (has('department_id')) {
+    const department = b.department_id ?? null;
+    if (department !== null && (typeof department !== 'string' || !UUID.test(department))) {
+      return 'The department is not a valid choice.';
+    }
+    out.department_id = department as string | null;
   }
-  if (
-    years !== null &&
-    (typeof years !== 'number' || !Number.isFinite(years) || years < 0 || years > MAX_YEARS)
-  ) {
-    return `Years of experience before JKKN must be a number from 0 to ${MAX_YEARS}, or left blank.`;
+  if (has('prior_experience_years')) {
+    const years = b.prior_experience_years ?? null;
+    if (
+      years !== null &&
+      (typeof years !== 'number' || !Number.isFinite(years) || years < 0 || years > MAX_YEARS)
+    ) {
+      return `Years of experience before JKKN must be a number from 0 to ${MAX_YEARS}, or left blank.`;
+    }
+    out.prior_experience_years = years === null ? null : Math.round((years as number) * 10) / 10;
   }
-  if (source !== null && typeof source !== 'string') return 'The CV note must be text.';
-  // Blank or whitespace-only is no note.
-  const note = typeof source === 'string' && source.trim() !== '' ? source.trim() : null;
-  if (note !== null && note.length > MAX_SOURCE_LENGTH) {
-    return `The CV note must be ${MAX_SOURCE_LENGTH} characters or fewer, e.g. "CV page 2".`;
+  if (has('prior_experience_source')) {
+    const source = b.prior_experience_source ?? null;
+    if (source !== null && typeof source !== 'string') return 'The CV note must be text.';
+    // Blank or whitespace-only is no note.
+    const note = typeof source === 'string' && source.trim() !== '' ? source.trim() : null;
+    if (note !== null && note.length > MAX_SOURCE_LENGTH) {
+      return `The CV note must be ${MAX_SOURCE_LENGTH} characters or fewer, e.g. "CV page 2".`;
+    }
+    out.prior_experience_source = note;
   }
-  return {
-    designation_id: designation as string | null,
-    department_id: department as string | null,
-    prior_experience_years: years === null ? null : Math.round((years as number) * 10) / 10,
-    prior_experience_source: note,
-  };
+  return out;
 }
 
 export async function PATCH(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -283,19 +302,21 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
 
     const { data: updated, error } = await supabase
       .from('hr_recruitment_candidates')
-      .update({
-        designation_id: parsed.designation_id,
-        department_id: parsed.department_id,
-        prior_experience_years: parsed.prior_experience_years,
-        prior_experience_source: parsed.prior_experience_source,
-      })
+      .update(parsed)
       .eq('id', id)
       .select('id');
     if (error) throw error;
     if (!updated || updated.length !== 1) {
       return NextResponse.json({ error: 'You cannot edit this candidate.' }, { status: 403 });
     }
-    return NextResponse.json({ details: parsed });
+    const details: CandidateSalaryDetails = {
+      designation_id: candidate.designation_id,
+      department_id: candidate.department_id,
+      prior_experience_years: candidate.prior_experience_years,
+      prior_experience_source: candidate.prior_experience_source,
+      ...parsed,
+    };
+    return NextResponse.json({ details });
   } catch (err: unknown) {
     console.error('[HR Candidate Salary Details] save error:', err);
     return NextResponse.json({ error: getErrorMessage(err) }, { status: 500 });

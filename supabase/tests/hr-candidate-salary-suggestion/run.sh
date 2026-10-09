@@ -60,7 +60,7 @@ grep -c "CREATE POLICY" "$WORK/policy.sql" | sed 's/^/   policies loaded: /'
 echo "== SECTION 0: this migration BEFORE the rule helpers must stop, changing nothing"
 OUT="$("${PSQL[@]}" -f "$MIG" 2>&1)"
 check "section 0 aborts without the rule helpers" "ABORT: hr_salary_rule_department_rate" "$OUT"
-OUT="$("${PSQL[@]}" -tAc "SELECT count(*) FROM information_schema.columns WHERE table_name='hr_recruitment_candidates' AND column_name IN ('designation_id','department_id','prior_experience_years')")"
+OUT="$("${PSQL[@]}" -tAc "SELECT count(*) FROM information_schema.columns WHERE table_name='hr_recruitment_candidates' AND column_name IN ('designation_id','department_id','prior_experience_years','prior_experience_source')")"
 check "no column was added by the aborted run" "0" "$OUT"
 
 echo "== rule helpers (20270512080000, verbatim)"
@@ -69,7 +69,7 @@ echo "== migration (repo file, unmodified), applied twice"
 "${PSQL[@]}" -f "$MIG" || exit 1
 "${PSQL[@]}" -f "$MIG" || exit 1
 
-# The three inputs, written as the table owner (no RLS): A fully filled in,
+# The four inputs, written as the table owner (no RLS): A fully filled in,
 # B with a department the Director left empty, S with nothing.
 "${PSQL[@]}" -c "UPDATE public.hr_recruitment_candidates SET designation_id='00000000-0000-0000-0000-00000000de01', department_id='00000000-0000-0000-0000-0000000d00a1', prior_experience_years=4.5, prior_experience_source='CV page 2' WHERE id='00000000-0000-0000-0000-0000000ca0a1'" || exit 1
 "${PSQL[@]}" -c "UPDATE public.hr_recruitment_candidates SET designation_id='00000000-0000-0000-0000-00000000de01', department_id='00000000-0000-0000-0000-0000000d00b2' WHERE id='00000000-0000-0000-0000-0000000ca0b2'" || exit 1
@@ -98,6 +98,34 @@ check "anon is refused" "REFUSED  anon (permission denied" "$P"
 check "grants: anon none, authenticated yes, no PUBLIC" "GRANTS   anon=f authenticated=t public_via_proacl=f" "$P"
 if printf '%s' "$P" | grep -q "HOLE\|ERROR"; then FAIL=$((FAIL+1)); echo "   FAIL  a HOLE or ERROR line in the probe"; else PASS=$((PASS+1)); echo "   PASS  no HOLE or ERROR line"; fi
 
+D="00000000-0000-0000-0000-00000000aa06"   # the Director
+dir_line() { probe | grep -F "the Director     candidate $1 "; }
+sql() { "${PSQL[@]}" -c "$1" >/dev/null || exit 1; }
+POL_A="policy_key='hr.pay_scales' AND scope_id='00000000-0000-0000-0000-0000000000a1'"
+
+echo "== PANEL 1: a retired or never-published band is not used (as for the rule)"
+sql "UPDATE public.platform_policies SET is_active=false WHERE $POL_A"
+check "retired band of college A reads band=no" "candidate A table=1 -> title=Typist dept=Dept A rate=100 round=500 prior=4.5 band=no" "$(dir_line A)"
+sql "UPDATE public.platform_policies SET is_active=true, publication_state='draft_only' WHERE $POL_A"
+check "never-published (draft_only) band of college A reads band=no" "candidate A table=1 -> title=Typist dept=Dept A rate=100 round=500 prior=4.5 band=no" "$(dir_line A)"
+sql "UPDATE public.platform_policies SET publication_state='published' WHERE $POL_A"
+check "published band restored reads band=yes" "candidate A table=1 -> title=Typist dept=Dept A rate=100 round=500 prior=4.5 band=yes" "$(dir_line A)"
+
+echo "== PANEL 2: a second band row and a second rule row still give ONE row (the newest)"
+sql "INSERT INTO public.platform_policies (policy_key, scope_type, scope_id, value, publication_state, updated_at) VALUES
+  ('hr.pay_scales', 'institution', '00000000-0000-0000-0000-0000000000a1', '{\"pay_matrix\":[{\"designation\":\"Typist\",\"basic_pay\":7000}]}', 'published', now() + interval '1 day'),
+  ('hr.salary_suggestion_rule', 'global', NULL, '{\"per_year_by_department\":{\"00000000-0000-0000-0000-0000000d00a1\":200},\"round_to\":500}', 'published', now() + interval '1 day')"
+L="$(dir_line A)"
+check "two global rule rows + two band rows: one row, the newest rule (200)" "candidate A table=1 -> title=Typist dept=Dept A rate=200 round=500 prior=4.5 band=yes" "$L"
+sql "UPDATE public.platform_policies SET is_active=false WHERE updated_at > now() + interval '1 hour'"
+check "the extra rows retired: back to rate=100" "candidate A table=1 -> title=Typist dept=Dept A rate=100" "$(dir_line A)"
+
+echo "== PANEL 4: a job title of another HR organisation and a department of another college count as not picked"
+sql "UPDATE public.hr_recruitment_candidates SET designation_id='00000000-0000-0000-0000-00000000de02', department_id='00000000-0000-0000-0000-0000000d00b2' WHERE id='00000000-0000-0000-0000-0000000ca0a1'"
+check "stale links on A: title=none dept=none rate=none" "candidate A table=1 -> title=none dept=none rate=none round=500 prior=4.5 band=yes" "$(dir_line A)"
+sql "UPDATE public.hr_recruitment_candidates SET designation_id='00000000-0000-0000-0000-00000000de01', department_id='00000000-0000-0000-0000-0000000d00a1' WHERE id='00000000-0000-0000-0000-0000000ca0a1'"
+check "links restored on A" "candidate A table=1 -> title=Typist dept=Dept A rate=100" "$(dir_line A)"
+
 echo "== MUTATION 1: salary-key check removed; the recruiter must now get A (proves the check bites)"
 sed "s/IF public.user_has_permission('hr.payroll.salary.view') IS NOT TRUE THEN/IF false THEN/" "$MIG" > "$WORK/m1.sql"
 PGOPTIONS="-c client_min_messages=warning" "${PSQL[@]}" -f "$WORK/m1.sql" >/dev/null || exit 1
@@ -119,7 +147,8 @@ check "mutation 2 bites" "HR head (A)      candidate B table=0 -> HOLE disagrees
 PGOPTIONS="-c client_min_messages=warning" "${PSQL[@]}" -f "$MIG" >/dev/null || exit 1
 
 echo "== MUTATION 3: published filter removed; the Director must now read the draft's 777 for A"
-sed "/AND rg.publication_state <> 'draft_only'/d; s/hr_salary_rule_department_rate(rg.value, c.department_id)/hr_salary_rule_department_rate(COALESCE(rg.draft_value, rg.value), c.department_id)/" "$MIG" > "$WORK/m3.sql"
+sed "/AND r.publication_state <> 'draft_only'/d; s/SELECT r.value, r.updated_at/SELECT r.value, r.draft_value, r.updated_at/; s/hr_salary_rule_department_rate(rg.value, d.id)/hr_salary_rule_department_rate(COALESCE(rg.draft_value, rg.value), d.id)/" "$MIG" > "$WORK/m3.sql"
+cmp -s "$MIG" "$WORK/m3.sql" && { FAIL=$((FAIL+1)); echo "   FAIL  mutation 3 changed nothing"; }
 PGOPTIONS="-c client_min_messages=warning" "${PSQL[@]}" -f "$WORK/m3.sql" >/dev/null || exit 1
 P="$(probe)"
 check "mutation 3 bites" "the Director     candidate A table=1 -> title=Typist dept=Dept A rate=777" "$P"

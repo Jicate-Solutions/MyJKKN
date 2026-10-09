@@ -35,6 +35,9 @@ CREATE TABLE public.user_institution_access (
   user_id uuid, institution_id uuid, is_active boolean DEFAULT true);
 CREATE OR REPLACE FUNCTION public.is_admin() RETURNS boolean LANGUAGE sql STABLE AS $$ SELECT false $$;
 
+-- No unique index here ON PURPOSE: production has uq_platform_policies_key_scope
+-- (one row per key and scope), and run.sh adds a second row anyway to prove
+-- the function still returns one row per candidate without it.
 CREATE TABLE public.platform_policies (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   policy_key text NOT NULL, scope_type text NOT NULL, scope_id uuid,
@@ -48,7 +51,7 @@ CREATE TABLE public.departments (
 CREATE TABLE public.hr_designations (
   id uuid PRIMARY KEY, hr_organization_id uuid NOT NULL, name text NOT NULL, is_active boolean NOT NULL DEFAULT true);
 -- The candidate table, with the columns the function reads BEFORE this migration
--- adds its three. RLS on, with main's SELECT policy (03_policies.sql), so the
+-- adds its four. RLS on, with main's SELECT policy (03_policies.sql), so the
 -- probe can compare the function with what the table itself admits.
 CREATE TABLE public.hr_recruitment_candidates (
   id uuid PRIMARY KEY, hr_organization_id uuid NOT NULL, institution_id uuid REFERENCES public.institutions(id),
@@ -84,7 +87,9 @@ INSERT INTO public.departments (id, institution_id, department_name) VALUES
   ('00000000-0000-0000-0000-0000000d00a1', '00000000-0000-0000-0000-0000000000a1', 'Dept A'),
   ('00000000-0000-0000-0000-0000000d00b2', '00000000-0000-0000-0000-0000000000b2', 'Dept B');
 INSERT INTO public.hr_designations (id, hr_organization_id, name) VALUES
-  ('00000000-0000-0000-0000-00000000de01', '00000000-0000-0000-0000-00000000f0a1', 'Typist');
+  ('00000000-0000-0000-0000-00000000de01', '00000000-0000-0000-0000-00000000f0a1', 'Typist'),
+  -- A job title of ANOTHER HR organisation: a candidate pointing at it is stale.
+  ('00000000-0000-0000-0000-00000000de02', '00000000-0000-0000-0000-00000000f0b2', 'Clerk');
 
 -- Candidate A at college A (submitted by the recruiter), candidate B at college
 -- B, and candidate S at college B submitted by the salary-only holder.

@@ -1,10 +1,11 @@
 /**
- * GET/PATCH /api/hr/recruitment/candidates/<id>/salary-details — the three
+ * GET/PATCH /api/hr/recruitment/candidates/<id>/salary-details — the four
  * inputs of the suggested salary (official job title, department, years before
- * JKKN).
+ * JKKN, and the CV note for those years).
  *
- * Pins: PATCH needs hr.recruitment.edit; writes ONLY the three columns (never
- * role_title, never pay); refuses a job title from another HR organisation and
+ * Pins: PATCH needs hr.recruitment.edit; writes ONLY the four columns (never
+ * role_title, never pay), and of them only the ones the body names (a key left
+ * out is left as it is; null clears it); refuses a job title from another HR organisation and
  * a department from another college; a write that reaches no row is a 403.
  * GET pre-selects the job title the role title names exactly.
  *
@@ -163,13 +164,42 @@ describe('salary details: PATCH', () => {
   });
 
   it('ignores anything else in the body (role_title, pay)', async () => {
-    await patch({ designation_id: null, department_id: null, prior_experience_years: null, role_title: 'X', proposed_monthly_salary: 99 });
+    await patch({ designation_id: null, department_id: null, prior_experience_years: null, prior_experience_source: null, role_title: 'X', proposed_monthly_salary: 99 });
     expect(Object.keys(updates[0]).sort()).toEqual([
       'department_id',
       'designation_id',
       'prior_experience_source',
       'prior_experience_years',
     ]);
+  });
+
+  it('changes only the fields the body names: {designation_id} leaves the other three as they are', async () => {
+    const res = await patch({ designation_id: TITLE_OK });
+    expect(res.status).toBe(200);
+    expect(updates).toEqual([{ designation_id: TITLE_OK }]);
+    // The answer is the whole record after the change, not blanks for the rest.
+    expect((await res.json()).details).toEqual({
+      designation_id: TITLE_OK,
+      department_id: null,
+      prior_experience_years: null,
+      prior_experience_source: null,
+    });
+  });
+
+  it('a CV note alone is written alone, never clearing the years', async () => {
+    await patch({ prior_experience_source: 'CV page 2' });
+    expect(updates).toEqual([{ prior_experience_source: 'CV page 2' }]);
+  });
+
+  it('an explicit null still clears that field (and only that one)', async () => {
+    await patch({ department_id: null, prior_experience_years: null });
+    expect(updates).toEqual([{ department_id: null, prior_experience_years: null }]);
+  });
+
+  it('refuses a body that names none of the four fields', async () => {
+    expect((await patch({})).status).toBe(400);
+    expect((await patch({ role_title: 'X' })).status).toBe(400);
+    expect(updates).toEqual([]);
   });
 
   it('needs hr.recruitment.edit', async () => {

@@ -23,6 +23,7 @@ const NO_RULE = '33333333-3333-4333-8333-333333333333';
 let signedIn = true;
 let heldKeys: string[] = [];
 let superAdmin = false;
+let plainAdmin = false;
 const rpcCalls: Array<{ fn: string; args?: Record<string, unknown> }> = [];
 const tablesRead: string[] = [];
 
@@ -72,7 +73,7 @@ const fakeClient = {
   rpc: async (fn: string, args?: Record<string, unknown>) => {
     rpcCalls.push({ fn, args });
     if (fn === 'is_super_admin') return { data: superAdmin, error: null };
-    if (fn === 'is_admin') return { data: false, error: null };
+    if (fn === 'is_admin') return { data: plainAdmin, error: null };
     if (fn === 'user_has_permission') return { data: heldKeys.includes(String(args?.permission_name)), error: null };
     if (fn === 'hr_candidate_salary_suggestion_inputs') return inputsRpc(args);
     return { data: null, error: null };
@@ -103,6 +104,7 @@ beforeEach(() => {
   signedIn = true;
   heldKeys = [];
   superAdmin = false;
+  plainAdmin = false;
   rpcCalls.length = 0;
   tablesRead.length = 0;
 });
@@ -152,6 +154,13 @@ describe('candidate salary suggestion route', () => {
   it('answers 404 for a candidate the caller may not see', async () => {
     heldKeys = [KEY];
     expect((await call(HIDDEN)).status).toBe(404);
+  });
+
+  it('refuses (403) a plain admin without the key, as the database function does, before it is asked', async () => {
+    plainAdmin = true;
+    const res = await call(VISIBLE);
+    expect(res.status).toBe(403);
+    expect(rpcCalls.map((c) => c.fn)).not.toContain('hr_candidate_salary_suggestion_inputs');
   });
 
   it('a super admin with no key gets the figure', async () => {

@@ -62,14 +62,18 @@ async function getClient() {
   );
 }
 
-/** The canonical triad, as withAuth's requirePermission runs it. */
+/**
+ * The SAME rule as the database function and the page's box: a super admin, or
+ * a holder of the key (user_has_permission already lets a super admin through).
+ * NOT is_admin(): the function does not admit a plain admin without the key,
+ * so the route must not either, or the box would show and then fail to load.
+ */
 async function holds(supabase: Awaited<ReturnType<typeof getClient>>, key: string): Promise<boolean> {
-  const [{ data: isSuperAdmin }, { data: isAdmin }, { data: canDo }] = await Promise.all([
+  const [{ data: isSuperAdmin }, { data: canDo }] = await Promise.all([
     supabase.rpc('is_super_admin'),
-    supabase.rpc('is_admin'),
     supabase.rpc('user_has_permission', { permission_name: key }),
   ]);
-  return isSuperAdmin === true || isAdmin === true || canDo === true;
+  return isSuperAdmin === true || canDo === true;
 }
 
 export async function GET(_request: NextRequest, { params }: { params: Promise<{ id: string }> }) {

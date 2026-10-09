@@ -84765,6 +84765,10 @@ GRANT  EXECUTE ON FUNCTION public.fn_hr_playbook_decide(uuid, text, text, text) 
 -- hr_candidate_salary_suggestion_inputs(p_candidate_id) (2026-10-08)
 -- Updated: 2026-10-09 - also returns the college name and the CV note for the
 -- years before JKKN (prior_experience_source).
+-- Updated: 2026-10-09 - review panel round 1: the band ignores a retired or
+-- never-published row; at most one band row and one rule row (LIMIT 1); a job
+-- title of another HR organisation or a department of another college counts
+-- as not picked.
 -- Source: 20271008200600_hr_candidate_salary_suggestion_inputs.sql
 -- The suggested starting salary for a recruitment candidate: one candidate's
 -- inputs, the college band, and from hr.salary_suggestion_rule ONLY the amount
@@ -84804,33 +84808,58 @@ BEGIN
   SELECT c.id,
          c.institution_id,
          i.name::text,
-         c.designation_id,
+         dg.id,
          dg.name::text,
-         c.department_id,
+         d.id,
          d.department_name::text,
          c.prior_experience_years,
          c.prior_experience_source,
          bp.value,
-         public.hr_salary_rule_department_rate(rg.value, c.department_id),
+         public.hr_salary_rule_department_rate(rg.value, d.id),
          public.hr_salary_rule_round_to(rg.value),
          rg.updated_at
     FROM public.hr_recruitment_candidates c
     LEFT JOIN public.institutions i
            ON i.id = c.institution_id
+    -- Only a job title of the candidate's OWN HR organisation and a department
+    -- of the candidate's OWN college count. If the candidate's college or HR
+    -- organisation changes after these were picked, the stale link reads as
+    -- "not picked" (the screen then asks for it again) instead of pairing one
+    -- college's band with another college's department amount.
     LEFT JOIN public.hr_designations dg
            ON dg.id = c.designation_id
+          AND dg.hr_organization_id = c.hr_organization_id
     LEFT JOIN public.departments d
            ON d.id = c.department_id
-    LEFT JOIN public.platform_policies bp
-           ON bp.policy_key = 'hr.pay_scales'
-          AND bp.scope_type = 'institution'
-          AND bp.scope_id = c.institution_id
-    LEFT JOIN public.platform_policies rg
-           ON rg.policy_key = 'hr.salary_suggestion_rule'
-          AND rg.scope_type = 'global'
-          AND rg.scope_id IS NULL
-          AND rg.is_active IS NOT FALSE
-          AND rg.publication_state <> 'draft_only'
+          AND d.institution_id = c.institution_id
+    -- ONE band row and ONE rule row at most, so the function never returns two
+    -- rows for one candidate. platform_policies' unique index
+    -- (uq_platform_policies_key_scope) already allows only one per key and
+    -- scope; LIMIT 1 keeps that true even if the index were ever missing. A
+    -- retired (is_active false) or never-published (draft_only) row is never
+    -- used, for the band exactly as for the rule.
+    LEFT JOIN LATERAL (
+      SELECT b.value
+        FROM public.platform_policies b
+       WHERE b.policy_key = 'hr.pay_scales'
+         AND b.scope_type = 'institution'
+         AND b.scope_id = c.institution_id
+         AND b.is_active IS NOT FALSE
+         AND b.publication_state <> 'draft_only'
+       ORDER BY b.updated_at DESC NULLS LAST, b.id
+       LIMIT 1
+    ) bp ON true
+    LEFT JOIN LATERAL (
+      SELECT r.value, r.updated_at
+        FROM public.platform_policies r
+       WHERE r.policy_key = 'hr.salary_suggestion_rule'
+         AND r.scope_type = 'global'
+         AND r.scope_id IS NULL
+         AND r.is_active IS NOT FALSE
+         AND r.publication_state <> 'draft_only'
+       ORDER BY r.updated_at DESC NULLS LAST, r.id
+       LIMIT 1
+    ) rg ON true
    WHERE c.id = p_candidate_id
      AND (
            public.is_super_admin() IS TRUE

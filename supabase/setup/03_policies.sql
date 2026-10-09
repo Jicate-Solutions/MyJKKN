@@ -5376,8 +5376,9 @@ CREATE POLICY "hr_recruitment_candidates_update_permission"
         AND role_has_institution_access(institution_id))
   );
 
--- Updated: 2026-10-08 (20271008200600) - designation_id, department_id and
--- prior_experience_years are covered by the row policies above; no new policy.
+-- Updated: 2026-10-08 (20271008200600) - designation_id, department_id,
+-- prior_experience_years and prior_experience_source are covered by the row
+-- policies above; no new policy.
 -- hr_candidate_salary_suggestion_inputs() (02_functions.sql) repeats the SELECT
 -- predicate above inside the function: change both together.
 
