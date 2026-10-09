@@ -91,10 +91,20 @@ SECURITY DEFINER
 SET search_path = public
 AS $$
 DECLARE
-  v_rank_changed boolean;
+  -- ALLOWLIST: the operational columns anyone with row UPDATE rights may still
+  -- change on a placed (winning) row — check-in, kit, certificate, QR and
+  -- payment. EVERY other column, including any added later, is frozen on a
+  -- placed row for a caller without winner authority.
+  c_allowed CONSTANT text[] := ARRAY[
+    'status', 'checked_in', 'checked_in_at', 'checked_in_by',
+    'tshirt_collected', 'tshirt_collected_at', 'tshirt_collected_by',
+    'certificate_issued', 'certificate_issued_at', 'certificate_issued_by',
+    'qr_code_url', 'qr_generated_at',
+    'payment_status', 'payment_amount', 'payment_method', 'payment_reference',
+    'updated_at'
+  ];
+  v_rank_changed boolean := false;
   v_moved boolean := false;
-  v_renamed boolean := false;
-  v_status_changed boolean := false;
   v_withdrawn boolean := false;
   v_type text;
 BEGIN
@@ -123,11 +133,18 @@ BEGIN
     END IF;
     v_rank_changed := true;
   ELSE
+    -- Fast exit: the trigger fires on every UPDATE, and almost every row is
+    -- not a winner.
+    IF OLD.final_rank IS NULL AND NEW.final_rank IS NULL THEN
+      RETURN NEW;
+    END IF;
+
     -- A registration form was deleted (events_registrations_form_id_fkey is ON
     -- DELETE SET NULL). The place belonged to a competition that no longer
-    -- exists, so it is cleared — this also keeps it from colliding with a place
+    -- exists, so it is cleared; this also keeps it from colliding with a place
     -- in the no-form set. A system move: no authority check; the history
-    -- trigger logs the clear on the old form.
+    -- trigger logs the clear on the old form. (Deleting a form that has
+    -- winners needs winner authority: fn_event_registration_forms_winner_guard.)
     IF OLD.form_id IS NOT NULL AND NEW.form_id IS NULL
        AND NOT EXISTS (SELECT 1 FROM public.event_registration_forms f WHERE f.id = OLD.form_id) THEN
       NEW.final_rank := NULL;
@@ -148,22 +165,6 @@ BEGIN
     v_rank_changed := NEW.final_rank IS DISTINCT FROM OLD.final_rank;
     v_moved := NEW.event_id IS DISTINCT FROM OLD.event_id
             OR NEW.form_id IS DISTINCT FROM OLD.form_id;
-    v_renamed := NEW.participant_name IS DISTINCT FROM OLD.participant_name
-              OR NEW.institution_name IS DISTINCT FROM OLD.institution_name
-              OR NEW.department IS DISTINCT FROM OLD.department;
-    -- A placed row moving INTO or OUT OF 'cancelled' / 'disqualified' needs
-    -- winner authority (the registrant's own cancel is the one exception,
-    -- below). Every other status change (registered / confirmed / pending <->
-    -- checked_in) stays free, so check-in desks keep working.
-    v_status_changed := NEW.status IS DISTINCT FROM OLD.status
-      AND (OLD.status IN ('cancelled', 'disqualified') OR NEW.status IN ('cancelled', 'disqualified'));
-    -- Nothing about a place changes: an unplaced row moving, being renamed or
-    -- changing status, or a placed row whose other columns change.
-    IF NOT v_rank_changed
-       AND NOT ((v_moved OR v_renamed OR v_status_changed)
-                AND (OLD.final_rank IS NOT NULL OR NEW.final_rank IS NOT NULL)) THEN
-      RETURN NEW;
-    END IF;
   END IF;
 
   -- Validity, for every caller: a place only on a live registration of a
@@ -183,19 +184,53 @@ BEGIN
     RETURN NEW;
   END IF;
 
-  -- The registrant may cancel their OWN placed registration (only that: no
-  -- move or rename in the same statement). The place is cleared above.
-  IF TG_OP = 'UPDATE'
-     AND v_withdrawn AND NOT v_moved AND NOT v_renamed
-     AND NEW.status = 'cancelled'
-     AND OLD.profile_id IS NOT NULL
-     AND OLD.profile_id = auth.uid()
-     AND NEW.profile_id IS NOT DISTINCT FROM OLD.profile_id THEN
+  -- A row that already holds a place.
+  IF TG_OP = 'UPDATE' AND OLD.final_rank IS NOT NULL THEN
+    -- Winner authority on both ends: anything goes (subject to validity above).
+    IF COALESCE(public.fn_can_record_event_winners(OLD.event_id), false)
+       AND COALESCE(public.fn_can_record_event_winners(NEW.event_id), false) THEN
+      RETURN NEW;
+    END IF;
+
+    -- The registrant on their own placed row: the ONLY change allowed is
+    -- cancelling it (plus updated_at). That clears the place (above) and is
+    -- logged. The operational allowlist below is for ops writers, not for the
+    -- registrant (desk ruling 10 Oct).
+    IF OLD.profile_id IS NOT NULL AND OLD.profile_id = auth.uid() THEN
+      IF (to_jsonb(NEW) - ARRAY['status', 'updated_at', 'final_rank'])
+           IS DISTINCT FROM (to_jsonb(OLD) - ARRAY['status', 'updated_at', 'final_rank'])
+         OR (NEW.status IS DISTINCT FROM OLD.status AND NOT (v_withdrawn AND NEW.status = 'cancelled'))
+         OR (v_rank_changed AND NOT v_withdrawn) THEN
+        RAISE EXCEPTION 'Your registration holds a place; you can cancel it, but other changes need the event''s organisers.'
+          USING ERRCODE = '42501';
+      END IF;
+      RETURN NEW;
+    END IF;
+
+    -- Other updaters the row's RLS let through (committee / volunteer ops
+    -- screens): only the allowlisted operational columns may change.
+    -- final_rank is judged separately (a withdrawal clears it).
+    IF (to_jsonb(NEW) - c_allowed - 'final_rank') IS DISTINCT FROM (to_jsonb(OLD) - c_allowed - 'final_rank') THEN
+      RAISE EXCEPTION 'This registration holds a place; only the event''s creator, its in-charge or an administrator can change who or where it is.'
+        USING ERRCODE = '42501';
+    END IF;
+    IF v_rank_changed AND NOT v_withdrawn THEN
+      RAISE EXCEPTION 'Only the event''s creator, its in-charge or an administrator can record or change winners.'
+        USING ERRCODE = '42501';
+    END IF;
+    -- Status: check-in and the like are free. Into or out of cancelled /
+    -- disqualified needs winner authority (profile_id is frozen above, so an
+    -- updater cannot re-point the row to themselves and "self-cancel").
+    IF NEW.status IS DISTINCT FROM OLD.status
+       AND (OLD.status IN ('cancelled', 'disqualified') OR NEW.status IN ('cancelled', 'disqualified')) THEN
+      RAISE EXCEPTION 'Only the registrant (to cancel), or the event''s creator, its in-charge or an administrator, can change this winner''s status.'
+        USING ERRCODE = '42501';
+    END IF;
     RETURN NEW;
   END IF;
 
-  -- COALESCE: a NULL answer fails closed. Both ends of a move are checked, so a
-  -- row cannot carry a place out of, or into, an event the caller does not run.
+  -- Giving a place (INSERT placed, or an unplaced row being placed). COALESCE:
+  -- a NULL answer fails closed. Both ends of a move are checked.
   IF NOT COALESCE(public.fn_can_record_event_winners(NEW.event_id), false)
      OR (TG_OP = 'UPDATE' AND NOT COALESCE(public.fn_can_record_event_winners(OLD.event_id), false)) THEN
     RAISE EXCEPTION 'Only the event''s creator, its in-charge or an administrator can record or change winners.'
@@ -209,8 +244,9 @@ REVOKE EXECUTE ON FUNCTION public.fn_events_registrations_final_rank_guard() FRO
 
 DROP TRIGGER IF EXISTS trg_events_registrations_final_rank_guard ON public.events_registrations;
 CREATE TRIGGER trg_events_registrations_final_rank_guard
-  BEFORE INSERT OR DELETE
-      OR UPDATE OF final_rank, event_id, form_id, participant_name, institution_name, department, status
+  -- Every UPDATE (no column list): the allowlist must also cover columns
+  -- added after this migration.
+  BEFORE INSERT OR UPDATE OR DELETE
   ON public.events_registrations
   FOR EACH ROW
   EXECUTE FUNCTION public.fn_events_registrations_final_rank_guard();
@@ -480,19 +516,19 @@ BEGIN
   ) THEN
     RAISE EXCEPTION 'no-tie unique index missing';
   END IF;
-  -- The guard must fire on a move and on a rename, not only on final_rank.
+  -- The guard must fire on EVERY UPDATE (no column list, so the allowlist
+  -- also covers future columns), and on INSERT and DELETE.
   IF NOT EXISTS (
     SELECT 1 FROM pg_trigger t
     WHERE t.tgname = 'trg_events_registrations_final_rank_guard'
       AND t.tgrelid = 'public.events_registrations'::regclass
       AND NOT t.tgisinternal
-      AND (SELECT array_agg(a.attname::text ORDER BY a.attname)
-             FROM pg_attribute a
-            WHERE a.attrelid = t.tgrelid AND a.attnum = ANY (t.tgattr))
-          @> ARRAY['department', 'event_id', 'final_rank', 'form_id', 'institution_name', 'participant_name', 'status']
-      AND (t.tgtype & 8) <> 0  -- also fires on DELETE
+      AND cardinality(t.tgattr::int2[]) = 0
+      AND (t.tgtype & 4) <> 0    -- INSERT
+      AND (t.tgtype & 8) <> 0    -- DELETE
+      AND (t.tgtype & 16) <> 0   -- UPDATE
   ) THEN
-    RAISE EXCEPTION 'final_rank guard trigger missing, not watching event_id/form_id/identity/status, or not firing on DELETE';
+    RAISE EXCEPTION 'final_rank guard trigger missing, limited to some columns, or not firing on INSERT/UPDATE/DELETE';
   END IF;
   IF NOT EXISTS (
     SELECT 1 FROM pg_trigger

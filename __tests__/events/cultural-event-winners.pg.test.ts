@@ -54,16 +54,54 @@ CREATE TABLE public.event_registration_forms (
   event_id uuid NOT NULL REFERENCES public.events(id) ON DELETE CASCADE
 );
 CREATE TABLE public.events_registrations (
+  -- Every live column (desk read, 10 Oct), so the guard's to_jsonb allowlist
+  -- compares the real row shape. final_rank is added by the migration.
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  -- The live foreign keys (desk read, 10 Oct): cascade on event delete,
-  -- SET NULL on form delete.
+  -- The live foreign keys: cascade on event delete, SET NULL on form delete.
   event_id uuid NOT NULL REFERENCES public.events(id) ON DELETE CASCADE,
-  form_id uuid REFERENCES public.event_registration_forms(id) ON DELETE SET NULL,
+  category_id uuid,
   profile_id uuid,
+  learner_id uuid,
+  external_participant_id uuid,
+  participant_type text,
   participant_name text NOT NULL DEFAULT 'Person',
+  participant_phone text,
+  participant_email text,
+  participant_age integer,
+  participant_gender text,
+  institution_id uuid,
   institution_name text,
   department text,
-  status text NOT NULL DEFAULT 'registered'
+  bib_number text,
+  registration_number text,
+  status text NOT NULL DEFAULT 'registered',
+  checked_in boolean DEFAULT false,
+  checked_in_at timestamptz,
+  checked_in_by uuid,
+  payment_status text,
+  payment_amount numeric,
+  payment_method text,
+  payment_reference text,
+  discount_code text,
+  discount_amount numeric,
+  custom_data jsonb,
+  source text,
+  referral_source text,
+  registered_by uuid,
+  created_at timestamptz DEFAULT now(),
+  updated_at timestamptz DEFAULT now(),
+  stall_id uuid,
+  tshirt_collected boolean DEFAULT false,
+  tshirt_collected_at timestamptz,
+  tshirt_collected_by uuid,
+  certificate_issued boolean DEFAULT false,
+  certificate_issued_at timestamptz,
+  certificate_issued_by uuid,
+  qr_code_url text,
+  qr_generated_at timestamptz,
+  custom_fields jsonb,
+  form_id uuid REFERENCES public.event_registration_forms(id) ON DELETE SET NULL,
+  myjkkn_profile jsonb
 );
 
 CREATE FUNCTION public.is_super_admin() RETURNS boolean LANGUAGE sql STABLE AS $$
@@ -868,3 +906,167 @@ describe('review round 6 (#4311)', () => {
     await asOwner();
   });
 });
+
+describe('review round 7 (#4311): an allowlist on a winner\'s row', () => {
+  /** Live columns with a fixture type, used to build a value that differs. */
+  const COLUMNS: Record<string, 'uuid' | 'text' | 'int' | 'num' | 'bool' | 'ts' | 'json'> = {
+    id: 'uuid', event_id: 'uuid', category_id: 'uuid', profile_id: 'uuid', learner_id: 'uuid',
+    external_participant_id: 'uuid', participant_type: 'text', participant_name: 'text',
+    participant_phone: 'text', participant_email: 'text', participant_age: 'int', participant_gender: 'text',
+    institution_id: 'uuid', institution_name: 'text', department: 'text', bib_number: 'text',
+    registration_number: 'text', status: 'text', checked_in: 'bool', checked_in_at: 'ts', checked_in_by: 'uuid',
+    payment_status: 'text', payment_amount: 'num', payment_method: 'text', payment_reference: 'text',
+    discount_code: 'text', discount_amount: 'num', custom_data: 'json', source: 'text', referral_source: 'text',
+    registered_by: 'uuid', created_at: 'ts', updated_at: 'ts', stall_id: 'uuid', tshirt_collected: 'bool',
+    tshirt_collected_at: 'ts', tshirt_collected_by: 'uuid', certificate_issued: 'bool',
+    certificate_issued_at: 'ts', certificate_issued_by: 'uuid', qr_code_url: 'text', qr_generated_at: 'ts',
+    custom_fields: 'json', form_id: 'uuid', myjkkn_profile: 'json', final_rank: 'int',
+  };
+  const ALLOWED = [
+    'status', 'checked_in', 'checked_in_at', 'checked_in_by',
+    'tshirt_collected', 'tshirt_collected_at', 'tshirt_collected_by',
+    'certificate_issued', 'certificate_issued_at', 'certificate_issued_by',
+    'qr_code_url', 'qr_generated_at',
+    'payment_status', 'payment_amount', 'payment_method', 'payment_reference',
+    'updated_at',
+  ];
+  const FROZEN = Object.keys(COLUMNS).filter((c) => !ALLOWED.includes(c));
+  const newValue = (col: string): string => {
+    if (col === 'final_rank') return '2';
+    if (col === 'status') return `'checked_in'`;
+    switch (COLUMNS[col]) {
+      case 'uuid': return 'gen_random_uuid()';
+      case 'text': return `'changed'`;
+      case 'int': return '42';
+      case 'num': return '9.5';
+      case 'bool': return 'true';
+      case 'ts': return `now() - interval '3 days'`;
+      case 'json': return `'{"changed": true}'::jsonb`;
+    }
+    throw new Error(col);
+  };
+
+  async function placedRow(profile: string | null = null) {
+    await reset();
+    await admin.query(`DELETE FROM public.event_winner_rank_changes`);
+    const row = (
+      await admin.query(`INSERT INTO public.events_registrations (event_id, profile_id) VALUES ($1, $2) RETURNING id`, [
+        ids.event,
+        profile,
+      ])
+    ).rows[0].id;
+    await admin.query(`UPDATE public.events_registrations SET final_rank = 1 WHERE id = $1`, [row]);
+    await admin.query(`DELETE FROM public.event_winner_rank_changes`);
+    return row;
+  }
+  const snapshot = async (row: string) =>
+    (await admin.query(`SELECT to_jsonb(r) AS j FROM public.events_registrations r WHERE id = $1`, [row])).rows[0].j;
+  const drop = (row: string) => admin.query(`DELETE FROM public.events_registrations WHERE id = $1`, [row]);
+
+  it('the fixture mirrors every live column (plus final_rank)', async () => {
+    const cols = (
+      await admin.query(
+        `SELECT column_name FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'events_registrations'`
+      )
+    ).rows.map((r: any) => r.column_name).sort();
+    expect(cols).toEqual(Object.keys(COLUMNS).sort());
+  });
+
+  it('(a) a committee-style updater cannot re-point a winner\'s row to themselves (and so cannot "self-cancel" it)', async () => {
+    const row = await placedRow(randomUUID());
+    await actAs(ids.outsider);
+    expect(await sqlstate(`UPDATE public.events_registrations SET profile_id = $1 WHERE id = $2`, [ids.outsider, row])).toBe('42501');
+    expect(await sqlstate(`UPDATE public.events_registrations SET status = 'cancelled' WHERE id = $1`, [row])).toBe('42501');
+    const after = await snapshot(row);
+    expect(after.final_rank).toBe(1);
+    expect(after.profile_id).not.toBe(ids.outsider);
+    await asOwner();
+    await drop(row);
+  });
+
+  it('(b) every frozen column is refused to an updater without winner authority', async () => {
+    const row = await placedRow(randomUUID());
+    // Moving to another real cultural event (a random id would be refused
+    // earlier, as an invalid event, with 22023).
+    const other = (await admin.query(`INSERT INTO public.events (created_by) VALUES ($1) RETURNING id`, [randomUUID()])).rows[0].id;
+    const refused: string[] = [];
+    for (const col of FROZEN) {
+      await actAs(ids.outsider);
+      const value = col === 'event_id' ? `'${other}'::uuid` : newValue(col);
+      const code = await sqlstate(`UPDATE public.events_registrations SET ${col} = ${value} WHERE id = $1`, [row]);
+      if (code !== '42501') refused.push(`${col}: ${code}`);
+    }
+    await asOwner();
+    expect(refused).toEqual([]);
+    expect((await snapshot(row)).final_rank).toBe(1);
+    await drop(row);
+  });
+
+  it('(c) every allowlisted operational column stays writable by a committee-style updater', async () => {
+    const row = await placedRow(randomUUID());
+    const failed: string[] = [];
+    for (const col of ALLOWED) {
+      await actAs(ids.outsider);
+      const code = await sqlstate(`UPDATE public.events_registrations SET ${col} = ${newValue(col)} WHERE id = $1`, [row]);
+      if (code !== null) failed.push(`${col}: ${code}`);
+    }
+    await asOwner();
+    expect(failed).toEqual([]);
+    const after = await snapshot(row);
+    expect(after).toMatchObject({ final_rank: 1, status: 'checked_in', checked_in: true, tshirt_collected: true, certificate_issued: true, payment_status: 'changed' });
+    await drop(row);
+  });
+
+  it('(d) a manager can still change frozen columns on a winner\'s row', async () => {
+    const row = await placedRow(randomUUID());
+    const learner = randomUUID();
+    await actAs(ids.outsider, { 'test.incharge_event': ids.event });
+    expect(
+      await sqlstate(
+        `UPDATE public.events_registrations SET participant_name = 'Kavya R', profile_id = $1, custom_data = '{"note": 1}'::jsonb WHERE id = $2`,
+        [learner, row]
+      )
+    ).toBeNull();
+    await asOwner();
+    expect(await snapshot(row)).toMatchObject({ participant_name: 'Kavya R', profile_id: learner, final_rank: 1 });
+    await drop(row);
+  });
+
+  it('the registrant on their own winning row may only cancel it', async () => {
+    const learner = randomUUID();
+    const row = await placedRow(learner);
+    await actAs(learner);
+    for (const set of [`payment_status = 'paid'`, `certificate_issued = true`, `checked_in = true`, `status = 'checked_in'`, `participant_name = 'Me'`]) {
+      expect(await sqlstate(`UPDATE public.events_registrations SET ${set} WHERE id = $1`, [row])).toBe('42501');
+    }
+    expect(await sqlstate(`UPDATE public.events_registrations SET updated_at = now() WHERE id = $1`, [row])).toBeNull();
+    expect(await sqlstate(`UPDATE public.events_registrations SET status = 'cancelled' WHERE id = $1`, [row])).toBeNull();
+    await asOwner();
+    expect(await snapshot(row)).toMatchObject({ status: 'cancelled', final_rank: null });
+    const log = (await admin.query(`SELECT old_rank, new_rank, changed_by FROM public.event_winner_rank_changes WHERE registration_id = $1`, [row])).rows;
+    expect(log).toEqual([{ old_rank: 1, new_rank: null, changed_by: learner }]);
+    await drop(row);
+  });
+
+  it('the registrant cannot cancel and change anything else in the same statement', async () => {
+    const learner = randomUUID();
+    const row = await placedRow(learner);
+    await actAs(learner);
+    expect(
+      await sqlstate(`UPDATE public.events_registrations SET status = 'cancelled', payment_status = 'refund' WHERE id = $1`, [row])
+    ).toBe('42501');
+    await asOwner();
+    expect((await snapshot(row)).final_rank).toBe(1);
+    await drop(row);
+  });
+
+  it('unplaced rows are untouched by the allowlist (fast exit)', async () => {
+    await asOwner();
+    const row = (await admin.query(`INSERT INTO public.events_registrations (event_id) VALUES ($1) RETURNING id`, [ids.event])).rows[0].id;
+    await actAs(ids.outsider);
+    expect(await sqlstate(`UPDATE public.events_registrations SET profile_id = $1, custom_data = '{}'::jsonb WHERE id = $2`, [ids.outsider, row])).toBeNull();
+    await asOwner();
+    await drop(row);
+  });
+});
+
