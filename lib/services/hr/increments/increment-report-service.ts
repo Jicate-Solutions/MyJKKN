@@ -243,10 +243,25 @@ export class IncrementReportService {
     }
 
     // --- 6. Disciplinary record ------------------------------------------
-    const { data: caseRows } = await supabase
+    // An empty result here means "clean" only when the read could see every
+    // case. Two ways it cannot, and both used to read as clean conduct and
+    // could show a false "Due":
+    //  - the read errors (data comes back null);
+    //  - RLS refuses it. RLS answers a refused read with ZERO ROWS, not an
+    //    error. On hr_disciplinary_cases only a super admin sees every row;
+    //    anyone else (hr_head, who holds this route's permission) sees only
+    //    their own (20260623_hr_disciplinary_cases.sql). So for a non-super
+    //    admin every other person's empty list is a refusal, not a record.
+    // The super-admin question goes to Postgres (`is_super_admin`), and an
+    // error there counts as "cannot see". If a wider read policy is ever
+    // added, this stays on the safe side: "could not check", never "Due".
+    const { data: caseRows, error: caseError } = await supabase
       .from('hr_disciplinary_cases')
       .select('staff_id, case_number, outcome, outcome_date, status, current_stage')
       .in('staff_id', staffIds);
+    const { data: seesEveryCase, error: superAdminError } = await supabase.rpc('is_super_admin');
+    const conductRecordReadable =
+      !caseError && Array.isArray(caseRows) && !superAdminError && seesEveryCase === true;
 
     const decidedByStaff = new Map<string, DecidedDisciplinaryCase[]>();
     const openByStaff = new Map<string, number>();
@@ -335,6 +350,7 @@ export class IncrementReportService {
         latestReview: reviewByStaff.get(id) ?? null,
         decidedDisciplinaryCases: decidedByStaff.get(id) ?? [],
         openUndecidedDisciplinaryCases: openByStaff.get(id) ?? 0,
+        conductRecordReadable,
         scale,
       };
 

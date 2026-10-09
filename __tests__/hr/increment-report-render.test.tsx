@@ -100,6 +100,7 @@ function person(over: Partial<PersonPayFacts>): PersonPayFacts {
     latestReview: { cycleYear: 2026, finalScore: 75, isFinalApproved: true },
     decidedDisciplinaryCases: [],
     openUndecidedDisciplinaryCases: 0,
+    conductRecordReadable: true,
     scale: null,
     ...over,
   };

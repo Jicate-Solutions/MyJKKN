@@ -88,6 +88,7 @@ function person(over: Partial<PersonPayFacts> = {}): PersonPayFacts {
     latestReview: { cycleYear: 2026, finalScore: 75, isFinalApproved: true },
     decidedDisciplinaryCases: [],
     openUndecidedDisciplinaryCases: 0,
+    conductRecordReadable: true,
     scale: { basicPay: 20000, gradePay: null },
     ...over,
   };
@@ -449,6 +450,39 @@ describe('assessIncrement — conduct', () => {
     );
     expect(r.verdict).toBe('cannot_tell');
     expect(checkFor(r, 'conduct').detail).toMatch(/no date/);
+  });
+
+  it('cannot tell, and is not due, when the disciplinary record could not be read', () => {
+    const r = assessIncrement(
+      person({ conductRecordReadable: false }),
+      completeRules(),
+      { asOf: ASOF },
+    );
+    expect(r.verdict).toBe('cannot_tell');
+    expect(checkFor(r, 'conduct').status).toBe('unknown');
+    expect(r.reason).toMatch(/Could not check conduct — not decided/);
+    expect(r.proposedMonthlyIncrease).toBeNull();
+  });
+
+  it('keeps an unreadable conduct record out of the college Due count', () => {
+    const report = buildCollegeReport({
+      institutionId: 'inst-1',
+      institutionName: 'Test College',
+      policyValue: {
+        increments: {
+          annual_window_months: 12,
+          approver_default: 'Principal',
+          satisfactory_performance_required: true,
+          satisfactory_min_score: 60,
+          annual_amount: 1000,
+          withholding_triggers: ['poor_conduct'],
+        },
+      },
+      people: [person({ staffId: 'a' }), person({ staffId: 'b', conductRecordReadable: false })],
+      asOf: ASOF,
+    });
+    expect(report.counts.due).toBe(1);
+    expect(report.counts.cannot_tell).toBe(1);
   });
 
   it('skips the conduct check when conduct is not a withholding reason', () => {

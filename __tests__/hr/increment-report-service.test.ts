@@ -31,6 +31,13 @@ type Row = Record<string, any>;
 let tables: Record<string, Row[]> = {};
 let queryLog: Array<{ table: string; filters: string[] }> = [];
 let writeAttempts: string[] = [];
+/** Per-table read errors, to stand in for a failed query. */
+let tableErrors: Record<string, { message: string }> = {};
+/** What `is_super_admin` answers. Only a super admin's RLS sees every case. */
+let superAdminAnswer: { data: unknown; error: { message: string } | null } = {
+  data: true,
+  error: null,
+};
 
 function makeClient() {
   function from(table: string) {
@@ -74,7 +81,12 @@ function makeClient() {
         writeAttempts.push(`delete:${table}`);
         return builder;
       },
-      then: (resolve: any) => resolve({ data: rows, error: null }),
+      then: (resolve: any) =>
+        resolve(
+          tableErrors[table]
+            ? { data: null, error: tableErrors[table] }
+            : { data: rows, error: null },
+        ),
     };
     return builder;
   }
@@ -85,6 +97,7 @@ function makeClient() {
       if (name === 'fn_hr_orgs_for_institutions') {
         return { data: tables.__orgs ?? [], error: null };
       }
+      if (name === 'is_super_admin') return superAdminAnswer;
       return { data: null, error: null };
     }),
   };
@@ -121,6 +134,8 @@ const COMPLETE_INCREMENTS = {
 beforeEach(() => {
   queryLog = [];
   writeAttempts = [];
+  tableErrors = {};
+  superAdminAnswer = { data: true, error: null };
   tables = {
     __orgs: [
       {
@@ -358,6 +373,47 @@ describe('IncrementReportService.build', () => {
       .find((c) => c.institutionId === ENGINEERING)!
       .proposals.find((p) => p.staffId === 's1')!;
     expect(asha.verdict).toBe('withheld');
+  });
+
+  // A failed or refused disciplinary read used to look exactly like a clean
+  // record (W12 critic, #4105). Each of these must keep s1 out of "Due".
+  function asha(report: Awaited<ReturnType<typeof IncrementReportService.build>>) {
+    return report.colleges
+      .find((c) => c.institutionId === ENGINEERING)!
+      .proposals.find((p) => p.staffId === 's1')!;
+  }
+
+  it('reads an empty disciplinary record as clean only when every case is visible', async () => {
+    tables.hr_disciplinary_cases = [];
+    const report = await IncrementReportService.build(makeClient(), { asOf: ASOF });
+    expect(asha(report).verdict).toBe('due');
+    expect(asha(report).checks.find((c) => c.id === 'conduct')!.status).toBe('pass');
+  });
+
+  it('does not show Due when the disciplinary read errors', async () => {
+    tableErrors.hr_disciplinary_cases = { message: 'connection reset' };
+    const report = await IncrementReportService.build(makeClient(), { asOf: ASOF });
+    const eng = report.colleges.find((c) => c.institutionId === ENGINEERING)!;
+    expect(asha(report).verdict).toBe('cannot_tell');
+    expect(asha(report).reason).toMatch(/Could not check conduct — not decided/);
+    expect(eng.counts.due).toBe(0);
+  });
+
+  it('does not show Due when RLS refuses the read (a caller who is not a super admin)', async () => {
+    // RLS answers a refused read with zero rows and no error.
+    tables.hr_disciplinary_cases = [];
+    superAdminAnswer = { data: false, error: null };
+    const report = await IncrementReportService.build(makeClient(), { asOf: ASOF });
+    const eng = report.colleges.find((c) => c.institutionId === ENGINEERING)!;
+    expect(asha(report).verdict).toBe('cannot_tell');
+    expect(asha(report).checks.find((c) => c.id === 'conduct')!.status).toBe('unknown');
+    expect(eng.counts.due).toBe(0);
+  });
+
+  it('does not show Due when it cannot ask whether the caller sees every case', async () => {
+    superAdminAnswer = { data: null, error: { message: 'rpc failed' } };
+    const report = await IncrementReportService.build(makeClient(), { asOf: ASOF });
+    expect(asha(report).verdict).toBe('cannot_tell');
   });
 
   it('flags no accessible colleges explicitly instead of returning an empty list', async () => {

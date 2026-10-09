@@ -160,6 +160,12 @@ export interface PersonPayFacts {
   /** Cases initiated and not yet decided. A live enquiry may still exonerate. */
   openUndecidedDisciplinaryCases: number;
   /**
+   * False when the disciplinary read failed or could not see every case (RLS
+   * answers a refused read with zero rows). The two lists above are then not a
+   * clean record, and conduct is reported as not checked — never as clear.
+   */
+  conductRecordReadable: boolean;
+  /**
    * The designation's reference scale, when the person's job title has been
    * sorted to a designation. Shown for context; no sum uses it.
    */
@@ -733,7 +739,15 @@ export function assessIncrement(
       };
     }
 
-    if (person.openUndecidedDisciplinaryCases > 0) {
+    if (!person.conductRecordReadable) {
+      checks.push({
+        id: 'conduct',
+        label: 'Conduct',
+        status: 'unknown',
+        detail:
+          'Could not check conduct — not decided. The disciplinary record could not be read.',
+      });
+    } else if (person.openUndecidedDisciplinaryCases > 0) {
       const n = person.openUndecidedDisciplinaryCases;
       checks.push({
         id: 'conduct',
