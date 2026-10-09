@@ -1023,18 +1023,13 @@ CREATE UNIQUE INDEX IF NOT EXISTS billing_scholarship_categories_code_uq
 CREATE UNIQUE INDEX IF NOT EXISTS billing_scholarship_categories_name_uq
     ON public.billing_scholarship_categories (lower(name));
 
--- Billing Scholarship Types (children of a category; carry a default value mode/value)
+-- Billing Scholarship Types (children of a category; default value mode/value columns dropped, 20271009140000)
 CREATE TABLE IF NOT EXISTS public.billing_scholarship_types (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     category_id UUID NOT NULL REFERENCES public.billing_scholarship_categories(id) ON DELETE RESTRICT,
     code TEXT NOT NULL CHECK (code ~ '^[a-z0-9_]+$'),
     name TEXT NOT NULL CHECK (btrim(name) <> ''),
     description TEXT,
-    default_value_mode TEXT NOT NULL DEFAULT 'percentage'
-        CHECK (default_value_mode IN ('percentage', 'amount')),
-    default_value NUMERIC
-        CHECK (default_value IS NULL
-               OR (default_value > 0 AND (default_value_mode = 'amount' OR default_value <= 100))),
     sort_order INTEGER NOT NULL DEFAULT 0,
     is_active BOOLEAN NOT NULL DEFAULT true,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),

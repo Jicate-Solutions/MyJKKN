@@ -29357,8 +29357,6 @@ export type Database = {
           code: string
           created_at: string
           created_by: string | null
-          default_value: number | null
-          default_value_mode: string
           description: string | null
           id: string
           is_active: boolean
@@ -29372,8 +29370,6 @@ export type Database = {
           code: string
           created_at?: string
           created_by?: string | null
-          default_value?: number | null
-          default_value_mode?: string
           description?: string | null
           id?: string
           is_active?: boolean
@@ -29387,8 +29383,6 @@ export type Database = {
           code?: string
           created_at?: string
           created_by?: string | null
-          default_value?: number | null
-          default_value_mode?: string
           description?: string | null
           id?: string
           is_active?: boolean
