@@ -365,8 +365,6 @@ export interface ScholarshipType {
   code: string;
   name: string;
   description: string | null;
-  default_value_mode: ScholarshipValueMode;
-  default_value: number | null;
   sort_order: number;
   is_active: boolean;
   created_at: string;
@@ -390,8 +388,6 @@ export interface CreateScholarshipTypeDto {
   category_id: string;
   name: string;
   description?: string | null;
-  default_value_mode: ScholarshipValueMode;
-  default_value?: number | null;
   sort_order?: number;
   is_active?: boolean;
 }

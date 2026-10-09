@@ -272,7 +272,6 @@ export default function ScholarshipSetupPage() {
                     <TableHeader>
                       <TableRow>
                         <TableHead>Type</TableHead>
-                        <TableHead>Default</TableHead>
                         <TableHead>Status</TableHead>
                         <TableHead className='text-right'>Actions</TableHead>
                       </TableRow>
@@ -287,15 +286,6 @@ export default function ScholarshipSetupPage() {
                                 {type.description}
                               </div>
                             )}
-                          </TableCell>
-                          <TableCell className='whitespace-nowrap'>
-                            {type.default_value != null
-                              ? type.default_value_mode === 'percentage'
-                                ? `${type.default_value}%`
-                                : `₹${Number(type.default_value).toLocaleString('en-IN')}`
-                              : type.default_value_mode === 'percentage'
-                                ? 'Percentage'
-                                : 'Fixed Amount'}
                           </TableCell>
                           <TableCell>
                             <Badge variant={type.is_active ? 'default' : 'secondary'}>

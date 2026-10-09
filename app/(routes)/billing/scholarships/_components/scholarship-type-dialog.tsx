@@ -15,13 +15,6 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue
-} from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
 import {
@@ -30,27 +23,15 @@ import {
 } from '@/hooks/billing/use-scholarship-setup';
 import type { ScholarshipType } from '@/types/billing-schedule';
 
-const schema = z
-  .object({
-    name: z.string().trim().min(1, 'Name is required').max(120, 'Keep it under 120 characters'),
-    description: z.string().trim().max(500, 'Keep it under 500 characters'),
-    default_value_mode: z.enum(['percentage', 'amount']),
-    default_value: z.string().trim(),
-    sort_order: z
-      .string()
-      .trim()
-      .refine((v) => v === '' || /^-?\d+$/.test(v), 'Enter a whole number'),
-    is_active: z.boolean()
-  })
-  .superRefine((v, ctx) => {
-    if (v.default_value === '') return;
-    const n = Number(v.default_value);
-    if (!Number.isFinite(n) || n <= 0) {
-      ctx.addIssue({ code: 'custom', path: ['default_value'], message: 'Enter a value above 0' });
-    } else if (v.default_value_mode === 'percentage' && n > 100) {
-      ctx.addIssue({ code: 'custom', path: ['default_value'], message: 'A percentage cannot exceed 100' });
-    }
-  });
+const schema = z.object({
+  name: z.string().trim().min(1, 'Name is required').max(120, 'Keep it under 120 characters'),
+  description: z.string().trim().max(500, 'Keep it under 500 characters'),
+  sort_order: z
+    .string()
+    .trim()
+    .refine((v) => v === '' || /^-?\d+$/.test(v), 'Enter a whole number'),
+  is_active: z.boolean()
+});
 type FormValues = z.infer<typeof schema>;
 
 interface Props {
@@ -79,7 +60,6 @@ export function ScholarshipTypeDialog({
   const {
     register,
     control,
-    watch,
     handleSubmit,
     reset,
     formState: { errors }
@@ -88,21 +68,16 @@ export function ScholarshipTypeDialog({
     defaultValues: {
       name: '',
       description: '',
-      default_value_mode: 'percentage',
-      default_value: '',
       sort_order: '',
       is_active: true
     }
   });
-  const mode = watch('default_value_mode');
 
   useEffect(() => {
     if (!open) return;
     reset({
       name: type?.name ?? '',
       description: type?.description ?? '',
-      default_value_mode: type?.default_value_mode ?? 'percentage',
-      default_value: type?.default_value != null ? String(type.default_value) : '',
       sort_order: String(type?.sort_order ?? nextSortOrder),
       is_active: type?.is_active ?? true
     });
@@ -112,8 +87,6 @@ export function ScholarshipTypeDialog({
     const base = {
       name: values.name,
       description: values.description || null,
-      default_value_mode: values.default_value_mode,
-      default_value: values.default_value === '' ? null : Number(values.default_value),
       sort_order: values.sort_order === '' ? 0 : Number(values.sort_order),
       is_active: values.is_active
     };
@@ -135,9 +108,8 @@ export function ScholarshipTypeDialog({
         <DialogHeader>
           <DialogTitle>{type ? 'Edit scholarship type' : 'New scholarship type'}</DialogTitle>
           <DialogDescription>
-            Under <span className='font-medium'>{categoryName}</span>. The default
-            value mode and value pre-fill the Apply Scholarship form; the applier
-            can still change them.
+            Under <span className='font-medium'>{categoryName}</span>. The value
+            mode and value are chosen when the scholarship is applied.
           </DialogDescription>
         </DialogHeader>
 
@@ -156,41 +128,6 @@ export function ScholarshipTypeDialog({
             {errors.description && (
               <p className='text-xs text-destructive'>{errors.description.message}</p>
             )}
-          </div>
-
-          <div className='grid grid-cols-2 gap-4'>
-            <div className='space-y-2'>
-              <Label htmlFor='type-mode'>Default value mode</Label>
-              <Controller
-                control={control}
-                name='default_value_mode'
-                render={({ field }) => (
-                  <Select value={field.value} onValueChange={field.onChange}>
-                    <SelectTrigger id='type-mode'>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value='percentage'>Percentage</SelectItem>
-                      <SelectItem value='amount'>Fixed Amount</SelectItem>
-                    </SelectContent>
-                  </Select>
-                )}
-              />
-            </div>
-            <div className='space-y-2'>
-              <Label htmlFor='type-value'>
-                Default value {mode === 'percentage' ? '(%)' : '(₹)'}
-              </Label>
-              <Input
-                id='type-value'
-                inputMode='decimal'
-                placeholder='Optional'
-                {...register('default_value')}
-              />
-              {errors.default_value && (
-                <p className='text-xs text-destructive'>{errors.default_value.message}</p>
-              )}
-            </div>
           </div>
 
           <div className='grid grid-cols-2 gap-4'>

@@ -26,10 +26,7 @@ import {
   useUpdateBillingScholarship
 } from '@/hooks/billing/use-billing-scholarships';
 import { useScholarshipSetup } from '@/hooks/billing/use-scholarship-setup';
-import {
-  resolveTypeDefaults,
-  validateScholarshipSelection
-} from '@/lib/billing/scholarship-type-defaults';
+import { validateScholarshipSelection } from '@/lib/billing/scholarship-type-defaults';
 import { ScholarshipSelectFields } from '../../_components/scholarship-select-fields';
 import type {
   ScholarshipValueMode,
@@ -173,11 +170,7 @@ export default function EditScholarshipPage() {
   };
 
   const handleTypeChange = (type: ScholarshipType) => {
-    setFormData((prev) => ({
-      ...prev,
-      scholarship_type_id: type.id,
-      ...resolveTypeDefaults(type)
-    }));
+    setFormData((prev) => ({ ...prev, scholarship_type_id: type.id }));
   };
 
   const calculateScholarshipAmount = () => {

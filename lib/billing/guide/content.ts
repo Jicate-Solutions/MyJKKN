@@ -217,14 +217,14 @@ export const GUIDES: GuideBook = {
               detail:
                 'A scholarship lowers what a student owes — by a fixed amount or a percentage. The page also shows how many are awaiting approval.',
               platforms: {
-                web: 'Left sidebar → **Billing** → **Scholarships**.',
+                web: 'Left sidebar → **Billing & Accounts** → **Scholarships** → **All Scholarships**.',
               },
               link: { label: 'Take me there', href: '/billing/scholarships' },
             },
             {
               action: 'Click **Apply Scholarship** to add one to a student’s bill.',
               detail:
-                'Pick the scholarship category, then one of its types, choose fixed-amount or percentage, and enter the value (a type can pre-fill both). Most scholarships need an approver to sign off before they reduce the bill.',
+                'Pick the scholarship category, then one of its types, choose fixed-amount or percentage, and enter the value. Most scholarships need an approver to sign off before they reduce the bill.',
               tip: 'A scholarship sits as Pending until it is approved — only an approved scholarship changes the outstanding amount.',
               link: { label: 'Take me there', href: '/billing/scholarships/new' },
             },

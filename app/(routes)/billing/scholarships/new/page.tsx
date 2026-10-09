@@ -23,10 +23,7 @@ import { toast } from 'react-hot-toast';
 import { BillingReceiptService } from '@/lib/services/billing/receipts/billing-receipt-service';
 import { useCreateBillingScholarship } from '@/hooks/billing/use-billing-scholarships';
 import { useScholarshipSetup } from '@/hooks/billing/use-scholarship-setup';
-import {
-  resolveTypeDefaults,
-  validateScholarshipSelection
-} from '@/lib/billing/scholarship-type-defaults';
+import { validateScholarshipSelection } from '@/lib/billing/scholarship-type-defaults';
 import { ScholarshipSelectFields } from '../_components/scholarship-select-fields';
 import type {
   ScholarshipValueMode,
@@ -148,14 +145,8 @@ export default function NewScholarshipPage() {
     }));
   };
 
-  // Picking a type pre-fills Value Mode (and Value when the type has one); the
-  // applier can still change both.
   const handleTypeChange = (type: ScholarshipType) => {
-    setFormData((prev) => ({
-      ...prev,
-      scholarship_type_id: type.id,
-      ...resolveTypeDefaults(type)
-    }));
+    setFormData((prev) => ({ ...prev, scholarship_type_id: type.id }));
   };
 
   const calculateScholarshipAmount = (billAmount: number) => {

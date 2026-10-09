@@ -1,7 +1,7 @@
 import type { ModuleNavConfig } from '@/lib/navigation/nav-config';
 
 /**
- * Billing — 3 domain buckets + tier-3 chips per bucket.
+ * Billing — 3 domain buckets + Scholarships + Settings, with tier-3 chips per bucket.
  *
  * Mirrors the sidebar split of 2026-08-25 (lib/sidebarMenuLink.ts, group
  * 'Billing & Accounts'). Before this config AutoTabNav rendered billing's
@@ -50,7 +50,6 @@ const config: ModuleNavConfig = {
         { label: 'Schedule · Student Search', icon: 'UserSearch', href: '/billing/schedule/students' },
         { label: 'Bill Coverage', icon: 'ShieldCheck', href: '/billing/coverage' },
         { label: 'Learner Onboarding', icon: 'UserPlus', href: '/billing/onboarding' },
-        { label: 'Scholarships', icon: 'Award', href: '/billing/scholarships' },
         { label: 'Refunds', icon: 'Undo2', href: '/billing/refunds' },
         { label: 'Refund Approvals', icon: 'CheckCheck', href: '/billing/refund-approvals' },
         { label: 'Receipt Cancellations', icon: 'FileX', href: '/billing/receipt-cancellations' },
@@ -98,6 +97,27 @@ const config: ModuleNavConfig = {
         // Sits after Generate because that is the order of the work: raise the
         // year's bills, then take money against them.
         { label: 'School Bill Payment', icon: 'HandCoins', href: '/billing/school-fees/collect' },
+      ],
+    },
+    {
+      // Scholarships has its own group since 2026-10-09 (it was a chip under
+      // Colleges); the sidebar's 'Scholarships' menu is the mirror. The group
+      // prefix claims every /billing/scholarships/* page from the '/billing'
+      // catch-all.
+      //
+      // 'All Scholarships' is exact: a plain prefix would also light up on
+      // /new and /setup, which have their own chips. The cost is that the
+      // detail (/[id]) and edit (/[id]/edit) pages highlight no chip — only
+      // the group — because a dynamic id cannot be listed in matchPaths. The
+      // sidebar row has no such limit and stays highlighted there.
+      label: 'Scholarships',
+      icon: 'Award',
+      href: '/billing/scholarships',
+      matchPaths: ['/billing/scholarships'],
+      children: [
+        { label: 'All Scholarships', icon: 'ListChecks', href: '/billing/scholarships', exact: true },
+        { label: 'Apply Scholarship', icon: 'PlusCircle', href: '/billing/scholarships/new' },
+        { label: 'Categories & Types', icon: 'Tags', href: '/billing/scholarships/setup' },
       ],
     },
     {

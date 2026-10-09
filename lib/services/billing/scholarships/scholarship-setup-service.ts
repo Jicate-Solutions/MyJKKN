@@ -173,8 +173,6 @@ export class ScholarshipSetupService {
         code,
         name,
         description: dto.description?.trim() || null,
-        default_value_mode: dto.default_value_mode,
-        default_value: dto.default_value ?? null,
         sort_order: dto.sort_order ?? 0,
         is_active: dto.is_active ?? true,
         created_by: userId,
@@ -217,8 +215,6 @@ export class ScholarshipSetupService {
       patch.name = name;
     }
     if (dto.description !== undefined) patch.description = dto.description?.trim() || null;
-    if (dto.default_value_mode !== undefined) patch.default_value_mode = dto.default_value_mode;
-    if (dto.default_value !== undefined) patch.default_value = dto.default_value;
     if (dto.sort_order !== undefined) patch.sort_order = dto.sort_order;
     if (dto.is_active !== undefined) patch.is_active = dto.is_active;
 
