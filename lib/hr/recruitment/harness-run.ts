@@ -7,13 +7,22 @@
 //   2. for each due nudge, CLAIMS it in hr_recruitment_nudges_sent (UNIQUE
 //      (kind, ref_key)) before sending, so two overlapping runs cannot both send;
 //   3. sends it through fanoutNotification (notifications + user_notifications);
-//   4. releases the claim if the send failed, so the next run tries again.
+//   4. releases the claim if the send THREW, so the next run tries again. Only a
+//      send that explicitly found no recipients becomes a terminal "found nobody"
+//      record (recipient_ids = {}); a send that returned nothing and no reason, or
+//      was skipped for having no sender (no_created_by), is a failure, and its
+//      claim is left for step 5.
+//   5. at the start of each run, settles claims with no notification recorded
+//      (staleUnsentClaims): if the notification exists under the nudge's key, its
+//      id is recorded and sent_at is kept; otherwise the claim is released and the
+//      nudge is sent again — see releaseStaleClaims. A claim the settle step
+//      could not decide is kept out of the escalation clock for that run.
 //
 // SERVER-SIDE ONLY. Never import from a client component.
 // =====================================================================================
 
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { fanoutNotification } from '@/lib/services/_shared/notifications/notify';
+import { ensureLinks, fanoutNotification } from '@/lib/services/_shared/notifications/notify';
 import {
   GO_LIVE_POLICY_KEY,
   HR_HEAD_ROLE_KEY,
@@ -21,12 +30,16 @@ import {
   SCORECARD_LOOKBACK_DAYS,
   HOUR_MS,
   NUDGE_KINDS,
+  NUDGE_SOURCE,
   buildStepReadyNudge,
   goLiveFromPolicy,
   indexSent,
   institutionKey,
+  nudgeIdempotencyKey,
+  offerCandidatesToCheck,
   scorecardRefKey,
   selectApprovalNudges,
+  staleUnsentClaims,
   selectOfferNudges,
   selectScorecardNudges,
   type ChainStep,
@@ -45,7 +58,7 @@ type Db = SupabaseClient<any, any, any>;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const PAGE = 1000;
 const IN_CHUNK = 200;
-const SOURCE = 'hr_recruitment_harness';
+const SOURCE = NUDGE_SOURCE;
 
 const CANDIDATE_COLUMNS =
   'id, name, role_title, status, institution_id, approval_chain, current_step, submitted_at, ' +
@@ -267,7 +280,7 @@ export async function readGoLiveAt(db: Db, now: Date): Promise<Date> {
 
 export type SendOutcome = 'sent' | 'no_recipient' | 'already_claimed' | 'failed';
 
-async function claimAndSend(db: Db, nudge: Nudge, createdBy: string | null): Promise<SendOutcome> {
+export async function claimAndSend(db: Db, nudge: Nudge, createdBy: string | null): Promise<SendOutcome> {
   // 1. Claim. A 23505 means another run (or an earlier one) already owns it.
   const { data: claim, error: claimErr } = await db
     .from('hr_recruitment_nudges_sent')
@@ -300,28 +313,224 @@ async function claimAndSend(db: Db, nudge: Nudge, createdBy: string | null): Pro
     priority: nudge.kind === 'approval_escalation' ? 'high' : 'normal',
     url: nudge.url,
     source: SOURCE,
-    idempotencyKey: `${SOURCE}:${nudge.kind}:${nudge.refKey}`,
+    idempotencyKey: nudgeIdempotencyKey(nudge.kind, nudge.refKey),
     metadata: { nudge_kind: nudge.kind, candidate_id: nudge.candidateId, ref_key: nudge.refKey },
   }).catch((err: unknown) => {
     console.error('[recruitment-harness] send threw', { kind: nudge.kind, ref: nudge.refKey, err });
     return null;
   });
 
-  if (result && (result.notified > 0 || result.skipped === 'idempotent')) {
+  // 4. The send threw: release so the next run retries.
+  if (result === null) {
+    if (claim?.id) {
+      const { error: releaseErr } = await db.from('hr_recruitment_nudges_sent').delete().eq('id', claim.id);
+      if (releaseErr) {
+        // The claim stays unsent; the next run re-arms it once it is stale.
+        console.error('[recruitment-harness] releasing a failed claim failed', { kind: nudge.kind, ref: nudge.refKey, error: releaseErr });
+      }
+    }
+    return 'failed';
+  }
+
+  if (result.notified > 0 || result.skipped === 'idempotent') {
     if (claim?.id && result.notificationId) {
-      await db
+      const { error: markErr } = await db
         .from('hr_recruitment_nudges_sent')
         .update({ notification_id: result.notificationId })
         .eq('id', claim.id);
+      if (markErr) {
+        // Not a failed send: the notification exists. The claim stays without an
+        // id; the next run finds the notification by its key and records it on
+        // the row, keeping sent_at (releaseStaleClaims) — no re-send.
+        console.error('[recruitment-harness] recording the notification id failed', { kind: nudge.kind, ref: nudge.refKey, error: markErr });
+      }
     }
     return 'sent';
   }
 
-  // 4. Release so the next run retries.
-  if (claim?.id) {
-    await db.from('hr_recruitment_nudges_sent').delete().eq('id', claim.id);
+  // 5. The send returned nothing and gave no reason (notify.ts: the insert
+  //    returned no row and no error), or it was skipped as 'no_created_by'. Both
+  //    are failed sends, not "found nobody" (review of #4260, finding 2; second
+  //    review, finding 1): 'no_created_by' means the sender was missing, not that
+  //    there was nobody to tell. Treating either as final would close the nudge
+  //    for ever and start the HR Head's clock for an approver who was never
+  //    reminded. The claim is left as it is — people to tell, no notification —
+  //    so the next run's settle step finds no notification under the key,
+  //    releases it, and the nudge is sent again.
+  if (result.skipped !== 'no_recipients') {
+    console.error('[recruitment-harness] send reached nobody and was not a found-nobody', { kind: nudge.kind, ref: nudge.refKey, result });
+    return 'failed';
   }
-  return 'failed';
+
+  // 6. The send found nobody to tell. Keep the claim as a terminal "found
+  //    nobody" record instead of releasing it: a release here would retry the
+  //    same nudge every day (review of #4149, finding 1). For a reminder, the kept
+  //    row starts the HR Head's clock, the same as a nudge with no recipients.
+  if (claim?.id) {
+    const { error: markErr } = await db
+      .from('hr_recruitment_nudges_sent')
+      .update({ recipient_ids: [] })
+      .eq('id', claim.id);
+    if (markErr) {
+      console.error('[recruitment-harness] marking a claim as found-nobody failed', { kind: nudge.kind, ref: nudge.refKey, error: markErr });
+    }
+  }
+  return 'no_recipient';
+}
+
+/**
+ * Settle the claims that have people to tell but no notification recorded
+ * (staleUnsentClaims). For each, look up the notification by the nudge's
+ * idempotency key:
+ *   * it exists — the send landed and only recording its id failed (or the row
+ *     predates this code). Re-assert its bell links (a run killed mid-send can
+ *     leave them missing), then record the id on the row. sent_at is NOT touched,
+ *     so an approval reminder's 48-hour HR Head clock keeps running from the
+ *     original send. Nothing is re-sent and nothing is counted as re-armed.
+ *   * it does not — the send never happened. The claim is released so this run
+ *     selects and sends the nudge again; the new claim's sent_at is when the
+ *     approver is actually reminded.
+ * If the lookup fails, nothing is settled this run: the rows stay claimed, so
+ * nothing is re-sent. A failed record or delete is logged and that row is left
+ * for the next run.
+ *
+ * A row this run could not settle as landed — every stale row when the lookup
+ * failed, and a no-notification row whose release failed — is returned in
+ * `unsettled`. The runner keeps it out of the rules' "already sent" input, so an
+ * approval reminder that may never have reached anyone does not start the HR
+ * Head's 48-hour clock (second review of #4260, finding 2). It still guards
+ * against a double send: a re-selected nudge meets the UNIQUE (kind, ref_key)
+ * claim and comes back 'already_claimed'. A landed row whose links or id record
+ * failed is NOT unsettled — the reminder did reach people, so its clock runs.
+ *
+ * @returns the ids released (to be sent again), the ids left unsettled, and how
+ * many landed sends were recorded.
+ */
+export async function releaseStaleClaims(
+  db: Db,
+  rows: SentNudge[],
+  now: Date,
+): Promise<{ released: Set<string>; unsettled: Set<string>; recorded: number }> {
+  const released = new Set<string>();
+  const unsettled = new Set<string>();
+  let recorded = 0;
+  const stale = new Set(staleUnsentClaims(rows, now));
+  const staleRows = rows.filter((r) => r.id && stale.has(r.id));
+  if (staleRows.length === 0) return { released, unsettled, recorded };
+
+  const keyOf = (r: SentNudge) => nudgeIdempotencyKey(r.kind, r.ref_key);
+  let landed: { id: string; idempotency_key: string }[];
+  try {
+    landed = await readIn<{ id: string; idempotency_key: string }>(
+      db, 'notifications', 'id, idempotency_key', 'idempotency_key', staleRows.map(keyOf),
+      'notifications (landed nudges)',
+    );
+  } catch (err) {
+    console.error('[recruitment-harness] checking unfinished claims failed; leaving them claimed', { count: staleRows.length, err });
+    for (const r of staleRows) unsettled.add(r.id as string);
+    return { released, unsettled, recorded };
+  }
+  const notificationOf = new Map(landed.map((n) => [n.idempotency_key, n.id]));
+
+  const ids: string[] = [];
+  for (const r of staleRows) {
+    const notificationId = notificationOf.get(keyOf(r));
+    if (!notificationId) {
+      ids.push(r.id as string);
+      continue;
+    }
+    try {
+      await ensureLinks(db, notificationId, r.recipient_ids ?? []);
+      const { error } = await db
+        .from('hr_recruitment_nudges_sent')
+        .update({ notification_id: notificationId })
+        .eq('id', r.id)
+        .is('notification_id', null);
+      if (error) throw error;
+      recorded += 1;
+    } catch (err) {
+      console.error('[recruitment-harness] recording a landed nudge failed; the next run tries again', { kind: r.kind, ref: r.ref_key, err });
+    }
+  }
+
+  for (const part of chunks(ids)) {
+    const { data, error } = await db
+      .from('hr_recruitment_nudges_sent')
+      .delete()
+      .in('id', part)
+      .is('notification_id', null)
+      .select('id');
+    if (error) {
+      console.error('[recruitment-harness] re-arming unfinished claims failed', { count: part.length, error });
+      for (const id of part) unsettled.add(id);
+      continue;
+    }
+    const gone = new Set(((data as { id: string }[] | null) ?? []).map((r) => r.id));
+    for (const id of part) {
+      if (gone.has(id)) released.add(id);
+      // Not deleted: either an overlapping run recorded a notification on it
+      // (the guarded delete skipped it) or another run already released it.
+      // Neither is known to have reached anyone in THIS run's read, so it stays
+      // out of the clock until a later run reads it again.
+      else unsettled.add(id);
+    }
+  }
+  return { released, unsettled, recorded };
+}
+
+/**
+ * The "already sent" input of the selection rules: every sent row except the
+ * claims the settle step released (they are to be sent again) or could not
+ * settle (they may never have reached anyone, so they must not start the HR
+ * Head's clock — the UNIQUE claim still stops a double send).
+ */
+export function sentForRules(rows: SentNudge[], leaveOut: Set<string>): Map<string, SentNudge> {
+  return indexSent(rows.filter((r) => !(r.id && leaveOut.has(r.id))));
+}
+
+/**
+ * Each college's HR editors (hr_recruitment_application_recipient_ids, the
+ * existing service-role-only definition from migration 20260922000646).
+ *
+ * One failed lookup must not stop the run (review of #4149, finding 2): the
+ * college is listed in `unavailable`, and its offer nudges that would fall back
+ * to the HR editors are left for the next run (offerCandidatesToCheck — a nudge
+ * to an active job creator still goes). Its editors are deliberately NOT taken as
+ * [] — that would record a terminal "found nobody" claim and the nudge would
+ * never be sent.
+ */
+export async function loadHrEditors(
+  db: Db,
+  institutions: (string | null)[],
+): Promise<{ editorsOf: Map<string, string[]>; unavailable: Set<string> }> {
+  const editorsOf = new Map<string, string[]>();
+  const unavailable = new Set<string>();
+  for (const inst of Array.from(new Set(institutions))) {
+    let data: unknown = null;
+    let error: { message?: string } | null = null;
+    try {
+      ({ data, error } = await db.rpc('hr_recruitment_application_recipient_ids', {
+        p_institution_id: inst,
+      }));
+    } catch (err) {
+      error = { message: err instanceof Error ? err.message : String(err) };
+    }
+    if (error) {
+      console.error('[recruitment-harness] HR editors lookup failed; offer nudges for this college wait for the next run', {
+        institution: inst ?? 'no institution',
+        error: error.message ?? error,
+      });
+      unavailable.add(institutionKey(inst));
+      continue;
+    }
+    editorsOf.set(
+      institutionKey(inst),
+      ((data as unknown[]) ?? [])
+        .map((row) => (typeof row === 'string' ? row : (row as Record<string, string>)?.hr_recruitment_application_recipient_ids))
+        .filter((id): id is string => typeof id === 'string'),
+    );
+  }
+  return { editorsOf, unavailable };
 }
 
 // ---------------------------------------------------------------------------
@@ -334,6 +543,14 @@ export interface HarnessRunSummary {
   noRecipient: Record<NudgeKind, number>;
   alreadyClaimed: number;
   failed: number;
+  /** Claims whose send never happened, released at the start of this run and sent again. */
+  rearmed: number;
+  /** Claims whose send had landed without its id recorded; the id was recorded, sent_at kept, nothing re-sent. */
+  recordedLate: number;
+  /** Unfinished claims this run could not settle (lookup or release failed); kept out of the escalation clock, retried next run. */
+  unsettled: number;
+  /** Colleges whose HR-editor lookup failed; their offer nudges wait for the next run. */
+  hrEditorsUnavailable: number;
   /** Approval reminders/escalations left to the HR chase ladder (it covers duty R5). */
   handedToLadder: number;
 }
@@ -409,10 +626,15 @@ export async function runRecruitmentHarness(db: Db, now: Date = new Date()): Pro
 
   // --- what has already been sent ---------------------------------------------
   const sentRows = await readIn<SentNudge>(
-    db, 'hr_recruitment_nudges_sent', 'kind, ref_key, sent_at', 'candidate_id',
+    db, 'hr_recruitment_nudges_sent', 'id, kind, ref_key, sent_at, notification_id, recipient_ids', 'candidate_id',
     Array.from(candidateOf.keys()), 'hr_recruitment_nudges_sent',
   );
-  const sent = indexSent(sentRows);
+  // A claim whose send never happened is released, so the rules see it as unsent;
+  // one whose send landed gets its notification id recorded and stays sent.
+  // A claim the settle step could not decide is also left out, so it cannot start
+  // the HR Head's clock; the UNIQUE claim still stops it being sent twice.
+  const { released: rearmed, unsettled, recorded: recordedLate } = await releaseStaleClaims(db, sentRows, now);
+  const sent = sentForRules(sentRows, new Set([...Array.from(rearmed), ...Array.from(unsettled)]));
 
   // --- directory ---------------------------------------------------------------
   const stepRoleKeys = candidates.flatMap((c) =>
@@ -431,30 +653,14 @@ export async function runRecruitmentHarness(db: Db, now: Date = new Date()): Pro
   });
 
   // HR editors per college, for offers whose job has no creator who can act.
-  // hr_recruitment_application_recipient_ids is the existing service-role-only
-  // definition (migration 20260922000646), reused rather than re-derived here.
-  const hrEditorsOf = new Map<string, string[]>();
-  const offerInstitutions = Array.from(
-    new Set(
-      candidates
-        .filter((c) => c.status === 'package_fixed' || c.status === 'offer_issued')
-        .map((c) => c.institution_id),
-    ),
+  const { editorsOf: hrEditorsOf, unavailable: hrEditorsUnavailable } = await loadHrEditors(
+    db,
+    candidates
+      .filter((c) => c.status === 'package_fixed' || c.status === 'offer_issued')
+      .map((c) => c.institution_id),
   );
-  for (const inst of offerInstitutions) {
-    const { data, error } = await db.rpc('hr_recruitment_application_recipient_ids', {
-      p_institution_id: inst,
-    });
-    if (error) {
-      throw new Error(`[recruitment-harness] HR editors for ${inst ?? 'no institution'}: ${error.message}`);
-    }
-    hrEditorsOf.set(
-      institutionKey(inst),
-      ((data as unknown[]) ?? [])
-        .map((row) => (typeof row === 'string' ? row : (row as Record<string, string>)?.hr_recruitment_application_recipient_ids))
-        .filter((id): id is string => typeof id === 'string'),
-    );
-  }
+  // Where a college's lookup failed, only the offers that need its editors wait.
+  const offerCandidates = offerCandidatesToCheck(candidates, hrEditorsUnavailable, jobCreatorOf, dir);
 
   // --- decide -------------------------------------------------------------------
   // Waits that started before go-live are never nudged (no backlog flood).
@@ -462,7 +668,7 @@ export async function runRecruitmentHarness(db: Db, now: Date = new Date()): Pro
   const selected: Nudge[] = [
     ...selectApprovalNudges(candidates, sent, dir, now, goLiveAt),
     ...selectScorecardNudges(interviews, submitted, candidateOf, sent, dir, now, goLiveAt),
-    ...selectOfferNudges(candidates, packageFixedAt, jobCreatorOf, hrEditorsOf, sent, dir, now, goLiveAt),
+    ...selectOfferNudges(offerCandidates, packageFixedAt, jobCreatorOf, hrEditorsOf, sent, dir, now, goLiveAt),
   ];
   // When the HR chase ladder is on and covers R5, it owns approval chasing.
   const { nudges, handedToLadder } = await applyLadderHandoff(db, selected);
@@ -470,6 +676,7 @@ export async function runRecruitmentHarness(db: Db, now: Date = new Date()): Pro
   // --- send ---------------------------------------------------------------------
   const summary: HarnessRunSummary = {
     due: zero(), sent: zero(), noRecipient: zero(), alreadyClaimed: 0, failed: 0, handedToLadder,
+    rearmed: rearmed.size, recordedLate, unsettled: unsettled.size, hrEditorsUnavailable: hrEditorsUnavailable.size,
   };
   for (const n of nudges) {
     summary.due[n.kind] += 1;
