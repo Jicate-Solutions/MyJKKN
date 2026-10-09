@@ -330,10 +330,16 @@ describe('ninth review: the same post open at a college the uploader cannot see'
   it('is high when only the uploader\u2019s post is open anywhere', () => {
     expect(proposeMatch({ ...input, all_open_jobs: visible }).confidence).toBe('high');
   });
-  it('is medium, naming the other college, when the title is also open elsewhere', () => {
+  it('is medium when the title is also open elsewhere, without naming a college the person cannot see', () => {
     const p = proposeMatch({ ...input, all_open_jobs: everyCollege });
     expect(p).toMatchObject({ job_id: J.english.id, confidence: 'medium' });
-    expect(p.reasons[0]).toContain(`also open at ${J.english_eng.institution_name}`);
+    expect(p.reasons[0]).toContain('also open at another college');
+    expect(p.reasons.join(' ')).not.toContain(J.english_eng.institution_name as string);
+  });
+  it('a college the person can see may still be named', () => {
+    const p = proposeMatch({ ...input, openJobs: everyCollege, all_open_jobs: everyCollege });
+    expect(p.confidence).toBe('medium');
+    expect(p.reasons.join(' ')).toContain(J.english_eng.institution_name as string);
   });
 });
 

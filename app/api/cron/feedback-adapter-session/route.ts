@@ -84,7 +84,7 @@ export async function GET(req: NextRequest) {
       // The view excludes rows already in the spine, so paging OLDEST FIRST
       // converges instead of starving, and each page is genuinely new work.
       // Reading session_feedback directly with created_at DESC re-served the
-      // newest 1,000 every run and left 148,749 of 215,938 source rows never
+      // newest 1,000 every run and left 148,748 of 215,938 source rows never
       // ingested at all (measured 2026-10-01). Reading the base table ASC would
       // be the mirror of that bug: the same oldest 1,000 re-served for ever.
       .from('v_session_feedback_pending_ingest')
@@ -114,10 +114,15 @@ export async function GET(req: NextRequest) {
       content: r.free_text && r.free_text.trim().length > 0 ? r.free_text.trim() : null,
       // The learner's 1..5 score, kept as the score. It was compared with
       // === true / === false, which a number never satisfies, so all 67,190
-      // ingested rows carried a NULL rating on 2026-10-01 — including the 574
+      // ingested rows carried a NULL rating on 2026-10-01 — including the 534
       // who answered 1 or 2 and most needed to be seen. typeof still guards it,
       // because the row shape comes back from the database untyped.
-      rating: typeof r.understood === 'number' ? r.understood : null,
+      // Range-checked as well: the form only offers whole numbers 1..5, so anything else is
+      // not a score and must not be averaged as one.
+      rating:
+        Number.isInteger(r.understood) && (r.understood as number) >= 1 && (r.understood as number) <= 5
+          ? r.understood
+          : null,
       raw: {
         course_code: r.course_code,
         course_name: r.course_name,
