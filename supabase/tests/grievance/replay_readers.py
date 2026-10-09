@@ -17,8 +17,17 @@ Called by run.sh (local rehearsal only). Two jobs:
    bodies and re-creates them, so the rewrite is proved to parse on the text
    production holds, not only on the stubs.
 
-usage: replay_readers.py <migrations dir> <this migration's file name>
+3. BASELINE (round 5, M2). Section 9 re-creates
+   fn_generate_unresolved_issue_items from the newest definition BEFORE this
+   file and checks the live body's md5 against it. Exit 1 if that newest
+   definition's md5 is not the baseline the migration checks for (a newer
+   definition appeared before this file and section 9 must be re-derived).
+   With --pre, print that newest definition (into public) instead, so the
+   rehearsal applies the migration on top of it and exercises the check.
+
+usage: replay_readers.py <migrations dir> <this migration's file name> [--pre]
 """
+import hashlib
 import os
 import re
 import sys
@@ -44,6 +53,41 @@ for f in later:
     for name in REPLACED + own_fns:
         if defines(text, name):
             bad.append(f'{f} re-creates {name}')
+def newest_before(name):
+    src = None
+    for f in files:
+        if f >= ours:
+            break
+        text = open(os.path.join(mig_dir, f)).read()
+        if defines(text, name):
+            src = (f, text)
+    return src
+
+
+def statement(text, name):
+    m = list(re.finditer(r'CREATE\s+(?:OR\s+REPLACE\s+)?FUNCTION\s+(?:public\.)?' + name + r'\s*\(', text, re.I))[-1]
+    tag = re.compile(r'\bAS\s+(\$[A-Za-z_0-9]*\$)', re.I).search(text, m.end())
+    close = text.index(tag.group(1), tag.end())
+    semi = text.index(';', close + len(tag.group(1)))
+    return text[m.start():semi + 1], text[tag.end():close]
+
+
+gen = newest_before('fn_generate_unresolved_issue_items')
+if gen is None:
+    bad.append('no migration before this one defines fn_generate_unresolved_issue_items')
+else:
+    gen_stmt, gen_body = statement(gen[1], 'fn_generate_unresolved_issue_items')
+    gen_md5 = hashlib.md5(gen_body.encode()).hexdigest()
+    if gen_md5 not in ours_text:
+        bad.append(f'{gen[0]} defines fn_generate_unresolved_issue_items (md5 {gen_md5}), which section 9 was not '
+                   'derived from: re-derive section 9 from it and update the baseline md5')
+if '--pre' in sys.argv:
+    if bad:
+        sys.stderr.write('FAIL: ' + '\n  '.join(bad) + '\n')
+        sys.exit(1)
+    print(gen_stmt)
+    sys.exit(0)
+
 if bad:
     sys.stderr.write('FAIL: migration order — these sort AFTER ' + ours + ' and would undo it on a replay:\n  '
                      + '\n  '.join(bad) + '\n')

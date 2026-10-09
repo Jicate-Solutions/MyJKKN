@@ -125,6 +125,9 @@ export default function GrievanceDetailPage({
         ? 'Sent back to the normal path. Nobody could be assigned yet; it will escalate as usual.'
         : 'Sent back to the normal path and assigned.');
       refresh();
+    } catch {
+      // A thrown server action (network / transport) still tells the person.
+      toast.error('Could not send this complaint back. Try again.');
     } finally {
       setBusy(null);
     }

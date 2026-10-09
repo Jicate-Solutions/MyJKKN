@@ -260,12 +260,12 @@ $function$;
 CREATE OR REPLACE FUNCTION public.fn_get_generator_config(p_name text, p_default jsonb) RETURNS jsonb LANGUAGE sql AS $$ SELECT p_default $$;
 CREATE OR REPLACE FUNCTION public.fn_resolve_dashboard_target(p_institution_id uuid DEFAULT NULL) RETURNS uuid LANGUAGE sql AS $$
   SELECT id FROM profiles WHERE is_super_admin ORDER BY created_at LIMIT 1 $$;
-CREATE TABLE public.stub_work_items (key text PRIMARY KEY, target uuid, metadata jsonb);
+CREATE TABLE public.stub_work_items (key text PRIMARY KEY, target uuid, metadata jsonb, title text, body text);
 CREATE OR REPLACE FUNCTION public.fn_create_dashboard_work_item(
   p_category text, p_priority text, p_title text, p_body text, p_metadata jsonb, p_target uuid, p_key text,
   p_ttl_hours integer, p_extra integer DEFAULT NULL) RETURNS integer LANGUAGE plpgsql AS $$
 BEGIN
-  INSERT INTO stub_work_items VALUES (p_key, p_target, p_metadata) ON CONFLICT DO NOTHING;
+  INSERT INTO stub_work_items VALUES (p_key, p_target, p_metadata, p_title, p_body) ON CONFLICT DO NOTHING;
   RETURN 1;
 END $$;
 

@@ -25,6 +25,11 @@ sed -nE '/^CREATE (OR REPLACE )?FUNCTION public\.fn_my_desk_waiting\(\)/,/^\$fun
 # schema "replay" (30_ patches and re-creates them): replay_readers.py.
 REPLAY="$(mktemp)"; trap 'rm -f "$REPLAY"' EXIT
 python3 "$HERE/replay_readers.py" "$ROOT/supabase/migrations" 20271010020000_grievance_sla_escalation.sql > "$REPLAY"
+# The work-item generator as main's newest migration before this one leaves
+# it, so section 9's baseline check runs on the body it will meet (and the
+# script fails if that body is not the baseline section 9 was derived from).
+python3 "$HERE/replay_readers.py" "$ROOT/supabase/migrations" 20271010020000_grievance_sla_escalation.sql --pre \
+  | psql -d "$DB" -v ON_ERROR_STOP=1 -q
 psql -d "$DB" -v ON_ERROR_STOP=1 -q -f "$MIG"
 # the migration must be safe to apply twice
 psql -d "$DB" -v ON_ERROR_STOP=1 -q -f "$MIG"

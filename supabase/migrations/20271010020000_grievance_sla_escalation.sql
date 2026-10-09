@@ -33,6 +33,14 @@
 --   and evidence always leave them out (3b, 12); the hourly run handles each
 --   ticket in its own sub-transaction and counts failures (8); send-back
 --   checks the caller before locking the row (13).
+-- Updated: 2026-10-10 — deep review round 5 (PR #4079): one Director
+--   resolver (fn_grievance_director_for) that skips a row naming the Joint MD
+--   or someone who cannot act; routing metadata is the database's alone (7,
+--   10); notices and work items about these complaints name nothing (6, 9);
+--   `failed` never counts them (8); a holder who cannot act hands them to the
+--   current Director, never the Joint MD, and "configured" means every college
+--   has a usable Director (8); they stay in their college unless the Director
+--   moves them (10); section 9 is checked against the baseline it came from.
 -- KNOWN OPEN ITEM (parked for the Director, round 2 H2): who holds the Joint
 --   MD's seat is read from the policy rows grievance.escalation.
 --   director_profile_id and instasolver.complaint.superior_route_to, and who
@@ -220,7 +228,9 @@ WHERE NOT EXISTS (SELECT 1 FROM public.platform_policies
 -- 30 Sep "Director list" ruling, read the same way 20270520090000 reads it).
 -- Anything else (no such account, more than one, or a database without
 -- auth.users) seeds an EMPTY value: those complaints are then saved and HELD,
--- visible to super admins other than the Joint MD, until the Director sets it.
+-- readable in the complaint list (row-level security) by super admins other
+-- than the Joint MD, until the Director sets it; the hourly run reports
+-- "about-Joint-MD routing is not configured".
 -- Never copied from, and never falling back to, the Joint MD's policy above.
 DO $seed_about_jmd$
 DECLARE
@@ -244,7 +254,7 @@ BEGIN
     $q$ INTO v_n, v_id;
   END IF;
   IF v_n <> 1 THEN
-    RAISE NOTICE 'grievance: % verified account(s) for director@jkkn.ac.in; grievance.escalation.about_joint_md_profile_id is seeded EMPTY (complaints about the Joint MD are held for a super admin until it is set).', v_n;
+    RAISE NOTICE 'grievance: % verified account(s) for director@jkkn.ac.in; grievance.escalation.about_joint_md_profile_id is seeded EMPTY (complaints about the Joint MD are held, unassigned, until it is set).', v_n;
     v_id := '';
   END IF;
 
@@ -253,7 +263,7 @@ BEGIN
      classification, ui_category, is_system, is_active, publication_state)
   VALUES
     ('grievance.escalation.about_joint_md_profile_id', 'global', NULL, to_jsonb(v_id),
-     'The profile id of THE DIRECTOR, who receives every complaint the complainant marked "This complaint is about the Joint MD" (ruling 9 Oct 2026). Such a complaint skips HOD, Principal and the Joint MD entirely. Empty, inactive, a test profile, or the same person as the Joint MD = the complaint is saved and HELD (visible to super admins except the Joint MD) until this is set; it is never sent to the Joint MD. Can be set per college.',
+     'The profile id of THE DIRECTOR, who receives every complaint the complainant marked "This complaint is about the Joint MD" (ruling 9 Oct 2026). Such a complaint skips HOD, Principal and the Joint MD entirely. Empty, inactive, a test profile, or the same person as the Joint MD = the complaint is saved and HELD (readable in the complaint list by super admins except the Joint MD) until this is set; it is never sent to the Joint MD. Can be set per college.',
      'string', 'major', 'accreditation', true, true, 'published');
 END
 $seed_about_jmd$;
@@ -394,7 +404,10 @@ GRANT  EXECUTE ON FUNCTION public.fn_grievance_jmd_hide_from_everyone() TO servi
 
 -- The Director for one college: the profile grievance.escalation.
 -- about_joint_md_profile_id names (this college's row first, then the global
--- one; a row naming nobody is skipped). NULL = no Director set.
+-- one). A row is SKIPPED when it names nobody, names someone in the Joint MD's
+-- seat, or names someone who cannot act (inactive, login disabled, a test
+-- profile): the lookup falls through to the global Director (deep review
+-- round 5). NULL = no usable Director: routing is "not configured".
 CREATE OR REPLACE FUNCTION public.fn_grievance_director_for(p_institution uuid)
 RETURNS uuid
 LANGUAGE sql
@@ -409,6 +422,8 @@ AS $$
     AND ((pp.scope_type = 'institution' AND pp.scope_id = p_institution)
       OR (pp.scope_type = 'global' AND pp.scope_id IS NULL))
     AND public.fn_grievance_policy_profile_id(pp.value) IS NOT NULL
+    AND NOT (public.fn_grievance_policy_profile_id(pp.value) = ANY (public.fn_grievance_joint_md_ids(p_institution)))
+    AND public.fn_grievance_profile_unusable(public.fn_grievance_policy_profile_id(pp.value)) IS NULL
   ORDER BY CASE pp.scope_type WHEN 'institution' THEN 1 ELSE 2 END
   LIMIT 1
 $$;
@@ -445,6 +460,20 @@ $$;
 REVOKE EXECUTE ON FUNCTION public.fn_grievance_jmd_hidden_for(uuid) FROM anon, authenticated, PUBLIC;
 GRANT  EXECUTE ON FUNCTION public.fn_grievance_jmd_hidden_for(uuid) TO service_role;
 
+-- The metadata keys only the database writes (routing, escalation, holds,
+-- send-back). Client values under them are dropped on INSERT and ignored on
+-- UPDATE (round 5, M4).
+CREATE OR REPLACE FUNCTION public.fn_grievance_system_metadata_keys()
+RETURNS text[]
+LANGUAGE sql
+IMMUTABLE
+SET search_path = public
+AS $$
+  SELECT ARRAY['auto_route', 'escalations', 'escalation_blocked', 'escalation_error',
+               'about_joint_md_hold', 'about_joint_md_sent_back']
+$$;
+REVOKE EXECUTE ON FUNCTION public.fn_grievance_system_metadata_keys() FROM anon, authenticated, PUBLIC;
+
 -- Records why the hourly run could not process one ticket (round 4, M5).
 -- Best effort: a row that refuses even this write keeps its error in the
 -- run's `failed` count.
@@ -466,9 +495,9 @@ REVOKE EXECUTE ON FUNCTION public.fn_grievance_tick_record_failure(uuid, text, t
 
 
 -- The Director for one complaint about the Joint MD: {to, via, reason}.
--- Read straight from the policy rows (this college first, then global) so no
--- per-user policy row can redirect it. Never the Joint MD: a Director policy
--- that names someone in the Joint MD's seat counts as unset.
+-- fn_grievance_director_for above (policy rows only; no per-user row can
+-- redirect it). Never the Joint MD, never someone who cannot act, never the
+-- person who filed it.
 CREATE OR REPLACE FUNCTION public.fn_grievance_about_joint_md_target(p_t public.grievance_tickets)
 RETURNS jsonb
 LANGUAGE plpgsql
@@ -477,25 +506,33 @@ SECURITY DEFINER
 SET search_path = public
 AS $$
 DECLARE
-  v_to  uuid;
-  v_why text;
+  v_to   uuid;
+  v_why  text;
+  v_seen uuid;
 BEGIN
-  SELECT public.fn_grievance_policy_profile_id(pp.value) INTO v_to
-  FROM public.platform_policies pp
-  WHERE pp.is_active
-    AND pp.policy_key = 'grievance.escalation.about_joint_md_profile_id'
-    AND ((pp.scope_type = 'institution' AND pp.scope_id = p_t.institution_id)
-      OR (pp.scope_type = 'global' AND pp.scope_id IS NULL))
-    AND public.fn_grievance_policy_profile_id(pp.value) IS NOT NULL   -- an empty college row never hides the global Director
-  ORDER BY CASE pp.scope_type WHEN 'institution' THEN 1 ELSE 2 END
-  LIMIT 1;
+  -- The one resolver (fn_grievance_director_for): a college row naming the
+  -- Joint MD, or someone who cannot act, falls through to the global Director.
+  v_to := public.fn_grievance_director_for(p_t.institution_id);
 
   IF v_to IS NULL THEN
-    RETURN jsonb_build_object('to', NULL,
-      'reason', 'no_director_set (policy grievance.escalation.about_joint_md_profile_id)');
-  END IF;
-  IF v_to = ANY (public.fn_grievance_joint_md_ids(p_t.institution_id)) THEN
-    RETURN jsonb_build_object('to', NULL, 'reason', 'director_policy_names_the_joint_md');
+    -- Say why nobody is usable: the first row that names someone at all.
+    SELECT public.fn_grievance_policy_profile_id(pp.value) INTO v_seen
+    FROM public.platform_policies pp
+    WHERE pp.is_active
+      AND pp.policy_key = 'grievance.escalation.about_joint_md_profile_id'
+      AND ((pp.scope_type = 'institution' AND pp.scope_id = p_t.institution_id)
+        OR (pp.scope_type = 'global' AND pp.scope_id IS NULL))
+      AND public.fn_grievance_policy_profile_id(pp.value) IS NOT NULL
+    ORDER BY CASE pp.scope_type WHEN 'institution' THEN 1 ELSE 2 END
+    LIMIT 1;
+    IF v_seen IS NULL THEN
+      RETURN jsonb_build_object('to', NULL,
+        'reason', 'no_director_set (policy grievance.escalation.about_joint_md_profile_id)');
+    END IF;
+    IF v_seen = ANY (public.fn_grievance_joint_md_ids(p_t.institution_id)) THEN
+      RETURN jsonb_build_object('to', NULL, 'reason', 'director_policy_names_the_joint_md');
+    END IF;
+    RETURN jsonb_build_object('to', NULL, 'reason', 'director_' || COALESCE(public.fn_grievance_profile_unusable(v_seen), 'unusable'));
   END IF;
   v_why := public.fn_grievance_profile_unusable(v_to, array_remove(ARRAY[p_t.raised_by_id, p_t.filed_by], NULL));
   IF v_why IS NOT NULL THEN
@@ -704,7 +741,12 @@ BEGIN
     RETURN NULL;
   END IF;
 
-  IF p_kind = 'escalated' THEN
+  IF COALESCE(p_t.about_joint_md, false) THEN
+    -- No subject, description or ticket number (deep review round 5, M5):
+    -- the link opens it for the Director, whom row-level security lets in.
+    v_title := 'A confidential complaint needs your review';
+    v_body  := 'A confidential complaint has been sent to you. Please respond by ' || v_when || '. Open this notice to see it.';
+  ELSIF p_kind = 'escalated' THEN
     v_title := 'Overdue complaint ' || p_t.ticket_number || ' has moved up to you';
     v_body  := '"' || left(p_t.subject, 120) || '" passed its deadline without being resolved, so it is now yours to act on. Please respond by ' || v_when || '. Open this notice to see it.';
   ELSE
@@ -723,7 +765,8 @@ BEGIN
      CASE WHEN p_kind = 'escalated' AND p_level >= 2 THEN 'urgent' ELSE 'high' END,
      'grievance:' || p_kind,
      jsonb_build_object('kind', 'grievance_' || p_kind, 'ticket_id', p_t.id,
-                        'ticket_number', p_t.ticket_number, 'level', p_level, 'source', 'grievance_escalation'),
+                        'ticket_number', CASE WHEN COALESCE(p_t.about_joint_md, false) THEN NULL ELSE p_t.ticket_number END,
+                        'level', p_level, 'source', 'grievance_escalation'),
      false,
      now() + interval '30 days',
      p_key)
@@ -813,6 +856,12 @@ DECLARE
   v_res   jsonb;
   v_route jsonb;
 BEGIN
+  -- Routing and escalation metadata is written by the database alone (deep
+  -- review round 5, M4): whatever the client sent under these keys is dropped
+  -- before anything reads it, so a forged auto_route cannot skip routing,
+  -- fire the "it is yours" notice, or park the ticket at the ceiling.
+  NEW.metadata := COALESCE(NEW.metadata, '{}'::jsonb) - public.fn_grievance_system_metadata_keys();
+
   -- About the Joint MD: always the Director, or HELD with the reason, whatever
   -- assignee the insert named (it can never be left with the Joint MD).
   IF COALESCE(NEW.about_joint_md, false) THEN
@@ -870,7 +919,9 @@ BEGIN
   EXCEPTION WHEN OTHERS THEN
     -- A failed notice must never lose the complaint; the dashboard work item
     -- still reaches the assignee.
-    RAISE WARNING 'grievance % routed to % but the notice failed: %', NEW.ticket_number, NEW.assigned_to, SQLERRM;
+    RAISE WARNING 'grievance % routed to % but the notice failed: %',
+      CASE WHEN COALESCE(NEW.about_joint_md, false) THEN 'a confidential complaint' ELSE NEW.ticket_number END,
+      NEW.assigned_to, SQLERRM;
   END;
   RETURN NULL;
 END;
@@ -941,7 +992,6 @@ DECLARE
   v_nid        uuid;
   v_show       boolean;
   v_cfg_ok     boolean;
-  v_dir        uuid;
   v_hold_lvl   integer;
   v_failed     integer := 0;
   v_err        text;
@@ -954,6 +1004,8 @@ BEGIN
 
   -- one run at a time: a manual run and the scheduled one cannot interleave
   PERFORM pg_advisory_xact_lock(hashtext('grievance_escalation_tick'));
+  -- its writes to routing / escalation metadata are the database's own (M4)
+  PERFORM set_config('app.grievance_system_write', 'on', true);
 
   -- 1) Breach stamping — what the hourly route always did; not switchable.
   --    Complaints about the Joint MD are stamped too, but not counted.
@@ -994,9 +1046,9 @@ BEGIN
            WHERE id = v_t.id;
           IF v_show THEN v_stamped := v_stamped + 1; END IF;
         EXCEPTION WHEN OTHERS THEN
-          v_failed := v_failed + 1;
           v_err := SQLERRM;
           IF v_show THEN
+            v_failed := v_failed + 1;
             v_rows := v_rows || jsonb_build_array(jsonb_build_object(
               'ticket', v_t.ticket_number, 'outcome', 'failed', 'step', 'breach_stamp', 'error', v_err));
           END IF;
@@ -1011,8 +1063,8 @@ BEGIN
   -- 2) Escalation. Each ticket in its own sub-transaction: one that fails is
   --    rolled back alone, recorded on the ticket (metadata.escalation_error)
   --    and counted in `failed`; the run carries on (round 4, M5). A complaint
-  --    about the Joint MD that fails is counted there too, with no row and no
-  --    detail in this answer.
+  --    about the Joint MD that fails is recorded ONLY on its own ticket: not
+  --    counted, not listed (round 5, M1).
   FOR v_t IN
     SELECT * FROM public.grievance_tickets
     WHERE status IN ('open', 'in_progress', 'pending_info', 'reopened')
@@ -1027,6 +1079,48 @@ BEGIN
     v_show := NOT COALESCE(v_t.about_joint_md, false);   -- counted and listed only when true (M6)
 
     BEGIN
+      -- A complaint about the Joint MD whose holder can no longer act (the
+      -- Director left, was deactivated, lost his login): to the Director the
+      -- setting names now, if there is a usable one — never the Joint MD.
+      -- Otherwise it stays, the block is written once on the ticket, and the
+      -- run reports routing as not configured (round 5, M3). Never counted.
+      IF NOT v_show AND v_t.assigned_to IS NOT NULL
+         AND public.fn_grievance_profile_unusable(v_t.assigned_to) IS NOT NULL THEN
+        v_res := public.fn_grievance_about_joint_md_target(v_t);
+        IF (v_res ->> 'to') IS NOT NULL THEN
+          v_to := (v_res ->> 'to')::uuid;
+          v_hours := GREATEST(COALESCE(public.fn_get_policy_int('grievance.escalation.level3_hours', 72, v_t.institution_id), 72), 1);
+          v_deadline := v_now + make_interval(hours => v_hours);
+          v_event := jsonb_build_object('level', 3, 'role', 'the_director', 'to', v_to, 'via', v_res ->> 'via',
+            'at', v_now, 'deadline', v_deadline, 'from_level', v_from, 'previous_assignee', v_t.assigned_to,
+            'reason', 'holder_cannot_act');
+          IF NOT v_dry THEN
+            UPDATE public.grievance_tickets
+               SET assigned_to = v_to, assigned_at = v_now, escalated_at = v_now,
+                   escalation_deadline = v_deadline,
+                   metadata = (COALESCE(metadata, '{}'::jsonb) - 'escalation_blocked' - 'escalation_error')
+                              || jsonb_build_object('escalations',
+                                   COALESCE(metadata -> 'escalations', '[]'::jsonb) || jsonb_build_array(v_event))
+             WHERE id = v_t.id;
+            BEGIN
+              PERFORM public.fn_grievance_notify(v_t, v_to, 'escalated', 3, v_deadline,
+                'grievance-rerouted:' || v_t.id::text || ':' || v_to::text);
+            EXCEPTION WHEN OTHERS THEN
+              UPDATE public.grievance_tickets
+                 SET metadata = jsonb_set(metadata, '{escalations,-1,notify_error}', to_jsonb(SQLERRM))
+               WHERE id = v_t.id;
+            END;
+          END IF;
+        ELSIF NOT v_dry AND (v_t.metadata -> 'escalation_blocked' ->> 'reason') IS DISTINCT FROM 'holder_cannot_act' THEN
+          UPDATE public.grievance_tickets
+             SET metadata = COALESCE(metadata, '{}'::jsonb) || jsonb_build_object('escalation_blocked',
+                   jsonb_build_object('from_level', v_from, 'at', v_now, 'reason', 'holder_cannot_act',
+                                      'skipped', jsonb_build_array(v_res)))
+           WHERE id = v_t.id;
+        END IF;
+        CONTINUE;
+      END IF;
+
       IF NOT COALESCE(public.fn_get_policy_bool('grievance.escalation.enabled', false, v_t.institution_id), false) THEN
         IF v_show THEN v_off := v_off + 1; END IF;
         CONTINUE;
@@ -1149,9 +1243,9 @@ BEGIN
           'outcome', 'escalated', 'skipped', v_skipped));
       END IF;
     EXCEPTION WHEN OTHERS THEN
-      v_failed := v_failed + 1;
       v_err := SQLERRM;
       IF v_show THEN
+        v_failed := v_failed + 1;
         v_rows := v_rows || jsonb_build_array(jsonb_build_object(
           'ticket', v_t.ticket_number, 'from_level', v_from, 'outcome', 'failed', 'step', 'escalation', 'error', v_err));
       END IF;
@@ -1161,18 +1255,16 @@ BEGIN
     END;
   END LOOP;
 
-  -- 3) Is about-the-Joint-MD routing configured? From the GLOBAL setting
-  --    only: a usable profile that is not in the Joint MD's seat. No ticket
-  --    is read for this.
-  SELECT public.fn_grievance_policy_profile_id(pp.value) INTO v_dir
-  FROM public.platform_policies pp
-  WHERE pp.is_active AND pp.policy_key = 'grievance.escalation.about_joint_md_profile_id'
-    AND pp.scope_type = 'global' AND pp.scope_id IS NULL
-  LIMIT 1;
-  v_cfg_ok := v_dir IS NOT NULL
-              AND public.fn_grievance_profile_unusable(v_dir) IS NULL
-              AND NOT (v_dir = ANY (public.fn_grievance_joint_md_ids(NULL)));
+  -- 3) Is about-the-Joint-MD routing configured? Every active college must
+  --    resolve to a usable Director who is not in its Joint MD seat
+  --    (fn_grievance_director_for: college row, then global). A fact about
+  --    the settings and profiles only: no ticket is read (round 5, M3).
+  v_cfg_ok := NOT EXISTS (
+    SELECT 1 FROM public.institutions i
+    WHERE COALESCE(i.is_active, true)
+      AND public.fn_grievance_director_for(i.id) IS NULL);
 
+  PERFORM set_config('app.grievance_system_write', '', true);
   RETURN jsonb_build_object(
     'success',           true,
     'dry_run',           v_dry,
@@ -1199,10 +1291,33 @@ COMMENT ON FUNCTION public.fn_grievance_escalation_tick(boolean) IS
 -- ---------------------------------------------------------------------
 -- 9) fn_generate_unresolved_issue_items — the dead link
 -- ---------------------------------------------------------------------
--- Body identical to production (20261213100000, compared 2026-09-28) except
--- the work item's url: /grievances/<id> never existed; the ticket page is
--- /accreditation/naac/grievance/<id>. The dedupe key is unchanged, so no work
--- item is posted twice across the deploy.
+-- Taken from the NEWEST migration that defines it before this one
+-- (20261213100000; checked by supabase/tests/grievance/replay_readers.py, which
+-- fails the rehearsal if a newer definition appears before or after this file),
+-- changed only where this migration needs it: the work item's url
+-- (/grievances/<id> never existed; the ticket page is
+-- /accreditation/naac/grievance/<id>), and complaints about the Joint MD (only
+-- the Director who holds one gets a work item, and it names nothing). The
+-- dedupe key is unchanged, so no work item is posted twice across the deploy.
+-- So that this can never silently undo a change made to the function after
+-- that copy (deep review round 5, M2), the body the database holds is checked
+-- first: it must be exactly that baseline, or exactly this migration's own
+-- version (a re-apply). Anything else stops the migration with its md5.
+-- Baseline check (section 9, round 5 M2):
+DO $gen_baseline$
+DECLARE
+  v_md5 text;
+BEGIN
+  SELECT md5(p.prosrc) INTO v_md5
+  FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace AND n.nspname = 'public'
+  WHERE p.proname = 'fn_generate_unresolved_issue_items' AND p.pronargs = 0;
+  IF v_md5 IS NOT NULL
+     AND v_md5 NOT IN ('89ee6b3aebeb661d74331f3796c5525e',    -- 20261213100000 (baseline)
+                       'f8325d703091629996b988480b63c14d') THEN -- this migration (re-apply)
+    RAISE EXCEPTION 'grievance: fn_generate_unresolved_issue_items in this database (md5 %) is neither the 20261213100000 body this migration was written against nor its own version: re-create section 9 from the live body before applying.', v_md5;
+  END IF;
+END
+$gen_baseline$;
 CREATE OR REPLACE FUNCTION public.fn_generate_unresolved_issue_items()
 RETURNS INT
 LANGUAGE plpgsql
@@ -1303,14 +1418,18 @@ BEGIN
     v_key := 'grievance_ticket:' || v_griev.id::text || ':' || CURRENT_DATE::text;
     v_created := v_created + fn_create_dashboard_work_item(
       v_category, v_priority,
-      'Grievance ' || v_griev.ticket_number || ' — ' || LEFT(v_griev.subject, 80),
-      LEFT(v_griev.description, 140) ||
+      -- A complaint about the Joint MD: no subject, description or number on
+      -- the work item (round 5, M5); the link opens it for the Director.
+      CASE WHEN COALESCE(v_griev.about_joint_md, false) THEN 'A confidential complaint needs your review'
+           ELSE 'Grievance ' || v_griev.ticket_number || ' — ' || LEFT(v_griev.subject, 80) END,
+      CASE WHEN COALESCE(v_griev.about_joint_md, false) THEN 'Open it to see it.'
+           ELSE LEFT(v_griev.description, 140) ||
         CASE WHEN v_griev.escalation_level > 0 THEN ' | escalated L' || v_griev.escalation_level::text ELSE '' END ||
         CASE WHEN v_griev.sla_deadline < NOW() THEN ' | SLA breached ' || v_hours_past_sla::text || 'h' ELSE '' END ||
-        CASE WHEN v_griev.assigned_to IS NULL THEN ' | UNASSIGNED, routed to Director' ELSE '' END,
+        CASE WHEN v_griev.assigned_to IS NULL THEN ' | UNASSIGNED, routed to Director' ELSE '' END END,
       jsonb_build_object(
         'grievance_id',     v_griev.id,
-        'ticket_number',    v_griev.ticket_number,
+        'ticket_number',    CASE WHEN COALESCE(v_griev.about_joint_md, false) THEN NULL ELSE v_griev.ticket_number END,
         'escalation_level', v_griev.escalation_level,
         'sla_breached',     (v_griev.sla_deadline < NOW()),
         'is_emergency',     v_griev.is_emergency,
@@ -1344,6 +1463,10 @@ REVOKE ALL ON FUNCTION public.fn_generate_unresolved_issue_items() FROM PUBLIC, 
 --     write (status, the hourly breach stamp, a comment count), or one such
 --     row would stop the escalation run for every college (deep review of
 --     #4079, H1).
+-- (d) Routing and escalation metadata (auto_route, escalations, ...) is the
+--     database's alone: other writers keep the stored values (round 5, M4).
+-- (e) A complaint about the Joint MD cannot be moved to another college
+--     except by send-back or that college's Director (round 5).
 -- (c) The tick can only be set when the complaint is filed (INSERT, where
 --     routing sends it to the Director). An UPDATE that sets it is refused
 --     for everyone: otherwise a HOD or Principal handling a complaint about
@@ -1356,6 +1479,25 @@ SECURITY DEFINER
 SET search_path = public
 AS $$
 BEGIN
+  -- (d) Routing / escalation metadata is the database's alone (round 5, M4):
+  --     an UPDATE from anywhere but the hourly run or send-back keeps the
+  --     stored values, whatever it sent.
+  IF COALESCE(current_setting('app.grievance_system_write', true), '') <> 'on' THEN
+    NEW.metadata := (COALESCE(NEW.metadata, '{}'::jsonb) - public.fn_grievance_system_metadata_keys())
+                    || COALESCE((SELECT jsonb_object_agg(e.key, e.value)
+                                 FROM jsonb_each(COALESCE(OLD.metadata, '{}'::jsonb)) AS e
+                                 WHERE e.key = ANY (public.fn_grievance_system_metadata_keys())), '{}'::jsonb);
+  END IF;
+  -- (e) A complaint about the Joint MD stays in its college (hiding depends
+  --     on it): only send-back or that college's Director may move it
+  --     (round 5).
+  IF COALESCE(OLD.about_joint_md, false) AND COALESCE(NEW.about_joint_md, false)
+     AND OLD.institution_id IS DISTINCT FROM NEW.institution_id
+     AND COALESCE(current_setting('app.grievance_send_back', true), '') <> 'on'
+     AND auth.uid() IS DISTINCT FROM public.fn_grievance_director_for(OLD.institution_id) THEN
+    RAISE EXCEPTION 'This complaint is marked as about the Joint MD. Only the Director can move it to another college.'
+      USING ERRCODE = '42501';
+  END IF;
   IF COALESCE(OLD.about_joint_md, false) AND NOT COALESCE(NEW.about_joint_md, false)
      AND COALESCE(current_setting('app.grievance_send_back', true), '') <> 'on' THEN
     RAISE EXCEPTION 'This complaint is marked as about the Joint MD. Only the Director can send it back to the normal path, with the "Send back to the normal path" button on the complaint.'
@@ -1899,6 +2041,7 @@ AS $allow$
     ('fn_grievance_level_target',             'the person at one chain level for the ticket row it is handed (section 5)'),
     ('fn_grievance_about_joint_md_target',    'the Director for the ticket row it is handed (section 3b)'),
     ('fn_grievance_sensitive_reason',         'classifies the ticket row it is handed (section 4)'),
+    ('fn_grievance_system_metadata_keys',     'the list of metadata keys only the database writes; reads no table'),
     ('fn_grievance_tick_record_failure',      'writes the hourly run''s failure onto the one ticket it is handed; returns nothing'),
     ('fn_grievance_jmd_mask',                 'text tool of this gate; reads no table'),
     ('fn_grievance_jmd_wrap_reads',           'text tool of this gate; the names are in its string literals; reads no table'),
@@ -2034,18 +2177,10 @@ BEGIN
   IF NOT FOUND THEN
     RAISE EXCEPTION '%', c_refuse USING ERRCODE = '42501';
   END IF;
-  -- The Director = the profile the setting names, read straight from the
-  -- policy rows (this college first, then global): no per-user row, no
-  -- super-admin shortcut. Unset or unreadable = nobody.
-  SELECT public.fn_grievance_policy_profile_id(pp.value) INTO v_dir
-  FROM public.platform_policies pp
-  WHERE pp.is_active
-    AND pp.policy_key = 'grievance.escalation.about_joint_md_profile_id'
-    AND ((pp.scope_type = 'institution' AND pp.scope_id = v_t.institution_id)
-      OR (pp.scope_type = 'global' AND pp.scope_id IS NULL))
-    AND public.fn_grievance_policy_profile_id(pp.value) IS NOT NULL   -- an empty college row never hides the global Director
-  ORDER BY CASE pp.scope_type WHEN 'institution' THEN 1 ELSE 2 END
-  LIMIT 1;
+  -- The Director = fn_grievance_director_for (policy rows only; a college row
+  -- naming the Joint MD or someone who cannot act falls through to the
+  -- global Director). No super-admin shortcut. Unset = nobody.
+  v_dir := public.fn_grievance_director_for(v_t.institution_id);
   IF v_dir IS NULL OR v_uid IS DISTINCT FROM v_dir
      OR v_uid = ANY (public.fn_grievance_joint_md_ids(v_t.institution_id)) THEN
     RAISE EXCEPTION '%', c_refuse USING ERRCODE = '42501';
@@ -2081,6 +2216,7 @@ BEGIN
   v_due := COALESCE(v_due, now() + make_interval(hours => v_hours));
 
   PERFORM set_config('app.grievance_send_back', 'on', true);
+  PERFORM set_config('app.grievance_system_write', 'on', true);
   UPDATE public.grievance_tickets
      SET about_joint_md      = false,
          assigned_to         = v_to,
@@ -2104,6 +2240,7 @@ BEGIN
    WHERE id = v_was.id
    RETURNING * INTO v_t;
   PERFORM set_config('app.grievance_send_back', '', true);
+  PERFORM set_config('app.grievance_system_write', '', true);
 
   INSERT INTO public.grievance_history (ticket_id, action, old_value, new_value, performed_by)
   VALUES (v_t.id, 'about_joint_md_sent_back',
