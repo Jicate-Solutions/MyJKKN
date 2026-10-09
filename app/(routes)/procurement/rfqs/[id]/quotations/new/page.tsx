@@ -87,7 +87,9 @@ const EXTRACT_POLL_MS = 2_000;
 // page stops waiting on it and reads the PDF directly with the Claude API
 // (Haiku — the cheapest model), so the person sees prices in seconds instead of
 // being told to wait for a notification.
-const EXTRACT_DIRECT_AFTER_MS = 10_000;
+// 2026-10-09: 10s -> 30s (Director). The Windows max-pdf runner is live and
+// claims in ~5s; 30s gives it room on a slow minute before we pay.
+const EXTRACT_DIRECT_AFTER_MS = 30_000;
 // A runner that took the job but never finished: stop spinning eventually.
 const EXTRACT_GIVE_UP_MS = 180_000;
 
