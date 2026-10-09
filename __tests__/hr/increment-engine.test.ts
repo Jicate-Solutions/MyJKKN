@@ -70,6 +70,7 @@ function completeRules(over: Partial<IncrementRules> = {}): IncrementRules {
     annualAmount: 1000,
     annualPercentOfGross: null,
     satisfactoryMinScore: 60,
+    unstatedConditions: [],
     ...over,
   };
 }
@@ -83,9 +84,11 @@ function person(over: Partial<PersonPayFacts> = {}): PersonPayFacts {
     departmentId: 'dept-1',
     departmentIncrementAmount: 1000,
     currentMonthlyGross: 20000,
+    payRecord: 'one',
     payEffectiveFrom: '2025-01-15',
     dateOfJoining: '2020-06-01',
-    latestReview: { cycleYear: 2026, finalScore: 75, isFinalApproved: true },
+    latestReview: { cycleYear: 2026, finalScore: 75, isFinalApproved: true, periodEnd: '2026-03-31' },
+    reviewRecordReadable: true,
     decidedDisciplinaryCases: [],
     openUndecidedDisciplinaryCases: 0,
     conductRecordReadable: true,
@@ -192,7 +195,7 @@ describe('parseIncrementRules', () => {
     }
   });
 
-  it('prefers a fixed amount over a percentage, and says so', () => {
+  it("says a college's own fixed amount or percentage is not used (the Director's department amount is)", () => {
     const parsed = parseIncrementRules({
       increments: {
         annual_window_months: 12,
@@ -202,7 +205,23 @@ describe('parseIncrementRules', () => {
     })!;
     expect(parsed.rules.annualAmount).toBe(1500);
     expect(parsed.rules.annualPercentOfGross).toBeNull();
-    expect(parsed.problems.join(' ')).toMatch(/both a fixed amount and a percentage/);
+    expect(parsed.problems.join(' ')).toMatch(/Neither is used/);
+    expect(parsed.problems.join(' ')).not.toMatch(/The fixed amount is used/);
+  });
+
+  it('lists a yes/no or a list the rules leave out as unstated, never as "not required"', () => {
+    const parsed = parseIncrementRules({ increments: { annual_window_months: 12 } })!;
+    expect(parsed.rules.unstatedConditions).toHaveLength(3);
+    expect(parsed.problems.join(' ')).toMatch(/The rules do not say whether satisfactory performance/);
+    const full = parseIncrementRules({
+      increments: {
+        annual_window_months: 12,
+        satisfactory_performance_required: false,
+        head_of_dept_recommendation_required: false,
+        withholding_triggers: [],
+      },
+    })!;
+    expect(full.rules.unstatedConditions).toEqual([]);
   });
 
   it('discards a percentage outside 0-100', () => {
@@ -325,15 +344,46 @@ describe('assessIncrement — the annual window', () => {
     expect(early.nextEligibleOn).toBe('2026-11-29');
   });
 
-  it('measures from the joining date when no pay row exists', () => {
+  it('does NOT count the year from the joining date when no pay row is in force', () => {
     const r = assessIncrement(
-      person({ payEffectiveFrom: null, dateOfJoining: '2025-01-10' }),
+      person({ payRecord: 'none', payEffectiveFrom: null, dateOfJoining: '2020-01-10' }),
       completeRules(),
       { asOf: ASOF },
     );
-    expect(r.windowAnchor).toBe('date_of_joining');
-    expect(r.verdict).toBe('due');
-    expect(checkFor(r, 'annual_window').detail).toMatch(/since they joined/);
+    expect(r.windowAnchor).toBeNull();
+    expect(r.verdict).toBe('cannot_tell');
+    expect(r.reason).toMatch(/No pay record is in force/);
+    expect(r.proposedMonthlyIncrease).toBeNull();
+  });
+
+  it('cannot tell, and is not due, when the pay read failed', () => {
+    const r = assessIncrement(person({ payRecord: 'unreadable' }), completeRules(), { asOf: ASOF });
+    expect(r.verdict).toBe('cannot_tell');
+    expect(r.reason).toMatch(/Could not check pay — not decided/);
+    expect(r.proposedMonthlyIncrease).toBeNull();
+  });
+
+  it('cannot tell when two or more pay rows are in force', () => {
+    const r = assessIncrement(person({ payRecord: 'ambiguous' }), completeRules(), { asOf: ASOF });
+    expect(r.verdict).toBe('cannot_tell');
+    expect(r.reason).toMatch(/More than one pay record is in force/);
+  });
+
+  it('cannot tell when the pay row in force has no usable monthly figure', () => {
+    for (const gross of [null, 0, -5, Number.NaN]) {
+      const r = assessIncrement(person({ currentMonthlyGross: gross }), completeRules(), { asOf: ASOF });
+      expect(r.verdict, String(gross)).toBe('cannot_tell');
+      expect(r.reason).toMatch(/no usable monthly figure/);
+    }
+  });
+
+  it('refuses an impossible report date instead of counting NaN months', () => {
+    for (const bad of ['2026-02-31', '2026-99-99', 'yesterday']) {
+      expect(() => assessIncrement(person(), completeRules(), { asOf: bad }), bad).toThrow(/not a real date/);
+    }
+    expect(() =>
+      assessIncrement(person(), completeRules(), { asOf: new Date('not a date') }),
+    ).toThrow(/not a real date/);
   });
 
   it('prefers the last pay change over the joining date', () => {
@@ -346,15 +396,17 @@ describe('assessIncrement — the annual window', () => {
     expect(r.verdict).toBe('not_due');
   });
 
-  it('cannot tell when neither date is on record', () => {
-    const r = assessIncrement(
-      person({ payEffectiveFrom: null, dateOfJoining: null }),
-      completeRules(),
-      { asOf: ASOF },
-    );
-    expect(r.verdict).toBe('cannot_tell');
-    expect(r.reason).toMatch(/no record of when this person joined/);
-    expect(r.windowAnchor).toBeNull();
+  it('cannot tell when the pay row in force carries no usable start date', () => {
+    for (const from of [null, 'not a date', '2026-02-31']) {
+      const r = assessIncrement(
+        person({ payEffectiveFrom: from, dateOfJoining: null }),
+        completeRules(),
+        { asOf: ASOF },
+      );
+      expect(r.verdict, String(from)).toBe('cannot_tell');
+      expect(r.reason).toMatch(/no usable start date/);
+      expect(r.windowAnchor).toBeNull();
+    }
   });
 
   it('cannot tell when the rules omit the window', () => {
@@ -464,6 +516,30 @@ describe('assessIncrement — conduct', () => {
     expect(r.proposedMonthlyIncrease).toBeNull();
   });
 
+  it('ignores a decision dated after the report date', () => {
+    const r = assessIncrement(
+      person({ decidedDisciplinaryCases: [{ outcome: 'termination', outcomeDate: '2026-10-05' }] }),
+      completeRules(),
+      { asOf: ASOF },
+    );
+    expect(checkFor(r, 'conduct').status).toBe('pass');
+  });
+
+  it('names the most severe decision inside the year, not the first one listed', () => {
+    const r = assessIncrement(
+      person({
+        decidedDisciplinaryCases: [
+          { outcome: 'warning', outcomeDate: '2026-02-01' },
+          { outcome: 'suspension', outcomeDate: '2026-03-01' },
+        ],
+      }),
+      completeRules(),
+      { asOf: ASOF },
+    );
+    expect(r.verdict).toBe('withheld');
+    expect(r.reason).toMatch(/"suspension"/);
+  });
+
   it('keeps an unreadable conduct record out of the college Due count', () => {
     const report = buildCollegeReport({
       institutionId: 'inst-1',
@@ -472,6 +548,7 @@ describe('assessIncrement — conduct', () => {
         increments: {
           annual_window_months: 12,
           approver_default: 'Principal',
+          head_of_dept_recommendation_required: false,
           satisfactory_performance_required: true,
           satisfactory_min_score: 60,
           annual_amount: 1000,
@@ -503,7 +580,7 @@ describe('assessIncrement — performance', () => {
   it('passes a score at or above the satisfactory mark', () => {
     for (const score of [60, 61, 100]) {
       const r = assessIncrement(
-        person({ latestReview: { cycleYear: 2026, finalScore: score, isFinalApproved: true } }),
+        person({ latestReview: { cycleYear: 2026, finalScore: score, isFinalApproved: true, periodEnd: '2026-03-31' } }),
         completeRules({ satisfactoryMinScore: 60 }),
         { asOf: ASOF },
       );
@@ -513,7 +590,7 @@ describe('assessIncrement — performance', () => {
 
   it('withholds a score below the satisfactory mark', () => {
     const r = assessIncrement(
-      person({ latestReview: { cycleYear: 2026, finalScore: 59.99, isFinalApproved: true } }),
+      person({ latestReview: { cycleYear: 2026, finalScore: 59.99, isFinalApproved: true, periodEnd: '2026-03-31' } }),
       completeRules({ satisfactoryMinScore: 60 }),
       { asOf: ASOF },
     );
@@ -531,7 +608,7 @@ describe('assessIncrement — performance', () => {
 
   it('cannot tell while a review is unapproved', () => {
     const r = assessIncrement(
-      person({ latestReview: { cycleYear: 2026, finalScore: 90, isFinalApproved: false } }),
+      person({ latestReview: { cycleYear: 2026, finalScore: 90, isFinalApproved: false, periodEnd: '2026-03-31' } }),
       completeRules(),
       { asOf: ASOF },
     );
@@ -541,7 +618,7 @@ describe('assessIncrement — performance', () => {
 
   it('cannot tell when an approved review carries no score', () => {
     const r = assessIncrement(
-      person({ latestReview: { cycleYear: 2026, finalScore: null, isFinalApproved: true } }),
+      person({ latestReview: { cycleYear: 2026, finalScore: null, isFinalApproved: true, periodEnd: '2026-03-31' } }),
       completeRules(),
       { asOf: ASOF },
     );
@@ -582,6 +659,50 @@ describe('assessIncrement — performance', () => {
       { asOf: ASOF },
     );
     expect(r.verdict).toBe('cannot_tell');
+  });
+});
+
+describe('assessIncrement — the appraisal read', () => {
+  it('cannot tell, and is not due, when the appraisal record could not be read', () => {
+    const r = assessIncrement(person({ reviewRecordReadable: false }), completeRules(), { asOf: ASOF });
+    expect(r.verdict).toBe('cannot_tell');
+    expect(checkFor(r, 'performance').detail).toMatch(/Could not check performance — not decided/);
+  });
+
+  it('does not use a signed-off appraisal whose period ended before the year began', () => {
+    const r = assessIncrement(
+      person({
+        payEffectiveFrom: '2025-01-15',
+        latestReview: { cycleYear: 2024, finalScore: 95, isFinalApproved: true, periodEnd: '2024-06-30' },
+      }),
+      completeRules(),
+      { asOf: ASOF },
+    );
+    expect(r.verdict).toBe('cannot_tell');
+    expect(checkFor(r, 'performance').detail).toMatch(/does not judge this year/);
+  });
+
+  it('does not use a signed-off appraisal that carries no date', () => {
+    const r = assessIncrement(
+      person({ latestReview: { cycleYear: 2026, finalScore: 95, isFinalApproved: true, periodEnd: null } }),
+      completeRules(),
+      { asOf: ASOF },
+    );
+    expect(r.verdict).toBe('cannot_tell');
+    expect(checkFor(r, 'performance').detail).toMatch(/has no date/);
+  });
+});
+
+describe('assessIncrement — a condition the rules leave unstated', () => {
+  it('cannot tell when the rules do not say whether the head of department must recommend', () => {
+    const r = assessIncrement(
+      person(),
+      completeRules({ unstatedConditions: ["whether the head of department's recommendation is required"] }),
+      { asOf: ASOF },
+    );
+    expect(r.verdict).toBe('cannot_tell');
+    expect(checkFor(r, 'rules_complete').status).toBe('unknown');
+    expect(r.proposedMonthlyIncrease).toBeNull();
   });
 });
 
@@ -736,6 +857,7 @@ describe('buildCollegeReport', () => {
       increments: {
         annual_window_months: 12,
         approver_default: 'Principal',
+        head_of_dept_recommendation_required: false,
         satisfactory_performance_required: true,
         satisfactory_min_score: 60,
         annual_amount: 1000,

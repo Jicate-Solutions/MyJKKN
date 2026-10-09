@@ -19,7 +19,10 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 // key (#4111 keeps it unreadable to signed-in accounts). Same fake tables.
 vi.mock('@/lib/supabase/server', () => ({ createServiceRoleClient: () => makeClient() }));
 
-import { IncrementReportService } from '@/lib/services/hr/increments/increment-report-service';
+import {
+  IncrementReportService,
+  todayInIndia,
+} from '@/lib/services/hr/increments/increment-report-service';
 
 // ---------------------------------------------------------------------------
 // In-memory stand-in. Records every filter applied, so a test can assert HOW a
@@ -38,6 +41,10 @@ let superAdminAnswer: { data: unknown; error: { message: string } | null } = {
   data: true,
   error: null,
 };
+/** What `is_admin` answers. Admins see every appraisal, not every case. */
+let adminAnswer: { data: unknown; error: { message: string } | null } = { data: false, error: null };
+/** Like PostgREST: a read returns at most this many rows, with no error. */
+const MAX_ROWS = 1000;
 
 function makeClient() {
   function from(table: string) {
@@ -49,6 +56,11 @@ function makeClient() {
     const builder: any = {
       select: () => builder,
       order: () => builder,
+      range: (from: number, to: number) => {
+        filters.push(`range:${from}-${to}`);
+        rows = rows.slice(from, to + 1);
+        return builder;
+      },
       eq: (col: string, value: any) => {
         filters.push(`eq:${col}=${value}`);
         rows = rows.filter((r) => r[col] === value);
@@ -85,7 +97,7 @@ function makeClient() {
         resolve(
           tableErrors[table]
             ? { data: null, error: tableErrors[table] }
-            : { data: rows, error: null },
+            : { data: rows.slice(0, MAX_ROWS), error: null },
         ),
     };
     return builder;
@@ -98,6 +110,7 @@ function makeClient() {
         return { data: tables.__orgs ?? [], error: null };
       }
       if (name === 'is_super_admin') return superAdminAnswer;
+      if (name === 'is_admin') return adminAnswer;
       return { data: null, error: null };
     }),
   };
@@ -136,6 +149,7 @@ beforeEach(() => {
   writeAttempts = [];
   tableErrors = {};
   superAdminAnswer = { data: true, error: null };
+  adminAnswer = { data: false, error: null };
   tables = {
     __orgs: [
       {
@@ -156,6 +170,7 @@ beforeEach(() => {
     platform_policies: [
       {
         policy_key: 'hr.allowances_and_increments',
+        is_active: true,
         scope_type: 'institution',
         scope_id: ENGINEERING,
         value: COMPLETE_INCREMENTS,
@@ -163,6 +178,7 @@ beforeEach(() => {
       // A GLOBAL row for the same key. Nothing must inherit it.
       {
         policy_key: 'hr.allowances_and_increments',
+        is_active: true,
         scope_type: 'global',
         scope_id: null,
         value: SEEDED_INCREMENTS,
@@ -416,6 +432,175 @@ describe('IncrementReportService.build', () => {
     expect(asha(report).verdict).toBe('cannot_tell');
   });
 
+  // --- Every read the Due verdict depends on (#4105 panel round 1) -------
+  it('does not show Due when the pay read errors', async () => {
+    tableErrors.hr_staff_salaries = { message: 'URI too long' };
+    const report = await IncrementReportService.build(makeClient(), { asOf: ASOF });
+    expect(asha(report).verdict).toBe('cannot_tell');
+    expect(asha(report).reason).toMatch(/Could not check pay — not decided/);
+    expect(report.colleges.find((c) => c.institutionId === ENGINEERING)!.counts.due).toBe(0);
+  });
+
+  it('does not count the year from the joining date when the person has no pay row', async () => {
+    tables.hr_staff_salaries = tables.hr_staff_salaries.filter((r) => r.staff_id !== 's1');
+    const report = await IncrementReportService.build(makeClient(), { asOf: ASOF });
+    expect(asha(report).verdict).toBe('cannot_tell');
+    expect(asha(report).reason).toMatch(/No pay record is in force/);
+  });
+
+  it('does not show Due when two pay rows are in force for one person', async () => {
+    tables.hr_staff_salaries.push({
+      id: 'sal-x',
+      staff_id: 's1',
+      monthly_gross: 30000,
+      effective_from: '2024-01-01',
+      hr_organization_id: 'other-org',
+      superseded_by: null,
+    });
+    const report = await IncrementReportService.build(makeClient(), { asOf: ASOF });
+    expect(asha(report).verdict).toBe('cannot_tell');
+    expect(asha(report).reason).toMatch(/More than one pay record is in force/);
+  });
+
+  it('leaves a pay row dated after the report date out of the pay in force', async () => {
+    tables.hr_staff_salaries.push({
+      id: 'sal-next',
+      staff_id: 's1',
+      monthly_gross: 26000,
+      effective_from: '2026-11-01',
+      superseded_by: null,
+    });
+    const report = await IncrementReportService.build(makeClient(), { asOf: ASOF });
+    expect(asha(report).currentMonthlyGross).toBe(24000);
+    expect(asha(report).verdict).toBe('due');
+  });
+
+  it('does not show Due when the appraisal read errors', async () => {
+    tableErrors.hr_performance_reviews = { message: 'timeout' };
+    const report = await IncrementReportService.build(makeClient(), { asOf: ASOF });
+    expect(asha(report).verdict).toBe('cannot_tell');
+    expect(asha(report).checks.find((c) => c.id === 'performance')!.detail).toMatch(
+      /Could not check performance — not decided/,
+    );
+  });
+
+  it('does not show Due when the caller cannot see every appraisal (RLS answers with zero rows)', async () => {
+    // Sees every case (super admin answer is what the conduct read needs) but
+    // the appraisal question is is_super_admin OR is_admin; both false here.
+    superAdminAnswer = { data: false, error: null };
+    adminAnswer = { data: false, error: null };
+    const report = await IncrementReportService.build(makeClient(), { asOf: ASOF });
+    expect(asha(report).checks.find((c) => c.id === 'performance')!.status).toBe('unknown');
+    expect(asha(report).verdict).toBe('cannot_tell');
+  });
+
+  it('does not use an appraisal whose cycle ended before the year began', async () => {
+    tables.hr_performance_reviews = [
+      {
+        id: 'rev-old',
+        staff_id: 's1',
+        status: 'final_approved',
+        final_score: 90,
+        final_approved_at: '2024-07-01T00:00:00Z',
+        cycle: { cycle_year: 2024, end_date: '2024-06-30' },
+      },
+    ];
+    const report = await IncrementReportService.build(makeClient(), { asOf: ASOF });
+    expect(asha(report).verdict).toBe('cannot_tell');
+    expect(asha(report).checks.find((c) => c.id === 'performance')!.detail).toMatch(/does not judge this year/);
+  });
+
+  it('reads past the 1000-row cut-off, so the newest appraisal is not lost', async () => {
+    const old = Array.from({ length: 1200 }, (_, i) => ({
+      id: `rev-${String(i).padStart(5, '0')}`,
+      staff_id: 's1',
+      status: 'final_approved',
+      final_score: 10,
+      final_approved_at: '2023-07-01T00:00:00Z',
+      cycle: { cycle_year: 2023, end_date: '2023-06-30' },
+    }));
+    tables.hr_performance_reviews = [
+      ...old,
+      {
+        id: 'rev-zz-newest',
+        staff_id: 's1',
+        status: 'final_approved',
+        final_score: 82,
+        final_approved_at: '2026-07-01T00:00:00Z',
+        cycle: { cycle_year: 2026, end_date: '2026-06-30' },
+      },
+    ];
+    const report = await IncrementReportService.build(makeClient(), { asOf: ASOF });
+    expect(asha(report).checks.find((c) => c.id === 'performance')!.detail).toMatch(/scored 82/);
+    expect(asha(report).verdict).toBe('due');
+    const pages = queryLog.filter((q) => q.table === 'hr_performance_reviews');
+    expect(pages.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('asks for at most 200 ids per read', async () => {
+    const extra = Array.from({ length: 450 }, (_, i) => ({
+      id: `x${i}`,
+      first_name: 'Extra',
+      last_name: String(i),
+      designation: 'Typist',
+      institution_id: ENGINEERING,
+      date_of_joining: '2020-01-01',
+      is_active: true,
+    }));
+    tables.staff = [...tables.staff, ...extra];
+    await IncrementReportService.build(makeClient(), { asOf: ASOF });
+    const sizes = queryLog
+      .filter((q) => q.table === 'hr_staff_salaries')
+      .flatMap((q) => q.filters.filter((f) => f.startsWith('in:staff_id=')))
+      .map((f) => Number(/\[(\d+)\]/.exec(f)![1]));
+    expect(sizes.length).toBeGreaterThanOrEqual(3);
+    expect(Math.max(...sizes)).toBeLessThanOrEqual(200);
+    expect(sizes.reduce((a, b) => a + b, 0)).toBe(452);
+  });
+
+  it('shows no amount when the department rule is a draft that was never published', async () => {
+    tables.platform_policies = tables.platform_policies.map((r) =>
+      r.policy_key === 'hr.salary_suggestion_rule' ? { ...r, publication_state: 'draft_only' } : r,
+    );
+    const report = await IncrementReportService.build(makeClient(), { asOf: ASOF });
+    expect(asha(report).verdict).toBe('due');
+    expect(asha(report).proposedMonthlyIncrease).toBeNull();
+  });
+
+  it('shows no amount when the department rule is switched off', async () => {
+    tables.platform_policies = tables.platform_policies.map((r) =>
+      r.policy_key === 'hr.salary_suggestion_rule' ? { ...r, is_active: false } : r,
+    );
+    const report = await IncrementReportService.build(makeClient(), { asOf: ASOF });
+    expect(asha(report).proposedMonthlyIncrease).toBeNull();
+  });
+
+  it('does not use a college rule set that is switched off or only a draft', async () => {
+    for (const change of [{ is_active: false }, { publication_state: 'draft_only' }]) {
+      tables.platform_policies = tables.platform_policies.map((r) =>
+        r.policy_key === 'hr.allowances_and_increments' && r.scope_id === ENGINEERING
+          ? { ...r, is_active: true, publication_state: 'published', ...change }
+          : r,
+      );
+      const report = await IncrementReportService.build(makeClient(), { asOf: ASOF });
+      expect(asha(report).verdict, JSON.stringify(change)).toBe('no_rules');
+    }
+  });
+
+  it('refuses an impossible report date instead of reading anything', async () => {
+    for (const bad of ['2026-02-31', '2026-99-99', '2026-1-1']) {
+      await expect(IncrementReportService.build(makeClient(), { asOf: bad }), bad).rejects.toThrow(
+        /not a real date/,
+      );
+    }
+  });
+
+  it("defaults to today's date in India, not in UTC", () => {
+    // 00:30 IST on 30 Sep is still 29 Sep in UTC.
+    expect(todayInIndia(new Date('2026-09-29T19:00:00Z'))).toBe('2026-09-30');
+    expect(todayInIndia(new Date('2026-09-29T12:00:00Z'))).toBe('2026-09-29');
+  });
+
   it('flags no accessible colleges explicitly instead of returning an empty list', async () => {
     tables.__orgs = [];
     const report = await IncrementReportService.build(makeClient(), { asOf: ASOF });
@@ -448,6 +633,7 @@ describe('IncrementReportService.build', () => {
     tables.platform_policies = [
       {
         policy_key: 'hr.allowances_and_increments',
+        is_active: true,
         scope_type: 'institution',
         scope_id: ENGINEERING,
         value: { value: COMPLETE_INCREMENTS },
@@ -470,6 +656,7 @@ describe('IncrementReportService — the real seeded policy', () => {
     tables.platform_policies = [
       {
         policy_key: 'hr.allowances_and_increments',
+        is_active: true,
         scope_type: 'institution',
         scope_id: ENGINEERING,
         value: SEEDED_INCREMENTS,

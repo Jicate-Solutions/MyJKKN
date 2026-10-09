@@ -95,12 +95,14 @@ function person(over: Partial<PersonPayFacts>): PersonPayFacts {
     departmentId: 'dept-1',
     departmentIncrementAmount: 1500,
     currentMonthlyGross: 20000,
+    payRecord: 'one',
     payEffectiveFrom: '2025-01-15',
     dateOfJoining: '2020-06-01',
-    latestReview: { cycleYear: 2026, finalScore: 75, isFinalApproved: true },
+    latestReview: { cycleYear: 2026, finalScore: 75, isFinalApproved: true, periodEnd: '2026-03-31' },
     decidedDisciplinaryCases: [],
     openUndecidedDisciplinaryCases: 0,
     conductRecordReadable: true,
+    reviewRecordReadable: true,
     scale: null,
     ...over,
   };
@@ -110,7 +112,7 @@ const DUE = person({ staffId: 'p-1', staffName: 'Kavya Ramesh' });
 const WITHHELD_SCORE = person({
   staffId: 'p-2',
   staffName: 'Arun Prakash',
-  latestReview: { cycleYear: 2026, finalScore: 50, isFinalApproved: true },
+  latestReview: { cycleYear: 2026, finalScore: 50, isFinalApproved: true, periodEnd: '2026-03-31' },
 });
 const WITHHELD_CONDUCT = person({
   staffId: 'p-3',

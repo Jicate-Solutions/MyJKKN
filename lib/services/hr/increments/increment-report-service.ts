@@ -32,6 +32,8 @@
 
 import {
   buildCollegeReport,
+  compareDates,
+  parseIsoDate,
   type CollegeIncrementReport,
   type DecidedDisciplinaryCase,
   type DisciplinaryOutcome,
@@ -97,6 +99,50 @@ function fullName(row: { first_name?: unknown; last_name?: unknown }): string {
   return joined === '' ? 'Unnamed team member record' : joined;
 }
 
+/**
+ * Ids per `.in()` filter. Every id is ~37 characters in the request URL, and
+ * proxies refuse very long URLs; ~675 team members in one filter is ~25KB.
+ */
+const IDS_PER_READ = 200;
+/** Rows per page. PostgREST cuts a read off at 1000 rows without an error. */
+const ROWS_PER_PAGE = 1000;
+
+/**
+ * Read EVERY row a filtered query matches: the ids in batches, each batch
+ * paged until a short page. Any error on any page is returned, never
+ * swallowed, so a caller can treat a partial read as a failed one.
+ */
+async function readAll(
+  query: (ids: string[]) => any,
+  ids: string[],
+  /** A column unique per row, so pages neither overlap nor skip. */
+  orderBy = 'id',
+): Promise<{ rows: Array<Record<string, any>>; failed: boolean }> {
+  const rows: Array<Record<string, any>> = [];
+  for (let i = 0; i < ids.length; i += IDS_PER_READ) {
+    const batch = ids.slice(i, i + IDS_PER_READ);
+    for (let from = 0; ; from += ROWS_PER_PAGE) {
+      const { data, error } = await query(batch)
+        .order(orderBy, { ascending: true })
+        .range(from, from + ROWS_PER_PAGE - 1);
+      if (error || !Array.isArray(data)) return { rows, failed: true };
+      rows.push(...data);
+      if (data.length < ROWS_PER_PAGE) break;
+    }
+  }
+  return { rows, failed: false };
+}
+
+/** Today in India (Asia/Kolkata), as YYYY-MM-DD. A UTC date is still yesterday before 05:30. */
+export function todayInIndia(now: Date = new Date()): string {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Kolkata',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(now);
+}
+
 const DISCIPLINARY_OUTCOMES: DisciplinaryOutcome[] = [
   'warning',
   'suspension',
@@ -116,7 +162,12 @@ export class IncrementReportService {
     supabase: any,
     options: { asOf?: string } = {},
   ): Promise<IncrementReport> {
-    const asOf = options.asOf ?? new Date().toISOString().slice(0, 10);
+    const asOf = options.asOf ?? todayInIndia();
+    // An impossible date (2026-02-31) would count NaN months, and NaN passes
+    // the window check, so everyone would read as due. Refuse it here too.
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(asOf) || parseIsoDate(asOf) === null) {
+      throw new Error(`The report date "${asOf}" is not a real date written as YYYY-MM-DD.`);
+    }
 
     // --- 1. Which colleges may this user see -----------------------------
     const { data: orgRows, error: orgError } = await supabase.rpc(
@@ -152,45 +203,65 @@ export class IncrementReportService {
     }
 
     // --- 2. The rules, per college, with NO fallback ---------------------
+    // Active rows only. A 'draft_only' row holds no published rules (its value
+    // is a placeholder); 'draft_pending' keeps the published rules in `value`.
+    // One row per college at most: uq_platform_policies_key_scope.
     const { data: policyRows, error: policyError } = await supabase
       .from('platform_policies')
-      .select('scope_id, value, updated_at')
+      .select('scope_id, value, publication_state, updated_at')
       .eq('policy_key', INCREMENT_POLICY_KEY)
       .eq('scope_type', 'institution')
+      .eq('is_active', true)
       .in('scope_id', institutionIds);
     if (policyError) throw new Error(policyError.message);
 
     const policyByCollege = new Map<string, unknown>();
-    for (const row of (policyRows ?? []) as Array<{ scope_id: string; value: unknown }>) {
-      if (row?.scope_id) policyByCollege.set(row.scope_id, unwrapPolicyValue(row.value));
+    for (const row of (policyRows ?? []) as Array<{
+      scope_id: string;
+      value: unknown;
+      publication_state?: unknown;
+    }>) {
+      if (!row?.scope_id || row.publication_state === 'draft_only') continue;
+      policyByCollege.set(row.scope_id, unwrapPolicyValue(row.value));
     }
 
     // --- 2b. The amount, per department (Director, 30 Sep 2026) ----------
     // The published, active, group-wide rule only. The stored object IS the
     // rule (no { value: ... } wrapper), as lib/hr/salary-suggestion.ts reads it.
     const admin: any = createServiceRoleClient();
+    // Active and not 'draft_only' (whose value is '{}' until the first
+    // publish). Exactly one such row, or no amount is shown for anyone.
     const { data: ruleRows, error: ruleError } = await admin
       .from('platform_policies')
       .select('value, publication_state, is_active')
       .eq('policy_key', DEPARTMENT_AMOUNT_RULE_KEY)
       .eq('scope_type', 'global')
+      .eq('is_active', true)
       .is('scope_id', null);
     if (ruleError) throw new Error(ruleError.message);
-    const ruleRow = ((ruleRows ?? []) as Array<Record<string, unknown>>).find(
-      (r) => r.is_active !== false && r.publication_state !== 'draft_only',
+    const usableRules = ((ruleRows ?? []) as Array<Record<string, unknown>>).filter(
+      (r) => r.is_active === true && r.publication_state !== 'draft_only',
     );
-    const departmentRule = parseSalarySuggestionRule(ruleRow?.value ?? null);
+    const departmentRule = parseSalarySuggestionRule(
+      usableRules.length === 1 ? usableRules[0].value ?? null : null,
+    );
 
     // --- 3. The people ---------------------------------------------------
-    const { data: staffRows, error: staffError } = await supabase
-      .from('staff')
-      .select('id, first_name, last_name, designation, institution_id, department_id, date_of_joining')
-      .in('institution_id', institutionIds)
-      .eq('is_active', true)
-      .order('first_name', { ascending: true });
-    if (staffError) throw new Error(staffError.message);
+    // Paged: a cut-off here would drop people from the report silently.
+    const staffRead = await readAll(
+      (ids) =>
+        supabase
+          .from('staff')
+          .select('id, first_name, last_name, designation, institution_id, department_id, date_of_joining')
+          .in('institution_id', ids)
+          .eq('is_active', true),
+      institutionIds,
+    );
+    if (staffRead.failed) throw new Error('Could not read the team members of these colleges.');
 
-    const staff = (staffRows ?? []) as Array<Record<string, unknown>>;
+    const staff = [...staffRead.rows].sort((a, b) =>
+      String(a.first_name ?? '').localeCompare(String(b.first_name ?? '')),
+    ) as Array<Record<string, unknown>>;
     const staffIds = staff
       .map((s) => (typeof s.id === 'string' ? s.id : null))
       .filter((v): v is string => v !== null);
@@ -199,35 +270,67 @@ export class IncrementReportService {
       return this.assemble({ asOf, collegeNames, policyByCollege, peopleByCollege: new Map() });
     }
 
-    // --- 4. Pay in force -------------------------------------------------
-    const { data: salaryRows } = await supabase
-      .from('hr_staff_salaries')
-      .select('staff_id, monthly_gross, effective_from, hr_organization_id')
-      .in('staff_id', staffIds)
-      .is('superseded_by', null);
+    // Whether anyone sees EVERY row of the tables below is Postgres's answer,
+    // asked once. An error counts as "cannot see".
+    const [{ data: superAdminAnswer, error: superAdminError }, { data: adminAnswer, error: adminError }] =
+      await Promise.all([supabase.rpc('is_super_admin'), supabase.rpc('is_admin')]);
+    const isSuperAdmin = !superAdminError && superAdminAnswer === true;
+    const isAdmin = !adminError && adminAnswer === true;
 
-    const salaryByStaff = new Map<string, { gross: number | null; effectiveFrom: string | null }>();
-    for (const row of (salaryRows ?? []) as Array<Record<string, unknown>>) {
+    // --- 4. Pay in force -------------------------------------------------
+    // A failed read marks EVERY person 'unreadable'. Rows dated after the
+    // report date are not in force yet. One row in force is the only state
+    // that lets the year be counted; none or several is "not decided".
+    // (RLS: this route's permission, hr.payroll.salary.view, reads every row.)
+    const salaryRead = await readAll(
+      (ids) =>
+        supabase
+          .from('hr_staff_salaries')
+          .select('id, staff_id, monthly_gross, effective_from, hr_organization_id')
+          .in('staff_id', ids)
+          .is('superseded_by', null),
+      staffIds,
+    );
+    const asOfDate = parseIsoDate(asOf)!;
+
+    const salaryByStaff = new Map<
+      string,
+      Array<{ gross: number | null; effectiveFrom: string | null }>
+    >();
+    for (const row of salaryRead.rows) {
       const id = typeof row.staff_id === 'string' ? row.staff_id : null;
       if (!id) continue;
-      salaryByStaff.set(id, {
-        gross: asNumber(row.monthly_gross),
-        effectiveFrom: typeof row.effective_from === 'string' ? row.effective_from : null,
-      });
+      const effectiveFrom = typeof row.effective_from === 'string' ? row.effective_from : null;
+      const starts = parseIsoDate(effectiveFrom);
+      // Not yet in force on the report date. (An undated row stays: it is
+      // reported as unusable, not hidden.)
+      if (starts !== null && compareDates(starts, asOfDate) > 0) continue;
+      const list = salaryByStaff.get(id) ?? [];
+      list.push({ gross: asNumber(row.monthly_gross), effectiveFrom });
+      salaryByStaff.set(id, list);
     }
 
     // --- 5. The latest performance review --------------------------------
     // Newest cycle first, so the first row seen per person is the current one.
-    const { data: reviewRows } = await supabase
-      .from('hr_performance_reviews')
-      .select(
-        'staff_id, status, final_score, final_approved_at, cycle:hr_performance_review_cycles(cycle_year, end_date)',
-      )
-      .in('staff_id', staffIds);
+    // Readable only when the read succeeds AND the caller sees every review.
+    // RLS on hr_performance_reviews (20260617_hr_performance_review_cycles.sql)
+    // lets super admins and admins see all; anyone else sees their own and
+    // their department's, and answers the rest with zero rows, not an error.
+    const reviewRead = await readAll(
+      (ids) =>
+        supabase
+          .from('hr_performance_reviews')
+          .select(
+            'id, staff_id, status, final_score, final_approved_at, cycle:hr_performance_review_cycles(cycle_year, end_date)',
+          )
+          .in('staff_id', ids),
+      staffIds,
+    );
+    const reviewRecordReadable = !reviewRead.failed && (isSuperAdmin || isAdmin);
 
     const reviewByStaff = new Map<string, PerformanceReviewFact>();
     const reviewRank = new Map<string, number>();
-    for (const row of (reviewRows ?? []) as Array<Record<string, any>>) {
+    for (const row of reviewRead.rows) {
       const id = typeof row.staff_id === 'string' ? row.staff_id : null;
       if (!id) continue;
       const cycleYear = asNumber(row.cycle?.cycle_year);
@@ -235,10 +338,14 @@ export class IncrementReportService {
       const rank = (cycleYear ?? 0) * 10 + (row.status === 'final_approved' ? 1 : 0);
       if ((reviewRank.get(id) ?? -1) >= rank) continue;
       reviewRank.set(id, rank);
+      const cycleEnd = typeof row.cycle?.end_date === 'string' ? row.cycle.end_date : null;
+      const approvedAt =
+        typeof row.final_approved_at === 'string' ? row.final_approved_at : null;
       reviewByStaff.set(id, {
         cycleYear,
         finalScore: asNumber(row.final_score),
         isFinalApproved: row.status === 'final_approved',
+        periodEnd: (cycleEnd ?? approvedAt)?.slice(0, 10) ?? null,
       });
     }
 
@@ -255,17 +362,19 @@ export class IncrementReportService {
     // The super-admin question goes to Postgres (`is_super_admin`), and an
     // error there counts as "cannot see". If a wider read policy is ever
     // added, this stays on the safe side: "could not check", never "Due".
-    const { data: caseRows, error: caseError } = await supabase
-      .from('hr_disciplinary_cases')
-      .select('staff_id, case_number, outcome, outcome_date, status, current_stage')
-      .in('staff_id', staffIds);
-    const { data: seesEveryCase, error: superAdminError } = await supabase.rpc('is_super_admin');
-    const conductRecordReadable =
-      !caseError && Array.isArray(caseRows) && !superAdminError && seesEveryCase === true;
+    const caseRead = await readAll(
+      (ids) =>
+        supabase
+          .from('hr_disciplinary_cases')
+          .select('id, staff_id, case_number, outcome, outcome_date, status, current_stage')
+          .in('staff_id', ids),
+      staffIds,
+    );
+    const conductRecordReadable = !caseRead.failed && isSuperAdmin;
 
     const decidedByStaff = new Map<string, DecidedDisciplinaryCase[]>();
     const openByStaff = new Map<string, number>();
-    for (const row of (caseRows ?? []) as Array<Record<string, unknown>>) {
+    for (const row of caseRead.rows) {
       const id = typeof row.staff_id === 'string' ? row.staff_id : null;
       if (!id) continue;
       const outcome = row.outcome;
@@ -293,13 +402,20 @@ export class IncrementReportService {
     // designation_id, and the link is hr_staff_details.designation_id, which
     // the designation-mapping screen fills in. An unsorted title has no scale,
     // and that is shown as "not linked" rather than guessed by name.
-    const { data: detailRows } = await supabase
-      .from('hr_staff_details')
-      .select('staff_id, designation_id')
-      .in('staff_id', staffIds);
+    // Reference only: a failed read shows "not linked" and never moves a
+    // verdict or an amount.
+    const detailRead = await readAll(
+      (ids) =>
+        supabase
+          .from('hr_staff_details')
+          .select('staff_id, designation_id')
+          .in('staff_id', ids),
+      staffIds,
+      'staff_id',
+    );
 
     const designationByStaff = new Map<string, string>();
-    for (const row of (detailRows ?? []) as Array<Record<string, unknown>>) {
+    for (const row of detailRead.rows) {
       const id = typeof row.staff_id === 'string' ? row.staff_id : null;
       const designationId =
         typeof row.designation_id === 'string' ? row.designation_id : null;
@@ -331,7 +447,15 @@ export class IncrementReportService {
       const collegeId = typeof row.institution_id === 'string' ? row.institution_id : null;
       if (!id || !collegeId) continue;
 
-      const salary = salaryByStaff.get(id);
+      const salaries = salaryByStaff.get(id) ?? [];
+      const payRecord: PersonPayFacts['payRecord'] = salaryRead.failed
+        ? 'unreadable'
+        : salaries.length === 0
+          ? 'none'
+          : salaries.length === 1
+            ? 'one'
+            : 'ambiguous';
+      const salary = payRecord === 'one' ? salaries[0] : undefined;
       const designationId = designationByStaff.get(id);
       const scale = designationId ? scaleByDesignation.get(designationId) ?? null : null;
 
@@ -344,10 +468,12 @@ export class IncrementReportService {
         departmentId,
         departmentIncrementAmount: departmentRate(departmentRule, departmentId),
         currentMonthlyGross: salary?.gross ?? null,
+        payRecord,
         payEffectiveFrom: salary?.effectiveFrom ?? null,
         dateOfJoining:
           typeof row.date_of_joining === 'string' ? row.date_of_joining.slice(0, 10) : null,
-        latestReview: reviewByStaff.get(id) ?? null,
+        latestReview: reviewRecordReadable ? reviewByStaff.get(id) ?? null : null,
+        reviewRecordReadable,
         decidedDisciplinaryCases: decidedByStaff.get(id) ?? [],
         openUndecidedDisciplinaryCases: openByStaff.get(id) ?? 0,
         conductRecordReadable,

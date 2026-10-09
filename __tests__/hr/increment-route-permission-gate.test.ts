@@ -173,3 +173,14 @@ describe('Annual Increments route: who the permission gate lets through', () => 
     expect(JSON.stringify(await res.json())).toContain('browser session');
   });
 });
+
+describe('Annual Increments route: the report date', () => {
+  it('refuses (400) a date with the right shape that is not a real day, and builds nothing', async () => {
+    heldKeys = [REQUIRED_KEY];
+    for (const bad of ['2026-02-31', '2026-99-99', '2026-13-01']) {
+      const res = await GET(new NextRequest(`http://localhost/api/hr/payroll/increments?asOf=${bad}`));
+      expect(res.status, bad).toBe(400);
+    }
+    expect(build).not.toHaveBeenCalled();
+  });
+});

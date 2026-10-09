@@ -21,6 +21,7 @@ export const dynamic = 'force-dynamic';
 import { NextResponse, connection } from 'next/server';
 import { withAuth } from '@/lib/auth/with-auth';
 import { IncrementReportService } from '@/lib/services/hr/increments/increment-report-service';
+import { parseIsoDate } from '@/lib/hr/increment-engine';
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -31,7 +32,9 @@ export const GET = withAuth(
       const url = new URL(request.url);
       const asOfParam = url.searchParams.get('asOf');
 
-      if (asOfParam !== null && !ISO_DATE.test(asOfParam)) {
+      // The shape AND a real calendar day: 2026-02-31 has the shape, and an
+      // impossible date would count NaN months, which passes the window check.
+      if (asOfParam !== null && (!ISO_DATE.test(asOfParam) || parseIsoDate(asOfParam) === null)) {
         return NextResponse.json(
           { error: 'asOf must be a date written as YYYY-MM-DD' },
           { status: 400 },
