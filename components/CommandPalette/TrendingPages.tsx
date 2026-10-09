@@ -16,29 +16,32 @@ export function useTrendingPages(limit: number = 5) {
     queryKey: ['trending-pages', profile?.institution_id, limit],
     queryFn: async () => {
       const supabase = createClientSupabaseClient();
-      const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
 
-      const { data, error } = await supabase
-        .from('usage_events')
-        .select('module, metadata')
-        .eq('event_type', 'page_visit')
-        .eq('institution_id', profile?.institution_id || '')
-        .gte('created_at', sevenDaysAgo)
-        .limit(1000);
+      // Aggregate RPC (SECURITY DEFINER): top page paths + visit counts for the
+      // caller's OWN institution, no user ids. Raw usage_events rows are readable
+      // only by institution admins (20271010090000_usage_events_rls_hardening).
+      const { data, error } = await supabase.rpc('fn_usage_trending_pages' as never, {
+        p_days: 7,
+        p_limit: limit,
+      } as never);
 
       if (error) throw error;
-      if (!data || data.length === 0) return [];
+      const rows = (data ?? []) as Array<{
+        module: string | null;
+        page_path: string;
+        visit_count: number | string;
+      }>;
+      if (rows.length === 0) return [];
 
       // Count visits per module/path
       const counts = new Map<string, { module: string; path: string; count: number }>();
-      for (const event of data) {
-        const path = (event.metadata as any)?.page_path || `/${event.module?.replace(/\//g, '/')}`;
-        const key = path;
-        const existing = counts.get(key);
+      for (const row of rows) {
+        const path = row.page_path;
+        const existing = counts.get(path);
         if (existing) {
-          existing.count++;
+          existing.count += Number(row.visit_count) || 0;
         } else {
-          counts.set(key, { module: event.module || '', path, count: 1 });
+          counts.set(path, { module: row.module || '', path, count: Number(row.visit_count) || 0 });
         }
       }
 
