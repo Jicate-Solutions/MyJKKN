@@ -128,9 +128,11 @@ export default async function MeetingsInboxPage({ searchParams }: InboxPageProps
     return out;
   };
 
-  // Everything below runs in parallel; each read has its own time limit, so a
-  // slow one never holds up the list or uses up another's budget.
-  const timeout = () => AbortSignal.timeout(TYPE_COUNTS_TIMEOUT_MS);
+  // Everything below runs in parallel, and every type read shares ONE deadline
+  // that starts here: the type chips never add more than
+  // TYPE_COUNTS_TIMEOUT_MS to the page, whichever read is slow.
+  const typeDeadline = AbortSignal.timeout(TYPE_COUNTS_TIMEOUT_MS);
+  const timeout = () => typeDeadline;
   type Res<T> = { data: T | null; error: unknown };
   const settle = async <T,>(run: () => PromiseLike<{ data: unknown; error: unknown }>): Promise<Res<T>> => {
     try {

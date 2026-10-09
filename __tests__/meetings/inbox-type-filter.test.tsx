@@ -33,6 +33,8 @@ let bookingRowReads = 0;
 let countCalls: Array<Record<string, unknown>> = [];
 /** Makes the type-count call never answer (until its abort signal fires). */
 let countHangs = false;
+/** Makes the meeting_types name lookup (.in) never answer until its abort signal fires. */
+let namesHang = false;
 /** Hides these types' rows, as RLS would. */
 let hiddenTypes: string[] = [];
 
@@ -41,22 +43,30 @@ function makeQuery(table: string) {
   let head = false;
   let range: [number, number] | null = null;
   let cap: number | null = null;
+  let signal: AbortSignal | undefined;
+  let usedIn = false;
   const q: any = {
     select: (_c: string, opts?: { head?: boolean }) => ((head = Boolean(opts?.head)), q),
     order: () => q,
     limit: (n: number) => ((cap = n), q),
     range: (from: number, to: number) => ((range = [from, to]), q),
-    abortSignal: () => q,
+    abortSignal: (sg: AbortSignal) => ((signal = sg), q),
     maybeSingle: () => ({
       then: (ok: (v: unknown) => unknown) =>
         q.then((r: { data: unknown[] | null; error: unknown }) => ok({ data: r.data?.[0] ?? null, error: r.error })),
     }),
-    in: (col: string, vals: unknown[]) => (preds.push((r) => vals.includes(r[col])), q),
+    in: (col: string, vals: unknown[]) => ((usedIn = true), preds.push((r) => vals.includes(r[col])), q),
     eq: (col: string, v: unknown) => (preds.push((r) => r[col] === v), q),
     is: (col: string, v: unknown) => (preds.push((r) => r[col] === v), q),
     gte: (col: string, v: string) => (preds.push((r) => r[col] >= v), q),
     lt: (col: string, v: string) => (preds.push((r) => r[col] < v), q),
-    then: (ok: (v: unknown) => unknown) => {
+    then: (ok: (v: unknown) => unknown, bad?: (e: unknown) => unknown) => {
+      if (namesHang && table === 'meeting_types' && usedIn) {
+        return new Promise((_, reject) => {
+          if (signal?.aborted) return reject(new Error('aborted'));
+          signal?.addEventListener('abort', () => reject(new Error('aborted')));
+        }).then(ok, bad);
+      }
       if (failingTable === table) {
         return Promise.resolve({ data: null, count: null, error: { message: 'timeout' } }).then(ok);
       }
@@ -75,6 +85,13 @@ function countRpc(args: { p_statuses: string[] | null; p_from: string | null; p_
   let signal: AbortSignal | undefined;
   const run = () => {
     if (failingTable === 'rpc') return { data: null, error: { message: 'timeout' } };
+    // The migration is not applied yet: PostgREST answers PGRST202.
+    if (failingTable === 'rpc-missing') {
+      return {
+        data: null,
+        error: { code: 'PGRST202', message: 'Could not find the function public.fn_meeting_inbox_type_counts' },
+      };
+    }
     const by = new Map<string | null, number>();
     for (const b of [...BOOKINGS, ...extraBookings]) {
       if (args.p_statuses && !args.p_statuses.includes(b.status)) continue;
@@ -118,6 +135,7 @@ afterEach(() => {
   bookingRowReads = 0;
   countCalls = [];
   countHangs = false;
+  namesHang = false;
   hiddenTypes = [];
 });
 
@@ -225,6 +243,29 @@ describe('type counts come from one grouped database count', () => {
     // rows still carry their type names, from a small lookup over the listed rows
     expect(screen.getByRole('link', { name: /Candidate One/ })).toHaveTextContent('Job Interview Meeting with Director Inperson');
     expect(err).toHaveBeenCalled();
+    err.mockRestore();
+  });
+
+  it('a hanging count AND a hanging name lookup share one 3 s deadline (never 6 s)', async () => {
+    countHangs = true;
+    namesHang = true;
+    const err = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const started = Date.now();
+    await renderInbox({});
+    const took = Date.now() - started;
+    expect(took).toBeGreaterThanOrEqual(2_900);
+    expect(took).toBeLessThan(4_500);
+    expect(listedPeople()).toHaveLength(4);
+    err.mockRestore();
+  }, 15_000);
+
+  it('before the count function is applied, the page still renders with the note', async () => {
+    failingTable = 'rpc-missing';
+    const err = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    await renderInbox({ type: T_INTERVIEW });
+    expect(screen.getByRole('status')).toHaveTextContent('The meeting type filter could not load just now');
+    // the selected type still filters the list
+    expect(listedPeople()).toHaveLength(2);
     err.mockRestore();
   });
 
