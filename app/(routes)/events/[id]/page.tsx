@@ -89,6 +89,7 @@ import { EventFeedbackLinkCard } from '@/components/events/feedback/event-feedba
 import { EventInstagramCard } from '@/components/events/social/event-instagram-card';
 import { EventTasksCard } from '@/components/events/shared/event-tasks-card';
 import { EventReviewCommentsCard } from '@/components/events/shared/event-review-comments-card';
+import { EventWinnersCard } from '@/components/events/shared/event-winners-card';
 import { useAuth } from '@/hooks/use-auth';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useEventOrganiserContacts } from '@/hooks/events/shared/use-event-organiser-contacts';
@@ -1006,6 +1007,13 @@ export default function GeneralEventDetailPage() {
             viewer without it sees the numbers and gets an explicit permission
             message if they try to link — not a hidden card. */}
         <EventInstagramCard eventId={event.id} />
+
+        {/* Winners — 1st, 2nd and 3rd place for a cultural event (BUG-006273),
+            like the tournament "Record winners". The card gates itself: the
+            server answers whether this viewer may record (creator, in-charge,
+            admin — fn_can_record_event_winners), and everyone else sees only
+            the places already recorded. */}
+        {(event.event_type as string) === 'cultural' && <EventWinnersCard eventId={event.id} />}
 
         {/* Shared event logistics — sponsors, budget, committees, check-in, QR,
             volunteers, incidents, certificates, bulk import, analytics, kit.
