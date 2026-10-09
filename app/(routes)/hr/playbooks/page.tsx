@@ -8,10 +8,11 @@
  * link carries ?duty=<code>); it has no sidebar row, so it is listed in
  * NAV_EXCLUDE in scripts/check-nav-reachability.ts.
  *
- * For team members: the database answers only someone with a staff row (or a
- * super admin, admin or holder of the manage key) and refuses a learner or
- * parent, whose tabs then show that refusal. Only the Proposals tab needs
- * hr.harness.playbooks.manage.
+ * Open to every signed-in person at the route (MENU_PERMISSIONS 'view_profile',
+ * Director 8 Oct: every team member reads, only HR changes). The database still
+ * answers only someone with a staff row (or a super admin, admin or holder of
+ * the manage key) and refuses a learner or parent, whose tabs then show that
+ * refusal. Only the Proposals tab needs hr.harness.playbooks.manage.
  */
 
 import { Suspense } from 'react';

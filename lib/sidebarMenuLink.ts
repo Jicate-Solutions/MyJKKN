@@ -549,11 +549,16 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // row below and the page header.
   '/hr/staff-photos': 'hr.staff_photo.review',
   // HR duty playbooks (20271007161139). Reached from the "How this is done" card
-  // on each HR duty screen; no sidebar row. Written out so the tier-2 coverage
-  // gate sees it, with the SAME key it already resolved to by longest prefix
-  // ('/hr' -> 'hr.view'), so who can open it does not change. The Proposals tab
-  // inside checks hr.harness.playbooks.manage itself.
-  '/hr/playbooks': 'hr.view',
+  // on each HR duty screen; no sidebar row. Director 8 Oct 05:30: EVERY team
+  // member may read them, only HR changes them. Most roles hold no HR key
+  // (test.faculty's role has no hr.view), so this uses the universal signed-in
+  // sentinel `view_profile`, the same as /hr/my-pay-changes above. Without this
+  // entry app/(routes)/hr/layout.tsx would resolve '/hr' -> 'hr.view' by longest
+  // prefix and turn faculty away. Changing playbooks is NOT opened by this: the
+  // Proposals tab needs hr.harness.playbooks.manage, and fn_hr_playbook_decide /
+  // fn_hr_playbook_retire_line refuse anyone without it. Reading is still decided
+  // in Postgres (fn_hr_playbook_can_read: a staff row, admin, or the key).
+  '/hr/playbooks': 'view_profile',
   '/hr/employees': 'hr.employees.view',
   '/hr/employees/[id]': 'hr.employees.view',
   // WHO PAYS each team member. This entry is load-bearing, not decorative:
