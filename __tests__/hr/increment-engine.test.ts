@@ -399,7 +399,8 @@ describe('assessIncrement — the annual window', () => {
   it('cannot tell when the pay row in force carries no usable start date', () => {
     for (const from of [null, 'not a date', '2026-02-31']) {
       const r = assessIncrement(
-        person({ payEffectiveFrom: from, dateOfJoining: null }),
+        // A joining date on file must not stand in for the missing one.
+        person({ payEffectiveFrom: from, dateOfJoining: '2020-01-10' }),
         completeRules(),
         { asOf: ASOF },
       );
