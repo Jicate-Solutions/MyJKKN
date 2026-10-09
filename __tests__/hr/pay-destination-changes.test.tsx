@@ -61,7 +61,8 @@ describe('the words', () => {
     expect(weeklyNoticeTitle(8)).toBe('Bank and paying-trust changes this week: 8');
   });
   it('a person whose record was deleted is still named, from the kept snapshot', () => {
-    expect(personLabel({ ...bankChange, staff_id: null })).toBe('Priya R (DCH061), JKKN Dental College');
+    const recordDeleted: PayDestinationChange = { ...bankChange, staff_id: null };
+    expect(personLabel(recordDeleted)).toBe('Priya R (DCH061), JKKN Dental College');
   });
   it('past the 2,000-row cap the notice states the true count, never the rows it got', () => {
     const capped = Array.from({ length: 8 }, (_, i) => ({ ...bankChange, change_id: `c${i}`, total_count: 2345 }));
