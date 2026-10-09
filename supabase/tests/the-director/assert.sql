@@ -547,4 +547,27 @@ RESET ROLE;
 SELECT t.claims(NULL, NULL);
 SELECT t.ok(t.is_dir(:'DIR') AND t.is_dir(:'JMD'), 'recovery: service_role names both Directors again');
 
+\echo '== 16. Out of order: 20270506090000 re-created AFTER the list (a hand re-run), then the list re-applied'
+-- 20270506090000 is merged (#4111) and its body is live WITH the guard (7 Oct
+-- read). The guard can only drop if that body is run again by hand. This
+-- shows the drop is real, and that re-applying 20270520090000 repairs it.
+\i :REORDER_FILE
+SELECT t.ok(position('the_director_profile_ids' IN pg_get_functiondef('public.fn_get_policy(text, uuid)'::regprocedure)) = 0,
+  're-run of 20270506090000 after the list: the guard is gone from fn_get_policy');
+SELECT t.ok(t.q(:'HOD', $q$SELECT public.fn_get_policy('platform.the_director_profile_ids', NULL) IS NOT NULL$q$)::boolean,
+  'with the guard gone, an HOD reads the list through fn_get_policy (the risk is real)');
+\ir ../../migrations/20270520090000_the_director_list.sql
+SELECT t.ok((SELECT count(*) FROM regexp_matches(pg_get_functiondef('public.fn_get_policy(text, uuid)'::regprocedure),
+                 'p_key IS DISTINCT FROM ''platform\.the_director_profile_ids''', 'g'))
+          = (SELECT count(*) FROM regexp_matches(pg_get_functiondef('public.fn_get_policy(text, uuid)'::regprocedure),
+                 'policy_key\s*=\s*p_key\M', 'g'))
+       AND position('the_director_profile_ids' IN pg_get_functiondef('public.fn_get_policy(text, uuid)'::regprocedure)) > 0,
+  're-applying 20270520090000 puts the guard back at every key filter');
+SELECT t.ok(position('IF p_key IN (''hr.pay_scales''' IN pg_get_functiondef('public.fn_get_policy(text, uuid)'::regprocedure)) > 0,
+  're-applying 20270520090000 keeps 20270506090000''s pay-key gate (patched in place, not replaced)');
+SELECT t.ok(t.q(:'HOD', $q$SELECT public.fn_get_policy('platform.the_director_profile_ids', NULL) IS NULL$q$)::boolean,
+  'after the repair: HOD reads nothing through fn_get_policy');
+SELECT t.ok(t.q(:'DIR', $q$SELECT public.fn_get_policy('platform.the_director_profile_ids', NULL) IS NOT NULL$q$)::boolean,
+  'after the repair: the Director still reads the list');
+
 \echo 'ALL CHECKS PASSED'

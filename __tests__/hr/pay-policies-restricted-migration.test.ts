@@ -11,9 +11,10 @@
  *     pinned below (hr.salary_suggestion_rule included; it is locked here but
  *     served by the salary suggestion feature's own route, not the editors' route);
  *   - fn_get_policy's main SELECT is byte-identical to 20260731180000;
- *   - the setup mirror of fn_get_policy is what the database runs: the newest
+ *   - the setup mirror of fn_get_policy is the intended body: the newest
  *     migration that creates it, plus the Director-list guard 20270520090000
- *     patches in place when that patch came later;
+ *     patches in place when that patch came later (live has this body as of
+ *     the 7 Oct read; this file test cannot see the live database);
  *   - fn_prepare_payroll_period is 20260629000000's body byte for byte except
  *     the role check (NULL = refused) and the one v_pay_matrix assignment,
  *     which is fn_get_policy's SELECT with the

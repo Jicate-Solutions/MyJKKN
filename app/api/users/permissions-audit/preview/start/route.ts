@@ -145,8 +145,9 @@ export async function POST(request: NextRequest) {
     // Step 5 — mode gate
     const isWriteRequested = requestedMode === 'write';
     // The sign-in email comes from the session (auth.users), which the caller
-    // cannot edit; profiles.email is theirs to change.
-    const callerSignInEmail = user.email ?? null;
+    // cannot edit; profiles.email is theirs to change. Trimmed and lower-cased
+    // so the write-mode allow-list never depends on how it was typed.
+    const callerSignInEmail = user.email ? user.email.trim().toLowerCase() : null;
     if (isWriteRequested && !canUseWriteMode(callerSignInEmail)) {
       return NextResponse.json(
         {
@@ -266,8 +267,9 @@ export async function POST(request: NextRequest) {
     const targetSession = otpData.session;
 
     // Step 7b — the session must belong to the person that was checked. If it
-    // belongs to anyone else, nothing is installed, the stray session is
-    // signed out (best effort) and the mismatch is logged.
+    // belongs to anyone else, nothing is installed, that ONE stray session is
+    // signed out (best effort; 'local', so the account's other sessions on
+    // other devices are left alone) and the mismatch is logged.
     const mintedUserId = targetSession.user?.id ?? otpData.user?.id ?? null;
     if (mintedUserId !== target.id) {
       console.error(
@@ -275,7 +277,7 @@ export async function POST(request: NextRequest) {
         { targetId: target.id, mintedUserId },
       );
       try {
-        await serviceClient.auth.admin.signOut(targetSession.access_token, 'global');
+        await serviceClient.auth.admin.signOut(targetSession.access_token, 'local');
       } catch (signOutErr) {
         console.error('[preview/start] could not sign out the stray session:', signOutErr);
       }

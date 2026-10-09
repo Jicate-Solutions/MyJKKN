@@ -72,4 +72,10 @@ MIG="$M/20270520090000_the_director_list.sql"
 echo "-- apply 1"; "${OWNER[@]}" -f "$MIG"
 echo "-- apply 2"; "${OWNER[@]}" -f "$MIG"
 
-"${PSQL[@]}" -o /dev/null -f "$HERE/assert.sql"
+# Section 16 re-runs 20270506090000's fn_get_policy AFTER the list (a hand
+# re-run out of order). Its CREATE, verbatim from the file:
+awk '/^CREATE OR REPLACE FUNCTION public.fn_get_policy\(/{p=1} p{print} p&&/^\$function\$;/{exit}' \
+  "$M/20270506090000_hr_pay_policies_readable_only_with_salary_view.sql" > "$PGT/fn_get_policy_20270506.sql"
+grep -q 'IF p_key IN' "$PGT/fn_get_policy_20270506.sql" || { echo "could not cut 20270506090000's fn_get_policy" >&2; exit 1; }
+
+"${PSQL[@]}" -o /dev/null -v REORDER_FILE="$PGT/fn_get_policy_20270506.sql" -f "$HERE/assert.sql"

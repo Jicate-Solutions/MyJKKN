@@ -226,7 +226,9 @@ describe('preview/start mints the session for the SIGN-IN account, never profile
     const res = await start(HOD);
     expect(res.status).toBe(500);
     expect(setSession).not.toHaveBeenCalled();
-    expect(adminSignOut).toHaveBeenCalledWith('stray', 'global');
+    // Only that one session: 'global' would sign the account out on every device.
+    expect(adminSignOut).toHaveBeenCalledWith('stray', 'local');
+    expect(adminSignOut).not.toHaveBeenCalledWith('stray', 'global');
     expect(errSpy.mock.calls.some((c) => String(c[0]).includes('does not belong to the target'))).toBe(true);
     errSpy.mockRestore();
   });
@@ -238,6 +240,17 @@ describe('preview/start mints the session for the SIGN-IN account, never profile
     expect(res.status).toBe(503);
     expect(generateLink).not.toHaveBeenCalled();
     errSpy.mockRestore();
+  });
+
+  it('refuses (404) when the sign-in account found has a different id from the profile, before the list is read', async () => {
+    // Profile HOD, sign-in account answering with the Director's id: the list
+    // check must never run on an id other than the profile being previewed.
+    getUserById.mockResolvedValueOnce({ data: { user: authUsers[DIRECTOR] }, error: null });
+    const res = await start(HOD);
+    expect(res.status).toBe(404);
+    expect(listQuery).toEqual([]);
+    expect(generateLink).not.toHaveBeenCalled();
+    expect(setSession).not.toHaveBeenCalled();
   });
 
   it('refuses a profile with no sign-in account (404), and mints nothing', async () => {
@@ -261,6 +274,13 @@ describe('preview/start decides write mode by the SIGN-IN email, never profiles.
   it('allows write mode when the sign-in email is allowed, whatever the profile email says', async () => {
     profiles[DEV].email = 'something.else@jkkn.ac.in';
     callerSignInEmail = 'director@jkkn.ac.in';
+    const res = await start(HOD, 'write');
+    expect(res.status).toBe(200);
+    expect((await res.json()).mode).toBe('write');
+  });
+
+  it('matches the allowed sign-in email whatever its spaces or letter case', async () => {
+    callerSignInEmail = ' Director@JKKN.ac.in ';
     const res = await start(HOD, 'write');
     expect(res.status).toBe(200);
     expect((await res.json()).mode).toBe('write');
