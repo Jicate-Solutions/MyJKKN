@@ -6,7 +6,7 @@
 // the EVENT's hero image (events.hero_image_url) — one banner per event, shown
 // above every one of its forms — so a general event finally has a place to set
 // it (only the marathon settings page could before). The picture is uploaded
-// through the same public form-media bucket an 'image_display' field uses.
+// through the same form-media route an 'image_display' field uses (Google Drive).
 
 import { useRef, useState } from 'react';
 import { ImageIcon, Loader2, Trash2, Upload } from 'lucide-react';

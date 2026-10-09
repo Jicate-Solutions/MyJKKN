@@ -63,7 +63,7 @@ export class ProcurementApprovalChainService {
 
   /**
    * Replace one of a category's two lists (0–10 approvers, in the order given) —
-   * for the default chain, or for one college's own chain when `institutionId` is set.
+   * for the common approvers, or for one college's own (asked first) when `institutionId` is set.
    */
   static async saveSteps(
     categoryId: string,

@@ -6,7 +6,10 @@ import { NextResponse, connection } from 'next/server';
 import type { NextRequest } from 'next/server';
 import type { CookieOptions } from '@supabase/ssr';
 import { LeaveService } from '@/lib/services/hr/leave-service';
-import { recomputeForShortTimeOff } from '@/lib/hr/attendance/recompute-day';
+import {
+  recomputeForRevokedLeave,
+  recomputeForShortTimeOff,
+} from '@/lib/hr/attendance/recompute-day';
 
 async function getClient() {
   const cookieStore = await cookies();
@@ -38,15 +41,34 @@ export async function POST(
     const { data: { user }, error: authError } = await supabase.auth.getUser();
     if (authError || !user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-    const newRow = await LeaveService.cancelApplication(supabase, id, user.id);
+    const updated = await LeaveService.cancelApplication(supabase, id, user.id);
 
-    // A permission's approval state changes which halves it excuses, so the day
-    // is re-judged through the same evaluator the importer uses. Awaited, not
-    // fire-and-forget: the client refetches attendance right after this returns,
-    // and a background write would land after that read.
-    await recomputeForShortTimeOff(newRow);
+    // THE ATTENDANCE DAY. Approving stamped LEAVE over every covered day and no
+    // trigger puts it back (the stamp fires only on the transition INTO approved),
+    // so a cancelled leave would keep reading LEAVE in the monthly report and in
+    // payroll. A permission's approval state also changes which halves it excuses.
+    // Both go through the same evaluator the importer uses, awaited (the client
+    // refetches attendance the moment this returns) and RETURNED as a warning,
+    // never swallowed: the cancellation itself has already stuck.
+    let warning: string | undefined;
+    try {
+      await recomputeForShortTimeOff(updated);
+      const reversal = await recomputeForRevokedLeave(updated);
+      if (reversal.problems.length > 0) {
+        warning =
+          `The leave was cancelled, but the attendance record could not be re-judged for ` +
+          `${reversal.problems.length} of ${reversal.days} day(s): ` +
+          `${reversal.problems.slice(0, 3).join(' · ')}. ` +
+          `Those days may still read LEAVE — correct them from HR > Attendance.`;
+      }
+    } catch (recomputeErr) {
+      warning =
+        'The leave was cancelled, but the attendance record could not be re-judged: ' +
+        `${recomputeErr instanceof Error ? recomputeErr.message : 'unknown error'}. ` +
+        'The covered days may still read LEAVE — correct them from HR > Attendance.';
+    }
 
-    return NextResponse.json({ data: newRow });
+    return NextResponse.json({ data: updated, warning });
   } catch (err) {
     console.error('[hr/leave/applications/:id/cancel] error', err);
     return NextResponse.json({ error: err instanceof Error ? err.message : 'Unknown error' }, { status: 400 });

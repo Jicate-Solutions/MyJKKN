@@ -336,6 +336,7 @@ export function cdcDriveResponsesExportUrl(driveId: string, params: UseCdcDriveR
 
 export interface UseCdcDriveAssignedParams {
   institution_id?: string;
+  program_id?: string;
   semester_order?: number;
   status?: CdcAssignedWillingnessBucket;
   responded?: 'yes' | 'no';
@@ -345,6 +346,7 @@ export interface UseCdcDriveAssignedParams {
 function assignedSearchParams(params: UseCdcDriveAssignedParams): URLSearchParams {
   const search = new URLSearchParams();
   if (params.institution_id) search.set('institution_id', params.institution_id);
+  if (params.program_id) search.set('program_id', params.program_id);
   if (params.semester_order != null) search.set('semester_order', String(params.semester_order));
   if (params.status) search.set('status', params.status);
   if (params.responded) search.set('responded', params.responded);

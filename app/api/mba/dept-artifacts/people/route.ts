@@ -217,6 +217,27 @@ export async function GET(request: NextRequest) {
       }
     }
 
+    // Show each person's LOGIN email, not the team member record's: staff.email
+    // is the contact address HR captured and is often a personal one. The
+    // search above still matches on it; only what is displayed changes. Kept
+    // as the fallback for a record with no login account.
+    const loginIds = people
+      .filter((p) => p.staff_id && p.user_id)
+      .map((p) => p.user_id as string);
+    if (loginIds.length > 0) {
+      const { data: logins } = await admin
+        .from('profiles')
+        .select('id, email')
+        .in('id', loginIds);
+      const loginEmail = new Map(
+        ((logins ?? []) as Array<{ id: string; email: string | null }>).map((l) => [l.id, l.email]),
+      );
+      for (const p of people) {
+        const email = p.staff_id && p.user_id ? loginEmail.get(p.user_id) : null;
+        if (email) p.email = email;
+      }
+    }
+
     return NextResponse.json({
       people,
       // Lets the picker say "keep typing" instead of showing a misleading empty.

@@ -47,7 +47,7 @@ import {
   type HostInstitutionsValue,
 } from '../_components/host-institutions-picker';
 import { JKKN_SPORTS, SPORT_LEVELS } from '@/types/health-sports';
-import { TOURNAMENT_FORMATS, DIVISION_GENDERS } from '@/types/tournament';
+import { TOURNAMENT_FORMATS, DIVISION_GENDERS, HEAT_SPORTS } from '@/types/tournament';
 import type { SportLevel } from '@/types/health-sports';
 import type {
   TournamentFormat,
@@ -147,7 +147,9 @@ export default function CreateTournamentPage() {
             sport,
             gender,
             age_band: form.age_band.trim() || undefined,
-            format: form.format,
+            // Athletics-style sports run as heats (group rounds); the format picked
+            // above applies to the 1-vs-1 sports.
+            format: HEAT_SPORTS.includes(sport) ? 'heats' : form.format,
             level: form.level,
             sort_order: i,
             config: form.entry_fee ? { entry_fee: Number(form.entry_fee) } : undefined,
@@ -254,6 +256,12 @@ export default function CreateTournamentPage() {
                       ))}
                     </SelectContent>
                   </Select>
+                  {form.sports.some((s) => HEAT_SPORTS.includes(s)) && (
+                    <p className="text-xs text-muted-foreground">
+                      Athletics events and Swimming run as Heats (group rounds) automatically. This
+                      format applies to the other sports.
+                    </p>
+                  )}
                 </div>
               </div>
 
@@ -278,7 +286,8 @@ export default function CreateTournamentPage() {
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      {TOURNAMENT_FORMATS.map((f) => (
+                      {/* Heats is automatic for athletics-style sports, so it is not offered here. */}
+                      {TOURNAMENT_FORMATS.filter((f) => f.value !== 'heats').map((f) => (
                         <SelectItem key={f.value} value={f.value}>
                           {f.label}
                         </SelectItem>

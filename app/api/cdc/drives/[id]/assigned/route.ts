@@ -5,6 +5,7 @@ export const runtime = 'nodejs';
  * GET /api/cdc/drives/[id]/assigned
  *   ?format=json (default) | xlsx
  *   &institution_id=<uuid>                    optional
+ *   &program_id=<uuid>                        optional
  *   &semester_order=<int>                     optional
  *   &status=willing|not_willing|pending       optional (willingness bucket)
  *   &responded=yes|no                         optional
@@ -97,6 +98,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     const respondedParam = sp.get('responded');
     const filters = {
       institution_id: sp.get('institution_id') || null,
+      program_id: sp.get('program_id') || null,
       semester_order: sp.get('semester_order') ? parseInt(sp.get('semester_order')!, 10) : null,
       bucket,
       responded: respondedParam === 'yes' ? true : respondedParam === 'no' ? false : null,

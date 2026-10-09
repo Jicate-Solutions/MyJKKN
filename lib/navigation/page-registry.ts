@@ -135,6 +135,17 @@ const PAGE_ENRICHMENTS: Record<string, { keywords: string[]; description: string
     keywords: ['schedule', 'class schedule', 'time table', 'slots', 'timetable'],
     description: 'Create and manage class timetables'
   },
+  // The sidebar registers this path under its GROUP label ("Assessment") — the
+  // "Internal Marks" submenu shares the href and is skipped as already seen — so
+  // without these keywords a search for "internal marks" cannot find the page.
+  '/academic/internal-marks': {
+    keywords: ['internal marks', 'internal mark', 'cia marks', 'continuous internal assessment', 'assessment marks', 'assessment'],
+    description: 'Internal Marks — enter and review CIA marks'
+  },
+  '/academic/mark-entry': {
+    keywords: ['mark entry', 'internal marks', 'internal mark entry', 'cia marks', 'question wise marks', 'enter marks'],
+    description: 'Enter CIA internal marks question-wise or as component totals'
+  },
   '/academic/timetables/templates': {
     keywords: ['timetable template', 'schedule template', 'reusable timetable'],
     description: 'Manage reusable timetable templates'
@@ -320,7 +331,7 @@ const PAGE_ENRICHMENTS: Record<string, { keywords: string[]; description: string
     keywords: ['payments', 'paid', 'collection', 'fee receipt', 'transaction'],
     description: 'Record and view fee payment receipts'
   },
-  '/billing/discounts': {
+  '/billing/scholarships': {
     keywords: ['scholarship', 'discount', 'fee waiver', 'concession', 'fee reduction'],
     description: 'Manage scholarships and fee discounts'
   },

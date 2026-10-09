@@ -2079,19 +2079,6 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "children": []
       },
       {
-        "path": "/billing/discounts",
-        "label": "Discounts",
-        "iconName": "Wallet",
-        "children": [
-          {
-            "path": "/billing/discounts/new",
-            "label": "New",
-            "iconName": "Plus",
-            "children": []
-          }
-        ]
-      },
-      {
         "path": "/billing/invoices",
         "label": "Invoices",
         "iconName": "Wallet",
@@ -2211,6 +2198,25 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "path": "/billing/schedule/students",
             "label": "Students",
             "iconName": "CalendarClock",
+            "children": []
+          }
+        ]
+      },
+      {
+        "path": "/billing/scholarships",
+        "label": "Scholarships",
+        "iconName": "Wallet",
+        "children": [
+          {
+            "path": "/billing/scholarships/new",
+            "label": "New",
+            "iconName": "Plus",
+            "children": []
+          },
+          {
+            "path": "/billing/scholarships/setup",
+            "label": "Setup",
+            "iconName": "Wallet",
             "children": []
           }
         ]
@@ -4850,6 +4856,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         ]
       },
       {
+        "path": "/hr/playbooks",
+        "label": "Playbooks",
+        "iconName": "FileText",
+        "children": []
+      },
+      {
         "path": "/hr/policies",
         "label": "Policies",
         "iconName": "BookText",
@@ -4896,6 +4908,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "label": "Bring in Candidates",
             "iconName": "FileUp",
             "children": [
+              {
+                "path": "/hr/recruitment/intake/batch",
+                "label": "Batch",
+                "iconName": "UserSearch",
+                "children": []
+              },
               {
                 "path": "/hr/recruitment/intake/rules",
                 "label": "Learned Rules",

@@ -108,8 +108,8 @@ export function StudentBillsTable({
     !isStudentView && (isSuperAdmin || canAccess('billing.schedule', 'delete'));
   const canCreateReceipts =
     !isStudentView && (isSuperAdmin || canAccess('billing.receipts', 'create'));
-  const canApplyDiscounts =
-    !isStudentView && (isSuperAdmin || canAccess('billing.discounts', 'create'));
+  const canApplyScholarships =
+    !isStudentView && (isSuperAdmin || canAccess('billing.scholarships', 'create'));
   // Raising a cancel request; an approver decides. Never offered to learners.
   const canRequestCancel =
     !isStudentView &&
@@ -312,7 +312,7 @@ export function StudentBillsTable({
       // Was previously a TODO stub that only console.log'd the id and called
       // onRefresh, which made the UI behave as if the delete succeeded while
       // leaving the row in the database. Now actually issues the delete.
-      // FK cascades (billing_receipt_items, billing_discounts,
+      // FK cascades (billing_receipt_items, billing_scholarships,
       // payment_transaction_items) clean up child rows automatically.
       await StudentBillService.deleteStudentBill(billId);
       toast.success('Bill deleted');
@@ -361,13 +361,13 @@ export function StudentBillsTable({
     );
   };
 
-  const handleApplyDiscount = () => {
+  const handleApplyScholarship = () => {
     if (selectedSelectableBills.length === 0) return;
 
     const billIds = selectedSelectableBills.map((bill) => bill.id).join(',');
     const studentId = selectedSelectableBills[0]?.student_id;
 
-    window.location.href = `/billing/discounts/new?bill_ids=${billIds}&student_id=${studentId}`;
+    window.location.href = `/billing/scholarships/new?bill_ids=${billIds}&student_id=${studentId}`;
   };
 
   const renderBillCard = (bill: StudentBill) => (
@@ -427,11 +427,11 @@ export function StudentBillsTable({
                     Generate Receipt
                   </DropdownMenuItem>
                 )}
-                {canSelectBill(bill) && canApplyDiscounts && (
+                {canSelectBill(bill) && canApplyScholarships && (
                   <DropdownMenuItem asChild>
-                    <Link href={`/billing/discounts/new?bill_id=${bill.id}`}>
+                    <Link href={`/billing/scholarships/new?bill_id=${bill.id}`}>
                       <Percent className='mr-2 h-4 w-4' />
-                      Apply Discount
+                      Apply Scholarship
                     </Link>
                   </DropdownMenuItem>
                 )}
@@ -644,11 +644,11 @@ export function StudentBillsTable({
                 Generate Receipt
               </DropdownMenuItem>
             )}
-            {canSelectBill(bill) && canApplyDiscounts && (
+            {canSelectBill(bill) && canApplyScholarships && (
               <DropdownMenuItem asChild>
-                <Link href={`/billing/discounts/new?bill_id=${bill.id}`}>
+                <Link href={`/billing/scholarships/new?bill_id=${bill.id}`}>
                   <Percent className='mr-2 h-4 w-4' />
-                  Apply Discount
+                  Apply Scholarship
                 </Link>
               </DropdownMenuItem>
             )}
@@ -776,16 +776,16 @@ export function StudentBillsTable({
               </Button>
             )}
 
-            {canApplyDiscounts && (
+            {canApplyScholarships && (
               <Button
                 size='sm'
                 variant='secondary'
-                onClick={handleApplyDiscount}
+                onClick={handleApplyScholarship}
                 className='bg-green-600 hover:bg-green-700 text-white dark:bg-green-700 dark:hover:bg-green-600 flex-1 sm:flex-initial'
               >
                 <Percent className='mr-2 h-4 w-4' />
-                <span className='hidden sm:inline'>Apply Discount</span>
-                <span className='sm:hidden'>Discount</span>
+                <span className='hidden sm:inline'>Apply Scholarship</span>
+                <span className='sm:hidden'>Scholarship</span>
                 <span className='ml-1'>({selectedSelectableBills.length})</span>
               </Button>
             )}

@@ -40,6 +40,8 @@ import * as fixtures from './handlers/fixtures';
 import * as fixtureMode from './handlers/fixture-mode';
 import * as manualMatches from './handlers/manual-matches';
 import * as manualMatchesMatch from './handlers/manual-matches-match';
+import * as heats from './handlers/heats';
+import * as heatsHeat from './handlers/heats-heat';
 import * as matches from './handlers/matches';
 import * as matchesMatch from './handlers/matches-match';
 import * as matchesMatchResult from './handlers/matches-match-result';
@@ -91,6 +93,7 @@ export const TOURNAMENT_ROUTES: TournamentRoute[] = [
   { name: 'fixtures', path: 'fixtures', segments: ['fixtures'], methods: ['POST'], module: mod(fixtures) },
   { name: 'fixture-mode', path: 'fixture-mode', segments: ['fixture-mode'], methods: ['POST'], module: mod(fixtureMode) },
   { name: 'manual-matches', path: 'manual-matches', segments: ['manual-matches'], methods: ['POST'], module: mod(manualMatches) },
+  { name: 'heats', path: 'heats', segments: ['heats'], methods: ['GET', 'POST'], module: mod(heats) },
   { name: 'matches', path: 'matches', segments: ['matches'], methods: ['GET'], module: mod(matches) },
   { name: 'public-register', path: 'public-register', segments: ['public-register'], methods: ['POST'], module: mod(publicRegister) },
   { name: 'spot-entry', path: 'spot-entry', segments: ['spot-entry'], methods: ['POST'], module: mod(spotEntry) },
@@ -99,6 +102,7 @@ export const TOURNAMENT_ROUTES: TournamentRoute[] = [
   { name: 'payment-callback', path: 'payment/callback', segments: ['payment', 'callback'], methods: ['POST'], module: mod(paymentCallback) },
   { name: 'qr-generate', path: 'qr/generate', segments: ['qr', 'generate'], methods: ['GET'], module: mod(qrGenerate) },
   { name: 'entries-entry', path: 'entries/[entryId]', segments: ['entries', ':entryId'], methods: ['PATCH', 'DELETE'], module: mod(entriesEntry) },
+  { name: 'heats-heat', path: 'heats/[heatId]', segments: ['heats', ':heatId'], methods: ['PATCH', 'DELETE'], module: mod(heatsHeat) },
   { name: 'matches-match', path: 'matches/[matchId]', segments: ['matches', ':matchId'], methods: ['PATCH'], module: mod(matchesMatch) },
   { name: 'manual-matches-match', path: 'manual-matches/[matchId]', segments: ['manual-matches', ':matchId'], methods: ['PATCH', 'DELETE'], module: mod(manualMatchesMatch) },
 
