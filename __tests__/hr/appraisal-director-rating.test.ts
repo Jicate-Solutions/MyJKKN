@@ -25,8 +25,8 @@ const SQL = readFileSync(join(ROOT, 'supabase/migrations/20271009090000_hr_appra
 describe('the migration', () => {
   it('is built on main\'s guard alone, and refuses to run over any other body', () => {
     expect(SQL).not.toContain('fn_hr_appraisal_unanswered_conditions');
-    expect(SQL).toContain("v_md5 NOT IN ('5c999093e927c9160bbc38d7a957269b', '992b2da8769e76c63690a7eb0237ba80')");
-    expect(SQL).toContain("IS DISTINCT FROM '992b2da8769e76c63690a7eb0237ba80'");
+    expect(SQL).toContain("v_md5 NOT IN ('5c999093e927c9160bbc38d7a957269b', '051e9404166fa008d1f909f530118f08')");
+    expect(SQL).toContain("IS DISTINCT FROM '051e9404166fa008d1f909f530118f08'");
   });
 
   it('adds the column beside the committee’s, never over it', () => {
@@ -34,12 +34,24 @@ describe('the migration', () => {
     expect(SQL).not.toMatch(/DROP COLUMN|sedc_review_jsonb\s*=/);
   });
 
-  it('lets only the named Director list write it, checked BEFORE the admin shortcut', () => {
-    const rule = SQL.indexOf("IF NOT COALESCE(public.fn_is_the_director(), false) THEN");
+  it('lets only the named Director list sign off or write it, checked BEFORE the admin shortcut', () => {
+    const rule = SQL.indexOf('IF public.fn_is_the_director() IS NOT TRUE THEN');
+    const own = SQL.indexOf('nobody signs off their own appraisal');
     const shortcut = SQL.indexOf('IF v_admin THEN');
     expect(rule).toBeGreaterThan(0);
-    expect(shortcut).toBeGreaterThan(rule);
+    expect(own).toBeGreaterThan(rule);
+    expect(shortcut).toBeGreaterThan(own);
     expect(SQL).not.toMatch(/is_super_admin\(\)[^\n]*director_review_jsonb/);
+  });
+
+  it('counts a move to or from sign-off and every sign-off column as signing off (review panel, 9 Oct)', () => {
+    expect(SQL).toContain("(NEW.status = 'final_approved' OR OLD.status IN ('sedc_reviewed', 'final_approved'))");
+    for (const col of ['director_review_jsonb', 'final_score', 'final_remarks', 'final_approved_at', 'final_approved_by']) {
+      expect(SQL).toContain(`OR NEW.${col} IS DISTINCT FROM OLD.${col}`);
+    }
+    // Only service_role and a direct database session are not refused.
+    expect(SQL).toContain("IF NOT (v_role IS NOT DISTINCT FROM 'service_role'\n          OR (v_role IS NULL AND auth.uid() IS NULL)) THEN");
+    expect(SQL).toContain("AND NOT (OLD.status = 'sedc_reviewed' AND NEW.status = 'final_approved')");
   });
 
   it('needs the ratings and a reason of at least 10 characters', () => {

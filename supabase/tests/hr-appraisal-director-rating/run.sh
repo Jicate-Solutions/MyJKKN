@@ -73,9 +73,16 @@ mutate() { local out="$WORK/mut.sql"; sed -E "$2" "$MIG" | sed "s/RAISE EXCEPTIO
   if ! build "$out"; then echo "   [$1] mutated migration did not load"; MISSED=$((MISSED+1)); return; fi
   if probe | grep -qF "FAIL $3"; then echo "   [$1] CAUGHT ($changed diff lines): FAIL $3"; CAUGHT=$((CAUGHT+1)); else echo "   [$1] NOT CAUGHT — expected FAIL $3"; MISSED=$((MISSED+1)); fi; }
 echo "== MUTATION CONTROLS"
-sed -E 's/^    IF NOT COALESCE\(public.fn_is_the_director\(\), false\) THEN$/    IF false THEN/' "$MIG" > "$WORK/m0.sql"
-if build "$WORK/m0.sql" 2>/dev/null; then echo "   [M0 a changed body with the self-check left in] LOADED — SELF-CHECK NOT REAL"; MISSED=$((MISSED+1)); else echo "   [M0 a changed body with the self-check left in] CAUGHT: the self-check refused it"; CAUGHT=$((CAUGHT+1)); fi
-mutate "M1 the Director-list check removed" 's/^    IF NOT COALESCE\(public.fn_is_the_director\(\), false\) THEN$/    IF false THEN/' 'another super admin cannot change a rating'
-mutate "M2 the reason check removed" "s/^            OR length\(trim\(COALESCE\(NEW.director_review_jsonb ->> 'reason', ''\)\)\) < 10\) THEN$/            OR false) THEN/" 'a changed rating without a reason is refused'
-mutate "M3 the whole Director-only rule deleted" '/^  -- ── 30 Sep 2026: the Director.s own rating/,/^  END IF;$/d' 'an admin cannot change a rating'
+sed -E 's/^      IF public.fn_is_the_director\(\) IS NOT TRUE THEN$/      IF false THEN/' "$MIG" > "$WORK/m0.sql"
+if cmp -s "$MIG" "$WORK/m0.sql"; then echo "   [M0] the edit matched nothing — CONTROL INVALID"; MISSED=$((MISSED+1))
+elif build "$WORK/m0.sql" 2>/dev/null; then echo "   [M0 a changed body with the self-check left in] LOADED — SELF-CHECK NOT REAL"; MISSED=$((MISSED+1)); else echo "   [M0 a changed body with the self-check left in] CAUGHT: the self-check refused it"; CAUGHT=$((CAUGHT+1)); fi
+mutate "M1 the Director-list check removed" 's/^      IF public.fn_is_the_director\(\) IS NOT TRUE THEN$/      IF false THEN/' 'another super admin cannot sign off'
+mutate "M2 the reason check removed" "s/^       OR length\(trim\(COALESCE\(NEW.director_review_jsonb ->> 'reason', ''\)\)\) < 10 THEN$/       OR false THEN/" 'a changed rating without a reason is refused'
+mutate "M3 the whole sign-off rule deleted" '/^  -- ── Sign-off belongs to the named Director list/,/^  END IF;$/d' 'an admin cannot sign off'
+mutate "M4 the own-appraisal check removed" 's/^      IF v_self THEN$/      IF false THEN/' 'the Director cannot sign off his own appraisal'
+mutate "M5 signed-off-is-final removed" "s/^      IF OLD.status = 'final_approved' THEN$/      IF false THEN/" 'the Director cannot change the score after sign-off'
+mutate "M6 the change-only-at-sign-off rule removed" "s/^         AND NOT \(OLD.status = 'sedc_reviewed' AND NEW.status = 'final_approved'\) THEN$/         AND false THEN/" 'the Director cannot write his change outside a sign-off'
+mutate "M7 the band check removed" "s/^            OR \(e.value #>> '\{\}'\) NOT IN \('exceeds', 'meets', 'below'\)$/            OR false/" 'an unknown band is refused'
+mutate "M8 send-back from the Director's step not counted" "s/OR OLD.status IN \('sedc_reviewed', 'final_approved'\)\)\)/OR OLD.status IN ('final_approved')))/" "an admin cannot send back from the Director's step"
+mutate "M9 the area check removed" "s/^         WHERE e.key NOT IN \('teaching', 'research', 'service', 'collegiality'\)$/         WHERE false/" 'an unknown area is refused'
 echo "== mutation controls: $CAUGHT caught, $MISSED not caught"

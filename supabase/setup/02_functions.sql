@@ -84765,6 +84765,11 @@ GRANT  EXECUTE ON FUNCTION public.fn_hr_playbook_decide(uuid, text, text, text) 
 -- 20270501090100) with one rule added: only the named Director list
 -- (fn_is_the_director()) may write director_review_jsonb, with a reason of at
 -- least 10 characters; the column joins every tier's forbidden list.
+-- Updated: 2026-10-09 - 20271009090000 (review panel round 1): sign-off itself
+-- (to final_approved, back from sedc_reviewed, and every final_* column) is the
+-- Director list's only, never on their own appraisal; the Director's change is
+-- written only in the sign-off UPDATE and never after; its ratings name known
+-- areas and bands. service_role and a direct database session are not refused.
 CREATE OR REPLACE FUNCTION public.fn_hr_performance_review_guard()
 RETURNS trigger
 LANGUAGE plpgsql
@@ -84777,26 +84782,11 @@ DECLARE
   v_hod          boolean;
   v_policy       jsonb;
   v_need_example boolean;
+  v_role         text;
+  v_signoff      boolean;
 BEGIN
   v_admin := COALESCE(is_super_admin(), false) OR COALESCE(is_admin(), false);
-
-  -- ── 30 Sep 2026: the Director's own rating (director_review_jsonb) ──────
-  -- Written by the NAMED Director list only (fn_is_the_director(), #4121),
-  -- never by an admin or another super admin, and only with a reason. Checked
-  -- before the admin shortcut below, so the shortcut cannot bypass it.
-  IF (TG_OP = 'INSERT' AND NEW.director_review_jsonb IS NOT NULL)
-     OR (TG_OP = 'UPDATE' AND NEW.director_review_jsonb IS DISTINCT FROM OLD.director_review_jsonb) THEN
-    IF NOT COALESCE(public.fn_is_the_director(), false) THEN
-      RAISE EXCEPTION 'hr_performance_reviews: only the Director can change a rating at sign-off (director_review_jsonb)'
-        USING ERRCODE = 'check_violation';
-    END IF;
-    IF NEW.director_review_jsonb IS NOT NULL
-       AND (jsonb_typeof(NEW.director_review_jsonb -> 'ratings') IS DISTINCT FROM 'object'
-            OR length(trim(COALESCE(NEW.director_review_jsonb ->> 'reason', ''))) < 10) THEN
-      RAISE EXCEPTION 'hr_performance_reviews: a changed rating needs the ratings and a reason of at least 10 characters'
-        USING ERRCODE = 'check_violation';
-    END IF;
-  END IF;
+  v_role  := auth.role();
 
   v_self := EXISTS (
     SELECT 1 FROM public.staff
@@ -84809,6 +84799,89 @@ BEGIN
     JOIN public.departments d ON d.id = s.department_id
     WHERE s.id = NEW.staff_id AND d.head_of_department_id = auth.uid()
   );
+
+  -- ── Sign-off belongs to the named Director list (1 Oct 2026) ────────────
+  -- Moving an appraisal to final_approved, sending it back from the
+  -- Director's step, leaving final_approved, or writing any sign-off column
+  -- (director_review_jsonb, final_score, final_remarks, final_approved_at,
+  -- final_approved_by) is for fn_is_the_director() only: never an admin, never
+  -- another super admin, never a signed-in person with no role, never anon.
+  -- Checked BEFORE the admin shortcut below, so the shortcut cannot bypass it.
+  -- service_role and a direct database session (no JWT role and no user: a
+  -- migration or the SQL console) are not refused, as in 20271007150103.
+  IF NOT (v_role IS NOT DISTINCT FROM 'service_role'
+          OR (v_role IS NULL AND auth.uid() IS NULL)) THEN
+    IF TG_OP = 'INSERT' THEN
+      v_signoff :=
+              NEW.status = 'final_approved'
+           OR NEW.director_review_jsonb IS NOT NULL
+           OR NEW.final_score IS NOT NULL
+           OR NEW.final_remarks IS NOT NULL
+           OR NEW.final_approved_at IS NOT NULL
+           OR NEW.final_approved_by IS NOT NULL;
+    ELSE
+      v_signoff :=
+              (NEW.status IS DISTINCT FROM OLD.status
+               AND (NEW.status = 'final_approved' OR OLD.status IN ('sedc_reviewed', 'final_approved')))
+           OR NEW.director_review_jsonb IS DISTINCT FROM OLD.director_review_jsonb
+           OR NEW.final_score IS DISTINCT FROM OLD.final_score
+           OR NEW.final_remarks IS DISTINCT FROM OLD.final_remarks
+           OR NEW.final_approved_at IS DISTINCT FROM OLD.final_approved_at
+           OR NEW.final_approved_by IS DISTINCT FROM OLD.final_approved_by;
+    END IF;
+    IF v_signoff IS TRUE THEN
+      IF public.fn_is_the_director() IS NOT TRUE THEN
+        RAISE EXCEPTION 'hr_performance_reviews: only the Director signs off an appraisal, sends it back from sign-off, or changes a rating at sign-off'
+          USING ERRCODE = 'check_violation';
+      END IF;
+      -- The Director is a super admin, so without this the admin shortcut
+      -- would let him sign off his own appraisal. Nobody signs off their own.
+      IF v_self THEN
+        RAISE EXCEPTION 'hr_performance_reviews: nobody signs off their own appraisal; another member of the Director list does'
+          USING ERRCODE = 'check_violation';
+      END IF;
+      IF TG_OP = 'INSERT' THEN
+        RAISE EXCEPTION 'hr_performance_reviews: an appraisal is signed off at the Director''s step, never created signed off'
+          USING ERRCODE = 'check_violation';
+      END IF;
+      -- Signed off is final: the score was derived from these ratings, so
+      -- neither the Director's change nor the score may move afterwards.
+      IF OLD.status = 'final_approved' THEN
+        RAISE EXCEPTION 'hr_performance_reviews: this appraisal is signed off; its sign-off cannot be changed'
+          USING ERRCODE = 'check_violation';
+      END IF;
+      -- The Director's own rating is recorded in the sign-off itself, never
+      -- before it and never alone.
+      IF NEW.director_review_jsonb IS DISTINCT FROM OLD.director_review_jsonb
+         AND NOT (OLD.status = 'sedc_reviewed' AND NEW.status = 'final_approved') THEN
+        RAISE EXCEPTION 'hr_performance_reviews: the Director''s change to a rating is recorded only as he signs off'
+          USING ERRCODE = 'check_violation';
+      END IF;
+    END IF;
+  END IF;
+
+  -- ── 30 Sep 2026: the shape of the Director's own rating ─────────────────
+  -- {"ratings": {<area>: "exceeds|meets|below", ...at least one}, "reason":
+  -- at least 10 characters}. Areas are the four in lib/hr/appraisal-ratings.ts.
+  IF ((TG_OP = 'INSERT' AND NEW.director_review_jsonb IS NOT NULL)
+      OR (TG_OP = 'UPDATE' AND NEW.director_review_jsonb IS DISTINCT FROM OLD.director_review_jsonb))
+     AND NEW.director_review_jsonb IS NOT NULL THEN
+    IF jsonb_typeof(NEW.director_review_jsonb -> 'ratings') IS DISTINCT FROM 'object'
+       OR length(trim(COALESCE(NEW.director_review_jsonb ->> 'reason', ''))) < 10 THEN
+      RAISE EXCEPTION 'hr_performance_reviews: a changed rating needs the ratings and a reason of at least 10 characters'
+        USING ERRCODE = 'check_violation';
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM jsonb_each(NEW.director_review_jsonb -> 'ratings'))
+       OR EXISTS (
+         SELECT 1 FROM jsonb_each(NEW.director_review_jsonb -> 'ratings') e
+         WHERE e.key NOT IN ('teaching', 'research', 'service', 'collegiality')
+            OR jsonb_typeof(e.value) IS DISTINCT FROM 'string'
+            OR (e.value #>> '{}') NOT IN ('exceeds', 'meets', 'below')
+       ) THEN
+      RAISE EXCEPTION 'hr_performance_reviews: a changed rating names at least one of teaching, research, service, collegiality, each as exceeds, meets or below'
+        USING ERRCODE = 'check_violation';
+    END IF;
+  END IF;
 
   -- ── Collegiality safeguard, enforced here and not only on screen ────────
   -- Absent key means ON, matching lib/hr/appraisal-ratings.ts. If the policy
@@ -84877,7 +84950,7 @@ BEGIN
        OR NEW.final_approved_by IS NOT NULL
        OR NEW.supervisor_reviewed_at IS NOT NULL
        OR NEW.sedc_reviewed_at IS NOT NULL THEN
-      RAISE EXCEPTION 'hr_performance_reviews: a new appraisal may carry only your own self-appraisal (forbidden: supervisor_review_jsonb, sedc_review_jsonb, final_score, final_remarks, final_approved_at, final_approved_by, supervisor_reviewed_at, sedc_reviewed_at)'
+      RAISE EXCEPTION 'hr_performance_reviews: a new appraisal may carry only your own self-appraisal (forbidden: supervisor_review_jsonb, sedc_review_jsonb, director_review_jsonb, final_score, final_remarks, final_approved_at, final_approved_by, supervisor_reviewed_at, sedc_reviewed_at)'
         USING ERRCODE = 'check_violation';
     END IF;
     RETURN NEW;
@@ -84906,7 +84979,7 @@ BEGIN
        OR NEW.final_approved_by IS DISTINCT FROM OLD.final_approved_by
        OR NEW.supervisor_reviewed_at IS DISTINCT FROM OLD.supervisor_reviewed_at
        OR NEW.sedc_reviewed_at IS DISTINCT FROM OLD.sedc_reviewed_at THEN
-      RAISE EXCEPTION 'hr_performance_reviews: you may change only your own self-appraisal and submit it (forbidden: supervisor_review_jsonb, sedc_review_jsonb, final_score, final_remarks, final_approved_at, final_approved_by, supervisor_reviewed_at, sedc_reviewed_at)'
+      RAISE EXCEPTION 'hr_performance_reviews: you may change only your own self-appraisal and submit it (forbidden: supervisor_review_jsonb, sedc_review_jsonb, director_review_jsonb, final_score, final_remarks, final_approved_at, final_approved_by, supervisor_reviewed_at, sedc_reviewed_at)'
         USING ERRCODE = 'check_violation';
     END IF;
     RETURN NEW;
@@ -84922,7 +84995,7 @@ BEGIN
        OR NEW.final_approved_by IS DISTINCT FROM OLD.final_approved_by
        OR NEW.self_submitted_at IS DISTINCT FROM OLD.self_submitted_at
        OR NEW.sedc_reviewed_at IS DISTINCT FROM OLD.sedc_reviewed_at THEN
-      RAISE EXCEPTION 'hr_performance_reviews: as head of department you may change only your own review and pass it on (forbidden: self_appraisal_jsonb, sedc_review_jsonb, final_score, final_remarks, final_approved_at, final_approved_by, self_submitted_at, sedc_reviewed_at)'
+      RAISE EXCEPTION 'hr_performance_reviews: as head of department you may change only your own review and pass it on (forbidden: self_appraisal_jsonb, sedc_review_jsonb, director_review_jsonb, final_score, final_remarks, final_approved_at, final_approved_by, self_submitted_at, sedc_reviewed_at)'
         USING ERRCODE = 'check_violation';
     END IF;
     RETURN NEW;
