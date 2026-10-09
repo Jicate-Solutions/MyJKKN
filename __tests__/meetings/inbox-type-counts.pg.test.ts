@@ -21,10 +21,16 @@ import { Client } from 'pg';
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 
 const REPO = path.resolve(__dirname, '..', '..');
-const MIGRATION = readFileSync(
+const FIRST = readFileSync(
   path.join(REPO, 'supabase/migrations/20271009131500_meetings_inbox_type_counts.sql'),
   'utf8'
 );
+const HOST_INDEX = readFileSync(
+  path.join(REPO, 'supabase/migrations/20271009153000_meetings_inbox_type_counts_host_index.sql'),
+  'utf8'
+);
+/** Both files, in order: the function as it ends up. */
+const MIGRATION = `${FIRST}\n${HOST_INDEX}`;
 const PGHOST = process.env.AI_DOOR_TEST_PGHOST ?? 'localhost';
 const PGPORT = Number(process.env.AI_DOOR_TEST_PGPORT ?? 5432);
 const PGUSER =
@@ -55,14 +61,16 @@ CREATE TABLE public.meeting_bookings (
   host_profile_id uuid, meeting_type_id uuid REFERENCES public.meeting_types(id),
   status text NOT NULL, start_time timestamptz NOT NULL
 );
+-- as 20260611190000
+CREATE INDEX idx_mb_host_start ON public.meeting_bookings(host_profile_id, start_time DESC);
 ALTER TABLE public.meeting_types ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.meeting_bookings ENABLE ROW LEVEL SECURITY;
--- as 20260611190000_native_scheduling_engine.sql
+-- as 20260611190000_native_scheduling_engine.sql, wrapped by rls_initplan_wrap_sweep.sql
 CREATE POLICY "mt_host_all" ON public.meeting_types FOR ALL
   USING (is_super_admin() OR is_admin() OR host_profile_id = auth.uid())
   WITH CHECK (is_super_admin() OR is_admin() OR host_profile_id = auth.uid());
 CREATE POLICY "mb_host_select" ON public.meeting_bookings FOR SELECT
-  USING (is_super_admin() OR is_admin() OR host_profile_id = auth.uid());
+  USING ((SELECT is_super_admin()) OR (SELECT is_admin()) OR host_profile_id = (SELECT auth.uid()));
 GRANT SELECT ON public.meeting_types, public.meeting_bookings TO authenticated;
 INSERT INTO public.meeting_types VALUES ('${T_A}', '${HOST_A}', 'Interview'), ('${T_B}', '${HOST_B}', 'Review');
 INSERT INTO public.meeting_bookings (host_profile_id, meeting_type_id, status, start_time) VALUES
@@ -186,6 +194,29 @@ describe('fn_meeting_inbox_type_counts', () => {
     expect(r.rows[0]).toEqual({ anon: false, authed: true, public: false });
     const call = await counts(null, null, null, null);
     expect(call.error).toMatch(/permission denied for function/);
+  });
+
+  it("a host's count reads their own bookings through idx_mb_host_start, not the whole table", async () => {
+    // a big table of other hosts' bookings, so a scan would be the costly choice
+    await db.query(`INSERT INTO public.meeting_bookings (host_profile_id, meeting_type_id, status, start_time)
+                    SELECT gen_random_uuid(), NULL, 'confirmed', now() + (g || ' minutes')::interval
+                      FROM generate_series(1, 20000) g`);
+    await db.query('ANALYZE public.meeting_bookings');
+    // the host branch's query, verbatim from the migration
+    const body = HOST_INDEX.slice(HOST_INDEX.indexOf('  ELSE\n'));
+    const sql = body
+      .slice(body.indexOf('SELECT'), body.indexOf('GROUP BY'))
+      .replace(/p_statuses/g, `ARRAY['confirmed']::text[]`)
+      .replace(/p_from/g, 'now()')
+      .replace(/p_before/g, 'NULL::timestamptz');
+    const plan = await as(HOST_A, `EXPLAIN ${sql} GROUP BY b.meeting_type_id, t.title`);
+    expect(plan.error).toBeUndefined();
+    const text = plan.rows.map((r) => r['QUERY PLAN']).join('\n');
+    expect(text).toMatch(/idx_mb_host_start/);
+    expect(text).not.toMatch(/Seq Scan on meeting_bookings/);
+    // and the function still answers the same after the big insert
+    const r = await counts(HOST_A, ['confirmed'], new Date().toISOString(), null);
+    expect(r.rows.reduce((n, x) => n + x.n, 0)).toBe(4);
   });
 
   it('applies twice', async () => {
