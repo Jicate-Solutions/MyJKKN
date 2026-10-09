@@ -28,8 +28,9 @@ fetch_sibling() { local f; f="$(ls "$SRC"/supabase/migrations/$1 2>/dev/null | h
 "$BIN/initdb" -D "$DATA" -U postgres -A trust >/dev/null || exit 1
 "$BIN/pg_ctl" -D "$DATA" -o "-p $PORT -c listen_addresses=127.0.0.1 -c unix_socket_directories=''" -l "$WORK/pg.log" -w start >/dev/null || { cat "$WORK/pg.log"; exit 1; }
 echo "== server: $("$BIN/psql" -h 127.0.0.1 -p "$PORT" -U postgres -X -tAc 'select version()' | cut -c1-40)"
-{ sed -n '57,65p' "$FN"; sed -n '4119,4127p' "$FN"; } > "$WORK/helpers.sql"
-echo "   permission helpers loaded: $(grep -c 'CREATE OR REPLACE FUNCTION' "$WORK/helpers.sql") (must be 2)"
+# By name, not line number, so a moved definition cannot load the wrong function.
+awk '/^CREATE OR REPLACE FUNCTION public.is_super_admin\(\)/{f=1} f{print} f&&/^\$\$;/{exit}' "$FN" > "$WORK/helpers.sql"
+echo "   permission helpers loaded: $(grep -c 'FUNCTION public.is_super_admin()' "$WORK/helpers.sql") is_super_admin (must be 1)"
 echo "== #4121 (the Director list)"
 fetch_sibling '20270520090000_*.sql' jicate/main supabase/migrations/20270520090000_the_director_list.sql "$WORK/pr4121.sql" || { echo "   MISSING"; exit 1; }
 [ -f "$GUARD" ] || { echo "   MISSING: $GUARD"; exit 1; }

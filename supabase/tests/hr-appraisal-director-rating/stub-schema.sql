@@ -1,6 +1,6 @@
 -- Minimum stand-in for the production objects 20271009090000 touches. Throwaway
 -- local database only. Loaded BEFORE the real files run.sh applies verbatim:
--- is_super_admin()/is_admin() (setup/02_functions.sql by line range),
+-- is_super_admin() (setup/02_functions.sql, by name; is_admin() is stubbed below),
 -- fn_is_the_director() (20270520090000) and main's column guard
 -- (20270501090100), both from the tree.
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
