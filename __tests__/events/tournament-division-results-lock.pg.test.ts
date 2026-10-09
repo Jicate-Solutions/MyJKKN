@@ -9,9 +9,11 @@
  * dialog performs and reads back what PostgreSQL actually allowed.
  *
  * REQUIRES a local PostgreSQL 16 (see "THE POSTGRES SERVICE" in
- * .github/workflows/test-suite.yml). Override with DIVLOCK_TEST_PGHOST /
- * _PGPORT / _PGUSER / _PGPASSWORD. Loud rather than skipped when no server is
- * reachable: a silent skip reports green over a suite that never ran.
+ * .github/workflows/test-suite.yml, which sets DIVLOCK_TEST_PGUSER). Override
+ * with DIVLOCK_TEST_PGHOST / _PGPORT / _PGUSER / _PGPASSWORD. Loud rather than
+ * skipped when no server is reachable, like every other *.pg.test.ts here
+ * (e.g. event-waitlist-seat-holding.pg.test.ts): a silent skip reports green
+ * over a suite that never ran.
  */
 import { readFileSync } from 'fs';
 import path from 'path';
@@ -20,10 +22,11 @@ import { Client } from 'pg';
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 
 const REPO = path.resolve(__dirname, '..', '..');
-const MIGRATION = path.join(
-  REPO,
-  'supabase/migrations/20271009163000_tournament_division_results_lock.sql'
-);
+// DIVLOCK_TEST_MIGRATION points the suite at another copy of the SQL (used to
+// show the round-4 tests fail on the previous version of this migration).
+const MIGRATION =
+  process.env.DIVLOCK_TEST_MIGRATION ??
+  path.join(REPO, 'supabase/migrations/20271009163000_tournament_division_results_lock.sql');
 
 const PGHOST = process.env.DIVLOCK_TEST_PGHOST ?? 'localhost';
 const PGPORT = Number(process.env.DIVLOCK_TEST_PGPORT ?? 5432);
@@ -74,8 +77,13 @@ CREATE TABLE public.tournament_heat_entries (
 `;
 
 const FIXTURE = `
+DO $$ BEGIN
+  IF to_regclass('public.tournament_division_result_marks') IS NOT NULL THEN
+    TRUNCATE public.tournament_division_result_marks;
+  END IF;
+END $$;
 TRUNCATE public.tournament_division_lock_overrides, public.tournament_heat_entries,
-         public.tournament_matches, public.tournament_divisions;
+         public.tournament_matches, public.tournament_divisions CASCADE;
 INSERT INTO public.tournament_divisions (id, event_id, sport, gender, format, level) VALUES
   ('${CHESS}',  '${EVENT}', 'Chess',             'female', 'knockout', 'intra_college'),
   ('${RUN400}', '${EVENT}', 'Athletics - 400 m', 'female', 'heats',    'intra_college');
@@ -289,5 +297,190 @@ describe('super admin override (Director ruling, 9 Oct 2026)', () => {
       )
     ).toBeNull();
     expect(await overrides()).toEqual([]);
+  });
+});
+
+const marks = async () =>
+  (
+    await db.query(
+      `SELECT division_id FROM public.tournament_division_result_marks ORDER BY division_id`
+    )
+  ).rows.map((r) => r.division_id);
+
+describe('results that once existed keep the lock (deep review round 4, #1)', () => {
+  const changeSport = (id: string) =>
+    attempt(db, `UPDATE public.tournament_divisions SET sport = 'Carrom' WHERE id = '${id}'`);
+
+  it('refuses an organiser after the result is rolled back to pending', async () => {
+    await db.query(
+      `INSERT INTO public.tournament_matches (division_id, status) VALUES ('${CHESS}', 'completed')`
+    );
+    // Correcting a result stays allowed.
+    expect(
+      await attempt(
+        db,
+        `UPDATE public.tournament_matches SET status = 'pending' WHERE division_id = '${CHESS}'`
+      )
+    ).toBeNull();
+    expect(await changeSport(CHESS)).toMatch(LOCKED);
+    expect(await overrides()).toEqual([]);
+  });
+
+  it('refuses an organiser after the recorded matches are deleted (the BALAM pattern)', async () => {
+    await db.query(
+      `INSERT INTO public.tournament_matches (division_id, status) VALUES ('${CHESS}', 'pending')`
+    );
+    // The match becomes recorded through an UPDATE, as fn_record_result does.
+    await db.query(
+      `UPDATE public.tournament_matches SET status = 'walkover' WHERE division_id = '${CHESS}'`
+    );
+    expect(
+      await attempt(db, `DELETE FROM public.tournament_matches WHERE division_id = '${CHESS}'`)
+    ).toBeNull();
+    expect(await changeSport(CHESS)).toMatch(LOCKED);
+  });
+
+  it('refuses a format change after a heat result is cleared', async () => {
+    await db.query(
+      `INSERT INTO public.tournament_heat_entries (division_id) VALUES ('${RUN400}')`
+    );
+    await db.query(
+      `UPDATE public.tournament_heat_entries SET position = 1 WHERE division_id = '${RUN400}'`
+    );
+    await db.query(
+      `UPDATE public.tournament_heat_entries SET position = NULL WHERE division_id = '${RUN400}'`
+    );
+    expect(
+      await attempt(
+        db,
+        `UPDATE public.tournament_divisions SET format = 'knockout' WHERE id = '${RUN400}'`
+      )
+    ).toMatch(LOCKED);
+  });
+
+  it('still lets a super admin override after the results are deleted, and logs it', async () => {
+    await db.query(
+      `INSERT INTO public.tournament_matches (division_id, status) VALUES ('${CHESS}', 'completed')`
+    );
+    await db.query(`DELETE FROM public.tournament_matches WHERE division_id = '${CHESS}'`);
+    await actAs(ADMIN_UID, true);
+    expect(await changeSport(CHESS)).toBeNull();
+    const rows = await overrides();
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      division_id: CHESS,
+      changed_by: ADMIN_UID,
+      old_sport: 'Chess',
+      new_sport: 'Carrom',
+    });
+  });
+
+  it('marks a division once, on the first recorded result only', async () => {
+    await db.query(
+      `INSERT INTO public.tournament_matches (division_id, status) VALUES
+         ('${CHESS}', 'scheduled'), ('${CHESS}', 'completed'), ('${CHESS}', 'disqualified')`
+    );
+    expect(await marks()).toEqual([CHESS]);
+  });
+
+  it('a write that does not ENTER a recorded state takes no division lock', async () => {
+    await db.query(
+      `INSERT INTO public.tournament_matches (division_id, status) VALUES ('${CHESS}', 'completed')`
+    );
+    const editor = connect(DBNAME);
+    const recorder = connect(DBNAME);
+    await editor.connect();
+    await recorder.connect();
+    try {
+      // An open division edit holds the row lock that FOR SHARE would wait on.
+      await editor.query('BEGIN');
+      await editor.query(
+        `UPDATE public.tournament_divisions SET level = 'district' WHERE id = '${CHESS}'`
+      );
+      await recorder.query(`SET lock_timeout = '1s'`);
+      // Score correction on an already-completed match: must not wait.
+      expect(
+        await attempt(
+          recorder,
+          `UPDATE public.tournament_matches SET status = 'completed' WHERE division_id = '${CHESS}'`
+        )
+      ).toBeNull();
+      // Rollback to pending: must not wait either.
+      expect(
+        await attempt(
+          recorder,
+          `UPDATE public.tournament_matches SET status = 'pending' WHERE division_id = '${CHESS}'`
+        )
+      ).toBeNull();
+      await editor.query('ROLLBACK');
+    } finally {
+      await editor.end();
+      await recorder.end();
+    }
+  });
+});
+
+describe('override records outlive the division (deep review round 4, #3)', () => {
+  it('keeps the override row, with event and old/new values, after the division is deleted', async () => {
+    await db.query(
+      `INSERT INTO public.tournament_matches (division_id, status) VALUES ('${CHESS}', 'completed')`
+    );
+    await actAs(ADMIN_UID, true);
+    expect(
+      await attempt(
+        db,
+        `UPDATE public.tournament_divisions SET sport = 'Athletics - 400 m' WHERE id = '${CHESS}'`
+      )
+    ).toBeNull();
+    expect(
+      await attempt(db, `DELETE FROM public.tournament_divisions WHERE id = '${CHESS}'`)
+    ).toBeNull();
+    expect(await overrides()).toEqual([
+      {
+        division_id: null,
+        event_id: EVENT,
+        changed_by: ADMIN_UID,
+        old_sport: 'Chess',
+        new_sport: 'Athletics - 400 m',
+        old_gender: 'female',
+        new_gender: 'female',
+        old_format: 'knockout',
+        new_format: 'knockout',
+        stamped: true,
+      },
+    ]);
+  });
+});
+
+describe('backfill of marks for divisions that already have results', () => {
+  it('marks exactly the divisions with a recorded match or heat result when the migration runs', async () => {
+    const name = `${DBNAME}_bf`;
+    await admin.query(`CREATE DATABASE ${name}`);
+    const bf = connect(name);
+    await bf.connect();
+    const QUIET = '00000000-0000-4000-8000-0000000000a3';
+    const CLEAN = '00000000-0000-4000-8000-0000000000a4';
+    try {
+      await bf.query(SCHEMA);
+      await bf.query(`
+        INSERT INTO public.tournament_divisions (id, event_id, sport, format) VALUES
+          ('${CHESS}',  '${EVENT}', 'Chess',             'knockout'),
+          ('${RUN400}', '${EVENT}', 'Athletics - 400 m', 'heats'),
+          ('${QUIET}',  '${EVENT}', 'Carrom',            'knockout'),
+          ('${CLEAN}',  '${EVENT}', 'Kabaddi',           'knockout');
+        INSERT INTO public.tournament_matches (division_id, status) VALUES
+          ('${CHESS}', 'completed'), ('${CHESS}', 'pending'),
+          ('${QUIET}', 'scheduled'), ('${QUIET}', 'bye');
+        INSERT INTO public.tournament_heat_entries (division_id, result_status) VALUES
+          ('${RUN400}', 'dnf'), ('${CLEAN}', 'ok');`);
+      await bf.query(readFileSync(MIGRATION, 'utf8'));
+      const { rows } = await bf.query(
+        `SELECT division_id FROM public.tournament_division_result_marks ORDER BY division_id`
+      );
+      expect(rows.map((r) => r.division_id)).toEqual([CHESS, RUN400]);
+    } finally {
+      await bf.end();
+      await admin.query(`DROP DATABASE IF EXISTS ${name}`);
+    }
   });
 });

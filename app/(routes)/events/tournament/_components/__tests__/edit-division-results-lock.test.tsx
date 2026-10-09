@@ -8,38 +8,49 @@ import { render, screen, cleanup, fireEvent, waitFor } from '@testing-library/re
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-const state = vi.hoisted(() => ({ matches: [] as any[], heats: [] as any[], superAdmin: false }));
-const calls = vi.hoisted(() => ({ order: [] as string[], divisionFails: false }));
+const state = vi.hoisted(() => ({
+  matches: [] as any[],
+  heats: [] as any[],
+  superAdmin: false,
+  noDivisions: false,
+  matchesLoading: false,
+  heatsLoading: false,
+}));
+const calls = vi.hoisted(() => ({
+  order: [] as string[],
+  divisionFails: false,
+  tournamentFailsOnce: false,
+}));
+const CHESS_DIVISION = vi.hoisted(() => ({
+  id: 'd-chess',
+  event_id: 'ev-1',
+  sport: 'Chess',
+  gender: 'female',
+  age_band: null,
+  format: 'knockout',
+  level: 'intra_college',
+  max_teams: null,
+  eligibility: {},
+  config: {},
+  sort_order: 0,
+  is_active: true,
+  created_at: '',
+  updated_at: '',
+}));
 
 vi.mock('react-hot-toast', () => ({ default: { success: vi.fn(), error: vi.fn() } }));
 vi.mock('@/hooks/events/use-tournaments', () => ({
   useTournament: () => ({
     isLoading: false,
-    data: {
-      id: 'ev-1',
-      divisions: [
-        {
-          id: 'd-chess',
-          event_id: 'ev-1',
-          sport: 'Chess',
-          gender: 'female',
-          age_band: null,
-          format: 'knockout',
-          level: 'intra_college',
-          max_teams: null,
-          eligibility: {},
-          config: {},
-          sort_order: 0,
-          is_active: true,
-          created_at: '',
-          updated_at: '',
-        },
-      ],
-    },
+    data: { id: 'ev-1', divisions: state.noDivisions ? [] : [CHESS_DIVISION] },
   }),
   useUpdateTournament: () => ({
     mutateAsync: async () => {
       calls.order.push('tournament');
+      if (calls.tournamentFailsOnce) {
+        calls.tournamentFailsOnce = false;
+        throw new Error('network error');
+      }
     },
     isPending: false,
   }),
@@ -50,15 +61,26 @@ vi.mock('@/hooks/events/use-tournaments', () => ({
     },
     isPending: false,
   }),
-  useCreateDivision: () => ({ mutateAsync: vi.fn(), isPending: false }),
+  useCreateDivision: () => ({
+    mutateAsync: async () => {
+      calls.order.push('create');
+    },
+    isPending: false,
+  }),
   useDeleteDivision: () => ({ mutateAsync: vi.fn(), isPending: false }),
 }));
 vi.mock('@/hooks/events/use-tournament-registrations', () => ({
   useTournamentEntries: () => ({ data: [], isLoading: false }),
 }));
 vi.mock('@/hooks/events/use-tournament-fixtures', () => ({
-  useTournamentMatches: () => ({ data: state.matches }),
-  useTournamentHeats: () => ({ data: state.heats }),
+  useTournamentMatches: () => ({
+    data: state.matchesLoading ? undefined : state.matches,
+    isLoading: state.matchesLoading,
+  }),
+  useTournamentHeats: () => ({
+    data: state.heatsLoading ? undefined : state.heats,
+    isLoading: state.heatsLoading,
+  }),
 }));
 vi.mock('@/hooks/use-permissions', () => ({
   usePermissions: () => ({ isSuperAdmin: state.superAdmin }),
@@ -97,8 +119,12 @@ afterEach(() => {
   state.matches = [];
   state.heats = [];
   state.superAdmin = false;
+  state.noDivisions = false;
+  state.matchesLoading = false;
+  state.heatsLoading = false;
   calls.order = [];
   calls.divisionFails = false;
+  calls.tournamentFailsOnce = false;
 });
 
 describe('Edit dialog — division with recorded results', () => {
@@ -203,6 +229,46 @@ describe('Edit dialog — save order', () => {
   });
 });
 
+describe('Edit dialog — first division created inline (deep review round 4, #2)', () => {
+  it('saves the tournament before creating the division, and a retry creates it once', async () => {
+    state.noDivisions = true;
+    calls.tournamentFailsOnce = true;
+    renderDialog();
+    const save = screen.getByRole('button', { name: 'Save Changes' });
+    fireEvent.click(save);
+    await waitFor(() => expect(calls.order).toEqual(['tournament']));
+    await new Promise((r) => setTimeout(r, 20));
+    // The failed tournament update stopped the save before any division existed.
+    expect(calls.order).toEqual(['tournament']);
+    fireEvent.click(save);
+    await waitFor(() => expect(calls.order).toEqual(['tournament', 'tournament', 'create']));
+    await new Promise((r) => setTimeout(r, 20));
+    expect(calls.order.filter((c) => c === 'create')).toHaveLength(1);
+  });
+});
+
+describe('Edit dialog — while matches or heats are loading (deep review round 4, #7)', () => {
+  for (const which of ['matches', 'heats'] as const) {
+    it(`keeps sport, category and format disabled while ${which} load`, () => {
+      if (which === 'matches') state.matchesLoading = true;
+      else state.heatsLoading = true;
+      renderDialog();
+      expect(isDisabled('Sport')).toBe(true);
+      expect(isDisabled('Category')).toBe(true);
+      expect(isDisabled('Format')).toBe(true);
+      // Not claimed as locked: we do not know yet.
+      expect(screen.queryByText(/already has recorded results/)).toBeNull();
+    });
+  }
+
+  it('enables them once both have loaded with no results', () => {
+    renderDialog();
+    expect(isDisabled('Sport')).toBe(false);
+    expect(isDisabled('Category')).toBe(false);
+    expect(isDisabled('Format')).toBe(false);
+  });
+});
+
 describe('Database guard — trg_tournament_division_results_lock', () => {
   const dir = join(process.cwd(), 'supabase/migrations');
   const guard = readFileSync(
@@ -239,6 +305,11 @@ describe('Database guard — trg_tournament_division_results_lock', () => {
   it('makes every result write take FOR SHARE on the division row (race with an edit)', () => {
     const g = norm(guard);
     expect(g).toContain('PERFORM 1 FROM tournament_divisions WHERE id = NEW.division_id FOR SHARE');
+    // Only when a row ENTERS a recorded state, and the mark is written then.
+    expect(g).toContain('IF COALESCE(v_now, false) AND NOT COALESCE(v_was, false) THEN');
+    expect(g).toContain(
+      'INSERT INTO tournament_division_result_marks (division_id) VALUES (NEW.division_id) ON CONFLICT (division_id) DO NOTHING'
+    );
     expect(g).toContain(
       'BEFORE INSERT OR UPDATE ON public.tournament_matches FOR EACH ROW EXECUTE FUNCTION public.fn_tournament_result_lock_division()'
     );

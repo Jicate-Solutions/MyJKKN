@@ -15,7 +15,7 @@
 // tournament id so it remounts with fresh initial state per tournament (no
 // setState-in-effect re-seeding).
 
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { Check, Loader2, Plus, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
@@ -129,6 +129,7 @@ function DivisionFields({
   onEditConfig,
   resultsLocked = false,
   resultsOverride = false,
+  resultsPending = false,
 }: {
   division: TournamentDivision;
   edits: UpdateDivisionDto;
@@ -138,7 +139,10 @@ function DivisionFields({
   resultsLocked?: boolean;
   /** Results are recorded but the caller is a super admin: editable, with a warning. */
   resultsOverride?: boolean;
+  /** Matches or heats are still loading: hold the fields until we know. */
+  resultsPending?: boolean;
 }) {
+  const fixedFields = resultsLocked || resultsPending;
   const sport = (edits.sport ?? division.sport) || '';
   // Keep a legacy/renamed sport selectable even if it left the catalog.
   const sportOptions = JKKN_SPORTS.includes(sport as (typeof JKKN_SPORTS)[number])
@@ -170,7 +174,7 @@ function DivisionFields({
           <Select
             value={sport}
             onValueChange={(v) => onEdit('sport', v)}
-            disabled={resultsLocked}
+            disabled={fixedFields}
           >
             <SelectTrigger aria-label="Sport">
               <SelectValue placeholder="Select sport" />
@@ -210,7 +214,7 @@ function DivisionFields({
           <Select
             value={(edits.format ?? division.format) || undefined}
             onValueChange={(v) => onEdit('format', v)}
-            disabled={resultsLocked}
+            disabled={fixedFields}
           >
             <SelectTrigger aria-label="Format">
               <SelectValue placeholder="Select format" />
@@ -229,7 +233,7 @@ function DivisionFields({
           <Select
             value={(edits.gender ?? division.gender) || undefined}
             onValueChange={(v) => onEdit('gender', v)}
-            disabled={resultsLocked}
+            disabled={fixedFields}
           >
             <SelectTrigger aria-label="Category">
               <SelectValue placeholder="Select category" />
@@ -326,9 +330,12 @@ function EditTournamentForm({
   // A division with recorded results keeps its sport, category and format
   // (BALAM-2K26: a chess division with results was turned into a 400 m one).
   // The database trigger enforces it; this only explains it up front.
-  const { data: matches } = useTournamentMatches(tournament.id);
+  const { data: matches, isLoading: matchesLoading } = useTournamentMatches(tournament.id);
   // Heats divisions (athletics, swimming) keep results per athlete instead.
-  const { data: heats } = useTournamentHeats(tournament.id);
+  const { data: heats, isLoading: heatsLoading } = useTournamentHeats(tournament.id);
+  // Until both have loaded we cannot tell, so sport, category and format stay
+  // disabled rather than briefly editable.
+  const resultsPending = matchesLoading || heatsLoading;
   // Director ruling (9 Oct 2026): a super admin may still change them, and the
   // database records each such override.
   const { isSuperAdmin } = usePermissions();
@@ -396,6 +403,8 @@ function EditTournamentForm({
   // Which division is being edited + the touched-fields overlay for it.
   const [selectedDivisionId, setSelectedDivisionId] = useState<string | null>(null);
   const [divisionEdits, setDivisionEdits] = useState<UpdateDivisionDto>({});
+  // Set once the inline first division has been created by this dialog.
+  const seededDivisionRef = useRef(false);
 
   const selectedDivision =
     divisions.find((d) => d.id === selectedDivisionId) ?? divisions[0] ?? null;
@@ -584,23 +593,13 @@ function EditTournamentForm({
               : {}),
           },
         });
-      } else if (divisions.length === 0) {
-        // No division exists yet — seed the first one inline (parity with the
-        // create form). Untouched fields fall back to the defaults shown.
-        const dto: CreateDivisionDto = {
-          sport: divisionEdits.sport || newDivisionDefaults.sport,
-          gender: divisionEdits.gender || 'open',
-          age_band: divisionEdits.age_band?.toString().trim() || undefined,
-          format: divisionEdits.format || 'knockout',
-          level: divisionEdits.level || 'intra_college',
-          config: divisionEdits.config ?? {},
-          sort_order: 0,
-        };
-        await createDivision.mutateAsync({ eventId: tournament.id, dto });
       }
 
-      // Tournament fields last: a division update the database refuses (e.g.
-      // results already recorded) stops here, before anything else is saved.
+      // Tournament fields after a division UPDATE: a division update the
+      // database refuses (e.g. results already recorded) stops here, before
+      // anything else is saved. A NEW first division is created after the
+      // tournament update instead (below), so a failed tournament update can
+      // never leave a created division behind for a retry to duplicate.
       await update.mutateAsync({
         id: tournament.id,
         dto: {
@@ -623,10 +622,31 @@ function EditTournamentForm({
         },
       });
 
+      if (divisions.length === 0 && !seededDivisionRef.current) {
+        // No division exists yet — seed the first one inline (parity with the
+        // create form). Untouched fields fall back to the defaults shown.
+        const dto: CreateDivisionDto = {
+          sport: divisionEdits.sport || newDivisionDefaults.sport,
+          gender: divisionEdits.gender || 'open',
+          age_band: divisionEdits.age_band?.toString().trim() || undefined,
+          format: divisionEdits.format || 'knockout',
+          level: divisionEdits.level || 'intra_college',
+          config: divisionEdits.config ?? {},
+          sort_order: 0,
+        };
+        await createDivision.mutateAsync({ eventId: tournament.id, dto });
+        // Created: a retry must not create it again, and the pending edits
+        // belonged to it, not to whichever division is shown next.
+        seededDivisionRef.current = true;
+        setDivisionEdits({});
+      }
+
       onSaved();
       onClose();
     } catch {
-      // handled by mutation toasts
+      // Not swallowed: useUpdateDivision, useCreateDivision and
+      // useUpdateTournament each toast error.message in their onError (the
+      // database's refusal text included), so toasting here would show it twice.
     }
   };
 
@@ -859,6 +879,7 @@ function EditTournamentForm({
               onEditConfig={setDivisionConfig}
               resultsLocked={selectedHasResults && !isSuperAdmin}
               resultsOverride={selectedHasResults && !!isSuperAdmin}
+              resultsPending={resultsPending}
             />
           ) : (
             <>
