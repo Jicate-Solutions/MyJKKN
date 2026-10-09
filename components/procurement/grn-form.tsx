@@ -20,8 +20,9 @@ import { ProcurementGrnService, type SupplierInvoiceGrn } from '@/lib/services/p
 import { getPolicyInt } from '@/lib/policies/get-policy-client';
 import { POLICY_KEYS } from '@/lib/policies/keys';
 import { formatDateDMY } from '@/lib/utils/date-format';
-import { GRN_MATCH_CONFIG, GRN_STATUS_CONFIG, type GrnLineInput } from '@/types/procurement';
+import { GRN_MATCH_CONFIG, type GrnLineInput } from '@/types/procurement';
 import { DetailHeader } from '@/components/procurement/detail-header';
+import { DuplicateInvoiceCompare } from '@/components/procurement/duplicate-invoice-compare';
 import { FormActionBar } from '@/components/procurement/form-action-bar';
 import { StatusBadge } from '@/components/procurement/status-badge';
 import { Button } from '@/components/ui/button';
@@ -476,7 +477,7 @@ export function GrnForm({ poId, onSaved, onCancel, compact, onDirtyChange }: Grn
     }
   };
 
-  const submit = async () => {
+  const submit = async (opts: { heldDuplicate?: boolean } = {}) => {
     setTriedSubmit(true);
     const payload = drafts
       .filter((l) => Number(l.received_quantity) > 0)
@@ -554,22 +555,26 @@ export function GrnForm({ poId, onSaved, onCancel, compact, onDirtyChange }: Grn
     }
 
     // I1 — the same invoice number from this supplier already recorded: stop and show
-    // the earlier one. The save path checks again; this is where the person sees it.
-    setCheckingDuplicate(true);
-    try {
-      const earlier = findDuplicateGrns(
-        await ProcurementGrnService.getSupplierInvoiceGrns(po.supplier_id),
-        po.supplier_id,
-        invoiceNumber
-      );
-      if (earlier.length) {
-        setDuplicateOf(earlier);
-        return;
+    // the earlier one. The person may still record it, on hold (Director: held save) —
+    // verify is refused until a verifier other than them confirms it is different.
+    if (!opts.heldDuplicate) {
+      setCheckingDuplicate(true);
+      try {
+        const earlier = findDuplicateGrns(
+          await ProcurementGrnService.getSupplierInvoiceGrns(po.supplier_id),
+          po.supplier_id,
+          invoiceNumber
+        );
+        if (earlier.length) {
+          setDuplicateOf(earlier);
+          return;
+        }
+      } catch {
+        // The lookup failed. Saving is still safe: the receipt page and the verify guard
+        // run the same check before anything goes into stock.
+      } finally {
+        setCheckingDuplicate(false);
       }
-    } catch {
-      // The lookup failed; the save path runs the same check and will refuse if needed.
-    } finally {
-      setCheckingDuplicate(false);
     }
 
     try {
@@ -605,7 +610,11 @@ export function GrnForm({ poId, onSaved, onCancel, compact, onDirtyChange }: Grn
         },
         userId: profile!.id,
       });
-      toast.success(`Delivery record ${grn.grn_number} created — pending verification.`);
+      toast.success(
+        opts.heldDuplicate
+          ? `Delivery record ${grn.grn_number} saved on hold — a verifier must confirm the invoice number before stock is added.`
+          : `Delivery record ${grn.grn_number} created — pending verification.`
+      );
       onDirtyChange?.(false);
       onSaved(grn.id);
     } catch (e) {
@@ -1132,7 +1141,7 @@ export function GrnForm({ poId, onSaved, onCancel, compact, onDirtyChange }: Grn
               Cancel
             </Button>
           )}
-          <Button className="w-full sm:w-auto" onClick={submit} disabled={createGrn.isPending || uploading || checkingDuplicate}>
+          <Button className="w-full sm:w-auto" onClick={() => void submit()} disabled={createGrn.isPending || uploading || checkingDuplicate}>
             {uploading ? 'Uploading invoice…' : createGrn.isPending ? 'Creating…' : 'Record delivery'}
           </Button>
         </div>
@@ -1143,7 +1152,7 @@ export function GrnForm({ poId, onSaved, onCancel, compact, onDirtyChange }: Grn
               Cancel
             </Button>
           )}
-          <Button className="h-11 px-5 sm:h-9" onClick={submit} disabled={createGrn.isPending || uploading || checkingDuplicate}>
+          <Button className="h-11 px-5 sm:h-9" onClick={() => void submit()} disabled={createGrn.isPending || uploading || checkingDuplicate}>
             {uploading ? 'Uploading invoice…' : createGrn.isPending ? 'Creating…' : 'Record delivery'}
           </Button>
         </FormActionBar>
@@ -1159,56 +1168,29 @@ export function GrnForm({ poId, onSaved, onCancel, compact, onDirtyChange }: Grn
               earlier delivery. Check whether this is the same bill.
             </AlertDialogDescription>
           </AlertDialogHeader>
-          <div className="grid gap-3 text-sm sm:grid-cols-2">
-            <div className="rounded-lg border p-3 space-y-1">
-              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                Already recorded
-              </p>
-              {(duplicateOf ?? []).map((g) => (
-                <div key={g.id} className="space-y-0.5 border-t pt-2 first:border-t-0 first:pt-0">
-                  <a
-                    href={`/procurement/grn/${g.id}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="font-medium text-primary hover:underline"
-                  >
-                    {g.grn_number}
-                  </a>
-                  <p>Invoice {g.invoice_number || '—'}</p>
-                  <p>Dated {formatDateDMY(g.invoice_date)}</p>
-                  <p>
-                    {g.invoice_amount != null
-                      ? `₹${Number(g.invoice_amount).toLocaleString('en-IN')}`
-                      : 'No amount'}
-                  </p>
-                  <p className="text-muted-foreground">
-                    {(g.status && GRN_STATUS_CONFIG[g.status as keyof typeof GRN_STATUS_CONFIG]?.label) ||
-                      g.status}
-                    {' · '}recorded {formatDateDMY(g.created_at)}
-                    {g.received_by_profile?.full_name ? ` by ${g.received_by_profile.full_name}` : ''}
-                  </p>
-                </div>
-              ))}
-            </div>
-            <div className="rounded-lg border p-3 space-y-1">
-              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                This delivery
-              </p>
-              <p>Invoice {invoiceNumber || '—'}</p>
-              <p>Dated {formatDateDMY(invoiceDate || null)}</p>
-              <p>
-                {invoiceAmount ? `₹${Number(invoiceAmount).toLocaleString('en-IN')}` : 'No amount'}
-              </p>
-            </div>
-          </div>
+          <DuplicateInvoiceCompare
+            earlier={duplicateOf ?? []}
+            current={{
+              invoice_number: invoiceNumber || null,
+              invoice_date: invoiceDate || null,
+              invoice_amount: invoiceAmount || null,
+            }}
+          />
           <p className="text-sm text-muted-foreground">
-            Only the person who verifies deliveries — never the person recording it — can confirm
-            this is a different invoice. That confirmation is not available on this screen yet, so
-            this delivery cannot be recorded with this invoice number. Correct the number, or ask
-            your verifier.
+            If this really is a different invoice, you can still record the delivery. It is saved
+            on hold: nothing goes into stock until a verifier — not you — opens it, compares the
+            two and confirms they are different invoices.
           </p>
           <AlertDialogFooter>
-            <AlertDialogCancel>Go back</AlertDialogCancel>
+            <AlertDialogCancel>Go back and check</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                setDuplicateOf(null);
+                void submit({ heldDuplicate: true });
+              }}
+            >
+              Record on hold
+            </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

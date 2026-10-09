@@ -2,6 +2,7 @@
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { ProcurementGrnService } from '@/lib/services/procurement/grn-service';
+import { findDuplicateGrns } from '@/lib/services/procurement/invoice-checks';
 import type { CreateGrnInput, GrnFilters, ReceiveReplacementInput } from '@/types/procurement';
 
 export function useGrns(filters: GrnFilters) {
@@ -32,6 +33,43 @@ export function useCreateGrn() {
       queryClient.invalidateQueries({
         queryKey: ['procurement-purchase-order', input.purchase_order_id],
       });
+    },
+  });
+}
+
+/**
+ * I1 held save: is this receipt's invoice number a repeat, and which earlier receipts
+ * (that the viewer can see) carry it — for the side-by-side on the receipt page.
+ */
+export function useGrnDuplicateInvoice(
+  grn: { id: string; supplier_id: string; invoice_number: string | null } | null | undefined
+) {
+  return useQuery({
+    queryKey: ['procurement-grn-duplicate', grn?.id, grn?.supplier_id, grn?.invoice_number],
+    queryFn: async () => {
+      const g = grn!;
+      const [hasDuplicate, visible] = await Promise.all([
+        ProcurementGrnService.hasDuplicateInvoice(g),
+        ProcurementGrnService.getSupplierInvoiceGrns(g.supplier_id),
+      ]);
+      return {
+        hasDuplicate,
+        earlier: findDuplicateGrns(visible, g.supplier_id, g.invoice_number, g.id),
+      };
+    },
+    enabled: !!grn?.id && !!grn.invoice_number,
+    staleTime: 60 * 1000,
+  });
+}
+
+export function useConfirmDifferentInvoice() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, userId }: { id: string; userId: string }) =>
+      ProcurementGrnService.confirmDifferentInvoice(id, userId),
+    onSuccess: (_r, { id }) => {
+      queryClient.invalidateQueries({ queryKey: ['procurement-grn', id] });
+      queryClient.invalidateQueries({ queryKey: ['procurement-grn-duplicate', id] });
     },
   });
 }

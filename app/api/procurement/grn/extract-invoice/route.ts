@@ -11,14 +11,12 @@ const JOB_TYPE = 'procurement.invoice_extract';
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
- * Where the PDF is parked for the Windows runner. The only procurement PDF bucket is the
- * quotation one; invoices live under their own `invoices/` prefix in it. Uploaded with
- * the service role because the bucket's INSERT policy is keyed on quotation_manage,
- * which a receiver (grn_create) does not hold — this route does the authorisation
- * itself (grn_create + the caller can see the order). The bucket name rides in the
- * payload so the runner never has to guess it.
+ * Where the PDF is parked for the Windows runner: invoices have their own private
+ * bucket (20261009120000_procurement_grn_invoice_checks.sql), readable only by people
+ * with GRN rights — quotation-only managers cannot see supplier bills. The bucket name
+ * rides in the payload so the runner never has to guess it.
  */
-const BUCKET = 'procurement-quotation-pdfs';
+const BUCKET = 'procurement-invoice-pdfs';
 
 /** fn_ai_enqueue reports the job type is unknown or disabled: shipped dark. */
 const SWITCHED_OFF =
@@ -157,8 +155,7 @@ export async function POST(req: NextRequest) {
 
   const expectations = parseExpectations(form.get('expectations'));
 
-  // The caller must be able to see this order (RLS) — the upload below uses the service
-  // role, so this is the access check for it.
+  // The caller must be able to see this order (RLS) before anything is stored for it.
   const supabase = await createClient();
   const { data: po } = await supabase
     .from('procurement_purchase_orders')
@@ -221,8 +218,10 @@ export async function POST(req: NextRequest) {
   }
 
   // ── Park the PDF (content-addressed; "already exists" = these exact bytes) ─
-  const storagePath = `invoices/${poId}/${sha256}.pdf`;
-  const { error: uploadError } = await admin.storage
+  // Uploaded as the signed-in user, so the bucket's own policy (GRN rights) applies.
+  // Never upsert: an overwrite needs UPDATE on storage.objects, which is not granted.
+  const storagePath = `${poId}/${sha256}.pdf`;
+  const { error: uploadError } = await supabase.storage
     .from(BUCKET)
     .upload(storagePath, bytes, { contentType: 'application/pdf', upsert: false });
   const uploadStatus = String((uploadError as { statusCode?: unknown } | null)?.statusCode ?? '');
@@ -230,7 +229,13 @@ export async function POST(req: NextRequest) {
     !!uploadError && (uploadStatus === '409' || /already exists/i.test(uploadError.message));
   if (uploadError && !alreadyStored) {
     console.error('[procurement grn extract-invoice] upload failed:', uploadError);
-    return manual(/bucket not found/i.test(uploadError.message) ? NOT_SET_UP : COULD_NOT_START);
+    return manual(
+      /bucket not found/i.test(uploadError.message)
+        ? NOT_SET_UP
+        : uploadStatus === '403'
+          ? 'You do not have permission to upload supplier invoices for AI reading — please type the invoice details in.'
+          : COULD_NOT_START,
+    );
   }
 
   // ── Enqueue on the ₹0 Max lane, as the signed-in user ──────────────────────

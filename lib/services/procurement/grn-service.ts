@@ -14,6 +14,7 @@ import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { getAdapter } from './domain-adapters/registry';
 import { matchLine, validateLineForVerify } from './three-way-match';
 import {
+  duplicateHold,
   expiredLineBlocks,
   findDuplicateGrns,
   lateReasonMissing,
@@ -337,21 +338,9 @@ export class ProcurementGrnService {
         );
       }
 
-      // I1 — the same invoice number from the same supplier was already recorded. Only a
-      // verifier who is not the receiver may confirm it is a different invoice; the DB
-      // trigger fn_procurement_grn_invoice_checks decides whether that confirmer is valid.
-      const duplicates = findDuplicateGrns(
-        await this.getSupplierInvoiceGrns(po.supplier_id),
-        po.supplier_id,
-        input.invoice_number
-      );
-      if (duplicates.length && !input.duplicate_confirmed_by) {
-        throw new Error(
-          `Invoice ${input.invoice_number} from this supplier is already recorded on ${duplicates
-            .map((d) => d.grn_number)
-            .join(', ')}. Only a verifier other than the receiver can confirm it is a different invoice.`
-        );
-      }
+      // I1 — a repeated invoice number is NOT refused here (Director: held save). The
+      // receipt saves as usual; verify is refused until a verifier other than the
+      // receiver confirms it is a different invoice (verifyGrn + the DB verify guard).
       const lateReason = input.late_invoice_reason?.trim() || null;
 
       // 3) Insert header, then lines.
@@ -375,7 +364,6 @@ export class ProcurementGrnService {
           // Sent only when set, so recording a delivery keeps working on a database where
           // 20261009120000_procurement_grn_invoice_checks has not been applied yet.
           ...(lateReason ? { late_invoice_reason: lateReason } : {}),
-          ...(input.duplicate_confirmed_by ? { duplicate_confirmed_by: input.duplicate_confirmed_by } : {}),
         })
         .select()
         .single();
@@ -414,6 +402,53 @@ export class ProcurementGrnService {
   }
 
   /**
+   * Is this receipt's invoice number a repeat of another (non-cancelled) receipt from the
+   * same supplier? Asks the database first (fn_procurement_grn_has_duplicate — the same
+   * check the verify guard runs, and it also sees colleges the caller cannot); falls back
+   * to the caller's own view where that function does not exist yet.
+   */
+  static async hasDuplicateInvoice(
+    grn: Pick<ProcurementGrn, 'id' | 'supplier_id' | 'invoice_number'>
+  ): Promise<boolean> {
+    const { data, error } = await this.supabase.rpc('fn_procurement_grn_has_duplicate', {
+      p_grn_id: grn.id,
+      p_supplier_id: grn.supplier_id,
+      p_invoice_number: grn.invoice_number,
+    });
+    if (!error && typeof data === 'boolean') return data;
+    const visible = await this.getSupplierInvoiceGrns(grn.supplier_id);
+    return findDuplicateGrns(visible, grn.supplier_id, grn.invoice_number, grn.id).length > 0;
+  }
+
+  /**
+   * I1 held save: the verifier confirms that a repeated invoice number is a different
+   * invoice. The DB trigger fn_procurement_grn_invoice_checks stamps the time and refuses
+   * anyone who is the receiver, lacks verify rights, or is not the signed-in user.
+   */
+  static async confirmDifferentInvoice(id: string, userId: string): Promise<ProcurementGrn> {
+    try {
+      const { data, error } = await this.supabase
+        .from('procurement_grn')
+        .update({ duplicate_confirmed_by: userId, updated_at: new Date().toISOString() })
+        .eq('id', id)
+        .eq('status', 'pending_verification')
+        .neq('received_by', userId)
+        .select()
+        .maybeSingle();
+      if (error) throw error;
+      if (!data) {
+        throw new Error(
+          'Could not confirm — the delivery is no longer pending, or you received it yourself.'
+        );
+      }
+      return data as ProcurementGrn;
+    } catch (error) {
+      console.error('[ProcurementGrnService] confirmDifferentInvoice:', error);
+      throw error;
+    }
+  }
+
+  /**
    * Verify a GRN: gate chemical lines, post accepted qty to inventory via the domain
    * adapter, advance PO received_quantity, auto-close the PO when fully received, and
    * set the GRN's terminal status. Guarded so a GRN can only be verified once.
@@ -437,6 +472,22 @@ export class ProcurementGrnService {
         })
       );
       if (errors.length) throw new Error(errors.join(' '));
+
+      // 1b) I1 held save — a repeated invoice number must be confirmed as a different
+      //     invoice before stock is added. The DB verify guard refuses it too.
+      if (
+        duplicateHold({
+          hasDuplicate: await this.hasDuplicateInvoice(grn),
+          confirmedBy: grn.duplicate_confirmed_by,
+          viewerId: userId,
+          receivedBy: grn.received_by,
+          viewerCanVerify: true,
+        }).blocksVerify
+      ) {
+        throw new Error(
+          'This invoice number repeats an earlier one from the same supplier. A verifier other than the receiver must confirm it is a different invoice before it is added to stock.'
+        );
+      }
 
       // 2) Guard the transition first so a concurrent verify can't double-post.
       const { data: locked, error: lockErr } = await this.supabase

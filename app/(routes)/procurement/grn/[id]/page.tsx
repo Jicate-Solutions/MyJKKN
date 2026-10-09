@@ -12,7 +12,11 @@ import {
   useReplacements,
   useReceiveReplacement,
   useUpdateGrnItem,
+  useGrnDuplicateInvoice,
+  useConfirmDifferentInvoice,
 } from '@/hooks/procurement/use-grns';
+import { duplicateHold } from '@/lib/services/procurement/invoice-checks';
+import { DuplicateInvoiceCompare } from '@/components/procurement/duplicate-invoice-compare';
 import { validateLineForVerify } from '@/lib/services/procurement/three-way-match';
 import { GRN_STATUS_CONFIG, GRN_MATCH_CONFIG, type ProcurementGrnReplacement } from '@/types/procurement';
 import { formatDateDMY, formatDateTimeDMY } from '@/lib/utils/date-format';
@@ -68,6 +72,10 @@ export default function GrnDetailPage() {
   const [cancelOpen, setCancelOpen] = useState(false);
   const receiveReplacement = useReceiveReplacement(id);
   const updateItem = useUpdateGrnItem(id);
+  // I1 held save: a repeated invoice number must be confirmed before verify.
+  const { data: dup } = useGrnDuplicateInvoice(grn);
+  const confirmDifferent = useConfirmDifferentInvoice();
+  const [confirmDupOpen, setConfirmDupOpen] = useState(false);
 
   // Inline batch/expiry edits (pending GRNs only) — lets the admin satisfy the chemical
   // gate at verify time. Keyed by grn_item id; falls back to the stored value.
@@ -152,6 +160,13 @@ export default function GrnDetailPage() {
   );
 
   const purchase = grn.purchase_request;
+  const hold = duplicateHold({
+    hasDuplicate: !!dup?.hasDuplicate,
+    confirmedBy: grn.duplicate_confirmed_by,
+    viewerId: profile?.id,
+    receivedBy: grn.received_by,
+    viewerCanVerify: canVerify,
+  });
   const canVerifyNow = pending && canVerify;
   const verify = () =>
     run(
@@ -180,7 +195,7 @@ export default function GrnDetailPage() {
             canVerifyNow && (
               <Button
                 className="h-11 px-5 sm:h-9"
-                disabled={verifyGrn.isPending || chemicalBlocks.length > 0}
+                disabled={verifyGrn.isPending || chemicalBlocks.length > 0 || hold.blocksVerify}
                 onClick={verify}
               >
                 <CheckCircle2 className="mr-1.5 h-4 w-4" />
@@ -213,6 +228,55 @@ export default function GrnDetailPage() {
               <p className="font-medium">{grn.received_by_profile?.full_name || '—'}</p>
             </div>
         </section>
+
+        {/* I1 held save — same invoice number from this supplier as an earlier receipt. */}
+        {pending && hold.held && (
+          <section className="space-y-3 rounded-xl border border-destructive/40 bg-background px-5 py-4 shadow">
+            <div className="flex items-start gap-1.5 text-sm">
+              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-destructive" />
+              <div className="space-y-1">
+                <p className="font-medium">On hold — this invoice number is already recorded</p>
+                <p className="text-muted-foreground">
+                  {grn.supplier?.name ?? 'This supplier'} has billed invoice “{grn.invoice_number}” on an
+                  earlier delivery. Stock cannot be added until a verifier who did not receive these
+                  goods compares the two and confirms they are different invoices.
+                </p>
+              </div>
+            </div>
+            <DuplicateInvoiceCompare
+              earlier={dup?.earlier ?? []}
+              hiddenElsewhere={!!dup?.hasDuplicate}
+              current={{
+                invoice_number: grn.invoice_number,
+                invoice_date: grn.invoice_date,
+                invoice_amount: grn.invoice_amount,
+              }}
+            />
+            {hold.canConfirm ? (
+              <Button
+                variant="outline"
+                className="h-11 sm:h-9"
+                disabled={confirmDifferent.isPending}
+                onClick={() => setConfirmDupOpen(true)}
+              >
+                This is a different invoice
+              </Button>
+            ) : (
+              <p className="text-xs text-muted-foreground">
+                {profile?.id === grn.received_by
+                  ? 'You received these goods, so a different verifier must confirm this.'
+                  : 'Only someone who can verify deliveries can confirm this.'}
+              </p>
+            )}
+          </section>
+        )}
+        {pending && grn.duplicate_confirmed_by && (
+          <p className="text-sm text-muted-foreground">
+            Repeated invoice number confirmed as a different invoice
+            {grn.duplicate_confirmed_by === profile?.id ? ' by you' : ''}
+            {grn.duplicate_confirmed_at ? ` on ${formatDateDMY(grn.duplicate_confirmed_at)}` : ''}.
+          </p>
+        )}
 
         {/* Verify warnings */}
         {pending && (hasMismatch || chemicalBlocks.length > 0) && (
@@ -451,6 +515,31 @@ export default function GrnDetailPage() {
           </p>
         )}
       </div>
+
+      <AlertDialog open={confirmDupOpen} onOpenChange={setConfirmDupOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Confirm this is a different invoice?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Your name and the time are recorded against this delivery. After this, it can be
+              checked and added to stock as usual.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Not yet</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() =>
+                run(
+                  () => confirmDifferent.mutateAsync({ id, userId: profile!.id }),
+                  'Confirmed as a different invoice — the delivery can now be checked.'
+                )
+              }
+            >
+              Yes, it is a different invoice
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <AlertDialog open={cancelOpen} onOpenChange={setCancelOpen}>
         <AlertDialogContent>

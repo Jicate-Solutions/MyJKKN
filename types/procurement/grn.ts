@@ -135,11 +135,6 @@ export interface CreateGrnInput {
   expectations?: GrnExpectations | null;
   /** I4: required when the invoice is older than expectations.max_invoice_age_days. */
   late_invoice_reason?: string | null;
-  /**
-   * I1: set only by a verifier who is not the receiver. The DB trigger
-   * fn_procurement_grn_invoice_checks rejects any other value and stamps the time.
-   */
-  duplicate_confirmed_by?: string | null;
   lines: GrnLineInput[];
 }
 

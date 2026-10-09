@@ -186,3 +186,33 @@ export function lateReasonMissing(
 ): boolean {
   return invoiceAgeCheck(invoiceDate, today, maxAgeDays).tooOld && !(reason ?? '').trim();
 }
+
+// ── I1 held save (Director, 2026-10-09) ──────────────────────────────────────
+
+/**
+ * A receipt whose invoice number repeats an earlier one from the same supplier is
+ * SAVED, but held: it cannot be verified (added to stock) until a verifier confirms it
+ * is a different invoice. The verifier must not be the person who received it.
+ *
+ *   held        — a duplicate exists and nobody has confirmed it yet
+ *   canConfirm  — the viewer may press "this is a different invoice" now
+ *   blocksVerify — verify must be refused (same as held)
+ *
+ * The database enforces the same rule (fn_procurement_guard_approval refuses the verify,
+ * fn_procurement_grn_invoice_checks refuses a confirmer who is the receiver).
+ */
+export function duplicateHold(input: {
+  hasDuplicate: boolean;
+  confirmedBy: string | null | undefined;
+  viewerId: string | null | undefined;
+  receivedBy: string | null | undefined;
+  viewerCanVerify: boolean;
+}): { held: boolean; canConfirm: boolean; blocksVerify: boolean } {
+  const held = input.hasDuplicate && !input.confirmedBy;
+  const canConfirm =
+    held &&
+    input.viewerCanVerify &&
+    !!input.viewerId &&
+    input.viewerId !== input.receivedBy;
+  return { held, canConfirm, blocksVerify: held };
+}

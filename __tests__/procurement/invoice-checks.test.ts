@@ -8,6 +8,7 @@ import {
   splitInvoiceLines,
   invoiceAgeCheck,
   lateReasonMissing,
+  duplicateHold,
 } from '@/lib/services/procurement/invoice-checks';
 
 // Invoice checks I1–I4 (spec from Draft PR #4289). The model only reads the PDF; these
@@ -185,5 +186,40 @@ describe('I4 invoiceAgeCheck / lateReasonMissing', () => {
     expect(lateReasonMissing('2026-01-01', TODAY, 30, null)).toBe(true);
     expect(lateReasonMissing('2026-01-01', TODAY, 30, 'Supplier re-sent the bill')).toBe(false);
     expect(lateReasonMissing('2026-10-01', TODAY, 30, '')).toBe(false);
+  });
+});
+
+describe('I1 duplicateHold (held save)', () => {
+  const base = {
+    hasDuplicate: true,
+    confirmedBy: null,
+    viewerId: 'verifier',
+    receivedBy: 'receiver',
+    viewerCanVerify: true,
+  };
+
+  it('holds an unconfirmed duplicate and blocks verify', () => {
+    expect(duplicateHold(base)).toEqual({ held: true, canConfirm: true, blocksVerify: true });
+  });
+  it('releases the hold once confirmed', () => {
+    expect(duplicateHold({ ...base, confirmedBy: 'verifier' })).toEqual({
+      held: false,
+      canConfirm: false,
+      blocksVerify: false,
+    });
+  });
+  it('never holds a receipt with no duplicate', () => {
+    expect(duplicateHold({ ...base, hasDuplicate: false }).blocksVerify).toBe(false);
+  });
+  it('the receiver can never confirm, even with verify rights', () => {
+    const r = duplicateHold({ ...base, viewerId: 'receiver' });
+    expect(r.canConfirm).toBe(false);
+    expect(r.blocksVerify).toBe(true);
+  });
+  it('someone without verify rights cannot confirm', () => {
+    expect(duplicateHold({ ...base, viewerCanVerify: false }).canConfirm).toBe(false);
+  });
+  it('an unknown viewer cannot confirm', () => {
+    expect(duplicateHold({ ...base, viewerId: null }).canConfirm).toBe(false);
   });
 });
