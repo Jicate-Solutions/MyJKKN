@@ -8,6 +8,7 @@
 
 import { PROTECTED_ROUTES } from './protected-routes';
 import { MENU_PERMISSIONS } from '@/lib/sidebarMenuLink';
+import { isSignInOnlyPermission } from '@/lib/navigation/permission-filter';
 
 interface RouteNode {
   roles?: string[]; // Static roles (fallback for routes without dynamic permissions)
@@ -301,6 +302,11 @@ class RouteMatcher {
    * through to allow access. Fine-grained permission enforcement for built-in roles
    * happens client-side via the usePermissions hook.
    * Only PROTECTED_ROUTES static role checks are enforced in middleware for built-in roles.
+   *
+   * Sign-in-only keys (`view_profile`, `view_dashboard`) are allowed for every
+   * role before the permission lookup — see isSignInOnlyPermission(). They are
+   * not keys anyone holds, so looking them up in a custom role's map refused
+   * people the client guard admits.
    */
   hasAccess(
     path: string,
@@ -311,6 +317,15 @@ class RouteMatcher {
 
     // If no match found, path is not protected
     if (!config) return true;
+
+    // A sign-in-only route (`view_profile` / `view_dashboard`) is open to every
+    // signed-in person, exactly as isPageAccessible() and the sidebar treat it.
+    // Same helper, so the three gates cannot drift. Without this, a custom role
+    // whose stored map lacks a literal `view_profile: true` was redirected here
+    // from a page the client guard would have opened. The caller (proxy.ts) has
+    // already redirected a signed-out request to the login page before it gets
+    // here, so this grants "signed in" and nothing more.
+    if (config.permission && isSignInOnlyPermission(config.permission)) return true;
 
     // If route has dynamic permission requirement and permissions are provided
     if (config.permission && userPermissions) {

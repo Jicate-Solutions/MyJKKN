@@ -297,7 +297,9 @@ describe('Director handover — walls that must hold regardless of the manifest'
     'billing.payments.create',
     'admission_fees',
     'admission_fees.waive',
-    'campus_living.deposits.refund'
+    'campus_living.deposits.refund',
+    // Wall 5 — Director 8 Oct 05:30: deciding how an HR duty is done stays with HR.
+    'hr.harness.playbooks.manage'
   ];
 
   const MUST_BE_HANDABLE = [
@@ -314,7 +316,9 @@ describe('Director handover — walls that must hold regardless of the manifest'
     'admission_fees.export',
     // Routine delegated work, deliberately outside wall 2.
     'hr.leave.approve',
-    'hr.attendance.view'
+    'hr.attendance.view',
+    // Wall 5 walls the playbooks MANAGE key only; the harness desk view stays handable.
+    'hr.harness.desks.view'
   ];
 
   it.each(MUST_BE_WALLED)('walls %s', (key) => {
