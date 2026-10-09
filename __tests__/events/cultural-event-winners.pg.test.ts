@@ -49,10 +49,16 @@ CREATE TABLE public.events (
   institution_id uuid,
   created_by uuid
 );
+CREATE TABLE public.event_registration_forms (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  event_id uuid NOT NULL REFERENCES public.events(id) ON DELETE CASCADE
+);
 CREATE TABLE public.events_registrations (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  event_id uuid NOT NULL REFERENCES public.events(id),
-  form_id uuid,
+  -- The live foreign keys (desk read, 10 Oct): cascade on event delete,
+  -- SET NULL on form delete.
+  event_id uuid NOT NULL REFERENCES public.events(id) ON DELETE CASCADE,
+  form_id uuid REFERENCES public.event_registration_forms(id) ON DELETE SET NULL,
   participant_name text NOT NULL DEFAULT 'Person',
   institution_name text,
   department text,
@@ -73,7 +79,8 @@ CREATE FUNCTION public.fn_is_event_incharge(p_event_id uuid) RETURNS boolean LAN
 $$;
 GRANT USAGE ON SCHEMA public, auth TO anon, authenticated, service_role;
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.events_registrations TO authenticated;
-GRANT SELECT ON public.events TO authenticated;
+GRANT SELECT, DELETE ON public.events TO authenticated;
+GRANT SELECT, DELETE ON public.event_registration_forms TO authenticated;
 `;
 
 function psql(args: string[]) {
@@ -85,6 +92,12 @@ function psql(args: string[]) {
 }
 
 let client: Client;
+/** A second, owner-only connection for fixtures created mid-test. */
+let admin: Client;
+async function newForm(eventId: string): Promise<string> {
+  return (await admin.query(`INSERT INTO public.event_registration_forms (event_id) VALUES ($1) RETURNING id`, [eventId]))
+    .rows[0].id;
+}
 let tmp: string;
 const ids = { creator: randomUUID(), outsider: randomUUID(), event: '', tournament: '', regA: '', regB: '', regC: '' };
 
@@ -141,6 +154,8 @@ beforeAll(async () => {
   psql(['-d', DBNAME, '-f', MIGRATION]); // its own DO $assert$ block runs here
   client = new Client({ host: PGHOST, port: Number(PGPORT), user: PGUSER, database: DBNAME });
   await client.connect();
+  admin = new Client({ host: PGHOST, port: Number(PGPORT), user: PGUSER, database: DBNAME });
+  await admin.connect();
 
   ids.event = (await q(`INSERT INTO public.events (created_by) VALUES ($1) RETURNING id`, [ids.creator]))[0].id;
   ids.tournament = (
@@ -153,6 +168,7 @@ beforeAll(async () => {
 
 afterAll(async () => {
   if (client) await client.end();
+  if (admin) await admin.end();
   try {
     psql(['-d', 'postgres', '-c', `DROP DATABASE IF EXISTS ${DBNAME} WITH (FORCE)`]);
   } catch {
@@ -313,7 +329,7 @@ describe('no ties (Director ruling 9 Oct): one registration per place per set', 
   it('two competitions (forms) each keep their own winner', async () => {
     await asOwner();
     const ev = (await q(`INSERT INTO public.events (created_by) VALUES ($1) RETURNING id`, [ids.creator]))[0].id;
-    const [f1, f2] = [randomUUID(), randomUUID()];
+    const [f1, f2] = [await newForm(ev), await newForm(ev)];
     const r1 = (await q(`INSERT INTO public.events_registrations (event_id, form_id) VALUES ($1, $2) RETURNING id`, [ev, f1]))[0].id;
     const r2 = (await q(`INSERT INTO public.events_registrations (event_id, form_id) VALUES ($1, $2) RETURNING id`, [ev, f2]))[0].id;
     const r3 = (await q(`INSERT INTO public.events_registrations (event_id, form_id) VALUES ($1, $2) RETURNING id`, [ev, f1]))[0].id;
@@ -403,19 +419,21 @@ describe('review round 3 (#4311)', () => {
   });
 
   it('#1 refuses carrying a place from your own event into another event', async () => {
-    const { ownRow } = await setupMove();
+    const { own, ownRow } = await setupMove();
+    const ownForm = await newForm(own);
     await actAs(ids.outsider);
     expect(await sqlstate(`UPDATE public.events_registrations SET final_rank = 2 WHERE id = $1`, [ownRow])).toBeNull();
     expect(await sqlstate(`UPDATE public.events_registrations SET event_id = $1 WHERE id = $2`, [ids.event, ownRow])).toBe('42501');
-    expect(await sqlstate(`UPDATE public.events_registrations SET form_id = $1 WHERE id = $2`, [randomUUID(), ownRow])).toBeNull();
+    expect(await sqlstate(`UPDATE public.events_registrations SET form_id = $1 WHERE id = $2`, [ownForm, ownRow])).toBeNull();
     await asOwner();
     expect((await q(`SELECT event_id FROM public.events_registrations WHERE id = $1`, [ownRow]))[0].event_id).not.toBe(ids.event);
   });
 
   it('#1 refuses moving a placed row to another form by someone without authority', async () => {
     await setupMove();
+    const victimForm = await newForm(ids.event);
     await actAs(ids.outsider);
-    expect(await sqlstate(`UPDATE public.events_registrations SET form_id = $1 WHERE id = $2`, [randomUUID(), ids.regA])).toBe('42501');
+    expect(await sqlstate(`UPDATE public.events_registrations SET form_id = $1 WHERE id = $2`, [victimForm, ids.regA])).toBe('42501');
   });
 
   it('#4 refuses rewriting who a placed row names; an unplaced row can still be edited', async () => {
@@ -459,7 +477,7 @@ describe('review round 3 (#4311)', () => {
   it('#3 the set is always the form: a place stays per form however forms come and go', async () => {
     await asOwner();
     const ev = (await q(`INSERT INTO public.events (created_by) VALUES ($1) RETURNING id`, [ids.creator]))[0].id;
-    const f1 = randomUUID();
+    const f1 = await newForm(ev);
     const a = (await q(`INSERT INTO public.events_registrations (event_id, form_id) VALUES ($1, $2) RETURNING id`, [ev, f1]))[0].id;
     const b = (await q(`INSERT INTO public.events_registrations (event_id) VALUES ($1) RETURNING id`, [ev]))[0].id;
     await actAs(ids.creator);
@@ -578,7 +596,7 @@ describe('review round 4 (#4311)', () => {
 
   it('#3 moving a placed row to another form logs a clear on the old form and a set on the new', async () => {
     const row = await placed(3);
-    const f = randomUUID();
+    const f = await newForm(ids.event);
     await actAs(ids.creator);
     expect(await sqlstate(`UPDATE public.events_registrations SET form_id = $1 WHERE id = $2`, [f, row])).toBeNull();
     expect(await history(row)).toEqual([
@@ -595,6 +613,115 @@ describe('review round 4 (#4311)', () => {
       `SELECT has_function_privilege('service_role', 'public.fn_set_event_registration_ranks(uuid, jsonb)', 'EXECUTE') AS ok`
     );
     expect(r[0].ok).toBe(false);
+  });
+});
+
+describe('review round 5 (#4311): the live foreign keys', () => {
+  async function historyFor(eventId: string) {
+    return (
+      await admin.query(
+        `SELECT registration_id, form_id, old_rank, new_rank FROM public.event_winner_rank_changes
+          WHERE event_id = $1 ORDER BY changed_at, ctid`,
+        [eventId]
+      )
+    ).rows;
+  }
+
+  it('#1 any status change on a placed row needs authority (un-cancelling included)', async () => {
+    await asOwner();
+    const row = (await q(`INSERT INTO public.events_registrations (event_id) VALUES ($1) RETURNING id`, [ids.event]))[0].id;
+    await q(`UPDATE public.events_registrations SET final_rank = 3 WHERE id = $1`, [row]);
+    await q(`UPDATE public.events_registrations SET status = 'cancelled' WHERE id = $1`, [row]);
+    await actAs(ids.outsider);
+    expect(await sqlstate(`UPDATE public.events_registrations SET status = 'registered' WHERE id = $1`, [row])).toBe('42501');
+    expect(await sqlstate(`UPDATE public.events_registrations SET status = 'checked_in' WHERE id = $1`, [row])).toBe('42501');
+    await actAs(ids.creator);
+    expect(await sqlstate(`UPDATE public.events_registrations SET status = 'registered' WHERE id = $1`, [row])).toBeNull();
+    await asOwner();
+    await q(`DELETE FROM public.events_registrations WHERE id = $1`, [row]);
+  });
+
+  it('#2 the creator deletes an event that has winners: the cascade succeeds and each removal is logged', async () => {
+    await asOwner();
+    const ev = (await q(`INSERT INTO public.events (created_by) VALUES ($1) RETURNING id`, [ids.creator]))[0].id;
+    const a = (await q(`INSERT INTO public.events_registrations (event_id) VALUES ($1) RETURNING id`, [ev]))[0].id;
+    const b = (await q(`INSERT INTO public.events_registrations (event_id) VALUES ($1) RETURNING id`, [ev]))[0].id;
+    await actAs(ids.creator);
+    expect(
+      await sqlstate(`SELECT public.fn_set_event_registration_ranks($1, $2::jsonb)`, [
+        ev,
+        JSON.stringify([
+          { registration_id: a, final_rank: 1 },
+          { registration_id: b, final_rank: 2 },
+        ]),
+      ])
+    ).toBeNull();
+    expect(await sqlstate(`DELETE FROM public.events WHERE id = $1`, [ev])).toBeNull();
+    await asOwner();
+    expect(await q(`SELECT 1 FROM public.events_registrations WHERE event_id = $1`, [ev])).toEqual([]);
+    const removals = (await historyFor(ev)).filter((h) => h.new_rank === null);
+    expect(removals).toEqual(
+      expect.arrayContaining([
+        { registration_id: a, form_id: null, old_rank: 1, new_rank: null },
+        { registration_id: b, form_id: null, old_rank: 2, new_rank: null },
+      ])
+    );
+    expect(removals).toHaveLength(2);
+  });
+
+  it('#2 a non-manager deleting a placed row directly is still refused', async () => {
+    await asOwner();
+    const row = (await q(`INSERT INTO public.events_registrations (event_id) VALUES ($1) RETURNING id`, [ids.event]))[0].id;
+    await q(`UPDATE public.events_registrations SET final_rank = 3 WHERE id = $1`, [row]);
+    await actAs(ids.outsider);
+    expect(await sqlstate(`DELETE FROM public.events_registrations WHERE id = $1`, [row])).toBe('42501');
+    await asOwner();
+    await q(`DELETE FROM public.events_registrations WHERE id = $1`, [row]);
+  });
+
+  it('#3 deleting a form clears and logs its winner; the other form and the no-form set are untouched', async () => {
+    await asOwner();
+    const ev = (await q(`INSERT INTO public.events (created_by) VALUES ($1) RETURNING id`, [ids.creator]))[0].id;
+    const [f1, f2] = [await newForm(ev), await newForm(ev)];
+    const add = async (form: string | null) =>
+      (await q(`INSERT INTO public.events_registrations (event_id, form_id) VALUES ($1, $2) RETURNING id`, [ev, form]))[0].id;
+    const [r1, r2, r0] = [await add(f1), await add(f2), await add(null)];
+    await actAs(ids.creator);
+    expect(
+      await sqlstate(`SELECT public.fn_set_event_registration_ranks($1, $2::jsonb)`, [
+        ev,
+        JSON.stringify([
+          { registration_id: r1, final_rank: 1 },
+          { registration_id: r2, final_rank: 1 },
+          { registration_id: r0, final_rank: 1 },
+        ]),
+      ])
+    ).toBeNull();
+    // Without the clear, r1 would land in the no-form set next to r0's 1st place.
+    expect(await sqlstate(`DELETE FROM public.event_registration_forms WHERE id = $1`, [f1])).toBeNull();
+    await asOwner();
+    const rows = await q(`SELECT id, form_id, final_rank FROM public.events_registrations WHERE event_id = $1`, [ev]);
+    const byId = Object.fromEntries(rows.map((r) => [r.id, r]));
+    expect(byId[r1]).toEqual({ id: r1, form_id: null, final_rank: null });
+    expect(byId[r2]).toEqual({ id: r2, form_id: f2, final_rank: 1 });
+    expect(byId[r0]).toEqual({ id: r0, form_id: null, final_rank: 1 });
+    const cleared = (await historyFor(ev)).filter((h) => h.registration_id === r1 && h.new_rank === null);
+    expect(cleared).toEqual([{ registration_id: r1, form_id: f1, old_rank: 1, new_rank: null }]);
+  });
+
+  it('#3 a client setting form_id to NULL on a placed row (form still there) is a move that needs authority', async () => {
+    await asOwner();
+    const f = await newForm(ids.event);
+    const row = (await q(`INSERT INTO public.events_registrations (event_id, form_id) VALUES ($1, $2) RETURNING id`, [ids.event, f]))[0].id;
+    await q(`UPDATE public.events_registrations SET final_rank = 3 WHERE id = $1`, [row]);
+    await actAs(ids.outsider);
+    expect(await sqlstate(`UPDATE public.events_registrations SET form_id = NULL WHERE id = $1`, [row])).toBe('42501');
+    await asOwner();
+    expect((await q(`SELECT form_id, final_rank FROM public.events_registrations WHERE id = $1`, [row]))[0]).toEqual({
+      form_id: f,
+      final_rank: 3,
+    });
+    await q(`DELETE FROM public.events_registrations WHERE id = $1`, [row]);
   });
 });
 

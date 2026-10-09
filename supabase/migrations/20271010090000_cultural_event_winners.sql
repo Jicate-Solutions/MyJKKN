@@ -91,12 +91,19 @@ DECLARE
   v_rank_changed boolean;
   v_moved boolean := false;
   v_renamed boolean := false;
-  v_cancelled boolean := false;
+  v_status_changed boolean := false;
   v_type text;
 BEGIN
   -- Deleting a placed row removes a winner: same authority as changing one.
   IF TG_OP = 'DELETE' THEN
     IF OLD.final_rank IS NULL OR COALESCE(auth.role(), '') NOT IN ('anon', 'authenticated') THEN
+      RETURN OLD;
+    END IF;
+    -- The event itself is being deleted (events_registrations_event_id_fkey is
+    -- ON DELETE CASCADE): whoever could delete the event takes its winners with
+    -- it. The parent row is already gone, so the authority check would fail
+    -- closed; the history trigger still logs each removal.
+    IF NOT EXISTS (SELECT 1 FROM public.events e WHERE e.id = OLD.event_id) THEN
       RETURN OLD;
     END IF;
     IF NOT COALESCE(public.fn_can_record_event_winners(OLD.event_id), false) THEN
@@ -112,19 +119,31 @@ BEGIN
     END IF;
     v_rank_changed := true;
   ELSE
+    -- A registration form was deleted (events_registrations_form_id_fkey is ON
+    -- DELETE SET NULL). The place belonged to a competition that no longer
+    -- exists, so it is cleared — this also keeps it from colliding with a place
+    -- in the no-form set. A system move: no authority check; the history
+    -- trigger logs the clear on the old form.
+    IF OLD.form_id IS NOT NULL AND NEW.form_id IS NULL
+       AND NOT EXISTS (SELECT 1 FROM public.event_registration_forms f WHERE f.id = OLD.form_id) THEN
+      NEW.final_rank := NULL;
+      RETURN NEW;
+    END IF;
+
     v_rank_changed := NEW.final_rank IS DISTINCT FROM OLD.final_rank;
     v_moved := NEW.event_id IS DISTINCT FROM OLD.event_id
             OR NEW.form_id IS DISTINCT FROM OLD.form_id;
     v_renamed := NEW.participant_name IS DISTINCT FROM OLD.participant_name
               OR NEW.institution_name IS DISTINCT FROM OLD.institution_name
               OR NEW.department IS DISTINCT FROM OLD.department;
-    -- Cancelling a placed row: allowed for those who may record winners (the
-    -- place stays and the card marks it "(cancelled)"), refused for others.
-    v_cancelled := NEW.status = 'cancelled' AND OLD.status IS DISTINCT FROM 'cancelled';
+    -- Any status change on a placed row (cancelling, un-cancelling, ...):
+    -- allowed for those who may record winners (a cancelled winner keeps the
+    -- place and the card marks it "(cancelled)"), refused for others.
+    v_status_changed := NEW.status IS DISTINCT FROM OLD.status;
     -- Nothing about a place changes: an unplaced row moving, being renamed or
-    -- cancelled, or a placed row whose other columns change.
+    -- changing status, or a placed row whose other columns change.
     IF NOT v_rank_changed
-       AND NOT ((v_moved OR v_renamed OR v_cancelled)
+       AND NOT ((v_moved OR v_renamed OR v_status_changed)
                 AND (OLD.final_rank IS NOT NULL OR NEW.final_rank IS NOT NULL)) THEN
       RETURN NEW;
     END IF;
