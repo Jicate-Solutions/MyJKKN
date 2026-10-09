@@ -21,6 +21,8 @@ const svc = vi.hoisted(() => ({
   listPeople: vi.fn(),
   getPolicyForStaff: vi.fn(),
   updateCycle: vi.fn(),
+  // The round page asks who is the Director (Sign off gate, 1 Oct 2026).
+  isTheDirector: vi.fn(async () => false),
 }));
 
 vi.mock('@/lib/services/hr/performance-review-service', async () => {

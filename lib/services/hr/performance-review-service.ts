@@ -34,12 +34,15 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { TeamPerson } from '@/lib/hr/appraisal-team-board';
 import {
+  type AppraisalRatingMap,
+  directorOverrides,
   deriveAppraisalScore,
   parseRatings,
   resolveAreas,
   resolveRatingPoints,
   type AppraisalRatingPolicySlice,
   sentBackByFor,
+  collegialityExampleMissing,
 } from '@/lib/hr/appraisal-ratings';
 
 // ---------------------------------------------------------------------------
@@ -99,6 +102,13 @@ export interface HRPerformanceReview {
   self_appraisal_jsonb: Record<string, unknown> | null;
   supervisor_review_jsonb: Record<string, unknown> | null;
   sedc_review_jsonb: Record<string, unknown> | null;
+  /**
+   * 30 Sep 2026: the Director's own ratings for the areas he changed at
+   * sign-off ({ ratings, reason, set_by, set_at }). Beside the committee's,
+   * never over them. Written by the named Director list only (the database
+   * guard refuses everyone else). Absent on older rows.
+   */
+  director_review_jsonb?: Record<string, unknown> | null;
   final_score: number | null;
   final_remarks: string | null;
   status: ReviewStatus;
@@ -197,6 +207,12 @@ export function lockBlockedMessage(pending: number, departments: readonly string
 // ---------------------------------------------------------------------------
 // Service
 // ---------------------------------------------------------------------------
+
+
+
+/** Shown when a second person saves an appraisal someone else just changed. */
+export const APPRAISAL_CHANGED_MESSAGE =
+  'Someone else just changed this appraisal. Reload and try again; nothing you entered here was saved.';
 
 export class PerformanceReviewService {
   // -----------------------------------------------------------------------
@@ -586,22 +602,17 @@ export class PerformanceReviewService {
     supabase: SupabaseClient,
     reviewId: string,
     payload: Record<string, unknown>,
+    /** updated_at as the reviewer's screen showed it (optimistic lock). */
+    expectedUpdatedAt?: string,
   ): Promise<HRPerformanceReview> {
     const current = await this.requireReview(supabase, reviewId);
     assertTransition(current.status, 'supervisor_reviewed');
 
-    const { data, error } = await supabase
-      .from('hr_performance_reviews')
-      .update({
-        supervisor_review_jsonb: payload,
-        status: 'supervisor_reviewed',
-        supervisor_reviewed_at: new Date().toISOString(),
-      })
-      .eq('id', reviewId)
-      .select('*')
-      .single();
-    if (error) throw error;
-    return data as HRPerformanceReview;
+    return this.saveIfUnchanged(supabase, current, expectedUpdatedAt, {
+      supervisor_review_jsonb: payload,
+      status: 'supervisor_reviewed',
+      supervisor_reviewed_at: new Date().toISOString(),
+    });
   }
 
   /** SEDC committee path. supervisor_reviewed → sedc_reviewed. */
@@ -609,22 +620,17 @@ export class PerformanceReviewService {
     supabase: SupabaseClient,
     reviewId: string,
     payload: Record<string, unknown>,
+    /** updated_at as the committee's screen showed it (optimistic lock). */
+    expectedUpdatedAt?: string,
   ): Promise<HRPerformanceReview> {
     const current = await this.requireReview(supabase, reviewId);
     assertTransition(current.status, 'sedc_reviewed');
 
-    const { data, error } = await supabase
-      .from('hr_performance_reviews')
-      .update({
-        sedc_review_jsonb: payload,
-        status: 'sedc_reviewed',
-        sedc_reviewed_at: new Date().toISOString(),
-      })
-      .eq('id', reviewId)
-      .select('*')
-      .single();
-    if (error) throw error;
-    return data as HRPerformanceReview;
+    return this.saveIfUnchanged(supabase, current, expectedUpdatedAt, {
+      sedc_review_jsonb: payload,
+      status: 'sedc_reviewed',
+      sedc_reviewed_at: new Date().toISOString(),
+    });
   }
 
   /**
@@ -650,17 +656,41 @@ export class PerformanceReviewService {
     args: {
       final_remarks: string;
       approver_profile_id: string;
+      /**
+       * 30 Sep 2026: the Director may change a rating at sign-off. Only the
+       * areas that differ from the committee's are recorded, beside the
+       * committee's, with the reason. The database refuses this from anyone
+       * not on the Director list.
+       */
+      director_ratings?: AppraisalRatingMap;
+      director_reason?: string;
+      /** Required when his change gives Collegiality a Below and the college asks for an example. */
+      director_collegiality_example?: string;
+      /** updated_at as the Director's screen showed it (optimistic lock). */
+      expected_updated_at?: string;
     },
   ): Promise<HRPerformanceReview> {
     const current = await this.requireReview(supabase, reviewId);
     assertTransition(current.status, 'final_approved');
 
-    // The approved ratings ARE the committee's normalised ratings. The
-    // Director's decision at this step is approve or send back, so nothing is
-    // re-rated here and no tier's payload is written over by another.
+    // The approved ratings are the committee's normalised ratings, with the
+    // Director's changes laid over them (30 Sep). The committee's payload is
+    // never written over.
     const policy = await this.getPolicyForStaff(supabase, current.staff_id);
     const areas = resolveAreas();
-    const ratings = parseRatings(current.sedc_review_jsonb, areas);
+    const committee = parseRatings(current.sedc_review_jsonb, areas);
+    const overrides = directorOverrides(committee, args.director_ratings, areas);
+    const overridden = Object.keys(overrides).length > 0;
+    if (overridden && (args.director_reason ?? '').trim().length < 10) {
+      throw new Error('Say why you changed a rating (at least 10 characters). It is recorded beside the committee\'s.');
+    }
+    const ratings: AppraisalRatingMap = { ...committee, ...overrides };
+    if (
+      overrides.collegiality === 'below' &&
+      collegialityExampleMissing(ratings, args.director_collegiality_example, policy)
+    ) {
+      throw new Error('A Below in Collegiality needs a written example.');
+    }
     const derived = deriveAppraisalScore(ratings, areas, resolveRatingPoints(policy), policy);
     if (derived === null) {
       throw new Error(
@@ -668,20 +698,26 @@ export class PerformanceReviewService {
       );
     }
 
-    const { data, error } = await supabase
-      .from('hr_performance_reviews')
-      .update({
+    return this.saveIfUnchanged(supabase, current, args.expected_updated_at, {
         final_score: derived,
         final_remarks: args.final_remarks,
         status: 'final_approved',
         final_approved_at: new Date().toISOString(),
         final_approved_by: args.approver_profile_id,
-      })
-      .eq('id', reviewId)
-      .select('*')
-      .single();
-    if (error) throw error;
-    return data as HRPerformanceReview;
+        ...(overridden
+          ? {
+              director_review_jsonb: {
+                ratings: overrides,
+                reason: (args.director_reason ?? '').trim(),
+                ...(overrides.collegiality === 'below' && args.director_collegiality_example
+                  ? { collegiality_example: args.director_collegiality_example.trim() }
+                  : {}),
+                set_by: args.approver_profile_id,
+                set_at: new Date().toISOString(),
+              },
+            }
+          : {}),
+    });
   }
 
   /**
@@ -700,6 +736,8 @@ export class PerformanceReviewService {
     reviewId: string,
     to: ReviewStatus,
     reason: string,
+    /** updated_at as the sender's screen showed it (optimistic lock). */
+    expectedUpdatedAt?: string,
   ): Promise<HRPerformanceReview> {
     const current = await this.requireReview(supabase, reviewId);
     if (SEND_BACK_TO[current.status] !== to) {
@@ -730,27 +768,59 @@ export class PerformanceReviewService {
     const existingPayload =
       (current[stampColumn as keyof HRPerformanceReview] as Record<string, unknown> | null) ?? {};
 
-    const { data, error } = await supabase
-      .from('hr_performance_reviews')
-      .update({
-        status: to,
-        [stampColumn]: {
-          ...existingPayload,
-          sent_back_reason: reason,
-          sent_back_by: sentBackByFor(current.status),
-          sent_back_at: new Date().toISOString(),
-        },
-      })
-      .eq('id', reviewId)
-      .select('*')
-      .single();
-    if (error) throw error;
-    return data as HRPerformanceReview;
+    return this.saveIfUnchanged(supabase, current, expectedUpdatedAt, {
+      status: to,
+      [stampColumn]: {
+        ...existingPayload,
+        sent_back_reason: reason,
+        sent_back_by: sentBackByFor(current.status),
+        sent_back_at: new Date().toISOString(),
+      },
+    });
   }
 
   // -----------------------------------------------------------------------
   // Helpers
   // -----------------------------------------------------------------------
+
+  /**
+   * Is the caller on the Director list (fn_is_the_director(), 20270520090000)?
+   * Director ruling, 1 Oct 2026: only the Director list sees Sign off. Fails
+   * closed: an error reads as "no".
+   */
+  static async isTheDirector(supabase: SupabaseClient): Promise<boolean> {
+    const { data, error } = await supabase.rpc('fn_is_the_director');
+    return !error && data === true;
+  }
+
+  /**
+   * Saves `patch` only if nobody has changed the appraisal since the caller
+   * read it (Director ruling, 1 Oct 2026: "whoever saves second sees 'someone
+   * else just changed this, reload and try again'. Nothing is lost.").
+   * `expected` is the updated_at the person's SCREEN showed, so a committee
+   * save made while the Director was reading is caught, not only one made in
+   * the last millisecond. updated_at is stamped here as well as by the table's
+   * trigger, so the check holds even if the trigger is ever missing.
+   */
+  private static async saveIfUnchanged(
+    supabase: SupabaseClient,
+    current: HRPerformanceReview,
+    expected: string | undefined,
+    patch: Record<string, unknown>,
+  ): Promise<HRPerformanceReview> {
+    const seen = expected ?? current.updated_at;
+    if (seen !== current.updated_at) throw new Error(APPRAISAL_CHANGED_MESSAGE);
+    const { data, error } = await supabase
+      .from('hr_performance_reviews')
+      .update({ ...patch, updated_at: new Date().toISOString() })
+      .eq('id', current.id)
+      .eq('updated_at', seen)
+      .select('*')
+      .maybeSingle();
+    if (error) throw error;
+    if (!data) throw new Error(APPRAISAL_CHANGED_MESSAGE);
+    return data as HRPerformanceReview;
+  }
 
   private static async requireReview(
     supabase: SupabaseClient,

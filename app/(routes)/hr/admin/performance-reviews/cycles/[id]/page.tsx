@@ -83,6 +83,17 @@ export default function HrPerformanceReviewCycleDetailPage() {
   const [policy, setPolicy] = useState<HRPerformanceReviewPolicy | null>(null);
   const [selected, setSelected] = useState<HRPerformanceReview | null>(null);
   const [approverProfileId, setApproverProfileId] = useState<string | null>(null);
+  // Director ruling, 1 Oct 2026: only the Director list sees Sign off. Other
+  // super admins can still open a signed-off appraisal. Fails closed: until
+  // the database answers, or if it cannot, the button stays hidden.
+  const [isTheDirector, setIsTheDirector] = useState(false);
+  useEffect(() => {
+    let alive = true;
+    PerformanceReviewService.isTheDirector(supabase).then((yes) => {
+      if (alive) setIsTheDirector(yes);
+    });
+    return () => { alive = false; };
+  }, [supabase]);
 
   // The signed-in profile, stamped on approval. Needed only by the panel.
   useEffect(() => {
@@ -377,10 +388,15 @@ export default function HrPerformanceReviewCycleDetailPage() {
                           {r.final_score !== null ? r.final_score.toFixed(2) : '—'}
                         </td>
                         <td className="py-2 pr-4">
-                          {(r.status === 'supervisor_reviewed' || r.status === 'sedc_reviewed') && (
+                          {(r.status === 'supervisor_reviewed' ||
+                            (r.status === 'sedc_reviewed' && isTheDirector) ||
+                            r.status === 'final_approved') && (
                             <Button variant="outline" size="sm" onClick={() => setSelected(r)}>
-                              {r.status === 'sedc_reviewed' ? 'Sign off' : 'Committee review'}
+                              {r.status === 'sedc_reviewed' ? 'Sign off' : r.status === 'final_approved' ? 'View sign-off' : 'Committee review'}
                             </Button>
+                          )}
+                          {r.status === 'sedc_reviewed' && !isTheDirector && (
+                            <span className="text-xs text-muted-foreground">Waiting for the Director</span>
                           )}
                         </td>
                       </tr>

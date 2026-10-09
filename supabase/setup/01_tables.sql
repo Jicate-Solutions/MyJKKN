@@ -12275,3 +12275,7 @@ CREATE INDEX IF NOT EXISTS idx_hr_intake_match_rules_job
 CREATE UNIQUE INDEX IF NOT EXISTS ux_hr_memos_triggered_by_event
   ON public.hr_memos (triggered_by_event_id)
   WHERE triggered_by_event_id IS NOT NULL;
+
+-- Updated: 2026-10-09 - 20271009090000: the Director's own ratings at sign-off, beside the committee's.
+ALTER TABLE public.hr_performance_reviews
+  ADD COLUMN IF NOT EXISTS director_review_jsonb jsonb;
