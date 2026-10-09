@@ -37,6 +37,10 @@
 --   assistant) after this applies.
 --
 -- ORDER
+--   Needs 20270308090000 (#3999) applied; the guard refuses otherwise. Works
+--   with ai_rpc_academic_context from either #3999 or the newer
+--   20270421090000 (#4088, applied live 2026-10-09) — both pass the guard and
+--   the pg test proves each.
 --   bug_report_details is narrowed to the assistant BEFORE anything is
 --   switched on, so there is no moment when the door could read it.
 --

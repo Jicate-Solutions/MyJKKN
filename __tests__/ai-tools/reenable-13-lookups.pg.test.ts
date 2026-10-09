@@ -103,12 +103,14 @@ function createOf(sql: string, fn: string): string {
  * are not resolved at CREATE time, so they install without their tables.
  * Every other seeded target is a stand-in.
  */
-function functions(): string {
+function functions(academicContextFrom: 'repair' | 'current-year' = 'current-year'): string {
   const targets = [...new Set([...CATALOG.matchAll(/'rpc', '(ai_rpc_[a-z0-9_]+)'/g)].map((m) => m[1]))];
   const others = targets
     .filter((t) => !THIRTEEN.includes(t))
     .map((t) => `CREATE FUNCTION public.${t}() RETURNS jsonb LANGUAGE sql AS $f$ SELECT '{}'::jsonb $f$;`);
-  const real = THIRTEEN.map((t) => createOf(t === 'ai_rpc_academic_context' ? ACADEMIC_CONTEXT : REPAIRED, t));
+  const real = THIRTEEN.map((t) =>
+    createOf(t === 'ai_rpc_academic_context' && academicContextFrom === 'current-year' ? ACADEMIC_CONTEXT : REPAIRED, t)
+  );
   return [...others, ...real].join('\n');
 }
 
@@ -120,14 +122,14 @@ let adminConnected = false;
 const opened: { db: Client; name: string }[] = [];
 
 /** A fresh database with the catalog applied; `tweak` runs before the catalog (e.g. to break one function). */
-async function freshDb(tweak?: string): Promise<Client> {
+async function freshDb(tweak?: string, academicContextFrom: 'repair' | 'current-year' = 'current-year'): Promise<Client> {
   const name = `ai_reenable_${randomUUID().replace(/-/g, '').slice(0, 16)}`;
   await admin.query(`CREATE DATABASE ${name}`);
   const db = new Client({ host: PGHOST, port: PGPORT, user: PGUSER, password: PGPASSWORD, database: name });
   await db.connect();
   opened.push({ db, name });
   await db.query(SCHEMA);
-  await db.query(functions());
+  await db.query(functions(academicContextFrom));
   if (tweak) await db.query(tweak);
   await db.query(CATALOG);
   return db;
@@ -190,6 +192,19 @@ describe('switching the 13 lookups back on', () => {
         expect(now).toEqual(was);
       }
     }
+  });
+
+  it('also switches on when academic_context is still #3999\'s body (20270421090000 not yet applied)', async () => {
+    const db = await freshDb(undefined, 'repair');
+    const body = await db.query(
+      `SELECT prosrc FROM pg_proc WHERE proname = 'ai_rpc_academic_context'`
+    );
+    // really #3999's version, not #4088's
+    const bodyOf = (sql: string) => createOf(sql, 'ai_rpc_academic_context').split('$function$')[1];
+    expect(body.rows[0].prosrc).toBe(bodyOf(REPAIRED));
+    expect(body.rows[0].prosrc).not.toBe(bodyOf(ACADEMIC_CONTEXT));
+    await db.query(REENABLE);
+    expect(await offTargets(db)).toEqual([]);
   });
 
   it('re-running changes nothing', async () => {
