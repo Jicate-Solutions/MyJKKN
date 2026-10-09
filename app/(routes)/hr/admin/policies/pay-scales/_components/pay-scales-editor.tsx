@@ -5,7 +5,8 @@
 // (designation × qualification → basic_pay) plus a small "overrides + governance"
 // strip. Never shows raw JSONB.
 
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { ShieldAlert, Info, Save, Plus, Trash2 } from 'lucide-react';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -21,14 +22,18 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import {
-  COMPENSATION_INSTITUTIONS,
+  PAY_SCALE_INSTITUTIONS,
   HR_COMPENSATION_KEYS,
   useCompensationPolicy,
   useUpdateCompensationPolicy,
-  type CompensationInstitutionId,
+  type PayScaleInstitutionId,
   type PayMatrixRow,
   type PayScalesValue,
 } from '@/hooks/admin/use-hr-compensation-policies';
+import { PayLaddersSection } from './pay-ladders-section';
+// The band is fetched from the server, never imported here: a client import
+// would ship the salary figures in a public JavaScript file.
+import { getReferencePayLadders } from '../actions';
 
 // ---------------------------------------------------------------------------
 // Defaults — applied when the row exists but a key is missing, so the editor
@@ -50,25 +55,55 @@ function inrFormat(v: number | null | undefined): string {
 
 export function PayScalesEditor() {
   const [institutionId, setInstitutionId] =
-    useState<CompensationInstitutionId>(COMPENSATION_INSTITUTIONS[0].id);
+    useState<PayScaleInstitutionId>(PAY_SCALE_INSTITUTIONS[0].id);
 
   const policyQ = useCompensationPolicy<PayScalesValue>(
     HR_COMPENSATION_KEYS.PAY_SCALES,
     institutionId
   );
+  // The updated_at of the row the draft was seeded from; the save is locked to it.
+  const [baseUpdatedAt, setBaseUpdatedAt] = useState<string | null>(null);
   const updateM = useUpdateCompensationPolicy<PayScalesValue>(
     HR_COMPENSATION_KEYS.PAY_SCALES,
-    institutionId
+    institutionId,
+    // Lock the save to the row the draft was loaded from (baseUpdatedAt, not
+    // the latest fetch): a second person's Save must not silently replace the
+    // first one's ladders or matrix.
+    policyQ.data?.exists ? { expectedUpdatedAt: baseUpdatedAt } : undefined
   );
+
+  const referenceQ = useQuery({
+    queryKey: ['hr-pay-scales-reference-ladders', institutionId],
+    queryFn: () => getReferencePayLadders(institutionId),
+    staleTime: Infinity,
+  });
+  const reference = referenceQ.data;
+  const referenceStatus: 'loading' | 'ready' | { error: string } =
+    referenceQ.isLoading
+      ? 'loading'
+      : referenceQ.isError
+        ? { error: referenceQ.error.message || 'Could not load the reference pay band.' }
+        : reference && 'error' in reference
+          ? { error: reference.error }
+          : 'ready';
 
   const [draft, setDraft] = useState<PayScalesValue>(EMPTY_VALUE);
   const [dirty, setDirty] = useState(false);
 
-  useEffect(() => {
-    if (!policyQ.data) return;
-    setDraft(policyQ.data.value ?? EMPTY_VALUE);
-    setDirty(false);
-  }, [policyQ.data, institutionId]);
+  // Seed the draft whenever a freshly loaded row arrives (a new institution,
+  // or a refetch after save), but never while there are unsaved changes: a
+  // background refetch (window focus) must not wipe what someone is typing.
+  // The institution picker is disabled while dirty, so a skipped refetch is
+  // always for the same college. Done while rendering rather than in an
+  // effect, so the stale draft is never painted first.
+  const [loadedData, setLoadedData] = useState<typeof policyQ.data>(undefined);
+  if (policyQ.data && policyQ.data !== loadedData) {
+    setLoadedData(policyQ.data);
+    if (!dirty) {
+      setDraft(policyQ.data.value ?? EMPTY_VALUE);
+      setBaseUpdatedAt(policyQ.data.updatedAt);
+    }
+  }
 
   const totalRows = draft.pay_matrix.length;
   const totalBasicPay = useMemo(
@@ -128,7 +163,12 @@ export function PayScalesEditor() {
   };
 
   const handleSave = () => {
-    updateM.mutate(draft, { onSuccess: () => setDirty(false) });
+    updateM.mutate(draft, {
+      onSuccess: ({ updatedAt }) => {
+        setDirty(false);
+        setBaseUpdatedAt(updatedAt);
+      },
+    });
   };
 
   const isLoading = policyQ.isLoading;
@@ -165,20 +205,23 @@ export function PayScalesEditor() {
             Institution
           </Label>
           <p className="text-xs text-muted-foreground mt-0.5">
-            Pay scales are stored per institution. Switch to edit each one.
+            {dirty
+              ? 'Save your changes before switching institution.'
+              : 'Pay scales are stored per institution. Switch to edit each one.'}
           </p>
         </div>
         <Select
           value={institutionId}
+          disabled={dirty}
           onValueChange={(v) =>
-            setInstitutionId(v as CompensationInstitutionId)
+            setInstitutionId(v as PayScaleInstitutionId)
           }
         >
           <SelectTrigger id="institution-select" className="w-64">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            {COMPENSATION_INSTITUTIONS.map((inst) => (
+            {PAY_SCALE_INSTITUTIONS.map((inst) => (
               <SelectItem key={inst.id} value={inst.id}>
                 {inst.label}
               </SelectItem>
@@ -192,9 +235,9 @@ export function PayScalesEditor() {
           <Info className="h-4 w-4" />
           <AlertTitle>No row seeded yet for this institution</AlertTitle>
           <AlertDescription>
-            The hr.pay_scales row for this institution has not been seeded.
-            Apply migrations/20260605_hr_compensation_seeds.sql, then return.
-            Saves will no-op until the row exists.
+            The pay-scale record for this institution has not been created
+            yet, so nothing can be saved here. Ask an administrator to apply
+            the migration that creates it, then return.
           </AlertDescription>
         </Alert>
       )}
@@ -326,6 +369,32 @@ export function PayScalesEditor() {
           </table>
         </div>
       </section>
+
+      {/* Year ladders — reference only, never changes anyone's pay */}
+      <PayLaddersSection
+        ladders={draft.ladders ?? []}
+        notes={draft.ladder_notes ?? []}
+        referenceLadders={reference && 'ladders' in reference ? reference.ladders : []}
+        referenceNotes={reference && 'notes' in reference ? reference.notes : []}
+        referenceStatus={referenceStatus}
+        onChange={(ladders, notes) => {
+          setDraft((prev) => ({ ...prev, ladders, ladder_notes: notes }));
+          setDirty(true);
+        }}
+        disabled={updateM.isPending || seedMissing}
+      />
+      {dirty && (
+        <div className="flex flex-wrap items-center justify-end gap-3 rounded-lg border border-border bg-muted/40 p-3">
+          <p className="text-sm text-muted-foreground">
+            You have unsaved changes. Nothing is kept until you save, and
+            saving changes nobody&apos;s pay.
+          </p>
+          <Button size="sm" onClick={handleSave} disabled={updateM.isPending}>
+            <Save className="h-4 w-4 mr-2" />
+            {updateM.isPending ? 'Saving…' : 'Save policy'}
+          </Button>
+        </div>
+      )}
 
       {/* Overrides + governance */}
       <section className="rounded-lg border border-border bg-card p-6 space-y-4">

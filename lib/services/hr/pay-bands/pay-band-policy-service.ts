@@ -103,19 +103,55 @@ function toNumber(value: unknown): number | null {
 }
 
 /**
+ * The rungs a college's year ladders imply, used ONLY when its `pay_matrix`
+ * gives none.
+ *
+ * The Pay Scales screen stores the reference year ladders additively as
+ * `ladders` in the same `hr.pay_scales` row (types/hr-pay-ladders.ts): one
+ * ladder per job title + qualification, each a list of `{label, basic_pay}`
+ * steps. Every step becomes one rung, so the band for a title spans its first
+ * year to its last. Arts & Science is the case this exists for: its row starts
+ * with an empty `pay_matrix`, and without this the ladders loaded there would
+ * leave it with "no band" for the check and the salary suggestion.
+ *
+ * Fallback, never a union: a college whose `pay_matrix` already has a usable
+ * rung (Engineering, Dental) keeps exactly the band it had, so loading ladders
+ * there changes no verdict. Re-read as defensively as the matrix.
+ */
+function rungsFromLadders(ladders: unknown): PayBandRung[] {
+  if (!Array.isArray(ladders)) return [];
+  const rungs: PayBandRung[] = [];
+  for (const entry of ladders) {
+    if (typeof entry !== 'object' || entry === null) continue;
+    const ladder = entry as Record<string, unknown>;
+    const designation = typeof ladder.designation === 'string' ? ladder.designation : '';
+    if (designation.trim() === '' || !Array.isArray(ladder.steps)) continue;
+    const qualification = typeof ladder.qualification === 'string' ? ladder.qualification : null;
+    for (const step of ladder.steps) {
+      if (typeof step !== 'object' || step === null) continue;
+      const basicPay = toNumber((step as Record<string, unknown>).basic_pay);
+      if (basicPay === null) continue;
+      rungs.push({ designation, qualification, basicPay });
+    }
+  }
+  return rungs;
+}
+
+/**
  * Turn one policy row into a band.
  *
  * `pay_matrix` is trusted to be an array of objects and nothing more: every
  * field is re-read defensively because this JSON is hand-edited through a UI
  * that does not validate types, and a bad rung must drop out rather than make
- * the whole college unreadable.
+ * the whole college unreadable. When the matrix has no usable rung, the
+ * college's year ladders are read instead (rungsFromLadders).
  */
 export function parsePayBandPolicy(value: unknown): PayBandPolicy | null {
   const body = unwrap(value);
   if (!body) return null;
 
   const matrix = Array.isArray(body.pay_matrix) ? body.pay_matrix : [];
-  const rungs: PayBandRung[] = [];
+  let rungs: PayBandRung[] = [];
 
   for (const entry of matrix) {
     if (typeof entry !== 'object' || entry === null) continue;
@@ -128,6 +164,10 @@ export function parsePayBandPolicy(value: unknown): PayBandPolicy | null {
       qualification: typeof row.qualification === 'string' ? row.qualification : null,
       basicPay,
     });
+  }
+
+  if (usablePayBandRungs({ rungs, guaranteedMinimum: null }).length === 0) {
+    rungs = rungsFromLadders(body.ladders);
   }
 
   const overrides =
