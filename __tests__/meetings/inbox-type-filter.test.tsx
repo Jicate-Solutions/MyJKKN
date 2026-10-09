@@ -222,6 +222,8 @@ describe('type counts come from one grouped database count', () => {
     expect(screen.getByRole('status')).toHaveTextContent('The meeting type filter could not load just now');
     expect(screen.queryByRole('group', { name: 'Filter by meeting type' })).not.toBeInTheDocument();
     expect(listedPeople()).toHaveLength(4);
+    // rows still carry their type names, from a small lookup over the listed rows
+    expect(screen.getByRole('link', { name: /Candidate One/ })).toHaveTextContent('Job Interview Meeting with Director Inperson');
     expect(err).toHaveBeenCalled();
     err.mockRestore();
   });
@@ -241,6 +243,13 @@ describe('type counts come from one grouped database count', () => {
     hiddenTypes = [T_REVIEW];
     await renderInbox({});
     expect(within(typeGroup()).getByRole('link', { name: /Meeting type 2222/ })).toHaveTextContent('1');
+  });
+
+  it('clicking the chip of a type whose name cannot be read filters to that type', async () => {
+    hiddenTypes = [T_REVIEW];
+    await renderInbox({ type: T_REVIEW });
+    expect(listedPeople()).toEqual([expect.stringContaining('Reviewer')]);
+    expect(within(typeGroup()).getByRole('button', { pressed: true })).toHaveTextContent('Meeting type 2222');
   });
 
   it('a well-formed id that is not a meeting type is ignored', async () => {

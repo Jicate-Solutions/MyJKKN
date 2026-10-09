@@ -128,62 +128,78 @@ export default async function MeetingsInboxPage({ searchParams }: InboxPageProps
     return out;
   };
 
-  // A well-formed id that is not a meeting type this person can see is
-  // ignored, as anything else that is not a type id is. A failed lookup keeps
-  // the filter (it may be real) rather than silently widening the list.
-  const typeSignal = AbortSignal.timeout(TYPE_COUNTS_TIMEOUT_MS);
-  let filterTypeTitle: string | null = null;
-  if (typeFilter && typeFilter !== NO_TYPE) {
+  // Everything below runs in parallel; each read has its own time limit, so a
+  // slow one never holds up the list or uses up another's budget.
+  const timeout = () => AbortSignal.timeout(TYPE_COUNTS_TIMEOUT_MS);
+  type Res<T> = { data: T | null; error: unknown };
+  const settle = async <T,>(run: () => PromiseLike<{ data: unknown; error: unknown }>): Promise<Res<T>> => {
     try {
-      const { data: t, error: tErr } = await supabase
-        .from('meeting_types')
-        .select('id, title')
-        .eq('id', typeFilter)
-        .abortSignal(typeSignal)
-        .maybeSingle();
-      if (!tErr && !t) typeFilter = null;
-      else filterTypeTitle = (t as { title?: string } | null)?.title ?? null;
-    } catch {
-      // keep the filter
+      const r = await run();
+      return { data: r.data as T, error: r.error };
+    } catch (err) {
+      return { data: null, error: err };
     }
-  }
+  };
+  const listFor = (typeId: string | null) => {
+    let q = withStatus(
+      supabase.from('meeting_bookings').select('*').order('start_time', { ascending: filterKey === 'upcoming' })
+    );
+    if (typeId === NO_TYPE) q = q.is('meeting_type_id', null);
+    else if (typeId) q = q.eq('meeting_type_id', typeId);
+    return q.limit(50);
+  };
+  const askedType = typeFilter && typeFilter !== NO_TYPE ? typeFilter : null;
 
-  let query = withStatus(
-    supabase.from('meeting_bookings').select('*').order('start_time', { ascending: filterKey === 'upcoming' })
-  );
-  if (typeFilter === NO_TYPE) query = query.is('meeting_type_id', null);
-  else if (typeFilter) query = query.eq('meeting_type_id', typeFilter);
-
-  // Type chips: bookings per meeting type under the current tab, counted in the
-  // database in one grouped query (fn_meeting_inbox_type_counts, SECURITY
-  // INVOKER, so the same RLS as this list applies). Bounded by
-  // TYPE_COUNTS_TIMEOUT_MS: a slow count never holds up the list.
-  const countTypes = async (): Promise<{
-    data: { meeting_type_id: string | null; title: string | null; bookings: number }[] | null;
-    error: unknown;
-  }> => {
-    try {
-      const r = await supabase
+  const [listRes, countRes, typeRowRes, typeUsedRes] = await Promise.all([
+    listFor(typeFilter) as PromiseLike<{ data: unknown; error: { message: string } | null }>,
+    // Type chips: bookings per meeting type under the current tab, counted in
+    // the database in one grouped query (fn_meeting_inbox_type_counts,
+    // SECURITY INVOKER, so the same RLS as this list applies).
+    settle<{ meeting_type_id: string | null; title: string | null; bookings: number }[]>(() =>
+      supabase
         .rpc('fn_meeting_inbox_type_counts', {
           p_statuses: filter.match ?? null,
           p_from: filter.when === 'future' ? nowIso : null,
           p_before: filter.when === 'past' ? nowIso : null,
         })
-        .abortSignal(typeSignal);
-      return { data: r.data as never, error: r.error };
-    } catch (err) {
-      return { data: null, error: err };
-    }
-  };
-  const [{ data: rows, error }, { data: typeCountRows, error: typeFilterError }] = await Promise.all([
-    query.limit(50),
-    countTypes(),
+        .abortSignal(timeout())
+    ),
+    // Is the asked-for id a type this person knows? Its row (when readable)…
+    askedType
+      ? settle<{ id: string; title: string } | null>(() =>
+          supabase.from('meeting_types').select('id, title').eq('id', askedType).abortSignal(timeout()).maybeSingle()
+        )
+      : Promise.resolve({ data: null, error: null } as Res<{ id: string; title: string } | null>),
+    // …or any booking of it they can see (a type owned by another host whose
+    // row they cannot read, on their own calendar).
+    askedType
+      ? settle<{ id: string }[]>(() =>
+          supabase.from('meeting_bookings').select('id').eq('meeting_type_id', askedType).limit(1).abortSignal(timeout())
+        )
+      : Promise.resolve({ data: null, error: null } as Res<{ id: string }[]>),
   ]);
+  let { data: rows, error } = listRes as { data: unknown[] | null; error: { message: string } | null };
+  const { data: typeCountRows, error: typeFilterError } = countRes;
   if (typeFilterError) {
     console.error(
       '[meetings/inbox] type counts failed:',
       (typeFilterError as { message?: string }).message ?? typeFilterError
     );
+  }
+  // A well-formed id that no source knows is ignored, as anything else that is
+  // not a type id is. Any failed read keeps the filter (it may be real) rather
+  // than silently widening the list.
+  const filterTypeTitle = typeRowRes.data?.title ?? null;
+  if (askedType) {
+    const known =
+      Boolean(typeRowRes.data) ||
+      Boolean(typeUsedRes.data?.length) ||
+      Boolean(typeCountRows?.some((r) => r.meeting_type_id === askedType));
+    const allRead = !typeRowRes.error && !typeUsedRes.error && !typeFilterError;
+    if (!known && allRead) {
+      typeFilter = null;
+      ({ data: rows, error } = (await listFor(null)) as { data: unknown[] | null; error: { message: string } | null });
+    }
   }
   const typeTitle = new Map<string, string>();
   const typeChips: { key: string; label: string; count: number }[] = [];
@@ -202,6 +218,23 @@ export default async function MeetingsInboxPage({ searchParams }: InboxPageProps
   if (noTypeCount > 0) typeChips.push({ key: NO_TYPE, label: 'Scheduled directly (no type)', count: noTypeCount });
   if (typeFilter && typeFilter !== NO_TYPE && !typeTitle.has(typeFilter)) {
     typeTitle.set(typeFilter, typeLabel(typeFilter, filterTypeTitle));
+  }
+  // Without the count, the listed rows still get their type names (one small
+  // lookup over at most 50 ids, only on this failure path).
+  if (typeFilterError) {
+    const ids = [
+      ...new Set(
+        ((rows ?? []) as { meeting_type_id: string | null }[])
+          .map((r) => r.meeting_type_id)
+          .filter((id): id is string => Boolean(id) && !typeTitle.has(id as string))
+      ),
+    ];
+    if (ids.length) {
+      const names = await settle<{ id: string; title: string }[]>(() =>
+        supabase.from('meeting_types').select('id, title').in('id', ids).abortSignal(timeout())
+      );
+      for (const t of names.data ?? []) typeTitle.set(t.id, typeLabel(t.id, t.title));
+    }
   }
   const activeTypeLabel =
     typeFilter === NO_TYPE ? 'Scheduled directly (no type)' : typeFilter ? typeTitle.get(typeFilter) ?? 'this type' : null;
