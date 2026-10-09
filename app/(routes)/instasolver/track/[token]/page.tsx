@@ -44,6 +44,7 @@ import { PageBreadcrumb } from '@/components/navigation';
 import { PageHeader } from '@/components/page-header';
 import { Card, CardContent } from '@/components/ui/card';
 import { createServiceRoleClient } from '@/lib/supabase/server';
+import { TrackConversation } from './_components/track-conversation';
 
 export const dynamic = 'force-dynamic';
 
@@ -270,6 +271,9 @@ export default async function TrackIssuePage({
           ) : null}
         </CardContent>
       </Card>
+      {/* Questions from the team, her nameless answers, and a rating once
+          resolved (Director rulings 5 and 6, 30 Sep 2026). */}
+      <TrackConversation token={token} />
     </Shell>
   );
 }

@@ -12421,3 +12421,32 @@ CREATE POLICY grievance_history_hide_about_joint_md ON public.grievance_history
   AS RESTRICTIVE FOR ALL
   USING (CASE WHEN cardinality((SELECT public.fn_grievance_caller_joint_md_scope())) = 0 THEN true
               ELSE NOT public.fn_grievance_ticket_hidden_from_caller(ticket_id) END);
+
+-- =====================================================================
+-- Updated: 2026-10-10 - Grievance: anonymous means anonymous; tracking-code follow-up (row-level security)
+-- Source of truth for apply: supabase/migrations/20271010003000_grievance_anonymity_tracking.sql
+-- =====================================================================
+-- The parent read runs under the caller's own grievance_tickets RLS, so the
+-- ICC-only rules, institution scope and the rest are inherited exactly.
+DROP POLICY IF EXISTS grievance_anonymous_messages_select ON public.grievance_anonymous_messages;
+CREATE POLICY grievance_anonymous_messages_select ON public.grievance_anonymous_messages
+  FOR SELECT TO authenticated
+  USING (EXISTS (SELECT 1 FROM public.grievance_tickets gt WHERE gt.id = ticket_id));
+
+-- A handler may only ASK, only as herself, only on an anonymous ticket she can
+-- read, and not once it is closed or withdrawn. Answers go through the RPC.
+-- No UPDATE / DELETE policy: a message, once sent, stays as sent.
+DROP POLICY IF EXISTS grievance_anonymous_messages_insert ON public.grievance_anonymous_messages;
+CREATE POLICY grievance_anonymous_messages_insert ON public.grievance_anonymous_messages
+  FOR INSERT TO authenticated
+  WITH CHECK (
+    direction = 'question'
+    AND author_id = (SELECT auth.uid())
+    AND EXISTS (
+      SELECT 1 FROM public.grievance_tickets gt
+      WHERE gt.id = ticket_id
+        AND COALESCE(gt.is_anonymous, false)
+        AND gt.status::text <> 'closed'
+        AND gt.withdrawn_at IS NULL
+    )
+  );

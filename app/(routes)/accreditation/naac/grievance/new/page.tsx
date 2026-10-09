@@ -103,14 +103,25 @@ export default function NewGrievancePage() {
         raised_by_email: !isAnonymous ? raisedByEmail.trim() || null : null,
         raised_by_phone: !isAnonymous ? raisedByPhone.trim() || null : null,
         is_anonymous: isAnonymous,
-        filed_by: profile?.id ?? null,
+        // Anonymous means no filer on the row — not even the person typing.
+        filed_by: !isAnonymous ? profile?.id ?? null : null,
         is_emergency: !!selectedCategory?.is_emergency,
         is_icc_only: (selectedCategory?.name ?? '').toLowerCase().includes('sexual harassment'),
         sla_hours: slaHours,
         sla_deadline: slaDeadline,
       });
-      toast.success(`Ticket ${created.ticket_number} created.`);
-      router.push(`/accreditation/naac/grievance/${created.id}`);
+      if (created.kind === 'anonymous') {
+        // Nothing on an anonymous ticket points back to her, so she follows it
+        // by its private code, on the same page InstaSolver filers use.
+        toast.success(
+          `Filed without your name. Keep this private code — it is the only way back to this complaint: ${created.trackingCode}`,
+          { duration: 20000 }
+        );
+        router.push(`/instasolver/track/${created.trackingCode}`);
+        return;
+      }
+      toast.success(`Ticket ${created.ticket.ticket_number} created.`);
+      router.push(`/accreditation/naac/grievance/${created.ticket.id}`);
     } catch (err) {
       toast.error('Could not create ticket. ' + (err as Error).message);
     } finally {

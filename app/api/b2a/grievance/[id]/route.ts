@@ -5,6 +5,7 @@ import { authenticateApiKey, resolveInstitutionId } from '@/lib/api-keys/authent
 import { checkRateLimit } from '@/lib/api-keys/rate-limiter';
 import { logApiUsage, extractRequestMeta } from '@/lib/api-keys/audit-logger';
 import { createServiceRoleClient } from '@/lib/supabase/server';
+import { redactAnonymousFiler } from '@/lib/grievance/anonymous-filer';
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -173,7 +174,9 @@ export async function GET(
         );
       }
     } else {
-      record = data as unknown as GrievanceDetail;
+      // An anonymous complaint never names its filer over the API (Director
+      // ruling, 30 Sep 2026): no raised_by_id / name / email / phone.
+      record = redactAnonymousFiler(data as unknown as GrievanceDetail);
     }
   } catch {
     statusCode = 500;

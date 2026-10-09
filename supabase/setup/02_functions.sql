@@ -85973,3 +85973,210 @@ END;
 $$;
 REVOKE EXECUTE ON FUNCTION public.fn_grievance_send_back_to_normal_path(uuid, text) FROM anon, PUBLIC;
 GRANT  EXECUTE ON FUNCTION public.fn_grievance_send_back_to_normal_path(uuid, text) TO authenticated, service_role;
+
+-- =====================================================================
+-- Updated: 2026-10-10 - Grievance: anonymous means anonymous; tracking-code follow-up (functions)
+-- Source of truth for apply: supabase/migrations/20271010003000_grievance_anonymity_tracking.sql
+-- =====================================================================
+CREATE OR REPLACE FUNCTION public.fn_grievance_scrub_anonymous_filer()
+RETURNS trigger
+LANGUAGE plpgsql
+SET search_path = public
+AS $$
+BEGIN
+  IF COALESCE(NEW.is_anonymous, false) THEN
+    NEW.raised_by_id    := NULL;
+    NEW.raised_by_name  := NULL;
+    NEW.raised_by_email := NULL;
+    NEW.raised_by_phone := NULL;
+    NEW.filed_by        := NULL;
+  END IF;
+  RETURN NEW;
+END;
+$$;
+REVOKE EXECUTE ON FUNCTION public.fn_grievance_scrub_anonymous_filer() FROM anon, PUBLIC;
+
+COMMENT ON FUNCTION public.fn_grievance_scrub_anonymous_filer() IS
+  'BEFORE INSERT OR UPDATE on grievance_tickets: an anonymous ticket (is_anonymous = true) never stores raised_by_id, raised_by_name, raised_by_email, raised_by_phone or filed_by. Director ruling 30 Sep 2026: anonymous must hide the filer from everyone handling the complaint. The filer follows it with the private tracking code only.';
+
+-- ---------------------------------------------------------------------
+-- 3) The tracking page's three functions
+-- ---------------------------------------------------------------------
+-- Shared lookup: the same token rule as fn_track_issue_by_token (substrate v2).
+CREATE OR REPLACE FUNCTION public.fn_grievance_ticket_by_token(p_token text)
+RETURNS uuid
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+  SELECT gt.id
+  FROM public.grievance_tickets gt
+  WHERE gt.is_anonymous = true
+    AND gt.anonymous_token IS NOT NULL
+    AND gt.anonymous_token = p_token
+    AND p_token LIKE 'anon\_%'
+    AND length(COALESCE(p_token, '')) >= 20
+  LIMIT 1
+$$;
+REVOKE EXECUTE ON FUNCTION public.fn_grievance_ticket_by_token(text) FROM anon, authenticated, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_grievance_ticket_by_token(text) TO service_role;
+
+-- ci:allow-secdef-authenticated the three fn_grievance_track_* functions are the anonymous filer's only door: the AUTHORITY is the private tracking code (122 to 192 bits of randomness, 'anon_' prefix, length >= 20), checked in every body through fn_grievance_ticket_by_token before anything is read or written. A signed-in caller without the code gets NULL / "No complaint matches this code"; they return no author id, no handler, no raised_by_* column, and write only an author-less answer or the rating on that one ticket.
+-- What the filer sees: the conversation and her rating. Never an author id,
+-- never the handler's name, never any raised_by_* column. NULL = no such code.
+CREATE OR REPLACE FUNCTION public.fn_grievance_track_conversation(p_token text)
+RETURNS jsonb
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+  v_id  uuid;
+  v_t   public.grievance_tickets;
+  v_msg jsonb;
+BEGIN
+  IF auth.uid() IS NULL THEN
+    RETURN NULL;
+  END IF;
+  v_id := public.fn_grievance_ticket_by_token(p_token);
+  IF v_id IS NULL THEN
+    RETURN NULL;
+  END IF;
+  SELECT * INTO v_t FROM public.grievance_tickets WHERE id = v_id;
+
+  SELECT COALESCE(jsonb_agg(jsonb_build_object(
+           'id', m.id, 'direction', m.direction, 'body', m.body, 'created_at', m.created_at)
+           ORDER BY m.created_at, m.id), '[]'::jsonb)
+    INTO v_msg
+  FROM public.grievance_anonymous_messages m
+  WHERE m.ticket_id = v_id;
+
+  RETURN jsonb_build_object(
+    'messages', v_msg,
+    'can_answer', (v_t.status::text <> 'closed' AND v_t.withdrawn_at IS NULL
+                   AND EXISTS (SELECT 1 FROM public.grievance_anonymous_messages q
+                               WHERE q.ticket_id = v_id AND q.direction = 'question')),
+    'can_rate', (v_t.status::text IN ('resolved', 'closed')),
+    'satisfaction_rating', v_t.satisfaction_rating,
+    'satisfaction_feedback', v_t.satisfaction_feedback
+  );
+END;
+$$;
+REVOKE EXECUTE ON FUNCTION public.fn_grievance_track_conversation(text) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_grievance_track_conversation(text) TO authenticated, service_role;
+
+-- The filer answers. Stored with author_id NULL — the signed-in caller's id is
+-- used for nothing and written nowhere.
+CREATE OR REPLACE FUNCTION public.fn_grievance_track_answer(p_token text, p_body text)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+  v_id    uuid;
+  v_t     public.grievance_tickets;
+  v_body  text := btrim(COALESCE(p_body, ''));
+  v_count integer;
+BEGIN
+  IF auth.uid() IS NULL THEN
+    RETURN jsonb_build_object('success', false, 'error', 'You are not signed in. Sign in and try again.');
+  END IF;
+  v_id := public.fn_grievance_ticket_by_token(p_token);
+  IF v_id IS NULL THEN
+    RETURN jsonb_build_object('success', false, 'error', 'No complaint matches this code.');
+  END IF;
+  SELECT * INTO v_t FROM public.grievance_tickets WHERE id = v_id;
+
+  IF v_t.status::text = 'closed' OR v_t.withdrawn_at IS NOT NULL THEN
+    RETURN jsonb_build_object('success', false, 'error', 'This complaint is closed, so it cannot take new answers.');
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM public.grievance_anonymous_messages
+                  WHERE ticket_id = v_id AND direction = 'question') THEN
+    RETURN jsonb_build_object('success', false, 'error', 'Nobody has asked you anything on this complaint yet.');
+  END IF;
+  IF char_length(v_body) < 1 THEN
+    RETURN jsonb_build_object('success', false, 'error', 'Please write your answer first.');
+  END IF;
+  IF char_length(v_body) > 2000 THEN
+    RETURN jsonb_build_object('success', false, 'error', 'Please keep your answer to 2000 characters or fewer.');
+  END IF;
+
+  -- A flood guard, not a rule about the filer: at most 20 answers a day.
+  SELECT count(*) INTO v_count FROM public.grievance_anonymous_messages
+   WHERE ticket_id = v_id AND direction = 'answer' AND created_at > now() - interval '24 hours';
+  IF v_count >= 20 THEN
+    RETURN jsonb_build_object('success', false, 'error', 'You have sent a lot of answers today. Please wait until tomorrow.');
+  END IF;
+
+  INSERT INTO public.grievance_anonymous_messages (ticket_id, direction, body, author_id)
+  VALUES (v_id, 'answer', v_body, NULL);
+
+  RETURN jsonb_build_object('success', true);
+END;
+$$;
+REVOKE EXECUTE ON FUNCTION public.fn_grievance_track_answer(text, text) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_grievance_track_answer(text, text) TO authenticated, service_role;
+
+-- The filer rates the outcome, 1-5 stars and an optional note, once the
+-- complaint is resolved or closed. A later rating replaces the earlier one.
+-- The rating is the one write to grievance_tickets made while the anonymous
+-- filer's own session is the request identity (SECURITY DEFINER does not
+-- change auth.uid()). Any trigger that records auth.uid() as the actor — a
+-- live-only history or audit trigger, say — would write her id onto her own
+-- anonymous ticket. So the UPDATE runs with NO request identity (both places
+-- auth.uid() reads, transaction-local), restored straight after.
+CREATE OR REPLACE FUNCTION public.fn_grievance_track_rate(p_token text, p_rating integer, p_note text DEFAULT NULL)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+  v_id   uuid;
+  v_t    public.grievance_tickets;
+  v_note text := NULLIF(btrim(COALESCE(p_note, '')), '');
+  v_sub    text;
+  v_claims text;
+BEGIN
+  IF auth.uid() IS NULL THEN
+    RETURN jsonb_build_object('success', false, 'error', 'You are not signed in. Sign in and try again.');
+  END IF;
+  v_id := public.fn_grievance_ticket_by_token(p_token);
+  IF v_id IS NULL THEN
+    RETURN jsonb_build_object('success', false, 'error', 'No complaint matches this code.');
+  END IF;
+  SELECT * INTO v_t FROM public.grievance_tickets WHERE id = v_id;
+
+  IF v_t.status::text NOT IN ('resolved', 'closed') THEN
+    RETURN jsonb_build_object('success', false, 'error', 'You can rate this once it has been resolved.');
+  END IF;
+  IF p_rating IS NULL OR p_rating < 1 OR p_rating > 5 THEN
+    RETURN jsonb_build_object('success', false, 'error', 'Please choose from 1 to 5 stars.');
+  END IF;
+  IF v_note IS NOT NULL AND char_length(v_note) > 1000 THEN
+    RETURN jsonb_build_object('success', false, 'error', 'Please keep the note to 1000 characters or fewer.');
+  END IF;
+
+  v_sub    := current_setting('request.jwt.claim.sub', true);
+  v_claims := current_setting('request.jwt.claims', true);
+  PERFORM set_config('request.jwt.claim.sub', '', true);
+  -- '{}' rather than '': a reader that casts the claims to jsonb without
+  -- NULLIF must still parse them.
+  PERFORM set_config('request.jwt.claims', '{}', true);
+
+  UPDATE public.grievance_tickets
+     SET satisfaction_rating = p_rating,
+         satisfaction_feedback = v_note
+   WHERE id = v_id;
+
+  PERFORM set_config('request.jwt.claim.sub', COALESCE(v_sub, ''), true);
+  PERFORM set_config('request.jwt.claims', COALESCE(v_claims, '{}'), true);
+
+  RETURN jsonb_build_object('success', true);
+END;
+$$;
+REVOKE EXECUTE ON FUNCTION public.fn_grievance_track_rate(text, integer, text) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_grievance_track_rate(text, integer, text) TO authenticated, service_role;

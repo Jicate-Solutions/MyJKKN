@@ -3111,3 +3111,13 @@ DROP TRIGGER IF EXISTS trg_grievance_about_joint_md_guard ON public.grievance_ti
 CREATE TRIGGER trg_grievance_about_joint_md_guard
   BEFORE UPDATE ON public.grievance_tickets
   FOR EACH ROW EXECUTE FUNCTION public.fn_grievance_about_joint_md_guard();
+
+-- =====================================================================
+-- Updated: 2026-10-10 - Grievance: anonymous means anonymous; tracking-code follow-up (triggers)
+-- Source of truth for apply: supabase/migrations/20271010003000_grievance_anonymity_tracking.sql
+-- =====================================================================
+DROP TRIGGER IF EXISTS trg_grievance_zz_scrub_anonymous_filer ON public.grievance_tickets;
+DROP TRIGGER IF EXISTS zzz_grievance_scrub_anonymous_filer ON public.grievance_tickets;
+CREATE TRIGGER zzz_grievance_scrub_anonymous_filer
+  BEFORE INSERT OR UPDATE ON public.grievance_tickets
+  FOR EACH ROW EXECUTE FUNCTION public.fn_grievance_scrub_anonymous_filer();

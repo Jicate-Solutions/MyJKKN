@@ -5,6 +5,7 @@
 import { createClientSupabaseClient, type TypedSupabaseClient } from '@/lib/supabase/client';
 import { LCNotificationService } from './notification-service';
 import { describeCheckConstraintViolation } from '@/lib/validations/grievance-ticket';
+import { redactAnonymousFiler } from '@/lib/grievance/anonymous-filer';
 import type { TablesInsert } from '@/types/supabase';
 import type {
   GrievanceTicket,
@@ -261,7 +262,8 @@ export class LCIssueService {
       throw new Error(`Failed to fetch issue: ${error.message}`);
     }
 
-    return data as GrievanceTicket;
+    // An anonymous complaint never names its filer (Director ruling, 30 Sep 2026).
+    return redactAnonymousFiler(data as GrievanceTicket);
   }
 
   // ============================================================================
@@ -330,10 +332,12 @@ export class LCIssueService {
         : profile?.role === 'parent' ? 'parent'
         : profile?.role === 'alumni' ? 'alumni'
         : 'learner') as 'learner' | 'parent' | 'staff' | 'alumni'),
-      raised_by_id: userId,
-      // An anonymous filing keeps raised_by_id — it is the filer's own read key
-      // under the ICC select policy and is never rendered to anybody else —
-      // but carries none of the three identifying columns.
+      // An anonymous filing stores NO filer at all (Director ruling, 30 Sep
+      // 2026): not the id, not the name, not the email, not the phone. The
+      // filer follows it with the private tracking code only. The database
+      // enforces the same (zzz_grievance_scrub_anonymous_filer, migration
+      // 20271010003000) for every writer; this keeps the insert honest.
+      raised_by_id: options.isAnonymous ? null : userId,
       raised_by_name: options.isAnonymous ? null : (profile?.full_name || 'Unknown'),
       raised_by_email: options.isAnonymous ? null : (profile?.email || null),
       ...(options.isAnonymous

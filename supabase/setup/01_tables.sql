@@ -12346,3 +12346,32 @@ ALTER TABLE public.grievance_tickets
 
 COMMENT ON COLUMN public.grievance_tickets.about_joint_md IS
   'The complainant ticked "This complaint is about the Joint MD". Such a ticket goes to the Director (policy grievance.escalation.about_joint_md_profile_id), never to the Joint MD; the Joint MD cannot see it, count it or be told about it. Cleared only by fn_grievance_send_back_to_normal_path (the Director or a super admin), which re-routes it the normal way. Migration 20270420090000.';
+
+-- =====================================================================
+-- Updated: 2026-10-10 - Grievance: anonymous means anonymous; tracking-code follow-up (table)
+-- Source of truth for apply: supabase/migrations/20271010003000_grievance_anonymity_tracking.sql
+-- =====================================================================
+CREATE TABLE IF NOT EXISTS public.grievance_anonymous_messages (
+  id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  ticket_id   uuid NOT NULL REFERENCES public.grievance_tickets(id) ON DELETE CASCADE,
+  -- 'question' = a handler asks; 'answer' = the anonymous filer replies.
+  direction   text NOT NULL CHECK (direction IN ('question', 'answer')),
+  body        text NOT NULL CHECK (char_length(btrim(body)) BETWEEN 1 AND 2000),
+  -- The handler who asked. ALWAYS NULL on an answer: the filer is never named.
+  author_id   uuid REFERENCES public.profiles(id) ON DELETE SET NULL,
+  created_at  timestamptz NOT NULL DEFAULT now(),
+  updated_at  timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT grievance_anonymous_messages_answer_has_no_author
+    CHECK (direction = 'question' OR author_id IS NULL)
+);
+
+COMMENT ON TABLE public.grievance_anonymous_messages IS
+  'Questions a handler asks the anonymous filer of a grievance ticket, and her nameless answers. Handlers read and ask under RLS (whoever can read the ticket). The filer reads and answers only through fn_grievance_track_conversation / fn_grievance_track_answer with her private tracking code. Director ruling 30 Sep 2026.';
+
+CREATE INDEX IF NOT EXISTS idx_grievance_anonymous_messages_ticket
+  ON public.grievance_anonymous_messages (ticket_id, created_at);
+
+ALTER TABLE public.grievance_anonymous_messages ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON TABLE public.grievance_anonymous_messages FROM anon, PUBLIC;
+GRANT SELECT, INSERT ON TABLE public.grievance_anonymous_messages TO authenticated;
+GRANT ALL ON TABLE public.grievance_anonymous_messages TO service_role;

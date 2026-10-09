@@ -28,6 +28,7 @@ import { GrievanceService } from '@/lib/services/grievance/grievance-service';
 import { useAuth } from '@/hooks/use-auth';
 import { formatComplaintDate, handledByLabel } from '@/lib/grievance/complaint-display';
 import { sendBackToNormalPathAction } from '@/lib/grievance/actions';
+import { AnonymousFilerPanel } from './_components/anonymous-filer-panel';
 
 export default function GrievanceDetailPage({
   params,
@@ -252,6 +253,16 @@ export default function GrievanceDetailPage({
               </CardContent>
             </Card>
           )}
+
+          <AnonymousFilerPanel
+            ticketId={t.id}
+            isAnonymous={t.is_anonymous}
+            status={t.status}
+            withdrawn={Boolean(t.withdrawn_at)}
+            rating={t.satisfaction_rating}
+            feedback={t.satisfaction_feedback}
+            profileId={profile?.id ?? null}
+          />
 
           <Card className="mt-4">
             <CardHeader><CardTitle className="text-base">Timeline</CardTitle></CardHeader>
