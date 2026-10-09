@@ -219,7 +219,17 @@ BEGIN
   -- ── 8. Asked once when the category already asks the principal ───────────────
   INSERT INTO procurement_purchase_requests (request_number, institution_id, requested_by, status, category_id)
   VALUES ('PR-9', c_a, hod_a, 'submitted', cat_prole) RETURNING id INTO r;
-  PERFORM pg_temp.check(pg_temp.steps(r) = 'CAO:pending|Principal:waiting', 'Q1 category principal role step: no second one', pg_temp.steps(r));
+  -- the list's own principal step (2nd on the list) is moved to the front: asked once, first
+  PERFORM pg_temp.check(pg_temp.steps(r) = 'Principal:pending|CAO:waiting'
+                        AND (SELECT approver_ids FROM procurement_request_approvals WHERE request_id = r AND step_order = 1) = ARRAY[princ_a],
+                        'Q1 category principal role step: moved first, no second one', pg_temp.steps(r));
+  PERFORM pg_temp.as_user(hod_a);
+  SELECT string_agg(step_order || ' ' || label, ' | ' ORDER BY step_order) INTO v FROM procurement_preview_chain(cat_prole, c_a, NULL);
+  PERFORM pg_temp.check(v = '1 Principal | 2 CAO', 'Q1b HoD preview: the list''s principal step first', v);
+  -- not a HoD: the list's own order is kept
+  INSERT INTO procurement_purchase_requests (request_number, institution_id, requested_by, status, category_id)
+  VALUES ('PR-9b', c_a, office_a, 'submitted', cat_prole) RETURNING id INTO r;
+  PERFORM pg_temp.check(pg_temp.steps(r) = 'CAO:pending|Principal:waiting', 'Q1c office assistant: list order unchanged', pg_temp.steps(r));
   INSERT INTO procurement_purchase_requests (request_number, institution_id, requested_by, status, category_id)
   VALUES ('PR-10', c_a, hod_a, 'submitted', cat_pnamed) RETURNING id INTO r;
   PERFORM pg_temp.check(pg_temp.steps(r) = 'Principal (A):pending|CAO:waiting', 'Q2 college list names the principal: no second one', pg_temp.steps(r));

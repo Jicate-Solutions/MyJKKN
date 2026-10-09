@@ -13,8 +13,9 @@
 --     role and holds neither principal nor procurement_manager. Steps are renumbered 1..n.
 --     The principal approves through approver_ids, like every chain step — nobody is given
 --     procurement.request_approve.
---   * No extra step when the category's own list already asks a principal of this college
---     (a principal role step, or a named person who holds principal here): asked once.
+--   * When the category's own list already asks this college's principal (a principal role
+--     step for the same college, or a named person who holds principal here), no extra step is
+--     added: that step is moved to the front instead, so the principal is asked once, FIRST.
 --   * No active principal in the college → the extra step resolves to nobody, so the submit is
 --     refused with "Principal approval: nobody holds the principal role in this college — ask
 --     the admin to set it, then submit again." (the chain's existing rule: a request never
@@ -73,34 +74,45 @@ CREATE OR REPLACE FUNCTION public.procurement_request_chain_steps(
 ) RETURNS SETOF public.procurement_category_approval_steps
 LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
   WITH chain AS (
-    SELECT * FROM procurement_chain_steps(p_category_id, p_institution_id, 'request')
+    SELECT c.*,
+           -- this step already asks this college's principal
+           ((c.approver_kind = 'role' AND c.role_key = 'principal' AND c.same_college)
+            OR (c.approver_kind = 'user'
+                AND procurement_holds_role(c.user_id, 'principal')
+                AND EXISTS (SELECT 1 FROM profiles p
+                             WHERE p.id = c.user_id AND p.institution_id = p_institution_id))
+           ) AS asks_principal
+      FROM procurement_chain_steps(p_category_id, p_institution_id, 'request') c
+  ),
+  rule AS (
+    SELECT (p_requested_by IS NOT NULL
+            AND procurement_holds_role(p_requested_by, 'hod')
+            AND NOT procurement_holds_role(p_requested_by, 'principal')
+            AND NOT procurement_holds_role(p_requested_by, 'procurement_manager')
+            -- a category with no list stays "no approvers set" (refused at submit, as before)
+            AND EXISTS (SELECT 1 FROM chain)) AS principal_first
   ),
   principal_first AS (
     -- id NULL: this step is not a saved row; nothing reads v_step.id.
     SELECT NULL::uuid AS id, p_category_id AS category_id, 0 AS step_order,
            'Principal approval'::text AS label, 'role'::text AS approver_kind,
            'principal'::text AS role_key, true AS same_college, NULL::uuid AS user_id,
-           now() AS created_at, 'request'::text AS stage, p_institution_id AS institution_id
-    WHERE p_requested_by IS NOT NULL
-      AND procurement_holds_role(p_requested_by, 'hod')
-      AND NOT procurement_holds_role(p_requested_by, 'principal')
-      AND NOT procurement_holds_role(p_requested_by, 'procurement_manager')
-      -- a category with no list stays "no approvers set" (refused at submit, as before)
-      AND EXISTS (SELECT 1 FROM chain)
-      -- the category's own list already asks this college's principal: asked once, there
-      AND NOT EXISTS (
-        SELECT 1 FROM chain c
-         WHERE (c.approver_kind = 'role' AND c.role_key = 'principal')
-            OR (c.approver_kind = 'user'
-                AND procurement_holds_role(c.user_id, 'principal')
-                AND EXISTS (SELECT 1 FROM profiles p
-                             WHERE p.id = c.user_id AND p.institution_id = p_institution_id)))
+           now() AS created_at, 'request'::text AS stage, p_institution_id AS institution_id,
+           0 AS grp
+    WHERE (SELECT principal_first FROM rule)
+      -- the category's own list already asks this college's principal: moved to the front below
+      AND NOT EXISTS (SELECT 1 FROM chain c WHERE c.asks_principal)
   )
   SELECT s.id, s.category_id,
-         (row_number() OVER (ORDER BY s.step_order))::int AS step_order,
+         (row_number() OVER (ORDER BY s.grp, s.step_order))::int AS step_order,
          s.label, s.approver_kind, s.role_key, s.same_college, s.user_id, s.created_at,
          s.stage, s.institution_id
-  FROM (SELECT * FROM principal_first UNION ALL SELECT * FROM chain) s
+  FROM (SELECT * FROM principal_first
+        UNION ALL
+        SELECT c.id, c.category_id, c.step_order, c.label, c.approver_kind, c.role_key,
+               c.same_college, c.user_id, c.created_at, c.stage, c.institution_id,
+               CASE WHEN c.asks_principal AND (SELECT principal_first FROM rule) THEN 0 ELSE 1 END
+          FROM chain c) s
   ORDER BY 3;
 $$;
 -- Internal helper: only the SECURITY DEFINER functions below call it, and they run as the owner.
