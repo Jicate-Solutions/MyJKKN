@@ -12319,6 +12319,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS ux_hr_memos_triggered_by_event
 
 -- =====================================================================
 -- Updated: 2026-09-28 - Grievance: route on create, escalate on breach (columns)
+-- Updated: 2026-10-09 - the "about the Joint MD" tick (rulings 9 Oct 23:18, 23:25)
 -- Source of truth for apply: supabase/migrations/20270420090000_grievance_sla_escalation.sql
 -- =====================================================================
 -- ---------------------------------------------------------------------
@@ -12336,3 +12337,12 @@ COMMENT ON COLUMN public.grievance_tickets.escalated_at IS
 COMMENT ON COLUMN public.grievance_tickets.escalation_deadline IS
   'The deadline of the CURRENT escalation level (now + grievance.escalation.level<N>_hours when it moved up). Passing it moves the ticket up one more level. sla_deadline stays the original SLA.';
 
+-- The complainant's tick "This complaint is about the Joint MD" (Director
+-- ruling 9 Oct 2026 23:18). A real column, not metadata, because row-level
+-- security reads it (section 11). Only fn_grievance_send_back_to_normal_path
+-- may clear it (section 13).
+ALTER TABLE public.grievance_tickets
+  ADD COLUMN IF NOT EXISTS about_joint_md boolean NOT NULL DEFAULT false;
+
+COMMENT ON COLUMN public.grievance_tickets.about_joint_md IS
+  'The complainant ticked "This complaint is about the Joint MD". Such a ticket goes to the Director (policy grievance.escalation.about_joint_md_profile_id), never to the Joint MD; the Joint MD cannot see it, count it or be told about it. Cleared only by fn_grievance_send_back_to_normal_path (the Director or a super admin), which re-routes it the normal way. Migration 20270420090000.';

@@ -3091,6 +3091,7 @@ CREATE TRIGGER trg_ig_learner_post_claims_guard
 
 -- =====================================================================
 -- Updated: 2026-09-28 - Grievance: route on create, escalate on breach (triggers)
+-- Updated: 2026-10-09 - the "about the Joint MD" tick (rulings 9 Oct 23:18, 23:25)
 -- Source of truth for apply: supabase/migrations/20270420090000_grievance_sla_escalation.sql
 -- =====================================================================
 DROP TRIGGER IF EXISTS trg_grievance_route_on_create ON public.grievance_tickets;
@@ -3106,3 +3107,7 @@ CREATE TRIGGER trg_grievance_notify_on_create
         AND (NEW.metadata -> 'auto_route' ->> 'assigned_to') = NEW.assigned_to::text)
   EXECUTE FUNCTION public.fn_grievance_notify_on_create();
 
+DROP TRIGGER IF EXISTS trg_grievance_about_joint_md_guard ON public.grievance_tickets;
+CREATE TRIGGER trg_grievance_about_joint_md_guard
+  BEFORE UPDATE ON public.grievance_tickets
+  FOR EACH ROW EXECUTE FUNCTION public.fn_grievance_about_joint_md_guard();
