@@ -68,8 +68,8 @@ function post(body: Record<string, unknown>) {
 
 const BASE = {
   category_id: CATEGORY,
-  subject: 'The lab is locked',
-  description: 'The lab has been locked every afternoon for two weeks.',
+  subject: 'The washroom tap is broken',
+  description: 'The washroom tap on the second floor has been broken for two weeks.',
 };
 
 type CreateOptions = {

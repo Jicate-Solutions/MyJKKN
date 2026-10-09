@@ -84956,6 +84956,7 @@ AS $$
       OR (pp.scope_type = 'institution' AND pp.scope_id IS NOT NULL))
     AND public.fn_grievance_policy_profile_id(pp.value) = auth.uid()
 $$;
+-- ci:allow-secdef-authenticated row-level security on grievance_tickets / _comments / _history calls fn_grievance_caller_joint_md_scope() for EVERY signed-in reader, so it must be executable by authenticated. It takes no argument and only says which colleges the CALLER holds the Joint MD's seat in (empty for everyone else); fn_grievance_ticket_hidden_from_caller(id) only answers true for that same caller on a complaint about her. The one function here that acts, fn_grievance_send_back_to_normal_path, checks is_super_admin() / the Director policy and refuses the Joint MD in its body.
 REVOKE EXECUTE ON FUNCTION public.fn_grievance_caller_joint_md_scope() FROM anon, PUBLIC;
 GRANT  EXECUTE ON FUNCTION public.fn_grievance_caller_joint_md_scope() TO authenticated, service_role;
 
