@@ -1,10 +1,12 @@
 -- ============================================================================
--- Migration: 20271009090000_hr_appraisal_director_rating
+-- Migration: 20271009140000_hr_appraisal_director_rating
 -- The Director's ruling of 30 Sep 2026: "Appraisal sign-off: the Director CAN
 -- change a rating; recorded next to the committee's."
 -- Rebuilt 9 Oct 2026 on main alone (Director 9 Oct): first drafted as
 -- 20270525090000 on top of #4109, which closed unmerged. This version needs
 -- nothing from #4109.
+-- Renumbered 9 Oct 2026 from 20271009090000, which main now uses for
+-- 20271009090000_scholarship_categories_and_types.sql (931c94f1b4).
 -- ============================================================================
 --  * hr_performance_reviews.director_review_jsonb: the Director's own ratings
 --    for the areas he changed, with a reason, who and when:
@@ -63,7 +65,7 @@ ALTER TABLE public.hr_performance_reviews
   ADD COLUMN IF NOT EXISTS director_review_jsonb jsonb;
 
 COMMENT ON COLUMN public.hr_performance_reviews.director_review_jsonb IS
-  '30 Sep 2026: the Director''s own ratings for the areas he changed at sign-off, with a reason, who and when. The committee''s sedc_review_jsonb is never overwritten. Written by the named Director list only (fn_is_the_director()). Migration 20271009090000.';
+  '30 Sep 2026: the Director''s own ratings for the areas he changed at sign-off, with a reason, who and when. The committee''s sedc_review_jsonb is never overwritten. Written by the named Director list only (fn_is_the_director()). Migration 20271009140000.';
 
 -- ----------------------------------------------------------------------------
 -- 2. The guard, with the Director-only rule

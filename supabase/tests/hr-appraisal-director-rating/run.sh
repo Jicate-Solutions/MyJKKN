@@ -1,5 +1,5 @@
 #!/bin/bash
-# Throwaway-Postgres rehearsal of 20271009090000_hr_appraisal_director_rating.sql.
+# Throwaway-Postgres rehearsal of 20271009140000_hr_appraisal_director_rating.sql.
 # Never touches production. Loads VERBATIM: is_super_admin() from
 # supabase/setup/02_functions.sql, fn_is_the_director() (20270520090000, from
 # the tree or main) and main's appraisal column guard (20270501090100, the body
@@ -12,7 +12,7 @@ BIN=${PG_BIN:-/opt/homebrew/opt/postgresql@16/bin}
 HERE="$(cd "$(dirname "$0")" && pwd)"
 SRC="$(cd "$HERE/../../.." && pwd)"
 M="$SRC/supabase/migrations"
-MIG="$M/20271009090000_hr_appraisal_director_rating.sql"
+MIG="$M/20271009140000_hr_appraisal_director_rating.sql"
 GUARD="$M/20270501090100_hr_appraisal_column_guard.sql"
 FN="$SRC/supabase/setup/02_functions.sql"
 PORT=${PORT:-5533}

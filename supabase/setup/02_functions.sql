@@ -84761,11 +84761,11 @@ END $$;
 REVOKE EXECUTE ON FUNCTION public.fn_hr_playbook_decide(uuid, text, text, text) FROM anon, PUBLIC;
 GRANT  EXECUTE ON FUNCTION public.fn_hr_playbook_decide(uuid, text, text, text) TO authenticated;
 
--- Updated: 2026-10-09 - 20271009090000: the appraisal column guard (first in
+-- Updated: 2026-10-09 - 20271009140000: the appraisal column guard (first in
 -- 20270501090100) with one rule added: only the named Director list
 -- (fn_is_the_director()) may write director_review_jsonb, with a reason of at
 -- least 10 characters; the column joins every tier's forbidden list.
--- Updated: 2026-10-09 - 20271009090000 (review panel round 1): sign-off itself
+-- Updated: 2026-10-09 - 20271009140000 (review panel round 1): sign-off itself
 -- (to final_approved, back from sedc_reviewed, and every final_* column) is the
 -- Director list's only, never on their own appraisal; the Director's change is
 -- written only in the sign-off UPDATE and never after; its ratings name known

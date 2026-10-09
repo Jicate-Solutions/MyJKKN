@@ -1,6 +1,6 @@
 /**
  * The Director's ruling of 30 Sep 2026: "Appraisal sign-off: the Director CAN
- * change a rating; recorded next to the committee's." (20271009090000; rebuilt on main
+ * change a rating; recorded next to the committee's." (20271009140000; rebuilt on main
  * without #4109, 9 Oct 2026)
  *
  * The database rule itself is rehearsed on a throwaway PostgreSQL 16 by
@@ -20,7 +20,7 @@ import {
 } from '@/lib/hr/appraisal-ratings';
 
 const ROOT = join(__dirname, '..', '..');
-const SQL = readFileSync(join(ROOT, 'supabase/migrations/20271009090000_hr_appraisal_director_rating.sql'), 'utf8');
+const SQL = readFileSync(join(ROOT, 'supabase/migrations/20271009140000_hr_appraisal_director_rating.sql'), 'utf8');
 
 describe('the migration', () => {
   it('is built on main\'s guard alone, and refuses to run over any other body', () => {
