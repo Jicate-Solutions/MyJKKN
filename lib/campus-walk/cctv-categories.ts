@@ -11,7 +11,7 @@
 export const CCTV_CATEGORIES = [
   { key: 'learner_conduct', label: 'Learners — conduct in class or library' },
   { key: 'power_left_on', label: 'Fans or lights left on in an empty room' },
-  { key: 'staff_conduct', label: 'Staff — conduct on duty' },
+  { key: 'staff_conduct', label: 'Team members — conduct on duty' },
   { key: 'exam_copying', label: 'Exam copying' }
 ] as const;
 

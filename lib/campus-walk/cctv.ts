@@ -382,7 +382,7 @@ export function cctvTitle(category: CctvCategory, room: string, observedAt: stri
       : category === 'exam_copying'
         ? 'Exam copying'
         : category === 'staff_conduct'
-          ? 'Staff conduct'
+          ? 'Team member conduct'
           : 'Learner conduct';
   return `CCTV: ${what} — ${room}, ${istStamp(observedAt)}`;
 }

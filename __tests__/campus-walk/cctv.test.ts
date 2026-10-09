@@ -68,7 +68,7 @@ function world(): World {
     },
     resources: {
       'res-hall': { id: 'res-hall', name: 'Exam Hall - Pharmacy', room_number: null, department_id: null, institution_id: 'inst-1' },
-      'res-lab': { id: 'res-lab', name: 'IP Lab', room_number: 'P12', department_id: 'dept-ip', institution_id: 'inst-1' }
+      'res-lab': { id: 'res-lab', name: 'IP Room', room_number: 'P12', department_id: 'dept-ip', institution_id: 'inst-1' }
     },
     cctvTasks: []
   };
@@ -196,7 +196,7 @@ describe('what is stored', () => {
     expect(t.extraMetadata.cctv).not.toHaveProperty('names');
     expect(t.extraMetadata.cctv).not.toHaveProperty('seat');
     expect(JSON.stringify(t)).not.toContain('Somebody');
-    expect(t.title).toBe('CCTV: Learner conduct — IP Lab (P12), 9 Oct, 2:40 pm');
+    expect(t.title).toBe('CCTV: Learner conduct — IP Room (P12), 9 Oct, 2:40 pm');
     // The owner gets the reply link.
     expect(bells[0]).toMatchObject({ recipientIds: ['hod-b'], url: '/campus-walk/fix?task=task-1' });
   });
@@ -253,7 +253,7 @@ describe('repeat rooms', () => {
 
   it('the title never carries a name', () => {
     expect(cctvTitle('staff_conduct', 'Main office', '2026-10-09T05:00:00.000Z')).toBe(
-      'CCTV: Staff conduct — Main office, 9 Oct, 10:30 am'
+      'CCTV: Team member conduct — Main office, 9 Oct, 10:30 am'
     );
   });
 });
