@@ -169,5 +169,42 @@ INSERT INTO public.r (ok, what) SELECT NOT EXISTS (SELECT 1 FROM public.hr_pay_d
   WHERE concat(before::text, after::text) ~ '(111122223333|444455556666|555566667777|888899990000|121212121212)'),
   'after every path: no full account number stored';
 
+-- 18. Deleting a staff record must not erase the history of where their pay
+--     went: the delete succeeds, the person's log rows stay (staff_id NULL,
+--     name and code kept), and the Director's list still names them.
+CREATE TABLE public.ravi_before AS SELECT id FROM public.hr_pay_destination_changes WHERE staff_id = '5a000000-0000-4000-8000-000000000004';
+GRANT SELECT ON public.ravi_before TO PUBLIC;
+DO $$ BEGIN
+  DELETE FROM public.staff WHERE id = '5a000000-0000-4000-8000-000000000004';
+  INSERT INTO public.r (ok, what) VALUES (true, 'staff delete succeeds with log rows present');
+EXCEPTION WHEN others THEN
+  INSERT INTO public.r (ok, what) VALUES (false, 'staff delete failed: ' || SQLERRM);
+END $$;
+INSERT INTO public.r (ok, what) SELECT count(*) = (SELECT count(*) FROM public.ravi_before) AND count(*) >= 3
+  AND bool_and(c.staff_id IS NULL AND c.staff_name = 'Ravi T' AND c.staff_code = 'DCH064' AND c.college = 'JKKN Dental College'),
+  'after the staff delete: all ' || (SELECT count(*) FROM public.ravi_before) || ' of Ravi''s log rows kept, staff_id NULL, name, code and college kept (got ' || count(*) || ')'
+  FROM public.hr_pay_destination_changes c WHERE c.id IN (SELECT id FROM public.ravi_before);
+SET ROLE authenticated; SELECT public.as_user('d0000000-0000-4000-8000-000000000001');
+INSERT INTO public.r (ok, what) SELECT count(*) = (SELECT count(*) FROM public.ravi_before)
+  AND bool_and(l.staff_name = 'Ravi T' AND l.staff_code = 'DCH064' AND l.college = 'JKKN Dental College' AND l.staff_id IS NULL),
+  'Director: the list still shows Ravi''s ' || (SELECT count(*) FROM public.ravi_before) || ' changes, named from the kept snapshot (got ' || count(*) || ')'
+  FROM public.fn_hr_pay_destination_changes(now() - interval '1 day') l WHERE l.change_id IN (SELECT id FROM public.ravi_before);
+RESET ROLE;
+
+-- 19. Past the 2,000-row cap nothing is silent: the list returns 2,000 rows
+--     and every row carries the true total.
+INSERT INTO public.hr_pay_destination_changes (staff_id, kind, before, after, changed_at)
+SELECT '5a000000-0000-4000-8000-000000000001', 'bank', NULL, jsonb_build_object('account_last4', '4242'), now() - interval '1 hour' - g * interval '1 second'
+  FROM generate_series(1, 2005) g;
+CREATE TABLE public.cap_expect AS SELECT count(*) AS n FROM public.hr_pay_destination_changes WHERE changed_at >= now() - interval '1 day';
+GRANT SELECT ON public.cap_expect TO PUBLIC;
+SET ROLE service_role; SELECT public.as_user(NULL, 'service_role');
+INSERT INTO public.r (ok, what)
+SELECT count(*) = 2000 AND bool_and(l.total_count = t.n) AND max(t.n) > 2000,
+  'past the cap: 2,000 rows returned, each saying the true total ' || max(t.n) || ' (got ' || count(*) || ' rows, total ' || coalesce(max(l.total_count)::text, 'none') || ')'
+  FROM public.fn_hr_pay_destination_changes(now() - interval '1 day') l
+  CROSS JOIN public.cap_expect t;
+RESET ROLE;
+
 SELECT CASE WHEN ok THEN 'PASS' ELSE 'FAIL' END || ' | ' || what FROM public.r ORDER BY n;
 SELECT 'RESULT: ' || count(*) FILTER (WHERE ok) || ' PASS / ' || count(*) FILTER (WHERE NOT ok) || ' FAIL' FROM public.r;

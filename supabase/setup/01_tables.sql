@@ -12272,10 +12272,19 @@ CREATE INDEX IF NOT EXISTS idx_hr_intake_match_rules_job
 -- hr_pay_destination_changes (2026-10-01)
 -- Source: 20270614090000_hr_pay_destination_changes.sql
 -- Updated: 2026-10-01 - Director ruling: every bank / paying-trust change goes on a weekly list to the Director list
+-- Updated: 2026-10-09 - History survives a staff delete (SET NULL + name snapshot); the list reports its true count past the 2,000 cap
 -- ----------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS public.hr_pay_destination_changes (
   id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  staff_id    uuid NOT NULL REFERENCES public.staff(id) ON DELETE CASCADE,
+  -- SET NULL, not CASCADE: deleting a staff record must not erase the history
+  -- of where their pay went. The snapshot below keeps who it was.
+  staff_id    uuid REFERENCES public.staff(id) ON DELETE SET NULL,
+  -- The person as they were when the change was made, filled by
+  -- fn_hr_pay_destination_snapshot(). The list prefers the live record and
+  -- falls back to these once the staff record is gone.
+  staff_name  text,
+  staff_code  text,
+  college     text,
   kind        text NOT NULL CHECK (kind IN ('bank', 'payer')),
   -- auth.uid() of whoever made the change; NULL = a system job (service role).
   changed_by  uuid,

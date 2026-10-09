@@ -7,7 +7,7 @@
 # (20260821240000), its 20261020000000 changes and the newest
 # fn_hr_set_staff_bank_account, and fn_is_the_director (20270520090000).
 # stubs.sql stands in for everything else. The migration is applied TWICE.
-# Then six MUTATION CONTROLS: a rule removed from a copy of the migration,
+# Then ten MUTATION CONTROLS: a rule removed from a copy of the migration,
 # the database rebuilt, and the probe must print a FAIL.
 # Run: bash supabase/tests/hr-pay-destination/run.sh
 set -u
@@ -45,7 +45,10 @@ build() { # $1 = migration file to apply (twice)
 probe() { "$BIN/psql" -h 127.0.0.1 -p "$PORT" -U postgres -d rehearsal -X -q -tA -f "$HERE/probe.sql" 2>"$WORK/probe.err"; }
 
 echo "== the migration as written (applied twice)"
-build "$MIG"; probe | grep -E 'PASS|FAIL|RESULT'; grep -E 'ERROR' "$WORK/probe.err" | head -5; stop
+build "$MIG"; out="$(probe)"; echo "$out" | grep -E 'PASS|FAIL|RESULT'; grep -E 'ERROR' "$WORK/probe.err" | head -5; stop
+# A check that errors out prints nothing, which would look like a pass: count them.
+EXPECT=31; got=$(echo "$out" | grep -cE '^(PASS|FAIL) ')
+[ "$got" -eq "$EXPECT" ] && echo "CHECK COUNT OK | $got of $EXPECT checks ran" || echo "CHECK COUNT WRONG | $got of $EXPECT checks ran"
 
 mutate() { # $1 = label, $2 = text to replace, $3 = replacement
   python3 - "$MIG" "$WORK/mut.sql" "$2" "$3" <<'PY'
@@ -68,3 +71,7 @@ mutate "retiring the account in use with nothing in its place is not logged" "IF
        AND EXISTS"
 mutate "the log is readable by everyone" "USING (public.fn_is_the_director());" "USING (true);"
 mutate "the full account number is stored" "ELSE right(p_account, 4) END" "ELSE p_account END"
+mutate "a staff delete erases the history" "ON DELETE SET NULL," "ON DELETE CASCADE,"
+mutate "the list inner-joins staff" "    LEFT JOIN public.staff s ON s.id = c.staff_id" "    JOIN public.staff s ON s.id = c.staff_id"
+mutate "who the change was for is not kept" "IF NEW.staff_id IS NOT NULL THEN" "IF false THEN"
+mutate "the true count stops at the cap" "count(*) OVER ()" "least(count(*) OVER (), 2000)"

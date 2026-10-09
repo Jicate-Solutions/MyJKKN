@@ -18,11 +18,15 @@
 --      triggers below (no insert/update/delete policy, no grant to write).
 --      Account numbers are stored MASKED (last 4 digits): the log is a list
 --      for a person to read, not a second copy of everyone's bank details.
+--      Each row keeps who it was for (name, code, college) and survives a
+--      staff delete (staff_id goes NULL), so the history cannot be erased
+--      by deleting the person.
 --   2. Triggers on both tables. They fire for every write path (the staff
 --      form, the bank-account RPC, the payroll-organisation page, bulk
 --      assignment, imports), because they sit on the tables, not the screens.
 --   3. fn_hr_pay_destination_changes(p_since): the list, with names, for the
---      Director list or the weekly job (service_role) only.
+--      Director list or the weekly job (service_role) only. At most 2,000
+--      rows; every row carries total_count, the true number of changes.
 --   4. A Monday 08:17 IST schedule row for the weekly notice.
 --
 -- The log starts when this is applied. Changes made before then are not
@@ -34,7 +38,15 @@
 -- ----------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS public.hr_pay_destination_changes (
   id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  staff_id    uuid NOT NULL REFERENCES public.staff(id) ON DELETE CASCADE,
+  -- SET NULL, not CASCADE: deleting a staff record must not erase the history
+  -- of where their pay went. The snapshot below keeps who it was.
+  staff_id    uuid REFERENCES public.staff(id) ON DELETE SET NULL,
+  -- The person as they were when the change was made, filled by
+  -- fn_hr_pay_destination_snapshot(). The list prefers the live record and
+  -- falls back to these once the staff record is gone.
+  staff_name  text,
+  staff_code  text,
+  college     text,
   kind        text NOT NULL CHECK (kind IN ('bank', 'payer')),
   -- auth.uid() of whoever made the change; NULL = a system job (service role).
   changed_by  uuid,
@@ -68,6 +80,37 @@ GRANT SELECT ON public.hr_pay_destination_changes TO authenticated;
 
 COMMENT ON TABLE public.hr_pay_destination_changes IS
   'Every change to where a person''s pay goes: bank account (masked) or paying trust. Written only by triggers on hr_staff_bank_accounts and hr_staff_payroll; readable only by the Director list. Director ruling 1 Oct 2026. Migration 20270614090000.';
+
+-- ----------------------------------------------------------------------------
+-- 1b. Who the change was for, kept on the row
+-- ----------------------------------------------------------------------------
+-- Filled on every insert from the staff record, so a later staff delete
+-- (staff_id goes NULL) still leaves a name, code and college on the list.
+-- SECURITY INVOKER: it only ever runs inside the SECURITY DEFINER logging
+-- triggers below, the only writers of this table.
+CREATE OR REPLACE FUNCTION public.fn_hr_pay_destination_snapshot()
+RETURNS trigger
+LANGUAGE plpgsql
+SET search_path = public
+AS $$
+BEGIN
+  IF NEW.staff_id IS NOT NULL THEN
+    SELECT NULLIF(trim(concat_ws(' ', s.first_name, s.last_name)), ''), s.staff_id::text, i.name::text
+      INTO NEW.staff_name, NEW.staff_code, NEW.college
+      FROM public.staff s
+      LEFT JOIN public.institutions i ON i.id = s.institution_id
+     WHERE s.id = NEW.staff_id;
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+REVOKE EXECUTE ON FUNCTION public.fn_hr_pay_destination_snapshot() FROM anon, PUBLIC, authenticated;
+
+DROP TRIGGER IF EXISTS trg_hr_pay_destination_snapshot ON public.hr_pay_destination_changes;
+CREATE TRIGGER trg_hr_pay_destination_snapshot
+  BEFORE INSERT ON public.hr_pay_destination_changes
+  FOR EACH ROW EXECUTE FUNCTION public.fn_hr_pay_destination_snapshot();
 
 -- ----------------------------------------------------------------------------
 -- 2. What one bank row looks like in the log (never the full number)
@@ -115,8 +158,10 @@ BEGIN
   IF TG_OP = 'DELETE' THEN
     -- Deleting the account in use leaves the person with nowhere to be paid:
     -- logged as removed. Deleting an old, superseded row is not a change of
-    -- destination. A staff delete cascades here; the log row would cascade
-    -- away with it, so that case is skipped.
+    -- destination. A staff delete cascades here: the record is already gone,
+    -- so there is no one to name and the foreign key would refuse the row.
+    -- That case is skipped; the person's earlier log rows stay (staff_id
+    -- set to NULL, name kept by the snapshot).
     IF OLD.superseded_by IS NULL
        AND EXISTS (SELECT 1 FROM public.staff s WHERE s.id = OLD.staff_id) THEN
       INSERT INTO public.hr_pay_destination_changes (staff_id, kind, changed_by, before, after)
@@ -226,7 +271,8 @@ BEGIN
   END IF;
 
   v_staff := CASE WHEN TG_OP = 'DELETE' THEN OLD.staff_id ELSE NEW.staff_id END;
-  -- A staff delete cascades here; the log row would cascade away with it.
+  -- A staff delete cascades here: the record is already gone, so the row is
+  -- skipped. The person's earlier log rows stay (staff_id NULL, name kept).
   IF EXISTS (SELECT 1 FROM public.staff s WHERE s.id = v_staff) THEN
     INSERT INTO public.hr_pay_destination_changes (staff_id, kind, changed_by, before, after)
     VALUES (v_staff, 'payer', auth.uid(), v_before, v_after);
@@ -257,7 +303,10 @@ RETURNS TABLE (
   before          jsonb,
   after           jsonb,
   changed_by_name text,
-  changed_at      timestamptz
+  changed_at      timestamptz,
+  -- Every matching change, before the 2,000-row cap: readers must show it
+  -- so nothing past the cap goes unmentioned.
+  total_count     bigint
 )
 LANGUAGE plpgsql
 STABLE
@@ -272,19 +321,22 @@ BEGIN
   END IF;
 
   RETURN QUERY
+  -- LEFT joins: a change whose staff record was deleted still lists, named
+  -- from the snapshot kept on the row.
   SELECT c.id,
          c.staff_id,
-         NULLIF(trim(concat_ws(' ', s.first_name, s.last_name)), '') AS staff_name,
-         s.staff_id::text,
-         i.name::text,
+         COALESCE(NULLIF(trim(concat_ws(' ', s.first_name, s.last_name)), ''), c.staff_name) AS staff_name,
+         COALESCE(s.staff_id::text, c.staff_code),
+         COALESCE(i.name::text, c.college),
          c.kind,
          c.before,
          c.after,
          CASE WHEN c.changed_by IS NULL THEN 'a system job'
               ELSE COALESCE(NULLIF(trim(p.full_name), ''), p.email, 'unknown account') END,
-         c.changed_at
+         c.changed_at,
+         count(*) OVER ()
     FROM public.hr_pay_destination_changes c
-    JOIN public.staff s ON s.id = c.staff_id
+    LEFT JOIN public.staff s ON s.id = c.staff_id
     LEFT JOIN public.institutions i ON i.id = s.institution_id
     LEFT JOIN public.profiles p ON p.id = c.changed_by
    WHERE c.changed_at >= COALESCE(p_since, now() - interval '7 days')
@@ -297,7 +349,7 @@ REVOKE EXECUTE ON FUNCTION public.fn_hr_pay_destination_changes(timestamptz) FRO
 GRANT  EXECUTE ON FUNCTION public.fn_hr_pay_destination_changes(timestamptz) TO authenticated, service_role;
 
 COMMENT ON FUNCTION public.fn_hr_pay_destination_changes(timestamptz) IS
-  'Bank-account and paying-trust changes since p_since (default 7 days), newest first, with the person, their college and who made the change. Director list or service_role only. Migration 20270614090000.';
+  'Bank-account and paying-trust changes since p_since (default 7 days), newest first, with the person, their college and who made the change; at most 2,000 rows, total_count gives the true number. Director list or service_role only. Migration 20270614090000.';
 
 -- ----------------------------------------------------------------------------
 -- 6. Monday 08:17 IST, off the :00/:30 marks (minute_of_day 497)
