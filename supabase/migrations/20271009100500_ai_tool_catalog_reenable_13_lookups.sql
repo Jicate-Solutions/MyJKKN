@@ -10,9 +10,12 @@
 --   20270308090000_ai_rpc_repair_dead_scope_lookups.sql (PR #3999, merged
 --   2026-09-28) rewrote all 13 bodies, but nothing switched them back on.
 --   The 2b(a) comment says: turn each back on "only after its function is
---   fixed". This file is that step and nothing else: one UPDATE of
---   enabled on 13 rows. audience, requires_permission, params and every other
---   catalog row are untouched (the 13 keep their seeded ['assistant','door']).
+--   fixed". This file is that step: one UPDATE of enabled on 13 rows.
+--   One more change, Director's ruling 2026-10-09: bug_report_details
+--   returns error logs and an IP address, so it goes to the in-app assistant
+--   ONLY, never the outside-AI door (as export_data already is).
+--   requires_permission, params and every other catalog row are untouched;
+--   the other 12 keep their seeded ['assistant','door'].
 --
 -- GUARD
 --   The DO block refuses (and nothing changes) unless, on this database:
@@ -28,9 +31,12 @@
 --   signed-in call on production and is left to the Director (ask the
 --   assistant) after this applies.
 --
--- Re-running is a no-op (the rows are already true). Undo:
+-- Re-running is a no-op. Undo:
 --   UPDATE public.ai_tool_catalog SET enabled = false, updated_at = now()
 --    WHERE kind = 'rpc' AND target IN (<the 13 below>);
+-- Re-applying 20270301090000 after this file switches the 13 off again
+-- (its section 2b) — the applier runs each version once, so only a manual
+-- re-apply would do that.
 
 DO $guard$
 DECLARE
@@ -90,3 +96,10 @@ UPDATE public.ai_tool_catalog
      'ai_rpc_academic_context',
      'ai_rpc_admission_analytics'
    );
+
+-- Director 2026-10-09: bug report details reach the in-app assistant only.
+UPDATE public.ai_tool_catalog
+   SET audience = ARRAY['assistant']::text[], updated_at = now()
+ WHERE kind = 'rpc'
+   AND target = 'ai_rpc_bug_report_details'
+   AND audience IS DISTINCT FROM ARRAY['assistant']::text[];

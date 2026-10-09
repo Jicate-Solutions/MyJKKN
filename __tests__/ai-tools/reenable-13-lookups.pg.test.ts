@@ -5,7 +5,9 @@
  *
  * Proves:
  *   exactly the 13 lookups that 20270301090000 switched off are switched on,
- *   and every other catalog row is unchanged (all columns but updated_at);
+ *   bug_report_details leaves the outside-AI door (assistant only, Director
+ *   2026-10-09), and every other catalog row is unchanged (all columns but
+ *   updated_at);
  *   re-running is a no-op;
  *   the guard refuses, and nothing is switched on, when any one of the 13
  *   still has a known failure: it calls ai_rpc_accessible_scope, it is
@@ -157,7 +159,12 @@ describe('switching the 13 lookups back on', () => {
     for (let i = 0; i < before.length; i++) {
       const was = before[i];
       const now = after[i];
-      if (THIRTEEN.includes(was.target) && was.kind === 'rpc') {
+      if (was.target === 'ai_rpc_bug_report_details') {
+        expect(was.audience).toEqual(['assistant', 'door']);
+        expect({ ...now, enabled: false, audience: was.audience }).toEqual(was);
+        expect(now.enabled).toBe(true);
+        expect(now.audience).toEqual(['assistant']);
+      } else if (THIRTEEN.includes(was.target) && was.kind === 'rpc') {
         expect({ ...now, enabled: false }).toEqual(was);
         expect(now.enabled).toBe(true);
       } else {
