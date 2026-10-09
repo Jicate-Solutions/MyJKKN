@@ -163,6 +163,16 @@ describe('session feedback adapter keeps the learner score', () => {
     expect(ingested[0].content).toBe('but I wrote a comment');
   });
 
+  it('does not take a value outside whole 1..5 as a score, but keeps it in raw', async () => {
+    source = [row('zero', 0), row('six', 6), row('half', 2.5), row('ok', 4)];
+    const { GET } = await import('@/app/api/cron/feedback-adapter-session/route');
+    await GET(req());
+
+    expect(ingested.map((e) => e.rating)).toEqual([null, null, null, 4]);
+    expect((ingested[0].raw as Record<string, unknown>).understood).toBe(0);
+    expect((ingested[1].raw as Record<string, unknown>).understood).toBe(6);
+  });
+
   it('keeps the score in raw as well, so the two can be reconciled', async () => {
     source = [row('both', 3)];
     const { GET } = await import('@/app/api/cron/feedback-adapter-session/route');

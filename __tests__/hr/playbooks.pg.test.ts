@@ -18,6 +18,7 @@
  * REQUIRES a local PostgreSQL 16 (see "THE POSTGRES SERVICE" in .github/workflows/test-suite.yml).
  */
 import { execFileSync } from 'child_process';
+import { readFileSync } from 'fs';
 import path from 'path';
 import { randomUUID } from 'crypto';
 import { Client } from 'pg';
@@ -26,6 +27,10 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 const REPO = path.resolve(__dirname, '..', '..');
 const MIGRATION = process.env.HRPB_TEST_MIGRATION
   ?? path.join(REPO, 'supabase/migrations/20271007161139_hr_duty_playbooks_and_lessons.sql');
+// The review follow-up (#4229 review): G2 dates read safely, accept notes capped at 500.
+// HRPB_TEST_FOLLOWUP overrides its path (point it at an empty file to prove the tests below go red).
+const FOLLOWUP = process.env.HRPB_TEST_FOLLOWUP
+  ?? path.join(REPO, 'supabase/migrations/20271008110106_hr_playbooks_review_followup.sql');
 const PGHOST = process.env.HRPB_TEST_PGHOST ?? 'localhost';
 const PGPORT = process.env.HRPB_TEST_PGPORT ?? '5432';
 const PGUSER = process.env.HRPB_TEST_PGUSER ?? (process.env.CI ? 'postgres' : process.env.USER ?? 'postgres');
@@ -189,6 +194,8 @@ beforeAll(async () => {
   catch (e) { throw new Error(`Local PostgreSQL 16 is required (${String(e).slice(0, 200)})`); }
   psql(['-d', DBNAME, '-c', PRELUDE]);
   psql(['-d', DBNAME, '-f', MIGRATION]);
+  // Applied after the parent, as production would: its drift check must accept main's bodies.
+  psql(['-d', DBNAME, '-f', FOLLOWUP]);
   client = new Client({ host: PGHOST, port: Number(PGPORT), user: PGUSER, database: DBNAME });
   await client.connect();
 }, 60_000);
@@ -734,6 +741,59 @@ describe('fn_hr_duty_reason_match — keywords match at the start of a word', ()
         `SELECT public.fn_hr_duty_reason_match('L1', 'Came in late') AS a,
                 public.fn_hr_duty_reason_match('L1', 'An unrelated matter') AS b`);
       expect(r.rows[0]).toEqual({ a: 'late_application', b: 'other' });
+    });
+  });
+});
+
+describe('review follow-up 20271008110106', () => {
+  async function harvest() {
+    await asService();
+    const r = await client.query(`SELECT public.fn_hr_duty_lessons_harvest(now() - interval '35 days') AS out`);
+    return r.rows[0].out as Record<string, unknown>;
+  }
+
+  it('G2: an impossible date in one history entry is skipped; the good entry is still gathered', async () => {
+    await tx(async () => {
+      await asOwner();
+      await client.query(`
+        INSERT INTO public.hr_form_submissions (id, institution_id, status, approval_history) VALUES
+          (gen_random_uuid(), '${INST}', 'rejected', jsonb_build_array(
+            jsonb_build_object('step', 1, 'action', 'reject', 'actor_id', '${ZARA}', 'reason', 'Proof not attached', 'at', now() - interval '1 day'))),
+          (gen_random_uuid(), '${INST}', 'rejected', jsonb_build_array(
+            jsonb_build_object('step', 1, 'action', 'reject', 'actor_id', '${ZARA}', 'reason', 'Proof not attached', 'at', '2026-13-45T25:99'),
+            jsonb_build_object('step', 2, 'action', 'reject', 'actor_id', '${ZARA}', 'reason', 'Proof not attached', 'at', '2026-10-07 25:00'),
+            jsonb_build_object('step', 3, 'action', 'reject', 'actor_id', '${ZARA}', 'reason', 'Proof not attached', 'at', 'yesterday')));
+      `);
+      const out = await harvest();
+      expect(out.G2).toBe(1);
+      await asOwner();
+      const r = await client.query(`SELECT count(*)::int AS n FROM public.hr_duty_lessons WHERE duty_code = 'G2'`);
+      expect(r.rows[0].n).toBe(1);
+    });
+  });
+
+  it('accepting with a note over 500 characters keeps the first 500 instead of failing', async () => {
+    await tx(async () => {
+      const id = await suggest(ANIL, 'L1', 'Open the attached certificate before deciding anything.');
+      await asUser({ uid: ZARA, perm: 'true' });
+      expect(await err(`SELECT public.fn_hr_playbook_decide($1, 'accept', NULL, $2)`, [id, 'n'.repeat(501)])).toBeNull();
+      await asOwner();
+      const r = await client.query(
+        'SELECT status, char_length(decision_note) AS len FROM public.hr_playbook_line_proposals WHERE id = $1', [id]);
+      expect(r.rows).toEqual([{ status: 'accepted', len: 500 }]);
+    });
+  });
+
+  it('re-applying the follow-up is harmless; a hand-edited function makes it refuse and change nothing', async () => {
+    const sql = readFileSync(FOLLOWUP, 'utf8');
+    await tx(async () => {
+      await asOwner();
+      expect(await err(sql)).toBeNull();
+      await client.query(`CREATE OR REPLACE FUNCTION public.fn_hr_playbook_decide(p_id uuid, p_decision text, p_edited_text text, p_note text)
+        RETURNS uuid LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path = public AS $f$ BEGIN RETURN p_id; END $f$`);
+      expect(await err(sql)).toMatch(/Drift: public\.fn_hr_playbook_decide/);
+      const r = await client.query(`SELECT prosrc FROM pg_proc WHERE oid = 'public.fn_hr_playbook_decide(uuid,text,text,text)'::regprocedure`);
+      expect(r.rows[0].prosrc).toMatch(/RETURN p_id; END/);
     });
   });
 });
