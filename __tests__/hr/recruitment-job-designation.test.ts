@@ -1,5 +1,6 @@
 // BUG-006259: designation filter on /hr/recruitment/approvals reads the
 // designation from the job title. These are real titles from production.
+// jkkn-terminology: official-hr-designations
 import { describe, expect, it } from 'vitest';
 import {
   designationOfJobTitle,

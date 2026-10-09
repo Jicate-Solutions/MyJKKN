@@ -1,0 +1,26 @@
+{
+  "_comment": [
+    "Fixtures for __tests__/lib/ci/terminology-designation-optin.test.ts.",
+    "",
+    "In JSON for the same reason as terminology-quote-boundary.fixtures.json:",
+    "the lines use words the gate rejects, and the gate does not scan .json.",
+    "",
+    "`marker` is the file-level opt-in line (BUG-006259, Director 2026-10-09).",
+    "`exempt`  - official designation copy; silent ONLY when the file carries the marker.",
+    "`flagged` - non-designation copy; reported even when the file carries the marker."
+  ],
+
+  "marker": "// jkkn-terminology: official-hr-designations",
+
+  "exempt": [
+    { "name": "Associate Professor label", "line": "  { value: 'associate_professor', label: 'Associate Professor' },", "term": "professor" },
+    { "name": "upper-case nursing tutor title", "line": "  row('j4', 'NURSING TUTOR'),", "term": "tutor" },
+    { "name": "Lab Assistant label", "line": "  { value: 'lab_assistant', label: 'Lab Assistant' },", "term": "lab" },
+    { "name": "PG Assistant Teacher title", "line": "  ['PG Assistant Teacher', 'other'],", "term": "teacher" }
+  ],
+
+  "flagged": [
+    { "name": "learner word in the same marked file", "line": "  const msg = 'No student has applied yet';", "term": "student" },
+    { "name": "faculty word in the same marked file", "line": "  label: 'Faculty hires awaiting your signature',", "term": "faculty" }
+  ]
+}

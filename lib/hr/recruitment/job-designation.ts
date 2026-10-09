@@ -1,6 +1,9 @@
 // Designation of a recruitment job, read from the WORDS IN ITS TITLE
 // (BUG-006259).
 //
+// jkkn-terminology: official-hr-designations
+// (Official HR job titles keep their exact wording — Director ruling 2026-10-09.)
+//
 // hr_recruitment_jobs has no designation column: the designation is typed
 // freely into `title`, in mixed case, with abbreviations ("ASST PROF"),
 // typos ("LAB ASSISSTANT") and suffixes ("Professor-Pedagogy of Computer

@@ -106,6 +106,31 @@ def main():
     # recommends learning-assessment phrasing in fresh learner-facing prose.
     DOMAIN_EXEMPT = {"mark", "marks", "grade", "grades", "grading"}
 
+    # Official HR designations keep their exact wording (Director ruling,
+    # 2026-10-09, BUG-006259): a recruitment filter must say "Associate
+    # Professor" or "Lab Assistant" because that is the job title on the post.
+    # FILE-LEVEL OPT-IN ONLY: a file containing DESIGNATION_MARKER (e.g. the
+    # comment `// jkkn-terminology: official-hr-designations`) is exempt for
+    # exactly these words. Every other term in that file is still flagged, and
+    # files without the marker are unaffected.
+    DESIGNATION_MARKER = "jkkn-terminology: official-hr-designations"
+    DESIGNATION_EXEMPT = {
+        "professor", "professors",
+        "tutor", "tutors",
+        "teacher", "teachers",
+        "lab", "labs", "laboratory", "laboratories",
+    }
+    marked_cache = {}
+
+    def has_designation_marker(path):
+        """True when the file, as it stands at HEAD, carries the opt-in marker."""
+        if path not in marked_cache:
+            body = subprocess.run(
+                ["git", "show", f"{head}:{path}"],
+                capture_output=True, text=True, check=False).stdout
+            marked_cache[path] = DESIGNATION_MARKER in body
+        return marked_cache[path]
+
     hits = []
     for f, ln, text, in_comment in added_lines(base, head):
         if SKIP_LINE.search(text):
@@ -118,6 +143,11 @@ def main():
         for rx, repl in compiled:
             for m in rx.finditer(text):
                 if m.group().lower() in DOMAIN_EXEMPT:
+                    continue
+                if (
+                    m.group().lower() in DESIGNATION_EXEMPT
+                    and has_designation_marker(f)
+                ):
                     continue
                 # {children} etc. — a brace-wrapped match is a code expression
                 # (React children prop), not copy.

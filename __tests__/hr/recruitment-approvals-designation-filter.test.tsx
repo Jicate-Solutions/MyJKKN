@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 // BUG-006259: the approvals Advanced Filters offer a Designation control, and
 // choosing "Professor" keeps a PROFESSOR job and drops an Associate Professor job.
+// jkkn-terminology: official-hr-designations
 import type { ReactNode } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
