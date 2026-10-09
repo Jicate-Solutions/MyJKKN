@@ -73,6 +73,8 @@ export interface GrievanceTicketDetail extends GrievanceTicket {
   resolution_letter_pdf_url: string | null;
   metadata: Record<string, unknown> | null;
   updated_at: string | null;
+  /** Ticked "This complaint is about the Joint MD" — with the Director, hidden from the Joint MD. */
+  about_joint_md?: boolean;
 }
 
 export interface GrievanceComment {

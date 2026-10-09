@@ -116,3 +116,47 @@ export async function updateGrievanceStatusAction(
 
   return { success: true };
 }
+
+export interface SendBackToNormalPathResult {
+  success: boolean;
+  error?: string;
+  /** True when no handler could be found on the normal path either. */
+  unassigned?: boolean;
+}
+
+/**
+ * "Send back to the normal path" (Director ruling, 9 Oct 2026): a complaint
+ * ticked "about the Joint MD" by mistake goes back to ordinary routing and the
+ * tick is cleared. Every rule — only the Director or a super admin, never the
+ * Joint MD; who is logged; where it goes next — lives in
+ * fn_grievance_send_back_to_normal_path (migration 20270420090000), called on
+ * the caller's own session so auth.uid() is the person who clicked.
+ */
+export async function sendBackToNormalPathAction(
+  id: string,
+  note?: string
+): Promise<SendBackToNormalPathResult> {
+  if (!UUID_RE.test(id)) return { success: false, error: 'Invalid complaint id.' };
+
+  const supabase = await createClient();
+  const {
+    data: { user },
+    error: authError,
+  } = await supabase.auth.getUser();
+  if (authError || !user) return { success: false, error: 'You are not signed in.' };
+
+  const { data, error } = await supabase.rpc('fn_grievance_send_back_to_normal_path', {
+    p_ticket_id: id,
+    p_note: note?.trim() ? note.trim().slice(0, 500) : undefined,
+  });
+  if (error) {
+    logger.error(MODULE, 'Send back to the normal path failed', error);
+    return { success: false, error: 'Could not send this complaint back. Try again.' };
+  }
+
+  const result = (data ?? {}) as { success?: boolean; error?: string; assigned_to?: string | null };
+  if (result.success !== true) {
+    return { success: false, error: result.error ?? 'Could not send this complaint back.' };
+  }
+  return { success: true, unassigned: !result.assigned_to };
+}

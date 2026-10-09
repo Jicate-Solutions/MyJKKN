@@ -48,6 +48,12 @@ export interface CreateLCIssueOptions {
   assignedTo?: string | null;
   /** Merged into `metadata` alongside `source`. */
   extraMetadata?: Record<string, unknown>;
+  /**
+   * The filer ticked "This complaint is about the Joint MD" (Director ruling,
+   * 9 Oct 2026). The database routes such a ticket to the Director and hides
+   * it from the Joint MD (migration 20270420090000).
+   */
+  aboutJointMd?: boolean;
 }
 
 /** Kanban board data structure */
@@ -334,6 +340,7 @@ export class LCIssueService {
         ? { is_anonymous: true, raised_by_phone: null, anonymous_token: options.anonymousToken ?? null }
         : {}),
       ...(options.assignedTo ? { assigned_to: options.assignedTo, assigned_at: new Date().toISOString() } : {}),
+      ...(options.aboutJointMd ? { about_joint_md: true } : {}),
       sla_hours: 72, // Default 72h SLA for LC issues
       sla_deadline: new Date(Date.now() + 72 * 60 * 60 * 1000).toISOString(),
       sla_status: 'on_track',

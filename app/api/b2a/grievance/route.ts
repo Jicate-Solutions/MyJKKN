@@ -148,6 +148,9 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     // carries no ICC membership, so this filter is unconditional.
     // Mirrors the read path in lib/mcp/tools/grievance.ts.
     query = query.eq('is_icc_only', false);
+    // A complaint about the Joint MD (Director ruling, 9 Oct 2026) is never
+    // exposed over B2A either: a key cannot prove it is not the Joint MD's.
+    query = query.eq('about_joint_md', false);
 
     if (status) {
       query = query.eq('status', status);

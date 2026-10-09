@@ -27,6 +27,7 @@ import { AlertTriangle, CheckCircle2, MessageSquarePlus, ShieldAlert } from 'luc
 import { GrievanceService } from '@/lib/services/grievance/grievance-service';
 import { useAuth } from '@/hooks/use-auth';
 import { formatComplaintDate, handledByLabel } from '@/lib/grievance/complaint-display';
+import { sendBackToNormalPathAction } from '@/lib/grievance/actions';
 
 export default function GrievanceDetailPage({
   params,
@@ -105,6 +106,29 @@ export default function GrievanceDetailPage({
     }
   };
 
+  // "Send back to the normal path" (Director ruling, 9 Oct 2026). The server
+  // decides who may (the Director or a super admin, never the Joint MD — who
+  // cannot open this page for such a complaint anyway); a refusal is shown.
+  const handleSendBack = async () => {
+    if (!window.confirm('Send this complaint back to the normal path? The "about the Joint MD" mark is removed, it is routed like any other complaint, and the Joint MD will be able to see it.')) {
+      return;
+    }
+    setBusy('send-back');
+    try {
+      const res = await sendBackToNormalPathAction(id);
+      if (!res.success) {
+        toast.error(res.error ?? 'Could not send this complaint back.');
+        return;
+      }
+      toast.success(res.unassigned
+        ? 'Sent back to the normal path. Nobody could be assigned yet; it will escalate as usual.'
+        : 'Sent back to the normal path and assigned.');
+      refresh();
+    } finally {
+      setBusy(null);
+    }
+  };
+
   const t = ticketQ.data;
   const comments = commentsQ.data ?? [];
   const loading = ticketQ.isLoading || commentsQ.isLoading;
@@ -149,6 +173,7 @@ export default function GrievanceDetailPage({
                     {t.is_emergency && <Badge variant="destructive">EMERGENCY</Badge>}
                     {t.is_anonymous && <Badge variant="outline">ANONYMOUS</Badge>}
                     {t.is_icc_only && <Badge variant="outline">ICC-ONLY</Badge>}
+                    {t.about_joint_md && <Badge variant="outline">ABOUT THE JOINT MD</Badge>}
                   </div>
                   <p className="mt-1 font-mono text-xs text-muted-foreground">{t.ticket_number}</p>
                 </div>
@@ -192,6 +217,28 @@ export default function GrievanceDetailPage({
               )}
             </CardContent>
           </Card>
+
+          {t.about_joint_md && (
+            <Card className="mt-4">
+              <CardHeader><CardTitle className="text-base">This complaint is about the Joint MD</CardTitle></CardHeader>
+              <CardContent className="space-y-3 text-sm">
+                <p>
+                  It goes to the Director, and the Joint MD cannot see it.
+                  {!t.assigned_to && ' It is waiting: no Director is set to receive these complaints yet.'}
+                </p>
+                {profile?.id !== t.raised_by_id && t.status !== 'resolved' && t.status !== 'closed' && (
+                  <>
+                    <p className="text-muted-foreground">
+                      Ticked by mistake? Send it back and it is handled like any other complaint.
+                    </p>
+                    <Button variant="outline" onClick={handleSendBack} disabled={busy === 'send-back'}>
+                      {busy === 'send-back' ? 'Sending back…' : 'Send back to the normal path'}
+                    </Button>
+                  </>
+                )}
+              </CardContent>
+            </Card>
+          )}
 
           {t.status !== 'resolved' && t.status !== 'closed' && (
             <Card className="mt-4">

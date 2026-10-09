@@ -96,11 +96,14 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     // API key carries no ICC membership, so this filter is unconditional —
     // otherwise the aggregates would leak how many confidential cases exist.
     // Mirrors the read path in lib/mcp/tools/grievance.ts.
+    // Complaints about the Joint MD are left out of every counter for the same
+    // reason (Director ruling, 9 Oct 2026: not even a count reaches the Joint MD).
     const makeCountQueryByStatus = (status: string) => {
       const base = supabase
         .from('grievance_tickets')
         .select('id', { count: 'exact', head: true })
         .eq('is_icc_only', false)
+        .eq('about_joint_md', false)
         .eq('status', status);
       return institutionId ? base.eq('institution_id', institutionId) : base;
     };
@@ -110,6 +113,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         .from('grievance_tickets')
         .select('id', { count: 'exact', head: true })
         .eq('is_icc_only', false)
+        .eq('about_joint_md', false)
         .eq('is_emergency', true)
         .not('status', 'in', '(resolved,closed)');
       return institutionId ? base.eq('institution_id', institutionId) : base;
@@ -120,6 +124,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         .from('grievance_tickets')
         .select('id', { count: 'exact', head: true })
         .eq('is_icc_only', false)
+        .eq('about_joint_md', false)
         .eq('sla_status', 'breached')
         .not('status', 'in', '(resolved,closed)');
       return institutionId ? base.eq('institution_id', institutionId) : base;

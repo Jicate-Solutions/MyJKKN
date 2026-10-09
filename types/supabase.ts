@@ -64851,6 +64851,7 @@ export type Database = {
       }
       grievance_tickets: {
         Row: {
+          about_joint_md: boolean
           acknowledgment_pdf_url: string | null
           anonymous_token: string | null
           assigned_at: string | null
@@ -64894,6 +64895,7 @@ export type Database = {
           withdrawn_reason: string | null
         }
         Insert: {
+          about_joint_md?: boolean
           acknowledgment_pdf_url?: string | null
           anonymous_token?: string | null
           assigned_at?: string | null
@@ -64937,6 +64939,7 @@ export type Database = {
           withdrawn_reason?: string | null
         }
         Update: {
+          about_joint_md?: boolean
           acknowledgment_pdf_url?: string | null
           anonymous_token?: string | null
           assigned_at?: string | null
@@ -209061,6 +209064,10 @@ export type Database = {
           p_old: Database["public"]["Tables"]["grievance_tickets"]["Row"]
         }
         Returns: string
+      }
+      fn_grievance_send_back_to_normal_path: {
+        Args: { p_note?: string; p_ticket_id: string }
+        Returns: Json
       }
       fn_group_dashboard_overview:
         | {
