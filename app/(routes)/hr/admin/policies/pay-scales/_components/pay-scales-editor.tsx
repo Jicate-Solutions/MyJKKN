@@ -63,7 +63,10 @@ export function PayScalesEditor() {
   );
   const updateM = useUpdateCompensationPolicy<PayScalesValue>(
     HR_COMPENSATION_KEYS.PAY_SCALES,
-    institutionId
+    institutionId,
+    // Lock the save to the row as loaded: a second person's Save must not
+    // silently replace the first one's ladders or matrix.
+    policyQ.data?.exists ? { expectedUpdatedAt: policyQ.data.updatedAt } : undefined
   );
 
   const referenceQ = useQuery({
