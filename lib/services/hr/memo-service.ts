@@ -22,6 +22,7 @@
  * This service does NOT trigger termination — it only writes memos.
  */
 
+import { createHash } from 'node:crypto';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import {
   MEMO_DETECTOR_POLICY_KEY,
@@ -139,6 +140,49 @@ function pushCapped<T>(list: T[], item: T): void {
 function errText(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
 }
+
+/** YYYY-MM-DD of an instant as the calendar reads in India (a memo issued at 01:00 IST is that day's memo). */
+export function istDate(iso: string): string {
+  const d = new Date(iso);
+  if (!Number.isFinite(d.getTime())) return String(iso).slice(0, 10);
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Kolkata',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(d);
+}
+
+/** Why an event that names no team member record is set aside instead of left pending. */
+export const UNRESOLVABLE_EVENT_REASON =
+  'auto-dismissed: this id matches no team member record, so no memo can ever be issued for it';
+
+/**
+ * Live mode issues memos only when the one-memo-per-event unique index from
+ * migration 20271008110108 exists. Without it, two overlapping runs could each
+ * issue a memo for the same event. exec_sql_safe returns no rows, only whether
+ * the statement ran, so this check RAISEs when the index is absent. The RPC is
+ * service_role only, which is what the cron route uses.
+ */
+export const ONE_MEMO_PER_EVENT_INDEX_CHECK_SQL =
+  "DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_indexes WHERE schemaname = 'public' " +
+  "AND tablename = 'hr_memos' AND indexname = 'ux_hr_memos_triggered_by_event' " +
+  "AND indexdef ILIKE 'CREATE UNIQUE INDEX%(triggered_by_event_id)%') " +
+  "THEN RAISE EXCEPTION 'ux_hr_memos_triggered_by_event missing'; END IF; END $$";
+
+/**
+ * The 'issued' audit row of an auto-issued memo gets an id derived from the
+ * memo id, so the table's primary key lets that row exist only once, however
+ * many runs try to write it.
+ */
+export function issuedTransitionId(memoId: string): string {
+  const h = createHash('sha1').update(`hr_memo_issued_transition:${memoId}`).digest('hex');
+  const variant = ((parseInt(h[16], 16) & 0x3) | 0x8).toString(16);
+  return `${h.slice(0, 8)}-${h.slice(8, 12)}-5${h.slice(13, 16)}-${variant}${h.slice(17, 20)}-${h.slice(20, 32)}`;
+}
+
+const OPEN_MEMO_PAGE = 1000;
+const OPEN_MEMO_MAX_PAGES = 50;
 
 function chunk<T>(items: T[], size: number): T[][] {
   const out: T[][] = [];
@@ -271,10 +315,17 @@ export class HRMemoService {
     }
 
     // ---- Resolution: events -> memos (dry run previews the fresh ones too)
-    try {
-      await this.resolveEventsIntoMemos(runId, live, live ? [] : fresh, settings, result);
-    } catch (e) {
-      result.errors.push(`event resolution: ${errText(e)}`);
+    // Live: no memo is created until the one-memo-per-event index exists.
+    // The events stay pending and the nudges below still run.
+    const refusal = live ? await this.memoCreationRefusal() : null;
+    if (refusal) {
+      result.errors.push(refusal);
+    } else {
+      try {
+        await this.resolveEventsIntoMemos(runId, live, live ? [] : fresh, settings, result);
+      } catch (e) {
+        result.errors.push(`event resolution: ${errText(e)}`);
+      }
     }
 
     // ---- Acknowledgement nudges
@@ -286,6 +337,25 @@ export class HRMemoService {
 
     await this.recordRun(result, now);
     return result;
+  }
+
+  /**
+   * null when the one-memo-per-event index exists; otherwise why memo
+   * creation is refused. A check that cannot run also refuses (fail closed).
+   */
+  private async memoCreationRefusal(): Promise<string | null> {
+    const refused = 'memo creation refused: migration 20271008110108 not applied';
+    try {
+      const { data, error } = await this.supabase.rpc('exec_sql_safe', {
+        query: ONE_MEMO_PER_EVENT_INDEX_CHECK_SQL,
+      });
+      if (error) return `${refused} (could not check the index: ${error.message})`;
+      const answer = data as { success?: boolean; error?: string } | null;
+      if (answer?.success === true) return null;
+      return `${refused} (${answer?.error ?? 'the index check gave no answer'})`;
+    } catch (e) {
+      return `${refused} (could not check the index: ${errText(e)})`;
+    }
   }
 
   private async recordRun(result: DetectionRunResult, now: Date): Promise<void> {
@@ -443,6 +513,7 @@ export class HRMemoService {
       .select('id, staff_id, event_type, event_detail')
       .is('processed_into_memo_id', null)
       .eq('is_dismissed', false)
+      .order('detected_at', { ascending: true })
       .limit(500);
     if (error) throw new Error(`pending events read failed: ${error.message}`);
 
@@ -469,6 +540,27 @@ export class HRMemoService {
       for (const r of rows ?? []) found.add(r.id as string);
     }
 
+    // Live: an event that names no team member record can never become a memo.
+    // Set it aside (dismissed, with the reason) so it does not sit pending for
+    // ever, crowd real events out of the 500-row read, or reappear every run.
+    if (live) {
+      const unresolvable = candidates
+        .filter((c) => c.event_id && !found.has(c.staff_id))
+        .map((c) => c.event_id as string);
+      for (const ids of chunk(unresolvable, 200)) {
+        const { error: dismissErr } = await this.supabase
+          .from('hr_memo_eligibility_events')
+          .update({
+            is_dismissed: true,
+            dismissed_reason: UNRESOLVABLE_EVENT_REASON,
+            dismissed_at: new Date().toISOString(),
+          })
+          .in('id', ids)
+          .is('processed_into_memo_id', null);
+        if (dismissErr) result.errors.push(`dismiss unresolvable events: ${dismissErr.message}`);
+      }
+    }
+
     for (const event of candidates) {
       const staffFound = found.has(event.staff_id);
       if (!live || !staffFound) {
@@ -483,6 +575,19 @@ export class HRMemoService {
         continue;
       }
 
+      if (!event.event_id) continue; // live events are always stored first
+
+      // Insert the memo FIRST, naming its event. A unique index on
+      // hr_memos.triggered_by_event_id lets only ONE memo ever exist per
+      // event, so two overlapping runs (the dispatcher plus a manual trigger,
+      // or a retry) cannot issue it twice. Nothing is written before this
+      // insert, so a run that dies at any point leaves no event stuck: either
+      // the memo exists (and the next run links it below) or it does not
+      // (and the event is still pending).
+      // The event is marked LAST, after the 'HR memo issued' notice. The
+      // notice carries a key per memo, so a run that died anywhere before
+      // the mark is finished by the next run: it sends the notice if it was
+      // never sent, and never sends it twice.
       try {
         const reason = this.composeReason(
           event.event_type,
@@ -502,22 +607,33 @@ export class HRMemoService {
           })
           .select('id')
           .single();
-        if (memoError) throw new Error(memoError.message);
 
-        // Audit transition
-        await this.supabase.from('hr_memo_state_transitions').insert({
-          memo_id: memoRow.id,
-          from_status: null,
-          to_status: 'issued',
-          actor_user_id: null,
-          actor_role: 'cron',
-          note: `auto-issued from event ${event.event_id}`,
-        });
+        if (memoError?.code === '23505') {
+          // This event already has its memo: another run issued it, or an
+          // earlier run inserted it and died (or lost the reply) before
+          // marking the event. Make sure its notice went out (once, by its
+          // key), then point the event at that memo. No second memo.
+          const { data: owner, error: ownerErr } = await this.supabase
+            .from('hr_memos')
+            .select('id, reason')
+            .eq('triggered_by_event_id', event.event_id)
+            .maybeSingle();
+          if (ownerErr || !owner) {
+            throw new Error(`memo exists but could not be read: ${ownerErr?.message ?? 'no row'}`);
+          }
+          await this.sendMemoIssuedNotice(
+            owner.id as string,
+            event.staff_id,
+            (owner.reason as string | null) ?? reason,
+          );
+          // The run that inserted it may have died before its audit row.
+          await this.recordIssuedTransition(owner.id as string, event.event_id, result, true);
+          await this.linkEventToMemo(event.event_id, owner.id as string, result);
+          continue;
+        }
+        if (memoError || !memoRow) throw new Error(memoError?.message ?? 'no memo row returned');
 
-        await this.supabase
-          .from('hr_memo_eligibility_events')
-          .update({ processed_into_memo_id: memoRow.id })
-          .eq('id', event.event_id);
+        await this.recordIssuedTransition(memoRow.id as string, event.event_id, result, false);
 
         result.memos_created += 1;
 
@@ -530,18 +646,93 @@ export class HRMemoService {
           staff_found: true,
           notify_count: recipients.length,
         });
-        const sent = await this.sendInApp({
-          recipients,
-          title: 'HR memo issued',
-          body: reason,
-          url: '/hr/memos/my',
-          metadata: { staff_id: event.staff_id, memo_id: memoRow.id },
-        });
+        const sent = await this.sendMemoIssuedNotice(memoRow.id as string, event.staff_id, reason, recipients);
         if (sent) result.notifications_sent += 1;
+
+        await this.linkEventToMemo(event.event_id, memoRow.id as string, result);
       } catch (e) {
         result.errors.push(`memo for event ${event.event_id}: ${errText(e)}`);
       }
     }
+  }
+
+  /**
+   * The 'HR memo issued' notice for one memo. Keyed per memo, so sending it
+   * again (a retry after a crash, or two overlapping runs) adds nothing.
+   */
+  private async sendMemoIssuedNotice(
+    memoId: string,
+    staffId: string,
+    reason: string,
+    recipients?: string[],
+  ): Promise<boolean> {
+    return this.sendInApp({
+      recipients: recipients ?? (await this.resolveMemoRecipients(staffId)),
+      title: 'HR memo issued',
+      body: reason,
+      url: '/hr/memos/my',
+      metadata: { staff_id: staffId, memo_id: memoId },
+      idempotencyKey: `hr_memo_issued:${memoId}`,
+    });
+  }
+
+  /**
+   * The memo's 'issued' audit row, written at most once. Its id is derived
+   * from the memo id, so a second insert hits the primary key (23505) and
+   * adds nothing. A recovering run first looks for any 'issued' row, which
+   * also covers a memo issued before this id scheme, whose row has a random id.
+   */
+  private async recordIssuedTransition(
+    memoId: string,
+    eventId: string,
+    result: DetectionRunResult,
+    recovering: boolean,
+  ): Promise<void> {
+    if (recovering) {
+      const { data: existing, error: readErr } = await this.supabase
+        .from('hr_memo_state_transitions')
+        .select('id')
+        .eq('memo_id', memoId)
+        .eq('to_status', 'issued')
+        .limit(1);
+      if (readErr) {
+        result.errors.push(`memo ${memoId}: audit row check failed: ${readErr.message}`);
+        return;
+      }
+      if ((existing ?? []).length > 0) return;
+    }
+    const { error } = await this.supabase.from('hr_memo_state_transitions').insert({
+      id: issuedTransitionId(memoId),
+      memo_id: memoId,
+      from_status: null,
+      to_status: 'issued',
+      actor_user_id: null,
+      actor_role: 'cron',
+      note: recovering
+        ? `auto-issued from event ${eventId} (audit row written by a later run)`
+        : `auto-issued from event ${eventId}`,
+    });
+    if (error && (error as { code?: string }).code !== '23505') {
+      result.errors.push(`memo ${memoId}: audit row failed: ${error.message}`);
+    }
+  }
+
+  /**
+   * Mark an event as turned into this memo. Only an unmarked event is touched.
+   * A failure is reported, not thrown: the memo already exists, and the next
+   * run finds the event still pending, hits the unique memo and links it.
+   */
+  private async linkEventToMemo(
+    eventId: string,
+    memoId: string,
+    result: DetectionRunResult,
+  ): Promise<void> {
+    const { error } = await this.supabase
+      .from('hr_memo_eligibility_events')
+      .update({ processed_into_memo_id: memoId })
+      .eq('id', eventId)
+      .is('processed_into_memo_id', null);
+    if (error) result.errors.push(`memo for event ${eventId}: link failed (next run retries): ${error.message}`);
   }
 
   private composeReason(
@@ -577,21 +768,33 @@ export class HRMemoService {
     result: DetectionRunResult,
   ): Promise<void> {
     const cutoff = new Date(now.getTime() - settings.staff_reminder_after_days * DAY_MS);
-    const { data: memos, error } = await this.supabase
-      .from('hr_memos')
-      .select('id, staff_id, status, issued_at')
-      .eq('status', 'issued')
-      .lte('issued_at', cutoff.toISOString())
-      .order('issued_at', { ascending: false })
-      .limit(1000);
-    if (error) throw new Error(`open memos read failed: ${error.message}`);
-    if (!memos || memos.length === 0) return;
+    // Read EVERY open memo past the cutoff, a page at a time — a single capped
+    // read silently dropped the oldest ones (and their head notices).
+    const memos: Array<Record<string, unknown>> = [];
+    for (let page = 0; page < OPEN_MEMO_MAX_PAGES; page++) {
+      const from = page * OPEN_MEMO_PAGE;
+      const { data: rows, error } = await this.supabase
+        .from('hr_memos')
+        .select('id, staff_id, status, issued_at')
+        .eq('status', 'issued')
+        .lte('issued_at', cutoff.toISOString())
+        .order('issued_at', { ascending: true })
+        .order('id', { ascending: true })
+        .range(from, from + OPEN_MEMO_PAGE - 1);
+      if (error) throw new Error(`open memos read failed: ${error.message}`);
+      memos.push(...((rows ?? []) as Array<Record<string, unknown>>));
+      if (!rows || rows.length < OPEN_MEMO_PAGE) break;
+      if (page === OPEN_MEMO_MAX_PAGES - 1) {
+        result.errors.push(`open memos: more than ${OPEN_MEMO_PAGE * OPEN_MEMO_MAX_PAGES}; the rest wait for the next run`);
+      }
+    }
+    if (memos.length === 0) return;
 
     const recorded: RecordedNudge[] = [];
     for (const ids of chunk(memos.map((m) => m.id as string), 200)) {
       const { data: rows, error: nudgeErr } = await this.supabase
         .from('hr_memo_nudges')
-        .select('memo_id, nudge_kind, recorded_at')
+        .select('id, memo_id, nudge_kind, recorded_at, status, created_at')
         .in('memo_id', ids);
       if (nudgeErr) throw new Error(`nudge record read failed: ${nudgeErr.message}`);
       for (const r of rows ?? []) recorded.push(r as RecordedNudge);
@@ -613,7 +816,7 @@ export class HRMemoService {
       const memo = memoById.get(d.memo_id);
       if (!memo) continue;
       const staffId = memo.staff_id as string;
-      const issuedOn = String(memo.issued_at).slice(0, 10);
+      const issuedOn = istDate(String(memo.issued_at));
 
       let recipients: string[];
       let source: string;
@@ -633,7 +836,10 @@ export class HRMemoService {
         source = head.source;
         const days = Math.floor((now.getTime() - new Date(memo.issued_at as string).getTime()) / DAY_MS);
         title = `HR memo not answered: ${head.staff_name}`;
-        body = `${head.staff_name} has not acknowledged or disputed an HR memo issued on ${issuedOn} (${days} days ago), and a reminder has already been sent. Please follow up with them.`;
+        body =
+          d.reminder_delivered === false
+            ? `${head.staff_name} has not acknowledged or disputed an HR memo issued on ${issuedOn} (${days} days ago). A reminder could NOT be delivered to them in the app, so they may not know about it. Please tell them in person.`
+            : `${head.staff_name} has not acknowledged or disputed an HR memo issued on ${issuedOn} (${days} days ago), and a reminder has already been sent. Please follow up with them.`;
         url = null;
       }
 
@@ -646,22 +852,43 @@ export class HRMemoService {
       if (!live) continue;
 
       // Claim first. A duplicate key means another run already owns it.
-      const { data: claim, error: claimErr } = await this.supabase
-        .from('hr_memo_nudges')
-        .insert({
-          memo_id: d.memo_id,
-          nudge_kind: d.kind,
-          run_id: runId,
-          status: 'claimed',
-          recorded_at: now.toISOString(),
-        })
-        .select('id')
-        .single();
-      if (claimErr || !claim) {
-        if (claimErr?.code !== '23505') {
-          result.errors.push(`nudge claim ${d.kind} ${d.memo_id}: ${claimErr?.message ?? 'no row'}`);
+      // A retry re-claims the failed / abandoned row only if it is still in
+      // the exact state this run read, so two runs cannot both retry it.
+      let claim: { id: string } | null = null;
+      if (d.retry_of) {
+        const { data: reclaimed, error: reclaimErr } = await this.supabase
+          .from('hr_memo_nudges')
+          .update({ status: 'claimed', run_id: runId, recorded_at: now.toISOString() })
+          .eq('id', d.retry_of.id)
+          .eq('status', d.retry_of.status)
+          .eq('recorded_at', d.retry_of.recorded_at)
+          .select('id');
+        if (reclaimErr) {
+          result.errors.push(`nudge re-claim ${d.kind} ${d.memo_id}: ${reclaimErr.message}`);
+          continue;
         }
-        continue;
+        const won = (reclaimed ?? []) as Array<{ id: string }>;
+        if (won.length === 0) continue; // another run re-claimed it first
+        claim = won[0];
+      } else {
+        const { data: inserted, error: claimErr } = await this.supabase
+          .from('hr_memo_nudges')
+          .insert({
+            memo_id: d.memo_id,
+            nudge_kind: d.kind,
+            run_id: runId,
+            status: 'claimed',
+            recorded_at: now.toISOString(),
+          })
+          .select('id')
+          .single();
+        if (claimErr || !inserted) {
+          if (claimErr?.code !== '23505') {
+            result.errors.push(`nudge claim ${d.kind} ${d.memo_id}: ${claimErr?.message ?? 'no row'}`);
+          }
+          continue;
+        }
+        claim = inserted as { id: string };
       }
 
       let status: 'sent' | 'no_recipient' | 'failed' = 'no_recipient';
@@ -822,6 +1049,19 @@ export class HRMemoService {
       // notifications), then link each recipient via user_notifications.
       // This is an auto-issued cron path with no acting user, so created_by
       // falls back to the first recipient (a valid profiles.id).
+      // A retried nudge reuses its idempotency key. If an earlier attempt
+      // already wrote the shared row (and maybe crashed before the fan-out or
+      // before recording 'sent'), finish that delivery instead of failing on
+      // the unique key or sending a second notice.
+      if (params.idempotencyKey) {
+        const { data: existing } = await this.supabase
+          .from('notifications')
+          .select('id')
+          .eq('idempotency_key', params.idempotencyKey)
+          .maybeSingle();
+        if (existing?.id) return await this.linkRecipients(existing.id as string, params.recipients);
+      }
+
       const { data: notifRow, error: notifErr } = await this.supabase
         .from('notifications')
         .insert({
@@ -837,21 +1077,60 @@ export class HRMemoService {
         .select('id')
         .single();
       if (notifErr || !notifRow) {
+        if (params.idempotencyKey && (notifErr as { code?: string } | null)?.code === '23505') {
+          // Another run wrote it between our check and our insert.
+          const { data: raced } = await this.supabase
+            .from('notifications')
+            .select('id')
+            .eq('idempotency_key', params.idempotencyKey)
+            .maybeSingle();
+          if (raced?.id) return await this.linkRecipients(raced.id as string, params.recipients);
+        }
         console.error('[memo-service] notifications insert failed', notifErr);
         return false;
       }
 
-      const { error: linkErr } = await this.supabase.from('user_notifications').insert(
-        params.recipients.map((rid) => ({ notification_id: notifRow.id, user_id: rid })),
-      );
-      if (linkErr) {
-        console.error('[memo-service] user_notifications insert failed', linkErr);
-        return false;
-      }
-      return true;
+      return await this.linkRecipients(notifRow.id as string, params.recipients);
     } catch {
       return false;
     }
+  }
+
+  /**
+   * One user_notifications row per recipient; rows already there are kept,
+   * not duplicated. Names no conflict target, so it does not depend on a
+   * unique constraint that no migration in this repo creates.
+   */
+  private async linkRecipients(notificationId: string, recipients: string[]): Promise<boolean> {
+    const linked = async (): Promise<Set<string> | null> => {
+      const { data, error } = await this.supabase
+        .from('user_notifications')
+        .select('user_id')
+        .eq('notification_id', notificationId)
+        .in('user_id', recipients);
+      if (error) {
+        console.error('[memo-service] user_notifications read failed', error);
+        return null;
+      }
+      return new Set((data ?? []).map((r) => r.user_id as string));
+    };
+
+    const have = await linked();
+    if (!have) return false;
+    const missing = recipients.filter((rid) => !have.has(rid));
+    if (missing.length === 0) return true;
+
+    const { error: linkErr } = await this.supabase
+      .from('user_notifications')
+      .insert(missing.map((rid) => ({ notification_id: notificationId, user_id: rid })));
+    if (!linkErr) return true;
+    if ((linkErr as { code?: string }).code === '23505') {
+      // Another run linked them between our read and our insert.
+      const now = await linked();
+      if (now && recipients.every((rid) => now.has(rid))) return true;
+    }
+    console.error('[memo-service] user_notifications insert failed', linkErr);
+    return false;
   }
 
   // -------------------------------------------------------------------------

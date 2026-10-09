@@ -12268,6 +12268,14 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_hr_intake_match_rules_title_institution
 CREATE INDEX IF NOT EXISTS idx_hr_intake_match_rules_job
   ON public.hr_intake_match_rules (job_id);
 
+-- Updated: 2026-10-08 - one auto-issued memo per triggering event
+-- (migration 20271008110108, #4259 deep review finding 1). The detector
+-- inserts the memo first and treats 23505 as "this event already has its
+-- memo", then links the event to it. Manual memos (NULL event) never collide.
+CREATE UNIQUE INDEX IF NOT EXISTS ux_hr_memos_triggered_by_event
+  ON public.hr_memos (triggered_by_event_id)
+  WHERE triggered_by_event_id IS NOT NULL;
+
 -- ===========================================================================
 -- Updated: 2026-10-08 - hr_recruitment_candidates: the inputs of the
 -- suggested salary on Propose Package (official job title, department, years
