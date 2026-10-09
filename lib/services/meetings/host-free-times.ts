@@ -66,6 +66,11 @@ export async function nextFreeTimes(
   });
   return slots
     .map((s) => s.start)
-    .filter((start) => new Date(start).getTime() >= after.getTime())
+    // Only times whose whole length lies inside the range busy times were
+    // read for — the last day's slots run past `until` and are unverified.
+    .filter((start) => {
+      const t = new Date(start).getTime();
+      return t >= after.getTime() && t + opts.durationMin * 60_000 <= until.getTime();
+    })
     .slice(0, count);
 }
