@@ -464,7 +464,7 @@ export default function PurchasePage() {
                   <Button
                     variant="ghost"
                     size="sm"
-                    className="h-9 shrink-0"
+                    className="h-10 shrink-0 sm:h-9"
                     onClick={() =>
                       setRemoved((prev) => {
                         const next = new Set(prev);
@@ -480,7 +480,7 @@ export default function PurchasePage() {
                   <Button
                     variant="ghost"
                     size="icon"
-                    className="h-9 w-9 shrink-0 text-muted-foreground hover:text-destructive"
+                    className="h-10 w-10 shrink-0 text-muted-foreground sm:h-9 sm:w-9 hover:text-destructive"
                     aria-label={`Remove ${it.item_name}`}
                     onClick={() => setRemoved((prev) => new Set(prev).add(it.id))}
                   >
