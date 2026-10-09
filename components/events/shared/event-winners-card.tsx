@@ -114,7 +114,15 @@ function WinnersGroup({
   const save = async () => {
     if (duplicate) return;
     const changes = winnerChanges(regs, before, picks);
-    if (changes.length > 0) await record.mutateAsync(changes);
+    if (changes.length > 0) {
+      try {
+        await record.mutateAsync(changes);
+      } catch {
+        // The hook has already shown why (no access, place taken, ...). Keep the
+        // dialog open so the organiser can adjust and try again.
+        return;
+      }
+    }
     setOpen(false);
   };
 
@@ -199,24 +207,23 @@ export function EventWinnersCard({ eventId }: { eventId: string }) {
   const { data } = useEventWinners(eventId);
   if (!data) return null;
 
-  const { canManage, splitByForm, forms, registrations } = data;
+  const { canManage, forms, registrations } = data;
   const anyPlaced = registrations.some((r) => r.final_rank != null);
   if (!canManage && !anyPlaced) return null;
 
-  // One set of places per registration form when the event has registrations
-  // on more than one form (several competitions); a single set otherwise. The
-  // database's no-tie trigger groups the same way; the server decides from
-  // every registration (a viewer only receives the placed ones).
+  // One set of places per registration form — the database's no-tie index uses
+  // the same key (event, form). A single-form event shows one untitled set.
   const formName = new Map(forms.map((f) => [f.id, f.name]));
   const usedFormIds = [...new Set(registrations.map((r) => r.form_id ?? ''))];
-  const split = splitByForm;
-  const groups = split
-    ? usedFormIds.map((fid) => ({
-        key: fid || 'none',
-        title: (fid && formName.get(fid)) || 'Other registrations',
-        regs: registrations.filter((r) => (r.form_id ?? '') === fid),
-      }))
-    : [{ key: 'all', title: null as string | null, regs: registrations }];
+  const titled = usedFormIds.length > 1;
+  const groups =
+    usedFormIds.length === 0
+      ? [{ key: 'all', title: null as string | null, regs: registrations }]
+      : usedFormIds.map((fid) => ({
+          key: fid || 'none',
+          title: titled ? (fid && formName.get(fid)) || 'Other registrations' : null,
+          regs: registrations.filter((r) => (r.form_id ?? '') === fid),
+        }));
 
   return (
     <Card data-testid="event-winners-card">

@@ -26,13 +26,19 @@ import type { EventWinnersPayload, WinnerRegistration } from '@/hooks/events/use
 const NO_ACCESS =
   "Only the event's creator, its in-charge or an administrator can record winners.";
 
-const EMPTY: EventWinnersPayload = { canManage: false, splitByForm: false, forms: [], registrations: [] };
+const EMPTY: EventWinnersPayload = { canManage: false, forms: [], registrations: [] };
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** PostgREST returns at most 1000 rows a request; read the list in pages. */
+const PAGE = 1000;
 
 export async function GET(
   _request: NextRequest,
   { params }: { params: Promise<{ eventId: string }> }
 ) {
   const { eventId } = await params;
+  if (!UUID.test(eventId)) return NextResponse.json({ error: 'Event not found' }, { status: 400 });
   const { user } = await getAuthUser();
   if (!user) {
     return NextResponse.json({ error: 'Please sign in to see the winners.' }, { status: 401 });
@@ -57,29 +63,32 @@ export async function GET(
   // people's registrations, but the winners of an event they can see are public
   // to them — only the placed rows are returned to a non-manager.
   const svc = createServiceRoleClient();
-  let regQuery = (svc as any)
-    .from('events_registrations')
-    .select('id, form_id, participant_name, institution_name, department, status, final_rank')
-    .eq('event_id', eventId)
-    .order('participant_name', { ascending: true });
-  if (!canManage) regQuery = regQuery.not('final_rank', 'is', null);
-  const [{ data: regs, error: regErr }, { data: forms }, { data: allForms }] = await Promise.all([
-    regQuery,
-    (svc as any).from('event_registration_forms').select('id, name').eq('event_id', eventId),
-    // Grouping must match the database's no-tie trigger, which looks at EVERY
-    // registration, not only the placed ones a viewer receives.
-    (svc as any).from('events_registrations').select('form_id').eq('event_id', eventId),
-  ]);
-  if (regErr) {
-    return NextResponse.json({ error: 'Could not load the winners. Please try again.' }, { status: 500 });
+  const registrations: WinnerRegistration[] = [];
+  for (let from = 0; ; from += PAGE) {
+    let page = (svc as any)
+      .from('events_registrations')
+      .select('id, form_id, participant_name, institution_name, department, status, final_rank')
+      .eq('event_id', eventId);
+    if (!canManage) page = page.not('final_rank', 'is', null);
+    const { data, error } = await page
+      .order('participant_name', { ascending: true })
+      .order('id', { ascending: true })
+      .range(from, from + PAGE - 1);
+    if (error) {
+      return NextResponse.json({ error: 'Could not load the winners. Please try again.' }, { status: 500 });
+    }
+    registrations.push(...((data ?? []) as WinnerRegistration[]));
+    if (!data || data.length < PAGE) break;
   }
+  const { data: forms } = await (svc as any)
+    .from('event_registration_forms')
+    .select('id, name')
+    .eq('event_id', eventId);
 
   const payload: EventWinnersPayload = {
     canManage,
-    splitByForm:
-      new Set(((allForms ?? []) as { form_id: string | null }[]).map((r) => r.form_id ?? '')).size > 1,
     forms: (forms ?? []) as { id: string; name: string }[],
-    registrations: (regs ?? []) as WinnerRegistration[],
+    registrations,
   };
   return NextResponse.json(payload);
 }
@@ -89,6 +98,12 @@ export async function POST(
   { params }: { params: Promise<{ eventId: string }> }
 ) {
   const { eventId } = await params;
+  const invalid = () =>
+    NextResponse.json(
+      { error: 'Each change needs a registration and a place of 1, 2, 3 or none.' },
+      { status: 400 },
+    );
+  if (!UUID.test(eventId)) return invalid();
   const { user } = await getAuthUser();
   if (!user) {
     return NextResponse.json({ error: 'Please sign in to record winners.' }, { status: 401 });
@@ -104,13 +119,13 @@ export async function POST(
     !changes ||
     changes.length === 0 ||
     changes.some(
-      (c) => !c.registration_id || !(c.final_rank === null || [1, 2, 3].includes(c.final_rank)),
+      (c) =>
+        !c.registration_id ||
+        !UUID.test(c.registration_id) ||
+        !(c.final_rank === null || [1, 2, 3].includes(c.final_rank)),
     )
   ) {
-    return NextResponse.json(
-      { error: 'Each change needs a registration and a place of 1, 2, 3 or none.' },
-      { status: 400 },
-    );
+    return invalid();
   }
 
   const db = await createServerSupabaseClient();
@@ -120,7 +135,15 @@ export async function POST(
   });
   if (error) {
     if (error.code === '42501') return NextResponse.json({ error: NO_ACCESS }, { status: 403 });
+    // No ties: someone else saved that place first (or the screen was stale).
+    if (error.code === '23505') {
+      return NextResponse.json(
+        { error: 'Another participant already holds one of those places. Reload to see the latest winners, then try again.' },
+        { status: 409 },
+      );
+    }
     if (error.code === '22023') return NextResponse.json({ error: error.message }, { status: 400 });
+    if (error.code === '22P02') return invalid();
     return NextResponse.json({ error: 'Could not save the winners. Please try again.' }, { status: 500 });
   }
   return NextResponse.json({ ok: true, updated: data ?? 0 });

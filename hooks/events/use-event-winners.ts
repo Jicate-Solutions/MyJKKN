@@ -20,8 +20,6 @@ export interface WinnerRegistration {
 
 export interface EventWinnersPayload {
   canManage: boolean;
-  /** One set of places per registration form (the event has registrations on more than one form). */
-  splitByForm: boolean;
   forms: { id: string; name: string }[];
   /** Managers: every registration. Everyone else: only the placed ones. */
   registrations: WinnerRegistration[];

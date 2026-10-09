@@ -54,6 +54,8 @@ CREATE TABLE public.events_registrations (
   event_id uuid NOT NULL REFERENCES public.events(id),
   form_id uuid,
   participant_name text NOT NULL DEFAULT 'Person',
+  institution_name text,
+  department text,
   status text NOT NULL DEFAULT 'registered'
 );
 
@@ -294,12 +296,14 @@ describe('no ties (Director ruling 9 Oct): one registration per place per set', 
     expect(await ranks()).toMatchObject({ [ids.regA]: 2, [ids.regB]: 1 });
   });
 
-  it('a direct swap inside one transaction passes (the check waits for commit)', async () => {
+  it('a direct two-statement swap needs a clear first (the index checks each statement)', async () => {
     await reset();
     await actAs(ids.creator);
     await q(`UPDATE public.events_registrations SET final_rank = 1 WHERE id = $1`, [ids.regA]);
     await q(`UPDATE public.events_registrations SET final_rank = 2 WHERE id = $1`, [ids.regB]);
+    expect(await sqlstate(`UPDATE public.events_registrations SET final_rank = 1 WHERE id = $1`, [ids.regB])).toBe('23505');
     await q(`BEGIN`);
+    await q(`UPDATE public.events_registrations SET final_rank = NULL WHERE id = $1`, [ids.regA]);
     await q(`UPDATE public.events_registrations SET final_rank = 1 WHERE id = $1`, [ids.regB]);
     await q(`UPDATE public.events_registrations SET final_rank = 2 WHERE id = $1`, [ids.regA]);
     expect(await sqlstate(`COMMIT`)).toBeNull();
@@ -372,3 +376,137 @@ describe('change history (Director ruling 9 Oct): every change saved with who ma
     await asOwner();
   });
 });
+
+describe('review round 3 (#4311)', () => {
+  const call = (eventId: string, changes: unknown) =>
+    sqlstate(`SELECT public.fn_set_event_registration_ranks($1, $2::jsonb)`, [eventId, JSON.stringify(changes)]);
+
+  /** An event the outsider created (so they may record winners there), and a placed row on the victim event. */
+  async function setupMove() {
+    await reset();
+    await asOwner();
+    const own = (await q(`INSERT INTO public.events (created_by) VALUES ($1) RETURNING id`, [ids.outsider]))[0].id;
+    const ownRow = (await q(`INSERT INTO public.events_registrations (event_id) VALUES ($1) RETURNING id`, [own]))[0].id;
+    await q(`UPDATE public.events_registrations SET final_rank = 1 WHERE id = $1`, [ids.regA]);
+    return { own, ownRow };
+  }
+
+  it('#1 refuses moving another event\'s winner into your own event (clearing it there)', async () => {
+    const { own } = await setupMove();
+    await actAs(ids.outsider);
+    expect(
+      await sqlstate(`UPDATE public.events_registrations SET event_id = $1, final_rank = NULL WHERE id = $2`, [own, ids.regA])
+    ).toBe('42501');
+    await asOwner();
+    const r = await q(`SELECT event_id, final_rank FROM public.events_registrations WHERE id = $1`, [ids.regA]);
+    expect(r[0]).toEqual({ event_id: ids.event, final_rank: 1 });
+  });
+
+  it('#1 refuses carrying a place from your own event into another event', async () => {
+    const { ownRow } = await setupMove();
+    await actAs(ids.outsider);
+    expect(await sqlstate(`UPDATE public.events_registrations SET final_rank = 2 WHERE id = $1`, [ownRow])).toBeNull();
+    expect(await sqlstate(`UPDATE public.events_registrations SET event_id = $1 WHERE id = $2`, [ids.event, ownRow])).toBe('42501');
+    expect(await sqlstate(`UPDATE public.events_registrations SET form_id = $1 WHERE id = $2`, [randomUUID(), ownRow])).toBeNull();
+    await asOwner();
+    expect((await q(`SELECT event_id FROM public.events_registrations WHERE id = $1`, [ownRow]))[0].event_id).not.toBe(ids.event);
+  });
+
+  it('#1 refuses moving a placed row to another form by someone without authority', async () => {
+    await setupMove();
+    await actAs(ids.outsider);
+    expect(await sqlstate(`UPDATE public.events_registrations SET form_id = $1 WHERE id = $2`, [randomUUID(), ids.regA])).toBe('42501');
+  });
+
+  it('#4 refuses rewriting who a placed row names; an unplaced row can still be edited', async () => {
+    await setupMove();
+    await actAs(ids.outsider);
+    for (const col of ['participant_name', 'institution_name', 'department']) {
+      expect(await sqlstate(`UPDATE public.events_registrations SET ${col} = 'Mallory' WHERE id = $1`, [ids.regA])).toBe('42501');
+    }
+    expect(await sqlstate(`UPDATE public.events_registrations SET participant_name = 'Fixed typo' WHERE id = $1`, [ids.regB])).toBeNull();
+    await actAs(ids.creator);
+    expect(await sqlstate(`UPDATE public.events_registrations SET participant_name = 'Kavya R' WHERE id = $1`, [ids.regA])).toBeNull();
+  });
+
+  it('#2 two sessions saving place 1 at once: the second fails with 23505, no tie', async () => {
+    await reset();
+    await asOwner();
+    const ev = (await q(`INSERT INTO public.events (created_by) VALUES ($1) RETURNING id`, [ids.creator]))[0].id;
+    const r1 = (await q(`INSERT INTO public.events_registrations (event_id) VALUES ($1) RETURNING id`, [ev]))[0].id;
+    const r2 = (await q(`INSERT INTO public.events_registrations (event_id) VALUES ($1) RETURNING id`, [ev]))[0].id;
+    const c2 = new Client({ host: PGHOST, port: Number(PGPORT), user: PGUSER, database: DBNAME });
+    await c2.connect();
+    try {
+      await q(`BEGIN`);
+      await q(`UPDATE public.events_registrations SET final_rank = 1 WHERE id = $1`, [r1]);
+      await c2.query(`BEGIN`);
+      const second = c2
+        .query(`UPDATE public.events_registrations SET final_rank = 1 WHERE id = $1`, [r2])
+        .then(() => null, (e: any) => e.code as string);
+      await new Promise((r) => setTimeout(r, 300));
+      await q(`COMMIT`);
+      const outcome = await second;
+      await c2.query(outcome ? `ROLLBACK` : `COMMIT`).catch(() => undefined);
+      expect(outcome).toBe('23505');
+      const winners = await q(`SELECT id FROM public.events_registrations WHERE event_id = $1 AND final_rank = 1`, [ev]);
+      expect(winners).toHaveLength(1);
+    } finally {
+      await c2.end();
+    }
+  });
+
+  it('#3 the set is always the form: a place stays per form however forms come and go', async () => {
+    await asOwner();
+    const ev = (await q(`INSERT INTO public.events (created_by) VALUES ($1) RETURNING id`, [ids.creator]))[0].id;
+    const f1 = randomUUID();
+    const a = (await q(`INSERT INTO public.events_registrations (event_id, form_id) VALUES ($1, $2) RETURNING id`, [ev, f1]))[0].id;
+    const b = (await q(`INSERT INTO public.events_registrations (event_id) VALUES ($1) RETURNING id`, [ev]))[0].id;
+    await actAs(ids.creator);
+    // form f1 and "no form" are separate sets
+    expect(await call(ev, [{ registration_id: a, final_rank: 1 }, { registration_id: b, final_rank: 1 }])).toBeNull();
+    // moving b onto form f1 would make a tie there
+    expect(await sqlstate(`UPDATE public.events_registrations SET form_id = $1 WHERE id = $2`, [f1, b])).toBe('23505');
+  });
+
+  it('#5 an admin of some institution cannot record winners on an event with no institution; a super admin can', async () => {
+    await asOwner();
+    const ev = (await q(`INSERT INTO public.events (created_by, institution_id) VALUES ($1, NULL) RETURNING id`, [randomUUID()]))[0].id;
+    const r = (await q(`INSERT INTO public.events_registrations (event_id) VALUES ($1) RETURNING id`, [ev]))[0].id;
+    await actAs(ids.outsider, { 'test.admin': 'yes', 'test.admin_institution': randomUUID() });
+    expect(await call(ev, [{ registration_id: r, final_rank: 1 }])).toBe('42501');
+    await actAs(ids.outsider, { 'test.super_admin': 'yes' });
+    expect(await call(ev, [{ registration_id: r, final_rank: 1 }])).toBeNull();
+  });
+
+  it('#8 no place on a non-cultural event or a cancelled registration, even for a trusted session', async () => {
+    await asOwner();
+    const t = (await q(`INSERT INTO public.events_registrations (event_id) VALUES ($1) RETURNING id`, [ids.tournament]))[0].id;
+    expect(await sqlstate(`UPDATE public.events_registrations SET final_rank = 1 WHERE id = $1`, [t])).toBe('22023');
+    const c = (await q(`INSERT INTO public.events_registrations (event_id, status) VALUES ($1, 'cancelled') RETURNING id`, [ids.event]))[0].id;
+    expect(await sqlstate(`UPDATE public.events_registrations SET final_rank = 3 WHERE id = $1`, [c])).toBe('22023');
+    await q(`DELETE FROM public.events_registrations WHERE id = $1`, [c]);
+  });
+
+  it('history: a placed row moved between events by an authorised caller logs a clear and a set', async () => {
+    await reset();
+    await asOwner();
+    await q(`DELETE FROM public.event_winner_rank_changes`);
+    const other = (await q(`INSERT INTO public.events (created_by) VALUES ($1) RETURNING id`, [ids.creator]))[0].id;
+    const row = (await q(`INSERT INTO public.events_registrations (event_id) VALUES ($1) RETURNING id`, [ids.event]))[0].id;
+    await actAs(ids.creator);
+    await q(`UPDATE public.events_registrations SET final_rank = 3 WHERE id = $1`, [row]);
+    await q(`UPDATE public.events_registrations SET event_id = $1 WHERE id = $2`, [other, row]);
+    await asOwner();
+    const rows = await q(
+      `SELECT event_id, old_rank, new_rank FROM public.event_winner_rank_changes WHERE registration_id = $1 ORDER BY changed_at, ctid`,
+      [row]
+    );
+    expect(rows).toEqual([
+      { event_id: ids.event, old_rank: null, new_rank: 3 },
+      { event_id: ids.event, old_rank: 3, new_rank: null },
+      { event_id: other, old_rank: null, new_rank: 3 },
+    ]);
+  });
+});
+
