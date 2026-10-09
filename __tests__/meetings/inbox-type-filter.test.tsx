@@ -255,7 +255,7 @@ describe('type counts come from one grouped database count', () => {
     err.mockRestore();
   }, 15_000);
 
-  it('a hanging count AND a hanging name lookup still end within 4.5 s (never 6 s)', async () => {
+  it('a hanging count AND a hanging name lookup end within about 4.5 s (never 6 s)', async () => {
     countHangs = true;
     namesHang = true;
     const err = vi.spyOn(console, 'error').mockImplementation(() => undefined);
