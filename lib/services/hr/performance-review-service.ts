@@ -784,6 +784,16 @@ export class PerformanceReviewService {
   // -----------------------------------------------------------------------
 
   /**
+   * Is the caller on the Director list (fn_is_the_director(), 20270520090000)?
+   * Director ruling, 1 Oct 2026: only the Director list sees Sign off. Fails
+   * closed: an error reads as "no".
+   */
+  static async isTheDirector(supabase: SupabaseClient): Promise<boolean> {
+    const { data, error } = await supabase.rpc('fn_is_the_director');
+    return !error && data === true;
+  }
+
+  /**
    * Saves `patch` only if nobody has changed the appraisal since the caller
    * read it (Director ruling, 1 Oct 2026: "whoever saves second sees 'someone
    * else just changed this, reload and try again'. Nothing is lost.").

@@ -98,7 +98,7 @@ describe('the second save is stopped', () => {
     const atSelf = { ...committeeDone, status: 'self_submitted' };
     const b = fakeClient(atSelf, { changedUnderneath: true });
     await expect(
-      PerformanceReviewService.submitSupervisorReview(b.client, 'r1', { ratings: {} }, null, SHOWN),
+      PerformanceReviewService.submitSupervisorReview(b.client, 'r1', { ratings: {} }, SHOWN),
     ).rejects.toThrow(APPRAISAL_CHANGED_MESSAGE);
   });
 
@@ -127,10 +127,17 @@ describe('both screens pass the version they showed', () => {
 
 describe('Sign off shows only for the Director list (ruling 1 Oct 2026)', () => {
   const src = readFileSync(join(__dirname, '..', '..', 'app/(routes)/hr/admin/performance-reviews/cycles/[id]/page.tsx'), 'utf8');
-  it('asks the database who is the Director, and fails closed', () => {
-    expect(src).toMatch(/rpc\('fn_is_the_director'\)/);
+  it('asks the database who is the Director, and starts hidden', () => {
+    expect(src).toMatch(/PerformanceReviewService\.isTheDirector\(supabase\)/);
     expect(src).toMatch(/useState\(false\)/);
-    expect(src).toMatch(/!error && data === true/);
+  });
+  it('the Director check fails closed', async () => {
+    const answer = (data: unknown, error: unknown) =>
+      ({ rpc: async (name: string) => (name === 'fn_is_the_director' ? { data, error } : { data: null, error: { message: 'wrong rpc' } }) }) as never;
+    await expect(PerformanceReviewService.isTheDirector(answer(true, null))).resolves.toBe(true);
+    await expect(PerformanceReviewService.isTheDirector(answer(false, null))).resolves.toBe(false);
+    await expect(PerformanceReviewService.isTheDirector(answer(null, null))).resolves.toBe(false);
+    await expect(PerformanceReviewService.isTheDirector(answer(true, { message: 'boom' }))).resolves.toBe(false);
   });
   it('a waiting sign-off offers its button only to the Director list', () => {
     expect(src).toMatch(/r\.status === 'sedc_reviewed' && isTheDirector/);

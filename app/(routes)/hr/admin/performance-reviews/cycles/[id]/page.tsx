@@ -89,8 +89,8 @@ export default function HrPerformanceReviewCycleDetailPage() {
   const [isTheDirector, setIsTheDirector] = useState(false);
   useEffect(() => {
     let alive = true;
-    supabase.rpc('fn_is_the_director').then(({ data, error }) => {
-      if (alive) setIsTheDirector(!error && data === true);
+    PerformanceReviewService.isTheDirector(supabase).then((yes) => {
+      if (alive) setIsTheDirector(yes);
     });
     return () => { alive = false; };
   }, [supabase]);

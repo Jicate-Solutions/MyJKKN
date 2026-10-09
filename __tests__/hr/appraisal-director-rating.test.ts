@@ -1,6 +1,7 @@
 /**
  * The Director's ruling of 30 Sep 2026: "Appraisal sign-off: the Director CAN
- * change a rating; recorded next to the committee's." (20270525090000)
+ * change a rating; recorded next to the committee's." (20271009090000; rebuilt on main
+ * without #4109, 9 Oct 2026)
  *
  * The database rule itself is rehearsed on a throwaway PostgreSQL 16 by
  * supabase/tests/hr-appraisal-director-rating/run.sh. These pin the migration
@@ -19,9 +20,15 @@ import {
 } from '@/lib/hr/appraisal-ratings';
 
 const ROOT = join(__dirname, '..', '..');
-const SQL = readFileSync(join(ROOT, 'supabase/migrations/20270525090000_hr_appraisal_director_rating.sql'), 'utf8');
+const SQL = readFileSync(join(ROOT, 'supabase/migrations/20271009090000_hr_appraisal_director_rating.sql'), 'utf8');
 
 describe('the migration', () => {
+  it('is built on main\'s guard alone, and refuses to run over any other body', () => {
+    expect(SQL).not.toContain('fn_hr_appraisal_unanswered_conditions');
+    expect(SQL).toContain("v_md5 NOT IN ('5c999093e927c9160bbc38d7a957269b', '992b2da8769e76c63690a7eb0237ba80')");
+    expect(SQL).toContain("IS DISTINCT FROM '992b2da8769e76c63690a7eb0237ba80'");
+  });
+
   it('adds the column beside the committee’s, never over it', () => {
     expect(SQL).toContain('ADD COLUMN IF NOT EXISTS director_review_jsonb jsonb');
     expect(SQL).not.toMatch(/DROP COLUMN|sedc_review_jsonb\s*=/);

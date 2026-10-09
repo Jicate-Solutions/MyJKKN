@@ -21,6 +21,8 @@ const svc = vi.hoisted(() => ({
   listPeople: vi.fn(),
   getPolicyForStaff: vi.fn(),
   updateCycle: vi.fn(),
+  // The round page asks who is the Director (Sign off gate, 1 Oct 2026).
+  isTheDirector: vi.fn(async () => false),
 }));
 
 vi.mock('@/lib/services/hr/performance-review-service', async () => {
@@ -38,11 +40,7 @@ vi.mock('@/components/auth/admin-permission-guard', () => ({
   SuperAdminOnly: (props: { children: React.ReactNode }) => props.children,
 }));
 vi.mock('@/lib/supabase/client', () => {
-  const client = {
-    auth: { getUser: async () => ({ data: { user: { id: 'admin-profile' } } }) },
-    // The round page asks who is the Director (Sign off gate, 1 Oct 2026).
-    rpc: async () => ({ data: false, error: null }),
-  };
+  const client = { auth: { getUser: async () => ({ data: { user: { id: 'admin-profile' } } }) } };
   return { createClientSupabaseClient: () => client };
 });
 
