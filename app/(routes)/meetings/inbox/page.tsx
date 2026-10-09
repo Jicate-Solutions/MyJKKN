@@ -38,6 +38,10 @@ const NO_TYPE = 'none';
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 /** The type chips give up after this; the list still renders, with a short note. */
 const TYPE_COUNTS_TIMEOUT_MS = 3_000;
+/** Everything the type chips do, the failure-path name lookup included, ends within this. */
+const TYPE_READS_TOTAL_MS = 4_500;
+/** The failure-path name lookup always gets at least this long of its own. */
+const TYPE_NAMES_MIN_MS = 1_000;
 
 /** A type's name, or a short distinguishable stand-in when its row cannot be read. */
 function typeLabel(id: string, title: string | null | undefined): string {
@@ -128,9 +132,11 @@ export default async function MeetingsInboxPage({ searchParams }: InboxPageProps
     return out;
   };
 
-  // Everything below runs in parallel, and every type read shares ONE deadline
-  // that starts here: the type chips never add more than
-  // TYPE_COUNTS_TIMEOUT_MS to the page, whichever read is slow.
+  // Everything below runs in parallel, and the count and the id checks share
+  // ONE deadline that starts here. Only if the count fails does the row-name
+  // lookup run, on its own short deadline, so the type chips never add more
+  // than TYPE_READS_TOTAL_MS to the page.
+  const typeReadsStarted = Date.now();
   const typeDeadline = AbortSignal.timeout(TYPE_COUNTS_TIMEOUT_MS);
   const timeout = () => typeDeadline;
   type Res<T> = { data: T | null; error: unknown };
@@ -234,7 +240,15 @@ export default async function MeetingsInboxPage({ searchParams }: InboxPageProps
     ];
     if (ids.length) {
       const names = await settle<{ id: string; title: string }[]>(() =>
-        supabase.from('meeting_types').select('id, title').in('id', ids).abortSignal(timeout())
+        supabase
+          .from('meeting_types')
+          .select('id, title')
+          .in('id', ids)
+          .abortSignal(
+            AbortSignal.timeout(
+              Math.max(TYPE_NAMES_MIN_MS, TYPE_READS_TOTAL_MS - (Date.now() - typeReadsStarted))
+            )
+          )
       );
       for (const t of names.data ?? []) typeTitle.set(t.id, typeLabel(t.id, t.title));
     }
