@@ -91,9 +91,9 @@
 --      in_force_monthly_gross, in_force_annual_gross,
 --      in_force_allowance_amount, in_force_effective_from. They come from the
 --      newest row, walked back along superseded_by past every row that starts
---      after today (India time), the walk hr_staff_salaries_in_force()
---      (20270519090000) does for the register. Two differences: a row with no
---      start counts as already started, and in_force_* is NULL when nothing
+--      after today (India time): the same walk as hr_staff_salaries_in_force()
+--      (20271006100000, live), with today as the date, so a row with no start
+--      counts as already started there too. in_force_* is NULL when nothing
 --      has started yet (a new joiner whose first pay starts next month). The
 --      existing columns are UNCHANGED, still the newest row, because the edit
 --      dialog and fn_hr_set_staff_salary's "identical, nothing to do" check
@@ -107,11 +107,14 @@
 --   hr_staff_salaries_write are untouched: super admins and the HR head
 --   still see the register; everyone still sees their own pay.
 --
--- DATA DRIFT, UNVERIFIED
---   The repo declares hr_staff_salaries.effective_from NOT NULL, but the
---   orchestrator's read of production (2026-09-30) saw older rows with a NULL
---   start. Whether production enforces NOT NULL was NOT verified. This file
---   treats a NULL start as "already started" and never writes one.
+-- DATA DRIFT
+--   The repo declares hr_staff_salaries.effective_from NOT NULL, but
+--   production has rows with no start: 272 of 466 current rows on 9 Oct 2026
+--   (the orchestrator's read, about 06:25), and 0 with a future start. This
+--   file treats a NULL start as "already started" everywhere (the guard, and
+--   the directory's pay in force, as hr_staff_salaries_in_force does) and
+--   never writes one. Rehearsed with NULL starts (assert.sql staff 12,
+--   directory.sql staff 42 and 43).
 --
 -- COMPARED WITH PRODUCTION (8 Oct 2026)
 --   The live body of fn_hr_set_staff_salary (pg_get_functiondef, read by the
