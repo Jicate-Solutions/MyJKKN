@@ -5,7 +5,13 @@
 -- Created: 2026-10-08 - the Director: "Why can't it suggest the salary from pay
 --   scale? ... Do all it takes to show up the suggest salary."
 --
--- ADD ONLY. Three nullable columns on hr_recruitment_candidates and one
+-- Updated: 2026-10-09 - the Director (9 Oct 05:20): years before JKKN count
+--   ONLY when HR writes a CV note saying where they come from (e.g. "CV page
+--   2"); a college with no band is named in one plain line. Added
+--   prior_experience_source and the college name to the function's output.
+--   This file was unapplied and on no other branch when edited.
+--
+-- ADD ONLY. Four nullable columns on hr_recruitment_candidates and one
 -- read-only function. Nothing is dropped, nothing is backfilled, nobody's pay
 -- or package changes. A figure reaches a package only when a person presses
 -- "Propose" in the dialog.
@@ -19,6 +25,10 @@
 --   designation_id          → hr_designations(id)   the official job title
 --   department_id           → departments(id)        the department hired into
 --   prior_experience_years  numeric(4,1), >= 0      NULL = not recorded
+--   prior_experience_source text                    the CV note for those years,
+--                                                   e.g. "CV page 2". NULL or blank
+--                                                   = no note: the years are NOT
+--                                                   counted.
 --
 -- ON DELETE SET NULL on both links: removing a designation or a department
 -- must never delete a candidate; the suggestion then says which input is
@@ -26,7 +36,8 @@
 --
 -- THE FIGURE (worked out in TypeScript, lib/hr/candidate-salary-suggestion.ts):
 -- band floor for the job title at the candidate's college + HALF the
--- department's amount per year × years before JKKN. No years at JKKN (they
+-- department's amount per year × years before JKKN, counted only when the
+-- CV note is written. No years at JKKN (they
 -- have not joined), no current pay, never a "pay cut" comparison.
 --
 -- DEPENDS ON hr_salary_rule_department_rate(jsonb, uuid) and
@@ -48,7 +59,7 @@ END
 $check$;
 
 -- ----------------------------------------------------------------------------
--- 1. The three inputs on the candidate
+-- 1. The four inputs on the candidate
 -- ----------------------------------------------------------------------------
 ALTER TABLE public.hr_recruitment_candidates
   ADD COLUMN IF NOT EXISTS designation_id uuid
@@ -63,20 +74,26 @@ ALTER TABLE public.hr_recruitment_candidates
     CONSTRAINT hr_recruitment_candidates_prior_experience_years_check
     CHECK (prior_experience_years >= 0);
 
+ALTER TABLE public.hr_recruitment_candidates
+  ADD COLUMN IF NOT EXISTS prior_experience_source text;
+
 COMMENT ON COLUMN public.hr_recruitment_candidates.designation_id IS
   'The official job title (hr_designations) the candidate is hired as; the pay band is looked up by its name. role_title stays the free-text title. Migration 20271008200600.';
 COMMENT ON COLUMN public.hr_recruitment_candidates.department_id IS
   'The department the candidate is hired into; picks the Director''s amount per year in hr.salary_suggestion_rule. Migration 20271008200600.';
 COMMENT ON COLUMN public.hr_recruitment_candidates.prior_experience_years IS
-  'Years of experience before JKKN, one decimal. NULL = not recorded (not counted); 0 = none. Migration 20271008200600.';
+  'Years of experience before JKKN, one decimal. NULL = not recorded (not counted); 0 = none. Counted in the suggested salary only with prior_experience_source. Migration 20271008200600.';
+COMMENT ON COLUMN public.hr_recruitment_candidates.prior_experience_source IS
+  'Where the years before JKKN come from, written by HR, e.g. "CV page 2". NULL or blank = no note: the suggested salary does not count the years (the Director, 9 Oct 2026). Migration 20271008200600.';
 
 -- ----------------------------------------------------------------------------
 -- 2. hr_candidate_salary_suggestion_inputs(p_candidate_id)
 -- ----------------------------------------------------------------------------
 -- What the suggestion needs about ONE candidate, for the server route
 -- GET /api/hr/recruitment/candidates/<id>/salary-suggestion:
---   - the official job title (by name) and the department (id and name);
---   - the years before JKKN;
+--   - the college's name, the official job title (by name) and the
+--     department (id and name);
+--   - the years before JKKN and the CV note for them;
 --   - the college's pay band (the `hr.pay_scales` row, as
 --     hr_salary_suggestion_inputs() reads it);
 --   - from the rule, ONLY the amount for this department and the rounding
@@ -98,11 +115,13 @@ CREATE OR REPLACE FUNCTION public.hr_candidate_salary_suggestion_inputs(p_candid
 RETURNS TABLE(
   candidate_uuid         uuid,
   institution_id         uuid,
+  institution_name       text,
   designation_id         uuid,
   designation            text,
   department_id          uuid,
   department_name        text,
   prior_experience_years numeric,
+  prior_experience_source text,
   band                   jsonb,
   rule_rate              numeric,
   rule_round_to          numeric,
@@ -123,16 +142,20 @@ BEGIN
   RETURN QUERY
   SELECT c.id,
          c.institution_id,
+         i.name::text,
          c.designation_id,
          dg.name::text,
          c.department_id,
          d.department_name::text,
          c.prior_experience_years,
+         c.prior_experience_source,
          bp.value,
          public.hr_salary_rule_department_rate(rg.value, c.department_id),
          public.hr_salary_rule_round_to(rg.value),
          rg.updated_at
     FROM public.hr_recruitment_candidates c
+    LEFT JOIN public.institutions i
+           ON i.id = c.institution_id
     LEFT JOIN public.hr_designations dg
            ON dg.id = c.designation_id
     LEFT JOIN public.departments d
@@ -162,13 +185,14 @@ REVOKE EXECUTE ON FUNCTION public.hr_candidate_salary_suggestion_inputs(uuid) FR
 GRANT  EXECUTE ON FUNCTION public.hr_candidate_salary_suggestion_inputs(uuid) TO authenticated;
 
 COMMENT ON FUNCTION public.hr_candidate_salary_suggestion_inputs(uuid) IS
-  'Inputs for the suggested salary of one recruitment candidate: official job title, department, years before JKKN, the college pay band, and from the group-wide hr.salary_suggestion_rule row only the amount for that department and the rounding step (published value only). Gated on hr.payroll.salary.view (IS NOT TRUE refuses) and on the candidate SELECT policy''s own predicate. Read only. Migration 20271008200600.';
+  'Inputs for the suggested salary of one recruitment candidate: college name, official job title, department, years before JKKN and their CV note, the college pay band, and from the group-wide hr.salary_suggestion_rule row only the amount for that department and the rounding step (published value only). Gated on hr.payroll.salary.view (IS NOT TRUE refuses) and on the candidate SELECT policy''s own predicate. Read only. Migration 20271008200600.';
 
 NOTIFY pgrst, 'reload schema';
 
 -- ROLLBACK (down migration):
 --   DROP FUNCTION IF EXISTS public.hr_candidate_salary_suggestion_inputs(uuid);
 --   ALTER TABLE public.hr_recruitment_candidates
+--     DROP COLUMN IF EXISTS prior_experience_source,
 --     DROP COLUMN IF EXISTS prior_experience_years,
 --     DROP COLUMN IF EXISTS department_id,
 --     DROP COLUMN IF EXISTS designation_id;

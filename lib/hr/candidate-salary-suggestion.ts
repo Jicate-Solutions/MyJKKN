@@ -12,7 +12,10 @@
  *   2. Years at JKKN count for nothing: the candidate has not joined.
  *   3. Add HALF the department's amount per year (the Director's
  *      `hr.salary_suggestion_rule`) for each year of experience before JKKN,
- *      only when it is recorded. Fractions (one decimal) count pro rata.
+ *      only when it is recorded AND HR has written a CV note saying where the
+ *      years come from, e.g. "CV page 2" (the Director, 9 October 2026). With
+ *      no note the years are not counted and the line says a note is needed.
+ *      Fractions (one decimal) count pro rata.
  *   4. Round (nearest ₹100 unless the rule says otherwise).
  *   5. Above the band top: kept, with a red warning. No cap.
  * There is no current pay and therefore no "pay cut" comparison. A doctorate
@@ -76,6 +79,8 @@ export interface CandidateSalarySuggestion {
 export interface CandidateSuggestionInput {
   /** The candidate's college. null = none recorded. */
   institutionId: string | null;
+  /** The college's name, for the "no pay band" line. null = unknown. */
+  institutionName: string | null;
   /** The official job title's name (hr_designations.name). null = not picked. */
   designation: string | null;
   department: {
@@ -87,6 +92,8 @@ export interface CandidateSuggestionInput {
   };
   /** Years of experience before JKKN. null = not recorded. */
   priorExperienceYears: number | null;
+  /** Where those years come from, e.g. "CV page 2". null or blank = no note: not counted. */
+  priorExperienceSource: string | null;
   /** The college's pay band, or null when it has none. */
   band: PayBandPolicy | null;
   /** Round to the nearest this many rupees. null = ₹100. */
@@ -115,6 +122,8 @@ export function suggestCandidateSalary(input: CandidateSuggestionInput): Candida
   const designation = input.designation?.trim() ? input.designation.trim() : null;
   const rate = usable(department.perYear);
   const prior = usable(input.priorExperienceYears);
+  const cvNote = input.priorExperienceSource?.trim() ? input.priorExperienceSource.trim() : null;
+  const collegeName = input.institutionName?.trim() ? input.institutionName.trim() : null;
   const departmentName = department.name ?? null;
   const missing: CandidateSuggestionReason[] = [];
 
@@ -161,7 +170,7 @@ export function suggestCandidateSalary(input: CandidateSuggestionInput): Candida
     if (check.reason === 'no_band_configured') {
       missing.push({
         code: 'college_has_no_band',
-        text: "This candidate's college has no pay band recorded, so there is no band floor to start from.",
+        text: `${collegeName ?? "This candidate's college"} has no pay band recorded, so there is no band floor to start from.`,
         fix: { text: 'A super admin records the band on Pay Scales.', href: PAY_SCALES_SETTINGS_HREF, linkLabel: 'Open Pay Scales' },
       });
     } else if (designation && check.reason === 'no_matching_rung') {
@@ -201,11 +210,17 @@ export function suggestCandidateSalary(input: CandidateSuggestionInput): Candida
       amount: null,
       note: `Not recorded, not counted. Enter it ${EDIT_HERE}.`,
     });
+  } else if (cvNote === null) {
+    lines.push({
+      label: 'Years before JKKN',
+      amount: null,
+      note: `${years(prior)} recorded, not counted: a CV note saying where they come from (e.g. "CV page 2") is needed. Write it ${EDIT_HERE}.`,
+    });
   } else {
     lines.push({
       label: 'Years before JKKN',
       amount: toPaise(prior * halfRate),
-      note: `${years(prior)} before JKKN, at half the department's ${formatRupees(rate)} a year: ${formatRupees(halfRate)} a year.`,
+      note: `${years(prior)} before JKKN (${cvNote}), at half the department's ${formatRupees(rate)} a year: ${formatRupees(halfRate)} a year.`,
     });
   }
 

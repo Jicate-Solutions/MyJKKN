@@ -10,7 +10,7 @@
  * fails if this file starts importing the server service or reading the policy
  * table.
  *
- * The details (job title, department, years before JKKN) are read and saved
+ * The details (job title, department, years before JKKN and their CV note) are read and saved
  * through GET/PATCH /api/hr/recruitment/candidates/<id>/salary-details. Saving
  * them changes no package: a figure reaches a package only through Propose.
  */
@@ -33,6 +33,8 @@ export interface CandidateSalaryDetailsValues {
   designation_id: string | null;
   department_id: string | null;
   prior_experience_years: number | null;
+  /** Where the years before JKKN come from, e.g. "CV page 2". null = no note: not counted. */
+  prior_experience_source: string | null;
 }
 
 export interface CandidateSalaryDetailsPayload {

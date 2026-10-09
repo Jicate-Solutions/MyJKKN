@@ -4,6 +4,7 @@
 -- policy shows that person ("table=").
 -- Expected:
 --   the Director / super admin -> A: title=Typist dept=Dept A rate=100 round=500 prior=4.5 band=yes
+--                                    college=College A note=CV page 2
 --                                 B: dept=Dept B rate=none (the draft's 999 is ignored) band=no
 --                                 S: sees
 --   HR head (A)               -> A: sees · B, S: not visible (table=0 too)
@@ -32,11 +33,12 @@ BEGIN
         SET LOCAL ROLE authenticated;
         SELECT count(*) INTO t FROM public.hr_recruitment_candidates c WHERE c.id = p.cid;
         SELECT count(*) AS n,
-               max(format('title=%s dept=%s rate=%s round=%s prior=%s band=%s',
+               max(format('title=%s dept=%s rate=%s round=%s prior=%s band=%s college=%s note=%s',
                    coalesce(x.designation, 'none'), coalesce(x.department_name, 'none'),
                    coalesce(x.rule_rate::text, 'none'), coalesce(x.rule_round_to::text, 'none'),
                    coalesce(x.prior_experience_years::text, 'none'),
-                   CASE WHEN x.band IS NULL THEN 'no' ELSE 'yes' END)) AS what
+                   CASE WHEN x.band IS NULL THEN 'no' ELSE 'yes' END,
+                   coalesce(x.institution_name, 'none'), coalesce(x.prior_experience_source, 'none'))) AS what
           INTO r
           FROM public.hr_candidate_salary_suggestion_inputs(p.cid) x;
         RESET ROLE;

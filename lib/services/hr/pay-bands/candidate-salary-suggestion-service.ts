@@ -50,11 +50,13 @@ export interface CandidateSalarySuggestionResponse {
 export interface CandidateSalarySuggestionInputsRow {
   candidate_uuid: string;
   institution_id: string | null;
+  institution_name: string | null;
   designation_id: string | null;
   designation: string | null;
   department_id: string | null;
   department_name: string | null;
   prior_experience_years: number | string | null;
+  prior_experience_source: string | null;
   band: unknown;
   rule_rate: number | string | null;
   rule_round_to: number | string | null;
@@ -74,6 +76,7 @@ export function candidateSuggestionFromRow(
 ): CandidateSalarySuggestionResponse {
   const suggestion = suggestCandidateSalary({
     institutionId: row.institution_id ?? null,
+    institutionName: row.institution_name ?? null,
     designation: row.designation ?? null,
     department: {
       id: row.department_id ?? null,
@@ -81,6 +84,7 @@ export function candidateSuggestionFromRow(
       perYear: toNumber(row.rule_rate),
     },
     priorExperienceYears: toNumber(row.prior_experience_years),
+    priorExperienceSource: row.prior_experience_source ?? null,
     band: parsePayBandPolicy(row.band),
     roundTo: toNumber(row.rule_round_to),
   });

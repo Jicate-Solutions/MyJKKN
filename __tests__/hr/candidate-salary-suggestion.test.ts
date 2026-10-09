@@ -27,9 +27,11 @@ const BAND: PayBandPolicy = {
 function input(over: Partial<CandidateSuggestionInput> = {}): CandidateSuggestionInput {
   return {
     institutionId: 'inst-a',
+    institutionName: 'College A',
     designation: 'Office Assistant',
     department: { id: 'dept-a', name: 'Mechanical', perYear: 1000 },
     priorExperienceYears: 4,
+    priorExperienceSource: 'CV page 2',
     band: BAND,
     roundTo: null,
     ...over,
@@ -82,6 +84,29 @@ describe('suggestCandidateSalary: the figure', () => {
     expect(prior.note).toMatch(/Not recorded, not counted/);
   });
 
+  it('names the CV note in the years-before-JKKN line', () => {
+    const r = suggestCandidateSalary(input());
+    expect(r.lines.find((l) => l.label === 'Years before JKKN')!.note).toContain('(CV page 2)');
+  });
+
+  // The Director, 9 Oct 2026: the years count ONLY with a CV note.
+  it('does not count recorded years without a CV note, and says a note is needed', () => {
+    const r = suggestCandidateSalary(input({ priorExperienceSource: null }));
+    expect(r.verdict).toBe('suggested');
+    expect(r.suggested).toBe(30000);
+    const prior = r.lines.find((l) => l.label === 'Years before JKKN')!;
+    expect(prior.amount).toBeNull();
+    expect(prior.note).toMatch(/4 years recorded, not counted: a CV note saying where they come from \(e\.g\. "CV page 2"\) is needed/);
+  });
+
+  it('treats a blank or whitespace-only CV note as no note', () => {
+    for (const blank of ['', '   ', '\t\n']) {
+      const r = suggestCandidateSalary(input({ priorExperienceSource: blank }));
+      expect(r.suggested).toBe(30000);
+      expect(r.lines.find((l) => l.label === 'Years before JKKN')!.amount).toBeNull();
+    }
+  });
+
   it('counts 0 recorded years as 0, not as "not recorded"', () => {
     const r = suggestCandidateSalary(input({ priorExperienceYears: 0 }));
     expect(r.suggested).toBe(30000);
@@ -115,9 +140,10 @@ describe('suggestCandidateSalary: what is missing, and who fixes it', () => {
     expect(r.reasons[0].fix?.href).toBeNull();
   });
 
-  it('no pay band for the college', () => {
+  it('no pay band for the college: one plain line naming the college', () => {
     const r = suggestCandidateSalary(input({ band: null }));
     expect(codes(r)).toEqual(['college_has_no_band']);
+    expect(r.reasons[0].text).toBe('College A has no pay band recorded, so there is no band floor to start from.');
     expect(r.reasons[0].fix?.href).toBe(PAY_SCALES_SETTINGS_HREF);
   });
 

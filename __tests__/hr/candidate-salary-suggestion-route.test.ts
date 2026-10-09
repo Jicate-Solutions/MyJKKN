@@ -30,12 +30,14 @@ function row(id: string, rate: number | null) {
   return {
     candidate_uuid: id,
     institution_id: 'inst-a',
+    institution_name: 'College A',
     designation_id: 'des-1',
     designation: 'Office Assistant',
     department_id: 'dept-a',
     department_name: 'Mechanical',
     // numeric arrives over PostgREST as a string
     prior_experience_years: '4.0',
+    prior_experience_source: 'CV page 2',
     band: {
       pay_matrix: [
         { designation: 'Office Assistant', basic_pay: 30000 },

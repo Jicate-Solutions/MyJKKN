@@ -71,7 +71,7 @@ echo "== migration (repo file, unmodified), applied twice"
 
 # The three inputs, written as the table owner (no RLS): A fully filled in,
 # B with a department the Director left empty, S with nothing.
-"${PSQL[@]}" -c "UPDATE public.hr_recruitment_candidates SET designation_id='00000000-0000-0000-0000-00000000de01', department_id='00000000-0000-0000-0000-0000000d00a1', prior_experience_years=4.5 WHERE id='00000000-0000-0000-0000-0000000ca0a1'" || exit 1
+"${PSQL[@]}" -c "UPDATE public.hr_recruitment_candidates SET designation_id='00000000-0000-0000-0000-00000000de01', department_id='00000000-0000-0000-0000-0000000d00a1', prior_experience_years=4.5, prior_experience_source='CV page 2' WHERE id='00000000-0000-0000-0000-0000000ca0a1'" || exit 1
 "${PSQL[@]}" -c "UPDATE public.hr_recruitment_candidates SET designation_id='00000000-0000-0000-0000-00000000de01', department_id='00000000-0000-0000-0000-0000000d00b2' WHERE id='00000000-0000-0000-0000-0000000ca0b2'" || exit 1
 
 echo "== CHECK: negative years refused"
@@ -85,8 +85,8 @@ probe() { "${PSQL[@]}" -f "$HERE/probe.sql" 2>&1 | grep -E "SEES|REFUSED|ERROR|H
 
 echo "== PROBE, each person as role authenticated"
 P="$(probe)"; printf '%s\n' "$P" | sed 's/^/   /'
-check "Director sees A with all inputs" "the Director     candidate A table=1 -> title=Typist dept=Dept A rate=100 round=500 prior=4.5 band=yes" "$P"
-check "Director: B's empty department reads rate=none (draft 999 ignored), no band" "the Director     candidate B table=1 -> title=Typist dept=Dept B rate=none round=500 prior=none band=no" "$P"
+check "Director sees A with all inputs, its college name and CV note" "the Director     candidate A table=1 -> title=Typist dept=Dept A rate=100 round=500 prior=4.5 band=yes college=College A note=CV page 2" "$P"
+check "Director: B's empty department reads rate=none (draft 999 ignored), no band" "the Director     candidate B table=1 -> title=Typist dept=Dept B rate=none round=500 prior=none band=no college=College B note=none" "$P"
 check "super admin sees S" "super admin      candidate S table=1 -> title=none" "$P"
 check "HR head sees own-college A" "HR head (A)      candidate A table=1 -> title=Typist" "$P"
 check "HR head does not see college B" "HR head (A)      candidate B table=0 -> not visible" "$P"

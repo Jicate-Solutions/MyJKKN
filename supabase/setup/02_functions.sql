@@ -84763,6 +84763,8 @@ GRANT  EXECUTE ON FUNCTION public.fn_hr_playbook_decide(uuid, text, text, text) 
 
 -- ===========================================================================
 -- hr_candidate_salary_suggestion_inputs(p_candidate_id) (2026-10-08)
+-- Updated: 2026-10-09 - also returns the college name and the CV note for the
+-- years before JKKN (prior_experience_source).
 -- Source: 20271008200600_hr_candidate_salary_suggestion_inputs.sql
 -- The suggested starting salary for a recruitment candidate: one candidate's
 -- inputs, the college band, and from hr.salary_suggestion_rule ONLY the amount
@@ -84774,11 +84776,13 @@ CREATE OR REPLACE FUNCTION public.hr_candidate_salary_suggestion_inputs(p_candid
 RETURNS TABLE(
   candidate_uuid         uuid,
   institution_id         uuid,
+  institution_name       text,
   designation_id         uuid,
   designation            text,
   department_id          uuid,
   department_name        text,
   prior_experience_years numeric,
+  prior_experience_source text,
   band                   jsonb,
   rule_rate              numeric,
   rule_round_to          numeric,
@@ -84799,16 +84803,20 @@ BEGIN
   RETURN QUERY
   SELECT c.id,
          c.institution_id,
+         i.name::text,
          c.designation_id,
          dg.name::text,
          c.department_id,
          d.department_name::text,
          c.prior_experience_years,
+         c.prior_experience_source,
          bp.value,
          public.hr_salary_rule_department_rate(rg.value, c.department_id),
          public.hr_salary_rule_round_to(rg.value),
          rg.updated_at
     FROM public.hr_recruitment_candidates c
+    LEFT JOIN public.institutions i
+           ON i.id = c.institution_id
     LEFT JOIN public.hr_designations dg
            ON dg.id = c.designation_id
     LEFT JOIN public.departments d
@@ -84838,4 +84846,4 @@ REVOKE EXECUTE ON FUNCTION public.hr_candidate_salary_suggestion_inputs(uuid) FR
 GRANT  EXECUTE ON FUNCTION public.hr_candidate_salary_suggestion_inputs(uuid) TO authenticated;
 
 COMMENT ON FUNCTION public.hr_candidate_salary_suggestion_inputs(uuid) IS
-  'Inputs for the suggested salary of one recruitment candidate: official job title, department, years before JKKN, the college pay band, and from the group-wide hr.salary_suggestion_rule row only the amount for that department and the rounding step (published value only). Gated on hr.payroll.salary.view (IS NOT TRUE refuses) and on the candidate SELECT policy''s own predicate. Read only. Migration 20271008200600.';
+  'Inputs for the suggested salary of one recruitment candidate: college name, official job title, department, years before JKKN and their CV note, the college pay band, and from the group-wide hr.salary_suggestion_rule row only the amount for that department and the rounding step (published value only). Gated on hr.payroll.salary.view (IS NOT TRUE refuses) and on the candidate SELECT policy''s own predicate. Read only. Migration 20271008200600.';

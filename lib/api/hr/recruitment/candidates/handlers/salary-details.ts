@@ -2,9 +2,11 @@
  * GET   /api/hr/recruitment/candidates/<id>/salary-details
  * PATCH /api/hr/recruitment/candidates/<id>/salary-details
  *
- * The three inputs the suggested salary needs, on the candidate: the official
- * job title (hr_designations), the department, and the years of experience
- * before JKKN (migration 20271008200600). role_title is never touched.
+ * The inputs the suggested salary needs, on the candidate: the official job
+ * title (hr_designations), the department, the years of experience before
+ * JKKN, and the CV note saying where those years come from (e.g. "CV page 2";
+ * without it the years are not counted — the Director, 9 Oct 2026). Migration
+ * 20271008200600. role_title is never touched.
  *
  * GET returns the current values and the choices: the job titles of the
  * candidate's HR organisation and the departments of their college. Both lists
@@ -12,7 +14,7 @@
  * role_title is exactly an official job title (normalizeDesignationKey), its id
  * comes back as `roleTitleMatchId` so the picker can start on it.
  *
- * PATCH writes ONLY those three columns, and only after checking that the job
+ * PATCH writes ONLY those four columns, and only after checking that the job
  * title belongs to the candidate's HR organisation and the department to the
  * candidate's college. The route asks for `hr.recruitment.edit`; the row's own
  * UPDATE policy (hr.recruitment.edit + role_has_institution_access) decides
@@ -32,6 +34,8 @@ import { getErrorMessage } from '@/lib/utils';
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 /** numeric(4,1): up to 999.9. */
 const MAX_YEARS = 999.9;
+/** A CV note is a short pointer ("CV page 2"), not the CV itself. */
+const MAX_SOURCE_LENGTH = 200;
 
 async function getClient() {
   const cookieStore = await cookies();
@@ -72,6 +76,8 @@ export interface CandidateSalaryDetails {
   designation_id: string | null;
   department_id: string | null;
   prior_experience_years: number | null;
+  /** The CV note for the years before JKKN. null = none (blank is stored as null). */
+  prior_experience_source: string | null;
 }
 
 interface CandidateRow extends CandidateSalaryDetails {
@@ -87,7 +93,7 @@ async function readCandidate(supabase: Supa, id: string): Promise<CandidateRow |
   const { data, error } = await supabase
     .from('hr_recruitment_candidates')
     .select(
-      'id, role_title, institution_id, hr_organization_id, designation_id, department_id, prior_experience_years',
+      'id, role_title, institution_id, hr_organization_id, designation_id, department_id, prior_experience_years, prior_experience_source',
     )
     .eq('id', id)
     .maybeSingle();
@@ -169,6 +175,7 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
         designation_id: candidate.designation_id,
         department_id: candidate.department_id,
         prior_experience_years: candidate.prior_experience_years,
+        prior_experience_source: candidate.prior_experience_source,
       },
       roleTitle: candidate.role_title,
       hasCollege: Boolean(candidate.institution_id),
@@ -185,11 +192,12 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
 
 /** Validate the body: each field may be a value or null; anything else is refused. */
 function parseBody(body: unknown): CandidateSalaryDetails | string {
-  if (typeof body !== 'object' || body === null || Array.isArray(body)) return 'Send the three details.';
+  if (typeof body !== 'object' || body === null || Array.isArray(body)) return 'Send the details.';
   const b = body as Record<string, unknown>;
   const designation = b.designation_id ?? null;
   const department = b.department_id ?? null;
   const years = b.prior_experience_years ?? null;
+  const source = b.prior_experience_source ?? null;
   if (designation !== null && (typeof designation !== 'string' || !UUID.test(designation))) {
     return 'The job title is not a valid choice.';
   }
@@ -202,10 +210,17 @@ function parseBody(body: unknown): CandidateSalaryDetails | string {
   ) {
     return `Years of experience before JKKN must be a number from 0 to ${MAX_YEARS}, or left blank.`;
   }
+  if (source !== null && typeof source !== 'string') return 'The CV note must be text.';
+  // Blank or whitespace-only is no note.
+  const note = typeof source === 'string' && source.trim() !== '' ? source.trim() : null;
+  if (note !== null && note.length > MAX_SOURCE_LENGTH) {
+    return `The CV note must be ${MAX_SOURCE_LENGTH} characters or fewer, e.g. "CV page 2".`;
+  }
   return {
     designation_id: designation as string | null,
     department_id: department as string | null,
     prior_experience_years: years === null ? null : Math.round((years as number) * 10) / 10,
+    prior_experience_source: note,
   };
 }
 
@@ -272,6 +287,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
         designation_id: parsed.designation_id,
         department_id: parsed.department_id,
         prior_experience_years: parsed.prior_experience_years,
+        prior_experience_source: parsed.prior_experience_source,
       })
       .eq('id', id)
       .select('id');

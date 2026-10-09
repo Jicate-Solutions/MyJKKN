@@ -58,6 +58,7 @@ function query(table: string) {
             designation_id: null,
             department_id: null,
             prior_experience_years: null,
+            prior_experience_source: null,
           },
           error: null,
         };
@@ -125,20 +126,50 @@ describe('salary details: GET', () => {
     expect(body.designations).toEqual([{ id: TITLE_OK, name: 'Office Assistant' }]);
     expect(body.departments).toEqual([{ id: DEPT_OK, name: 'Mechanical' }]);
     expect(body.roleTitleMatchId).toBe(TITLE_OK);
-    expect(body.details).toEqual({ designation_id: null, department_id: null, prior_experience_years: null });
+    expect(body.details).toEqual({
+      designation_id: null,
+      department_id: null,
+      prior_experience_years: null,
+      prior_experience_source: null,
+    });
   });
 });
 
 describe('salary details: PATCH', () => {
-  it('writes exactly the three columns', async () => {
-    const res = await patch({ designation_id: TITLE_OK, department_id: DEPT_OK, prior_experience_years: 3.25 });
+  it('writes exactly the four columns, the CV note trimmed', async () => {
+    const res = await patch({
+      designation_id: TITLE_OK,
+      department_id: DEPT_OK,
+      prior_experience_years: 3.25,
+      prior_experience_source: '  CV page 2 ',
+    });
     expect(res.status).toBe(200);
-    expect(updates).toEqual([{ designation_id: TITLE_OK, department_id: DEPT_OK, prior_experience_years: 3.3 }]);
+    expect(updates).toEqual([
+      { designation_id: TITLE_OK, department_id: DEPT_OK, prior_experience_years: 3.3, prior_experience_source: 'CV page 2' },
+    ]);
+  });
+
+  it('stores a blank or whitespace-only CV note as no note', async () => {
+    for (const blank of ['', '   ', '\n\t']) {
+      await patch({ prior_experience_years: 3, prior_experience_source: blank });
+    }
+    expect(updates.map((u) => u.prior_experience_source)).toEqual([null, null, null]);
+  });
+
+  it('refuses a CV note that is not text or is too long', async () => {
+    expect((await patch({ prior_experience_source: 2 })).status).toBe(400);
+    expect((await patch({ prior_experience_source: 'x'.repeat(201) })).status).toBe(400);
+    expect(updates).toEqual([]);
   });
 
   it('ignores anything else in the body (role_title, pay)', async () => {
     await patch({ designation_id: null, department_id: null, prior_experience_years: null, role_title: 'X', proposed_monthly_salary: 99 });
-    expect(Object.keys(updates[0]).sort()).toEqual(['department_id', 'designation_id', 'prior_experience_years']);
+    expect(Object.keys(updates[0]).sort()).toEqual([
+      'department_id',
+      'designation_id',
+      'prior_experience_source',
+      'prior_experience_years',
+    ]);
   });
 
   it('needs hr.recruitment.edit', async () => {

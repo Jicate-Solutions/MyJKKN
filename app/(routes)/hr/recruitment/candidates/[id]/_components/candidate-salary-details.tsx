@@ -2,8 +2,9 @@
 
 /**
  * "Details for the suggested salary" on the candidate page: the official job
- * title, the department, and the years of experience before JKKN. These are
- * the three inputs the suggested salary needs; role_title stays as it is.
+ * title, the department, the years of experience before JKKN, and the CV note
+ * saying where those years come from. The years count only with the note (the
+ * Director, 9 Oct 2026). role_title stays as it is.
  *
  * Saving here changes no package and no pay. It only changes what the
  * Suggested salary box in Propose Package works out.
@@ -42,9 +43,10 @@ function nameOf(list: Array<{ id: string; name: string }>, id: string | null): s
   return list.find((o) => o.id === id)?.name ?? 'Recorded (not in your list)';
 }
 
-function yearsText(years: number | null): string {
+function yearsText(years: number | null, source: string | null): string {
   if (years === null) return 'Not recorded';
-  return `${years} ${years === 1 ? 'year' : 'years'}`;
+  const n = `${years} ${years === 1 ? 'year' : 'years'}`;
+  return source ? `${n} (${source})` : `${n}, no CV note: not counted`;
 }
 
 export function CandidateSalaryDetails({ candidateId, canEdit }: Props) {
@@ -79,7 +81,9 @@ export function CandidateSalaryDetails({ candidateId, canEdit }: Props) {
           </div>
           <div>
             <dt className='text-xs text-muted-foreground'>Years of experience before JKKN</dt>
-            <dd className='font-medium'>{yearsText(data.details.prior_experience_years)}</dd>
+            <dd className='font-medium'>
+              {yearsText(data.details.prior_experience_years, data.details.prior_experience_source)}
+            </dd>
           </div>
         </dl>
       )}
@@ -107,6 +111,7 @@ function EditDialog({
   const [years, setYears] = useState<string>(
     data.details.prior_experience_years === null ? '' : String(data.details.prior_experience_years)
   );
+  const [source, setSource] = useState<string>(data.details.prior_experience_source ?? '');
   const matchedFromRoleTitle = !data.details.designation_id && data.roleTitleMatchId !== null;
 
   const onSave = async (e: React.FormEvent) => {
@@ -122,6 +127,7 @@ function EditDialog({
         designation_id: designationId || null,
         department_id: departmentId || null,
         prior_experience_years: n,
+        prior_experience_source: source.trim() === '' ? null : source.trim(),
       });
       toast.success('Details saved');
       onClose();
@@ -193,19 +199,34 @@ function EditDialog({
               <p className='text-xs text-muted-foreground'>This candidate has no college recorded, so no department can be picked.</p>
             )}
           </div>
-          <div className='space-y-1'>
-            <Label htmlFor='priorExperienceYears'>Years of experience before JKKN</Label>
-            <Input
-              id='priorExperienceYears'
-              type='number'
-              min='0'
-              max='999.9'
-              step='0.1'
-              value={years}
-              onChange={(e) => setYears(e.target.value)}
-              placeholder='e.g. 3'
-            />
-            <p className='text-xs text-muted-foreground'>Leave blank if not known. 0 means none.</p>
+          <div className='grid gap-3 sm:grid-cols-2'>
+            <div className='space-y-1'>
+              <Label htmlFor='priorExperienceYears'>Years of experience before JKKN</Label>
+              <Input
+                id='priorExperienceYears'
+                type='number'
+                min='0'
+                max='999.9'
+                step='0.1'
+                value={years}
+                onChange={(e) => setYears(e.target.value)}
+                placeholder='e.g. 3'
+              />
+              <p className='text-xs text-muted-foreground'>Leave blank if not known. 0 means none.</p>
+            </div>
+            <div className='space-y-1'>
+              <Label htmlFor='priorExperienceSource'>Where in the CV</Label>
+              <Input
+                id='priorExperienceSource'
+                maxLength={200}
+                value={source}
+                onChange={(e) => setSource(e.target.value)}
+                placeholder='e.g. CV page 2'
+              />
+              <p className='text-xs text-muted-foreground'>
+                The years count in the suggested salary only with this note.
+              </p>
+            </div>
           </div>
           <DialogFooter>
             <Button type='button' variant='outline' onClick={onClose}>Cancel</Button>
