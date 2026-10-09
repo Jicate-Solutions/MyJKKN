@@ -173,6 +173,13 @@ SELECT t.expect_ok ('Director: a new salary from today supersedes a row with no 
   t.call(12, 't.today()'));
 SELECT t.expect_ok ('Director: a raise from the 1st of next month supersedes the row in force',
   t.call(22, $$(date_trunc('month', t.today()) + interval '1 month')::date$$, 52000));
+-- Panel round 1 (2026-10-09): Employee Salaries' dialog now opens on a
+-- scheduled change's OWN start. Changing only its amount sends that same
+-- start again: a new row, same date, replacing the scheduled one.
+SELECT t.expect_ok ('Director: a change saved for later (staff 38, in 40 days)',
+  t.call(38, 't.today() + 40', 7000));
+SELECT t.expect_ok ('Director: the same start again with a new amount replaces the scheduled change',
+  t.call(38, 't.today() + 40', 7700));
 
 -- "Today" is India's today whatever the session's time zone says.
 SET TIME ZONE 'America/Los_Angeles';
@@ -432,6 +439,11 @@ SELECT t.check('staff 17, 20, 21: the service_role writes landed',
   t.in_force(17) = 7000 AND t.in_force(20) = 7000 AND t.in_force(21) = 5000);
 SELECT t.check('staff 25: the staff delete cascaded to their salary row',
   NOT EXISTS (SELECT 1 FROM public.hr_staff_salaries WHERE staff_id = t.s(25)));
+SELECT t.check('staff 38: the newest row is 7700 from the same start, and it retired the scheduled 7000 (not a month earlier)',
+  (SELECT count(*) = 2
+          AND count(*) FILTER (WHERE superseded_by IS NULL AND monthly_gross = 7700 AND effective_from = t.today() + 40) = 1
+          AND count(*) FILTER (WHERE superseded_by IS NOT NULL AND monthly_gross = 7000 AND effective_from = t.today() + 40) = 1
+     FROM public.hr_staff_salaries WHERE staff_id = t.s(38)));
 SELECT t.check('every staff member has at most one row in force',
   NOT EXISTS (SELECT 1 FROM public.hr_staff_salaries WHERE superseded_by IS NULL GROUP BY staff_id HAVING count(*) > 1));
 SELECT t.check('the supersede setting is not left set on the session',

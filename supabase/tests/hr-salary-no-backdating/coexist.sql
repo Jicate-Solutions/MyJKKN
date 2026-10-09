@@ -71,6 +71,32 @@ SELECT t.check('fn_hr_set_staff_salary has one form (18 arguments), callable by 
   AND has_function_privilege('authenticated', 'public.fn_hr_set_staff_salary(uuid, uuid, numeric, date, text, text, numeric, boolean, boolean, boolean, boolean, boolean, text, numeric, boolean, numeric, numeric, text)', 'EXECUTE')
   AND NOT has_function_privilege('anon', 'public.fn_hr_set_staff_salary(uuid, uuid, numeric, date, text, text, numeric, boolean, boolean, boolean, boolean, boolean, text, numeric, boolean, numeric, numeric, text)', 'EXECUTE'));
 
+-- Panel round 1, finding 4 (2026-10-09): the guard lets database code that is
+-- not an API role through, so a SECURITY DEFINER function a signed-in user can
+-- run would skip the Director check. Every public function that writes
+-- hr_staff_salaries, directly or through another one, is listed here; the only
+-- definer one signed-in users may run must be the approvals page's
+-- fn_hr_salary_revision_apply_due (it writes only a yes the Director already
+-- gave, through fn_hr_set_staff_salary, so the past-date refusal still holds).
+SELECT t.check('the only SECURITY DEFINER path to a salary write that signed-in or signed-out users can run is fn_hr_salary_revision_apply_due',
+  (WITH RECURSIVE w(oid, name) AS (
+     SELECT p.oid, p.proname::text
+       FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+      WHERE n.nspname = 'public'
+        AND (p.proname = 'fn_hr_set_staff_salary'
+             OR p.prosrc ~* '(insert[[:space:]]+into|update)[[:space:]]+(public\.)?hr_staff_salaries[^_a-z]')
+     UNION
+     SELECT p.oid, p.proname::text
+       FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+       JOIN w ON p.prosrc ~* ('[^_a-z]' || w.name || '[[:space:]]*\(')
+      WHERE n.nspname = 'public' AND p.oid <> w.oid)
+   SELECT array_agg(DISTINCT w.name ORDER BY w.name)
+     FROM w JOIN pg_proc p ON p.oid = w.oid
+    WHERE p.prosecdef
+      AND (has_function_privilege('authenticated', p.oid, 'EXECUTE')
+           OR has_function_privilege('anon', p.oid, 'EXECUTE')))
+  = ARRAY['fn_hr_salary_revision_apply_due']);
+
 -- ── 2. Direct writes: each guard still refuses what it owns ────────────────
 SET ROLE authenticated;
 SELECT t.login(:'H');
@@ -82,6 +108,8 @@ SELECT t.check('the HR head cannot insert a pay row directly (this PR''s guard)'
                :'sF2', :'OA', :'start1')) LIKE '42501 Only the Director can change a salary.%');
 SELECT t.check('the HR head cannot delete a pay row (this PR''s guard)',
   t.msg(format('DELETE FROM public.hr_staff_salaries WHERE staff_id = %L', :'sF2')) LIKE '42501 Only the Director can change a salary.%');
+SELECT t.check('the HR head cannot run the approvals writer directly (finding 4: no EXECUTE for signed-in users)',
+  t.msg(format('SELECT public.hr_salary_revision_apply_due_on(%L)', :'start1')) LIKE '42501 permission denied%');
 SELECT t.login(:'D');
 SELECT t.check('the Director cannot change his own pay (this PR''s guard lets him through, #4190''s refuses)',
   t.msg(format('SELECT public.fn_hr_set_staff_salary(p_staff_id => %L, p_hr_organization_id => %L, p_monthly_gross => 250000, p_effective_from => %L)',
