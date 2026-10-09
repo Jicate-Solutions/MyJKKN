@@ -59,6 +59,7 @@ CREATE TABLE public.events_registrations (
   -- SET NULL on form delete.
   event_id uuid NOT NULL REFERENCES public.events(id) ON DELETE CASCADE,
   form_id uuid REFERENCES public.event_registration_forms(id) ON DELETE SET NULL,
+  profile_id uuid,
   participant_name text NOT NULL DEFAULT 'Person',
   institution_name text,
   department text,
@@ -556,16 +557,18 @@ describe('review round 4 (#4311)', () => {
     await q(`DELETE FROM public.events_registrations WHERE id = $1`, [row]);
   });
 
-  it('#1 the creator may cancel a placed registration; the place stays and nothing extra is logged', async () => {
+  it('#1 the creator may cancel a placed registration; the place is cleared and logged (round 6 ruling)', async () => {
     const row = await placed();
     await actAs(ids.creator);
     expect(await sqlstate(`UPDATE public.events_registrations SET status = 'cancelled' WHERE id = $1`, [row])).toBeNull();
     await asOwner();
     expect((await q(`SELECT status, final_rank FROM public.events_registrations WHERE id = $1`, [row]))[0]).toEqual({
       status: 'cancelled',
-      final_rank: 1,
+      final_rank: null,
     });
-    expect(await history(row)).toEqual([]);
+    expect(await history(row)).toEqual([
+      { event_id: ids.event, form_id: null, old_rank: 1, new_rank: null, changed_by: ids.creator },
+    ]);
     await q(`DELETE FROM public.events_registrations WHERE id = $1`, [row]);
   });
 
@@ -626,20 +629,6 @@ describe('review round 5 (#4311): the live foreign keys', () => {
       )
     ).rows;
   }
-
-  it('#1 any status change on a placed row needs authority (un-cancelling included)', async () => {
-    await asOwner();
-    const row = (await q(`INSERT INTO public.events_registrations (event_id) VALUES ($1) RETURNING id`, [ids.event]))[0].id;
-    await q(`UPDATE public.events_registrations SET final_rank = 3 WHERE id = $1`, [row]);
-    await q(`UPDATE public.events_registrations SET status = 'cancelled' WHERE id = $1`, [row]);
-    await actAs(ids.outsider);
-    expect(await sqlstate(`UPDATE public.events_registrations SET status = 'registered' WHERE id = $1`, [row])).toBe('42501');
-    expect(await sqlstate(`UPDATE public.events_registrations SET status = 'checked_in' WHERE id = $1`, [row])).toBe('42501');
-    await actAs(ids.creator);
-    expect(await sqlstate(`UPDATE public.events_registrations SET status = 'registered' WHERE id = $1`, [row])).toBeNull();
-    await asOwner();
-    await q(`DELETE FROM public.events_registrations WHERE id = $1`, [row]);
-  });
 
   it('#2 the creator deletes an event that has winners: the cascade succeeds and each removal is logged', async () => {
     await asOwner();
@@ -725,3 +714,157 @@ describe('review round 5 (#4311): the live foreign keys', () => {
   });
 });
 
+describe('review round 6 (#4311)', () => {
+  const ZERO = null;
+  async function placedRow(rank: number, extra: { profile?: string; form?: string } = {}) {
+    await reset();
+    await asOwner();
+    const row = (
+      await q(`INSERT INTO public.events_registrations (event_id, profile_id, form_id) VALUES ($1, $2, $3) RETURNING id`, [
+        ids.event,
+        extra.profile ?? null,
+        extra.form ?? null,
+      ])
+    )[0].id;
+    await q(`UPDATE public.events_registrations SET final_rank = $2 WHERE id = $1`, [row, rank]);
+    await q(`DELETE FROM public.event_winner_rank_changes`);
+    return row;
+  }
+  async function rowState(row: string) {
+    return (await admin.query(`SELECT status, final_rank FROM public.events_registrations WHERE id = $1`, [row])).rows[0];
+  }
+  async function historyRows(row: string) {
+    return (
+      await admin.query(
+        `SELECT old_rank, new_rank, changed_by FROM public.event_winner_rank_changes WHERE registration_id = $1 ORDER BY changed_at, ctid`,
+        [row]
+      )
+    ).rows;
+  }
+  async function drop(row: string) {
+    await admin.query(`DELETE FROM public.events_registrations WHERE id = $1`, [row]);
+  }
+
+  it('#2 a check-in volunteer without winner authority can check in a placed row', async () => {
+    const row = await placedRow(1);
+    await actAs(ids.outsider);
+    expect(await sqlstate(`UPDATE public.events_registrations SET status = 'checked_in' WHERE id = $1`, [row])).toBeNull();
+    expect(await rowState(row)).toEqual({ status: 'checked_in', final_rank: 1 });
+    expect(await sqlstate(`UPDATE public.events_registrations SET status = 'confirmed' WHERE id = $1`, [row])).toBeNull();
+    await asOwner();
+    await drop(row);
+  });
+
+  it('#2 the registrant may cancel their own placed row: the place is cleared and logged as theirs', async () => {
+    const learner = randomUUID();
+    const row = await placedRow(2, { profile: learner });
+    await actAs(learner);
+    expect(await sqlstate(`UPDATE public.events_registrations SET status = 'cancelled' WHERE id = $1`, [row])).toBeNull();
+    expect(await rowState(row)).toEqual({ status: 'cancelled', final_rank: null });
+    expect(await historyRows(row)).toEqual([{ old_rank: 2, new_rank: null, changed_by: learner }]);
+    await asOwner();
+    await drop(row);
+  });
+
+  it('#2 the registrant cannot cancel and re-place in one statement (the place is cleared anyway)', async () => {
+    const learner = randomUUID();
+    const row = await placedRow(2, { profile: learner });
+    await actAs(learner);
+    expect(
+      await sqlstate(`UPDATE public.events_registrations SET status = 'cancelled', final_rank = 1 WHERE id = $1`, [row])
+    ).toBeNull();
+    expect(await rowState(row)).toEqual({ status: 'cancelled', final_rank: null });
+    await asOwner();
+    await drop(row);
+  });
+
+  it('#2 someone else without authority cannot cancel or disqualify a placed row', async () => {
+    const row = await placedRow(1, { profile: randomUUID() });
+    await actAs(ids.outsider);
+    expect(await sqlstate(`UPDATE public.events_registrations SET status = 'cancelled' WHERE id = $1`, [row])).toBe('42501');
+    expect(await sqlstate(`UPDATE public.events_registrations SET status = 'disqualified' WHERE id = $1`, [row])).toBe('42501');
+    expect(await rowState(row)).toEqual({ status: 'registered', final_rank: 1 });
+    await asOwner();
+    await drop(row);
+  });
+
+  it('#2 a manager disqualifies a placed row: the place is cleared and logged', async () => {
+    const row = await placedRow(3);
+    await actAs(ids.outsider, { 'test.incharge_event': ids.event });
+    expect(await sqlstate(`UPDATE public.events_registrations SET status = 'disqualified' WHERE id = $1`, [row])).toBeNull();
+    expect(await rowState(row)).toEqual({ status: 'disqualified', final_rank: null });
+    expect(await historyRows(row)).toEqual([{ old_rank: 3, new_rank: null, changed_by: ids.outsider }]);
+    await asOwner();
+    await drop(row);
+  });
+
+  it('#2 a service-role cancel also clears the place', async () => {
+    const row = await placedRow(1);
+    await asOwner();
+    await q(`UPDATE public.events_registrations SET status = 'cancelled' WHERE id = $1`, [row]);
+    expect(await rowState(row)).toEqual({ status: 'cancelled', final_rank: null });
+    expect(await historyRows(row)).toEqual([{ old_rank: 1, new_rank: null, changed_by: null }]);
+    await drop(row);
+  });
+
+  it('#2 a cancelled or disqualified row cannot be given a place', async () => {
+    await asOwner();
+    for (const status of ['cancelled', 'disqualified']) {
+      const row = (
+        await q(`INSERT INTO public.events_registrations (event_id, status) VALUES ($1, $2) RETURNING id`, [ids.event, status])
+      )[0].id;
+      expect(await sqlstate(`UPDATE public.events_registrations SET final_rank = 3 WHERE id = $1`, [row])).toBe('22023');
+      await drop(row);
+    }
+  });
+
+  it('#1 a form with winners cannot be deleted by someone whose only right is the forms policy (e.g. sports.tournaments.manage)', async () => {
+    await asOwner();
+    const f = await newForm(ids.event);
+    const row = await placedRow(1, { form: f });
+    // The outsider holds DELETE on forms (as event_registration_forms_manage
+    // grants a sports.tournaments.manage holder) but no winner authority.
+    await actAs(ids.outsider);
+    expect(await sqlstate(`DELETE FROM public.event_registration_forms WHERE id = $1`, [f])).toBe('42501');
+    expect(await rowState(row)).toEqual({ status: 'registered', final_rank: 1 });
+    await actAs(ids.creator);
+    expect(await sqlstate(`DELETE FROM public.event_registration_forms WHERE id = $1`, [f])).toBeNull();
+    expect(await rowState(row)).toEqual({ status: 'registered', final_rank: null });
+    await asOwner();
+    await drop(row);
+  });
+
+  it('#1 a form with no winners can still be deleted by the forms policy alone', async () => {
+    await asOwner();
+    const f = await newForm(ids.event);
+    await actAs(ids.outsider);
+    expect(await sqlstate(`DELETE FROM public.event_registration_forms WHERE id = $1`, [f])).toBeNull();
+    await asOwner();
+  });
+
+  it('#3 a list spanning two forms logs one history row per real change', async () => {
+    await reset();
+    await asOwner();
+    const ev = (await q(`INSERT INTO public.events (created_by) VALUES ($1) RETURNING id`, [ids.creator]))[0].id;
+    const [f1, f2] = [await newForm(ev), await newForm(ev)];
+    const a = (await q(`INSERT INTO public.events_registrations (event_id, form_id) VALUES ($1, $2) RETURNING id`, [ev, f1]))[0].id;
+    const b = (await q(`INSERT INTO public.events_registrations (event_id, form_id) VALUES ($1, $2) RETURNING id`, [ev, f2]))[0].id;
+    await q(`UPDATE public.events_registrations SET final_rank = 1 WHERE id = $1`, [a]);
+    await q(`DELETE FROM public.event_winner_rank_changes`);
+    await actAs(ids.creator);
+    // a moves 1 -> 2 in form 1; b takes 1 in form 2 (a different set).
+    expect(
+      await sqlstate(`SELECT public.fn_set_event_registration_ranks($1, $2::jsonb)`, [
+        ev,
+        JSON.stringify([
+          { registration_id: a, final_rank: 2 },
+          { registration_id: b, final_rank: 1 },
+        ]),
+      ])
+    ).toBeNull();
+    expect(await historyRows(a)).toEqual([{ old_rank: 1, new_rank: 2, changed_by: ids.creator }]);
+    expect(await historyRows(b)).toEqual([{ old_rank: null, new_rank: 1, changed_by: ids.creator }]);
+    void ZERO;
+    await asOwner();
+  });
+});

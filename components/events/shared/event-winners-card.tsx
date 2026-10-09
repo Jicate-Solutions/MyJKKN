@@ -34,12 +34,14 @@ export const PLACES = [
 
 type Picks = Record<number, string>;
 
-const isOut = (r: WinnerRegistration) => r.status === 'cancelled';
+// A cancelled or disqualified registration never holds a place (the database
+// clears it), so it is not offered either.
+const isOut = (r: WinnerRegistration) => r.status === 'cancelled' || r.status === 'disqualified';
 
 function regLabel(r: WinnerRegistration) {
   const where = r.institution_name || r.department;
   const name = where ? `${r.participant_name} · ${where}` : r.participant_name;
-  return isOut(r) ? `${name} (cancelled)` : name;
+  return name;
 }
 
 /** The holder of each place as the dialog opens. */
@@ -97,7 +99,7 @@ function WinnersGroup({
   const [before, setBefore] = useState<Picks>({});
   const [picks, setPicks] = useState<Picks>({});
 
-  const choices = useMemo(() => regs.filter((r) => !isOut(r) || r.final_rank != null), [regs]);
+  const choices = useMemo(() => regs.filter((r) => !isOut(r)), [regs]);
   const placed = PLACES.map((p) => ({ ...p, holders: regs.filter((r) => r.final_rank === p.rank) }));
   const anyPlaced = placed.some((p) => p.holders.length > 0);
 
@@ -203,9 +205,40 @@ function WinnersGroup({
   );
 }
 
-export function EventWinnersCard({ eventId }: { eventId: string }) {
-  const { data } = useEventWinners(eventId);
-  if (!data) return null;
+export function EventWinnersCard({
+  eventId,
+  mayManage = false,
+}: {
+  eventId: string;
+  /**
+   * The page's own guess that this viewer runs the event (creator / in-charge /
+   * admin). Used ONLY to show a retry when loading fails, so an organiser does
+   * not silently lose the "Record winners" button. The server still decides.
+   */
+  mayManage?: boolean;
+}) {
+  const { data, isError, refetch, isFetching } = useEventWinners(eventId);
+  if (!data) {
+    if (!isError || !mayManage) return null;
+    return (
+      <Card data-testid="event-winners-card">
+        <CardHeader className="pb-3">
+          <CardTitle className="flex items-center gap-2 text-lg">
+            <Trophy className="h-4 w-4 text-muted-foreground" />
+            Winners
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="flex items-center gap-3 text-sm">
+          <span className="text-muted-foreground" role="alert">
+            Couldn&apos;t load winners.
+          </span>
+          <Button size="sm" variant="outline" onClick={() => refetch()} disabled={isFetching}>
+            Retry
+          </Button>
+        </CardContent>
+      </Card>
+    );
+  }
 
   const { canManage, forms, registrations } = data;
   const anyPlaced = registrations.some((r) => r.final_rank != null);

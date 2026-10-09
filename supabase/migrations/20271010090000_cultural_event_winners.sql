@@ -37,6 +37,9 @@ COMMENT ON COLUMN public.events_registrations.final_rank IS
 -- A static key, so it holds under concurrent saves (the second writer waits for
 -- the first and then fails with 23505) and cannot drift when forms are added,
 -- emptied or a row's form changes.
+-- Not CONCURRENTLY: the migration runs in one transaction. The build briefly
+-- blocks writes on events_registrations (about 6.4k rows today, sub-second);
+-- apply off-peak.
 CREATE UNIQUE INDEX IF NOT EXISTS events_registrations_final_rank_one_per_set
   ON public.events_registrations
      (event_id, COALESCE(form_id, '00000000-0000-0000-0000-000000000000'::uuid), final_rank)
@@ -92,6 +95,7 @@ DECLARE
   v_moved boolean := false;
   v_renamed boolean := false;
   v_status_changed boolean := false;
+  v_withdrawn boolean := false;
   v_type text;
 BEGIN
   -- Deleting a placed row removes a winner: same authority as changing one.
@@ -130,16 +134,29 @@ BEGIN
       RETURN NEW;
     END IF;
 
+    -- A winner who withdraws or is disqualified loses the place (desk ruling
+    -- 10 Oct): moving a placed row INTO 'cancelled' or 'disqualified' clears
+    -- final_rank for every caller, and the history trigger logs the clear.
+    -- A cancelled or disqualified row therefore never holds a place.
+    IF OLD.final_rank IS NOT NULL
+       AND NEW.status IN ('cancelled', 'disqualified')
+       AND NEW.status IS DISTINCT FROM OLD.status THEN
+      NEW.final_rank := NULL;
+      v_withdrawn := true;
+    END IF;
+
     v_rank_changed := NEW.final_rank IS DISTINCT FROM OLD.final_rank;
     v_moved := NEW.event_id IS DISTINCT FROM OLD.event_id
             OR NEW.form_id IS DISTINCT FROM OLD.form_id;
     v_renamed := NEW.participant_name IS DISTINCT FROM OLD.participant_name
               OR NEW.institution_name IS DISTINCT FROM OLD.institution_name
               OR NEW.department IS DISTINCT FROM OLD.department;
-    -- Any status change on a placed row (cancelling, un-cancelling, ...):
-    -- allowed for those who may record winners (a cancelled winner keeps the
-    -- place and the card marks it "(cancelled)"), refused for others.
-    v_status_changed := NEW.status IS DISTINCT FROM OLD.status;
+    -- A placed row moving INTO or OUT OF 'cancelled' / 'disqualified' needs
+    -- winner authority (the registrant's own cancel is the one exception,
+    -- below). Every other status change (registered / confirmed / pending <->
+    -- checked_in) stays free, so check-in desks keep working.
+    v_status_changed := NEW.status IS DISTINCT FROM OLD.status
+      AND (OLD.status IN ('cancelled', 'disqualified') OR NEW.status IN ('cancelled', 'disqualified'));
     -- Nothing about a place changes: an unplaced row moving, being renamed or
     -- changing status, or a placed row whose other columns change.
     IF NOT v_rank_changed
@@ -156,13 +173,24 @@ BEGIN
     IF v_type IS DISTINCT FROM 'cultural' THEN
       RAISE EXCEPTION 'Winners can be recorded only for cultural events.' USING ERRCODE = '22023';
     END IF;
-    IF NEW.status = 'cancelled' THEN
-      RAISE EXCEPTION 'A cancelled registration cannot hold a place.' USING ERRCODE = '22023';
+    IF NEW.status IN ('cancelled', 'disqualified') THEN
+      RAISE EXCEPTION 'A cancelled or disqualified registration cannot hold a place.' USING ERRCODE = '22023';
     END IF;
   END IF;
 
   -- Service role and direct database sessions are trusted for authority.
   IF COALESCE(auth.role(), '') NOT IN ('anon', 'authenticated') THEN
+    RETURN NEW;
+  END IF;
+
+  -- The registrant may cancel their OWN placed registration (only that: no
+  -- move or rename in the same statement). The place is cleared above.
+  IF TG_OP = 'UPDATE'
+     AND v_withdrawn AND NOT v_moved AND NOT v_renamed
+     AND NEW.status = 'cancelled'
+     AND OLD.profile_id IS NOT NULL
+     AND OLD.profile_id = auth.uid()
+     AND NEW.profile_id IS NOT DISTINCT FROM OLD.profile_id THEN
     RETURN NEW;
   END IF;
 
@@ -277,7 +305,16 @@ BEGIN
      AND r.final_rank IS NOT NULL
      AND r.final_rank IS DISTINCT FROM ch.rank
      AND (ch.rank IS NULL
-          OR EXISTS (SELECT 1 FROM ch c2 WHERE c2.reg_id <> ch.reg_id AND c2.rank = r.final_rank));
+          OR EXISTS (
+               SELECT 1
+               FROM ch c2
+               JOIN public.events_registrations r2 ON r2.id = c2.reg_id
+               WHERE c2.reg_id <> ch.reg_id
+                 AND c2.rank = r.final_rank
+                 -- same set only: a row in another form wanting the same
+                 -- place number does not need this one emptied
+                 AND COALESCE(r2.form_id, '00000000-0000-0000-0000-000000000000'::uuid)
+                   = COALESCE(r.form_id, '00000000-0000-0000-0000-000000000000'::uuid)));
 
   -- Pass 2: fill the new places.
   WITH ch AS (
@@ -378,12 +415,53 @@ REVOKE EXECUTE ON FUNCTION public.fn_events_registrations_final_rank_history() F
 
 DROP TRIGGER IF EXISTS trg_events_registrations_final_rank_history ON public.events_registrations;
 CREATE TRIGGER trg_events_registrations_final_rank_history
-  AFTER INSERT OR DELETE OR UPDATE OF final_rank, event_id, form_id ON public.events_registrations
+  AFTER INSERT OR DELETE OR UPDATE OF final_rank, event_id, form_id, status ON public.events_registrations
   FOR EACH ROW
   EXECUTE FUNCTION public.fn_events_registrations_final_rank_history();
 
 -- ---------------------------------------------------------------------------
--- 7. Self-check
+-- 7. Deleting a form that has winners
+-- ---------------------------------------------------------------------------
+-- Deleting a form sets form_id NULL on its registrations, and the guard then
+-- clears their places (section 4). The forms' own RLS
+-- (event_registration_forms_manage) is wider than winner authority (it also
+-- admits sports.tournaments.manage holders), so the winner check is made
+-- here, before the form goes. An event being deleted (cascade) is exempt.
+CREATE OR REPLACE FUNCTION public.fn_event_registration_forms_winner_guard()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+  IF COALESCE(auth.role(), '') NOT IN ('anon', 'authenticated') THEN
+    RETURN OLD;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM public.events e WHERE e.id = OLD.event_id) THEN
+    RETURN OLD;
+  END IF;
+  IF EXISTS (
+       SELECT 1 FROM public.events_registrations r
+       WHERE r.form_id = OLD.id AND r.final_rank IS NOT NULL
+     )
+     AND NOT COALESCE(public.fn_can_record_event_winners(OLD.event_id), false) THEN
+    RAISE EXCEPTION 'This form has recorded winners; only the event''s creator, in-charge or an administrator can delete it.'
+      USING ERRCODE = '42501';
+  END IF;
+  RETURN OLD;
+END;
+$$;
+
+REVOKE EXECUTE ON FUNCTION public.fn_event_registration_forms_winner_guard() FROM anon, PUBLIC;
+
+DROP TRIGGER IF EXISTS trg_event_registration_forms_winner_guard ON public.event_registration_forms;
+CREATE TRIGGER trg_event_registration_forms_winner_guard
+  BEFORE DELETE ON public.event_registration_forms
+  FOR EACH ROW
+  EXECUTE FUNCTION public.fn_event_registration_forms_winner_guard();
+
+-- ---------------------------------------------------------------------------
+-- 8. Self-check
 -- ---------------------------------------------------------------------------
 DO $assert$
 BEGIN
@@ -422,8 +500,25 @@ BEGIN
       AND tgrelid = 'public.events_registrations'::regclass
       AND NOT tgisinternal
       AND (tgtype & 8) <> 0  -- also fires on DELETE
+      -- and on status, so a withdrawal's cleared place is logged
+      AND (SELECT array_agg(a.attname::text ORDER BY a.attname)
+             FROM pg_attribute a
+            WHERE a.attrelid = tgrelid AND a.attnum = ANY (tgattr))
+          @> ARRAY['event_id', 'final_rank', 'form_id', 'status']
   ) THEN
     RAISE EXCEPTION 'final_rank history trigger missing';
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_trigger
+    WHERE tgname = 'trg_event_registration_forms_winner_guard'
+      AND tgrelid = 'public.event_registration_forms'::regclass
+      AND NOT tgisinternal
+      AND (tgtype & 8) <> 0
+  ) THEN
+    RAISE EXCEPTION 'form-delete winner guard trigger missing';
+  END IF;
+  IF has_function_privilege('anon', 'public.fn_event_registration_forms_winner_guard()', 'EXECUTE') THEN
+    RAISE EXCEPTION 'anon can execute the form-delete winner guard';
   END IF;
   IF has_function_privilege('anon', 'public.fn_set_event_registration_ranks(uuid, jsonb)', 'EXECUTE')
      OR has_function_privilege('anon', 'public.fn_can_record_event_winners(uuid)', 'EXECUTE')

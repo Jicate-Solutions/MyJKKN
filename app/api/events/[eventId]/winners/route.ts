@@ -67,7 +67,7 @@ export async function GET(
   // to them — only the placed rows are returned to a non-manager.
   const svc = createServiceRoleClient();
   const registrations: WinnerRegistration[] = [];
-  for (let from = 0; ; from += PAGE) {
+  for (let from = 0; ; ) {
     let page = (svc as any)
       .from('events_registrations')
       .select('id, form_id, participant_name, institution_name, department, status, final_rank')
@@ -80,8 +80,11 @@ export async function GET(
     if (error) {
       return NextResponse.json({ error: 'Could not load the winners. Please try again.' }, { status: 500 });
     }
-    registrations.push(...((data ?? []) as WinnerRegistration[]));
-    if (!data || data.length < PAGE) break;
+    // Stop only on an empty page, and advance by what actually came back: a
+    // server whose max-rows is below PAGE returns short pages that are not the end.
+    if (!data || data.length === 0) break;
+    registrations.push(...(data as WinnerRegistration[]));
+    from += data.length;
   }
   const { data: forms } = await (svc as any)
     .from('event_registration_forms')
@@ -112,7 +115,8 @@ export async function POST(
     return NextResponse.json({ error: 'Please sign in to record winners.' }, { status: 401 });
   }
 
-  const body = (await request.json().catch(() => ({}))) as { changes?: unknown };
+  // `?? {}`: a literal JSON null body parses fine and must still be a 400.
+  const body = ((await request.json().catch(() => null)) ?? {}) as { changes?: unknown };
   const raw = Array.isArray(body.changes) ? body.changes : null;
   const changes = raw?.map((c: any) => ({
     registration_id: typeof c?.registrationId === 'string' ? c.registrationId : null,

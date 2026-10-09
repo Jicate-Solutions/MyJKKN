@@ -4,7 +4,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 const rpc = vi.hoisted(() => vi.fn());
-const svcPages = vi.hoisted(() => ({ rows: [] as any[], ranges: [] as [number, number][] }));
+const svcPages = vi.hoisted(() => ({ rows: [] as any[], ranges: [] as [number, number][], maxRows: Infinity }));
 
 vi.mock('@/lib/supabase/server', () => ({
   getAuthUser: async () => ({ user: { id: 'u1' }, error: null }),
@@ -28,7 +28,7 @@ vi.mock('@/lib/supabase/server', () => ({
         order: () => q,
         range: async (from: number, to: number) => {
           svcPages.ranges.push([from, to]);
-          return { data: svcPages.rows.slice(from, to + 1), error: null };
+          return { data: svcPages.rows.slice(from, Math.min(to + 1, from + svcPages.maxRows)), error: null };
         },
       };
       return q;
@@ -54,6 +54,7 @@ beforeEach(() => {
   rpc.mockReset();
   svcPages.rows = [];
   svcPages.ranges = [];
+  svcPages.maxRows = Infinity;
 });
 
 describe('POST /api/events/[eventId]/winners', () => {
@@ -112,10 +113,31 @@ describe('GET /api/events/[eventId]/winners', () => {
     const body = await res.json();
     expect(body.canManage).toBe(true);
     expect(body.registrations).toHaveLength(2345);
+    // Stops only on an empty page.
     expect(svcPages.ranges).toEqual([
       [0, 999],
       [1000, 1999],
       [2000, 2999],
+      [2345, 3344],
     ]);
+  });
+});
+
+describe('round 6', () => {
+  it('a literal null body is a 400, not a 500', async () => {
+    const res = await POST(
+      new Request(`http://x/api/events/${EV}/winners`, { method: 'POST', body: 'null' }) as any,
+      { params: Promise.resolve({ eventId: EV }) },
+    );
+    expect(res.status).toBe(400);
+    expect(rpc).not.toHaveBeenCalled();
+  });
+
+  it('a server that caps pages below 1000 rows does not cut the list short', async () => {
+    rpc.mockResolvedValue({ data: true, error: null });
+    svcPages.maxRows = 500;
+    svcPages.rows = Array.from({ length: 1200 }, (_, i) => ({ id: `r${i}`, final_rank: null }));
+    const res = await GET(new Request('http://x') as any, { params: Promise.resolve({ eventId: EV }) });
+    expect((await res.json()).registrations).toHaveLength(1200);
   });
 });

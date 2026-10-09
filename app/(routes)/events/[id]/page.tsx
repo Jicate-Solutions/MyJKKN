@@ -1013,7 +1013,14 @@ export default function GeneralEventDetailPage() {
             server answers whether this viewer may record (creator, in-charge,
             admin — fn_can_record_event_winners), and everyone else sees only
             the places already recorded. */}
-        {(event.event_type as string) === 'cultural' && <EventWinnersCard eventId={event.id} />}
+        {(event.event_type as string) === 'cultural' && (
+          <EventWinnersCard
+            eventId={event.id}
+            mayManage={
+              canEdit || isSuperAdmin || inchargesRaw.some((i) => i.member_id && i.member_id === profile?.id)
+            }
+          />
+        )}
 
         {/* Shared event logistics — sponsors, budget, committees, check-in, QR,
             volunteers, incidents, certificates, bulk import, analytics, kit.
