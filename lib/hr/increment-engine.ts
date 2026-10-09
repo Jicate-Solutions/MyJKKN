@@ -22,20 +22,15 @@
 // anything. The output is a PROPOSAL: a number, the clause that produced it,
 // and a sentence a non-coder can read.
 //
-// THE POLICY DOES NOT SAY HOW MUCH (finding, 2026-09-29)
-// -----------------------------------------------------
-// Read the seeded rows: `increments` carries a window, approvers, two boolean
-// conditions and a trigger list. `yearly_increment_factors` is a list of
-// dimension NAMES ("research", "journal_pubs"), not weights or amounts. There
-// is no rupee figure and no percentage anywhere in the policy.
-//
-// So the arithmetic below reads two OPTIONAL clauses that no seeded row has
-// yet — `increments.annual_amount` and `increments.annual_percent_of_gross` —
-// and when both are absent it reports the amount as NOT CONFIGURED rather than
-// inventing one. Deriving a figure from the pay scale, or defaulting to some
-// conventional 3%, would put a number in front of the Director that nobody
-// authorised. That is the same reasoning the salary table's own migration
-// header gives for refusing to invent a component split.
+// THE AMOUNT COMES ONLY FROM THE DIRECTOR'S PER-DEPARTMENT RULE
+// -------------------------------------------------------------
+// The college's `increments` section carries a window, approvers, two boolean
+// conditions and a trigger list: it decides WHETHER a rise is due. Since the
+// Director's ruling of 30 Sep 2026 the amount is the SAME per-department
+// figure the salary suggestion uses (hr.salary_suggestion_rule, #4119). The
+// optional `increments.annual_amount` / `annual_percent_of_gross` clauses are
+// still parsed, so an administrator is told they are ignored, but no sum uses
+// them. A department the Director left empty proposes no figure, and says so.
 //
 // Eligibility and amount are therefore separate answers. A person can be
 // genuinely DUE while the amount stays null.
@@ -49,6 +44,10 @@
 // nowhere at all. Wherever the evidence is missing the verdict is
 // `cannot_tell` and the reason names precisely what is missing — it is never
 // rounded up to "due".
+//
+// The same holds for every READ behind the facts: a failed or refused read, a
+// record that is missing or unusable, or a condition the rules leave unstated
+// is "not decided", never "due" (#4105 panel round 1, 9 Oct 2026).
 // ============================================================================
 
 // ---------------------------------------------------------------------------
@@ -71,10 +70,11 @@ export interface IncrementRules {
   /** `yearly_increment_factors` — recorded for display, not used in any sum. */
   yearlyIncrementFactors: string[];
 
-  // --- Amount clauses. Optional, and absent from every seeded row today. ---
-  /** `increments.annual_amount` — a flat rupees-per-month uplift. */
+  // --- Older amount clauses. Parsed so they can be reported; NOT used: the ---
+  // --- amount is the Director's per-department figure (30 Sep 2026).     ---
+  /** `increments.annual_amount` — a flat rupees-per-month uplift. Ignored. */
   annualAmount: number | null;
-  /** `increments.annual_percent_of_gross` — e.g. 3 for 3%. */
+  /** `increments.annual_percent_of_gross` — e.g. 3 for 3%. Ignored. */
   annualPercentOfGross: number | null;
   /**
    * `increments.satisfactory_min_score` — the review score at or above which
@@ -82,6 +82,12 @@ export interface IncrementRules {
    * condition the policy sets, and says so.
    */
   satisfactoryMinScore: number | null;
+  /**
+   * Conditions the rules do not state with a usable value: a yes/no that is
+   * missing or not a yes/no, or a trigger list that is missing or not a list.
+   * Each is read as "not decided", never as "not required".
+   */
+  unstatedConditions: string[];
 }
 
 export interface ParsedRules {
@@ -122,6 +128,12 @@ export interface PerformanceReviewFact {
   finalScore: number | null;
   /** True only for status = 'final_approved'. */
   isFinalApproved: boolean;
+  /**
+   * The end of the period this review judged: the cycle's `end_date`, else
+   * the date it was finally approved. A review whose period ended before the
+   * window's anchor judges an earlier year and is not used.
+   */
+  periodEnd: string | null;
 }
 
 export interface PayScaleReference {
@@ -147,14 +159,30 @@ export interface PersonPayFacts {
   /** `hr_staff_salaries.monthly_gross` of the row in force. */
   currentMonthlyGross: number | null;
   /**
+   * What the pay read found for this person, on or before the report date:
+   * `one` row in force; `none`; `ambiguous` (two or more in force); or
+   * `unreadable` (the read failed). Only `one` lets the year be counted.
+   */
+  payRecord: 'one' | 'none' | 'ambiguous' | 'unreadable';
+  /**
    * `effective_from` of the salary row in force — i.e. the date this person's
    * pay was last set. This is the annual window's anchor.
    */
   payEffectiveFrom: string | null;
-  /** `staff.date_of_joining`. The anchor when no salary row exists. */
+  /**
+   * `staff.date_of_joining`. Shown for context only: with no pay row the year
+   * is NOT counted from it (a pay change the read could not see would make a
+   * person look due).
+   */
   dateOfJoining: string | null;
   /** The most recent review, final-approved or not. Null when none exists. */
   latestReview: PerformanceReviewFact | null;
+  /**
+   * False when the review read failed or could not see every review (RLS
+   * answers a refused read with zero rows). `latestReview` is then not the
+   * person's record, and performance is reported as not checked.
+   */
+  reviewRecordReadable: boolean;
   /** Decided disciplinary cases. */
   decidedDisciplinaryCases: DecidedDisciplinaryCase[];
   /** Cases initiated and not yet decided. A live enquiry may still exonerate. */
@@ -210,6 +238,7 @@ export interface IncrementCheck {
     | 'conduct'
     | 'performance'
     | 'hod_recommendation'
+    | 'rules_complete'
     | 'unrecognised_trigger';
   /** Short label for a table cell. */
   label: string;
@@ -357,6 +386,7 @@ export const EMPTY_RULES: IncrementRules = {
   annualAmount: null,
   annualPercentOfGross: null,
   satisfactoryMinScore: null,
+  unstatedConditions: [],
 };
 
 /**
@@ -402,24 +432,28 @@ export function parseIncrementRules(policyValue: unknown): ParsedRules | null {
   }
 
   const annualAmount = asFiniteNumber(inc.annual_amount);
-  if (annualAmount !== null && annualAmount <= 0) {
-    problems.push('The fixed increment amount in the rules is not a positive figure.');
-  }
-
   const percent = asFiniteNumber(inc.annual_percent_of_gross);
-  if (percent !== null && (percent <= 0 || percent > 100)) {
-    problems.push(
-      'The increment percentage in the rules is not between 0 and 100.',
-    );
-  }
-
   const usableAmount = annualAmount !== null && annualAmount > 0 ? annualAmount : null;
   const usablePercent = percent !== null && percent > 0 && percent <= 100 ? percent : null;
 
-  if (usableAmount !== null && usablePercent !== null) {
+  if (inc.annual_amount != null || inc.annual_percent_of_gross != null) {
     problems.push(
-      'The rules give both a fixed amount and a percentage. The fixed amount is used.',
+      "The rules also give a fixed amount or a percentage. Neither is used: the amount comes only from the Director's amount for each department.",
     );
+  }
+
+  const unstatedConditions: string[] = [];
+  if (typeof inc.satisfactory_performance_required !== 'boolean') {
+    unstatedConditions.push('whether satisfactory performance is required');
+  }
+  if (typeof inc.head_of_dept_recommendation_required !== 'boolean') {
+    unstatedConditions.push("whether the head of department's recommendation is required");
+  }
+  if (!Array.isArray(inc.withholding_triggers)) {
+    unstatedConditions.push('what withholds an increment');
+  }
+  if (unstatedConditions.length > 0) {
+    problems.push(`The rules do not say ${unstatedConditions.join(', or ')}.`);
   }
 
   const triggers = asStringArray(inc.withholding_triggers);
@@ -446,6 +480,7 @@ export function parseIncrementRules(policyValue: unknown): ParsedRules | null {
       annualAmount: usableAmount,
       annualPercentOfGross: usableAmount !== null ? null : usablePercent,
       satisfactoryMinScore: asFiniteNumber(inc.satisfactory_min_score),
+      unstatedConditions,
     },
     problems,
   };
@@ -518,6 +553,9 @@ export interface AssessOptions {
 
 function asOfParts(asOf: string | Date): DateParts {
   if (asOf instanceof Date) {
+    if (Number.isNaN(asOf.getTime())) {
+      throw new Error('The report date is not a real date.');
+    }
     return {
       y: asOf.getUTCFullYear(),
       m: asOf.getUTCMonth() + 1,
@@ -526,12 +564,9 @@ function asOfParts(asOf: string | Date): DateParts {
   }
   const parsed = parseIsoDate(asOf);
   if (parsed) return parsed;
-  const fallback = new Date(asOf);
-  return {
-    y: fallback.getUTCFullYear(),
-    m: fallback.getUTCMonth() + 1,
-    d: fallback.getUTCDate(),
-  };
+  // An impossible or unreadable date would make every month count NaN, and
+  // "NaN < window" is false, so everyone would read as due. Refuse instead.
+  throw new Error(`The report date "${asOf}" is not a real date written as YYYY-MM-DD.`);
 }
 
 const WITHHOLDING_OUTCOMES: DisciplinaryOutcome[] = [
@@ -539,6 +574,14 @@ const WITHHOLDING_OUTCOMES: DisciplinaryOutcome[] = [
   'suspension',
   'termination',
 ];
+
+/** Higher is more severe; the reason names the most severe decision. */
+const SEVERITY: Record<DisciplinaryOutcome, number> = {
+  exonerated: 0,
+  warning: 1,
+  suspension: 2,
+  termination: 3,
+};
 
 /**
  * The single entry point. Pure: no clock, no network, no database. Give it a
@@ -598,11 +641,11 @@ export function assessIncrement(
   const approver = rules.approverDefault;
 
   // --- 2. The annual window ----------------------------------------------
-  const payAnchor = parseIsoDate(person.payEffectiveFrom);
-  const joinAnchor = parseIsoDate(person.dateOfJoining);
-  const anchor = payAnchor ?? joinAnchor;
-  const anchorKind: IncrementProposal['windowAnchor'] =
-    payAnchor !== null ? 'last_pay_change' : joinAnchor !== null ? 'date_of_joining' : null;
+  // Counted ONLY from the pay row in force. No row, two rows, a failed read or
+  // an unusable date is "not decided": counting from the joining date instead
+  // would make anyone whose pay change the read missed look due.
+  const anchor = person.payRecord === 'one' ? parseIsoDate(person.payEffectiveFrom) : null;
+  const anchorKind: IncrementProposal['windowAnchor'] = anchor !== null ? 'last_pay_change' : null;
 
   let monthsSince: number | null = null;
   let nextEligibleOn: string | null = null;
@@ -629,19 +672,32 @@ export function assessIncrement(
     };
   }
 
-  if (anchor === null) {
+  const gross = person.currentMonthlyGross;
+  const payProblem =
+    person.payRecord === 'unreadable'
+      ? 'Could not check pay — not decided. The pay record could not be read.'
+      : person.payRecord === 'ambiguous'
+        ? 'More than one pay record is in force for this person, so when their pay was last set is not clear.'
+        : person.payRecord === 'none'
+          ? 'No pay record is in force for this person, so the year since their pay was last set cannot be counted.'
+          : anchor === null
+            ? 'The pay record in force has no usable start date, so the year cannot be counted.'
+            : typeof gross !== 'number' || !Number.isFinite(gross) || gross <= 0
+              ? 'The pay record in force has no usable monthly figure.'
+              : null;
+
+  if (payProblem !== null || anchor === null) {
+    const detail = payProblem ?? 'The year since pay was last set cannot be counted.';
     checks.push({
       id: 'annual_window',
       label: 'Time since last rise',
       status: 'unknown',
-      detail:
-        'There is no record of when this person joined or when their pay was last set, so the year cannot be counted.',
+      detail,
     });
     return {
       ...base,
       verdict: 'cannot_tell',
-      reason:
-        'There is no record of when this person joined or when their pay was last set, so the year cannot be counted.',
+      reason: `Cannot tell — ${detail}`,
       proposedMonthlyIncrease: null,
       proposedNewMonthlyGross: null,
       amountRule: 'not_applicable',
@@ -654,8 +710,11 @@ export function assessIncrement(
   }
 
   monthsSince = wholeMonthsBetween(anchor, today);
-  const anchorPhrase =
-    anchorKind === 'last_pay_change' ? 'pay was last set' : 'they joined';
+  if (!Number.isFinite(monthsSince)) {
+    // Unreachable with the checks above; kept so NaN can never pass the window.
+    throw new Error('The months since pay was last set could not be counted.');
+  }
+  const anchorPhrase = 'pay was last set';
 
   if (monthsSince < rules.annualWindowMonths) {
     const due = addMonthsClamped(anchor, rules.annualWindowMonths);
@@ -704,13 +763,17 @@ export function assessIncrement(
       detail: 'The rules do not withhold an increment for conduct.',
     });
   } else {
-    const blocking = person.decidedDisciplinaryCases.filter((c) => {
-      if (!WITHHOLDING_OUTCOMES.includes(c.outcome)) return false;
-      const when = parseIsoDate(c.outcomeDate);
-      // A decided case with no date cannot be placed inside the window.
-      if (when === null) return false;
-      return compareDates(when, anchor) >= 0;
-    });
+    const blocking = person.decidedDisciplinaryCases
+      .filter((c) => {
+        if (!WITHHOLDING_OUTCOMES.includes(c.outcome)) return false;
+        const when = parseIsoDate(c.outcomeDate);
+        // A decided case with no date cannot be placed inside the window.
+        if (when === null) return false;
+        // Inside the window: on or after the anchor, and not after the report
+        // date (a report asked "as at" a past date ignores later decisions).
+        return compareDates(when, anchor) >= 0 && compareDates(when, today) <= 0;
+      })
+      .sort((a, b) => SEVERITY[b.outcome] - SEVERITY[a.outcome]);
     const undatedDecided = person.decidedDisciplinaryCases.filter(
       (c) =>
         WITHHOLDING_OUTCOMES.includes(c.outcome) && parseIsoDate(c.outcomeDate) === null,
@@ -787,7 +850,16 @@ export function assessIncrement(
     });
   } else {
     const review = person.latestReview;
-    if (review === null) {
+    const reviewPeriodEnd = review ? parseIsoDate(review.periodEnd) : null;
+    if (!person.reviewRecordReadable) {
+      checks.push({
+        id: 'performance',
+        label: 'Performance',
+        status: 'unknown',
+        detail:
+          'Could not check performance — not decided. The appraisal record could not be read.',
+      });
+    } else if (review === null) {
       checks.push({
         id: 'performance',
         label: 'Performance',
@@ -802,6 +874,16 @@ export function assessIncrement(
         status: 'unknown',
         detail:
           'This person has a performance review that has not been finally approved, so there is no judged result to read.',
+      });
+    } else if (reviewPeriodEnd === null || compareDates(reviewPeriodEnd, anchor) < 0) {
+      checks.push({
+        id: 'performance',
+        label: 'Performance',
+        status: 'unknown',
+        detail:
+          reviewPeriodEnd === null
+            ? 'The latest signed-off appraisal has no date, so it cannot be placed inside this year.'
+            : `The latest signed-off appraisal covers a period that ended on ${formatIsoDate(reviewPeriodEnd)}, before ${anchorPhrase}, so it does not judge this year.`,
       });
     } else if (review.finalScore === null) {
       checks.push({
@@ -863,6 +945,17 @@ export function assessIncrement(
       status: 'unknown',
       detail:
         'The rules require the head of department to recommend the increment, and MyJKKN records no such recommendation anywhere.',
+    });
+  }
+
+  // --- 5b. Conditions the rules leave unstated ---------------------------
+  // A missing yes/no is not a "no". Read as not decided.
+  if (rules.unstatedConditions.length > 0) {
+    checks.push({
+      id: 'rules_complete',
+      label: 'Rules',
+      status: 'unknown',
+      detail: `The rules do not say ${rules.unstatedConditions.join(', or ')}.`,
     });
   }
 
