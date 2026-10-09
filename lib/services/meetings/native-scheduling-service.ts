@@ -1071,7 +1071,7 @@ export class NativeSchedulingService {
     const { data: booking, error } = await supabase
       .from('meeting_bookings')
       .select(
-        'id, host_profile_id, cancel_token, status, attendee_name, attendee_email, start_time, end_time, meeting_type_id, google_event_id, venue_reservation_id',
+        'id, host_profile_id, cancel_token, status, attendee_name, attendee_email, start_time, end_time, meeting_type_id, google_event_id, venue_reservation_id, answers',
       )
       .eq('uid', uid)
       .maybeSingle();
@@ -1149,9 +1149,25 @@ export class NativeSchedulingService {
     // and freed, for record-keeping (Director request) — mirrors Calendly,
     // instead of deleting it. sendUpdates=all still notifies the attendee; the
     // cancellation email is sent below as well.
+    // A meeting scheduled directly by its host has no type: its title and its
+    // full invitee list live in answers (HostSchedulingService.scheduleDirect).
+    const answers = ((booking as { answers?: unknown }).answers ?? {}) as {
+      title?: unknown;
+      participants?: { email?: unknown; name?: unknown }[];
+    };
+    const meetingTitle =
+      (mtRow?.title as string | undefined) ??
+      (typeof answers.title === 'string' && answers.title.trim() ? answers.title.trim() : 'Meeting');
+    // Every invitee is told, not only the first (Director, 9 Oct 2026).
+    const participants = (Array.isArray(answers.participants) ? answers.participants : [])
+      .map((p) => ({ email: typeof p?.email === 'string' ? p.email : '', name: typeof p?.name === 'string' ? p.name : '' }))
+      .filter((p) => p.email);
+    const recipients = participants.length
+      ? participants
+      : [{ email: booking.attendee_email ?? '', name: booking.attendee_name ?? '' }];
+
     if (booking.google_event_id) {
-      const originalSummary =
-        `${(mtRow?.title as string | undefined) ?? 'Meeting'} — ${booking.attendee_name ?? ''}`.trim();
+      const originalSummary = `${meetingTitle} — ${booking.attendee_name ?? ''}`.trim();
       await GoogleCalendarService.markEventCancelled(
         supabase,
         booking.host_profile_id,
@@ -1160,21 +1176,23 @@ export class NativeSchedulingService {
       );
     }
 
-    await MeetingBookingEmailService.sendBookingCancelledEmails({
-      uid,
-      meetingTitle: (mtRow?.title as string | undefined) ?? 'Meeting',
-      durationMin,
-      timezone,
-      startTime: booking.start_time,
-      hostName:
-        (host?.full_name as string | undefined) ?? (host?.email as string | undefined) ?? '',
-      hostEmail: (host?.email as string | undefined) ?? '',
-      attendeeName: booking.attendee_name ?? '',
-      attendeeEmail: booking.attendee_email ?? '',
-      attendeePhone: null,
-      cancelledBy: byToken ? 'attendee' : 'host',
-      reason: reason ?? null,
-    });
+    for (const r of recipients) {
+      await MeetingBookingEmailService.sendBookingCancelledEmails({
+        uid,
+        meetingTitle,
+        durationMin,
+        timezone,
+        startTime: booking.start_time,
+        hostName:
+          (host?.full_name as string | undefined) ?? (host?.email as string | undefined) ?? '',
+        hostEmail: (host?.email as string | undefined) ?? '',
+        attendeeName: r.name || r.email,
+        attendeeEmail: r.email,
+        attendeePhone: null,
+        cancelledBy: byToken ? 'attendee' : 'host',
+        reason: reason ?? null,
+      });
+    }
 
     return { success: true };
   }

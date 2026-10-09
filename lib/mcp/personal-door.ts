@@ -720,9 +720,9 @@ export const CANCEL_TOOL = {
 export const MOVE_TOOL = {
   name: MOVE_TOOL_NAME,
   description:
-    'Move a meeting that THIS key booked to a new time. The meeting is booked again at the new time with the same ' +
-    'title, invitees and place, then the old one is cancelled; the answer carries the new uid and Meet link. ' +
-    'Times are India time. The new time may not overlap the old one (cancel it, then book instead).',
+    'Move a meeting that THIS key booked to a new time. It stays the same meeting: same uid, same Meet link, and ' +
+    "every invitee's invite updates to the new time. Times are India time. The new time may not overlap the old one " +
+    '(cancel it, then book instead). When the new time is taken, the answer lists the next free times.',
   inputSchema: {
     type: 'object' as const,
     properties: {
@@ -741,9 +741,6 @@ export const MOVE_TOOL = {
     required: ['uid', 'start_local'],
   },
 };
-
-/** A move answers within this, leaving headroom under the route's maxDuration (60 s). */
-const MOVE_BUDGET_MS = 55_000;
 
 const NOT_THIS_KEYS = 'This key did not book a meeting with that uid, so it cannot change it.';
 
@@ -847,82 +844,90 @@ async function runMoveTool(
   input: Record<string, unknown> | undefined
 ): Promise<unknown> {
   const a = input ?? {};
-  const startedAt = Date.now();
-  await assertOwnerMayMeet(ownerClient);
+  // Every step before the move shares ONE deadline (as schedule_meeting's
+  // do), so a slow database answers well inside the route's 60 s.
+  const prepareDeadline = Date.now() + BOOKING_LIMITS.PREPARE_TIMEOUT_MS;
+  const inTime = <T,>(p: Promise<T>) =>
+    withDeadline(p, Math.max(1, prepareDeadline - Date.now())).catch((err) => {
+      throw err instanceof BookingTimeout ? new PrepareTimeout() : err;
+    });
+  await inTime(assertOwnerMayMeet(ownerClient));
   const db = createServiceRoleClient() as unknown as SupabaseClient;
-  const old = await beforeChange(loadThisKeysMeeting(db, ownerId, keyId, a.uid));
+  const old = await inTime(loadThisKeysMeeting(db, ownerId, keyId, a.uid));
 
-  const ans = (old.answers ?? {}) as {
-    title?: string;
-    note?: string | null;
-    location_mode?: string;
-    location_text?: string | null;
-    participants?: { email?: string; name?: string }[];
-  };
+  const startIso = indiaLocalToIso(a.start_local);
+  if (!startIso) throw new ToolArgsError('start_local must be India time as YYYY-MM-DDTHH:MM.');
+  if (new Date(startIso).getTime() < Date.now() - 5 * 60_000) {
+    throw new ToolArgsError('That start time has already passed.');
+  }
+  if (new Date(startIso).getTime() > Date.now() + BOOKING_LIMITS.MAX_DAYS_AHEAD * 86_400_000) {
+    throw new ToolArgsError('That start time is more than a year away.');
+  }
   const oldDuration = Math.round((new Date(old.end_time).getTime() - new Date(old.start_time).getTime()) / 60_000);
-  const attendees = (ans.participants ?? []).map((p) => ({ email: p.email ?? '', name: p.name ?? '' }));
-  const rebook: Record<string, unknown> = {
-    title: ans.title ?? '',
-    start_local: a.start_local,
-    duration_min: a.duration_min === undefined ? oldDuration : a.duration_min,
-    location_mode: ans.location_mode,
-    location_text: ans.location_text ?? undefined,
-    note: ans.note ?? undefined,
-    attendees,
-    // The same people as before; anyone outside JKKN was already allowed then.
-    allow_outside: true,
-  };
+  const durationMin = a.duration_min === undefined ? oldDuration : Number(a.duration_min);
+  if (!Number.isInteger(durationMin) || durationMin < 5 || durationMin > MAX_DURATION_MIN) {
+    throw new ToolArgsError(`duration_min must be a whole number from 5 to ${MAX_DURATION_MIN}.`);
+  }
 
-  // Refuse an overlap before reserving anything: the new booking would clash
-  // with the meeting it replaces.
-  const args = parseScheduleArgs(rebook);
-  const newStart = new Date(args.startIso).getTime();
-  const newEnd = newStart + args.durationMin * 60_000;
+  // Director, 9 Oct 2026: a new time that overlaps the current one is refused
+  // (cancel, then book), even though the in-place move below could do it.
+  const newStart = new Date(startIso).getTime();
+  const newEnd = newStart + durationMin * 60_000;
   if (newStart < new Date(old.end_time).getTime() && newEnd > new Date(old.start_time).getTime()) {
     throw new DoorRefusal(
       'The new time overlaps the current meeting. Cancel it with cancel_meeting, then book the new time.'
     );
   }
 
-  const booked = (await runScheduleTool(ownerClient, ownerId, keyId, rebook)) as Record<string, unknown>;
-  if (booked.attention) {
-    // The new meeting is only half made (no Meet link or no invitations).
-    // Never leave people with no working meeting: keep the old one.
-    return {
-      ...booked,
-      moved: false,
-      old_uid: old.uid,
-      attention: `${String(booked.attention)} The old meeting (${old.uid}) was NOT cancelled, so nobody lost their invitation.`,
-    };
-  }
-  // The whole move must answer inside the route's 60 s; what is left goes to
-  // cancelling the old meeting.
-  const left = MOVE_BUDGET_MS - (Date.now() - startedAt);
-  const cancelLater = {
-    ...booked,
-    moved: false,
-    old_uid: old.uid,
-    attention: `The new meeting is booked, but the old one (${old.uid}) may not be cancelled yet. Tell the person who asked, check the owner's Meetings inbox, and cancel it with cancel_meeting if it is still on.`,
-  };
-  if (left < 3_000) return cancelLater;
+  // A move re-notifies every invitee, so it counts toward the same per-key and
+  // per-owner limits as a booking.
+  const participants = ((old.answers ?? {}) as { participants?: unknown[] }).participants;
+  const invitees = Math.max(1, Array.isArray(participants) ? participants.length : 1);
+  const reservationId = await inTime(reserveBookingSlot(db, keyId, ownerId, invitees));
+  let allowed = false;
   try {
-    await cancelThisKeysMeeting(
-      db,
-      ownerId,
-      old.uid,
-      `Moved to ${isoToIndiaLocal(String(booked.start))} (India time).`,
-      Math.min(BOOKING_LIMITS.BOOKING_TIMEOUT_MS, left)
-    );
+    allowed = await inTime(stillAllowedToBook(db, keyId, ownerId));
   } catch (err) {
-    if (err instanceof BookingTimeout) return cancelLater;
-    return {
-      ...booked,
-      moved: false,
-      old_uid: old.uid,
-      attention: `The new meeting is booked, but the old one (${old.uid}) could not be cancelled. Tell the person who asked, then cancel it with cancel_meeting or in MyJKKN.`,
-    };
+    await releaseBookingSlot(db, reservationId);
+    throw err;
   }
-  return { ...booked, moved: true, old_uid: old.uid };
+  if (!allowed) {
+    await releaseBookingSlot(db, reservationId);
+    throw new DoorRefusal('Booking was switched off for this key, so nothing was changed.');
+  }
+
+  // In place: same meeting, same uid, same Meet link (Director, 9 Oct 2026:
+  // "Keep the same link"). All or nothing — see HostSchedulingService.moveDirect.
+  const work = HostSchedulingService.moveDirect(db, { uid: old.uid, hostProfileId: ownerId, startIso, durationMin });
+  let outcome: Awaited<typeof work>;
+  try {
+    outcome = await withDeadline(work, BOOKING_LIMITS.BOOKING_TIMEOUT_MS);
+  } catch (err) {
+    if (err instanceof BookingTimeout) keepRunningAfterResponse(work);
+    throw err;
+  }
+  if (!outcome.ok) {
+    const code = outcome.error?.code;
+    if (code === 'SLOT_TAKEN' || code === 'CALENDAR_FAILED' || code === 'NOT_FOUND') {
+      // All three are decided with nothing changed.
+      await releaseBookingSlot(db, reservationId);
+      if (code === 'SLOT_TAKEN') {
+        throw new DoorRefusal(await withFreeTimes(db, ownerId, { startIso, durationMin }, outcome.error.message));
+      }
+      throw new DoorRefusal(`${outcome.error.message} The meeting is still at its old time.`);
+    }
+    throw new Error(outcome.error?.message ?? 'not moved');
+  }
+  const warning = outcome.warning ?? null;
+  return {
+    moved: true,
+    ...(warning ? { attention: `Moved, but not complete: ${warning} Tell the person who asked.` } : {}),
+    uid: outcome.data.uid,
+    start: outcome.data.startIso,
+    end: outcome.data.endIso,
+    previous_start: outcome.data.previousStartIso,
+    meet_link: outcome.data.videoUrl,
+  };
 }
 
 function jsonResponse(status: number, body: unknown, headers: Record<string, string> = {}): Response {

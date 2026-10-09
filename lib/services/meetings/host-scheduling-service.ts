@@ -161,6 +161,25 @@ function normaliseAttendees(attendees: ScheduleAttendee[]): ScheduleAttendee[] {
   return out;
 }
 
+export interface MoveDirectInput {
+  uid: string;
+  /** Must be the meeting's host; the caller has proven it is the signed-in owner. */
+  hostProfileId: string;
+  startIso: string;
+  durationMin: number;
+}
+
+export type MoveFailureCode = 'NOT_FOUND' | 'SLOT_TAKEN' | 'CALENDAR_FAILED' | 'UNKNOWN';
+
+/** Flat shape for the same strictNullChecks reason as ScheduleDirectOutcome. */
+export interface MoveDirectOutcome {
+  ok: boolean;
+  data?: { uid: string; startIso: string; endIso: string; previousStartIso: string; videoUrl: string | null };
+  error?: { code: MoveFailureCode; message: string };
+  /** Set when the meeting moved but a follow-on step (the old time could not be restored) needs a person. */
+  warning?: string | null;
+}
+
 export class HostSchedulingService {
   /**
    * Book a meeting the HOST initiated.
@@ -365,6 +384,172 @@ export class HostSchedulingService {
     return {
       ok: true,
       data: { uid, bookingId, startIso, endIso, videoUrl, googleEventId, warning },
+    };
+  }
+
+  /**
+   * Move a meeting the host scheduled directly (no meeting type) IN PLACE: the
+   * same booking, the same uid and the same Google Meet link, at a new time
+   * (Director, 9 Oct 2026: "Keep the same link"). rescheduleBooking cannot do
+   * this — it re-validates against a meeting type's schedule, and these
+   * meetings have none.
+   *
+   * All or nothing. The booking row is moved first (a compare-and-swap on the
+   * start it was read at; the gist exclusion refuses a clash with another
+   * meeting → SLOT_TAKEN). Then the Google event is patched (sendUpdates=all,
+   * so every invitee's existing invite updates in place). If that patch fails,
+   * the row is put back and CALENDAR_FAILED is returned: nothing changed. Only
+   * if putting it back ALSO fails is the move reported with a warning.
+   *
+   * `supabase` must be a SERVICE-ROLE client; the caller has proven the
+   * signed-in user is `hostProfileId`.
+   */
+  static async moveDirect(supabase: SupabaseClient, input: MoveDirectInput): Promise<MoveDirectOutcome> {
+    const { data: booking, error: readErr } = await (supabase as any)
+      .from('meeting_bookings')
+      .select(
+        'id, uid, host_profile_id, status, start_time, end_time, meeting_type_id, source, google_event_id, video_url, venue_reservation_id, reschedule_count, previous_start_time, rescheduled_at, answers',
+      )
+      .eq('uid', input.uid)
+      .maybeSingle();
+    if (readErr) return { ok: false, error: { code: 'UNKNOWN', message: 'Could not read the meeting.' } };
+    if (
+      !booking ||
+      booking.host_profile_id !== input.hostProfileId ||
+      booking.status !== 'confirmed' ||
+      booking.meeting_type_id !== null
+    ) {
+      return { ok: false, error: { code: 'NOT_FOUND', message: 'No meeting of yours with that reference can be moved here.' } };
+    }
+
+    const startIso = new Date(input.startIso).toISOString();
+    const endIso = new Date(new Date(startIso).getTime() + input.durationMin * 60_000).toISOString();
+    const oldStart = booking.start_time as string;
+    const oldEnd = booking.end_time as string;
+
+    const { data: moved, error: upErr } = await (supabase as any)
+      .from('meeting_bookings')
+      .update({
+        start_time: startIso,
+        end_time: endIso,
+        previous_start_time: oldStart,
+        rescheduled_at: new Date().toISOString(),
+        reschedule_count: ((booking.reschedule_count as number | null) ?? 0) + 1,
+      })
+      .eq('id', booking.id)
+      .eq('status', 'confirmed')
+      .eq('start_time', oldStart) // someone else moved or cancelled it meanwhile
+      .select('id')
+      .maybeSingle();
+    if (upErr) {
+      if (upErr.code === '23P01' || upErr.code === '23505') {
+        return {
+          ok: false,
+          error: { code: 'SLOT_TAKEN', message: 'You already have a meeting at that time. Pick another slot.' },
+        };
+      }
+      console.error(`${LOG_PREFIX} move failed for ${input.uid}:`, upErr.message);
+      return { ok: false, error: { code: 'UNKNOWN', message: 'The meeting could not be moved.' } };
+    }
+    if (!moved) {
+      return { ok: false, error: { code: 'NOT_FOUND', message: 'That meeting was changed or cancelled meanwhile.' } };
+    }
+
+    let warning: string | null = null;
+    if (booking.google_event_id) {
+      const patched = await GoogleCalendarService.patchEventTime(
+        supabase,
+        input.hostProfileId,
+        booking.google_event_id as string,
+        startIso,
+        endIso,
+        CAMPUS_TZ,
+      );
+      if (!patched) {
+        const { data: back, error: backErr } = await (supabase as any)
+          .from('meeting_bookings')
+          .update({
+            start_time: oldStart,
+            end_time: oldEnd,
+            previous_start_time: booking.previous_start_time ?? null,
+            rescheduled_at: booking.rescheduled_at ?? null,
+            reschedule_count: (booking.reschedule_count as number | null) ?? 0,
+          })
+          .eq('id', booking.id)
+          .eq('start_time', startIso)
+          .select('id')
+          .maybeSingle();
+        if (!backErr && back) {
+          return {
+            ok: false,
+            error: {
+              code: 'CALENDAR_FAILED',
+              message: 'Google Calendar did not accept the new time, so nothing was changed.',
+            },
+          };
+        }
+        console.error(`${LOG_PREFIX} move: calendar patch AND restore failed for ${input.uid}`);
+        warning =
+          'The meeting moved in MyJKKN, but its Google Calendar invite still shows the old time and could not be updated.';
+      }
+    }
+
+    // A held room follows the meeting (same rule as rescheduleBooking).
+    if (booking.venue_reservation_id) {
+      const { error: rErr } = await (supabase as any)
+        .from('resource_reservations')
+        .update({ start_time: startIso, end_time: endIso, updated_at: new Date().toISOString() })
+        .eq('id', booking.venue_reservation_id)
+        .neq('status', 'cancelled');
+      if (rErr) console.error(`${LOG_PREFIX} venue reservation move failed:`, rErr.message);
+    }
+
+    // One "moved" email to every invitee (and one to the host), naming the
+    // meeting and both times. Google's own update reaches them too.
+    const answers = (booking.answers ?? {}) as {
+      title?: string;
+      location_mode?: HostMeetingLocationMode;
+      location_text?: string | null;
+      participants?: { email?: string; name?: string }[];
+    };
+    const { data: host } = await supabase
+      .from('profiles')
+      .select('full_name, email')
+      .eq('id', input.hostProfileId)
+      .maybeSingle();
+    for (const p of (answers.participants ?? []).filter((x) => x?.email)) {
+      try {
+        await MeetingBookingEmailService.sendBookingRescheduledEmails({
+          uid: booking.uid as string,
+          meetingTitle: answers.title?.trim() || 'Meeting',
+          durationMin: input.durationMin,
+          timezone: CAMPUS_TZ,
+          startTime: startIso,
+          previousStartTime: oldStart,
+          rescheduledBy: 'host',
+          hostName: ((host as any)?.full_name as string | undefined) ?? ((host as any)?.email as string | undefined) ?? '',
+          hostEmail: ((host as any)?.email as string | undefined) ?? '',
+          attendeeName: p.name || (p.email as string),
+          attendeeEmail: p.email as string,
+          locationMode: answers.location_mode ?? null,
+          locationText: answers.location_text ?? null,
+          videoUrl: (booking.video_url as string | null) ?? null,
+        });
+      } catch (err) {
+        console.error(`${LOG_PREFIX} moved email failed for ${p.email}:`, err);
+      }
+    }
+
+    return {
+      ok: true,
+      data: {
+        uid: booking.uid as string,
+        startIso,
+        endIso,
+        previousStartIso: oldStart,
+        videoUrl: (booking.video_url as string | null) ?? null,
+      },
+      warning,
     };
   }
 }

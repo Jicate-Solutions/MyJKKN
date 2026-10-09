@@ -244,6 +244,17 @@ function isConfigured(): boolean {
   return !!process.env.RESEND_API_KEY;
 }
 
+/**
+ * The attendee leg's idempotency key names the attendee too: a meeting with
+ * several invitees sends one email to each, and a key that named only the
+ * meeting made Resend treat every invitee after the first as a duplicate
+ * (only the first person ever got it). The host leg keeps the meeting-only
+ * key, so the host still gets ONE email per meeting however many are invited.
+ */
+function attendeeKey(base: string, attendeeEmail: string): string {
+  return `${base}-${(attendeeEmail ?? '').trim().toLowerCase()}`;
+}
+
 async function send(
   to: string,
   subject: string,
@@ -349,7 +360,7 @@ export class MeetingBookingEmailService {
         params.attendeeEmail,
         `Meeting Confirmed – ${params.meetingTitle}`,
         emailShell('#16a34a', '&#10003;&nbsp; Your meeting is confirmed', attendeeBody),
-        `meeting-confirmed-attendee-${params.uid}`
+        attendeeKey(`meeting-confirmed-attendee-${params.uid}`, params.attendeeEmail)
       ),
       send(
         params.hostEmail,
@@ -409,7 +420,7 @@ export class MeetingBookingEmailService {
         params.attendeeEmail,
         `Meeting Cancelled – ${params.meetingTitle}`,
         emailShell('#dc2626', '&#10007;&nbsp; Your meeting has been cancelled', attendeeBody),
-        `meeting-cancelled-attendee-${params.uid}`
+        attendeeKey(`meeting-cancelled-attendee-${params.uid}`, params.attendeeEmail)
       ),
       send(
         params.hostEmail,
@@ -471,7 +482,7 @@ export class MeetingBookingEmailService {
         params.attendeeEmail,
         `Meeting Rescheduled – ${params.meetingTitle}`,
         emailShell('#d97706', '&#128260;&nbsp; Your meeting has a new time', attendeeBody),
-        `meeting-rescheduled-attendee-${params.uid}-${moveKey}`
+        attendeeKey(`meeting-rescheduled-attendee-${params.uid}-${moveKey}`, params.attendeeEmail)
       ),
       send(
         params.hostEmail,

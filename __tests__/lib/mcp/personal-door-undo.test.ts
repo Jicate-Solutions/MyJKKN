@@ -10,9 +10,10 @@
  *     host's meeting and an unknown uid all get the same refusal;
  *   - a closed or already-started meeting, a switched-off key, and an owner
  *     without Meetings access are refused, and nothing is changed;
- *   - move books the new time FIRST with the same people and place, then
- *     cancels the old one; an overlapping time is refused before anything is
- *     reserved; a half-made new meeting leaves the old one in place.
+ *   - move moves the SAME meeting in place (same uid, same Meet link;
+ *     Director 9 Oct: "Keep the same link"), counts toward the booking
+ *     limits, and gives the reservation back when nothing changed; an
+ *     overlapping time is refused before anything is reserved.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
@@ -126,9 +127,13 @@ vi.mock('@/lib/api-keys/audit-logger', () => ({
 
 // ── the booking service ────────────────────────────────────────────────────
 const scheduleDirect = vi.fn();
+const moveDirect = vi.fn();
 vi.mock('@/lib/services/meetings/host-scheduling-service', () => ({
   CAMPUS_TZ: 'Asia/Kolkata',
-  HostSchedulingService: { scheduleDirect: (...a: unknown[]) => scheduleDirect(...a) },
+  HostSchedulingService: {
+    scheduleDirect: (...a: unknown[]) => scheduleDirect(...a),
+    moveDirect: (...a: unknown[]) => moveDirect(...a),
+  },
 }));
 
 // ── the cancel service and the free-time finder (loaded lazily by the door) ─
@@ -267,6 +272,18 @@ function doorMeeting(over: Record<string, unknown> = {}): Record<string, unknown
 }
 
 beforeEach(() => {
+  moveDirect.mockReset();
+  moveDirect.mockResolvedValue({
+    ok: true,
+    data: {
+      uid: MEETING_UID,
+      startIso: `${FUTURE_DATE}T12:30:00.000Z`,
+      endIso: `${FUTURE_DATE}T13:00:00.000Z`,
+      previousStartIso: OLD_START,
+      videoUrl: 'https://meet.google.com/same-link',
+    },
+    warning: null,
+  });
   keyReads = 0;
   keyOffAfterReads = Infinity;
   meetingRow = doorMeeting();
@@ -398,97 +415,94 @@ describe('cancel_meeting', () => {
   });
 });
 
-describe('move_meeting', () => {
-  it('books the new time with the same people and place, then cancels the old one', async () => {
-    scheduleDirect.mockResolvedValue({
-      ok: true,
-      data: {
-        uid: 'u1', bookingId: 'b1', startIso: `${FUTURE_DATE}T12:30:00.000Z`, endIso: `${FUTURE_DATE}T13:00:00.000Z`,
-        videoUrl: 'https://meet.google.com/y', googleEventId: 'g2', warning: null,
-      },
-    });
+describe('move_meeting (in place)', () => {
+  const reserves = () => serviceRpc.mock.calls.filter(([fn]) => fn === 'fn_ai_booking_reserve');
+
+  it('moves the same meeting, keeping its uid and Meet link', async () => {
     const res = await readRpc(await call('move_meeting', { uid: MEETING_UID, start_local: `${FUTURE_DATE}T18:00` }));
     expect(res.result.isError).toBeFalsy();
-    const input = scheduleDirect.mock.calls[0][1];
-    expect(input).toMatchObject({
+    expect(moveDirect).toHaveBeenCalledTimes(1);
+    expect(moveDirect.mock.calls[0][1]).toEqual({
+      uid: MEETING_UID,
       hostProfileId: OWNER,
-      title: 'Parent meeting',
       startIso: `${FUTURE_DATE}T12:30:00.000Z`,
       durationMin: 30,
-      locationMode: 'in_person',
-      locationText: 'Principal office',
-      note: 'Bring the fee receipt',
-      bookedViaKeyId: KEY_ID,
     });
-    expect(input.attendees.map((a: { email: string }) => a.email)).toEqual([
-      'parent@gmail.com',
-      'viswanathan.s@jkkn.ac.in',
-    ]);
-    expect(cancelBooking).toHaveBeenCalledTimes(1);
-    expect(cancelBooking.mock.calls[0][1]).toBe(MEETING_UID);
-    expect(cancelBooking.mock.calls[0][3]).toBe(`Moved to ${FUTURE_DATE}T18:00 (India time).`);
-    // order: the new meeting exists before the old one is cancelled
-    expect(scheduleDirect.mock.invocationCallOrder[0]).toBeLessThan(cancelBooking.mock.invocationCallOrder[0]);
-    expect(JSON.parse(textOf(res))).toMatchObject({ booked: true, moved: true, old_uid: MEETING_UID, uid: 'u1' });
+    expect(JSON.parse(textOf(res))).toEqual({
+      moved: true,
+      uid: MEETING_UID,
+      start: `${FUTURE_DATE}T12:30:00.000Z`,
+      end: `${FUTURE_DATE}T13:00:00.000Z`,
+      previous_start: OLD_START,
+      meet_link: 'https://meet.google.com/same-link',
+    });
+    // nothing is booked again and nothing is cancelled
+    expect(scheduleDirect).not.toHaveBeenCalled();
+    expect(cancelBooking).not.toHaveBeenCalled();
+    // it counts toward the limits like a booking (2 invitees)
+    expect(reserves()).toHaveLength(1);
+    expect(reserves()[0][1]).toMatchObject({ p_invitees: 2 });
+    expect(released()).toEqual([]);
   });
 
   it('can change the length', async () => {
     await readRpc(await call('move_meeting', { uid: MEETING_UID, start_local: `${FUTURE_DATE}T18:00`, duration_min: 45 }));
-    expect(scheduleDirect.mock.calls[0][1].durationMin).toBe(45);
+    expect(moveDirect.mock.calls[0][1].durationMin).toBe(45);
   });
 
   it('refuses a new time that overlaps the old one, before reserving anything', async () => {
     const res = await readRpc(await call('move_meeting', { uid: MEETING_UID, start_local: `${FUTURE_DATE}T10:45` }));
     expect(textOf(res)).toMatch(/overlaps the current meeting/);
-    expect(serviceRpc.mock.calls.filter(([fn]) => fn === 'fn_ai_booking_reserve')).toHaveLength(0);
-    expect(scheduleDirect).not.toHaveBeenCalled();
-    expect(cancelBooking).not.toHaveBeenCalled();
+    expect(reserves()).toHaveLength(0);
+    expect(moveDirect).not.toHaveBeenCalled();
   });
 
-  it('keeps the old meeting when the new one is only half made', async () => {
-    scheduleDirect.mockResolvedValue({
-      ok: true,
-      data: {
-        uid: 'u2', bookingId: 'b2', startIso: `${FUTURE_DATE}T12:30:00.000Z`, endIso: `${FUTURE_DATE}T13:00:00.000Z`,
-        videoUrl: null, googleEventId: null, warning: 'No invitations were sent.',
-      },
-    });
-    const res = await readRpc(await call('move_meeting', { uid: MEETING_UID, start_local: `${FUTURE_DATE}T18:00` }));
-    const body = JSON.parse(textOf(res));
-    expect(body.moved).toBe(false);
-    expect(body.attention).toMatch(/was NOT cancelled/);
-    expect(cancelBooking).not.toHaveBeenCalled();
-  });
-
-  it('says so when the old meeting could not be cancelled', async () => {
-    cancelBooking.mockResolvedValue({ success: false, error: 'INTERNAL' });
-    const res = await readRpc(await call('move_meeting', { uid: MEETING_UID, start_local: `${FUTURE_DATE}T18:00` }));
-    const body = JSON.parse(textOf(res));
-    expect(body).toMatchObject({ booked: true, moved: false, old_uid: MEETING_UID });
-    expect(body.attention).toMatch(/could not be cancelled/);
-  });
-
-  it('a clash at the new time leaves the old meeting alone and offers free times', async () => {
-    scheduleDirect.mockResolvedValue({ ok: false, error: { code: 'SLOT_TAKEN', message: 'Taken.' } });
+  it('a clash at the new time changes nothing, gives the reservation back and offers free times', async () => {
+    moveDirect.mockResolvedValue({ ok: false, error: { code: 'SLOT_TAKEN', message: 'Taken.' } });
     nextFreeTimes.mockResolvedValue([`${FUTURE_DATE}T13:30:00.000Z`]);
     const res = await readRpc(await call('move_meeting', { uid: MEETING_UID, start_local: `${FUTURE_DATE}T18:00` }));
     expect(textOf(res)).toBe(`Taken. Nothing was booked. Next free times (India time, use as start_local): ${FUTURE_DATE}T19:00.`);
-    expect(cancelBooking).not.toHaveBeenCalled();
+    expect(released()).toEqual([{ p_reservation_id: 'res-1' }]);
   });
-});
 
-describe('move_meeting stays inside the route time limit', () => {
-  it('when cancelling the old meeting is slow, answers with the new one and says the old may still be on', async () => {
-    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
-    try {
-      cancelBooking.mockImplementation(() => new Promise(() => {}));
-      const pending = call('move_meeting', { uid: MEETING_UID, start_local: `${FUTURE_DATE}T18:00` });
-      await vi.advanceTimersByTimeAsync(56_000);
-      const body = JSON.parse(textOf(await readRpc(await pending)));
-      expect(body).toMatchObject({ booked: true, moved: false, old_uid: MEETING_UID });
-      expect(body.attention).toMatch(/may not be cancelled yet/);
-    } finally {
-      vi.useRealTimers();
-    }
+  it('when Google does not accept the new time, nothing changes and the reservation is given back', async () => {
+    moveDirect.mockResolvedValue({
+      ok: false,
+      error: { code: 'CALENDAR_FAILED', message: 'Google Calendar did not accept the new time, so nothing was changed.' },
+    });
+    const res = await readRpc(await call('move_meeting', { uid: MEETING_UID, start_local: `${FUTURE_DATE}T18:00` }));
+    expect(res.result.isError).toBe(true);
+    expect(textOf(res)).toMatch(/nothing was changed\. The meeting is still at its old time\./);
+    expect(released()).toEqual([{ p_reservation_id: 'res-1' }]);
+  });
+
+  it('a move that half worked says so first, and keeps the reservation counted', async () => {
+    moveDirect.mockResolvedValue({
+      ok: true,
+      data: {
+        uid: MEETING_UID, startIso: `${FUTURE_DATE}T12:30:00.000Z`, endIso: `${FUTURE_DATE}T13:00:00.000Z`,
+        previousStartIso: OLD_START, videoUrl: 'https://meet.google.com/same-link',
+      },
+      warning: 'The Google invite still shows the old time.',
+    });
+    const res = await readRpc(await call('move_meeting', { uid: MEETING_UID, start_local: `${FUTURE_DATE}T18:00` }));
+    const body = JSON.parse(textOf(res));
+    expect(Object.keys(body)[0]).toBe('moved');
+    expect(body.attention).toMatch(/^Moved, but not complete: The Google invite still shows the old time\./);
+    expect(released()).toEqual([]);
+  });
+
+  it('refuses when the key is switched off before the move, and gives the reservation back', async () => {
+    keyOffAfterReads = 1;
+    const res = await readRpc(await call('move_meeting', { uid: MEETING_UID, start_local: `${FUTURE_DATE}T18:00` }));
+    expect(textOf(res)).toBe('Booking was switched off for this key, so nothing was changed.');
+    expect(moveDirect).not.toHaveBeenCalled();
+    expect(released()).toEqual([{ p_reservation_id: 'res-1' }]);
+  });
+
+  it('rejects a bad time before reserving anything', async () => {
+    const res = await readRpc(await call('move_meeting', { uid: MEETING_UID, start_local: 'tomorrow 3pm' }));
+    expect(textOf(res)).toMatch(/start_local must be India time/);
+    expect(reserves()).toHaveLength(0);
   });
 });
