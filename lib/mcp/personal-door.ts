@@ -191,7 +191,7 @@ export const SCHEDULE_TOOL = {
   name: SCHEDULE_TOOL_NAME,
   description:
     "Book a meeting on the key owner's own MyJKKN calendar and send the invitations, exactly as the owner would on Meetings > Schedule. " +
-    'Times are India time (Asia/Kolkata). Fails with "slot taken" when the owner already has a meeting then.',
+    'Times are India time (Asia/Kolkata). When the owner already has a meeting then, nothing is booked and the answer lists the next free times.',
   inputSchema: {
     type: 'object' as const,
     properties: {
@@ -247,6 +247,21 @@ export function indiaLocalToIso(local: unknown): string | null {
   const cal = new Date(Date.UTC(y, mo - 1, d));
   if (cal.getUTCFullYear() !== y || cal.getUTCMonth() !== mo - 1 || cal.getUTCDate() !== d) return null;
   return zonedToUtc(y, mo, d, h * 60 + mi, CAMPUS_TZ).toISOString();
+}
+
+/** An instant as India wall-clock "YYYY-MM-DDTHH:MM" — the form start_local takes. */
+export function isoToIndiaLocal(iso: string): string {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: CAMPUS_TZ,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23',
+  }).formatToParts(new Date(iso));
+  const get = (t: string) => parts.find((p) => p.type === t)?.value ?? '';
+  return `${get('year')}-${get('month')}-${get('day')}T${get('hour')}:${get('minute')}`;
 }
 
 /** The first `max` letters (grapheme clusters) of `text`. */
@@ -556,13 +571,7 @@ async function runScheduleTool(
 ): Promise<unknown> {
   const args = parseScheduleArgs(input);
 
-  const [{ data: isSuper }, { data: canMeet }] = await Promise.all([
-    ownerClient.rpc('is_super_admin'),
-    ownerClient.rpc('user_has_permission', { permission_name: 'meetings.view' }),
-  ]);
-  if (isSuper !== true && canMeet !== true) {
-    throw new DoorRefusal('The owner of this key no longer has access to Meetings in MyJKKN.');
-  }
+  await assertOwnerMayMeet(ownerClient);
 
   const db = createServiceRoleClient() as unknown as SupabaseClient;
 
@@ -616,6 +625,8 @@ async function runScheduleTool(
     locationText: args.locationText,
     note: args.note,
     attendees,
+    // Marks the meeting as this key's, so this key alone may cancel or move it.
+    bookedViaKeyId: keyId,
   });
   let outcome: Awaited<typeof booking>;
   try {
@@ -630,7 +641,7 @@ async function runScheduleTool(
       // Both are decided before anything is written.
       await releaseBookingSlot(db, reservationId);
       if (code === 'VALIDATION') throw new ToolArgsError(outcome.error.message);
-      throw new DoorRefusal(outcome.error.message);
+      throw new DoorRefusal(await withFreeTimes(db, ownerId, args, outcome.error.message));
     }
     throw new Error(outcome.error?.message ?? 'not booked');
   }
@@ -649,6 +660,247 @@ async function runScheduleTool(
     meet_link: outcome.data.videoUrl,
     warning,
   };
+}
+
+/** How long looking up free times may take before the refusal is sent without them. */
+const FREE_TIMES_TIMEOUT_MS = 4_000;
+
+/**
+ * A "slot taken" refusal, with the owner's next free times appended (Director,
+ * 9 Oct 2026). Best effort: if they cannot be found in time, or busy times
+ * cannot be verified, the refusal goes out without them.
+ */
+async function withFreeTimes(
+  db: SupabaseClient,
+  ownerId: string,
+  args: Pick<ScheduleArgs, 'startIso' | 'durationMin'>,
+  message: string
+): Promise<string> {
+  let times: string[] = [];
+  try {
+    // Loaded only here: the scheduling service builds clients when imported.
+    const { nextFreeTimes } = await import('@/lib/services/meetings/host-free-times');
+    times = await withDeadline(
+      nextFreeTimes(db, ownerId, { afterIso: args.startIso, durationMin: args.durationMin }),
+      FREE_TIMES_TIMEOUT_MS
+    );
+  } catch {
+    times = [];
+  }
+  if (!times.length) return `${message} Nothing was booked.`;
+  return `${message} Nothing was booked. Next free times (India time, use as start_local): ${times
+    .map(isoToIndiaLocal)
+    .join(', ')}.`;
+}
+
+// ─── cancel_meeting / move_meeting ─────────────────────────────────────────
+// Director, 9 Oct 2026: the door may cancel or move ONLY meetings it booked
+// itself. "Itself" = this key: scheduleDirect stamps answers.booked_via_key_id
+// at booking time. A meeting the owner made on the Schedule page, or another
+// key made, is refused with the same words as a meeting that does not exist.
+
+export const CANCEL_TOOL_NAME = 'cancel_meeting';
+export const MOVE_TOOL_NAME = 'move_meeting';
+
+export const CANCEL_TOOL = {
+  name: CANCEL_TOOL_NAME,
+  description:
+    'Cancel a meeting that THIS key booked (use the uid schedule_meeting returned). Invitees are told. ' +
+    "Meetings the owner or anyone else made cannot be cancelled here.",
+  inputSchema: {
+    type: 'object' as const,
+    properties: {
+      uid: { type: 'string', description: 'The uid schedule_meeting returned.' },
+      reason: { type: 'string', description: 'Why, shown to the invitees.' },
+    },
+    required: ['uid'],
+  },
+};
+
+export const MOVE_TOOL = {
+  name: MOVE_TOOL_NAME,
+  description:
+    'Move a meeting that THIS key booked to a new time. The meeting is booked again at the new time with the same ' +
+    'title, invitees and place, then the old one is cancelled; the answer carries the new uid and Meet link. ' +
+    'Times are India time. The new time may not overlap the old one (cancel it, then book instead).',
+  inputSchema: {
+    type: 'object' as const,
+    properties: {
+      uid: { type: 'string', description: 'The uid schedule_meeting returned.' },
+      start_local: {
+        type: 'string',
+        description: 'New start in India time, as YYYY-MM-DDTHH:MM.',
+      },
+      duration_min: {
+        type: 'integer',
+        minimum: 5,
+        maximum: MAX_DURATION_MIN,
+        description: 'New length in minutes. Leave out to keep the current length.',
+      },
+    },
+    required: ['uid', 'start_local'],
+  },
+};
+
+const NOT_THIS_KEYS = 'This key did not book a meeting with that uid, so it cannot change it.';
+
+interface DoorBooking {
+  uid: string;
+  status: string;
+  start_time: string;
+  end_time: string;
+  answers: Record<string, unknown> | null;
+}
+
+/** Runs a step that comes before any change; a slow one means nothing was changed. */
+function beforeChange<T>(p: Promise<T>): Promise<T> {
+  return withDeadline(p, BOOKING_LIMITS.PREPARE_TIMEOUT_MS).catch((err) => {
+    throw err instanceof BookingTimeout ? new PrepareTimeout() : err;
+  });
+}
+
+async function assertOwnerMayMeet(ownerClient: SupabaseClient): Promise<void> {
+  const [{ data: isSuper }, { data: canMeet }] = await Promise.all([
+    ownerClient.rpc('is_super_admin'),
+    ownerClient.rpc('user_has_permission', { permission_name: 'meetings.view' }),
+  ]);
+  if (isSuper !== true && canMeet !== true) {
+    throw new DoorRefusal('The owner of this key no longer has access to Meetings in MyJKKN.');
+  }
+}
+
+/** The meeting, only when it is the owner's, was booked by this key, is confirmed and has not started. */
+async function loadThisKeysMeeting(
+  db: SupabaseClient,
+  ownerId: string,
+  keyId: string,
+  uid: unknown
+): Promise<DoorBooking> {
+  if (typeof uid !== 'string' || !/^[A-Za-z0-9_-]{8,64}$/.test(uid.trim())) {
+    throw new ToolArgsError('uid must be the meeting uid schedule_meeting returned.');
+  }
+  const { data, error } = await db
+    .from('meeting_bookings')
+    .select('uid, host_profile_id, status, start_time, end_time, answers')
+    .eq('uid', uid.trim())
+    .maybeSingle();
+  if (error) throw new Error('meeting lookup failed');
+  const row = data as (DoorBooking & { host_profile_id?: string }) | null;
+  const stamp = (row?.answers as { booked_via_key_id?: unknown } | null)?.booked_via_key_id;
+  if (!row || row.host_profile_id !== ownerId || stamp !== keyId) throw new DoorRefusal(NOT_THIS_KEYS);
+  if (row.status !== 'confirmed') throw new DoorRefusal('That meeting is already cancelled or closed.');
+  if (new Date(row.start_time).getTime() <= Date.now()) {
+    throw new DoorRefusal('That meeting has already started. Change it in MyJKKN Meetings.');
+  }
+  return row;
+}
+
+async function runCancelTool(
+  ownerClient: SupabaseClient,
+  ownerId: string,
+  keyId: string,
+  input: Record<string, unknown> | undefined
+): Promise<unknown> {
+  const a = input ?? {};
+  const reason = typeof a.reason === 'string' && a.reason.trim() ? cutToLetters(a.reason.trim(), BOOKING_LIMITS.MAX_TITLE) : null;
+  await assertOwnerMayMeet(ownerClient);
+  const db = createServiceRoleClient() as unknown as SupabaseClient;
+  if (!(await beforeChange(stillAllowedToBook(db, keyId, ownerId)))) {
+    throw new DoorRefusal('Booking was switched off for this key, so nothing was changed.');
+  }
+  const meeting = await beforeChange(loadThisKeysMeeting(db, ownerId, keyId, a.uid));
+  await cancelThisKeysMeeting(db, ownerId, meeting.uid, reason ?? 'Cancelled by the organiser.');
+  return { cancelled: true, uid: meeting.uid };
+}
+
+/** Cancels as the host. Throws DoorRefusal when it was already closed, BookingTimeout when slow. */
+async function cancelThisKeysMeeting(db: SupabaseClient, ownerId: string, uid: string, reason: string): Promise<void> {
+  // Loaded only here: the scheduling service builds clients when imported.
+  const { NativeSchedulingService } = await import('@/lib/services/meetings/native-scheduling-service');
+  const work = NativeSchedulingService.cancelBooking(db, uid, { actorProfileId: ownerId }, reason);
+  let r: Awaited<typeof work>;
+  try {
+    r = await withDeadline(work, BOOKING_LIMITS.BOOKING_TIMEOUT_MS);
+  } catch (err) {
+    if (err instanceof BookingTimeout) keepRunningAfterResponse(work);
+    throw err;
+  }
+  if (!r.success) {
+    if (r.error === 'NOT_CONFIRMED') throw new DoorRefusal('That meeting is already cancelled or closed.');
+    throw new Error(`cancel failed: ${r.error ?? 'unknown'}`);
+  }
+}
+
+async function runMoveTool(
+  ownerClient: SupabaseClient,
+  ownerId: string,
+  keyId: string,
+  input: Record<string, unknown> | undefined
+): Promise<unknown> {
+  const a = input ?? {};
+  await assertOwnerMayMeet(ownerClient);
+  const db = createServiceRoleClient() as unknown as SupabaseClient;
+  const old = await beforeChange(loadThisKeysMeeting(db, ownerId, keyId, a.uid));
+
+  const ans = (old.answers ?? {}) as {
+    title?: string;
+    note?: string | null;
+    location_mode?: string;
+    location_text?: string | null;
+    participants?: { email?: string; name?: string }[];
+  };
+  const oldDuration = Math.round((new Date(old.end_time).getTime() - new Date(old.start_time).getTime()) / 60_000);
+  const attendees = (ans.participants ?? []).map((p) => ({ email: p.email ?? '', name: p.name ?? '' }));
+  const rebook: Record<string, unknown> = {
+    title: ans.title ?? '',
+    start_local: a.start_local,
+    duration_min: a.duration_min === undefined ? oldDuration : a.duration_min,
+    location_mode: ans.location_mode,
+    location_text: ans.location_text ?? undefined,
+    note: ans.note ?? undefined,
+    attendees,
+    // The same people as before; anyone outside JKKN was already allowed then.
+    allow_outside: true,
+  };
+
+  // Refuse an overlap before reserving anything: the new booking would clash
+  // with the meeting it replaces.
+  const args = parseScheduleArgs(rebook);
+  const newStart = new Date(args.startIso).getTime();
+  const newEnd = newStart + args.durationMin * 60_000;
+  if (newStart < new Date(old.end_time).getTime() && newEnd > new Date(old.start_time).getTime()) {
+    throw new DoorRefusal(
+      'The new time overlaps the current meeting. Cancel it with cancel_meeting, then book the new time.'
+    );
+  }
+
+  const booked = (await runScheduleTool(ownerClient, ownerId, keyId, rebook)) as Record<string, unknown>;
+  if (booked.attention) {
+    // The new meeting is only half made (no Meet link or no invitations).
+    // Never leave people with no working meeting: keep the old one.
+    return {
+      ...booked,
+      moved: false,
+      old_uid: old.uid,
+      attention: `${String(booked.attention)} The old meeting (${old.uid}) was NOT cancelled, so nobody lost their invitation.`,
+    };
+  }
+  try {
+    await cancelThisKeysMeeting(
+      db,
+      ownerId,
+      old.uid,
+      `Moved to ${isoToIndiaLocal(String(booked.start))} (India time).`
+    );
+  } catch {
+    return {
+      ...booked,
+      moved: false,
+      old_uid: old.uid,
+      attention: `The new meeting is booked, but the old one (${old.uid}) could not be cancelled. Tell the person who asked, then cancel it with cancel_meeting or in MyJKKN.`,
+    };
+  }
+  return { ...booked, moved: true, old_uid: old.uid };
 }
 
 function jsonResponse(status: number, body: unknown, headers: Record<string, string> = {}): Response {
@@ -807,16 +1059,24 @@ export async function handlePersonalKeyRequest(req: Request, token: string): Pro
         description: t.description,
         inputSchema: publicInputSchema(t.params) as { type: 'object'; [k: string]: unknown },
       })),
-      ...(ctx.canBookMeetings ? [SCHEDULE_TOOL] : []),
+      ...(ctx.canBookMeetings ? [SCHEDULE_TOOL, CANCEL_TOOL, MOVE_TOOL] : []),
     ],
   }));
 
   server.setRequestHandler(CallToolRequestSchema, async (request) => {
     const startTime = Date.now();
     const name = request.params.name;
-    if (name === SCHEDULE_TOOL_NAME && ctx.canBookMeetings) {
+    const bookingTool =
+      name === SCHEDULE_TOOL_NAME
+        ? runScheduleTool
+        : name === CANCEL_TOOL_NAME
+          ? runCancelTool
+          : name === MOVE_TOOL_NAME
+            ? runMoveTool
+            : null;
+    if (bookingTool && ctx.canBookMeetings) {
       try {
-        const data = await runScheduleTool(
+        const data = await bookingTool(
           client as unknown as SupabaseClient,
           ctx.ownerId,
           ctx.keyId,
@@ -831,23 +1091,37 @@ export async function handlePersonalKeyRequest(req: Request, token: string): Pro
         }
         if (err instanceof PrepareTimeout) {
           audit(name, 504, startTime);
-          return mcpError('MyJKKN was too slow to start the booking, so nothing was booked. Try again in a minute.');
+          return mcpError(
+            name === SCHEDULE_TOOL_NAME
+              ? 'MyJKKN was too slow to start the booking, so nothing was booked. Try again in a minute.'
+              : 'MyJKKN was too slow to start, so nothing was changed. Try again in a minute.'
+          );
         }
         if (err instanceof BookingTimeout) {
           audit(name, 504, startTime);
           return mcpError(
-            "MyJKKN did not confirm the booking in time. It may still have been made: check the owner's Meetings inbox before trying again."
+            name === CANCEL_TOOL_NAME
+              ? "MyJKKN did not confirm the cancellation in time. It may still go through: check the owner's Meetings inbox before trying again."
+              : name === MOVE_TOOL_NAME
+                ? "MyJKKN did not confirm the move in time. The new meeting may have been made and the old one may still be on: check the owner's Meetings inbox before trying again."
+                : "MyJKKN did not confirm the booking in time. It may still have been made: check the owner's Meetings inbox before trying again."
           );
         }
         const isArgs = err instanceof ToolArgsError;
         audit(name, isArgs ? 400 : 500, startTime);
         if (!isArgs) {
-          console.error('[MCP personal] schedule_meeting failed', {
+          console.error(`[MCP personal] ${name} failed`, {
             keyId: ctx.keyId,
             error: err instanceof Error ? err.message : 'unknown',
           });
         }
-        return mcpError(isArgs ? err.message : "MyJKKN could not confirm that booking. Check the owner's Meetings inbox before trying again.");
+        return mcpError(
+          isArgs
+            ? err.message
+            : name === SCHEDULE_TOOL_NAME
+              ? "MyJKKN could not confirm that booking. Check the owner's Meetings inbox before trying again."
+              : "MyJKKN could not confirm that change. Check the owner's Meetings inbox before trying again."
+        );
       }
     }
     const tool = tools.find((t) => t.name === name);

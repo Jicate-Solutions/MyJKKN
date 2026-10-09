@@ -62,6 +62,12 @@ export interface ScheduleDirectInput {
   note?: string | null;
   attendees: ScheduleAttendee[];
   timezone?: string;
+  /**
+   * The personal key that booked this through the outside-AI door, if any.
+   * Stamped into answers.booked_via_key_id so that key (and only that key) can
+   * later cancel or move this meeting. The Schedule page never sets it.
+   */
+  bookedViaKeyId?: string | null;
 }
 
 export interface ScheduleDirectResult {
@@ -220,6 +226,7 @@ export class HostSchedulingService {
           participant_profile_ids: attendees
             .map((a) => a.profileId)
             .filter((id): id is string => Boolean(id)),
+          ...(input.bookedViaKeyId ? { booked_via_key_id: input.bookedViaKeyId } : {}),
         },
         start_time: startIso,
         end_time: endIso,
