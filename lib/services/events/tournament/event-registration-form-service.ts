@@ -16,8 +16,9 @@ import type {
   FormFieldType,
   FormFieldOption,
   FormFieldCondition,
+  RichTextDoc,
 } from '@/types/tournament';
-import { asFormUpload, isAnswerableField, UPLOAD_FIELD_TYPES } from '@/types/tournament';
+import { asFormUpload, isAnswerableField, isValidHttpUrl, UPLOAD_FIELD_TYPES } from '@/types/tournament';
 import { visibleFields } from '@/lib/services/events/registration/form-visibility';
 
 /** One submitted response, answers already paired with their field labels. */
@@ -94,6 +95,8 @@ export interface SaveFormFieldPayload {
   media_url: string | null;
   /** Same rule as media_url: carried on every save or the RPC wipes it. */
   prefill_source: string | null;
+  /** A 'rich_text' field's text. Same rule: carried on every save. */
+  rich_content: RichTextDoc | null;
 }
 
 /** One section in a bulk-save payload. */
@@ -538,8 +541,17 @@ export function validateCustomFields(
     // too, but a stale row from before that rule would otherwise make the form
     // permanently unsubmittable — there is no input that could satisfy it.
     if (!isAnswerableField(field.field_type)) continue;
-    if (!field.is_required) continue;
     const value = answers[field.field_key];
+
+    // A link is checked whenever one was given, required or not — an optional
+    // field with "asdf" in it is still a wrong answer, and organizers click these.
+    if (field.field_type === 'url' && typeof value === 'string' && value.trim() !== '') {
+      if (!isValidHttpUrl(value)) {
+        return `"${field.field_label}" must be a full link starting with http:// or https://`;
+      }
+    }
+
+    if (!field.is_required) continue;
 
     // Upload answers are OBJECTS, so the scalar emptiness test below would
     // accept `{}` — the shape a half-finished upload leaves behind — as a

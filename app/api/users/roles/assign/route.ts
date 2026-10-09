@@ -6,7 +6,7 @@ export const dynamic = 'force-dynamic';
 // the user_roles INSERT RLS policy checks profiles.role IN ('super_admin','admin'),
 // while the permissions-audit page/search gates admit 'administrator'. A browser
 // insert could pass the UI gate yet be RLS-blocked. Doing the write here with the
-// service-role client behind an explicit roles.assign check gives one audited path
+// service-role client behind an explicit super-admin check gives one audited path
 // and sidesteps that admin/administrator spelling mismatch.
 //
 // Grant model: MyJKKN access is role-based — this assigns the WHOLE role (additive,
@@ -25,6 +25,14 @@ if (process.env.VAPID_PUBLIC_KEY && process.env.VAPID_PRIVATE_KEY) {
     process.env.VAPID_SUBJECT || 'mailto:admin@myjkkn.com',
     process.env.VAPID_PUBLIC_KEY,
     process.env.VAPID_PRIVATE_KEY
+  );
+}
+
+function checkFailed(error: unknown) {
+  console.error('[roles/assign] check failed:', error);
+  return NextResponse.json(
+    { error: 'Could not check this request. Nothing was changed.' },
+    { status: 500 }
   );
 }
 
@@ -51,31 +59,42 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // ── Gate: roles.assign (primary-role permission lookup + super_admin bypass) ──
-    // Mirrors the established check in app/api/notifications/send/route.ts.
-    const { data: callerProfile } = await supabase
-      .from('profiles')
-      .select('role, full_name')
-      .eq('id', user.id)
-      .single();
-
-    let allowed = callerProfile?.role === 'super_admin';
-    if (!allowed && callerProfile?.role) {
-      const { data: callerRole } = await supabase
-        .from('custom_roles')
-        .select('permissions')
-        .eq('role_key', callerProfile.role)
-        .single();
-      allowed = (callerRole?.permissions as Record<string, unknown> | null)?.[
-        'roles.assign'
-      ] === true;
-    }
-    if (!allowed) {
+    // ── Gate: super admins only (Director, 8 Oct 2026) ──
+    // "Admins need not give any role. We have enough super admins." Super admin
+    // means the is_super_admin flag, asked as the caller's own session; no
+    // role key, primary or otherwise, opens this route.
+    //
+    // #4254 also edits this file and the other role-writing routes
+    // (/api/users/[id]/role, /api/users/bulk-role-update, ...). Whichever PR
+    // merges second keeps BOTH: this super-admin-only gate, the self-assign
+    // refusal and the 500-on-error below, plus #4254's refuseRoleChange. The
+    // other role-writing routes move to the same super-admin-only rule after
+    // #4254 merges.
+    const superResult = await supabase.rpc('is_super_admin');
+    if (superResult.error) return checkFailed(superResult.error);
+    if (superResult.data !== true) {
       return NextResponse.json(
-        { error: 'You do not have permission to assign roles (roles.assign required).' },
+        { error: 'Only a super admin can give roles.' },
         { status: 403 }
       );
     }
+
+    // Nobody gives a role to themselves, super admins included. Checked again
+    // below on the resolved profile id, since the uuid column also accepts
+    // upper case, braces and the no-hyphen form.
+    if (userId === user.id) {
+      return NextResponse.json(
+        { error: 'You cannot change your own roles; ask another super admin.' },
+        { status: 403 }
+      );
+    }
+
+    // Name for the notification only; not a check.
+    const { data: callerProfile } = await supabase
+      .from('profiles')
+      .select('full_name')
+      .eq('id', user.id)
+      .maybeSingle();
 
     // ── Service-role client for the writes (bypasses the user_roles INSERT RLS mismatch) ──
     const admin = createServiceRoleClient();
@@ -85,21 +104,29 @@ export async function POST(request: NextRequest) {
       .from('custom_roles')
       .select('id, role_key, role_name')
       .eq('role_key', roleKey)
-      .single();
-    if (roleErr || !role) {
+      .maybeSingle();
+    if (roleErr) return checkFailed(roleErr);
+    if (!role) {
       return NextResponse.json({ error: `Role '${roleKey}' not found` }, { status: 404 });
     }
     const roleId = (role as { id: string }).id;
     const roleName = (role as { role_name?: string }).role_name || roleKey;
 
     // Confirm the target user exists.
-    const { data: target } = await admin
+    const { data: target, error: targetErr } = await admin
       .from('profiles')
       .select('id, full_name, email')
       .eq('id', userId)
-      .single();
+      .maybeSingle();
+    if (targetErr) return checkFailed(targetErr);
     if (!target) {
       return NextResponse.json({ error: 'Target user not found' }, { status: 404 });
+    }
+    if ((target as { id: string }).id === user.id) {
+      return NextResponse.json(
+        { error: 'You cannot change your own roles; ask another super admin.' },
+        { status: 403 }
+      );
     }
     const targetName = (target as { full_name?: string }).full_name || 'The user';
 

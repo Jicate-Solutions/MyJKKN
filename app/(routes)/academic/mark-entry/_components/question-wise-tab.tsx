@@ -63,16 +63,6 @@ interface Props {
   canEnter: boolean;
   /** Omit and the sheet still prints — it just loses the letterhead lines. */
   pdf?: QuestionWisePdfContext;
-  /**
-   * Rendered UNDER the notice when the round is question-wise but no eligible
-   * paper exists yet.
-   *
-   * A round can legitimately be question-wise before anyone authors its paper —
-   * COE's cia-settings endpoint saves that state deliberately and does not check
-   * for one. A host page that has its own component grid passes it here so
-   * faculty are never blocked. Omit it and the notice just points elsewhere.
-   */
-  renderFallback?: () => React.ReactNode;
 }
 
 const DRAFT_DEBOUNCE_MS = 600;
@@ -88,7 +78,6 @@ export function QuestionWiseTab({
   maxInternalMarks,
   canEnter,
   pdf,
-  renderFallback,
 }: Props) {
   const [paperId, setPaperId] = useState<string | undefined>(undefined);
   const [componentCode, setComponentCode] = useState<string | undefined>(undefined);
@@ -501,52 +490,60 @@ export function QuestionWiseTab({
     );
   }
 
-  // Round is question-wise but no ELIGIBLE paper exists. Never a dead end — the
-  // host page passes its component grid as `renderFallback`, shown under the notice.
-  //
-  // Two distinct situations, two different next actions: nothing authored (write
-  // the paper) versus authored-but-still-draft (chase the setter to submit it).
+  // Round is question-wise but no APPROVED paper exists for this course. Entry
+  // stays closed — there is deliberately no direct-entry fallback here — and the
+  // notice names the paper's status, because each one needs a different person
+  // to act: nothing generated (create it), draft (setter submits it), submitted
+  // (approver approves it).
   if (!paper) {
-    const draftOnly = !!data?.draft_only;
-    const draftLabels = data?.draft_set_labels ?? [];
-    const notice = (
+    const pending = data?.pending_papers ?? [];
+    return (
       <Alert className='border-amber-300 bg-amber-50 dark:bg-amber-950/30'>
         <AlertTriangle className='h-4 w-4 text-amber-600' />
         <AlertDescription className='space-y-2'>
-          {draftOnly ? (
+          {pending.length === 0 ? (
             <>
               <p className='text-sm'>
-                The question paper for <span className='font-mono'>{courseCode}</span> (
-                {round.round_name}) is written but still a{' '}
-                <strong>draft</strong>
-                {draftLabels.length > 0 &&
-                  ` — Set ${draftLabels.join(', ')}`}
-                .
+                Question paper status: <strong>Not available</strong> — no question paper exists
+                for <span className='font-mono'>{courseCode}</span> in {round.round_name}.
               </p>
               <p className='text-xs text-muted-foreground'>
-                Marks can only be entered once it is <strong>submitted</strong> or{' '}
-                <strong>approved</strong>. A draft is excluded because it can still be rebuilt
-                from its template, which would leave marks pointing at questions that no longer
-                exist. Ask the paper setter to submit it.
+                Mark entry opens once the paper is authored and <strong>approved</strong>.
               </p>
             </>
           ) : (
             <>
               <p className='text-sm'>
-                This round is set to <strong>question-wise</strong> entry, but no question paper
-                has been authored for <span className='font-mono'>{courseCode}</span> in{' '}
-                {round.round_name}.
+                Question paper status for <span className='font-mono'>{courseCode}</span> (
+                {round.round_name}):
               </p>
+              <ul className='space-y-1 text-sm'>
+                {pending.map((p) => (
+                  <li key={p.id} className='flex flex-wrap items-center gap-2'>
+                    <span>
+                      Set {p.set_label}
+                      {p.program_code && (
+                        <span className='ml-1 font-mono text-xs text-muted-foreground'>
+                          ({p.program_code})
+                        </span>
+                      )}
+                    </span>
+                    <Badge variant='outline' className='capitalize'>
+                      {p.status}
+                    </Badge>
+                    <span className='text-xs text-muted-foreground'>
+                      {p.status === 'submitted'
+                        ? 'waiting for approval'
+                        : 'the paper setter has not submitted it yet'}
+                    </span>
+                  </li>
+                ))}
+              </ul>
               <p className='text-xs text-muted-foreground'>
-                Generate and author the paper to enter marks question by question.
+                Mark entry opens only after the paper is <strong>approved</strong>.
               </p>
             </>
           )}
-          <p className='text-xs text-muted-foreground'>
-            {renderFallback
-              ? 'Either way you are not blocked — enter component totals below; this switches to the question grid automatically once the paper is ready.'
-              : 'Either way you are not blocked — use the Direct Entry tab to key in component totals now.'}
-          </p>
           <Button asChild variant='outline' size='sm'>
             <Link href='/academic/question-papers'>
               <FileText className='mr-1 h-4 w-4' /> Go to Question Papers
@@ -554,15 +551,6 @@ export function QuestionWiseTab({
           </Button>
         </AlertDescription>
       </Alert>
-    );
-
-    return renderFallback ? (
-      <div className='space-y-4'>
-        {notice}
-        {renderFallback()}
-      </div>
-    ) : (
-      notice
     );
   }
 

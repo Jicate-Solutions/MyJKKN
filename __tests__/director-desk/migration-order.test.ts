@@ -105,6 +105,10 @@ const APPROVED_REDEFINITIONS: Record<string, { fns: string[]; why: string }> = {
     fns: ['fn_handover_key_is_blocked'],
     why: "WALL 5 (new block) walls five keys: the Director's 'safe split' (W12 tab, 2026-09-30) - learners.leave_types.manage, ims.settings.pos_devices.manage, admission.consultants.commissions.configure - plus the two 1 Oct campus-living vacate settings keys (damage_types.manage, vacate_checklist.manage; Director 2 Oct: approvals can, settings can't). Body is 20270403090000's text verbatim, verified equal to production via pg_get_functiondef on 2026-10-01 22:40 IST, plus exactly the WALL 5 IN list. Narrows only; no key moves to handable.",
   },
+  '20271008123017': {
+    fns: ['fn_handover_key_is_blocked'],
+    why: "WALL 5 gains hr.harness.playbooks.manage (Director 8 Oct 05:30: a handover must not hand over playbook management). #4229 shipped the key and it fell through ELSE false to handable. Body is 20270710090000's text verbatim plus exactly one key in the WALL 5 IN list. Production could not be read when written, so the file opens with an apply-time drift guard: it RAISES, changing nothing, unless the live prosrc md5 equals 20270710090000's body (93a506a1…). Narrows only; no key moves to handable.",
+  },
   '20260927020000': {
     fns: ['user_has_permission'],
     why: "Adds an is_active = false OR is_login_disabled = true -> RETURN false guard to BOTH overloads, evaluated after the super-admin short-circuit and before the role checks, so a deactivated or login-disabled account holds no custom-role permissions (defense-in-depth behind the login block in app/auth/callback). NOT a revert of 20260811100100: the (text) form keeps that migration's Director-handover last resort verbatim -- the legacy fallback stays an IF and the body still ends in fn_handover_grants_key(auth.uid(), permission_name) -- and the (uuid, text) form keeps its own fn_handover_grants_key call. Verified by diffing both bodies against 20260811100100: the is_active guard is the only addition. Grants unchanged from the posture 20260811100100 asserts at apply time: (text) to authenticated + service_role, (uuid, text) to service_role only.",

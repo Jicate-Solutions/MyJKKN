@@ -364,7 +364,7 @@ export default function NewPurchaseRequestPage() {
               </div>
             ))}
             <div className="flex flex-wrap items-center gap-1">
-              <Button variant="ghost" size="sm" className="text-primary" onClick={addRow}>
+              <Button variant="ghost" size="sm" className="h-10 text-primary sm:h-8" onClick={addRow}>
                 <Plus className="mr-1 h-4 w-4" />
                 Add item
               </Button>

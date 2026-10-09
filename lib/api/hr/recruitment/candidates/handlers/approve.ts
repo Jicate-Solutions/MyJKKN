@@ -1,6 +1,6 @@
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
-import { NextResponse, connection } from 'next/server';
+import { NextResponse, after, connection } from 'next/server';
 import type { NextRequest } from 'next/server';
 import type { CookieOptions } from '@supabase/ssr';
 import { RecruitmentService } from '@/lib/services/hr/recruitment-service';
@@ -46,12 +46,19 @@ export async function POST(
     // their approvals list. Service role because the notice goes to OTHER people.
     // notifyNextApprover never throws; the guard covers a missing service key, so
     // a recorded approval is never reported back as a failure.
+    //
+    // Sent AFTER the response (review of #4149, finding 4). The notice reads the
+    // role directory and fans out; awaited here, a slow database held a recorded
+    // approval's response open, and an approver who saw it hang could try again.
     if (updated?.status === 'pending_approval') {
-      try {
-        await notifyNextApprover(createServiceRoleClient(), id, user.id);
-      } catch (notifyErr) {
-        console.error('[hr/recruitment/candidates/:id/approve] next-approver notice skipped', notifyErr);
-      }
+      const approverId = user.id;
+      after(async () => {
+        try {
+          await notifyNextApprover(createServiceRoleClient(), id, approverId);
+        } catch (notifyErr) {
+          console.error('[hr/recruitment/candidates/:id/approve] next-approver notice skipped', notifyErr);
+        }
+      });
     }
 
     return NextResponse.json({ data: updated });

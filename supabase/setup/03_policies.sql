@@ -12235,7 +12235,7 @@ GRANT ALL ON TABLE public.hr_memo_detector_runs TO service_role;
 DROP POLICY IF EXISTS hr_memo_detector_runs_select ON public.hr_memo_detector_runs;
 CREATE POLICY hr_memo_detector_runs_select ON public.hr_memo_detector_runs
   FOR SELECT TO authenticated
-  USING ((SELECT public.is_super_admin()) OR (SELECT public.is_admin()));
+  USING ((SELECT public.is_super_admin()));
 
 ALTER TABLE public.hr_memo_nudges ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON TABLE public.hr_memo_nudges FROM anon, PUBLIC;
@@ -12245,7 +12245,7 @@ GRANT ALL ON TABLE public.hr_memo_nudges TO service_role;
 DROP POLICY IF EXISTS hr_memo_nudges_select ON public.hr_memo_nudges;
 CREATE POLICY hr_memo_nudges_select ON public.hr_memo_nudges
   FOR SELECT TO authenticated
-  USING ((SELECT public.is_super_admin()) OR (SELECT public.is_admin()));
+  USING ((SELECT public.is_super_admin()));
 
 
 

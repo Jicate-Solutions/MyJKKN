@@ -671,6 +671,8 @@ export interface CdcDriveAssignedRow {
   department_name: string | null;
   program_id: string | null;
   program_name: string | null;
+  /** "UG" / "PG" (programs.program_type, else degrees.degree_type). */
+  degree_level?: string | null;
   semester_order: number | null;
   semester_label: string | null;
   /** Profile contact — released only when the caller may view learner profiles, or the learner consented at submission. */

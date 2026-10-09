@@ -6,6 +6,7 @@ export const runtime = 'nodejs';
  *
  * GET  → { drive, rows[], summary, can_decide, decide_blocked_reason }   (cdc.drives.view)
  *        ?format=xlsx&decision=selected|waitlisted|rejected|hold|undecided&attended=1 → Excel
+ *          (+ optional &institution_id=<uuid>&program_id=<uuid>&semester_order=<int>)
  *        ?format=xlsx&sheets=split → Excel report: Selected / Not selected / Summary sheets
  * POST → { learner_ids: string[], decision: 'selected'|'waitlisted'|'rejected'|'hold'|null, remarks? }
  *                                                                        (cdc.drives.edit)
@@ -84,7 +85,15 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
 
     const filter = sp.get('decision');
     const attendedOnly = sp.get('attended') === '1';
+    const institutionId = sp.get('institution_id');
+    const programId = sp.get('program_id');
+    const degreeLevel = sp.get('degree_level');
+    const semesterOrder = sp.get('semester_order') ? parseInt(sp.get('semester_order')!, 10) : null;
     const filtered = rows.filter((r) => {
+      if (institutionId && r.institution_id !== institutionId) return false;
+      if (programId && r.program_id !== programId) return false;
+      if (degreeLevel && r.degree_level !== degreeLevel) return false;
+      if (semesterOrder != null && r.semester_order !== semesterOrder) return false;
       if (attendedOnly && r.attendance_status !== 'present' && r.attendance_status !== 'late') return false;
       return !filter ? true : filter === 'undecided' ? !r.decision : r.decision === filter;
     });
@@ -98,6 +107,8 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
           'Register No': r.register_number ?? '',
           'Learner Name': r.learner_name ?? '',
           Institution: r.institution_name ?? '',
+          'UG / PG': r.degree_level ?? '',
+          Program: r.program_name ?? '',
           Department: r.department_name ?? '',
           Semester: r.semester_label ?? '',
           Email: r.email ?? '',
@@ -109,9 +120,9 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
           Documents: r.documents.map((d) => `${DOCUMENT_TYPE_LABEL[d.document_type]} v${d.version}`).join('; '),
         })),
         // Keeps the header row on a sheet that has no learners.
-        { header: ['S.No', 'Register No', 'Learner Name', 'Institution', 'Department', 'Semester', 'Email', 'Mobile', 'Attendance', 'Decision', 'Decision Date', 'Remarks', 'Documents'] }
+        { header: ['S.No', 'Register No', 'Learner Name', 'Institution', 'UG / PG', 'Program', 'Department', 'Semester', 'Email', 'Mobile', 'Attendance', 'Decision', 'Decision Date', 'Remarks', 'Documents'] }
       );
-      sheet['!cols'] = [{ wch: 6 }, { wch: 16 }, { wch: 28 }, { wch: 34 }, { wch: 26 }, { wch: 12 }, { wch: 30 }, { wch: 16 }, { wch: 14 }, { wch: 14 }, { wch: 22 }, { wch: 30 }, { wch: 40 }];
+      sheet['!cols'] = [{ wch: 6 }, { wch: 16 }, { wch: 28 }, { wch: 34 }, { wch: 9 }, { wch: 28 }, { wch: 26 }, { wch: 12 }, { wch: 30 }, { wch: 16 }, { wch: 14 }, { wch: 14 }, { wch: 22 }, { wch: 30 }, { wch: 40 }];
       return sheet;
     };
 

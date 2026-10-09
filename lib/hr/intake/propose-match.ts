@@ -50,7 +50,8 @@ export interface ProposeInput {
   /**
    * Every college's open jobs (the server reads them only to judge certainty).
    * A post whose title is also open at another college is never high, even
-   * when the uploader cannot see that other post.
+   * when the uploader cannot see that other post. Such a college is never
+   * named on the card unless the person can see it (see capOpenElsewhere).
    */
   all_open_jobs?: MatchJob[];
   /** How the resume's file name matched (resume-files tiers); 'contains' is only a similar name. */
@@ -334,7 +335,14 @@ function capOpenElsewhere(input: ProposeInput, p: IntakeProposal): IntakeProposa
     (j) => j.id !== p.job_id && j.institution_id !== p.institution_id && titleFitsJob(cvTitle, j),
   );
   if (elsewhere.length === 0) return p;
-  const where = [...new Set(elsewhere.map((j) => j.institution_name ?? 'another college'))].join(', ');
+  // all_open_jobs is read with the server's own access, so it holds posts at
+  // colleges this person cannot see. The card names a college only when the
+  // post is in the person's own list (openJobs, read through their access);
+  // any other college is "another college".
+  const visible = new Set(input.openJobs.map((j) => j.id));
+  const nameable = (j: MatchJob) => visible.has(j.id) && !!j.institution_name;
+  const named = [...new Set(elsewhere.filter(nameable).map((j) => j.institution_name as string))];
+  const where = [...named, ...(elsewhere.some((j) => !nameable(j)) ? ['another college'] : [])].join(', ');
   return {
     ...p,
     confidence: 'medium',

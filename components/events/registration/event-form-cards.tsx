@@ -67,7 +67,7 @@ import {
   useDeleteRegistrationForm,
   useUpdateRegistrationForm,
 } from '@/hooks/events/use-tournament-registration-form';
-import { effectiveFee, type EventRegistrationFormSummary } from '@/types/tournament';
+import { effectiveFee, isValidHttpUrl, type EventRegistrationFormSummary } from '@/types/tournament';
 import { FormStateBadge } from './registration-schedule-card';
 import { RegistrationFormShareDialog } from './registration-form-share-dialog';
 import { publicFormUrl, type EventFormVariant } from './public-form-url';
@@ -207,7 +207,21 @@ function ResponsesDialog({
                     {r.answers.map((a, i) => (
                       <div key={i} className="text-sm">
                         <dt className="text-xs text-muted-foreground">{a.label}</dt>
-                        <dd className="break-words">{a.value}</dd>
+                        <dd className="break-words">
+                          {/* A 'url' answer: organizers open it, not copy it. */}
+                          {isValidHttpUrl(a.value) ? (
+                            <a
+                              href={a.value}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-primary underline underline-offset-2"
+                            >
+                              {a.value}
+                            </a>
+                          ) : (
+                            a.value
+                          )}
+                        </dd>
                       </div>
                     ))}
                   </dl>

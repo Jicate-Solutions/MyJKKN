@@ -136,7 +136,8 @@ export function IdeaAssigneesEditor({
         <div className="min-w-0">
           <p className="text-sm font-semibold">Assign people</p>
           <p className="text-muted-foreground text-xs">
-            Pick everyone who will carry this out. Each of them is notified.
+            Add the people who should work on this, and remove anyone who is not
+            needed. Everyone added is notified.
           </p>
         </div>
       </div>

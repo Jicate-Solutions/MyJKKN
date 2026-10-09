@@ -936,16 +936,25 @@ export async function downloadQuestionWiseTemplate(ctx: QuestionWiseContext): Pr
   });
 
   const byId = new Map(paper.questions.map((q) => [q.id, q]));
+  // The OTHER branch of the OR pair. Sub-divisions of one split question share a
+  // branch_id and may all hold a mark together, so they are not siblings.
   const siblingsOf = (q: EntryQuestion) =>
-    paper.questions.filter((o) => o.id !== q.id && o.choice_group === q.choice_group);
+    paper.questions.filter((o) => o.branch_id !== q.branch_id && o.choice_group === q.choice_group);
+  /** One branch as a reader names it: "Q12a", or "Q12a i+Q12a ii" when split. */
+  const branchesOf = (group: EntryQuestion[]): EntryQuestion[][] => {
+    const branches = new Map<string, EntryQuestion[]>();
+    for (const o of group) branches.set(o.branch_id, [...(branches.get(o.branch_id) ?? []), o]);
+    return [...branches.values()];
+  };
+  const branchName = (branch: EntryQuestion[]) => branch.map(questionHeader).join('+');
 
   const restrictions = paper.parts
     .filter((p) => p.num_to_answer != null)
     .map((p) => `Part ${p.part_label}: answer any ${p.num_to_answer} of ${p.group_count} (an OR pair counts as one).`);
   const orGroups = [...new Set(paper.questions.map((q) => q.choice_group))]
-    .map((g) => paper.questions.filter((q) => q.choice_group === g))
-    .filter((group) => group.length > 1);
-  const orPairs = orGroups.map((group) => group.map(questionHeader).join(' / '));
+    .map((g) => branchesOf(paper.questions.filter((q) => q.choice_group === g)))
+    .filter((branches) => branches.length > 1);
+  const orPairs = orGroups.map((branches) => branches.map(branchName).join(' / '));
 
   /** Number of choice groups in a part that hold a mark — an OR pair counts once. */
   const answeredGroupsExpr = (partLabel: string, ref: (key: string) => string): string => {
@@ -1009,10 +1018,11 @@ export async function downloadQuestionWiseTemplate(ctx: QuestionWiseContext): Pr
     rowChecks: ({ ref, range, absent }) => {
       const out: Array<[string, string]> = [];
       if (absent) out.push([`AND(${absent}<>"",COUNTA(${range})>0)`, 'AB but has marks']);
-      for (const group of orGroups) {
+      for (const branches of orGroups) {
+        // Branches answered, not cells: a split branch's sub-divisions count once.
         out.push([
-          `COUNT(${group.map((o) => ref(o.id)).join(',')})>1`,
-          `Only one of ${group.map(questionHeader).join(' / ')}`,
+          `${branches.map((b) => `SIGN(COUNT(${b.map((o) => ref(o.id)).join(',')}))`).join('+')}>1`,
+          `Only one of ${branches.map(branchName).join(' / ')}`,
         ]);
       }
       for (const part of paper.parts) {
@@ -1030,7 +1040,9 @@ export async function downloadQuestionWiseTemplate(ctx: QuestionWiseContext): Pr
       const siblings = siblingsOf(q);
       return [
         `Whole number from 0 to ${q.marks}.`,
-        siblings.length ? `Only one of ${[q, ...siblings].map(questionHeader).join(' / ')} may be answered.` : '',
+        siblings.length
+          ? `Only one of ${branchesOf(paper.questions.filter((o) => o.choice_group === q.choice_group)).map(branchName).join(' / ')} may be answered.`
+          : '',
         part?.num_to_answer != null ? `Part ${q.part_label}: answer any ${part.num_to_answer}.` : '',
         componentMax > 0 ? `Row total cannot exceed ${componentMax}.` : '',
         'No marks for a learner marked AB.',
