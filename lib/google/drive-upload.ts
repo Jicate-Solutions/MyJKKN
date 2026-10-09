@@ -864,3 +864,150 @@ export async function uploadInstaSolverAttachment(
     name: opts.file.name || storedName,
   };
 }
+
+// =============================================================================
+// Events — registration form uploads + form media
+// =============================================================================
+// Two helpers because the two have opposite audiences, exactly as the two
+// Supabase buckets they replace did:
+//
+//   uploadEventRegistrationFile   a REGISTRANT's document (ID proof, certificate,
+//                                 photograph). NO public permission.
+//   uploadEventFormMedia          a picture the ORGANIZER publishes on the form
+//                                 (banner, 'image_display' field). anyone:reader.
+//
+// Keep them apart: never add permissions.create to the first one.
+
+/** "<Event name> [<id8>]" — readable in Drive, unique even when names repeat. */
+function eventFolderName(eventName: string | null | undefined, eventId: string): string {
+  const name = (eventName || 'Event').replace(/[\r\n/]/g, ' ').trim().slice(0, 80) || 'Event';
+  return `${name} [${eventId.slice(0, 8)}]`;
+}
+
+export interface EventRegistrationFileUploadOptions {
+  eventId: string;
+  eventName: string | null;
+  formId: string;
+  formName: string | null;
+  file: File;
+}
+
+export interface EventRegistrationFileUploadResult {
+  driveFileId: string;
+  name: string;
+  mimeType: string;
+  sizeBytes: number;
+}
+
+/**
+ * Upload one registrant file to
+ *   Event Registrations / {Event} [{id8}] / {Form name} / {ts}-{filename}
+ *
+ * NO PUBLIC PERMISSION — these are ID proofs and photographs of real people.
+ * appProperties record which event + form the file belongs to, so anything that
+ * later serves the bytes can check a file id really is a registration upload
+ * for that event: the id is stored in client-submitted custom_fields, and
+ * without the check a forged id could point at any file this account can read.
+ */
+export async function uploadEventRegistrationFile(
+  opts: EventRegistrationFileUploadOptions
+): Promise<EventRegistrationFileUploadResult> {
+  if (!isDriveConfigured()) throw new Error('Google Drive is not configured for this server.');
+  const drive = createDriveClient();
+
+  const formFolder = (opts.formName || 'Form').replace(/[\r\n/]/g, ' ').trim().slice(0, 80) || 'Form';
+  const [folderId, buffer] = await Promise.all([
+    ensureFolderPath(drive, [
+      'Event Registrations',
+      eventFolderName(opts.eventName, opts.eventId),
+      formFolder,
+    ]),
+    opts.file.arrayBuffer().then((ab) => Buffer.from(ab)),
+  ]);
+
+  const safeName = (opts.file.name || 'attachment').replace(/[\r\n\/\\]/g, ' ').slice(0, 160);
+  const mimeType = opts.file.type || 'application/octet-stream';
+
+  const created = await drive.files.create({
+    requestBody: {
+      name: `${Date.now()}-${safeName}`,
+      parents: [folderId],
+      appProperties: {
+        kind: 'event-registration-upload',
+        eventId: opts.eventId,
+        formId: opts.formId,
+      },
+    },
+    media: { mimeType, body: Readable.from(buffer) },
+    fields: 'id',
+    supportsAllDrives: true,
+  });
+
+  const fileId = created.data.id;
+  if (!fileId) throw new Error('Drive upload returned no file id.');
+
+  return { driveFileId: fileId, name: safeName, mimeType, sizeBytes: buffer.byteLength };
+}
+
+export interface EventFormMediaUploadOptions {
+  eventId: string;
+  eventName: string | null;
+  file: File;
+}
+
+export interface EventFormMediaUploadResult {
+  url: string;
+  driveFileId: string;
+  name: string;
+}
+
+/**
+ * Public image URL for a Drive file shared anyone:reader. lh3 is the one Drive
+ * host that serves a cross-origin <img>; `=w1600` caps the width (never
+ * upscales) so a 5 MB banner is not sent full-size to every phone.
+ */
+export function eventFormMediaUrl(fileId: string): string {
+  return `https://lh3.googleusercontent.com/d/${fileId}=w1600`;
+}
+
+/**
+ * Upload a form banner / 'image_display' picture to
+ *   Event Form Media / {Event} [{id8}] / {ts}-{filename}
+ * and share it anyone:reader — an anonymous visitor renders it with a plain
+ * <img src>, so it has to be world-readable, as the public bucket was.
+ */
+export async function uploadEventFormMedia(
+  opts: EventFormMediaUploadOptions
+): Promise<EventFormMediaUploadResult> {
+  if (!isDriveConfigured()) throw new Error('Google Drive is not configured for this server.');
+  const drive = createDriveClient();
+
+  const [folderId, buffer] = await Promise.all([
+    ensureFolderPath(drive, ['Event Form Media', eventFolderName(opts.eventName, opts.eventId)]),
+    opts.file.arrayBuffer().then((ab) => Buffer.from(ab)),
+  ]);
+
+  const safeName = (opts.file.name || 'image').replace(/[\r\n\/\\]/g, ' ').slice(0, 160);
+
+  const created = await drive.files.create({
+    requestBody: {
+      name: `${Date.now()}-${safeName}`,
+      parents: [folderId],
+      appProperties: { kind: 'event-form-media', eventId: opts.eventId },
+    },
+    media: { mimeType: opts.file.type || 'application/octet-stream', body: Readable.from(buffer) },
+    fields: 'id',
+    supportsAllDrives: true,
+  });
+
+  const fileId = created.data.id;
+  if (!fileId) throw new Error('Drive upload returned no file id.');
+
+  await drive.permissions.create({
+    fileId,
+    requestBody: { role: 'reader', type: 'anyone' },
+    supportsAllDrives: true,
+  });
+
+  return { url: eventFormMediaUrl(fileId), driveFileId: fileId, name: safeName };
+}

@@ -1,6 +1,7 @@
 'use client';
 
 import { Suspense, useState, useMemo, useCallback } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { useTabParam } from '@/hooks/use-tab-param';
 import { ContentLayout } from '@/components/layout/content-layout';
 import {
@@ -74,14 +75,21 @@ function InternalMarksReportPageInner() {
   const { profile } = useAuth();
   const canView = isLoadingPermissions || isSuperAdmin || canAccess('academic.internal-marks', 'view');
 
-  const [filters, setFilters] = useState<ReportFilterState>({
-    institution_id: '',
-    exam_session_id: '',
-    setting_id: '',
-    cia_round: undefined,
-    program_code: '',
-    semester_codes: [],
-    course_codes: [],
+  // Mark Entry's "Consolidated Report" button links here with the filters it
+  // already had (?session=&setting=&round=&program=), so the report opens on the
+  // same scope. Read once, as the initial state — the URL is not kept in sync.
+  const searchParams = useSearchParams();
+  const [filters, setFilters] = useState<ReportFilterState>(() => {
+    const round = Number(searchParams.get('round'));
+    return {
+      institution_id: searchParams.get('institution') ?? '',
+      exam_session_id: searchParams.get('session') ?? '',
+      setting_id: searchParams.get('setting') ?? '',
+      cia_round: searchParams.get('round') && Number.isFinite(round) ? round : undefined,
+      program_code: searchParams.get('program') ?? '',
+      semester_codes: [],
+      course_codes: [],
+    };
   });
 
   // Institution ID resolution mirrors /academic/internal-marks:

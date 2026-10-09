@@ -339,6 +339,20 @@ export async function resolveTargetLearners(
     targeting.map(async (entry) => {
       if (!entry.semester_orders || entry.semester_orders.length === 0) {
         semesterIdsByInst.set(entry.institution_id, 'ALL');
+        // "ALL" at the institution level can still hide a block with its own
+        // semesters (UG Sem 5 + PG all → rolled-up orders are []). The per-learner
+        // narrowing below needs each learner's semester order to honour that
+        // block; without it every learner of the block read as "no semester"
+        // and was dropped from the audience AND from the notifications.
+        if (entry.degree_semesters?.some((g) => g.semester_orders.length > 0)) {
+          const { data, error } = await service
+            .from('semesters')
+            .select('id, semester_order')
+            .eq('institution_id', entry.institution_id)
+            .limit(5000);
+          if (error) throw error;
+          (data ?? []).forEach((s) => orderBySemesterId.set(s.id as string, s.semester_order as number));
+        }
         return;
       }
       const { data, error } = await service
