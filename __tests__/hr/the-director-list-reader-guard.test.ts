@@ -8,10 +8,13 @@
  * CREATE OR REPLACE of either function replaces the whole body. If that body
  * does not carry the guard, every signed-in account can read the list again.
  *
- * This test fails any migration sorted after 20270520090000 that re-creates
- * either reader without the guard at every key filter, and requires the
- * setup mirror of fn_get_policy to carry it too. It reads the repo only: SQL
- * run by hand outside a migration is not seen here.
+ * Version numbers here are not the order files reach production (2027-dated
+ * files merged in Sep 2026), so a cut-off by file name would miss a new file
+ * numbered below 20270520090000. Instead the files that re-created a reader
+ * before the list existed are named below; EVERY other migration, whatever
+ * its number, that re-creates either reader must carry the guard at every
+ * key filter. The setup mirror of fn_get_policy must carry it too. It reads
+ * the repo only: SQL run by hand outside a migration is not seen here.
  *
  * Run: npx vitest run __tests__/hr/the-director-list-reader-guard.test.ts
  */
@@ -22,6 +25,20 @@ import { join } from 'node:path';
 const ROOT = join(__dirname, '..', '..');
 const MIG_DIR = join(ROOT, 'supabase', 'migrations');
 const DIRECTOR_LIST_FILE = '20270520090000_the_director_list.sql';
+/**
+ * Re-created a reader before the list's guard existed, or IS the patch. Never
+ * add to this list: a new definition must carry the guard instead.
+ * 20270506090000 (#4111) is here because its own body has no guard; the live
+ * body carries the guard 20270520090000 patched on top of it (live read 8 Oct).
+ * Never run that file again by hand (see the SQL file index).
+ */
+const BEFORE_THE_GUARD = new Set([
+  '20260429000002_platform_policies_substrate.sql',
+  '20260509_internship_module_reader_fn_v2.sql',
+  '20260731180000_platform_policies_cohort_scope.sql',
+  '20270506090000_hr_pay_policies_readable_only_with_salary_view.sql',
+  DIRECTOR_LIST_FILE,
+]);
 const GUARD =
   " AND (p_key IS DISTINCT FROM 'platform.the_director_profile_ids'" +
   ' OR (SELECT public.is_super_admin()) OR (SELECT public.fn_is_the_director()))';
@@ -71,10 +88,10 @@ function guardCoverage(def: string): { filters: number; guarded: number } {
   return { filters, guarded };
 }
 
-/** Migrations sorted after the Director list that re-create `create`. */
+/** Migrations, other than the named ones, that re-create `create`. */
 function laterCreates(create: RegExp, files: string[]): Array<{ file: string; def: string }> {
   return files
-    .filter((f) => f > DIRECTOR_LIST_FILE)
+    .filter((f) => !BEFORE_THE_GUARD.has(f))
     .flatMap((f) =>
       definitions(stripSqlComments(read(join(MIG_DIR, f))), create).map((def) => ({ file: f, def })),
     );
@@ -95,7 +112,7 @@ describe('the Director list stays closed in the generic policy readers', () => {
   });
 
   for (const reader of READERS) {
-    it(`every migration after 20270520090000 that re-creates ${reader.name} carries the guard at every key filter`, () => {
+    it(`every other migration that re-creates ${reader.name}, whatever its number, carries the guard at every key filter`, () => {
       const offenders = laterCreates(reader.create, migrationFiles)
         .map(({ file, def }) => ({ file, ...guardCoverage(def) }))
         .filter((c) => c.filters === 0 || c.guarded !== c.filters);
@@ -114,6 +131,18 @@ describe('the Director list stays closed in the generic policy readers', () => {
     const { filters, guarded } = guardCoverage(defs[0]);
     expect(filters).toBeGreaterThan(0);
     expect(guarded).toBe(filters);
+  });
+
+  it('every named pre-guard file is on disk and re-creates a reader (the list cannot hide a typo)', () => {
+    for (const f of BEFORE_THE_GUARD) {
+      expect(migrationFiles, f).toContain(f);
+      if (f === DIRECTOR_LIST_FILE) continue;
+      const sql = stripSqlComments(read(join(MIG_DIR, f)));
+      expect(
+        READERS.some((r) => definitions(sql, r.create).length > 0),
+        `${f} no longer re-creates a reader; take it off the list`,
+      ).toBe(true);
+    }
   });
 
   it('the checker sees an unguarded re-create (it would not pass vacuously)', () => {
