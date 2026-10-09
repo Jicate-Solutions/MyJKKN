@@ -260,7 +260,11 @@ const MAX_UNITS_PER_LETTER = 16;
 /** The letters (grapheme clusters) of `text`, stopping after `limit` of them. */
 function letters(text: string, limit: number): string[] {
   // Never segment more raw text than `limit` letters could possibly need.
-  const head = text.slice(0, limit * MAX_UNITS_PER_LETTER);
+  let head = text.slice(0, limit * MAX_UNITS_PER_LETTER);
+  // The cut may land between the two halves of an emoji or other character
+  // outside the basic plane; a lone half is not valid text, so drop it.
+  const last = head.charCodeAt(head.length - 1);
+  if (last >= 0xd800 && last <= 0xdbff) head = head.slice(0, -1);
   const out: string[] = [];
   const it = Segmenter ? new Segmenter(undefined, { granularity: 'grapheme' }).segment(head) : head;
   for (const part of it as Iterable<string | { segment: string }>) {
@@ -420,12 +424,24 @@ async function stillAllowedToBook(db: SupabaseClient, keyId: string, ownerId: st
   }
 }
 
-/** Gives a reservation back when booking definitely wrote nothing. Best effort. */
+/** How long giving a slot back may take before the answer is sent anyway. */
+const RELEASE_TIMEOUT_MS = 3_000;
+
+/**
+ * Gives a reservation back when booking definitely wrote nothing. Best effort,
+ * and never allowed to hold up the answer: after a timeout (the database is
+ * probably slow) it waits at most RELEASE_TIMEOUT_MS, then the refusal is sent
+ * and audited. A release that never lands only means the slot stays counted
+ * until it ages out of the 24-hour window.
+ */
 async function releaseBookingSlot(db: SupabaseClient, reservationId: string): Promise<void> {
   try {
-    await db.rpc('fn_ai_booking_release', { p_reservation_id: reservationId });
+    await withDeadline(
+      Promise.resolve(db.rpc('fn_ai_booking_release', { p_reservation_id: reservationId })),
+      RELEASE_TIMEOUT_MS
+    );
   } catch {
-    // A failed release only means the slot stays counted until it ages out.
+    // timed out or failed: see above
   }
 }
 

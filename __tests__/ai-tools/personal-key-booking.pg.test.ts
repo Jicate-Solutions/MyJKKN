@@ -36,6 +36,7 @@ const REPO = path.resolve(__dirname, '..', '..');
 const BASE = path.join(REPO, 'supabase/migrations/20270301090000_ai_tool_catalog.sql');
 const MIGRATION = path.join(REPO, 'supabase/migrations/20271008150000_personal_key_meeting_booking.sql');
 const RESERVATIONS = path.join(REPO, 'supabase/migrations/20271008160000_personal_key_booking_reservations.sql');
+const DROP_STMT_TIMEOUT = path.join(REPO, 'supabase/migrations/20271008170000_booking_reserve_drop_statement_timeout.sql');
 
 const PGHOST = process.env.AI_DOOR_TEST_PGHOST ?? 'localhost';
 const PGPORT = Number(process.env.AI_DOOR_TEST_PGPORT ?? 5432);
@@ -101,6 +102,7 @@ let dbConnected = false;
 const baseSql = readFileSync(BASE, 'utf8');
 const migrationSql = readFileSync(MIGRATION, 'utf8');
 const reservationsSql = readFileSync(RESERVATIONS, 'utf8');
+const dropStmtTimeoutSql = readFileSync(DROP_STMT_TIMEOUT, 'utf8');
 
 /** Stand-ins for the seeded functions — the migration asserts every target exists. */
 function stubsFor(sql: string): string {
@@ -172,6 +174,7 @@ beforeAll(async () => {
   await expect(db.query(reservationsSql)).rejects.toThrow(/needs 20271008150000/);
   await db.query(migrationSql);
   await db.query(reservationsSql);
+  await db.query(dropStmtTimeoutSql);
   keyA = await makeKey(A, 'A front desk');
   keyA2 = await makeKey(A, 'A laptop');
   keyB = await makeKey(B, 'B key');
@@ -418,13 +421,34 @@ describe('booking reservations (atomic limits)', () => {
     await db.query(`UPDATE public.ai_booking_reservations SET released = true WHERE key_id IS NULL AND owner_id = $1`, [S]);
   });
 
-  it('the reserve function carries its own lock and statement time limits', async () => {
+  it('the reserve function keeps its lock time limit and no longer claims a statement limit (20271008170000)', async () => {
     await db.query('RESET ROLE');
-    const r = await db.query(
-      `SELECT proconfig FROM pg_proc WHERE proname = 'fn_ai_booking_reserve'`
-    );
-    expect(r.rows[0].proconfig).toEqual(expect.arrayContaining(['lock_timeout=5s', 'statement_timeout=10s']));
+    // re-applying 160000 puts the setting back; 170000 removes it again, and is re-runnable
+    await db.query(reservationsSql);
+    await db.query(dropStmtTimeoutSql);
+    await db.query(dropStmtTimeoutSql);
+    const r = await db.query(`SELECT proconfig FROM pg_proc WHERE proname = 'fn_ai_booking_reserve'`);
+    expect(r.rows[0].proconfig).toEqual(expect.arrayContaining(['lock_timeout=5s']));
+    expect(r.rows[0].proconfig).not.toEqual(expect.arrayContaining(['statement_timeout=10s']));
   });
+
+  it('lock_timeout really bounds the wait for the owner lock', async () => {
+    const holder = new Client({ host: PGHOST, port: PGPORT, user: PGUSER, password: PGPASSWORD, database: DBNAME });
+    await holder.connect();
+    try {
+      await holder.query('BEGIN');
+      await holder.query(`SELECT pg_advisory_xact_lock(hashtext('ai_booking_grant:' || $1::text))`, [S]);
+      const t0 = Date.now();
+      await db.query('RESET ROLE');
+      await db.query('SET ROLE service_role');
+      await expect(db.query(reserve(keyS, S, 1, 100))).rejects.toThrow(/lock timeout/);
+      expect(Date.now() - t0).toBeLessThan(8000);
+    } finally {
+      await db.query('RESET ROLE').catch(() => {});
+      await holder.query('ROLLBACK').catch(() => {});
+      await holder.end();
+    }
+  }, 20_000);
 
   it('refuses past the per-day invitee limit for the owner', async () => {
     const [{ r }] = await asService(reserve(keyS, S, 148, 100, 100, 150)); // 3 already live + 148 > 150
