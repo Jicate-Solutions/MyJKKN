@@ -17,7 +17,8 @@
 # the precondition check (THIS migration must refuse to run without the
 # Director list) -> the Director list migration (+ isvarya@) -> THIS migration,
 # applied TWICE -> seed -> assert.sql as every relevant role.
-# Then run-stacked.sh: this file on top of #4140 + #4190 + #4252 (both guards
+# Then directory.sql (section 3: the pay in force today on Employee Salaries),
+# then run-stacked.sh: this file on top of #4140 + #4190 + #4252 (both guards
 # on hr_staff_salaries fire; the approvals job still sends an overdue yes back
 # and writes the next one). PORT_STACKED= moves its cluster (default PORT+1).
 set -euo pipefail
@@ -195,6 +196,17 @@ FAIL=$("${PSQL[@]}" -Atc "select count(*) from t.results where not ok")
 echo
 echo "RESULT: $PASS PASS / $FAIL FAIL"
 [ "$FAIL" = "0" ] || exit 1
+
+# Section 3 (9 Oct 2026): the directory shows the pay in force today next to
+# the newest row. Same cluster, after assert.sql. See directory.sql.
+"${PSQL[@]}" -f "$HERE/directory.sql" > "$WORK/directory.out"
+echo
+echo "== hr_staff_salary_directory(): pay in force today"
+"${PSQL[@]}" -At -F ' | ' -c "select case when ok then 'PASS' else 'FAIL' end, label, case when ok then '' else coalesce(detail, '') end from td.results order by n"
+DPASS=$("${PSQL[@]}" -Atc "select count(*) from td.results where ok")
+DFAIL=$("${PSQL[@]}" -Atc "select count(*) from td.results where ok is not true")
+echo "DIRECTORY RESULT: $DPASS PASS / $DFAIL FAIL"
+[ "$DFAIL" = "0" ] || exit 1
 
 # Second phase (8 Oct 2026): the same file on top of the salary approvals that
 # are already on main and live (#4140, #4190, #4252), on its own throwaway

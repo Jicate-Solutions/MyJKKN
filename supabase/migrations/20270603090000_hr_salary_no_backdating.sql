@@ -83,8 +83,28 @@
 --      the Data API, and the trigger still requires the Director list for a
 --      signed-in caller, so the setting alone opens nothing.
 --
--- READS DO NOT CHANGE. hr_staff_salaries_select, hr_staff_salaries_write and
---   hr_staff_salary_directory() are untouched: super admins and the HR head
+--   3. hr_staff_salary_directory() (Employee Salaries) also returns the pay in
+--      force TODAY (added 2026-10-09). A change now usually starts on the 1st
+--      of next month, and the directory read only the newest row
+--      (superseded_by IS NULL), so a raise saved today for 1 Nov showed as
+--      today's pay. Five columns are added at the END: in_force_salary_id,
+--      in_force_monthly_gross, in_force_annual_gross,
+--      in_force_allowance_amount, in_force_effective_from. They come from the
+--      newest row, walked back along superseded_by past every row that starts
+--      after today (India time), the walk hr_staff_salaries_in_force()
+--      (20270519090000) does for the register. Two differences: a row with no
+--      start counts as already started, and in_force_* is NULL when nothing
+--      has started yet (a new joiner whose first pay starts next month). The
+--      existing columns are UNCHANGED, still the newest row, because the edit
+--      dialog and fn_hr_set_staff_salary's "identical, nothing to do" check
+--      both work on the row a save would replace. The return type changes,
+--      so the function is dropped and re-created; same gate (RAISE without
+--      hr.payroll.salary.view), same college scope, same rows, same grants.
+--      The register and payslips are untouched (they read
+--      hr_staff_salaries_in_force for their month).
+--
+-- OTHER READS DO NOT CHANGE. hr_staff_salaries_select and
+--   hr_staff_salaries_write are untouched: super admins and the HR head
 --   still see the register; everyone still sees their own pay.
 --
 -- DATA DRIFT, UNVERIFIED
@@ -408,5 +428,117 @@ DROP TRIGGER IF EXISTS trg_hr_staff_salaries_guard_writes ON public.hr_staff_sal
 CREATE TRIGGER trg_hr_staff_salaries_guard_writes
   BEFORE INSERT OR UPDATE OR DELETE ON public.hr_staff_salaries
   FOR EACH ROW EXECUTE FUNCTION public.hr_staff_salaries_guard_writes();
+
+-- ---------------------------------------------------------------------------
+-- 3. hr_staff_salary_directory(): also the pay in force today
+-- ---------------------------------------------------------------------------
+-- Body from main's newest definition (20260902100000), with grants as
+-- 20260922010000 left them. Added: v_today, the in_force CTEs and the five
+-- in_force_* columns at the end. Everything else is unchanged. The live body
+-- was NOT compared (not in the orchestrator's read of production).
+DROP FUNCTION IF EXISTS public.hr_staff_salary_directory();
+
+CREATE FUNCTION public.hr_staff_salary_directory()
+RETURNS TABLE(
+  staff_uuid uuid, staff_code text, person_name text, role_title text,
+  is_active boolean, works_at_id uuid, works_at_name text,
+  payer_org_id uuid, payer_org_name text,
+  salary_id uuid, salary_structure text, monthly_gross numeric, annual_gross numeric,
+  overtime_level text, overtime_amount numeric,
+  eligible_for_pf boolean, exempt_edli boolean, eligible_for_insurance boolean,
+  eligible_for_gratuity boolean, eligible_for_etf boolean,
+  epf_amount numeric, eligible_for_esi boolean, esi_amount numeric,
+  allowance_amount numeric, allowance_label text,
+  effective_from date, notes text,
+  in_force_salary_id uuid, in_force_monthly_gross numeric, in_force_annual_gross numeric,
+  in_force_allowance_amount numeric, in_force_effective_from date
+)
+LANGUAGE plpgsql
+STABLE SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_today date := (now() AT TIME ZONE 'Asia/Kolkata')::date;
+BEGIN
+  -- RAISES rather than returning zero rows, so an empty list from this function
+  -- always means "no staff in scope" and never "you are not allowed".
+  IF NOT public.user_has_permission('hr.payroll.salary.view') THEN
+    RAISE EXCEPTION 'hr.payroll.salary.view is required to see employee salaries.'
+      USING ERRCODE = 'insufficient_privilege';
+  END IF;
+
+  RETURN QUERY
+  WITH RECURSIVE chain AS (
+    -- The newest row, then back along superseded_by while the row in hand
+    -- starts after today. A row with no start stops the walk: it counts as
+    -- already started.
+    SELECT c.id, c.staff_id, c.effective_from, 0 AS depth
+      FROM public.hr_staff_salaries c
+     WHERE c.superseded_by IS NULL
+    UNION ALL
+    SELECT prev.id, prev.staff_id, prev.effective_from, ch.depth + 1
+      FROM chain ch
+      JOIN public.hr_staff_salaries prev ON prev.superseded_by = ch.id
+     WHERE ch.effective_from > v_today AND ch.depth < 100
+  ), in_force AS (
+    SELECT DISTINCT ON (ch.staff_id) ch.id, ch.staff_id
+      FROM chain ch
+     WHERE ch.effective_from IS NULL OR ch.effective_from <= v_today
+     ORDER BY ch.staff_id, ch.depth
+  )
+  SELECT s.id,
+         s.staff_id::text,
+         TRIM(BOTH FROM COALESCE(s.first_name, '') || ' ' || COALESCE(s.last_name, ''))::text,
+         s.designation::text,
+         COALESCE(s.is_active, false),
+         i.id,
+         i.name::text,
+         o.id,
+         o.name::text,
+         sal.id,
+         sal.salary_structure::text,
+         sal.monthly_gross,
+         sal.annual_gross,
+         sal.overtime_level::text,
+         sal.overtime_amount,
+         sal.eligible_for_pf,
+         sal.exempt_edli,
+         sal.eligible_for_insurance,
+         sal.eligible_for_gratuity,
+         sal.eligible_for_etf,
+         sal.epf_amount,
+         sal.eligible_for_esi,
+         sal.esi_amount,
+         sal.allowance_amount,
+         sal.allowance_label,
+         sal.effective_from,
+         sal.notes,
+         nowsal.id,
+         nowsal.monthly_gross,
+         nowsal.annual_gross,
+         nowsal.allowance_amount,
+         nowsal.effective_from
+    -- v_hr_staff, never the base staff table: employment_categories.included_in_hr
+    -- gates the whole HR module and payroll is no exception.
+    FROM public.v_hr_staff s
+    JOIN public.institutions i ON i.id = s.institution_id
+    LEFT JOIN public.hr_staff_payroll p ON p.staff_id = s.id
+    LEFT JOIN public.hr_organizations o ON o.id = p.hr_organization_id
+    LEFT JOIN public.hr_staff_salaries sal
+           ON sal.staff_id = s.id AND sal.superseded_by IS NULL
+    LEFT JOIN in_force f ON f.staff_id = s.id
+    LEFT JOIN public.hr_staff_salaries nowsal ON nowsal.id = f.id
+   WHERE (COALESCE(s.is_active, false) OR sal.id IS NOT NULL)
+     AND public.role_has_institution_access(s.institution_id)
+   -- Unset first: this is a work queue before it is a report.
+   ORDER BY (sal.id IS NOT NULL), i.name, 3;
+END;
+$function$;
+
+REVOKE ALL ON FUNCTION public.hr_staff_salary_directory() FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.hr_staff_salary_directory() TO authenticated, service_role;
+
+COMMENT ON FUNCTION public.hr_staff_salary_directory() IS
+  'Every active staff member with their newest salary row (the one a save replaces), or NULL where none is recorded, plus in_force_*: the row in force today (Asia/Kolkata; a row with no start counts as started; NULL when nothing has started yet). Gated on hr.payroll.salary.view; raises rather than returning [] so an empty list never means "denied". See 20270603090000.';
 
 NOTIFY pgrst, 'reload schema';
