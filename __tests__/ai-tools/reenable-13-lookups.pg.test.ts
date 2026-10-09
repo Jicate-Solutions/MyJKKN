@@ -146,11 +146,13 @@ describe('switching the 13 lookups back on', () => {
 
   it('switches on exactly those 13 and leaves every other row unchanged', async () => {
     const db = await freshDb();
+    // a bystander someone else switched off must stay off
+    await db.query(`UPDATE public.ai_tool_catalog SET enabled = false WHERE target = 'ai_rpc_user_context'`);
     const before = (await db.query(SNAPSHOT)).rows;
     await db.query(REENABLE);
     const after = (await db.query(SNAPSHOT)).rows;
 
-    expect(await offTargets(db)).toEqual([]);
+    expect(await offTargets(db)).toEqual(['ai_rpc_user_context']);
     expect(after).toHaveLength(before.length);
     for (let i = 0; i < before.length; i++) {
       const was = before[i];
