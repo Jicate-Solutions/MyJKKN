@@ -455,29 +455,50 @@ SELECT set_config('request.jwt.claim.role', '', false);
 SELECT t_ok((tk('J1b-held-named-jmd')).assigned_to = 'a0000000-0000-0000-0000-000000000003', 'J1b sent back: the HOD category goes to HOD ONE');
 
 -- ------------------------------------------------ 6b. round 3: counts, SLA stats, evidence, never down
--- get_grievance_sla_stats (production-only; a stand-in here) is patched like
--- the other readers and obeys the switch.
-SELECT count(*) FILTER (WHERE NOT about_joint_md) AS plain_all, count(*) AS all_all,
-       count(*) FILTER (WHERE NOT about_joint_md AND status = 'open') AS plain_open
+-- get_grievance_sla_stats: production's LIVE body (00_stubs.sql), patched in
+-- place like the other readers, and obeying the switch.
+SELECT t_ok((SELECT (length(prosrc) - length(replace(prosrc, 'public.grievance_tickets AS __jmd', ''))) / length('public.grievance_tickets AS __jmd')
+             FROM pg_proc WHERE proname = 'get_grievance_sla_stats') = 10,
+            'all ten subqueries of the live get_grievance_sla_stats are wrapped');
+SELECT t_ok((SELECT w.wrapped = 0 AND w.already = 10 FROM pg_proc p, fn_grievance_jmd_wrap_reads(p.prosrc, 'switch') w
+             WHERE p.proname = 'get_grievance_sla_stats'), 'and the rewriter finds nothing left to wrap');
+SELECT t_ok(NOT EXISTS (SELECT 1 FROM fn_grievance_jmd_reader_gate() WHERE object LIKE 'get_grievance_sla_stats%'),
+            'the reader gate passes it');
+-- ratings, so the two averages have something to leave out: a ticked one rated 1, an ordinary one rated 5
+UPDATE grievance_tickets SET satisfaction_rating = 1 WHERE subject = 'J2c-superior-and-jmd';
+UPDATE grievance_tickets SET satisfaction_rating = 5 WHERE subject = 'E1-unassigned';
+SELECT count(*) FILTER (WHERE NOT about_joint_md AND status = 'open') AS plain_open,
+       count(*) FILTER (WHERE status = 'open') AS all_open,
+       count(*) FILTER (WHERE NOT about_joint_md AND status NOT IN ('resolved', 'closed') AND sla_status = 'breached') AS plain_breached,
+       count(*) FILTER (WHERE status NOT IN ('resolved', 'closed') AND sla_status = 'breached') AS all_breached,
+       COALESCE(avg(satisfaction_rating) FILTER (WHERE NOT about_joint_md), 0) AS plain_sat,
+       COALESCE(avg(satisfaction_rating), 0) AS all_sat
   FROM grievance_tickets WHERE institution_id = '10000000-0000-0000-0000-000000000001' \gset
-SELECT t_ok(:all_all > :plain_all, 'college A holds complaints about the Joint MD: ' || (:all_all - :plain_all));
+SELECT t_ok(:all_open > :plain_open AND :all_breached > :plain_breached AND :all_sat <> :plain_sat,
+            'college A has open, breached and rated complaints about the Joint MD to leave out: open '
+            || :plain_open || '/' || :all_open || ', breached ' || :plain_breached || '/' || :all_breached);
 SELECT set_config('request.jwt.claim.sub', 'a0000000-0000-0000-0000-00000000000f', false);   -- a super admin, not the Joint MD
-SELECT t_ok((get_grievance_sla_stats('10000000-0000-0000-0000-000000000001') ->> 'total')::int = :plain_all,
-            'SLA stats, recommended option: left out for everyone (' || (get_grievance_sla_stats('10000000-0000-0000-0000-000000000001') ->> 'total') || ')');
-SELECT t_ok((get_grievance_sla_stats('10000000-0000-0000-0000-000000000001') ->> 'open')::int = :plain_open,
-            'and its JOIN read is filtered too');
+CREATE TEMP TABLE sla_on AS SELECT get_grievance_sla_stats('10000000-0000-0000-0000-000000000001')::jsonb AS j;
+SELECT t_ok((SELECT (j ->> 'total_open')::int = :plain_open AND (j ->> 'sla_breached')::int = :plain_breached
+                    AND (j ->> 'avg_satisfaction')::numeric = :plain_sat FROM sla_on),
+            'SLA stats, recommended option: total_open, sla_breached and avg_satisfaction leave them out for everyone: '
+            || (SELECT j::text FROM sla_on));
 UPDATE platform_policies SET value = 'false' WHERE policy_key = 'grievance.about_joint_md.hide_from_everyone' AND scope_type = 'global';
-SELECT t_ok((get_grievance_sla_stats('10000000-0000-0000-0000-000000000001') ->> 'total')::int = :all_all,
-            'SLA stats, other option: another super admin counts them');
+CREATE TEMP TABLE sla_off AS SELECT get_grievance_sla_stats('10000000-0000-0000-0000-000000000001')::jsonb AS j;
+SELECT t_ok((SELECT (j ->> 'total_open')::int = :all_open AND (j ->> 'sla_breached')::int = :all_breached
+                    AND (j ->> 'avg_satisfaction')::numeric = :all_sat FROM sla_off),
+            'SLA stats, other option: another super admin counts them: ' || (SELECT j::text FROM sla_off));
 SELECT t_ok((fn_dashboard_metrics('10000000-0000-0000-0000-000000000001') ->> 'escalations_open')::int
             > (SELECT count(*) FROM grievance_tickets WHERE NOT about_joint_md AND status NOT IN ('resolved', 'closed', 'cancelled')
                  AND sla_deadline < now() AND institution_id = '10000000-0000-0000-0000-000000000001'),
             'dashboard, other option: another super admin counts them too (one switch for every reader)');
 SELECT set_config('request.jwt.claim.sub', 'a0000000-0000-0000-0000-000000000001', false);   -- the Joint MD
-SELECT t_ok((get_grievance_sla_stats('10000000-0000-0000-0000-000000000001') ->> 'total')::int = :plain_all,
+SELECT t_ok((get_grievance_sla_stats('10000000-0000-0000-0000-000000000001')::jsonb ->> 'total_open')::int = :plain_open
+            AND (get_grievance_sla_stats('10000000-0000-0000-0000-000000000001')::jsonb ->> 'sla_breached')::int = :plain_breached,
             'SLA stats, other option: never the Joint MD');
 UPDATE platform_policies SET value = 'true' WHERE policy_key = 'grievance.about_joint_md.hide_from_everyone' AND scope_type = 'global';
 SELECT set_config('request.jwt.claim.sub', '', false);
+UPDATE grievance_tickets SET satisfaction_rating = NULL WHERE subject IN ('J2c-superior-and-jmd', 'E1-unassigned');
 
 -- NAAC / UGC evidence on resolve
 SELECT t_ok((SELECT prosrc LIKE '%about_joint_md%' FROM pg_proc WHERE proname = 'emit_grievance_evidence'),

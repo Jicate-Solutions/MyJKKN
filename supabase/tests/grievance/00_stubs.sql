@@ -222,26 +222,39 @@ WHEN (NEW.status = 'resolved' AND (OLD.status IS NULL OR OLD.status <> 'resolved
 EXECUTE FUNCTION emit_grievance_evidence();
 
 -- get_grievance_sla_stats exists only on production (no migration in the
--- repo defines it; GrievanceService.getDashboardStats calls it). Its live
--- body was NOT read for this rehearsal: this is a stand-in in the shapes the
--- patch must handle (a plain FROM, an aliased FROM inside a subquery, and a
--- JOIN), so the patch and the gate are exercised on it.
+-- repo defines it; GrievanceService.getDashboardStats calls it). Below is its
+-- LIVE definition, byte for byte (pg_get_functiondef, read-only catalog read
+-- by the desk 10 Oct 2026): ten scalar subqueries FROM grievance_tickets. The
+-- two columns it averages that the stub table lacked are added first.
+ALTER TABLE public.grievance_tickets
+  ADD COLUMN IF NOT EXISTS satisfaction_rating integer,
+  ADD COLUMN IF NOT EXISTS satisfaction_feedback text;
 CREATE OR REPLACE FUNCTION public.get_grievance_sla_stats(p_institution_id uuid)
-RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
-DECLARE v_total int; v_breached int; v_by_category jsonb;
+ RETURNS json
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+AS $function$
+DECLARE
+  v_result JSON;
 BEGIN
-  SELECT count(*), count(*) FILTER (WHERE sla_status = 'breached')
-    INTO v_total, v_breached
-  FROM grievance_tickets
-  WHERE institution_id = p_institution_id;
-  SELECT COALESCE(jsonb_object_agg(c.name, x.n), '{}'::jsonb) INTO v_by_category
-  FROM (SELECT g.category_id, count(*) AS n FROM grievance_tickets g
-        WHERE g.institution_id = p_institution_id GROUP BY g.category_id) x
-  JOIN grievance_categories c ON c.id = x.category_id;
-  RETURN jsonb_build_object('total', v_total, 'breached', v_breached, 'by_category', v_by_category,
-    'open', (SELECT count(*) FROM grievance_categories c2 JOIN grievance_tickets t2 ON t2.category_id = c2.id
-             WHERE t2.institution_id = p_institution_id AND t2.status = 'open'));
-END $$;
+  SELECT json_build_object(
+    'total_open', (SELECT COUNT(*) FROM grievance_tickets WHERE institution_id = p_institution_id AND status = 'open'),
+    'total_in_progress', (SELECT COUNT(*) FROM grievance_tickets WHERE institution_id = p_institution_id AND status = 'in_progress'),
+    'total_pending_info', (SELECT COUNT(*) FROM grievance_tickets WHERE institution_id = p_institution_id AND status = 'pending_info'),
+    'total_resolved', (SELECT COUNT(*) FROM grievance_tickets WHERE institution_id = p_institution_id AND status = 'resolved'),
+    'total_closed', (SELECT COUNT(*) FROM grievance_tickets WHERE institution_id = p_institution_id AND status = 'closed'),
+    'sla_on_track', (SELECT COUNT(*) FROM grievance_tickets WHERE institution_id = p_institution_id AND status NOT IN ('resolved', 'closed') AND sla_status = 'on_track'),
+    'sla_at_risk', (SELECT COUNT(*) FROM grievance_tickets WHERE institution_id = p_institution_id AND status NOT IN ('resolved', 'closed') AND sla_status = 'at_risk'),
+    'sla_breached', (SELECT COUNT(*) FROM grievance_tickets WHERE institution_id = p_institution_id AND status NOT IN ('resolved', 'closed') AND sla_status = 'breached'),
+    'avg_satisfaction', (SELECT COALESCE(AVG(satisfaction_rating), 0) FROM grievance_tickets WHERE institution_id = p_institution_id AND satisfaction_rating IS NOT NULL),
+    'avg_resolution_time_hours', (
+      SELECT COALESCE(AVG(EXTRACT(EPOCH FROM (resolved_at - created_at)) / 3600), 0)
+      FROM grievance_tickets WHERE institution_id = p_institution_id AND resolved_at IS NOT NULL
+    )
+  ) INTO v_result;
+  RETURN v_result;
+END;
+$function$;
 
 -- What fn_generate_unresolved_issue_items calls (production signatures).
 CREATE OR REPLACE FUNCTION public.fn_get_generator_config(p_name text, p_default jsonb) RETURNS jsonb LANGUAGE sql AS $$ SELECT p_default $$;
