@@ -359,4 +359,25 @@ export const LOOP_GOVERNANCE_ROUTINES: AIRoutine[] = [
     notes:
       "Fires via the AI-routine dispatcher (ai_routine_schedules row 'adoption-daily-tick', migration 20270324090000), NOT vercel.json. Auth: CRON_SECRET Bearer header only. ?dry_run=1 returns what WOULD be sent and writes nothing — use that instead of Run now to preview. A same-day re-run sends only what is left of the day's budget (every limit is keyed on rows already written that IST day). Returns {summary, result: {asked, reminded, capped, features}} — counts only, never who. An RPC error or a refused run (e.g. the loop owner has no profile) is HTTP 500 so the dispatcher records it; switched off is a 200 'skipped'. Rehearsed on production 2026-09-26 in BEGIN…ROLLBACK (dry run), 100 cap, three features excluded: the first run would ask 0 people and remind 100, spread across 8 features by the fair order — plain, non-blocking reminders, at most one a month per feature.",
   },
+  {
+    id: 'adoption-weekly-power-users',
+    name: 'Feature Adoption — weekly Power Users report and chat agendas',
+    category: 'misc-ai',
+    type: 'cron',
+    schedule: 'Weekly Mondays 10:50 IST (dispatcher-managed, after the 10:33 adoption-daily-tick)',
+    triggerPath: '/api/cron/adoption-weekly-power-users',
+    callsClaude: false,
+    featureKey: null,
+    featureKeyNote:
+      "The report is rules-based SQL (one RPC to fn_adoption_power_users). The route then enqueues up to 10 'adoption.chat_agenda' jobs on the ₹0 Max lane (drained externally by the Max seat); the route itself resolves no ai_model_config row.",
+    whatItDoes:
+      "Director 2026-10-09: the adoption desk's hand-made Monday Power Users report, moved into MyJKKN. Each Monday, for the IST week that just ended, one RPC ranks the 10 people who used the most different parts of MyJKKN (then records saved, then total use), lists up to 5 people outside the learner role who came on exactly one day, have had an account for more than a week and have not been back since, and counts the learners who came on one day per college — counts only, never names. Super admins (role or flag), test accounts, usage with no profile and the colleges in adoption.power_users.exclude_institution_ids are never counted. The model is used ONLY for each top-10 person's chat agenda: one Max-lane job per person, whose prompt carries that person's own role, college, modules used, records saved, active days and their own last-30-day problem reports, and asks for 3 questions and 2-4 topics as JSON. The report and agendas show on /admin/adoption to super admins.",
+    configKnobs:
+      "platform_policies adoption.power_users.exclude_institution_ids (seeded with Jicate Solutions and JKKN College of Arts and Science (Aided); fails closed: a missing, switched-off, draft or malformed row stops the run). ?week=YYYY-MM-DD (a Monday) re-runs a chosen week. Schedule editable on /admin/ai-routines.",
+    sideEffects:
+      "DB writes only: one row per week in adoption_power_user_weeks (re-runs replace the report and keep the agenda job ids), and at most 10 ₹0 Max-lane ai_jobs rows per run (none for anyone who already has an agenda job that week unless it ended in error). Messages nobody: no notifications, no meetings, no emails. Does not touch the daily tick or any table it owns.",
+    safeToManualTrigger: true,
+    notes:
+      "Fires via the AI-routine dispatcher (ai_routine_schedules row 'adoption-weekly-power-users', migration 20271009115500), NOT vercel.json. Auth: CRON_SECRET Bearer header or ?secret=. ?dry_run=1 returns the report and the prompts it would queue and writes nothing. Idempotent per week: dedupe key adoption-agenda:<week>:<user>, and a person who already holds a job for the week is skipped. Returns {summary, top, one_day_staff, enqueued, in_flight, failed, kept} — no names on a real run. An RPC or write error, or a run where every agenda job failed to queue, is HTTP 500 so the dispatcher records it. Answers 500 (not a crash) while the migration is unapplied.",
+  },
 ];

@@ -20,7 +20,8 @@ CREATE TABLE public.institutions (
 CREATE TABLE public.profiles (
   id uuid PRIMARY KEY DEFAULT uuid_generate_v4(), email text, full_name text,
   role text NOT NULL DEFAULT 'student', profile_completed boolean NOT NULL DEFAULT false,
-  is_active boolean NOT NULL DEFAULT true, is_super_admin boolean, institution_id uuid, department_id uuid);
+  is_active boolean NOT NULL DEFAULT true, is_super_admin boolean, institution_id uuid, department_id uuid,
+  created_at timestamptz NOT NULL DEFAULT now());
 CREATE OR REPLACE FUNCTION public._stub_profile_signed_in() RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN
   INSERT INTO auth.users (id, last_sign_in_at) VALUES (NEW.id, now()) ON CONFLICT (id) DO NOTHING;
@@ -95,3 +96,14 @@ CREATE TABLE public.ai_routine_schedules (
   minute_of_day smallint, managed boolean NOT NULL DEFAULT false, last_fired_slot text,
   last_fired_at timestamptz, last_status text, updated_by uuid, max_only boolean NOT NULL DEFAULT false,
   launch_id text, created_at timestamptz DEFAULT now(), updated_at timestamptz DEFAULT now());
+-- Added 2026-10-09 for the weekly Power Users report: the ai_jobs type registry
+-- its agenda job type is seeded into (columns as on production after
+-- 20260712183000 + 20260713000100 + 20260714093000).
+CREATE TABLE public.ai_job_types (
+  job_type text PRIMARY KEY, title text NOT NULL, description text, prompt_template text,
+  tool_set text NOT NULL DEFAULT 'all', output_target text NOT NULL DEFAULT 'job.result',
+  interactive boolean NOT NULL DEFAULT false, lane text NOT NULL DEFAULT 'max',
+  allow_rule text NOT NULL DEFAULT 'seat_owner', max_inflight int NOT NULL DEFAULT 3,
+  schedulable boolean NOT NULL DEFAULT false, enabled boolean NOT NULL DEFAULT true,
+  input_schema jsonb NOT NULL DEFAULT '[]'::jsonb, expected_seconds int, provider text, model_id text,
+  created_at timestamptz NOT NULL DEFAULT now(), updated_at timestamptz NOT NULL DEFAULT now());
