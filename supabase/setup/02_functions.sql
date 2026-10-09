@@ -56038,9 +56038,10 @@ REVOKE ALL ON FUNCTION public.hr_trig_comp_off_require_biometric() FROM PUBLIC, 
 -- =============================================================================
 -- Mirrored from supabase/migrations/20260911180000_hr_comp_off_auto_reject_expired_claims.sql
 -- Pending claims past their expiry (IST today) are rejected nightly by pg_cron
--- job 'hr-comp-off-reject-expired-claims' (50 18 * * * = 00:20 IST); claims in a
--- LOCKED attendance month are skipped (the lock guard would abort the batch).
--- An expired claim can no longer be approved (trigger in 04_triggers.sql).
+-- job 'hr-comp-off-reject-expired-claims' (50 18 * * * = 00:20 IST). Claims in a
+-- LOCKED attendance month are rejected too (20271009100000: the lock guard now
+-- allows a claim to be decided). An expired claim can no longer be approved
+-- (trigger in 04_triggers.sql).
 -- =============================================================================
 
 CREATE OR REPLACE FUNCTION public.fn_hr_comp_off_reject_expired_claims()
@@ -56049,21 +56050,9 @@ LANGUAGE plpgsql
 SET search_path TO 'public'
 AS $function$
 DECLARE
-  v_today   date := (now() AT TIME ZONE 'Asia/Kolkata')::date;
-  v_count   integer;
-  v_skipped integer;
+  v_today date := (now() AT TIME ZONE 'Asia/Kolkata')::date;
+  v_count integer;
 BEGIN
-  WITH locked AS (
-    SELECT c.id
-    FROM public.hr_comp_off_credits c
-    JOIN public.staff s ON s.id = c.employee_id
-    JOIN public.hr_attendance_periods ap
-      ON ap.institution_id = s.institution_id
-     AND ap.status = 'locked'
-     AND make_date(ap.period_year, ap.period_month, 1) <= c.worked_date
-     AND (make_date(ap.period_year, ap.period_month, 1) + interval '1 month')::date > c.worked_date
-    WHERE c.status = 'pending' AND c.expires_on < v_today
-  )
   UPDATE public.hr_comp_off_credits c
      SET status = 'rejected',
          approved_at = now(),
@@ -56071,18 +56060,12 @@ BEGIN
            'Automatically rejected: not approved before the credit''s one-month expiry on %s.',
            to_char(c.expires_on, 'DD/MM/YYYY'))
    WHERE c.status = 'pending'
-     AND c.expires_on < v_today
-     AND c.id NOT IN (SELECT id FROM locked);
+     AND c.expires_on < v_today;
 
   GET DIAGNOSTICS v_count = ROW_COUNT;
 
-  SELECT count(*) INTO v_skipped
-  FROM public.hr_comp_off_credits c
-  WHERE c.status = 'pending' AND c.expires_on < v_today;
-
-  IF v_count > 0 OR v_skipped > 0 THEN
-    RAISE NOTICE 'fn_hr_comp_off_reject_expired_claims: rejected %, left pending in locked months %',
-      v_count, v_skipped;
+  IF v_count > 0 THEN
+    RAISE NOTICE 'fn_hr_comp_off_reject_expired_claims: rejected %', v_count;
   END IF;
 
   RETURN v_count;
@@ -56230,10 +56213,12 @@ END $function$;
 -- =============================================================================
 -- Mirrored from supabase/migrations/20260827200000_hr_comp_off_claims_respect_locked_month.sql
 -- (functions half; the trigger is mirrored in 04_triggers.sql)
+-- Body as of 20271009100000_hr_comp_off_claims_after_month_close.sql: a claim may
+-- still be raised, decided, withdrawn or revoked for a day in a locked month.
 -- =============================================================================
 
 CREATE OR REPLACE FUNCTION public.hr_trig_block_comp_off_claim_in_locked_period()
-RETURNS TRIGGER
+RETURNS trigger
 LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path TO 'public'
@@ -56245,17 +56230,35 @@ DECLARE
 BEGIN
   v_row := COALESCE(NEW, OLD);
 
-  -- Spending a credit is not a change to the closed month. Both directions of
-  -- hr_trig_comp_off_consume's toggle are allowed; worked_date and credit_days
-  -- must be untouched, so this cannot be used to smuggle an edit through.
+  -- worked_date and credit_days must be untouched for any exemption below, so
+  -- none of them can be used to smuggle an edit of the closed month through.
   IF TG_OP = 'UPDATE'
      AND NEW.worked_date = OLD.worked_date
      AND NEW.credit_days = OLD.credit_days
-     AND (
-       (NEW.status = 'consumed' AND OLD.status = 'approved')
-       OR (NEW.status = 'approved' AND OLD.status = 'consumed')
-     )
   THEN
+    -- Spending a credit is not a change to the closed month. Both directions of
+    -- hr_trig_comp_off_consume's toggle (any source).
+    IF (NEW.status = 'consumed' AND OLD.status = 'approved')
+       OR (NEW.status = 'approved' AND OLD.status = 'consumed')
+    THEN
+      RETURN NEW;
+    END IF;
+
+    -- The life of a CLAIM: decided, withdrawn by the claimant, or an approved
+    -- one taken back. A 'consumed' credit is not here; revoking it is refused by
+    -- fn_hr_comp_off_revoke_block_reason until its leave is revoked.
+    IF OLD.source = 'claim' AND NEW.source = 'claim'
+       AND (
+         (OLD.status = 'pending'  AND NEW.status IN ('approved', 'rejected', 'withdrawn'))
+         OR (OLD.status = 'approved' AND NEW.status = 'rejected')
+       )
+    THEN
+      RETURN NEW;
+    END IF;
+  END IF;
+
+  -- Raising a claim. Only the claimant's shape: source 'claim', still pending.
+  IF TG_OP = 'INSERT' AND NEW.source = 'claim' AND NEW.status = 'pending' THEN
     RETURN NEW;
   END IF;
 
@@ -56277,7 +56280,7 @@ BEGIN
 
   IF FOUND THEN
     RAISE EXCEPTION
-      'Attendance for %-% is closed (locked %). Compensatory off cannot be claimed or decided for a day in that month.',
+      'Attendance for %-% is closed (locked %). This change to a compensatory off credit is not allowed for a day in that month.',
       v_locked.period_year, lpad(v_locked.period_month::text, 2, '0'),
       to_char(v_locked.locked_at, 'DD Mon YYYY')
       USING ERRCODE = 'P0001';
@@ -56286,6 +56289,9 @@ BEGIN
   RETURN COALESCE(NEW, OLD);
 END;
 $fn$;
+
+-- A trigger function is never an API endpoint (20271009110000).
+REVOKE ALL ON FUNCTION public.hr_trig_block_comp_off_claim_in_locked_period() FROM PUBLIC, anon, authenticated;
 
 CREATE OR REPLACE FUNCTION public.fn_hr_lock_attendance_period(
   p_institution_id uuid,
@@ -66999,8 +67005,6 @@ DECLARE
   v_uid    uuid := (SELECT auth.uid());
   v_credit record;
   v_leave  record;
-  v_inst   uuid;
-  v_locked record;
 BEGIN
   IF v_uid IS NULL THEN
     RETURN 'You must be signed in to revoke a claim.';
@@ -67038,26 +67042,8 @@ BEGIN
     RETURN 'You cannot revoke your own claim.';
   END IF;
 
-  SELECT s.institution_id INTO v_inst
-    FROM public.staff s WHERE s.id = v_credit.employee_id;
-
-  IF v_inst IS NOT NULL THEN
-    SELECT ap.period_year, ap.period_month, ap.locked_at
-      INTO v_locked
-      FROM public.hr_attendance_periods ap
-     WHERE ap.institution_id = v_inst
-       AND ap.status = 'locked'
-       AND make_date(ap.period_year, ap.period_month, 1) <= v_credit.worked_date
-       AND (make_date(ap.period_year, ap.period_month, 1) + interval '1 month')::date > v_credit.worked_date
-     LIMIT 1;
-
-    IF FOUND THEN
-      RETURN format(
-        'Attendance for %s-%s is closed (locked %s). Reopen the month before revoking this claim.',
-        v_locked.period_year, lpad(v_locked.period_month::text, 2, '0'),
-        to_char(v_locked.locked_at, 'DD Mon YYYY'));
-    END IF;
-  END IF;
+  -- A closed attendance month is no longer a reason to refuse (20271009100000):
+  -- revoking an unspent claim removes entitlement and never touches the month.
 
   IF public.is_super_admin() THEN
     RETURN NULL;

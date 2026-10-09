@@ -37,8 +37,6 @@ import { ClaimDaysList } from './claim-days-list';
 import { useClaimWorkedDays, useCompOffBalance } from '@/hooks/hr/use-comp-off';
 import { useDaysOccupancy } from '@/hooks/hr/use-day-occupancy';
 import { useTimeOffContext } from '@/hooks/hr/use-time-off-context';
-import { useClosedAttendanceMonths } from '@/hooks/hr/use-attendance-records';
-import { closedMonthsInRange } from '@/types/hr-attendance';
 import { getErrorMessage } from '@/lib/utils';
 import type { LeaveDocument } from '@/types/hr';
 import {
@@ -79,10 +77,6 @@ export function ClaimWorkedDayDialog({
 
   const today = toIso(new Date());
 
-  // trg_hcoc_block_locked_period refuses a claim whose worked day sits in a
-  // closed month. Said per day while the days are being picked.
-  const closedMonths = useClosedAttendanceMonths(ctx.institutionId || undefined);
-
   /** Category excluded from HR — trg_hcoc_block_non_hr_staff refuses the claim. */
   const notInHr = !ctx.isLoading && ctx.hasEmployeeRecord && !ctx.hrIncluded;
 
@@ -103,12 +97,11 @@ export function ClaimWorkedDayDialog({
       workedDates.map((date) => ({
         date,
         problem: claimDayProblem(date, today, {
-          closedMonth: closedMonthsInRange(date, date, closedMonths).length > 0,
           clash: clashes[date] ?? null,
           priorClaim: priorClaims.get(date) ?? null,
         }),
       })),
-    [workedDates, today, closedMonths, clashes, priorClaims]
+    [workedDates, today, clashes, priorClaims]
   );
   const blockedDays = dayRows.filter((r) => r.problem).length;
   const occupancyPending = workedDates.some((d) => clashes[d] === undefined);
