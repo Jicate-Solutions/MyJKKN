@@ -286,6 +286,27 @@ DO $$ DECLARE r jsonb; got text[]; want text[]; BEGIN
   IF got IS DISTINCT FROM want THEN RAISE EXCEPTION 'FAIL: top order with the excluded taggers %', got; END IF;
 END $$;
 
+\echo '--- forged events: EXPECT a forged excluded-college event for a person WITH a profile college removes nobody (#4298 review, round 6)'
+-- usage_events INSERT is open to anyone, with any user_id. A forger tags one event for P01
+-- (profile: College A) and one for P06 (profile: College A) with Jicate's id. The profile's
+-- college decides, so both stay exactly where they were.
+INSERT INTO usage_events (user_id, event_type, module, institution_id, created_at) VALUES
+  ('50000000-0000-0000-0000-000000000001', 'page_visit', 'm1', '479eac7f-3e5b-479e-bd91-dee9e0186b9b', '2026-09-29 10:00+05:30'),
+  ('50000000-0000-0000-0000-000000000006', 'page_visit', 'm1', '479eac7f-3e5b-479e-bd91-dee9e0186b9b', '2026-09-29 10:00+05:30');
+DO $$ DECLARE r jsonb; got text[]; want text[]; BEGIN
+  r := fn_adoption_power_users('2026-09-28');
+  SELECT array_agg(t->>'user_id' ORDER BY o) INTO got FROM jsonb_array_elements(r->'top') WITH ORDINALITY x(t, o);
+  want := ARRAY['50000000-0000-0000-0000-000000000001','50000000-0000-0000-0000-000000000003',
+                '50000000-0000-0000-0000-000000000002','50000000-0000-0000-0000-000000000004',
+                '50000000-0000-0000-0000-000000000005','50000000-0000-0000-0000-000000000011',
+                '50000000-0000-0000-0000-000000000006','50000000-0000-0000-0000-000000000007',
+                '50000000-0000-0000-0000-000000000008','50000000-0000-0000-0000-000000000009'];
+  IF got IS DISTINCT FROM want THEN
+    RAISE EXCEPTION 'FAIL: one forged Jicate-tagged event pushed a person with a profile college out of the ranking %', got; END IF;
+  IF r->'top'->0->>'institution_name' IS DISTINCT FROM 'College A' THEN
+    RAISE EXCEPTION 'FAIL: a forged event changed the college shown for P01 %', r->'top'->0; END IF;
+END $$;
+
 \echo '--- anonymous events: EXPECT an event with no user_id, even one carrying an excluded college, empties nothing (#4298 panel round 5)'
 -- Production logs some events with no user (signed-out pages). Such a row tagged with an
 -- excluded college once put a NULL into the excluded set, and `user_id NOT IN (... NULL ...)`
@@ -331,6 +352,43 @@ DO $$ DECLARE r jsonb; t text; BEGIN
   t := r::text;
   IF position('80000000-' IN t) > 0 OR position('Learner' IN t) > 0 THEN
     RAISE EXCEPTION 'FAIL: a learner is named in the report'; END IF;
+END $$;
+
+\echo '--- no role, no profile college: EXPECT a profile with no role is never listed as one-day staff; the college shown and the learner count use the profile''s college only (#4298 review, round 6)'
+-- No Role: role NULL, one day, 3 real modules: before the fix it led the one-day staff list.
+-- No College Staff: hod with no profile college, one day, events tagged College A: listed,
+-- but with no college ("not recorded"), not College A.
+-- No College Learner: learner with no profile college, events tagged College B: counted
+-- under "not recorded", not College B.
+-- (The stub's profiles.role is NOT NULL DEFAULT 'student'; the report must not rely on that.)
+ALTER TABLE profiles ALTER COLUMN role DROP NOT NULL;
+INSERT INTO profiles (id, email, full_name, role, institution_id, is_super_admin, created_at) VALUES
+  ('5e000000-0000-0000-0000-000000000004','emptyrole@x','Empty Role','','aaaaaaaa-0000-0000-0000-000000000001',false,'2026-01-01');
+SELECT _ev('5e000000-0000-0000-0000-000000000004', ARRAY['m1','m2','m3'], '2026-09-29 11:00+05:30');
+INSERT INTO profiles (id, email, full_name, role, institution_id, is_super_admin, created_at) VALUES
+  ('5e000000-0000-0000-0000-000000000001','norole@x','No Role',NULL,'aaaaaaaa-0000-0000-0000-000000000001',false,'2026-01-01'),
+  ('5e000000-0000-0000-0000-000000000002','nocol@x','No College Staff','hod',NULL,false,'2026-01-01'),
+  ('5e000000-0000-0000-0000-000000000003','nocoll@x','No College Learner','student',NULL,false,'2026-01-01');
+SELECT _ev('5e000000-0000-0000-0000-000000000001', ARRAY['m1','m2','m3'], '2026-09-29 11:00+05:30');
+SELECT _ev('5e000000-0000-0000-0000-000000000002', ARRAY['m1','m2','m3'], '2026-09-29 11:00+05:30', 'page_visit', 1,
+           'aaaaaaaa-0000-0000-0000-000000000001');
+SELECT _ev('5e000000-0000-0000-0000-000000000003', ARRAY['dashboard'], '2026-09-30 09:00+05:30', 'page_visit', 1,
+           'aaaaaaaa-0000-0000-0000-000000000002');
+DO $$ DECLARE r jsonb; s jsonb; BEGIN
+  r := fn_adoption_power_users('2026-09-28');
+  IF EXISTS (SELECT 1 FROM jsonb_array_elements(r->'one_day_staff') t
+              WHERE t->>'user_id' IN ('5e000000-0000-0000-0000-000000000001','5e000000-0000-0000-0000-000000000004')) THEN
+    RAISE EXCEPTION 'FAIL: a profile with no role was listed as one-day staff %', r->'one_day_staff'; END IF;
+  SELECT t INTO s FROM jsonb_array_elements(r->'one_day_staff') t
+   WHERE t->>'user_id' = '5e000000-0000-0000-0000-000000000002';
+  IF s IS NULL THEN RAISE EXCEPTION 'FAIL: No College Staff missing from one-day staff %', r->'one_day_staff'; END IF;
+  IF s->>'institution_id' IS NOT NULL OR s->>'institution_name' IS NOT NULL THEN
+    RAISE EXCEPTION 'FAIL: the college shown came from an event, not the profile %', s; END IF;
+  IF r->'one_day_learners_by_college' IS DISTINCT FROM
+     '[{"institution_id":"aaaaaaaa-0000-0000-0000-000000000001","institution_name":"College A","count":2},
+       {"institution_id":"aaaaaaaa-0000-0000-0000-000000000002","institution_name":"College B","count":1},
+       {"institution_id":null,"institution_name":null,"count":1}]'::jsonb THEN
+    RAISE EXCEPTION 'FAIL: learner counts used an event college %', r->'one_day_learners_by_college'; END IF;
 END $$;
 
 \echo '--- NEW badge: EXPECT nobody NEW without last week''s row; with it, only people not in last week''s top'

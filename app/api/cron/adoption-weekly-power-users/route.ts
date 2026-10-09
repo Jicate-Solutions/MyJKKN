@@ -274,14 +274,36 @@ export async function GET(request: NextRequest) {
       const { data: superseded, error: supErr } = await admin.rpc('fn_adoption_agenda_supersede_stale', {
         p_job_id: latest.id,
       });
-      if (supErr || superseded !== true) {
-        // Not cancelled (an error, or the drain took it just now): keep it and
-        // let a later ?week= re-run look again — never risk a second agenda.
+      if (supErr) {
+        // Could not tell: keep it and let a later ?week= re-run look again —
+        // never risk a second agenda.
         agendaJobs[userId] = latest.id;
         failed++;
-        failures.push(
-          `stuck agenda job could not be replaced${supErr ? `: ${supErr.message}` : ' (it changed meanwhile)'}`
-        );
+        failures.push(`stuck agenda job could not be replaced: ${supErr.message}`);
+        continue;
+      }
+      if (superseded !== true) {
+        // Not cancelled: it changed meanwhile — another run replaced it, or the
+        // drain took it. Re-read the newest job by dedupe key (as the in_flight
+        // branch does) and record THAT one, never the stale id.
+        const { data: now, error: nowErr } = await admin
+          .from('ai_jobs')
+          .select('id, status, result, requested_at, claimed_at, started_at')
+          .eq('job_type', AGENDA_JOB_TYPE)
+          .eq('payload->>_dedupe', dedupeKey)
+          .in('status', ['pending', 'claimed', 'running', 'done'])
+          .order('requested_at', { ascending: false })
+          .limit(1);
+        const current = (now as ExistingAgendaJob[] | null)?.[0];
+        if (!nowErr && current && isUsableAgendaJob(current)) {
+          agendaJobs[userId] = current.id;
+          inFlight++;
+        } else {
+          failed++;
+          failures.push(
+            `stuck agenda job changed meanwhile and its replacement could not be read${nowErr ? `: ${nowErr.message}` : ''}`
+          );
+        }
         continue;
       }
       staleReplaced++;

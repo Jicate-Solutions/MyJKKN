@@ -21,27 +21,34 @@
 --      DEFINER, STABLE, service_role only. Reads usage_events for the IST week
 --      [p_week_start 00:00 IST, +7 days) and returns:
 --        top                          10 people, with names (super admins only)
---        one_day_staff                up to 5 staff who came on one day only
+--        one_day_staff                up to 5 people with a role other than
+--                                     learner (never a profile with no role)
+--                                     who came on one day only
 --        one_day_learners_by_college  COUNTS ONLY, never names
 --        window, excluded_institution_ids
 --      Never counted: super admins (role or flag), anyone whose college is in
---      the policy list (their profile's college, OR the college on ANY of their
---      events that week — usage_events can be written from the browser, so an
---      event's college can only add an exclusion, never lift one), test
---      accounts (email starting 'test' or name starting 'test '), and usage
---      with no profile.
+--      the policy list, test accounts (email starting 'test' or name starting
+--      'test '), and usage with no profile. The PROFILE's college decides; an
+--      event's college (attacker-controlled, see below) is used only when the
+--      profile has no college, and then fails closed: such a person is left
+--      out if ANY of their events that week carries an excluded college. So a
+--      forged event can never lift an exclusion, and can exclude only people
+--      whose profile has no college. The college SHOWN for a person, and the
+--      college a one-day learner is counted under, is the profile's only
+--      (none = "not recorded").
 --      A module, and a (module, feature) pair, counts only if 3+ counted people
 --      used it that week (usage_events can be written from the browser); a visit
 --      with no feature counts whenever its module does.
---      KNOWN LIMITATION: 3 accounts acting together (students included) can
---      still vouch for an invented, route-shaped module or feature name, which
---      then counts towards the ranking; an invented module name also reaches
---      the agenda prompt (inside its <data> block, marked as data, never an
---      instruction, and only if it passes the route-shape check). There is
---      no server-side list to check against (a read of production by the
---      adoption desk, October 2026: feature_registry covers 21 of the 83
---      modules used in the last 14 days), and a person reviews the report
---      before any chat is booked. Not built against; stated here on purpose.
+--      KNOWN LIMITATION: usage_events is client-writable (open INSERT policy
+--      until #4317); one caller who knows 3 user ids can vouch names and forge
+--      visits. The report is reviewed by a person before any chat is booked.
+--      So an invented, route-shaped module or feature name can count, a
+--      person can be lifted in the ranking, and an invented module name can
+--      reach the agenda prompt (inside its <data> block, marked as data, never
+--      an instruction, and only if it passes the route-shape check). There is
+--      no server-side list of real modules to check against (a read of
+--      production by the adoption desk, October 2026: feature_registry covers
+--      21 of the 83 modules used in the last 14 days).
 --      Anonymous events (no user_id) never count and never exclude anyone.
 --      FAILS CLOSED: a missing, switched-off, draft or malformed policy row
 --      (including a null or any other non-text item in the list) raises, so
@@ -173,23 +180,28 @@ BEGIN
   ),
   -- A part of MyJKKN counts only if its name looks like a real route
   -- (lower-case, digits, / _ . -, at most 64 characters) AND at least 3
-  -- different people used it that week. usage_events can be written from the
-  -- browser, so a single person inventing module names can neither climb the
-  -- ranking nor put free text into the agenda prompt.
+  -- different counted people used it that week. This stops an ordinary user
+  -- who sends events only as themselves. It does NOT stop a forger:
+  -- usage_events is client-writable (open INSERT policy until #4317); one
+  -- caller who knows 3 user ids can vouch names and forge visits. The report
+  -- is reviewed by a person before any chat is booked.
   -- The 3 people are counted only among people the report itself counts (a
   -- profile, not a super admin, not a test account, not an excluded college),
   -- so excluded or test accounts cannot vouch for an invented name.
   --
-  -- People left out for their college: the profile's college is excluded, OR
-  -- ANY of their events that week carries an excluded college. The event's
-  -- college comes from the browser, so it can only add an exclusion — tagging
-  -- the latest events with another college no longer lifts one.
+  -- People left out for their college. The PROFILE's college decides. Only
+  -- when the profile has no college do event colleges count, and then fail
+  -- closed: excluded if ANY of their events that week carries an excluded
+  -- college. Every usage_events column is attacker-controlled, so a forged
+  -- event can never lift an exclusion, and can push out only people whose
+  -- profile has no college — never a ranked person with a profile college.
   excluded_people AS (
     SELECT DISTINCT ev.user_id
       FROM ev
       LEFT JOIN public.profiles xp ON xp.id = ev.user_id
      WHERE ev.user_id IS NOT NULL
-       AND (xp.institution_id = ANY (v_excluded) OR ev.institution_id = ANY (v_excluded))
+       AND (xp.institution_id = ANY (v_excluded)
+            OR (xp.institution_id IS NULL AND ev.institution_id = ANY (v_excluded)))
   ),
   vouch_ev AS (
     SELECT ev.user_id, ev.module, ev.feature
@@ -207,8 +219,9 @@ BEGIN
      GROUP BY v.module
     HAVING count(DISTINCT v.user_id) >= 3
   ),
-  -- The same 3-people rule for each (module, feature) pair, so a real module
-  -- with invented feature names (x1 ... x5000) cannot lift "features used".
+  -- The same 3-people rule for each (module, feature) pair, so one user's own
+  -- invented feature names on a real module (x1 ... x5000) cannot lift
+  -- "features used" (a forger with 3 user ids still can; see the header).
   valid_features AS (
     SELECT v.module, COALESCE(v.feature, '') AS feature
       FROM vouch_ev v
@@ -225,22 +238,22 @@ BEGIN
     SELECT ev.user_id,
            count(DISTINCT (ev.module, COALESCE(ev.feature, ''))) FILTER (
              WHERE (ev.module, COALESCE(ev.feature, '')) IN (SELECT vf.module, vf.feature FROM valid_features vf)) AS features_used,
-           -- the tie-breakers count only events on real modules too, so a burst of
-           -- browser-written events on made-up names cannot lift anyone
+           -- the tie-breakers count only events on vouched modules too, so a
+           -- burst of one user's events on made-up names cannot lift them
            count(*) FILTER (WHERE ev.event_type IN ('create', 'update', 'export')
                               AND ev.module IN (SELECT vm.module FROM valid_modules vm))         AS records_saved,
            count(*) FILTER (WHERE ev.module IN (SELECT vm.module FROM valid_modules vm))         AS total_events,
            count(DISTINCT ev.ist_day)                                                                AS active_days,
-           max(ev.ist_day)                                                                           AS last_day,
-           (array_agg(ev.institution_id ORDER BY ev.created_at DESC)
-              FILTER (WHERE ev.institution_id IS NOT NULL))[1]                                       AS event_institution_id
+           max(ev.ist_day)                                                                           AS last_day
       FROM ev
      GROUP BY ev.user_id
   ),
   people AS (
     SELECT pu.*,
            p.full_name, p.role, p.created_at AS profile_created_at,
-           COALESCE(p.institution_id, pu.event_institution_id) AS institution_id
+           -- shown and counted under the profile's college only; an event's
+           -- college is attacker-controlled
+           p.institution_id AS institution_id
       FROM per_user pu
       JOIN public.profiles p ON p.id = pu.user_id
      WHERE COALESCE(p.role, '') <> 'super_admin'
@@ -294,7 +307,8 @@ BEGIN
               'features_used', s.features_used, 'records_saved', s.records_saved,
               'active_days', s.active_days, 'total_events', s.total_events, 'last_day', s.last_day
             ) ORDER BY s.features_used DESC, s.records_saved DESC, s.total_events DESC, s.user_id), '[]'::jsonb)
-       FROM (SELECT * FROM one_day o WHERE COALESCE(o.role, '') <> 'student'
+       -- a profile with no role (NULL or empty) is never named as staff
+       FROM (SELECT * FROM one_day o WHERE COALESCE(o.role, '') NOT IN ('', 'student')
               ORDER BY o.features_used DESC, o.records_saved DESC, o.total_events DESC, o.user_id
               LIMIT 5) s),
     (SELECT COALESCE(jsonb_agg(jsonb_build_object(

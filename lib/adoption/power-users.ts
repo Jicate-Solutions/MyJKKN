@@ -189,8 +189,10 @@ export function buildAgendaPrompt(
   person: PowerUser,
   bugs: OwnBugReport[] | null
 ): string {
-  // The SQL already counts only real module names used by at least 3 people;
-  // this is the second wall: anything not route-shaped never reaches the model.
+  // The SQL counts only route-shaped module names at least 3 counted people
+  // used (a forger with 3 user ids can still vouch one — usage_events is
+  // client-writable until #4317); this second check keeps anything that is
+  // not route-shaped out of the prompt.
   const modules = (person.modules ?? [])
     .filter((m) => MODULE_NAME.test(m.module) && Number.isFinite(m.count))
     .map((m) => `  - ${m.module}: ${m.count}`)

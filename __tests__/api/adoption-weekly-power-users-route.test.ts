@@ -31,9 +31,9 @@ const MERGE_FN = 'fn_adoption_power_user_weeks_merge_jobs';
 const SUPERSEDE_FN = 'fn_adoption_agenda_supersede_stale';
 let mergeResult: Result;
 let supersedeResult: Result;
-const rpc = vi.fn((name: string, _args?: Record<string, unknown>) =>
-  Promise.resolve(name === MERGE_FN ? mergeResult : name === SUPERSEDE_FN ? supersedeResult : rpcResult)
-);
+const defaultRpc = (name: string, _args?: Record<string, unknown>) =>
+  Promise.resolve(name === MERGE_FN ? mergeResult : name === SUPERSEDE_FN ? supersedeResult : rpcResult);
+const rpc = vi.fn(defaultRpc);
 /** The job ids the run merged into agenda_jobs (only the ones it changed). */
 const merged = (): Record<string, string> | undefined =>
   (rpc.mock.calls.find((c) => c[0] === MERGE_FN)?.[1] as { p_jobs: Record<string, string> } | undefined)?.p_jobs;
@@ -128,6 +128,7 @@ const writes = () => [
 
 beforeEach(() => {
   rpc.mockClear();
+  rpc.mockImplementation(defaultRpc);
   from.mockClear();
   enqueueJobsLane.mockReset();
   let n = 0;
@@ -424,6 +425,49 @@ describe('a real run', () => {
     expect(rpc).not.toHaveBeenCalledWith(SUPERSEDE_FN, expect.anything());
     const users = enqueueJobsLane.mock.calls.map((c) => (c[1] as { context: { user_id: string } }).context.user_id);
     expect(users).not.toContain('u-01');
+  });
+
+  it('two runs at once on the same stuck job: one replaces it, the other records the fresh job (not the stale id)', async () => {
+    const old = new Date(Date.now() - 30 * 3600_000).toISOString();
+    const freshAt = new Date().toISOString();
+    // The lookup (an .in() on dedupe keys) sees the stuck job; the re-read after a
+    // refused cancel (.eq on the key, .limit(1)) sees the job the other run queued.
+    tableResults.ai_jobs = (ops) =>
+      ops.some((o) => o.op === 'limit')
+        ? { data: [job('u-01', 'fresh-1', 'pending', null, freshAt)], error: null }
+        : { data: [job('u-01', 'stuck-1', 'pending', null, old)], error: null };
+    let cancels = 0;
+    rpc.mockImplementation((name: string) =>
+      Promise.resolve(
+        name === MERGE_FN
+          ? mergeResult
+          : name === SUPERSEDE_FN
+            ? { data: ++cancels === 1, error: null } // only the first cancel wins
+            : rpcResult
+      )
+    );
+    enqueueJobsLane.mockImplementation((_a: unknown, args: { context: { user_id: string } }) =>
+      Promise.resolve({ ok: true, jobId: args.context.user_id === 'u-01' ? 'fresh-1' : `job-${args.context.user_id}` })
+    );
+    const [a, b] = await Promise.all([
+      GET(request({ bearer: SECRET, query: `?week=${WEEK}` })),
+      GET(request({ bearer: SECRET, query: `?week=${WEEK}` })),
+    ]);
+    const bodies = [await a.json(), await b.json()];
+    // exactly one run queued u-01's fresh job
+    const u01Queued = enqueueJobsLane.mock.calls.filter(
+      (c) => (c[1] as { context: { user_id: string } }).context.user_id === 'u-01'
+    ).length;
+    expect(u01Queued).toBe(1);
+    expect(bodies.map((x) => x.stale_replaced).sort()).toEqual([0, 1]);
+    const loser = bodies.find((x) => x.stale_replaced === 0);
+    expect(loser.failed).toBe(0);
+    expect(loser.in_flight).toBe(1);
+    // both runs stored the fresh id for u-01, never the stale one
+    const stored = rpc.mock.calls
+      .filter((c) => c[0] === MERGE_FN)
+      .map((c) => (c[1] as { p_jobs: Record<string, string> }).p_jobs['u-01']);
+    expect(stored).toEqual(['fresh-1', 'fresh-1']);
   });
 
   it('keeps a stuck job and queues nothing for that person when it cannot be cancelled', async () => {
