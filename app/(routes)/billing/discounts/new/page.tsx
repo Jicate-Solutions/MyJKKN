@@ -22,10 +22,16 @@ import { BeatLoader } from 'react-spinners';
 import { toast } from 'react-hot-toast';
 import { BillingReceiptService } from '@/lib/services/billing/receipts/billing-receipt-service';
 import { useCreateBillingDiscount } from '@/hooks/billing/use-billing-discounts';
+import { useScholarshipSetup } from '@/hooks/billing/use-scholarship-setup';
+import {
+  resolveTypeDefaults,
+  validateScholarshipSelection
+} from '@/lib/billing/scholarship-type-defaults';
+import { ScholarshipSelectFields } from '../_components/scholarship-select-fields';
 import type {
-  DiscountCategory,
   DiscountType,
-  CreateDiscountDto
+  CreateDiscountDto,
+  ScholarshipType
 } from '@/types/billing-schedule';
 import {
   Table,
@@ -57,7 +63,6 @@ export default function NewDiscountPage() {
   const [isLoadingBills, setIsLoadingBills] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [formData, setFormData] = useState<Partial<CreateDiscountDto>>({
-    discount_category: 'merit_scholarship',
     discount_type: 'percentage',
     discount_value: 0,
     effective_date: new Date().toISOString().split('T')[0]
@@ -71,8 +76,11 @@ export default function NewDiscountPage() {
 
   const canApplyDiscounts =
     isSuperAdmin || canAccess('billing.discounts', 'create');
+  const canManageSetup =
+    isSuperAdmin || canAccess('billing.scholarship_setup', 'view');
 
   const createDiscountMutation = useCreateBillingDiscount();
+  const { data: scholarshipTree = [] } = useScholarshipSetup();
 
   useEffect(() => {
     if (billId || billIds) {
@@ -131,6 +139,25 @@ export default function NewDiscountPage() {
     }));
   };
 
+  // A type belongs to exactly one category, so changing category drops the type.
+  const handleCategoryChange = (categoryId: string) => {
+    setFormData((prev) => ({
+      ...prev,
+      scholarship_category_id: categoryId,
+      scholarship_type_id: undefined
+    }));
+  };
+
+  // Picking a type pre-fills Value Mode (and Value when the type has one); the
+  // applier can still change both.
+  const handleTypeChange = (type: ScholarshipType) => {
+    setFormData((prev) => ({
+      ...prev,
+      scholarship_type_id: type.id,
+      ...resolveTypeDefaults(type)
+    }));
+  };
+
   const calculateDiscountAmount = (billAmount: number) => {
     if (formData.discount_type === 'percentage') {
       return (billAmount * (formData.discount_value || 0)) / 100;
@@ -153,13 +180,18 @@ export default function NewDiscountPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (!formData.discount_category) {
-      toast.error('Please select a discount category');
+    const selectionError = validateScholarshipSelection(
+      scholarshipTree,
+      formData.scholarship_category_id,
+      formData.scholarship_type_id
+    );
+    if (selectionError) {
+      toast.error(selectionError);
       return;
     }
 
     if (!formData.discount_type) {
-      toast.error('Please select a discount type');
+      toast.error('Please select a value mode');
       return;
     }
 
@@ -185,7 +217,8 @@ export default function NewDiscountPage() {
       const discountPromises = selectedBills.map(async (bill) => {
         const discountData: CreateDiscountDto = {
           bill_id: bill.id,
-          discount_category: formData.discount_category!,
+          scholarship_category_id: formData.scholarship_category_id!,
+          scholarship_type_id: formData.scholarship_type_id!,
           discount_type: formData.discount_type!,
           discount_value: formData.discount_value!,
           discount_reason: formData.discount_reason!,
@@ -364,50 +397,26 @@ export default function NewDiscountPage() {
           <CardContent>
             <form onSubmit={handleSubmit} className='space-y-6'>
               <div className='grid grid-cols-1 md:grid-cols-2 gap-6'>
-                {/* Discount Category */}
-                <div className='space-y-2'>
-                  <Label htmlFor='discount_category'>
-                    Scholarship Category *
-                  </Label>
-                  <Select
-                    value={formData.discount_category || ''}
-                    onValueChange={(value) =>
-                      handleInputChange(
-                        'discount_category',
-                        value as DiscountCategory
-                      )
-                    }
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder='Select discount category' />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value='merit_scholarship'>
-                        Merit Scholarship
-                      </SelectItem>
-                      <SelectItem value='financial_aid'>
-                        Financial Aid
-                      </SelectItem>
-                      <SelectItem value='staff_quota'>Staff Quota</SelectItem>
-                      <SelectItem value='sports_quota'>Sports Quota</SelectItem>
-                      <SelectItem value='special_circumstances'>
-                        Special Circumstances
-                      </SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
+                {/* Scholarship Category + Scholarship Type (dynamic) */}
+                <ScholarshipSelectFields
+                  categoryId={formData.scholarship_category_id}
+                  typeId={formData.scholarship_type_id}
+                  onCategoryChange={handleCategoryChange}
+                  onTypeChange={handleTypeChange}
+                  canManageSetup={canManageSetup}
+                />
 
-                {/* Discount Type */}
+                {/* Value Mode (percentage | fixed amount) */}
                 <div className='space-y-2'>
-                  <Label htmlFor='discount_type'>Scholarship Type *</Label>
+                  <Label htmlFor='discount_type'>Value Mode *</Label>
                   <Select
                     value={formData.discount_type || ''}
                     onValueChange={(value) =>
                       handleInputChange('discount_type', value as DiscountType)
                     }
                   >
-                    <SelectTrigger>
-                      <SelectValue placeholder='Select discount type' />
+                    <SelectTrigger id='discount_type'>
+                      <SelectValue placeholder='Select value mode' />
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value='percentage'>Percentage</SelectItem>

@@ -488,6 +488,20 @@ ALTER TABLE billing_discounts
     REFERENCES profiles(id)
     ON DELETE SET NULL;
 
+-- Scholarship category / type (20271009090000). The composite FK makes a type
+-- impossible to file under a category it does not belong to.
+ALTER TABLE billing_discounts
+    ADD CONSTRAINT fk_billing_discounts_scholarship_category
+    FOREIGN KEY (scholarship_category_id)
+    REFERENCES billing_scholarship_categories(id)
+    ON DELETE RESTRICT;
+
+ALTER TABLE billing_discounts
+    ADD CONSTRAINT fk_billing_discounts_scholarship_type
+    FOREIGN KEY (scholarship_type_id, scholarship_category_id)
+    REFERENCES billing_scholarship_types(id, category_id)
+    ON DELETE RESTRICT;
+
 -- BILLING_REFUNDS TABLE
 ALTER TABLE billing_refunds
     ADD CONSTRAINT fk_refunds_receipt

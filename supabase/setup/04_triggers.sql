@@ -103,6 +103,12 @@ CREATE TRIGGER trigger_billing_invoices_updated_at BEFORE UPDATE ON billing_invo
 CREATE TRIGGER trigger_billing_discounts_updated_at BEFORE UPDATE ON billing_discounts
     FOR EACH ROW EXECUTE FUNCTION update_billing_updated_at();
 
+CREATE TRIGGER trigger_billing_scholarship_categories_updated_at BEFORE UPDATE ON billing_scholarship_categories
+    FOR EACH ROW EXECUTE FUNCTION update_billing_updated_at();
+
+CREATE TRIGGER trigger_billing_scholarship_types_updated_at BEFORE UPDATE ON billing_scholarship_types
+    FOR EACH ROW EXECUTE FUNCTION update_billing_updated_at();
+
 CREATE TRIGGER trigger_billing_refunds_updated_at BEFORE UPDATE ON billing_refunds
     FOR EACH ROW EXECUTE FUNCTION update_billing_updated_at();
 

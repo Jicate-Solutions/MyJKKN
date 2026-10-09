@@ -1005,11 +1005,57 @@ CREATE TABLE IF NOT EXISTS public.billing_receipt_items (
     created_at TIMESTAMPTZ DEFAULT now()
 );
 
+-- Billing Scholarship Categories (global, admin-defined; 20271009090000)
+CREATE TABLE IF NOT EXISTS public.billing_scholarship_categories (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    code TEXT NOT NULL CHECK (code ~ '^[a-z0-9_]+$'),
+    name TEXT NOT NULL CHECK (btrim(name) <> ''),
+    description TEXT,
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    is_active BOOLEAN NOT NULL DEFAULT true,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    created_by UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
+    updated_by UUID REFERENCES public.profiles(id) ON DELETE SET NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS billing_scholarship_categories_code_uq
+    ON public.billing_scholarship_categories (code);
+CREATE UNIQUE INDEX IF NOT EXISTS billing_scholarship_categories_name_uq
+    ON public.billing_scholarship_categories (lower(name));
+
+-- Billing Scholarship Types (children of a category; carry a default value mode/value)
+CREATE TABLE IF NOT EXISTS public.billing_scholarship_types (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    category_id UUID NOT NULL REFERENCES public.billing_scholarship_categories(id) ON DELETE RESTRICT,
+    code TEXT NOT NULL CHECK (code ~ '^[a-z0-9_]+$'),
+    name TEXT NOT NULL CHECK (btrim(name) <> ''),
+    description TEXT,
+    default_value_mode TEXT NOT NULL DEFAULT 'percentage'
+        CHECK (default_value_mode IN ('percentage', 'amount')),
+    default_value NUMERIC
+        CHECK (default_value IS NULL
+               OR (default_value > 0 AND (default_value_mode = 'amount' OR default_value <= 100))),
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    is_active BOOLEAN NOT NULL DEFAULT true,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    created_by UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
+    updated_by UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
+    CONSTRAINT billing_scholarship_types_id_category_uq UNIQUE (id, category_id)
+);
+CREATE INDEX IF NOT EXISTS billing_scholarship_types_category_idx
+    ON public.billing_scholarship_types (category_id);
+CREATE UNIQUE INDEX IF NOT EXISTS billing_scholarship_types_category_code_uq
+    ON public.billing_scholarship_types (category_id, code);
+CREATE UNIQUE INDEX IF NOT EXISTS billing_scholarship_types_category_name_uq
+    ON public.billing_scholarship_types (category_id, lower(name));
+
 -- Billing Discounts
 CREATE TABLE IF NOT EXISTS public.billing_discounts (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     bill_id UUID NOT NULL,
-    discount_category VARCHAR(50) NOT NULL,
+    scholarship_category_id UUID NOT NULL,
+    scholarship_type_id UUID NOT NULL,
     discount_type VARCHAR(20) NOT NULL,
     discount_value NUMERIC(15,2) NOT NULL,
     discount_amount NUMERIC(15,2) NOT NULL,

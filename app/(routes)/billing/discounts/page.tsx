@@ -2,7 +2,7 @@
 
 import { useEffect } from 'react';
 import Link from 'next/link';
-import { Plus, Percent, TrendingDown } from 'lucide-react';
+import { Plus, Percent, Settings2, TrendingDown } from 'lucide-react';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { Button } from '@/components/ui/button';
 import { usePermissions } from '@/hooks/use-permissions';
@@ -35,6 +35,8 @@ export default function BillingDiscountsPage() {
     isSuperAdmin || canAccess('billing.discounts', 'view');
   const canCreateDiscounts =
     isSuperAdmin || canAccess('billing.discounts', 'create');
+  const canViewSetup =
+    isSuperAdmin || canAccess('billing.scholarship_setup', 'view');
 
   useEffect(() => {
     fetchDiscounts();
@@ -128,6 +130,14 @@ export default function BillingDiscountsPage() {
               >
                 <Plus className='mr-2 h-4 w-4' />
                 Apply Scholarship
+              </Button>
+            )}
+            {canViewSetup && (
+              <Button variant='outline' asChild>
+                <Link href='/billing/discounts/setup'>
+                  <Settings2 className='mr-2 h-4 w-4' />
+                  Categories &amp; Types
+                </Link>
               </Button>
             )}
             <Button variant='outline' asChild>
