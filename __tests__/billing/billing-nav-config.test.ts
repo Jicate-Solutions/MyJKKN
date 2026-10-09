@@ -32,6 +32,7 @@ describe('Billing top navigation (AutoTabNav)', () => {
     // 12 sidebar submenus + Receipt Templates, which has no other entry point.
     // (Discounts left Colleges for its own Scholarships group on 2026-10-09.)
     expect(colleges.children).toHaveLength(13);
+    expect((colleges.children ?? []).filter((c) => /^\/billing\/(scholarships|discounts)/.test(c.href))).toEqual([]);
     expect(transport.children).toBeUndefined(); // single page, no tier-3
     expect(schools.children).toHaveLength(5);
     expect((scholarships.children ?? []).map((c) => c.href)).toEqual([
