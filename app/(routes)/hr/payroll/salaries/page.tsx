@@ -81,6 +81,7 @@ import { SalaryDirectoryDataTable } from './_components/salary-directory-data-ta
 import { SalaryImportDialog } from './_components/salary-import-dialog';
 import { EditSalaryDialog } from './_components/edit-salary-dialog';
 import { SalarySuggestionSheet } from './_components/salary-suggestion-sheet';
+import { PayDestinationChanges } from './_components/pay-destination-changes';
 import { downloadSalaryTemplate } from './_components/salary-template-export';
 import {
   DEFAULT_SALARY_FILTERS,
@@ -380,6 +381,8 @@ export default function EmployeeSalariesPage() {
           <AlertDescription>{getErrorMessage(error)}</AlertDescription>
         </Alert>
       )}
+
+      <PayDestinationChanges />
 
       {canManage && stats.awaiting > 0 && (
         <Alert className='mb-4'>

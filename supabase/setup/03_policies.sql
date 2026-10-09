@@ -12342,3 +12342,20 @@ CREATE POLICY ig_learner_post_claims_delete ON public.ig_learner_post_claims
           OR (public.user_has_permission('social.learner_credit.review')
               AND public.role_has_institution_access(institution_id))))
   );
+
+-- ----------------------------------------------------------------------------
+-- hr_pay_destination_changes policies (2026-10-01)
+-- Source: 20270614090000_hr_pay_destination_changes.sql
+-- Updated: 2026-10-01 - Director ruling: every bank / paying-trust change goes on a weekly list to the Director list
+-- ----------------------------------------------------------------------------
+ALTER TABLE public.hr_pay_destination_changes ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS hr_pay_destination_changes_select_director ON public.hr_pay_destination_changes;
+CREATE POLICY hr_pay_destination_changes_select_director
+  ON public.hr_pay_destination_changes
+  FOR SELECT TO authenticated
+  USING (public.fn_is_the_director());
+-- No INSERT / UPDATE / DELETE policy: only the SECURITY DEFINER triggers write.
+
+REVOKE ALL ON public.hr_pay_destination_changes FROM anon, PUBLIC;
+GRANT SELECT ON public.hr_pay_destination_changes TO authenticated;

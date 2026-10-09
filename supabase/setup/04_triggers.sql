@@ -3082,3 +3082,24 @@ DROP TRIGGER IF EXISTS trg_ig_learner_post_claims_guard ON public.ig_learner_pos
 CREATE TRIGGER trg_ig_learner_post_claims_guard
   BEFORE INSERT OR UPDATE ON public.ig_learner_post_claims
   FOR EACH ROW EXECUTE FUNCTION public.fn_ig_learner_post_claim_guard();
+
+-- ----------------------------------------------------------------------------
+-- pay-destination change log: triggers (2026-10-01)
+-- Source: 20270614090000_hr_pay_destination_changes.sql
+-- Updated: 2026-10-01 - Director ruling: every bank / paying-trust change goes on a weekly list to the Director list
+-- Updated: 2026-10-09 - History survives a staff delete (SET NULL + name snapshot); the list reports its true count past the 2,000 cap
+-- ----------------------------------------------------------------------------
+DROP TRIGGER IF EXISTS trg_hr_pay_destination_snapshot ON public.hr_pay_destination_changes;
+CREATE TRIGGER trg_hr_pay_destination_snapshot
+  BEFORE INSERT ON public.hr_pay_destination_changes
+  FOR EACH ROW EXECUTE FUNCTION public.fn_hr_pay_destination_snapshot();
+
+DROP TRIGGER IF EXISTS trg_hr_log_bank_destination_change ON public.hr_staff_bank_accounts;
+CREATE TRIGGER trg_hr_log_bank_destination_change
+  AFTER INSERT OR UPDATE OR DELETE ON public.hr_staff_bank_accounts
+  FOR EACH ROW EXECUTE FUNCTION public.fn_hr_log_bank_destination_change();
+
+DROP TRIGGER IF EXISTS trg_hr_log_payer_destination_change ON public.hr_staff_payroll;
+CREATE TRIGGER trg_hr_log_payer_destination_change
+  AFTER INSERT OR UPDATE OF hr_organization_id OR DELETE ON public.hr_staff_payroll
+  FOR EACH ROW EXECUTE FUNCTION public.fn_hr_log_payer_destination_change();

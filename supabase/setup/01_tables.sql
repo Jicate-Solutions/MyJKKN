@@ -12275,3 +12275,39 @@ CREATE INDEX IF NOT EXISTS idx_hr_intake_match_rules_job
 CREATE UNIQUE INDEX IF NOT EXISTS ux_hr_memos_triggered_by_event
   ON public.hr_memos (triggered_by_event_id)
   WHERE triggered_by_event_id IS NOT NULL;
+
+-- ----------------------------------------------------------------------------
+-- hr_pay_destination_changes (2026-10-01)
+-- Source: 20270614090000_hr_pay_destination_changes.sql
+-- Updated: 2026-10-01 - Director ruling: every bank / paying-trust change goes on a weekly list to the Director list
+-- Updated: 2026-10-09 - History survives a staff delete (SET NULL + name snapshot); the list reports its true count past the 2,000 cap
+-- ----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS public.hr_pay_destination_changes (
+  id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  -- SET NULL, not CASCADE: deleting a staff record must not erase the history
+  -- of where their pay went. The snapshot below keeps who it was.
+  staff_id    uuid REFERENCES public.staff(id) ON DELETE SET NULL,
+  -- The person as they were when the change was made, filled by
+  -- fn_hr_pay_destination_snapshot(). The list prefers the live record and
+  -- falls back to these once the staff record is gone.
+  staff_name  text,
+  staff_code  text,
+  college     text,
+  kind        text NOT NULL CHECK (kind IN ('bank', 'payer')),
+  -- auth.uid() of whoever made the change; NULL = a system job (service role).
+  changed_by  uuid,
+  -- clock_timestamp(), not now(): two changes in one transaction keep their order.
+  changed_at  timestamptz NOT NULL DEFAULT clock_timestamp(),
+  -- bank:  { holder, account_last4, ifsc, bank }   (never the full number)
+  -- payer: { organization_id, organization_name }
+  -- NULL before = first time recorded; NULL after = removed.
+  before      jsonb,
+  after       jsonb,
+  created_at  timestamptz NOT NULL DEFAULT now(),
+  updated_at  timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_hr_pay_destination_changes_changed_at
+  ON public.hr_pay_destination_changes (changed_at DESC);
+CREATE INDEX IF NOT EXISTS idx_hr_pay_destination_changes_staff
+  ON public.hr_pay_destination_changes (staff_id, changed_at DESC);

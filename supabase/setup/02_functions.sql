@@ -84760,3 +84760,238 @@ BEGIN
 END $$;
 REVOKE EXECUTE ON FUNCTION public.fn_hr_playbook_decide(uuid, text, text, text) FROM anon, PUBLIC;
 GRANT  EXECUTE ON FUNCTION public.fn_hr_playbook_decide(uuid, text, text, text) TO authenticated;
+
+-- ----------------------------------------------------------------------------
+-- pay-destination change log: functions (2026-10-01)
+-- Source: 20270614090000_hr_pay_destination_changes.sql
+-- Updated: 2026-10-01 - Director ruling: every bank / paying-trust change goes on a weekly list to the Director list
+-- Updated: 2026-10-09 - History survives a staff delete (SET NULL + name snapshot); the list reports its true count past the 2,000 cap
+-- ----------------------------------------------------------------------------
+-- Filled on every insert from the staff record, so a later staff delete
+-- (staff_id goes NULL) still leaves a name, code and college on the list.
+-- SECURITY INVOKER: it only ever runs inside the SECURITY DEFINER logging
+-- triggers below, the only writers of this table.
+CREATE OR REPLACE FUNCTION public.fn_hr_pay_destination_snapshot()
+RETURNS trigger
+LANGUAGE plpgsql
+SET search_path = public
+AS $$
+BEGIN
+  IF NEW.staff_id IS NOT NULL THEN
+    SELECT NULLIF(trim(concat_ws(' ', s.first_name, s.last_name)), ''), s.staff_id::text, i.name::text
+      INTO NEW.staff_name, NEW.staff_code, NEW.college
+      FROM public.staff s
+      LEFT JOIN public.institutions i ON i.id = s.institution_id
+     WHERE s.id = NEW.staff_id;
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+REVOKE EXECUTE ON FUNCTION public.fn_hr_pay_destination_snapshot() FROM anon, PUBLIC, authenticated;
+
+CREATE OR REPLACE FUNCTION public.fn_hr_bank_destination_json(
+  p_holder text, p_account text, p_ifsc text, p_bank text
+)
+RETURNS jsonb
+LANGUAGE sql
+IMMUTABLE
+SET search_path = public
+AS $$
+  SELECT jsonb_build_object(
+    'holder', p_holder,
+    'account_last4', CASE WHEN p_account IS NULL THEN NULL ELSE right(p_account, 4) END,
+    'ifsc', p_ifsc,
+    'bank', p_bank
+  );
+$$;
+
+REVOKE EXECUTE ON FUNCTION public.fn_hr_bank_destination_json(text, text, text, text) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_hr_bank_destination_json(text, text, text, text) TO authenticated, service_role;
+
+CREATE OR REPLACE FUNCTION public.fn_hr_log_bank_destination_change()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_before jsonb;
+BEGIN
+  IF TG_OP = 'DELETE' THEN
+    -- Deleting the account in use leaves the person with nowhere to be paid:
+    -- logged as removed. Deleting an old, superseded row is not a change of
+    -- destination. A staff delete cascades here: the record is already gone,
+    -- so there is no one to name and the foreign key would refuse the row.
+    -- That case is skipped; the person's earlier log rows stay (staff_id
+    -- set to NULL, name kept by the snapshot).
+    IF OLD.superseded_by IS NULL
+       AND EXISTS (SELECT 1 FROM public.staff s WHERE s.id = OLD.staff_id) THEN
+      INSERT INTO public.hr_pay_destination_changes (staff_id, kind, changed_by, before, after)
+      VALUES (OLD.staff_id, 'bank', auth.uid(),
+              public.fn_hr_bank_destination_json(OLD.account_holder_name, OLD.account_number, OLD.ifsc_code, OLD.bank_name),
+              NULL);
+    END IF;
+    RETURN OLD;
+  END IF;
+
+  IF NEW.superseded_by IS NOT NULL THEN
+    -- The row is not (or no longer) the account in use. Normally the row that
+    -- replaces it logs the change. But if it was the account in use and now
+    -- points at a row that already exists and is itself not in use, nothing
+    -- is in use any more: that is a removal.
+    IF TG_OP = 'UPDATE' AND OLD.superseded_by IS NULL
+       AND EXISTS (SELECT 1 FROM public.hr_staff_bank_accounts n
+                    WHERE n.id = NEW.superseded_by AND n.superseded_by IS NOT NULL) THEN
+      INSERT INTO public.hr_pay_destination_changes (staff_id, kind, changed_by, before, after)
+      VALUES (NEW.staff_id, 'bank', auth.uid(),
+              public.fn_hr_bank_destination_json(OLD.account_holder_name, OLD.account_number, OLD.ifsc_code, OLD.bank_name),
+              NULL);
+    END IF;
+    RETURN NEW;
+  END IF;
+
+  IF TG_OP = 'UPDATE' AND OLD.superseded_by IS NULL THEN
+    -- The account in use, edited in place. Verifying it or touching its notes
+    -- is not a change of destination.
+    IF OLD.account_number      IS DISTINCT FROM NEW.account_number
+    OR OLD.ifsc_code           IS DISTINCT FROM NEW.ifsc_code
+    OR OLD.account_holder_name IS DISTINCT FROM NEW.account_holder_name
+    OR OLD.bank_name           IS DISTINCT FROM NEW.bank_name THEN
+      INSERT INTO public.hr_pay_destination_changes (staff_id, kind, changed_by, before, after)
+      VALUES (NEW.staff_id, 'bank', auth.uid(),
+              public.fn_hr_bank_destination_json(OLD.account_holder_name, OLD.account_number, OLD.ifsc_code, OLD.bank_name),
+              public.fn_hr_bank_destination_json(NEW.account_holder_name, NEW.account_number, NEW.ifsc_code, NEW.bank_name));
+    END IF;
+    RETURN NEW;
+  END IF;
+
+  -- A row has just become the account in use: a new row, or an old row put
+  -- back in use. What it replaced is, in order:
+  --   1. the row whose superseded_by points at it (fn_hr_set_staff_bank_account
+  --      stamps that before it inserts);
+  --   2. otherwise the last destination the log recorded for this person.
+  --      This is what catches "delete the old row, then insert a new one":
+  --      the old row is gone, but the log saw it (as removed) and keeps it.
+  SELECT public.fn_hr_bank_destination_json(b.account_holder_name, b.account_number, b.ifsc_code, b.bank_name)
+    INTO v_before
+    FROM public.hr_staff_bank_accounts b
+   WHERE b.staff_id = NEW.staff_id AND b.superseded_by = NEW.id AND b.id <> NEW.id
+   ORDER BY b.created_at DESC
+   LIMIT 1;
+  IF v_before IS NULL THEN
+    SELECT COALESCE(c.after, c.before)
+      INTO v_before
+      FROM public.hr_pay_destination_changes c
+     WHERE c.staff_id = NEW.staff_id AND c.kind = 'bank'
+     ORDER BY c.changed_at DESC
+     LIMIT 1;
+  END IF;
+
+  INSERT INTO public.hr_pay_destination_changes (staff_id, kind, changed_by, before, after)
+  VALUES (NEW.staff_id, 'bank', auth.uid(), v_before,
+          public.fn_hr_bank_destination_json(NEW.account_holder_name, NEW.account_number, NEW.ifsc_code, NEW.bank_name));
+  RETURN NEW;
+END;
+$$;
+
+REVOKE EXECUTE ON FUNCTION public.fn_hr_log_bank_destination_change() FROM anon, PUBLIC, authenticated;
+
+CREATE OR REPLACE FUNCTION public.fn_hr_log_payer_destination_change()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_before jsonb;
+  v_after  jsonb;
+  v_staff  uuid;
+BEGIN
+  IF TG_OP = 'UPDATE' AND OLD.hr_organization_id IS NOT DISTINCT FROM NEW.hr_organization_id THEN
+    RETURN NEW;
+  END IF;
+
+  IF TG_OP IN ('UPDATE', 'DELETE') THEN
+    SELECT jsonb_build_object('organization_id', o.id, 'organization_name', o.name)
+      INTO v_before FROM public.hr_organizations o WHERE o.id = OLD.hr_organization_id;
+    v_before := COALESCE(v_before, jsonb_build_object('organization_id', OLD.hr_organization_id, 'organization_name', NULL));
+  END IF;
+  IF TG_OP IN ('INSERT', 'UPDATE') THEN
+    SELECT jsonb_build_object('organization_id', o.id, 'organization_name', o.name)
+      INTO v_after FROM public.hr_organizations o WHERE o.id = NEW.hr_organization_id;
+    v_after := COALESCE(v_after, jsonb_build_object('organization_id', NEW.hr_organization_id, 'organization_name', NULL));
+  END IF;
+
+  v_staff := CASE WHEN TG_OP = 'DELETE' THEN OLD.staff_id ELSE NEW.staff_id END;
+  -- A staff delete cascades here: the record is already gone, so the row is
+  -- skipped. The person's earlier log rows stay (staff_id NULL, name kept).
+  IF EXISTS (SELECT 1 FROM public.staff s WHERE s.id = v_staff) THEN
+    INSERT INTO public.hr_pay_destination_changes (staff_id, kind, changed_by, before, after)
+    VALUES (v_staff, 'payer', auth.uid(), v_before, v_after);
+  END IF;
+
+  RETURN CASE WHEN TG_OP = 'DELETE' THEN OLD ELSE NEW END;
+END;
+$$;
+
+REVOKE EXECUTE ON FUNCTION public.fn_hr_log_payer_destination_change() FROM anon, PUBLIC, authenticated;
+
+CREATE OR REPLACE FUNCTION public.fn_hr_pay_destination_changes(p_since timestamptz)
+RETURNS TABLE (
+  change_id       uuid,
+  staff_id        uuid,
+  staff_name      text,
+  staff_code      text,
+  college         text,
+  kind            text,
+  before          jsonb,
+  after           jsonb,
+  changed_by_name text,
+  changed_at      timestamptz,
+  -- Every matching change, before the 2,000-row cap: readers must show it
+  -- so nothing past the cap goes unmentioned.
+  total_count     bigint
+)
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+  -- Written so a NULL can never pass: both answers must be a plain yes.
+  IF NOT (COALESCE(public.fn_is_the_director(), false) OR COALESCE(auth.role(), '') = 'service_role') THEN
+    RAISE EXCEPTION 'Only the Director list can read the bank and payer change list.'
+      USING ERRCODE = '42501';
+  END IF;
+
+  RETURN QUERY
+  -- LEFT joins: a change whose staff record was deleted still lists, named
+  -- from the snapshot kept on the row.
+  SELECT c.id,
+         c.staff_id,
+         COALESCE(NULLIF(trim(concat_ws(' ', s.first_name, s.last_name)), ''), c.staff_name) AS staff_name,
+         COALESCE(s.staff_id::text, c.staff_code),
+         COALESCE(i.name::text, c.college),
+         c.kind,
+         c.before,
+         c.after,
+         CASE WHEN c.changed_by IS NULL THEN 'a system job'
+              ELSE COALESCE(NULLIF(trim(p.full_name), ''), p.email, 'unknown account') END,
+         c.changed_at,
+         count(*) OVER ()
+    FROM public.hr_pay_destination_changes c
+    LEFT JOIN public.staff s ON s.id = c.staff_id
+    LEFT JOIN public.institutions i ON i.id = s.institution_id
+    LEFT JOIN public.profiles p ON p.id = c.changed_by
+   WHERE c.changed_at >= COALESCE(p_since, now() - interval '7 days')
+   ORDER BY c.changed_at DESC
+   LIMIT 2000;
+END;
+$$;
+
+REVOKE EXECUTE ON FUNCTION public.fn_hr_pay_destination_changes(timestamptz) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_hr_pay_destination_changes(timestamptz) TO authenticated, service_role;
+
+COMMENT ON FUNCTION public.fn_hr_pay_destination_changes(timestamptz) IS
+  'Bank-account and paying-trust changes since p_since (default 7 days), newest first, with the person, their college and who made the change; at most 2,000 rows, total_count gives the true number. Director list or service_role only. Migration 20270614090000.';
