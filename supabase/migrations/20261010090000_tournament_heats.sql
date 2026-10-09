@@ -74,6 +74,12 @@ DO $$ BEGIN
   END IF;
 END $$;
 
+-- 3b. lock anon: Supabase grants new tables to anon by default; RLS is not a substitute.
+REVOKE ALL ON TABLE public.tournament_heats        FROM anon, PUBLIC;
+REVOKE ALL ON TABLE public.tournament_heat_entries FROM anon, PUBLIC;
+GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.tournament_heats        TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.tournament_heat_entries TO authenticated;
+
 -- 4. RLS --------------------------------------------------------------------
 ALTER TABLE public.tournament_heats        ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.tournament_heat_entries ENABLE ROW LEVEL SECURITY;

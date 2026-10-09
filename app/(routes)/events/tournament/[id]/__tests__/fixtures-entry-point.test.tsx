@@ -53,6 +53,7 @@ vi.mock('@/hooks/events/use-tournament-registrations', () => ({
   useRecordPlacings: () => ({ mutateAsync: vi.fn(), isPending: false }),
 }));
 vi.mock('@/hooks/events/use-tournament-fixtures', () => ({
+  useTournamentHeats: () => ({ data: [] }),
   useTournamentMatches: () => ({
     data: [{ id: 'm1', division_id: 'd-1', round_no: 1, status: 'pending' }],
   }),
