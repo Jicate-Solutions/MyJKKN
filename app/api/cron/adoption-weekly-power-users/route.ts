@@ -25,13 +25,23 @@
 //      Someone whose newest job this week (found by dedupe key) is still queued,
 //      or finished with a readable agenda, is skipped ('kept'); an errored job or
 //      an unreadable answer is replaced — a re-run never makes a second agenda.
-//      A job queued over 24 h ago and never finished is cancelled
+//      A stuck job (pending 24 h after it was requested, or claimed/running
+//      24 h after the drain took it) is cancelled
 //      (fn_adoption_agenda_supersede_stale) and a fresh one queued; that run
-//      still answers 500 (the Max drain looked down), the next one recovers;
+//      still answers 500 (the Max drain looked down);
 //   6. the job ids are merged into agenda_jobs.
+// RETRIES ARE MANUAL. Every scheduled run works on the week that just ended,
+// so it never goes back to an earlier week: an agenda that failed to queue, an
+// id that was not saved or a stuck job in week W is fixed only by a manual
+// `?week=W` re-run (which is also the only time the stuck-job replacement
+// above can fire: the one scheduled run for W is the run that queues W's jobs,
+// so it never finds one of them stuck). Without a re-run, those people get no
+// agenda for W. A 500 about agendas names the ?week= to re-run.
 // Privacy: problem reports reach the model as status + which part of MyJKKN
 // only, never their free text, which can name other people.
-// Messages nobody: no notifications, no meetings, no emails, no other table.
+// Messages nobody: no notifications, no meetings, no emails. Writes only
+// adoption_power_user_weeks and ai_jobs (new agenda jobs; a stuck agenda job
+// is set to 'canceled' before it is replaced).
 //
 // Auth: CRON_SECRET via `Authorization: Bearer <secret>` only — the dispatcher
 // sends Bearer, and a secret in the URL ends up in request logs.
@@ -220,7 +230,7 @@ export async function GET(request: NextRequest) {
   if (prompts.length > 0) {
     const { data: existing, error: existingErr } = await admin
       .from('ai_jobs')
-      .select('id, status, result, requested_at, dedupe:payload->>_dedupe')
+      .select('id, status, result, requested_at, claimed_at, started_at, dedupe:payload->>_dedupe')
       .eq('job_type', AGENDA_JOB_TYPE)
       .in(
         'payload->>_dedupe',
@@ -251,31 +261,31 @@ export async function GET(request: NextRequest) {
     // read. An errored job, or a finished one whose answer is unreadable, is
     // replaced. If the lookup itself failed we cannot tell, so nobody is queued:
     // a stored id is kept, and anyone else is counted as failed (HTTP 500), so
-    // a finished agenda is never doubled; the next run retries.
+    // a finished agenda is never doubled; a manual ?week= re-run retries.
     if (lookupFailed) {
       if (agendaJobs[userId]) kept++;
-      continue; // the whole run answers 500 below (lookupFailed), so the next run retries
+      continue; // the whole run answers 500 below (lookupFailed); a manual ?week= re-run retries
     }
     if (latest && isStaleAgendaJob(latest)) {
-      // Queued more than a day ago and never finished: the Max drain looked
-      // down. The dedupe guard blocks a second live job, so cancel this one
-      // first, then queue a fresh one below. The run still answers 500 so the
-      // stuck job is reported; the next run finds the fresh job and recovers.
+      // Stuck for more than a day: the Max drain looked down. The dedupe guard
+      // blocks a second live job, so cancel this one first, then queue a fresh
+      // one below. The run still answers 500 so the stuck job is reported; a
+      // later ?week= re-run finds the fresh job and answers 200.
       const { data: superseded, error: supErr } = await admin.rpc('fn_adoption_agenda_supersede_stale', {
         p_job_id: latest.id,
       });
       if (supErr || superseded !== true) {
         // Not cancelled (an error, or the drain took it just now): keep it and
-        // let the next run look again — never risk a second agenda.
+        // let a later ?week= re-run look again — never risk a second agenda.
         agendaJobs[userId] = latest.id;
         failed++;
         failures.push(
-          `agenda job queued over 24 h ago could not be replaced${supErr ? `: ${supErr.message}` : ' (it changed meanwhile)'}`
+          `stuck agenda job could not be replaced${supErr ? `: ${supErr.message}` : ' (it changed meanwhile)'}`
         );
         continue;
       }
       staleReplaced++;
-      failures.push('agenda job queued over 24 h ago and never picked up (is the Max drain down?) — replaced with a fresh job');
+      failures.push('agenda job stuck over 24 h (is the Max drain down?) — replaced with a fresh job');
     }
     if (latest && isUsableAgendaJob(latest)) {
       agendaJobs[userId] = latest.id;
@@ -354,12 +364,14 @@ export async function GET(request: NextRequest) {
 
   // Any agenda that could not be queued is a failed run (HTTP 500), even when
   // the others went through: the report row and the queued jobs are already
-  // saved, and the next run retries only the missing people.
+  // saved, and a manual ?week= re-run retries only the missing people (the
+  // next scheduled run moves on to the next week and never comes back).
   if (failed > 0 || lookupFailed || staleReplaced > 0) {
+    const rerun = `re-run with ?week=${weekStart} to retry; the next scheduled run moves on to the next week`;
     const error =
       failed > 0 || lookupFailed
-        ? `${failed} of ${prompts.length} agenda jobs not queued: ${failures.find((f) => !f.includes('replaced with a fresh job')) ?? failures[0]}`
-        : `${staleReplaced} agenda job(s) stuck over 24 h were replaced with fresh ones (is the Max drain down?)`;
+        ? `${failed} of ${prompts.length} agenda jobs not queued: ${failures.find((f) => !f.includes('replaced with a fresh job')) ?? failures[0]} — ${rerun}`
+        : `${staleReplaced} stuck agenda job(s) replaced with fresh ones (is the Max drain down?) — re-run with ?week=${weekStart} to confirm they finish`;
     logger.error(LOG_MODULE, `${error} — ${summary}`);
     return NextResponse.json(
       {

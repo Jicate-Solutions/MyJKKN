@@ -70,26 +70,48 @@ export interface ExistingAgendaJob {
   status: string;
   result: unknown;
   requested_at?: string | null;
+  claimed_at?: string | null;
+  started_at?: string | null;
   dedupe: string | null;
 }
 
 export const LIVE_JOB_STATES = new Set(['pending', 'claimed', 'running']);
-/** A queued/running agenda job older than this is stuck (the Max drain is down). */
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** A live agenda job untouched for longer than this is stuck (the Max drain looks down). */
 export const STALE_JOB_MS = 24 * 3600_000;
 
-/** Queued/running and older than STALE_JOB_MS — the drain has not picked it up. */
-export function isStaleAgendaJob(
-  job: Pick<ExistingAgendaJob, 'status' | 'requested_at'>,
-  now: number = Date.now()
-): boolean {
-  if (!LIVE_JOB_STATES.has(job.status) || !job.requested_at) return false;
-  const at = Date.parse(job.requested_at);
-  return Number.isFinite(at) && now - at > STALE_JOB_MS;
+type StaleFields = Pick<ExistingAgendaJob, 'status' | 'requested_at' | 'claimed_at' | 'started_at'>;
+
+/**
+ * Stuck: still pending more than STALE_JOB_MS after it was requested, or
+ * claimed/running more than STALE_JOB_MS after the drain took it (the later of
+ * claimed_at and started_at; ai_jobs has no per-job heartbeat). A backlogged
+ * job the drain claimed a minute ago is NOT stuck, however old its request.
+ * Same rule as fn_adoption_agenda_supersede_stale (migration 20271009115500).
+ */
+export function isStaleAgendaJob(job: StaleFields, now: number = Date.now()): boolean {
+  const parseTime = (iso: string | null | undefined) => {
+    if (!iso) return null;
+    const at = Date.parse(iso);
+    return Number.isFinite(at) ? at : null;
+  };
+  if (job.status === 'pending') {
+    const at = parseTime(job.requested_at);
+    return at !== null && now - at > STALE_JOB_MS;
+  }
+  if (job.status === 'claimed' || job.status === 'running') {
+    const times = [parseTime(job.claimed_at), parseTime(job.started_at)].filter(
+      (t): t is number => t !== null
+    );
+    return times.length > 0 && now - Math.max(...times) > STALE_JOB_MS;
+  }
+  return false;
 }
 
 /** Still queued/running (and not stuck), or finished with an agenda the page can read. */
 export function isUsableAgendaJob(
-  job: Pick<ExistingAgendaJob, 'status' | 'result' | 'requested_at'>,
+  job: StaleFields & Pick<ExistingAgendaJob, 'result'>,
   now: number = Date.now()
 ): boolean {
   if (LIVE_JOB_STATES.has(job.status)) return !isStaleAgendaJob(job, now);
@@ -304,8 +326,10 @@ async function readLatestWeek(admin: Admin): Promise<PowerUsersWeekView> {
     payload: PowerUsersPayload;
     agenda_jobs: Record<string, unknown> | null;
   };
+  // Only uuid-shaped ids: one malformed value would make the whole ai_jobs
+  // read below fail and hide every agenda.
   const jobByUser = Object.entries(row.agenda_jobs ?? {}).filter(
-    (entry): entry is [string, string] => typeof entry[1] === 'string'
+    (entry): entry is [string, string] => typeof entry[1] === 'string' && UUID.test(entry[1])
   );
   const agendas: Record<string, ChatAgenda | null> = {};
   let jobsError: string | null = null;

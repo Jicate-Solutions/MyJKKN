@@ -14,6 +14,7 @@ import {
   type PowerUser,
   isStaleAgendaJob,
   isUsableAgendaJob,
+  loadPowerUsersLastWeek,
 } from '@/lib/adoption/power-users';
 
 describe('previousIstWeekStart', () => {
@@ -148,6 +149,66 @@ describe('stale agenda jobs', () => {
   });
   it('a finished job is never stale', () => {
     expect(isStaleAgendaJob({ status: 'done', requested_at: '2020-01-01T00:00:00Z' }, now)).toBe(false);
+  });
+  it('a backlogged job the drain claimed a minute ago is NOT stale, however old its request', () => {
+    const claimedNow = {
+      status: 'claimed',
+      result: null,
+      requested_at: '2026-10-07T10:00:00Z',
+      claimed_at: '2026-10-10T11:59:00Z',
+    };
+    expect(isStaleAgendaJob(claimedNow, now)).toBe(false);
+    expect(isUsableAgendaJob(claimedNow, now)).toBe(true);
+  });
+  it('a claimed/running job is stale only when the drain took it over a day ago', () => {
+    const takenLongAgo = {
+      status: 'running',
+      requested_at: '2026-10-08T10:00:00Z',
+      claimed_at: '2026-10-08T10:01:00Z',
+      started_at: '2026-10-09T10:00:00Z',
+    };
+    expect(isStaleAgendaJob(takenLongAgo, now)).toBe(true);
+    // the later of claimed_at and started_at counts
+    expect(isStaleAgendaJob({ ...takenLongAgo, started_at: '2026-10-10T11:00:00Z' }, now)).toBe(false);
+    // neither time recorded: not judged stuck (the SQL refuses to cancel it too)
+    expect(isStaleAgendaJob({ status: 'running', requested_at: '2020-01-01T00:00:00Z' }, now)).toBe(false);
+  });
+});
+
+describe('loadPowerUsersLastWeek', () => {
+  const GOOD = '3f2a6c1e-8b9d-4e0f-a1b2-c3d4e5f60718';
+  function adminWith(agendaJobs: Record<string, unknown>) {
+    const inArgs: unknown[][] = [];
+    const chain = (table: string): Record<string, unknown> => {
+      const c: Record<string, unknown> = {};
+      for (const op of ['select', 'lte', 'order', 'limit']) c[op] = () => c;
+      c.maybeSingle = () =>
+        Promise.resolve({
+          data: { week_start: '2026-09-28', computed_at: 'x', payload: { top: [] }, agenda_jobs: agendaJobs },
+          error: null,
+        });
+      c.in = (_col: string, ids: unknown[]) => {
+        inArgs.push(ids);
+        // like PostgREST: one value that is not a uuid fails the whole read
+        const bad = ids.some((id) => typeof id !== 'string' || !/^[0-9a-f-]{36}$/i.test(id));
+        return Promise.resolve(
+          bad
+            ? { data: null, error: { message: 'invalid input syntax for type uuid' } }
+            : { data: ids.map((id) => ({ id, status: 'done', result: { answer: '{"questions":["a","b","c"],"topics":["t1","t2"]}' } })), error: null }
+        );
+      };
+      void table;
+      return c;
+    };
+    return { admin: { from: chain } as never, inArgs };
+  }
+  it('skips a stored job id that is not a uuid, so the other agendas still load', async () => {
+    const { admin, inArgs } = adminWith({ 'u-1': GOOD, 'u-2': 'not-a-uuid', 'u-3': 42 });
+    const view = await loadPowerUsersLastWeek(admin);
+    expect(view.error).toBeNull();
+    expect(inArgs).toEqual([[GOOD]]);
+    expect(view.agendas['u-1']).toEqual({ questions: ['a', 'b', 'c'], topics: ['t1', 't2'] });
+    expect(view.agendas['u-2']).toBeUndefined();
   });
 });
 

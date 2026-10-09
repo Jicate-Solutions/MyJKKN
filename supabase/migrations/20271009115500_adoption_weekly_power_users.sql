@@ -5,7 +5,11 @@
 -- The report itself is plain SQL (this file). A model is used ONLY for the chat
 -- agenda of each top-10 person, through the ₹0 Max lane (ai_jobs), never here.
 --
--- WHAT THIS FILE ADDS (add only — no existing object is changed):
+-- WHAT THIS FILE DOES. It adds new objects (1-5 below). It changes existing
+-- rows in two places only: the ai_job_types row 'adoption.chat_agenda' (if
+-- present, its max_inflight is raised to at least 10), and, when the route
+-- calls 3c, one stuck adoption.chat_agenda row in ai_jobs is set to
+-- 'canceled'. No existing table, column or function is altered.
 --   1. table adoption_power_user_weeks — one row per IST week (Monday start):
 --      the computed report (payload) and the agenda job ids (agenda_jobs,
 --      user_id -> ai_jobs.id). RLS on; SELECT for super admins only; no write
@@ -29,13 +33,25 @@
 --      A module, and a (module, feature) pair, counts only if 3+ counted people
 --      used it that week (usage_events can be written from the browser); a visit
 --      with no feature counts whenever its module does.
+--      KNOWN LIMITATION: 3 accounts acting together (students included) can
+--      still vouch for an invented, route-shaped module or feature name, which
+--      then counts towards the ranking; an invented module name also reaches
+--      the agenda prompt (inside its <data> block, marked as data, never an
+--      instruction, and only if it passes the route-shape check). There is
+--      no server-side list to check against (a read of production by the
+--      adoption desk, October 2026: feature_registry covers 21 of the 83
+--      modules used in the last 14 days), and a person reviews the report
+--      before any chat is booked. Not built against; stated here on purpose.
+--      Anonymous events (no user_id) never count and never exclude anyone.
 --      FAILS CLOSED: a missing, switched-off, draft or malformed policy row
 --      (including a null or any other non-text item in the list) raises, so
 --      the run stops instead of reporting the excluded colleges.
 --   3b. fn_adoption_power_user_weeks_merge_jobs — merges agenda job ids into
 --      the week row; raises if the week row is missing.
---   3c. fn_adoption_agenda_supersede_stale — cancels ONE agenda job that has
---      sat queued/running for over 24 h, so the route can queue a fresh one.
+--   3c. fn_adoption_agenda_supersede_stale — cancels ONE agenda job that is
+--      stuck: still pending 24 h after it was requested, or claimed/running
+--      24 h after the drain took it (claimed_at/started_at; ai_jobs has no
+--      per-job heartbeat). The route then queues a fresh one.
 --   4. ai_job_types 'adoption.chat_agenda' — a copy of 'improvement.rank_ideas'
 --      (glue template {{prompt}}, interactive=false, max lane, seat_owner),
 --      except max_inflight = 10: one weekly run queues up to 10 agendas
@@ -172,8 +188,8 @@ BEGIN
     SELECT DISTINCT ev.user_id
       FROM ev
       LEFT JOIN public.profiles xp ON xp.id = ev.user_id
-     WHERE xp.institution_id = ANY (v_excluded)
-        OR ev.institution_id = ANY (v_excluded)
+     WHERE ev.user_id IS NOT NULL
+       AND (xp.institution_id = ANY (v_excluded) OR ev.institution_id = ANY (v_excluded))
   ),
   vouch_ev AS (
     SELECT ev.user_id, ev.module, ev.feature
@@ -182,7 +198,7 @@ BEGIN
      WHERE COALESCE(vp.role, '') <> 'super_admin'
        AND COALESCE(vp.is_super_admin, false) = false
        AND NOT (COALESCE(vp.email, '') ILIKE 'test%' OR COALESCE(vp.full_name, '') ILIKE 'test %')
-       AND ev.user_id NOT IN (SELECT x.user_id FROM excluded_people x)
+       AND NOT EXISTS (SELECT 1 FROM excluded_people x WHERE x.user_id = ev.user_id)
   ),
   valid_modules AS (
     SELECT v.module
@@ -235,7 +251,7 @@ BEGIN
     SELECT pe.*, i.name AS institution_name
       FROM people pe
       LEFT JOIN public.institutions i ON i.id = pe.institution_id
-     WHERE pe.user_id NOT IN (SELECT x.user_id FROM excluded_people x)
+     WHERE NOT EXISTS (SELECT 1 FROM excluded_people x WHERE x.user_id = pe.user_id)
   ),
   ranked AS (
     SELECT k.*,
@@ -335,10 +351,14 @@ GRANT  EXECUTE ON FUNCTION public.fn_adoption_power_user_weeks_merge_jobs(date, 
 -- 3c) retire ONE agenda job that has been stuck for over 24 h
 -- ---------------------------------------------------------------------
 -- The dedupe guard blocks a second live job for the same person and week, so a
--- job the drain never picked up would block that person for ever and every
--- re-run would answer 500. The route calls this for such a job, then queues a
--- fresh one. Only an adoption.chat_agenda job, only while still live, only if
--- requested over 24 h ago — so a job the drain has just taken is left alone.
+-- job the drain never finished would block that person for ever and every
+-- re-run of that week would answer 500. The route calls this for such a job,
+-- then queues a fresh one. Only an adoption.chat_agenda job, and only:
+--   pending  and requested over 24 h ago, or
+--   claimed/running and taken by the drain (latest of claimed_at, started_at)
+--   over 24 h ago — so a backlogged job the drain claimed a minute ago is left
+--   alone even if it was requested days ago. Neither time set = not cancelled.
+-- Same rule as isStaleAgendaJob in lib/adoption/power-users.ts.
 -- Returns true when the job was cancelled.
 CREATE OR REPLACE FUNCTION public.fn_adoption_agenda_supersede_stale(p_job_id uuid)
 RETURNS boolean
@@ -349,12 +369,13 @@ AS $$
 BEGIN
   UPDATE public.ai_jobs
      SET status = 'canceled',
-         error = 'superseded: queued over 24 h and never finished; the weekly power users run queued a fresh job',
+         error = 'superseded: stuck over 24 h (pending since its request, or claimed/running since the drain took it); the weekly power users run queued a fresh job',
          completed_at = now()
    WHERE id = p_job_id
      AND job_type = 'adoption.chat_agenda'
-     AND status IN ('pending', 'claimed', 'running')
-     AND requested_at < now() - interval '24 hours';
+     AND ((status = 'pending' AND requested_at < now() - interval '24 hours')
+          OR (status IN ('claimed', 'running')
+              AND GREATEST(claimed_at, started_at) < now() - interval '24 hours'));
   RETURN FOUND;
 END;
 $$;

@@ -286,6 +286,30 @@ DO $$ DECLARE r jsonb; got text[]; want text[]; BEGIN
   IF got IS DISTINCT FROM want THEN RAISE EXCEPTION 'FAIL: top order with the excluded taggers %', got; END IF;
 END $$;
 
+\echo '--- anonymous events: EXPECT an event with no user_id, even one carrying an excluded college, empties nothing (#4298 panel round 5)'
+-- Production logs some events with no user (signed-out pages). Such a row tagged with an
+-- excluded college once put a NULL into the excluded set, and `user_id NOT IN (... NULL ...)`
+-- is never true, so the whole report came back empty with no error.
+ALTER TABLE usage_events ALTER COLUMN user_id DROP NOT NULL;
+INSERT INTO usage_events (user_id, event_type, module, institution_id, created_at) VALUES
+  (NULL, 'page_visit', 'm1', 'a33138b6-4eea-4675-941f-1071bf88b127', '2026-09-29 10:00+05:30'),
+  (NULL, 'page_visit', 'm1', 'aaaaaaaa-0000-0000-0000-000000000001', '2026-09-29 10:00+05:30');
+DO $$ DECLARE r jsonb; got text[]; want text[]; BEGIN
+  r := fn_adoption_power_users('2026-09-28');
+  SELECT array_agg(t->>'user_id' ORDER BY o) INTO got FROM jsonb_array_elements(r->'top') WITH ORDINALITY x(t, o);
+  want := ARRAY['50000000-0000-0000-0000-000000000001','50000000-0000-0000-0000-000000000003',
+                '50000000-0000-0000-0000-000000000002','50000000-0000-0000-0000-000000000004',
+                '50000000-0000-0000-0000-000000000005','50000000-0000-0000-0000-000000000011',
+                '50000000-0000-0000-0000-000000000006','50000000-0000-0000-0000-000000000007',
+                '50000000-0000-0000-0000-000000000008','50000000-0000-0000-0000-000000000009'];
+  IF got IS DISTINCT FROM want THEN
+    RAISE EXCEPTION 'FAIL: an anonymous event with an excluded college changed the ranking %', got; END IF;
+  IF jsonb_array_length(r->'one_day_staff') <> 5 OR jsonb_array_length(r->'one_day_learners_by_college') <> 2 THEN
+    RAISE EXCEPTION 'FAIL: an anonymous event emptied the one-day lists %', r; END IF;
+  IF (r->'top'->0->>'features_used')::int <> 6 THEN
+    RAISE EXCEPTION 'FAIL: an anonymous event changed what counts %', r->'top'->0; END IF;
+END $$;
+
 \echo '--- one-day team members: EXPECT OD1, OD8, OD5, OD6, OD7 (cap 5); never OD2 (new account), OD3 (came back), OD4 (two days)'
 -- OD1 and OD8 have 2 features each (OD8's bare m7 visit, above); OD5..OD7 have 1; OD9 is 6th.
 DO $$ DECLARE r jsonb; got text[]; BEGIN
@@ -400,25 +424,37 @@ DO $$ BEGIN
     RAISE EXCEPTION 'FAIL: job ids for an existing week were not saved'; END IF;
 END $$;
 
-\echo '--- stuck agenda jobs: EXPECT only a live adoption.chat_agenda job over 24 h old is cancelled'
+\echo '--- stuck agenda jobs: EXPECT only a pending job 24 h after its request, or a claimed/running one 24 h after the drain took it, is cancelled'
 INSERT INTO ai_job_types (job_type, title) VALUES ('other.job', 'Other');
-INSERT INTO ai_jobs (id, job_type, requested_by, status, requested_at) VALUES
-  ('a1000000-0000-0000-0000-000000000001','adoption.chat_agenda','60000000-0000-0000-0000-000000000001','pending', now() - interval '30 hours'),
-  ('a1000000-0000-0000-0000-000000000002','adoption.chat_agenda','60000000-0000-0000-0000-000000000001','running', now() - interval '30 hours'),
-  ('a1000000-0000-0000-0000-000000000003','adoption.chat_agenda','60000000-0000-0000-0000-000000000001','pending', now() - interval '2 hours'),
-  ('a1000000-0000-0000-0000-000000000004','adoption.chat_agenda','60000000-0000-0000-0000-000000000001','done',    now() - interval '30 hours'),
-  ('a1000000-0000-0000-0000-000000000005','other.job',           '60000000-0000-0000-0000-000000000001','pending', now() - interval '30 hours');
+INSERT INTO ai_jobs (id, job_type, requested_by, status, requested_at, claimed_at, started_at) VALUES
+  ('a1000000-0000-0000-0000-000000000001','adoption.chat_agenda','60000000-0000-0000-0000-000000000001','pending', now() - interval '30 hours', NULL, NULL),
+  ('a1000000-0000-0000-0000-000000000002','adoption.chat_agenda','60000000-0000-0000-0000-000000000001','running', now() - interval '30 hours', now() - interval '29 hours', now() - interval '28 hours'),
+  ('a1000000-0000-0000-0000-000000000003','adoption.chat_agenda','60000000-0000-0000-0000-000000000001','pending', now() - interval '2 hours', NULL, NULL),
+  ('a1000000-0000-0000-0000-000000000004','adoption.chat_agenda','60000000-0000-0000-0000-000000000001','done',    now() - interval '30 hours', now() - interval '29 hours', now() - interval '29 hours'),
+  ('a1000000-0000-0000-0000-000000000005','other.job',           '60000000-0000-0000-0000-000000000001','pending', now() - interval '30 hours', NULL, NULL),
+  -- requested 3 days ago (a backlog) but claimed by the drain a minute ago: NOT stuck
+  ('a1000000-0000-0000-0000-000000000006','adoption.chat_agenda','60000000-0000-0000-0000-000000000001','claimed', now() - interval '3 days', now() - interval '1 minute', NULL),
+  -- claimed 2 days ago but started a minute ago: the later time counts, NOT stuck
+  ('a1000000-0000-0000-0000-000000000007','adoption.chat_agenda','60000000-0000-0000-0000-000000000001','running', now() - interval '3 days', now() - interval '2 days', now() - interval '1 minute'),
+  -- running with neither time recorded: cannot tell, NOT cancelled
+  ('a1000000-0000-0000-0000-000000000008','adoption.chat_agenda','60000000-0000-0000-0000-000000000001','running', now() - interval '3 days', NULL, NULL);
 DO $$ BEGIN
   IF NOT fn_adoption_agenda_supersede_stale('a1000000-0000-0000-0000-000000000001') THEN
     RAISE EXCEPTION 'FAIL: a stuck pending agenda job was not cancelled'; END IF;
   IF NOT fn_adoption_agenda_supersede_stale('a1000000-0000-0000-0000-000000000002') THEN
-    RAISE EXCEPTION 'FAIL: a stuck running agenda job was not cancelled'; END IF;
+    RAISE EXCEPTION 'FAIL: a running agenda job the drain took 28 h ago was not cancelled'; END IF;
+  IF fn_adoption_agenda_supersede_stale('a1000000-0000-0000-0000-000000000006') THEN
+    RAISE EXCEPTION 'FAIL: a job requested long ago but claimed a minute ago was cancelled'; END IF;
+  IF fn_adoption_agenda_supersede_stale('a1000000-0000-0000-0000-000000000007')
+     OR fn_adoption_agenda_supersede_stale('a1000000-0000-0000-0000-000000000008') THEN
+    RAISE EXCEPTION 'FAIL: a running job started a minute ago, or with no claim time, was cancelled'; END IF;
   IF fn_adoption_agenda_supersede_stale('a1000000-0000-0000-0000-000000000003')
      OR fn_adoption_agenda_supersede_stale('a1000000-0000-0000-0000-000000000004')
      OR fn_adoption_agenda_supersede_stale('a1000000-0000-0000-0000-000000000005')
      OR fn_adoption_agenda_supersede_stale('a1000000-0000-0000-0000-000000000001') THEN
     RAISE EXCEPTION 'FAIL: a fresh, finished, other-type or already-cancelled job was cancelled'; END IF;
-  IF (SELECT string_agg(status, ',' ORDER BY id) FROM ai_jobs) IS DISTINCT FROM 'canceled,canceled,pending,done,pending' THEN
+  IF (SELECT string_agg(status, ',' ORDER BY id) FROM ai_jobs)
+     IS DISTINCT FROM 'canceled,canceled,pending,done,pending,claimed,running,running' THEN
     RAISE EXCEPTION 'FAIL: job states after superseding %', (SELECT string_agg(status, ',' ORDER BY id) FROM ai_jobs); END IF;
   IF (SELECT error FROM ai_jobs WHERE id = 'a1000000-0000-0000-0000-000000000001') NOT LIKE 'superseded:%' THEN
     RAISE EXCEPTION 'FAIL: a cancelled stuck job does not say why'; END IF;

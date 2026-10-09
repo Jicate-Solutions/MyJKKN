@@ -13,7 +13,8 @@
  *     dedupe key adoption-agenda:<week>:<user>, and stores the job ids;
  *   - a person's prompt holds only that person's data;
  *   - a re-run keeps people whose agenda job is queued or readable, found by dedupe key;
- *   - a job stuck over 24 h is cancelled and replaced (that run is a 500; the next run is a 200);
+ *   - a job stuck over 24 h is cancelled and replaced (that run is a 500; a later ?week= re-run is a 200);
+ *   - every 500 names the ?week= to re-run (the next scheduled run moves on to the next week);
  *   - an RPC error, or a run where ANY job failed to queue, is a 500.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -333,7 +334,7 @@ describe('a real run', () => {
     expect(users).toContain('u-01');
   });
 
-  it('when the lookup fails, queues nobody (no doubled agenda) and answers 500 so the next run retries', async () => {
+  it('when the lookup fails, queues nobody (no doubled agenda) and answers 500 naming the ?week= to re-run', async () => {
     tableResults.adoption_power_user_weeks = { data: { agenda_jobs: { 'u-01': 'old-1' } }, error: null };
     tableResults.ai_jobs = { data: null, error: { message: 'boom' } };
     const res = await GET(request({ bearer: SECRET, query: `?week=${WEEK}` }));
@@ -398,7 +399,7 @@ describe('a real run', () => {
     expect(stored['u-01']).not.toBe('stuck-1');
   });
 
-  it('the run after a stuck job was replaced succeeds (200): the fresh job is kept', async () => {
+  it('a later ?week= re-run after a stuck job was replaced succeeds (200): the fresh job is kept', async () => {
     // Run 1: u-01's job is stuck -> replaced.
     const old = new Date(Date.now() - 30 * 3600_000).toISOString();
     tableResults.ai_jobs = { data: [job('u-01', 'stuck-1', 'pending', null, old)], error: null };
@@ -506,6 +507,34 @@ describe('a real run', () => {
     mergeResult = { data: null, error: { message: 'boom' } };
     const res = await GET(request({ bearer: SECRET, query: `?week=${WEEK}` }));
     expect(res.status).toBe(500);
+  });
+
+  it('tells the operator which week to re-run — the next scheduled run never comes back to this week', async () => {
+    enqueueJobsLane.mockImplementation(() => Promise.resolve({ ok: false, reason: 'no_seat', error: 'no seat owner configured' }));
+    const res = await GET(request({ bearer: SECRET, query: `?week=${WEEK}` }));
+    expect(res.status).toBe(500);
+    const body = await res.json();
+    expect(body.error).toContain(`re-run with ?week=${WEEK}`);
+    const old = new Date(Date.now() - 30 * 3600_000).toISOString();
+    enqueueJobsLane.mockReset();
+    enqueueJobsLane.mockImplementation(() => Promise.resolve({ ok: true, jobId: 'job-fresh' }));
+    tableResults.ai_jobs = { data: [job('u-01', 'stuck-1', 'pending', null, old)], error: null };
+    const stale = await (await GET(request({ bearer: SECRET, query: `?week=${WEEK}` }))).json();
+    expect(stale.error).toContain(`?week=${WEEK}`);
+  });
+
+  it('does not replace a job requested long ago that the drain claimed a minute ago', async () => {
+    const old = new Date(Date.now() - 72 * 3600_000).toISOString();
+    tableResults.ai_jobs = {
+      data: [{ ...job('u-01', 'busy-1', 'claimed', null, old), claimed_at: new Date(Date.now() - 60_000).toISOString() }],
+      error: null,
+    };
+    const res = await GET(request({ bearer: SECRET, query: `?week=${WEEK}` }));
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.kept).toBe(1);
+    expect(body.stale_replaced).toBe(0);
+    expect(rpc).not.toHaveBeenCalledWith(SUPERSEDE_FN, expect.anything());
   });
 
   it('is a 500 when SOME agenda jobs fail, after saving the ones that queued', async () => {
