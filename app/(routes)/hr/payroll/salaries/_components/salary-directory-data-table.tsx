@@ -28,7 +28,7 @@ import { Button } from '@/components/ui/button';
 import type { StaffSalaryDirectoryRow } from '@/lib/services/hr/payroll/staff-salary-service';
 
 import { useTdsSlabs } from '@/hooks/hr/use-tds-slabs';
-import { getSalaryColumns } from './salary-columns';
+import { formatStart, getSalaryColumns, scheduledSalary } from './salary-columns';
 import { matchesSalaryFilters, type SalaryFilterState } from './salary-filters';
 
 const INR = new Intl.NumberFormat('en-IN', {
@@ -50,10 +50,28 @@ const EXPORT_COLUMNS: Array<{ key: string; label: string; width: number }> = [
   { key: 'monthly', label: 'Monthly Gross', width: 16 },
   { key: 'annual', label: 'Annual Gross', width: 16 },
   { key: 'effective', label: 'Effective From', width: 16 },
+  { key: 'next_monthly', label: 'Next Monthly Gross', width: 18 },
+  { key: 'next_from', label: 'Next Change From', width: 18 },
   { key: 'eligibility', label: 'Eligibility', width: 30 },
   { key: 'salary_state', label: 'Salary Status', width: 16 },
   { key: 'employment', label: 'Employment', width: 14 },
 ];
+
+/**
+ * The pay in force TODAY, not the newest row (panel round 1, 2026-10-09). The
+ * Monthly, Annual gross and Total monthly column ids name the newest row's
+ * fields, so sorting by `row[column id]` would order the list by a change
+ * saved for next month. The desktop cells, the phone card and the export all
+ * read the same in_force_* figures.
+ */
+const SORT_VALUE: Partial<Record<string, (r: StaffSalaryDirectoryRow) => unknown>> = {
+  monthly_gross: (r) => r.in_force_monthly_gross,
+  annual_gross: (r) => r.in_force_annual_gross,
+  total_monthly: (r) =>
+    r.in_force_monthly_gross === null
+      ? null
+      : r.in_force_monthly_gross + (r.in_force_allowance_amount ?? 0),
+};
 
 interface Props {
   rows: StaffSalaryDirectoryRow[];
@@ -105,9 +123,11 @@ export function SalaryDirectoryDataTable({
       const sortBy = params.sort_by;
       if (sortBy && sortBy !== 'created_at') {
         const dir = params.sort_order === 'asc' ? 1 : -1;
+        const valueOf =
+          SORT_VALUE[sortBy] ?? ((r: StaffSalaryDirectoryRow) => r[sortBy as keyof StaffSalaryDirectoryRow]);
         filtered.sort((a, b) => {
-          const av = a[sortBy as keyof StaffSalaryDirectoryRow];
-          const bv = b[sortBy as keyof StaffSalaryDirectoryRow];
+          const av = valueOf(a);
+          const bv = valueOf(b);
           // Nulls last regardless of direction: an unset salary sorting into the
           // middle of the money column reads as a data error.
           if (av == null && bv == null) return 0;
@@ -143,53 +163,66 @@ export function SalaryDirectoryDataTable({
   );
 
   const renderMobileRow = useCallback(
-    (r: StaffSalaryDirectoryRow) => (
-      // The card is itself a button, so the Suggest action sits BELOW it rather
-      // than inside it — a button inside a button is invalid HTML.
-      <div className='space-y-1'>
-        <button
-          type='button'
-          onClick={() => (canEdit ? onEdit(r) : onViewHistory(r))}
-          className='w-full space-y-2 rounded-md border p-3 text-left'
-        >
-          <div className='flex items-start justify-between gap-2'>
-            <div className='min-w-0'>
-              <p className='truncate text-sm font-medium'>{r.person_name}</p>
-              <p className='font-mono text-xs text-muted-foreground'>{r.staff_code ?? '—'}</p>
+    (r: StaffSalaryDirectoryRow) => {
+      // Today's pay, and a change saved for later under it, as on the desktop.
+      const next = scheduledSalary(r);
+      return (
+        // The card is itself a button, so the Suggest action sits BELOW it rather
+        // than inside it — a button inside a button is invalid HTML.
+        <div className='space-y-1'>
+          <button
+            type='button'
+            onClick={() => (canEdit ? onEdit(r) : onViewHistory(r))}
+            className='w-full space-y-2 rounded-md border p-3 text-left'
+          >
+            <div className='flex items-start justify-between gap-2'>
+              <div className='min-w-0'>
+                <p className='truncate text-sm font-medium'>{r.person_name}</p>
+                <p className='font-mono text-xs text-muted-foreground'>{r.staff_code ?? '—'}</p>
+              </div>
+              <div className='shrink-0 text-right'>
+                <span className='text-sm font-semibold tabular-nums'>
+                  {!r.salary_id
+                    ? <span className='text-xs italic font-normal text-muted-foreground'>Not set</span>
+                    : r.in_force_monthly_gross === null
+                      ? '—'
+                      : INR.format(r.in_force_monthly_gross)}
+                </span>
+                {next && (
+                  <span className='block text-xs tabular-nums text-muted-foreground'>
+                    {INR.format(next.monthlyGross)} from {formatStart(next.from)}
+                  </span>
+                )}
+              </div>
             </div>
-            <span className='shrink-0 text-sm font-semibold tabular-nums'>
-              {r.monthly_gross === null
-                ? <span className='text-xs italic font-normal text-muted-foreground'>Not set</span>
-                : INR.format(r.monthly_gross)}
-            </span>
-          </div>
-          <div className='flex flex-wrap gap-1'>
-            <Badge variant='outline' className='font-normal'>{r.works_at_name}</Badge>
-            {!r.payer_org_id && (
-              <Badge
-                variant='outline'
-                className='border-amber-300 font-normal text-amber-700 dark:border-amber-800 dark:text-amber-400'
-              >
-                No payer
-              </Badge>
-            )}
-            {!r.is_active && (
-              <Badge variant='secondary' className='font-normal'>Relieved</Badge>
-            )}
-          </div>
-        </button>
-        <Button
-          type='button'
-          variant='ghost'
-          size='sm'
-          className='h-7 px-2 text-xs'
-          onClick={() => onSuggest(r)}
-        >
-          <Sparkles className='mr-1.5 h-3.5 w-3.5' />
-          Suggest a revised salary
-        </Button>
-      </div>
-    ),
+            <div className='flex flex-wrap gap-1'>
+              <Badge variant='outline' className='font-normal'>{r.works_at_name}</Badge>
+              {!r.payer_org_id && (
+                <Badge
+                  variant='outline'
+                  className='border-amber-300 font-normal text-amber-700 dark:border-amber-800 dark:text-amber-400'
+                >
+                  No payer
+                </Badge>
+              )}
+              {!r.is_active && (
+                <Badge variant='secondary' className='font-normal'>Relieved</Badge>
+              )}
+            </div>
+          </button>
+          <Button
+            type='button'
+            variant='ghost'
+            size='sm'
+            className='h-7 px-2 text-xs'
+            onClick={() => onSuggest(r)}
+          >
+            <Sparkles className='mr-1.5 h-3.5 w-3.5' />
+            Suggest a revised salary
+          </Button>
+        </div>
+      );
+    },
     [canEdit, onEdit, onViewHistory, onSuggest]
   );
 
@@ -217,14 +250,17 @@ export function SalaryDirectoryDataTable({
             if (r.eligible_for_etf) on.push('ETF');
             if (r.exempt_edli) on.push('EDLI exempt');
           }
+          const next = scheduledSalary(r);
           return {
             employee: r.person_name,
             code: r.staff_code ?? '',
             works_at: r.works_at_name,
             paid_by: r.payer_org_name ?? '',
-            monthly: r.monthly_gross ?? '',
-            annual: r.annual_gross ?? '',
-            effective: r.effective_from ?? '',
+            monthly: r.salary_id ? (r.in_force_monthly_gross ?? '') : '',
+            annual: r.salary_id ? (r.in_force_annual_gross ?? '') : '',
+            effective: r.salary_id ? (r.in_force_effective_from ?? '') : '',
+            next_monthly: next ? next.monthlyGross : '',
+            next_from: next ? (next.from ?? '') : '',
             eligibility: on.join(', '),
             salary_state: r.salary_id ? 'Recorded' : 'Awaiting',
             employment: r.is_active ? 'Active' : 'Relieved',

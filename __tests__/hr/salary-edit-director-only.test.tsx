@@ -41,6 +41,9 @@ vi.mock('@/lib/services/hr/payroll/staff-payroll-service', () => ({
 vi.mock('@/lib/services/hr/payroll/staff-bank-account-service', () => ({
   StaffBankAccountService: { setAccount: (...a: unknown[]) => setAccount(...a) },
 }));
+// The signed-in person. useCanEditSalaries keys its answer by this id.
+let authProfile: { id: string } | null = { id: 'user-a' };
+vi.mock('@/hooks/use-auth', () => ({ useAuth: () => ({ profile: authProfile }) }));
 vi.mock('@/hooks/hr/use-staff-payroll', () => ({
   usePayrollOrganizations: () => ({ data: [], isLoading: false }),
 }));
@@ -61,6 +64,7 @@ class NoopResizeObserver {
 (globalThis as unknown as { ResizeObserver: unknown }).ResizeObserver ??= NoopResizeObserver;
 
 beforeEach(() => {
+  authProfile = { id: 'user-a' };
   rpc.mockReset();
   setSalary.mockReset();
   setPayer.mockReset();
@@ -156,6 +160,49 @@ describe('useCanEditSalaries', () => {
     rpc.mockReturnValue(new Promise(() => {}));
     const { result } = renderHook(() => useCanEditSalaries(), { wrapper });
     expect(result.current.canEdit).toBe(false);
+  });
+
+  // Panel round 1 (2026-10-09): one tab, a sign-out and a different sign-in.
+  it("never shows the previous person's answer: a new sign-in asks again", async () => {
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const shared = ({ children }: { children: React.ReactNode }) => (
+      <QueryClientProvider client={qc}>{children}</QueryClientProvider>
+    );
+    rpc.mockResolvedValueOnce({ data: true, error: null });
+    const { result, rerender } = renderHook(() => useCanEditSalaries(), { wrapper: shared });
+    await waitFor(() => expect(result.current.canEdit).toBe(true));
+
+    authProfile = { id: 'user-b' };
+    rpc.mockResolvedValueOnce({ data: false, error: null });
+    rerender();
+    expect(result.current.canEdit).toBe(false);
+    await waitFor(() => expect(rpc).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+    expect(result.current.canEdit).toBe(false);
+  });
+
+  it('asks nothing and is false before anyone is signed in', () => {
+    authProfile = null;
+    const { result } = renderHook(() => useCanEditSalaries(), { wrapper });
+    expect(result.current.canEdit).toBe(false);
+    expect(rpc).not.toHaveBeenCalled();
+  });
+
+  it('does not cache an error as a "no": the next ask goes to the database again', async () => {
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const shared = ({ children }: { children: React.ReactNode }) => (
+      <QueryClientProvider client={qc}>{children}</QueryClientProvider>
+    );
+    rpc.mockResolvedValueOnce({ data: null, error: { message: 'network blip' } });
+    const first = renderHook(() => useCanEditSalaries(), { wrapper: shared });
+    await waitFor(() => expect(first.result.current.isLoading).toBe(false));
+    expect(first.result.current.canEdit).toBe(false);
+    first.unmount();
+
+    rpc.mockResolvedValueOnce({ data: true, error: null });
+    const second = renderHook(() => useCanEditSalaries(), { wrapper: shared });
+    await waitFor(() => expect(second.result.current.canEdit).toBe(true));
+    expect(rpc).toHaveBeenCalledTimes(2);
   });
 });
 

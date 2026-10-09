@@ -11,9 +11,11 @@
  *    newest row when the database still runs the older function;
  *  - the Monthly column shows today's pay and "₹X from 1 Nov 2026" under it;
  *  - a new joiner whose first pay starts next month shows a dash, not
- *    "Not set", with the scheduled line.
+ *    "Not set", with the scheduled line;
+ *  - panel round 1 (2026-10-09): the phone card, the Excel export and the
+ *    table's own sort read the pay in force too, not the newest row.
  */
-import { describe, it, expect, afterEach } from 'vitest';
+import { describe, it, expect, afterEach, vi } from 'vitest';
 import React from 'react';
 import { render, screen, cleanup } from '@testing-library/react';
 
@@ -25,6 +27,20 @@ import {
   StaffSalaryService,
   type StaffSalaryDirectoryRow,
 } from '@/lib/services/hr/payroll/staff-salary-service';
+
+// The table component hands its rows, sort, phone card and export to DataTable;
+// capture those props instead of rendering the whole grid.
+let tableProps: any = null;
+vi.mock('@/components/data-table/data-table', () => ({
+  DataTable: (props: any) => {
+    tableProps = props;
+    return null;
+  },
+}));
+vi.mock('@/hooks/hr/use-tds-slabs', () => ({ useTdsSlabs: () => ({ data: [] }) }));
+
+import { SalaryDirectoryDataTable } from '@/app/(routes)/hr/payroll/salaries/_components/salary-directory-data-table';
+import { DEFAULT_SALARY_FILTERS } from '@/app/(routes)/hr/payroll/salaries/_components/salary-filters';
 
 afterEach(cleanup);
 
@@ -204,5 +220,75 @@ describe('StaffSalaryService.listDirectory', () => {
     expect(r.in_force_salary_id).toBe('sal-new');
     expect(r.in_force_monthly_gross).toBe(35000);
     expect(scheduledSalary(r)).toBeNull();
+  });
+});
+
+describe('the phone card, the export and the sort read the pay in force (panel round 1)', () => {
+  function mountTable(rows: StaffSalaryDirectoryRow[]) {
+    tableProps = null;
+    render(
+      <SalaryDirectoryDataTable
+        rows={rows}
+        filters={DEFAULT_SALARY_FILTERS}
+        canEdit={false}
+        onEdit={() => {}}
+        onViewHistory={() => {}}
+        onSuggest={() => {}}
+      />
+    );
+    return tableProps;
+  }
+
+  it("the phone card shows today's pay, with the change saved for later under it", () => {
+    const props = mountTable([BASE]);
+    render(<div>{props.renderMobileRow(BASE)}</div>);
+    expect(screen.getByText('₹30,000')).toBeTruthy();
+    expect(screen.getByText(/₹35,000 from 1 Nov 2026/)).toBeTruthy();
+    expect(screen.queryByText('₹35,000')).toBeNull();
+  });
+
+  it('the phone card shows a dash for a first pay that has not started, and "Not set" with no salary', () => {
+    const props = mountTable([NEW_JOINER, NO_SALARY]);
+    const { unmount } = render(<div>{props.renderMobileRow(NEW_JOINER)}</div>);
+    expect(screen.getByText('—')).toBeTruthy();
+    expect(screen.getByText(/₹18,000 from 1 Nov 2026/)).toBeTruthy();
+    unmount();
+    render(<div>{props.renderMobileRow(NO_SALARY)}</div>);
+    expect(screen.getByText('Not set')).toBeTruthy();
+  });
+
+  it('the export gives the pay in force, and the change saved for later in its own columns', () => {
+    const props = mountTable([BASE]);
+    const out = props.exportConfig.transformFunction(BASE);
+    expect(out).toMatchObject({
+      monthly: 30000,
+      annual: 360000,
+      effective: '2026-09-10',
+      next_monthly: 35000,
+      next_from: '2026-11-01',
+    });
+    expect(props.exportConfig.headers).toEqual(expect.arrayContaining(['next_monthly', 'next_from']));
+    const started = props.exportConfig.transformFunction(STARTED);
+    expect(started).toMatchObject({ monthly: 35000, next_monthly: '', next_from: '' });
+  });
+
+  it('sorting by Monthly, Annual gross or Total monthly orders by the pay in force', async () => {
+    // Newest rows say A > B; the pay in force says B > A.
+    const a: StaffSalaryDirectoryRow = { ...BASE, staff_uuid: 'a', person_name: 'A' };
+    const b: StaffSalaryDirectoryRow = {
+      ...STARTED,
+      staff_uuid: 'b',
+      person_name: 'B',
+      monthly_gross: 32000,
+      annual_gross: 384000,
+      in_force_monthly_gross: 32000,
+      in_force_annual_gross: 384000,
+      in_force_allowance_amount: 0,
+    };
+    const props = mountTable([a, b]);
+    for (const sort_by of ['monthly_gross', 'annual_gross', 'total_monthly']) {
+      const res = await props.fetchDataFn({ page: 1, limit: 10, sort_by, sort_order: 'desc' });
+      expect(res.data.map((r: StaffSalaryDirectoryRow) => r.person_name)).toEqual(['B', 'A']);
+    }
   });
 });

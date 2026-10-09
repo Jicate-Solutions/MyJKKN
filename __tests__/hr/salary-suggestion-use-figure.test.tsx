@@ -304,6 +304,30 @@ describe('the Edit Salary dialog, pre-filled', () => {
     expect(mutateAsync).not.toHaveBeenCalled();
   });
 
+  // Panel round 1 (2026-10-09): a raise already saved for 1 Dec, amount changed
+  // only, must not be saved from 1 Oct (the 1st of next month).
+  it('a change already saved for later opens on its own start, and an amount change saves it there', async () => {
+    const scheduled: StaffSalaryDirectoryRow = {
+      ...ROW,
+      salary_id: 'sal-dec',
+      monthly_gross: 23000,
+      effective_from: '2026-12-01',
+    };
+    render(<EditSalaryDialog row={scheduled} onOpenChange={() => {}} />);
+    expect(screen.getByLabelText('Effective from')).toHaveValue('2026-12-01');
+    fireEvent.change(screen.getByLabelText('Monthly gross'), { target: { value: '23500' } });
+    fireEvent.click(save());
+    await vi.waitFor(() => expect(mutateAsync).toHaveBeenCalled());
+    expect(mutateAsync.mock.calls[0][0]).toMatchObject({ monthlyGross: 23500, effectiveFrom: '2026-12-01' });
+  });
+
+  it('with a figure from the suggestion, a change saved for later keeps its date in the field and the note', () => {
+    const scheduled: StaffSalaryDirectoryRow = { ...ROW, salary_id: 'sal-dec', effective_from: '2026-12-01' };
+    render(<EditSalaryDialog row={scheduled} onOpenChange={() => {}} prefillMonthlyGross={24500} />);
+    expect(screen.getByLabelText('Effective from')).toHaveValue('2026-12-01');
+    expect(screen.getByTestId('prefill-note')).toHaveTextContent('starting on 1 December 2026');
+  });
+
   it('re-seeds when the same person is reopened with a figure', () => {
     const { rerender } = render(<EditSalaryDialog row={ROW} onOpenChange={() => {}} />);
     expect(screen.getByLabelText('Monthly gross')).toHaveValue('21000');

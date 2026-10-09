@@ -24,6 +24,8 @@
 import { useMemo } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
+import { useAuth } from '@/hooks/use-auth';
+import { getErrorMessage } from '@/lib/utils';
 import {
   StaffSalaryService,
   type StaffSalaryDirectoryRow,
@@ -32,7 +34,9 @@ import {
 
 export const STAFF_SALARY_KEYS = {
   all: ['hr', 'staff-salaries'] as const,
-  canEdit: ['hr', 'staff-salaries', 'can-edit'] as const,
+  // Per signed-in person (panel round 1, 2026-10-09): one tab, two sign-ins,
+  // must never share the answer.
+  canEdit: (userId: string) => ['hr', 'staff-salaries', 'can-edit', userId] as const,
   current: ['hr', 'staff-salaries', 'current'] as const,
   directory: ['hr', 'staff-salaries', 'directory'] as const,
   history: (staffUuid: string) => ['hr', 'staff-salaries', 'history', staffUuid] as const,
@@ -138,18 +142,27 @@ export function useSetStaffSalary() {
  * Fails CLOSED: while loading, on any error, or before #4121 is applied (the
  * function does not exist yet), the answer is false and the screens are
  * read-only.
+ *
+ * Cached PER SIGNED-IN PERSON (panel round 1, 2026-10-09): the key carries the
+ * profile id, so a sign-out and a different sign-in in the same tab asks
+ * again instead of showing the previous person's Edit buttons. An RPC error
+ * is THROWN, not cached as false for five minutes, so React Query retries it;
+ * the answer stays false meanwhile.
  */
 export function useCanEditSalaries(): { canEdit: boolean; isLoading: boolean } {
   const supabase = useMemo(() => createClientSupabaseClient(), []);
+  const { profile } = useAuth();
+  const userId = profile?.id ?? '';
 
   const query = useQuery<boolean>({
-    queryKey: STAFF_SALARY_KEYS.canEdit,
+    queryKey: STAFF_SALARY_KEYS.canEdit(userId),
     queryFn: async () => {
       // fn_is_the_director is not in the generated types until #4121 lands.
       const { data, error } = await (supabase as any).rpc('fn_is_the_director');
-      if (error) return false;
+      if (error) throw new Error(getErrorMessage(error));
       return data === true;
     },
+    enabled: userId !== '',
     staleTime: 5 * 60 * 1000,
   });
 

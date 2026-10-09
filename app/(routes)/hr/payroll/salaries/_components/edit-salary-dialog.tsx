@@ -19,6 +19,12 @@
  * paid back through the system. Today itself is allowed. The old default (the
  * 1st of THIS month, or the row's own start) was in the past on every day but
  * the 1st, so a default save would have been refused.
+ *
+ * A CHANGE ALREADY SAVED FOR LATER KEEPS ITS DATE (panel round 1, 2026-10-09).
+ * When the newest row has not started yet (a raise saved for 1 Dec), the form
+ * opens on that row's own start, not the 1st of next month: changing only its
+ * amount must not move the raise to another month. The staff form does the same
+ * (salaryWritePlan keeps an untouched future start). salaryDialogStart().
  */
 
 import { useCallback, useMemo, useState } from 'react';
@@ -50,7 +56,7 @@ import { getErrorMessage } from '@/lib/utils';
 import { useSetStaffSalary } from '@/hooks/hr/use-staff-salaries';
 import { useTdsSlabs } from '@/hooks/hr/use-tds-slabs';
 import { describeSlab, resolveTds } from '@/lib/hr/payroll/tds-slabs';
-import { firstOfNextMonthIST, todayIST } from '@/lib/hr/payroll/salary-start-date';
+import { salaryDialogStart, todayIST } from '@/lib/hr/payroll/salary-start-date';
 import { formatLongDate } from '@/lib/hr/raise-effective-date';
 import type { StaffSalaryDirectoryRow } from '@/lib/services/hr/payroll/staff-salary-service';
 
@@ -106,7 +112,8 @@ interface Props {
    * A monthly gross to start the form with instead of the one in force — set
    * by "Use this figure" on the suggested-salary panel. Nothing is saved until
    * Save is pressed. The start date follows the same rule as every other
-   * change here: 1st of next month by default, nothing before today.
+   * change here: 1st of next month by default (or the start of a change
+   * already saved for later), nothing before today.
    */
   prefillMonthlyGross?: number | null;
 }
@@ -169,7 +176,7 @@ export function EditSalaryDialog({ row, onOpenChange, prefillMonthlyGross = null
           ? ''
           : String(row.monthly_gross)
     );
-    setEffectiveFrom(firstOfNextMonthIST());
+    setEffectiveFrom(salaryDialogStart(row.salary_id ? row.effective_from : null));
     setStructure(row.salary_structure ?? 'Monthly');
     setOvertimeLevel(row.overtime_level ?? 'No overtime');
     setOvertimeAmount(String(row.overtime_amount ?? 0));
@@ -345,7 +352,7 @@ export function EditSalaryDialog({ row, onOpenChange, prefillMonthlyGross = null
           <Alert data-testid='prefill-note'>
             <AlertDescription>
               Monthly gross filled in from the suggested salary, starting on{' '}
-              {formatLongDate(firstOfNextMonthIST())}: a raise starts on the 1st of the month
+              {formatLongDate(salaryDialogStart(row?.salary_id ? row.effective_from : null))}: a raise starts on the 1st of the month
               after it is approved, and cannot be backdated. Check every field — nothing is
               saved until you press Save.
             </AlertDescription>

@@ -32,3 +32,17 @@ export function firstOfNextMonthIST(now: Date = new Date()): string {
 export function isBeforeTodayIST(date: string, now: Date = new Date()): boolean {
   return /^\d{4}-\d{2}-\d{2}$/.test(date) && date < todayIST(now);
 }
+
+/**
+ * The start date the Employee Salaries dialog opens on (panel round 1,
+ * 2026-10-09). A change already saved for later keeps its own start, today or
+ * later, so editing only its amount does not move it to another month. Any
+ * other row (started, no start, or none recorded) gives the 1st of next month.
+ * The staff form's salaryWritePlan keeps an untouched future start the same way.
+ */
+export function salaryDialogStart(newestRowStart: string | null, now: Date = new Date()): string {
+  if (newestRowStart && /^\d{4}-\d{2}-\d{2}$/.test(newestRowStart) && newestRowStart >= todayIST(now)) {
+    return newestRowStart;
+  }
+  return firstOfNextMonthIST(now);
+}

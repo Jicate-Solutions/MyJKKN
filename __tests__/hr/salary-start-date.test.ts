@@ -11,6 +11,7 @@ import { describe, it, expect } from 'vitest';
 import {
   firstOfNextMonthIST,
   isBeforeTodayIST,
+  salaryDialogStart,
   todayIST,
 } from '@/lib/hr/payroll/salary-start-date';
 import {
@@ -164,5 +165,25 @@ describe('team member form: a change of the start date alone (2026-10-08 ruling)
     expect(isDateOnlySalaryChange(salary(), salary())).toBe(false);
     expect(isDateOnlySalaryChange(salary({ effective_from: '2026-10-15', monthly_gross: '8000' }), salary())).toBe(false);
     expect(isDateOnlySalaryChange(salary({ effective_from: '2026-10-15' }), null)).toBe(false);
+  });
+});
+
+// Panel round 1 (2026-10-09): Employee Salaries' dialog must not pull a change
+// already saved for later into another month.
+describe('salaryDialogStart: the date the salary dialog opens on', () => {
+  it('a raise saved for 1 Dec keeps 1 Dec (not 1 Nov)', () => {
+    expect(salaryDialogStart('2026-12-01', MIDDAY)).toBe('2026-12-01');
+  });
+  it('a change saved for later this month keeps its own date', () => {
+    expect(salaryDialogStart('2026-10-20', new Date('2026-10-09T06:00:00Z'))).toBe('2026-10-20');
+  });
+  it('a change starting today keeps today', () => {
+    expect(salaryDialogStart('2026-09-30', MIDDAY)).toBe('2026-09-30');
+  });
+  it('a row that has started, has no start, or none at all: the 1st of next month', () => {
+    expect(salaryDialogStart('2026-04-01', MIDDAY)).toBe('2026-10-01');
+    expect(salaryDialogStart('2026-09-29', MIDDAY)).toBe('2026-10-01');
+    expect(salaryDialogStart(null, MIDDAY)).toBe('2026-10-01');
+    expect(salaryDialogStart('', MIDDAY)).toBe('2026-10-01');
   });
 });

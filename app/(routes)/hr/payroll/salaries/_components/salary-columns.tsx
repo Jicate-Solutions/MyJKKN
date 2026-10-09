@@ -53,7 +53,7 @@ function formatDate(iso: string | null): string {
 }
 
 /** "1 Nov 2026": the date a scheduled change starts. Same parsing as above. */
-function formatStart(iso: string | null): string {
+export function formatStart(iso: string | null): string {
   if (!iso) return '';
   const [y, m, d] = iso.split('-').map(Number);
   if (!y || !m || !d) return iso;
