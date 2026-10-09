@@ -40,7 +40,7 @@ extraction columns**:
 
 | # | Situation | Decision |
 |---|---|---|
-| I1 | Same invoice number from the same supplier as one already recorded | **Stop and show the earlier one side by side.** The person must confirm it is genuinely different before saving. |
+| I1 | Same invoice number from the same supplier as one already recorded | **Stop and show the earlier one side by side.** Only the receipt verifier — never the receiver alone — may confirm it is genuinely different and save. |
 | I2 | Goods already expired, or expiring soon | **Block already-expired lines. Warn when close to expiry.** |
 | I3 | A line that was never on the purchase order | **Show it, clearly marked "not ordered". Never add it automatically.** |
 | I4 | Invoice older than the receiver's limit | **Warn and require a typed reason.** |
@@ -95,8 +95,7 @@ enforcer". The model only reads the PDF. It never decides whether something is a
 | I4 old invoice | `today - invoice_date > max_invoice_age_days` | Warning + required reason text before save |
 
 **Near-expiry window:** stored as a setting, not hard-coded —
-`platform_policies` key `procurement.invoice.near_expiry_days`, default **30**.
-*The default is a proposal, not a Director decision — confirm before build.*
+`platform_policies` key `procurement.invoice.near_expiry_days`, default **30** (Director, 2026-10-09). One global value; changeable without new code.
 
 I1 is checked in the app, not by a unique index: the Director chose "confirm and allow"
 for honest resends, which a unique constraint would forbid.
@@ -125,10 +124,10 @@ url `/procurement/grn/<grn_id>`. A notification failure never fails the job.
 4. Windows adds the invoice arm.
 5. One real invoice through end to end, notification suppressed for the test.
 
-## Open before build
+## Settled before build (Director, 2026-10-09)
 
-- Near-expiry window default (30 days proposed).
-- Who may confirm an I1 duplicate — the receiver, or only a verifier/approver?
+- Near-expiry window: **30 days**, global setting.
+- I1 duplicate override: **only the person who verifies receipts** (the GRN verifier), never the receiver alone. The receiver sees the stop and the earlier invoice but cannot save past it; `duplicate_confirmed_by` must be a user with verify rights on that GRN, and must not be `received_by`.
 
 ## DO NOT
 
