@@ -94,10 +94,11 @@ describe('the migration', () => {
 });
 
 describe('the pay readers', () => {
-  it('the register reads the pay IN FORCE for its month, not the current row', () => {
-    const block = REGISTER.slice(REGISTER.indexOf('const monthEnd = registerMonthEnd(year, month);'));
+  it('the register reads the pay IN FORCE on the 1st of its month, not the current row', () => {
+    const block = REGISTER.slice(REGISTER.indexOf('const monthStart = registerMonthStart(year, month);'));
     expect(block.length).toBeGreaterThan(0);
-    expect(block.slice(0, 600)).toMatch(/\.rpc\(SALARIES_IN_FORCE_RPC, \{\s+p_staff_ids: ids,\s+p_on: monthEnd,/);
+    expect(block.slice(0, 900)).toMatch(/\.rpc\(SALARIES_IN_FORCE_RPC, \{\s+p_staff_ids: ids,\s+p_on: on,/);
+    expect(block.slice(0, 1400)).toMatch(/readInForce\(ids, monthStart\)/);
     expect(REGISTER).not.toMatch(/from\('hr_staff_salaries'\)[\s\S]{0,300}\.is\('superseded_by', null\)/);
   });
 

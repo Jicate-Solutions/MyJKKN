@@ -170,6 +170,15 @@ const MONTH_NAMES = [
 /** The salary read the register uses: the pay in force on a day (20270519090000). */
 export const SALARIES_IN_FORCE_RPC = 'hr_staff_salaries_in_force' as const;
 
+/**
+ * The 1st of a register month, yyyy-MM-dd (month is 1-12). The register pays
+ * the pay in force on this day (Director, 1 Oct 2026): a raise from 17 Oct
+ * shows from the November register.
+ */
+export function registerMonthStart(year: number, month: number): string {
+  return `${year}-${String(month).padStart(2, '0')}-01`;
+}
+
 /** The last day of a register month, yyyy-MM-dd (month is 1-12). */
 export function registerMonthEnd(year: number, month: number): string {
   const last = new Date(Date.UTC(year, month, 0)).getUTCDate();
@@ -817,22 +826,41 @@ export class SalaryRegisterService {
       string,
       { epf: number; esi: number; allowance: number; tds: number }
     >();
-    // THE PAY IN FORCE FOR THIS MONTH, not the current row. A salary revision
-    // the Director approves starts on the 1st of the NEXT month and is written
-    // on that day (20270519090000); this month's register is often generated
-    // after it, and reading superseded_by IS NULL would pay this month at next
-    // month's rate. hr_staff_salaries_in_force walks back past any row that
-    // starts after the month's last day; for everyone else it returns the same
-    // current row as before. SECURITY INVOKER — the same RLS as the old read.
+    // THE PAY IN FORCE ON THE 1st OF THIS MONTH, not the current row (Director,
+    // 1 Oct 2026: "the payslip for a month uses the pay in force on the 1st of
+    // that month; a raise from 17 Oct shows from the November payslip"). A
+    // salary revision the Director approves starts on the 1st of the NEXT month
+    // and is written on that day (20270519090000); this month's register is
+    // often generated after it, and reading superseded_by IS NULL would pay this
+    // month at next month's rate. hr_staff_salaries_in_force walks back past any
+    // row that starts after the date (a row with no start is in force,
+    // 20271006100000). SECURITY INVOKER — the same RLS as the old read.
+    //
+    // Until 2026-10-09 the date was the month's LAST day, so a raise from the
+    // 17th was paid for the whole of that month.
+    //
+    // A person with NOTHING in force on the 1st (a new joiner whose first pay
+    // starts mid-month) is read again on the month's last day, so their first
+    // month is not dropped as "No salary recorded". Only they are re-read.
+    const monthStart = registerMonthStart(year, month);
     const monthEnd = registerMonthEnd(year, month);
-    for (const ids of chunk(staffIds)) {
+    const readInForce = async (ids: string[], on: string) => {
       const { data, error } = await (supabase as any).rpc(SALARIES_IN_FORCE_RPC, {
         p_staff_ids: ids,
-        p_on: monthEnd,
+        p_on: on,
       });
-
       if (error) throw new Error(`Failed to load salaries: ${getErrorMessage(error)}`);
-      for (const s of (data ?? []) as any[]) {
+      return (data ?? []) as any[];
+    };
+    for (const ids of chunk(staffIds)) {
+      const onFirst = await readInForce(ids, monthStart);
+      const found = new Set(onFirst.map((s) => s.staff_id));
+      const joiners = ids.filter((id) => !found.has(id));
+      const rows = joiners.length > 0
+        ? onFirst.concat(await readInForce(joiners, monthEnd))
+        : onFirst;
+
+      for (const s of rows) {
         const gross = num(s.monthly_gross);
         salaryByStaff.set(s.staff_id, gross);
         // The flag decides, not the amount. fn_hr_set_staff_salary already
