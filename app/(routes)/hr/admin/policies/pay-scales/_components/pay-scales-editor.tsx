@@ -5,7 +5,7 @@
 // (designation × qualification → basic_pay) plus a small "overrides + governance"
 // strip. Never shows raw JSONB.
 
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { ShieldAlert, Info, Save, Plus, Trash2 } from 'lucide-react';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
@@ -24,6 +24,7 @@ import {
 import {
   PAY_SCALE_INSTITUTIONS,
   HR_COMPENSATION_KEYS,
+  STALE_POLICY_MESSAGE,
   useCompensationPolicy,
   useUpdateCompensationPolicy,
   type PayScaleInstitutionId,
@@ -47,6 +48,22 @@ const EMPTY_VALUE: PayScalesValue = {
   selection_committee_authority: true,
   higher_pay_package_approver: 'Trust Secretary',
 };
+
+/**
+ * The stored value with every missing or malformed key filled from the
+ * defaults, so a partial row (no pay_matrix, a non-array fixation_basis)
+ * opens instead of crashing the editor.
+ */
+function seedValue(value: PayScalesValue | null | undefined): PayScalesValue {
+  const v = (value ?? {}) as Partial<PayScalesValue>;
+  return {
+    ...EMPTY_VALUE,
+    ...v,
+    pay_matrix: Array.isArray(v.pay_matrix) ? v.pay_matrix : [],
+    overrides: { ...EMPTY_VALUE.overrides, ...(v.overrides ?? {}) },
+    fixation_basis: Array.isArray(v.fixation_basis) ? v.fixation_basis : EMPTY_VALUE.fixation_basis,
+  };
+}
 
 function inrFormat(v: number | null | undefined): string {
   if (v == null) return '—';
@@ -72,10 +89,18 @@ export function PayScalesEditor() {
     policyQ.data?.exists ? { expectedUpdatedAt: baseUpdatedAt } : undefined
   );
 
+  // A refusal or a failed call throws, so it is never cached as the answer
+  // for the rest of the session: it retries once and refetches on remount.
   const referenceQ = useQuery({
     queryKey: ['hr-pay-scales-reference-ladders', institutionId],
-    queryFn: () => getReferencePayLadders(institutionId),
-    staleTime: Infinity,
+    queryFn: async () => {
+      const result = await getReferencePayLadders(institutionId);
+      // 'in', not .success: strictNullChecks is off, so a boolean tag does not narrow.
+      if ('error' in result) throw new Error(result.error);
+      return result;
+    },
+    staleTime: 10 * 60 * 1000,
+    retry: 1,
   });
   const reference = referenceQ.data;
   const referenceStatus: 'loading' | 'ready' | { error: string } =
@@ -83,9 +108,7 @@ export function PayScalesEditor() {
       ? 'loading'
       : referenceQ.isError
         ? { error: referenceQ.error.message || 'Could not load the reference pay band.' }
-        : reference && 'error' in reference
-          ? { error: reference.error }
-          : 'ready';
+        : 'ready';
 
   const [draft, setDraft] = useState<PayScalesValue>(EMPTY_VALUE);
   const [dirty, setDirty] = useState(false);
@@ -100,7 +123,7 @@ export function PayScalesEditor() {
   if (policyQ.data && policyQ.data !== loadedData) {
     setLoadedData(policyQ.data);
     if (!dirty) {
-      setDraft(policyQ.data.value ?? EMPTY_VALUE);
+      setDraft(seedValue(policyQ.data.value));
       setBaseUpdatedAt(policyQ.data.updatedAt);
     }
   }
@@ -162,13 +185,38 @@ export function PayScalesEditor() {
     setDirty(true);
   };
 
+  // While a save is in flight every input is disabled and a second Save is
+  // ignored (the ref answers before React re-renders), so nothing typed
+  // mid-save can be dropped and two clicks never send two locked writes.
+  const busy = updateM.isPending;
+  const savingRef = useRef(false);
   const handleSave = () => {
+    if (savingRef.current) return;
+    savingRef.current = true;
     updateM.mutate(draft, {
       onSuccess: ({ updatedAt }) => {
         setDirty(false);
         setBaseUpdatedAt(updatedAt);
       },
+      onSettled: () => {
+        savingRef.current = false;
+      },
     });
+  };
+
+  // After "someone else just changed this", the only way forward is to drop
+  // this draft and start again from the saved row: the lock never moves while
+  // the draft is kept, so every retry would be refused.
+  const isStale = updateM.isError && updateM.error?.message === STALE_POLICY_MESSAGE;
+  const handleDiscardAndReload = async () => {
+    updateM.reset();
+    const fresh = await policyQ.refetch();
+    setDirty(false);
+    if (fresh.data) {
+      setLoadedData(fresh.data);
+      setDraft(seedValue(fresh.data.value));
+      setBaseUpdatedAt(fresh.data.updatedAt);
+    }
   };
 
   const isLoading = policyQ.isLoading;
@@ -296,6 +344,7 @@ export function PayScalesEditor() {
                         handleRowChange(idx, 'designation', e.target.value)
                       }
                       placeholder="e.g. Assistant Professor"
+                      disabled={busy}
                     />
                   </td>
                   <td className="px-4 py-2">
@@ -309,6 +358,7 @@ export function PayScalesEditor() {
                         )
                       }
                       placeholder="(any) — leave blank"
+                      disabled={busy}
                     />
                   </td>
                   <td className="px-4 py-2">
@@ -325,6 +375,7 @@ export function PayScalesEditor() {
                         )
                       }
                       className="text-right tabular-nums"
+                      disabled={busy}
                     />
                     <div className="text-xs text-muted-foreground text-right mt-0.5">
                       ₹{inrFormat(row.basic_pay)}
@@ -374,15 +425,30 @@ export function PayScalesEditor() {
       <PayLaddersSection
         ladders={draft.ladders ?? []}
         notes={draft.ladder_notes ?? []}
-        referenceLadders={reference && 'ladders' in reference ? reference.ladders : []}
-        referenceNotes={reference && 'notes' in reference ? reference.notes : []}
+        referenceLadders={reference?.ladders ?? []}
+        referenceNotes={reference?.notes ?? []}
         referenceStatus={referenceStatus}
         onChange={(ladders, notes) => {
           setDraft((prev) => ({ ...prev, ladders, ladder_notes: notes }));
           setDirty(true);
         }}
-        disabled={updateM.isPending || seedMissing}
+        disabled={busy || seedMissing}
       />
+      {isStale && (
+        <Alert variant="destructive">
+          <ShieldAlert className="h-4 w-4" />
+          <AlertTitle>Someone else saved this college first</AlertTitle>
+          <AlertDescription className="space-y-2">
+            <p>
+              Your changes were not saved. Discard them to load what is saved
+              now, then make your changes again.
+            </p>
+            <Button size="sm" variant="outline" onClick={handleDiscardAndReload}>
+              Discard my changes and reload
+            </Button>
+          </AlertDescription>
+        </Alert>
+      )}
       {dirty && (
         <div className="flex flex-wrap items-center justify-end gap-3 rounded-lg border border-border bg-muted/40 p-3">
           <p className="text-sm text-muted-foreground">
@@ -424,6 +490,7 @@ export function PayScalesEditor() {
               }
               placeholder="Leave blank for no floor"
               className="mt-1"
+              disabled={busy}
             />
             <p className="text-xs text-muted-foreground mt-1">
               When set, no employee can be paid below this basic regardless of
@@ -446,6 +513,7 @@ export function PayScalesEditor() {
               }
               placeholder="e.g. Trust Secretary"
               className="mt-1"
+              disabled={busy}
             />
             <p className="text-xs text-muted-foreground mt-1">
               The role authorised to override the matrix.
@@ -468,6 +536,7 @@ export function PayScalesEditor() {
                 handleGovernanceChange('selection_committee_authority', c)
               }
               aria-label="Toggle selection committee authority"
+              disabled={busy}
             />
           </div>
 

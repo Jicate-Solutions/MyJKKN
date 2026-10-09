@@ -65,6 +65,59 @@ export function mergeNotes(current: string[], reference: string[]): string[] {
 // Display helpers
 // ---------------------------------------------------------------------------
 
+/**
+ * The highest monthly basic a step may hold. The band's highest figure is
+ * under 50,000; anything above this is a typing slip (an extra zero), so it
+ * is not taken and the field goes back to the saved amount.
+ */
+export const MAX_STEP_PAY = 500_000;
+
+/**
+ * One step's amount. Typed text is kept locally, so the field can be emptied
+ * and retyped without the old figure snapping back mid-edit. A whole number
+ * from 0 to MAX_STEP_PAY is passed up as it is typed; on leaving the field,
+ * anything else (empty, not a number, too large) shows the saved amount again.
+ */
+function StepAmountInput({
+  value,
+  onCommit,
+  disabled,
+  ariaLabel,
+}: {
+  value: number;
+  onCommit: (amount: number) => void;
+  disabled: boolean;
+  ariaLabel: string;
+}) {
+  const [text, setText] = useState<string | null>(null);
+  const shown = text ?? String(value);
+  const tooLarge = Number(shown) > MAX_STEP_PAY;
+  return (
+    <Input
+      type="number"
+      inputMode="numeric"
+      min={0}
+      max={MAX_STEP_PAY}
+      step={1}
+      value={shown}
+      onChange={(e) => {
+        const raw = e.target.value;
+        setText(raw);
+        if (raw.trim() === '') return;
+        const n = Number(raw);
+        if (!Number.isFinite(n) || n < 0 || n > MAX_STEP_PAY) return;
+        onCommit(Math.round(n));
+      }}
+      onBlur={() => setText(null)}
+      disabled={disabled}
+      aria-invalid={tooLarge || undefined}
+      title={tooLarge ? `At most ${MAX_STEP_PAY.toLocaleString('en-IN')} a month` : undefined}
+      className="h-8 text-right tabular-nums"
+      aria-label={ariaLabel}
+    />
+  );
+}
+
 function inr(v: number): string {
   return `₹${v.toLocaleString('en-IN')}`;
 }
@@ -123,12 +176,8 @@ export function PayLaddersSection({
   const handleStepChange = (
     ladderIndex: number,
     stepIndex: number,
-    raw: string
+    amount: number
   ) => {
-    if (raw.trim() === '') return;
-    const n = Number(raw);
-    if (!Number.isFinite(n)) return;
-    const amount = Math.max(0, Math.round(n));
     const next = ladders.map((l, i) =>
       i === ladderIndex
         ? {
@@ -198,7 +247,10 @@ export function PayLaddersSection({
         <AlertTitle>Reference only</AlertTitle>
         <AlertDescription>
           These ladders show what the band says. Loading or editing them
-          changes nobody&apos;s pay.
+          changes nobody&apos;s pay. Where a college has no pay matrix at all,
+          the Pay Band Check, the salary suggestion and the raise warning read
+          its band from these ladders, marked &ldquo;from reference
+          ladders&rdquo;. That is advice only.
         </AlertDescription>
       </Alert>
 
@@ -263,18 +315,11 @@ export function PayLaddersSection({
                       <span className="text-xs font-medium text-muted-foreground">
                         {step.label}
                       </span>
-                      <Input
-                        type="number"
-                        inputMode="numeric"
-                        min={0}
-                        step={1}
+                      <StepAmountInput
                         value={step.basic_pay}
-                        onChange={(e) =>
-                          handleStepChange(li, si, e.target.value)
-                        }
+                        onCommit={(amount) => handleStepChange(li, si, amount)}
                         disabled={disabled}
-                        className="h-8 text-right tabular-nums"
-                        aria-label={`${ladderLabel(ladder)}, ${step.label}, basic pay in rupees`}
+                        ariaLabel={`${ladderLabel(ladder)}, ${step.label}, basic pay in rupees`}
                       />
                       <span className="text-xs text-muted-foreground text-right tabular-nums">
                         {inr(step.basic_pay)}

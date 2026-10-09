@@ -112,6 +112,8 @@ interface CheckedRow extends CheckedPerson {
   code: string | null;
   designation: string | null;
   monthlyPay: number | null;
+  /** The college has no pay matrix; its band was read from the reference year ladders. */
+  bandFromLadders: boolean;
 }
 
 const UNKNOWN_LABEL: Record<PayBandUnknownReason, string> = {
@@ -225,6 +227,11 @@ function PeopleTable({
                   : r.result.band.min === r.result.band.max
                     ? INR.format(r.result.band.min)
                     : `${INR.format(r.result.band.min)} – ${INR.format(r.result.band.max)}`}
+                {r.result.band !== null && r.bandFromLadders && (
+                  <span className='block text-xs font-normal text-muted-foreground'>
+                    from reference ladders
+                  </span>
+                )}
               </TableCell>
               <TableCell className='align-top text-right font-medium tabular-nums'>
                 {amountOf(r)}
@@ -292,6 +299,7 @@ export default function PayBandCheckPage() {
           monthlyPay: row.monthly_gross,
           collegeId: row.works_at_id,
           collegeName: row.works_at_name,
+          bandFromLadders: policy?.fromReferenceLadders === true,
           result: checkPayBand(
             { designation: row.role_title, monthlyPay: row.monthly_gross },
             policy

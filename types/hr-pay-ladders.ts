@@ -7,7 +7,11 @@
  * the band.
  *
  * REFERENCE ONLY (Director ruling 2026-09-18): a ladder never changes anyone's
- * pay. Nothing reads it to write a salary row, and nothing may.
+ * pay. Nothing reads it to write a salary row, and nothing may. Payroll never
+ * reads it. The one reader is the pay band, and only for a college with no pay
+ * matrix at all (pay-band-policy-service): the Pay Band Check verdict, the
+ * salary suggestion and the raise warning then use the ladders and each says
+ * so ("from reference ladders"). All three are advice.
  *
  * Stored additively as `ladders` inside the existing `hr.pay_scales` value —
  * `pay_matrix` and every other key stay exactly as they are.

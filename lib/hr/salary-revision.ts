@@ -178,7 +178,9 @@ export function bandWarning(
   if (figure === null) return null;
   const result = checkPayBand({ designation, monthlyPay: figure }, band);
   if (result.verdict !== 'above_band' || result.excess <= 0) return null;
-  return `Above the band by ${formatRupees(result.excess)}`;
+  return band?.fromReferenceLadders
+    ? `Above the band by ${formatRupees(result.excess)} (band from the reference year ladders)`
+    : `Above the band by ${formatRupees(result.excess)}`;
 }
 
 /** What the ask form checks before sending. The database checks again. */

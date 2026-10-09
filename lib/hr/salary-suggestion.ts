@@ -404,6 +404,9 @@ export function suggestSalary(input: SuggestSalaryInput): SalarySuggestion {
   if (rungCount > 1 && bandMin !== bandMax) {
     floorNote += ' No qualification is recorded for this person, so the lowest rung for the job title is used.';
   }
+  if (band?.fromReferenceLadders) {
+    floorNote += ' From the reference year ladders: this college has no pay matrix, and the band is reference only.';
+  }
   lines.push({ label: `Band floor for ${person.designation}`, amount: bandMin, note: floorNote });
 
   // Years at JKKN, from the date of joining.

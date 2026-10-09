@@ -99,8 +99,10 @@ export interface PayScalesValue {
   higher_pay_package_approver: string;
   /**
    * Year ladders (salary per year / step of service). REFERENCE ONLY —
-   * nothing reads these to change anyone's pay. Optional and additive:
-   * rows saved before ladders existed simply do not carry the key.
+   * nothing writes a salary from these. A college with no pay_matrix at all
+   * reads its advisory band from them (Pay Band Check, salary suggestion,
+   * raise warning; each labelled). Optional and additive: rows saved before
+   * ladders existed simply do not carry the key.
    */
   ladders?: PayLadder[];
   /** Plain-English notes shown alongside the ladders. */
@@ -206,20 +208,64 @@ export function assertPolicyRowUpdated(rows: unknown[] | null | undefined): void
 export const STALE_POLICY_MESSAGE =
   'Someone else just changed the pay scales. Reload and try again; nothing you entered here was saved.';
 
+/**
+ * A locked save that matched no row, where the row is still exactly as the
+ * screen loaded it: the database refused the write for this account (only a
+ * super administrator may change a pay row), not someone else's save.
+ */
+export const NOT_ALLOWED_POLICY_MESSAGE =
+  'This account cannot save the pay scales (only a super administrator can). Nothing was saved.';
+
+/** The saved row could not be re-read after a refused save, so the cause is unknown. */
+export const NOT_SAVED_UNKNOWN_MESSAGE =
+  'Nothing was saved, and the saved row could not be re-read to say why. Reload and try again.';
+
 type BrowserSupabaseClient = ReturnType<typeof createClientSupabaseClient>;
+
+/** What is saved now for one college's row: whether it exists, and its updated_at. */
+export type SavedPolicyRow = { exists: boolean; updatedAt: string | null };
+
+/**
+ * Re-read one row through the same server route the screen loads it from (the
+ * pay rows are not readable from the browser directly; see useCompensationPolicy).
+ */
+async function readSavedPolicyRow(
+  policyKey: CompensationPolicyKey,
+  institutionId: string
+): Promise<SavedPolicyRow> {
+  const params = new URLSearchParams({ key: policyKey, institutionId });
+  const res = await fetch(`/api/hr/compensation-policies?${params.toString()}`);
+  if (!res.ok) throw new Error(`Request failed (${res.status})`);
+  const body = await res.json();
+  const row = (body?.row ?? null) as { updated_at?: string | null } | null;
+  return { exists: !!row, updatedAt: row?.updated_at ?? null };
+}
+
+function sameInstant(a: string | null, b: string | null): boolean {
+  if (a === b) return true;
+  if (a === null || b === null) return false;
+  const ta = Date.parse(a);
+  return Number.isFinite(ta) && ta === Date.parse(b);
+}
 
 /**
  * Write one institution-scoped policy row. `expectedUpdatedAt` is the
  * `updated_at` the screen loaded: when given (string, or null for a row that
  * never had one), the write only lands if the row still carries it. Leave it
  * undefined to write unconditionally. Returns the row's new `updated_at`.
+ *
+ * A locked write that matches nothing is not assumed to be someone else's
+ * save: the row is re-read, and the refusal says which it was. Changed since
+ * loading: STALE. Gone: no row. Unchanged: the database refused this account
+ * (RLS filters a refused UPDATE to zero rows, with no error).
  */
 export async function updatePolicyRow(
   supabase: BrowserSupabaseClient,
   policyKey: CompensationPolicyKey,
   institutionId: string,
   value: unknown,
-  expectedUpdatedAt?: string | null
+  expectedUpdatedAt?: string | null,
+  readSaved: (key: CompensationPolicyKey, institutionId: string) => Promise<SavedPolicyRow> = readSavedPolicyRow
 ): Promise<string | null> {
   let query = supabase
     .from(PLATFORM_POLICIES_TABLE)
@@ -239,7 +285,15 @@ export async function updatePolicyRow(
   const { data, error } = await query.select('policy_key, updated_at');
   if (error) throw new Error(error.message);
   if (expectedUpdatedAt !== undefined && (!Array.isArray(data) || data.length === 0)) {
-    throw new Error(STALE_POLICY_MESSAGE);
+    let saved: SavedPolicyRow;
+    try {
+      saved = await readSaved(policyKey, institutionId);
+    } catch {
+      throw new Error(NOT_SAVED_UNKNOWN_MESSAGE);
+    }
+    if (!saved.exists) throw new Error(NO_POLICY_ROW_MESSAGE);
+    if (!sameInstant(saved.updatedAt, expectedUpdatedAt)) throw new Error(STALE_POLICY_MESSAGE);
+    throw new Error(NOT_ALLOWED_POLICY_MESSAGE);
   }
   assertPolicyRowUpdated(data);
   return (data[0] as { updated_at: string | null }).updated_at ?? null;

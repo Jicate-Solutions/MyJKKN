@@ -39,7 +39,9 @@ export async function getReferencePayLadders(
 
     const { data: isSuperAdmin, error: roleError } = await supabase.rpc('is_super_admin');
     if (roleError) {
-      return { success: false, error: `Could not confirm your access: ${roleError.message}` };
+      // The database's own wording stays in the server log, not on the screen.
+      console.error('[hr/pay-scales] is_super_admin check failed:', roleError);
+      return { success: false, error: 'Could not confirm your access. Please try again.' };
     }
     if (!isSuperAdmin) {
       // Rule #27: refuse out loud, never an empty list that reads as "no band".
@@ -55,9 +57,7 @@ export async function getReferencePayLadders(
       notes: referenceNotesFor(institutionId),
     };
   } catch (err) {
-    return {
-      success: false,
-      error: err instanceof Error ? err.message : 'Could not load the reference pay band.',
-    };
+    console.error('[hr/pay-scales] reference ladders failed:', err);
+    return { success: false, error: 'Could not load the reference pay band.' };
   }
 }

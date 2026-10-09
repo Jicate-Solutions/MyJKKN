@@ -68,6 +68,14 @@ export interface PayBandPolicy {
    * about the matrix. They are two separate findings and are reported as two.
    */
   guaranteedMinimum: number | null;
+  /**
+   * True when the college has no pay matrix at all and these rungs were read
+   * from its reference year ladders instead (pay-band-policy-service). Every
+   * screen that shows a band, a verdict or a suggestion from such a policy
+   * says so. Reference only (Director ruling 18 Sep 2026): nothing writes a
+   * salary from it.
+   */
+  fromReferenceLadders?: boolean;
 }
 
 /** What one person is paid, and the title that decides which rung applies. */

@@ -5,7 +5,7 @@
 -- ============================================================================
 --
 -- Purpose: give JKKN Arts & Science an EMPTY hr.pay_scales policy row so the
--- pay-scale screen (/admin/hr/policies/pay-scales) can save to it. Without a
+-- pay-scale screen (/hr/admin/policies/pay-scales) can save to it. Without a
 -- row, a save updated zero rows. The Director loads the year ladders himself
 -- from that screen, so this row carries NO ladders and an empty pay_matrix.
 --
@@ -40,7 +40,7 @@ VALUES
     "selection_committee_authority": true,
     "higher_pay_package_approver": "Trust Secretary"
   }'::jsonb,
-  'JKKN Arts & Science — Pay Scale reference band. Reference only: changes nobody''s pay. Starts empty; year ladders are loaded from /admin/hr/policies/pay-scales.',
+  'JKKN Arts & Science — Pay Scale reference band. Reference only: changes nobody''s pay. Starts empty; year ladders are loaded from /hr/admin/policies/pay-scales.',
   'object',
   true
 )

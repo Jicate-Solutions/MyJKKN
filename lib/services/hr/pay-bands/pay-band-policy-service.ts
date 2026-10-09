@@ -103,8 +103,8 @@ function toNumber(value: unknown): number | null {
 }
 
 /**
- * The rungs a college's year ladders imply, used ONLY when its `pay_matrix`
- * gives none.
+ * The rungs a college's year ladders imply, used ONLY when the college has no
+ * pay matrix at all (no `pay_matrix` entries).
  *
  * The Pay Scales screen stores the reference year ladders additively as
  * `ladders` in the same `hr.pay_scales` row (types/hr-pay-ladders.ts): one
@@ -114,20 +114,44 @@ function toNumber(value: unknown): number | null {
  * with an empty `pay_matrix`, and without this the ladders loaded there would
  * leave it with "no band" for the check and the salary suggestion.
  *
- * Fallback, never a union: a college whose `pay_matrix` already has a usable
- * rung (Engineering, Dental) keeps exactly the band it had, so loading ladders
- * there changes no verdict. Re-read as defensively as the matrix.
+ * REFERENCE ONLY (Director ruling 18 Sep 2026). The band read from ladders is
+ * advisory: the Pay Band Check verdict, the salary suggestion and the raise
+ * warning are the only readers, each says the band came from the reference
+ * ladders, and none of them writes a salary. Payroll never reads `ladders`.
+ *
+ * Fallback, never a union: a college with ANY pay-matrix entry (Engineering,
+ * Dental) keeps exactly the band its matrix gives, usable or not, so loading
+ * ladders there changes no verdict, and zeroing a matrix entry does not switch
+ * the college over to the ladders.
+ *
+ * RIVAL VERSIONS ARE LEFT OUT. Two ladders for the same job title and
+ * qualification are rival versions of one scale (the workbook's 13,000 and
+ * 15,000 Science & Humanities scales; neither is marked current). Neither
+ * feeds the band, so two disagreeing figures are never merged into one span.
+ * Re-read as defensively as the matrix.
  */
+function ladderKey(designation: string, qualification: string | null): string {
+  return `${designation.trim().toLowerCase()}|${(qualification ?? '').trim().toLowerCase()}`;
+}
+
 function rungsFromLadders(ladders: unknown): PayBandRung[] {
   if (!Array.isArray(ladders)) return [];
-  const rungs: PayBandRung[] = [];
+  const usable: { designation: string; qualification: string | null; steps: unknown[] }[] = [];
+  const seen = new Map<string, number>();
   for (const entry of ladders) {
     if (typeof entry !== 'object' || entry === null) continue;
     const ladder = entry as Record<string, unknown>;
     const designation = typeof ladder.designation === 'string' ? ladder.designation : '';
     if (designation.trim() === '' || !Array.isArray(ladder.steps)) continue;
     const qualification = typeof ladder.qualification === 'string' ? ladder.qualification : null;
-    for (const step of ladder.steps) {
+    const key = ladderKey(designation, qualification);
+    seen.set(key, (seen.get(key) ?? 0) + 1);
+    usable.push({ designation, qualification, steps: ladder.steps });
+  }
+  const rungs: PayBandRung[] = [];
+  for (const { designation, qualification, steps } of usable) {
+    if ((seen.get(ladderKey(designation, qualification)) ?? 0) > 1) continue;
+    for (const step of steps) {
       if (typeof step !== 'object' || step === null) continue;
       const basicPay = toNumber((step as Record<string, unknown>).basic_pay);
       if (basicPay === null) continue;
@@ -143,8 +167,9 @@ function rungsFromLadders(ladders: unknown): PayBandRung[] {
  * `pay_matrix` is trusted to be an array of objects and nothing more: every
  * field is re-read defensively because this JSON is hand-edited through a UI
  * that does not validate types, and a bad rung must drop out rather than make
- * the whole college unreadable. When the matrix has no usable rung, the
- * college's year ladders are read instead (rungsFromLadders).
+ * the whole college unreadable. When the college has no matrix entry at all,
+ * its reference year ladders are read instead (rungsFromLadders), and the
+ * policy is marked `fromReferenceLadders`.
  */
 export function parsePayBandPolicy(value: unknown): PayBandPolicy | null {
   const body = unwrap(value);
@@ -166,8 +191,11 @@ export function parsePayBandPolicy(value: unknown): PayBandPolicy | null {
     });
   }
 
-  if (usablePayBandRungs({ rungs, guaranteedMinimum: null }).length === 0) {
+  // No pay matrix at all: read the reference ladders instead, and say so.
+  let fromReferenceLadders = false;
+  if (matrix.length === 0) {
     rungs = rungsFromLadders(body.ladders);
+    fromReferenceLadders = rungs.length > 0;
   }
 
   const overrides =
@@ -175,7 +203,11 @@ export function parsePayBandPolicy(value: unknown): PayBandPolicy | null {
       ? (body.overrides as Record<string, unknown>)
       : {};
 
-  return { rungs, guaranteedMinimum: toNumber(overrides.net_set_basic) };
+  return {
+    rungs,
+    guaranteedMinimum: toNumber(overrides.net_set_basic),
+    ...(fromReferenceLadders ? { fromReferenceLadders: true } : {}),
+  };
 }
 
 /**

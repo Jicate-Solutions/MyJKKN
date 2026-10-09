@@ -40,4 +40,11 @@ describe('reference pay band stays on the server', () => {
     const action = readFileSync(out[0], 'utf8');
     expect(action.trimStart().startsWith("'use server'")).toBe(true);
   }, 60_000);
+
+  it('the band module is server-only, so any client path to it fails the build', () => {
+    // Catches what the import scans above cannot: a dynamic import(), or a
+    // client file reaching the band through another module (panel round 1).
+    const src = readFileSync('lib/hr/pay-scales/jkkn-reference-ladders.ts', 'utf8');
+    expect(src).toMatch(/^import 'server-only';$/m);
+  });
 });

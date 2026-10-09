@@ -4,7 +4,11 @@
  * REFERENCE ONLY (Director ruling 2026-09-18): nobody's pay changes because of
  * these figures. Nothing here reads or writes any salary table; the ladders are
  * stored additively as `ladders` inside the per-college `hr.pay_scales` policy
- * row so a person's pay can be READ against the band.
+ * row so a person's pay can be READ against the band. A college with no pay
+ * matrix at all reads its advisory band from them (see types/hr-pay-ladders.ts).
+ *
+ * SERVER ONLY: `import 'server-only'` below fails any build in which a client
+ * file reaches this module, directly, dynamically or through another file.
  *
  * The figures live in `jkkn-reference-ladders.data.json` beside this file — the
  * pay band's own designations, with the workbook's qualification wording tidied
@@ -13,6 +17,8 @@
  * rounded half-up to whole rupees. Do not "correct" a figure here — a
  * disagreement with the workbook is raised with the Director, not fixed in code.
  */
+
+import 'server-only';
 
 import type { PayLadder } from '@/types/hr-pay-ladders';
 import data from './jkkn-reference-ladders.data.json';

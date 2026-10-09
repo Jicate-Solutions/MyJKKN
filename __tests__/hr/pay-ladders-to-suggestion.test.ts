@@ -74,6 +74,10 @@ describe('saved ladders → band → salary suggestion (Arts & Science)', () => 
     expect(suggestion.bandMax).toBe(LAST_STEP);
     const floorLine = suggestion.lines.find((l) => l.label.startsWith('Band floor'));
     expect(floorLine?.amount).toBe(FIRST_STEP);
+    // The floor says where it came from (panel round 1, 9 Oct).
+    expect(floorLine?.note).toContain(
+      'From the reference year ladders: this college has no pay matrix, and the band is reference only.'
+    );
     // Three whole years at JKKN at ₹500 a year, on top of the floor.
     expect(suggestion.computed).toBe(FIRST_STEP + 3 * 500);
   });

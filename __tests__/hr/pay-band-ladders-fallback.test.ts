@@ -18,6 +18,7 @@ import {
   parsePayBandPolicy,
 } from '@/lib/services/hr/pay-bands/pay-band-policy-service';
 import { checkPayBand } from '@/lib/hr/pay-band-check';
+import { bandWarning } from '@/lib/hr/salary-revision';
 import {
   ARTS_SCIENCE_INSTITUTION_ID,
   ENGINEERING_INSTITUTION_ID,
@@ -89,14 +90,69 @@ describe('a college whose pay_matrix already has a usable rung', () => {
     ]);
   });
 
-  it('falls back to the ladders when every matrix rung is unusable', () => {
+  it('is not marked as read from the ladders', () => {
+    const policy = parsePayBandPolicy({
+      pay_matrix: [{ designation: 'Librarian', qualification: null, basic_pay: 40000 }],
+      ladders: referenceLaddersFor(ENGINEERING_INSTITUTION_ID),
+    });
+    expect(policy?.fromReferenceLadders).toBeUndefined();
+  });
+
+  it('a matrix whose entries are all zeroed stays without a band; it never switches to the ladders', () => {
+    // Panel round 1 (9 Oct): only a college with NO pay matrix reads the
+    // ladders. Zeroing Engineering's or Dental's entries must not hand their
+    // verdicts to the reference ladders.
     const policy = parsePayBandPolicy({
       pay_matrix: [{ designation: 'Librarian', basic_pay: 0 }],
       ladders: [
         { designation: 'Librarian', qualification: null, steps: [{ label: '0-1', basic_pay: 10000 }] },
       ],
     });
-    expect(policy?.rungs).toEqual([{ designation: 'Librarian', qualification: null, basicPay: 10000 }]);
+    expect(policy?.rungs.some((r) => r.basicPay === 10000)).toBe(false);
+    expect(policy?.fromReferenceLadders).toBeUndefined();
+    expect(checkPayBand({ designation: 'Librarian', monthlyPay: 12000 }, policy).verdict).toBe('cannot_tell');
+  });
+});
+
+describe('a band read from the reference ladders says so', () => {
+  it('the policy is marked', () => {
+    expect(parsePayBandPolicy(ARTS_SCIENCE_ROW_AFTER_LOAD)?.fromReferenceLadders).toBe(true);
+  });
+
+  it('the raise warning names the ladders as the source', () => {
+    const policy = parsePayBandPolicy(ARTS_SCIENCE_ROW_AFTER_LOAD);
+    expect(bandWarning(TEACHING_TITLE, 22000, policy)).toBe(
+      'Above the band by ₹500 (band from the reference year ladders)'
+    );
+  });
+
+  it('a matrix band keeps the plain warning', () => {
+    const policy = parsePayBandPolicy({
+      pay_matrix: [{ designation: TEACHING_TITLE, qualification: null, basic_pay: 15000 }],
+    });
+    expect(bandWarning(TEACHING_TITLE, 15500, policy)).toBe('Above the band by ₹500');
+  });
+});
+
+describe('rival versions of one scale', () => {
+  it('two ladders for the same title and qualification feed no rung; the others still do', () => {
+    const ladders = referenceLaddersFor(ENGINEERING_INSTITUTION_ID);
+    const key = (l: { designation: string; qualification: string | null }) =>
+      `${l.designation}|${l.qualification ?? ''}`;
+    const counts = new Map<string, number>();
+    ladders.forEach((l) => counts.set(key(l), (counts.get(key(l)) ?? 0) + 1));
+    const rivals = ladders.filter((l) => (counts.get(key(l)) ?? 0) > 1);
+    // The workbook's 13,000 and 15,000 Science & Humanities scales.
+    expect(rivals.map((l) => l.steps[0].basic_pay).sort()).toEqual([13000, 15000]);
+
+    const policy = parsePayBandPolicy({ pay_matrix: [], ladders });
+    const rivalTitle = rivals[0].designation;
+    const rivalQual = rivals[0].qualification;
+    expect(
+      policy?.rungs.filter((r) => r.designation === rivalTitle && r.qualification === rivalQual)
+    ).toEqual([]);
+    const others = ladders.filter((l) => (counts.get(key(l)) ?? 0) === 1);
+    expect(policy?.rungs).toHaveLength(others.reduce((n, l) => n + l.steps.length, 0));
   });
 });
 

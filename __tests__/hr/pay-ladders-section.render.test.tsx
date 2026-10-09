@@ -6,26 +6,27 @@
  * touches a salary. All it may do is report changes through onChange, so every
  * test here asserts exactly what onChange received (or that it was not called).
  *
- * Real reference data: referenceLaddersFor / referenceNotesFor for Engineering
- * (12 Engineering ladders + 3 support-staff ladders = 15, and 4 band notes).
+ * Real reference data, read from the band's data file the same way
+ * referenceLaddersFor / referenceNotesFor build Engineering's list (12
+ * Engineering ladders + 3 support-staff ladders = 15, and 4 band notes). The
+ * module itself is server-only, so this browser-environment test reads the
+ * data file, and pay-scales-reference-ladders.test.ts pins that the module
+ * returns exactly this.
  */
 
 import '@testing-library/jest-dom';
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { PayLaddersSection } from '@/app/(routes)/hr/admin/policies/pay-scales/_components/pay-ladders-section';
-import {
-  ENGINEERING_INSTITUTION_ID,
-  referenceLaddersFor,
-  referenceNotesFor,
-} from '@/lib/hr/pay-scales/jkkn-reference-ladders';
+import { MAX_STEP_PAY, PayLaddersSection } from '@/app/(routes)/hr/admin/policies/pay-scales/_components/pay-ladders-section';
+import bandData from '@/lib/hr/pay-scales/jkkn-reference-ladders.data.json';
 import type { PayLadder } from '@/types/hr-pay-ladders';
 
 afterEach(() => cleanup());
 
-const refLadders = () => referenceLaddersFor(ENGINEERING_INSTITUTION_ID);
-const refNotes = () => referenceNotesFor(ENGINEERING_INSTITUTION_ID);
+const refLadders = (): PayLadder[] =>
+  structuredClone([...bandData.engineering, ...bandData.support] as PayLadder[]);
+const refNotes = (): string[] => structuredClone(bandData.engineeringNotes);
 
 function deepFreeze<T>(value: T): T {
   if (value && typeof value === 'object') {
@@ -221,6 +222,36 @@ describe('PayLaddersSection — editing a step', () => {
     fireEvent.change(input, { target: { value: 'abc' } });
     fireEvent.change(input, { target: { value: 'e' } });
     expect(onChange).not.toHaveBeenCalled();
+    fireEvent.blur(input);
+    expect(input).toHaveValue(l.steps[0].basic_pay);
+  });
+
+  it('an amount can be emptied and retyped; nothing is passed up until it is a number', () => {
+    const ladders = refLadders();
+    const { onChange } = renderSection({ ladders });
+    const l = ladders[0];
+    const input = screen.getByLabelText(
+      `${name(l)}, ${l.steps[0].label}, basic pay in rupees`
+    );
+    fireEvent.change(input, { target: { value: '' } });
+    expect(input).toHaveValue(null);
+    expect(onChange).not.toHaveBeenCalled();
+    fireEvent.change(input, { target: { value: '18500' } });
+    expect(onChange).toHaveBeenCalledTimes(1);
+    expect((onChange.mock.calls[0] as [PayLadder[]])[0][0].steps[0].basic_pay).toBe(18500);
+  });
+
+  it('an amount above the most a step may hold is not taken, and leaving the field restores it', () => {
+    const ladders = refLadders();
+    const { onChange } = renderSection({ ladders });
+    const l = ladders[0];
+    const input = screen.getByLabelText(
+      `${name(l)}, ${l.steps[0].label}, basic pay in rupees`
+    );
+    fireEvent.change(input, { target: { value: String(MAX_STEP_PAY + 1) } });
+    expect(onChange).not.toHaveBeenCalled();
+    expect(input).toHaveAttribute('aria-invalid', 'true');
+    fireEvent.blur(input);
     expect(input).toHaveValue(l.steps[0].basic_pay);
   });
 });

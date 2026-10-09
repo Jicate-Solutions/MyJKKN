@@ -9,7 +9,10 @@
  * Run: npx vitest run __tests__/hr/pay-scales-reference-ladders.test.ts
  */
 
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+
+// The ladders module is server-only (it fails any client build); tests read it directly.
+vi.mock('server-only', () => ({}));
 import {
   ARTS_SCIENCE_BAND_NOTES,
   ARTS_SCIENCE_INSTITUTION_ID,

@@ -10,6 +10,8 @@ import {
   updatePolicyRow,
   NO_POLICY_ROW_MESSAGE,
   STALE_POLICY_MESSAGE,
+  NOT_ALLOWED_POLICY_MESSAGE,
+  NOT_SAVED_UNKNOWN_MESSAGE,
   PAY_SCALE_INSTITUTIONS,
   COMPENSATION_INSTITUTIONS,
 } from '@/hooks/admin/use-hr-compensation-policies';
@@ -77,8 +79,9 @@ const LOADED = '2026-10-08T10:00:00.123+00:00';
 describe('updatePolicyRow — two people saving the same college', () => {
   it('refuses a stale save: the row changed after the screen loaded it', async () => {
     const { client, filters } = fakeClient({ updated_at: '2026-10-08T10:05:00.000+00:00' });
+    const readSaved = async () => ({ exists: true, updatedAt: '2026-10-08T10:05:00.000+00:00' });
     await expect(
-      updatePolicyRow(client, 'hr.pay_scales', ENG, { pay_matrix: [] }, LOADED)
+      updatePolicyRow(client, 'hr.pay_scales', ENG, { pay_matrix: [] }, LOADED, readSaved)
     ).rejects.toThrow(STALE_POLICY_MESSAGE);
     expect(filters).toContainEqual(['eq', 'updated_at', LOADED]);
     expect(STALE_POLICY_MESSAGE).toBe(
@@ -99,6 +102,33 @@ describe('updatePolicyRow — two people saving the same college', () => {
       updatePolicyRow(client, 'hr.pay_scales', ENG, { pay_matrix: [] }, null)
     ).resolves.toBe('NEW');
     expect(filters).toContainEqual(['is', 'updated_at', null]);
+  });
+
+  it('a write the database refused for this account is reported as a refusal, not as someone else\'s save', async () => {
+    // RLS filters a refused UPDATE to zero rows with no error. The row is
+    // still exactly as loaded, so nobody else changed it.
+    const { client } = fakeClient(null);
+    const readSaved = vi.fn(async () => ({ exists: true, updatedAt: '2026-10-08T10:00:00.123Z' }));
+    await expect(
+      updatePolicyRow(client, 'hr.pay_scales', ENG, { pay_matrix: [] }, LOADED, readSaved)
+    ).rejects.toThrow(NOT_ALLOWED_POLICY_MESSAGE);
+    expect(readSaved).toHaveBeenCalledWith('hr.pay_scales', ENG);
+  });
+
+  it('a locked save on a row that no longer exists says so', async () => {
+    const { client } = fakeClient(null);
+    await expect(
+      updatePolicyRow(client, 'hr.pay_scales', ENG, { pay_matrix: [] }, LOADED, async () => ({ exists: false, updatedAt: null }))
+    ).rejects.toThrow(NO_POLICY_ROW_MESSAGE);
+  });
+
+  it('when the row cannot be re-read, it says the cause is unknown instead of guessing', async () => {
+    const { client } = fakeClient(null);
+    await expect(
+      updatePolicyRow(client, 'hr.pay_scales', ENG, { pay_matrix: [] }, LOADED, async () => {
+        throw new Error('offline');
+      })
+    ).rejects.toThrow(NOT_SAVED_UNKNOWN_MESSAGE);
   });
 
   it('without a lock writes unconditionally and still reports a missing row', async () => {
