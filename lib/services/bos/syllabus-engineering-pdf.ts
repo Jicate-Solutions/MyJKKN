@@ -41,7 +41,10 @@ export function isEngineeringSyllabus(doc: BosCourseSyllabus, institutionName?: 
 function resolveContentModes(
   courseCategory: string | undefined,
   content: BosCourseSyllabus['course_content'],
-): { includeTheory: boolean; includePractical: boolean } {
+): { includeTheory: boolean; includePractical: boolean; includeProject: boolean } {
+  if (content?.is_project && (content?.project_units?.length ?? 0) > 0) {
+    return { includeTheory: false, includePractical: false, includeProject: true };
+  }
   const cat = (courseCategory || '').toLowerCase();
   const namesAMode = cat.includes('theory') || cat.includes('practical') || cat.includes('project');
   let includeTheory: boolean;
@@ -57,8 +60,8 @@ function resolveContentModes(
   const hasUnits = (content?.units?.length ?? 0) > 0;
   const hasTopics = (content?.topics?.length ?? 0) > 0;
   const rendersNothing = !(includeTheory && hasUnits) && !(includePractical && hasTopics);
-  if (rendersNothing && (hasUnits || hasTopics)) return { includeTheory: hasUnits, includePractical: hasTopics };
-  return { includeTheory, includePractical };
+  if (rendersNothing && (hasUnits || hasTopics)) return { includeTheory: hasUnits, includePractical: hasTopics, includeProject: false };
+  return { includeTheory, includePractical, includeProject: false };
 }
 
 /** A /public image as a data URI, for jsPDF.addImage on the server (no browser to fetch it). */
@@ -185,6 +188,7 @@ export async function buildEngineeringSyllabusPdf(
     units: contentModes.includeTheory ? (doc.course_content?.units ?? []) : [],
     practical_topics: contentModes.includePractical ? (doc.course_content?.topics ?? []) : undefined,
     number_practical_topics: doc.course_content?.number_practical_topics,
+    project_units: contentModes.includeProject ? (doc.course_content?.project_units ?? []) : undefined,
     instruction: doc.course_content?.instruction,
     textbooks: doc.textbooks?.primary ?? [],
     references: doc.textbooks?.references ?? [],

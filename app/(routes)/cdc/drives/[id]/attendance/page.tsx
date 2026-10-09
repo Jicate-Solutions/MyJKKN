@@ -25,13 +25,14 @@ import {
 } from '@/components/ui/breadcrumb';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { cn } from '@/lib/utils';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { Calendar, CheckCircle2, ChevronLeft, ChevronRight, ClipboardCheck, Clock, Download, Info, Loader2, MapPin, RotateCcw, Search, ShieldCheck, XCircle } from 'lucide-react';
+import { ArrowLeft, Calendar, CheckCircle2, ChevronLeft, ChevronRight, CircleDashed, Clock, Download, FilterX, Info, Loader2, MapPin, RotateCcw, Search, ShieldCheck, Users, XCircle } from 'lucide-react';
 import {
   cdcDriveAttendanceExportUrl,
   useCdcDriveAttendance,
@@ -41,6 +42,7 @@ import type { CdcDriveAttendanceStatus } from '@/types/cdc';
 import { CDC_COORDINATOR_ROLLBACK_FROM } from '@/types/cdc';
 import { DriveStatusBadge } from '../../_components/drive-status-badge';
 import { MoveBackButton } from '../../_components/move-back-dialog';
+import { Pill, TONE, initials, type Tone } from '../../_components/status-pill';
 
 const STATUS_LABEL: Record<CdcDriveAttendanceStatus, string> = {
   present: 'Present',
@@ -58,6 +60,13 @@ const STATUS_CLASS: Record<CdcDriveAttendanceStatus, string> = {
 };
 const ORDER: CdcDriveAttendanceStatus[] = ['present', 'absent', 'late', 'excused', 'not_attended'];
 const PAGE_SIZES = [10, 20, 50, 100, 250, 500] as const;
+const STATUS_TONE: Record<CdcDriveAttendanceStatus, Tone> = {
+  present: 'emerald',
+  absent: 'rose',
+  late: 'amber',
+  excused: 'blue',
+  not_attended: 'slate',
+};
 
 /** Bulk action buttons: `outline` for the ticked row, `solid` for the "all shown" row. */
 const BULK_ACTIONS: Array<{
@@ -165,7 +174,9 @@ export default function CdcDriveAttendancePage({ params }: { params: Promise<{ i
   if (isLoading) {
     return (
       <ContentLayout title="Drive attendance">
-        <p className="text-sm text-muted-foreground p-6">Loading attendance…</p>
+        <div className="flex items-center justify-center gap-2 p-12 text-sm text-muted-foreground">
+          <Loader2 className="h-4 w-4 animate-spin" /> Loading attendance…
+        </div>
       </ContentLayout>
     );
   }
@@ -188,6 +199,19 @@ export default function CdcDriveAttendancePage({ params }: { params: Promise<{ i
 
   const { drive, summary, access, preview } = data;
   const canMark = access.canMark;
+  // Coordinators hold no CDC permission, so they go back to their own list.
+  const backHref = access.canView ? `/cdc/drives/${id}` : '/cdc/drives/coordinating';
+  const backLabel = access.canView ? 'Back to Drive' : 'Back to my assigned drives';
+  const markedCount = summary.total - summary.unmarked;
+  const markedPct = summary.total ? Math.round((markedCount / summary.total) * 100) : 0;
+  const stats: Array<{ label: string; value: number; icon: typeof Users; tone: Tone; filter: typeof filter }> = [
+    { label: preview ? 'Willing (preview)' : 'Participants', value: summary.total, icon: Users, tone: 'violet', filter: 'all' },
+    { label: 'Present', value: summary.present, icon: CheckCircle2, tone: 'emerald', filter: 'present' },
+    { label: 'Absent', value: summary.absent, icon: XCircle, tone: 'rose', filter: 'absent' },
+    { label: 'Late', value: summary.late, icon: Clock, tone: 'amber', filter: 'late' },
+    { label: 'Excused', value: summary.excused, icon: ShieldCheck, tone: 'blue', filter: 'excused' },
+    { label: 'Not marked', value: summary.unmarked, icon: CircleDashed, tone: 'slate', filter: 'unmarked' },
+  ];
 
   // Client-side paging over the filtered list.
   const pageCount = pageSize === 'all' ? 1 : Math.max(1, Math.ceil(visible.length / pageSize));
@@ -255,17 +279,22 @@ export default function CdcDriveAttendancePage({ params }: { params: Promise<{ i
         </BreadcrumbList>
       </Breadcrumb>
 
-      <div className="mt-6 space-y-4">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-          <div className="min-w-0">
-            <h1 className="text-2xl font-semibold flex items-center gap-2">
-              <ClipboardCheck className="h-5 w-5 text-muted-foreground" />
-              {drive.title}
-            </h1>
-            <div className="text-sm text-muted-foreground mt-1 flex flex-wrap items-center gap-3">
-              <DriveStatusBadge status={drive.status} />
-              {drive.drive_date ? <span className="inline-flex items-center gap-1"><Calendar className="h-3.5 w-3.5" />{drive.drive_date}</span> : null}
-              {drive.venue_label ? <span className="inline-flex items-center gap-1"><MapPin className="h-3.5 w-3.5" />{drive.venue_label}</span> : null}
+      <div className="mt-6 space-y-5">
+        {/* ── Page header ── */}
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+          <div className="flex min-w-0 items-start gap-3">
+            <Button asChild variant="outline" size="icon" className="mt-0.5 h-9 w-9 shrink-0 rounded-full shadow-sm" title={backLabel}>
+              <Link href={backHref} aria-label={backLabel}>
+                <ArrowLeft className="h-4 w-4" />
+              </Link>
+            </Button>
+            <div className="min-w-0">
+              <h1 className="truncate text-2xl font-semibold tracking-tight">{drive.title}</h1>
+              <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-muted-foreground">
+                <DriveStatusBadge status={drive.status} />
+                {drive.drive_date ? <span className="inline-flex items-center gap-1"><Calendar className="h-3.5 w-3.5" />{drive.drive_date}</span> : null}
+                {drive.venue_label ? <span className="inline-flex items-center gap-1"><MapPin className="h-3.5 w-3.5" />{drive.venue_label}</span> : null}
+              </div>
             </div>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -274,7 +303,7 @@ export default function CdcDriveAttendancePage({ params }: { params: Promise<{ i
               <MoveBackButton driveId={id} status={drive.status} size="default" />
             ) : null}
             {summary.total > 0 ? (
-              <Button asChild variant="outline">
+              <Button asChild variant="outline" className="shadow-sm">
                 <a href={cdcDriveAttendanceExportUrl(id, filter, { institution_id: institution, program_id: program, semester_order: semester })}>
                   <Download className="h-4 w-4 mr-2" /> Download Excel
                 </a>
@@ -283,21 +312,54 @@ export default function CdcDriveAttendancePage({ params }: { params: Promise<{ i
           </div>
         </div>
 
-        <div className="grid gap-2 grid-cols-2 md:grid-cols-6">
-          {([
-            [preview ? 'Willing (preview)' : 'Participants', summary.total],
-            ['Present', summary.present],
-            ['Absent', summary.absent],
-            ['Late', summary.late],
-            ['Excused', summary.excused],
-            ['Not marked', summary.unmarked],
-          ] as Array<[string, number]>).map(([label, n]) => (
-            <div key={label} className="rounded-md border p-3">
-              <p className="text-2xl font-semibold leading-none">{n}</p>
-              <p className="text-xs text-muted-foreground mt-1">{label}</p>
-            </div>
-          ))}
+        {/* ── Score cards — each one also filters the list. ── */}
+        <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
+          {stats.map((st) => {
+            const Icon = st.icon;
+            const active = filter === st.filter;
+            return (
+              <button
+                key={st.label}
+                type="button"
+                onClick={() => {
+                  setFilter(st.filter);
+                  setPage(1);
+                }}
+                aria-pressed={active}
+                className={cn(
+                  'rounded-xl border bg-card p-4 text-left shadow-sm transition hover:border-primary/40 hover:shadow',
+                  active && 'border-primary ring-1 ring-primary'
+                )}
+              >
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-medium text-muted-foreground">{st.label}</span>
+                  <span className={cn('flex h-8 w-8 items-center justify-center rounded-lg ring-1 ring-inset', TONE[st.tone])}>
+                    <Icon className="h-4 w-4" />
+                  </span>
+                </div>
+                <p className="mt-2 text-3xl font-semibold leading-none tracking-tight tabular-nums">{st.value}</p>
+              </button>
+            );
+          })}
         </div>
+
+        {/* ── Marking progress ── */}
+        {summary.total > 0 && !preview ? (
+          <div className="rounded-xl border bg-card px-4 py-3 shadow-sm">
+            <div className="flex items-center justify-between text-xs">
+              <span className="font-medium">Attendance marked</span>
+              <span className="tabular-nums text-muted-foreground">
+                {markedCount} of {summary.total} · {markedPct}%
+              </span>
+            </div>
+            <div className="mt-2 flex h-2 w-full overflow-hidden rounded-full bg-muted">
+              <div className="h-full bg-emerald-500 transition-all" style={{ width: `${(summary.present / summary.total) * 100}%` }} title={`Present ${summary.present}`} />
+              <div className="h-full bg-amber-500 transition-all" style={{ width: `${(summary.late / summary.total) * 100}%` }} title={`Late ${summary.late}`} />
+              <div className="h-full bg-blue-500 transition-all" style={{ width: `${(summary.excused / summary.total) * 100}%` }} title={`Excused ${summary.excused}`} />
+              <div className="h-full bg-rose-500 transition-all" style={{ width: `${(summary.absent / summary.total) * 100}%` }} title={`Absent ${summary.absent}`} />
+            </div>
+          </div>
+        ) : null}
 
         {!drive.participants_finalized_at ? (
           <Alert>
@@ -322,29 +384,51 @@ export default function CdcDriveAttendancePage({ params }: { params: Promise<{ i
           </Alert>
         ) : null}
 
-        <Card>
-          <CardHeader className="pb-3">
-            <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-              <CardTitle className="text-base">Attendance list</CardTitle>
-              <div className="flex flex-wrap gap-2">
-                <Select value={filter} onValueChange={(v) => setFilter(v as typeof filter)}>
-                  <SelectTrigger className="w-40"><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All</SelectItem>
-                    <SelectItem value="unmarked">Not marked</SelectItem>
-                    {ORDER.map((s) => (
-                      <SelectItem key={s} value={s}>{STATUS_LABEL[s]}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <div className="relative">
-                  <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-                  <Input className="pl-8 w-60" placeholder="Search name / register no" value={search} onChange={(e) => setSearch(e.target.value)} />
-                </div>
+        <Card className="overflow-hidden rounded-xl shadow-sm">
+          <CardHeader className="space-y-4 border-b bg-muted/20 pb-4">
+            <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+              <div>
+                <CardTitle className="flex items-center gap-2 text-base">
+                  Attendance list
+                  <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground tabular-nums">
+                    {visible.length === rows.length ? rows.length : `${visible.length} of ${rows.length}`}
+                  </span>
+                  {picked.size > 0 ? <Pill tone="violet">{picked.size} ticked</Pill> : null}
+                </CardTitle>
+                <CardDescription>The finalized participant list. Mark one learner, the ticked ones, or everyone shown.</CardDescription>
+              </div>
+              <div className="relative w-full lg:w-72">
+                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <Input className="bg-background pl-9" placeholder="Search name / register no" value={search} onChange={(e) => setSearch(e.target.value)} />
               </div>
             </div>
 
-            <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+            {/* Attendance status — segmented control */}
+            <div className="inline-flex max-w-full overflow-x-auto rounded-lg bg-muted p-1" role="tablist" aria-label="Show">
+              {(['all', 'unmarked', ...ORDER] as Array<typeof filter>).map((k) => {
+                const active = filter === k;
+                return (
+                  <button
+                    key={k}
+                    type="button"
+                    role="tab"
+                    aria-selected={active}
+                    onClick={() => {
+                      setFilter(k);
+                      setPage(1);
+                    }}
+                    className={cn(
+                      'whitespace-nowrap rounded-md px-3 py-1.5 text-sm font-medium transition',
+                      active ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
+                    )}
+                  >
+                    {k === 'all' ? 'All' : k === 'unmarked' ? 'Not marked' : STATUS_LABEL[k]}
+                  </button>
+                );
+              })}
+            </div>
+
+            <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-[1fr_1fr_1fr_auto]">
               <Select
                 value={institution}
                 onValueChange={(v) => {
@@ -353,7 +437,7 @@ export default function CdcDriveAttendancePage({ params }: { params: Promise<{ i
                   setSemester('all');
                 }}
               >
-                <SelectTrigger><SelectValue placeholder="Institution" /></SelectTrigger>
+                <SelectTrigger className={cn('bg-background', institution !== 'all' && 'border-primary/60')}><SelectValue placeholder="Institution" /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">All institutions</SelectItem>
                   {institutionOptions.map(([value, label]) => (
@@ -368,7 +452,7 @@ export default function CdcDriveAttendancePage({ params }: { params: Promise<{ i
                   setSemester('all');
                 }}
               >
-                <SelectTrigger><SelectValue placeholder="Program" /></SelectTrigger>
+                <SelectTrigger className={cn('bg-background', program !== 'all' && 'border-primary/60')}><SelectValue placeholder="Program" /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">All programs</SelectItem>
                   {programOptions.map(([value, label]) => (
@@ -377,7 +461,7 @@ export default function CdcDriveAttendancePage({ params }: { params: Promise<{ i
                 </SelectContent>
               </Select>
               <Select value={semester} onValueChange={setSemester}>
-                <SelectTrigger><SelectValue placeholder="Semester" /></SelectTrigger>
+                <SelectTrigger className={cn('bg-background', semester !== 'all' && 'border-primary/60')}><SelectValue placeholder="Semester" /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">All semesters</SelectItem>
                   {semesterOptions.map((o) => (
@@ -385,29 +469,25 @@ export default function CdcDriveAttendancePage({ params }: { params: Promise<{ i
                   ))}
                 </SelectContent>
               </Select>
-              <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
-                <span>Showing {visible.length} of {rows.length}</span>
-                {filtersActive ? (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-7"
-                    onClick={() => {
-                      setInstitution('all');
-                      setProgram('all');
-                      setSemester('all');
-                      setFilter('all');
-                      setSearch('');
-                    }}
-                  >
-                    Clear filters
-                  </Button>
-                ) : null}
-              </div>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-9"
+                disabled={!filtersActive}
+                onClick={() => {
+                  setInstitution('all');
+                  setProgram('all');
+                  setSemester('all');
+                  setFilter('all');
+                  setSearch('');
+                }}
+              >
+                <FilterX className="mr-1.5 h-4 w-4" /> Clear
+              </Button>
             </div>
 
             {canMark ? (
-              <div className="mt-3 rounded-lg border bg-muted/30">
+              <div className="rounded-xl border bg-background shadow-sm">
                 {/* Ticked learners */}
                 <div className="flex flex-wrap items-center gap-2 px-3 py-2">
                   <div className="flex items-center gap-2 min-w-[9.5rem]">
@@ -509,22 +589,27 @@ export default function CdcDriveAttendancePage({ params }: { params: Promise<{ i
           </CardHeader>
           <CardContent className="p-0">
             {visible.length === 0 ? (
-              <p className="p-6 text-sm text-muted-foreground">
-                {summary.total === 0
-                  ? preview
-                    ? 'No learner has answered Willing yet.'
-                    : 'No finalized participants yet.'
-                  : 'No learners match these filters.'}
-              </p>
+              <div className="flex flex-col items-center gap-2 p-12 text-center">
+                <span className="flex h-10 w-10 items-center justify-center rounded-full bg-muted">
+                  <Users className="h-5 w-5 text-muted-foreground" />
+                </span>
+                <p className="text-sm font-medium">
+                  {summary.total === 0
+                    ? preview
+                      ? 'No learner has answered Willing yet.'
+                      : 'No finalized participants yet.'
+                    : 'No learners match these filters.'}
+                </p>
+                {summary.total > 0 ? <p className="text-xs text-muted-foreground">Try clearing the search or filters.</p> : null}
+              </div>
             ) : (
               <div className="overflow-x-auto">
                 <Table>
                   <TableHeader>
-                    <TableRow>
+                    <TableRow className="bg-muted/40 hover:bg-muted/40 [&>th]:h-10 [&>th]:text-xs [&>th]:font-semibold [&>th]:uppercase [&>th]:tracking-wide">
                       <TableHead className="w-10">
                         {canMark ? <Checkbox checked={allPageOn} onCheckedChange={(v) => setRows(pageRows, v === true)} aria-label="Select all on this page" /> : null}
                       </TableHead>
-                      <TableHead>Register No</TableHead>
                       <TableHead>Learner</TableHead>
                       <TableHead>Program / Dept</TableHead>
                       <TableHead>Willingness</TableHead>
@@ -534,20 +619,38 @@ export default function CdcDriveAttendancePage({ params }: { params: Promise<{ i
                   </TableHeader>
                   <TableBody>
                     {pageRows.map((r) => (
-                      <TableRow key={r.learner_id}>
-                        <TableCell>{canMark ? <Checkbox checked={picked.has(r.learner_id)} onCheckedChange={() => toggle(r.learner_id)} /> : null}</TableCell>
-                        <TableCell className="font-mono text-xs">{r.register_number ?? '—'}</TableCell>
-                        <TableCell className="font-medium">{r.learner_name ?? '—'}</TableCell>
+                      <TableRow key={r.learner_id} className={cn('transition-colors', picked.has(r.learner_id) && 'bg-primary/5 hover:bg-primary/10')}>
+                        <TableCell>{canMark ? <Checkbox checked={picked.has(r.learner_id)} onCheckedChange={() => toggle(r.learner_id)} aria-label={`Select ${r.learner_name ?? 'learner'}`} /> : null}</TableCell>
+                        <TableCell>
+                          <div className="flex items-center gap-3">
+                            <span
+                              className={cn(
+                                'flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-xs font-semibold ring-1 ring-inset',
+                                r.attendance_status ? TONE[STATUS_TONE[r.attendance_status]] : 'bg-muted text-muted-foreground ring-transparent'
+                              )}
+                            >
+                              {initials(r.learner_name)}
+                            </span>
+                            <div className="min-w-0">
+                              <div className="truncate font-medium">{r.learner_name ?? '—'}</div>
+                              <div className="font-mono text-xs text-muted-foreground">{r.register_number ?? '—'}</div>
+                            </div>
+                          </div>
+                        </TableCell>
                         <TableCell>
                           <div className="text-sm">{r.program_name ?? r.department_name ?? '—'}</div>
                           <div className="text-xs text-muted-foreground">
                             {[r.program_name ? r.department_name : null, r.semester_label].filter(Boolean).join(' · ')}
                           </div>
                         </TableCell>
-                        <TableCell className="text-sm">{r.bucket === 'willing' ? 'Yes' : r.bucket === 'not_willing' ? 'No' : 'Pending'}</TableCell>
+                        <TableCell>
+                          <Pill tone={r.bucket === 'willing' ? 'emerald' : r.bucket === 'not_willing' ? 'slate' : 'amber'}>
+                            {r.bucket === 'willing' ? 'Willing' : r.bucket === 'not_willing' ? 'Not willing' : 'Pending'}
+                          </Pill>
+                        </TableCell>
                         <TableCell>
                           {canMark ? (
-                            <div className="flex flex-wrap gap-1">
+                            <div className="flex flex-wrap items-center gap-1.5">
                               {(['present', 'absent', 'late'] as CdcDriveAttendanceStatus[]).map((s) => (
                                 <button
                                   key={s}
@@ -555,7 +658,7 @@ export default function CdcDriveAttendancePage({ params }: { params: Promise<{ i
                                   disabled={mark.isPending}
                                   onClick={() => apply(s, [r.learner_id], `row:${r.learner_id}:${s}`)}
                                   className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors disabled:opacity-50 ${
-                                    r.attendance_status === s ? STATUS_CLASS[s] + ' border-transparent' : 'hover:bg-muted'
+                                    r.attendance_status === s ? STATUS_CLASS[s] + ' border-transparent shadow-sm' : 'bg-background text-muted-foreground hover:bg-muted hover:text-foreground'
                                   }`}
                                 >
                                   {pending?.key === `row:${r.learner_id}:${s}` ? (
@@ -582,7 +685,7 @@ export default function CdcDriveAttendancePage({ params }: { params: Promise<{ i
                               ) : null}
                             </div>
                           ) : r.attendance_status ? (
-                            <Badge className={STATUS_CLASS[r.attendance_status]}>{STATUS_LABEL[r.attendance_status]}</Badge>
+                            <Pill tone={STATUS_TONE[r.attendance_status]}>{STATUS_LABEL[r.attendance_status]}</Pill>
                           ) : (
                             <span className="text-xs text-muted-foreground">Not marked</span>
                           )}
@@ -590,7 +693,7 @@ export default function CdcDriveAttendancePage({ params }: { params: Promise<{ i
                         <TableCell className="text-xs text-muted-foreground">
                           {r.attendance_marked_at ? (
                             <>
-                              <div>{new Date(r.attendance_marked_at).toLocaleString()}</div>
+                              <div className="whitespace-nowrap text-foreground/80">{new Date(r.attendance_marked_at).toLocaleString()}</div>
                               <div>{r.attendance_marked_by ?? ''}{r.attendance_remarks ? ` · ${r.attendance_remarks}` : ''}</div>
                             </>
                           ) : (
@@ -604,7 +707,7 @@ export default function CdcDriveAttendancePage({ params }: { params: Promise<{ i
               </div>
             )}
             {visible.length > 0 ? (
-              <div className="flex flex-wrap items-center justify-between gap-3 border-t px-4 py-3 text-sm">
+              <div className="flex flex-wrap items-center justify-between gap-3 border-t bg-muted/20 px-4 py-3 text-sm">
                 <div className="flex items-center gap-2">
                   <span className="text-muted-foreground">Rows per page</span>
                   <Select

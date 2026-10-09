@@ -1,10 +1,18 @@
 export const dynamic = 'force-dynamic';
+// googleapis + node:stream — the Drive client does not run on the edge runtime.
+export const runtime = 'nodejs';
 
 // POST /api/events/[eventId]/registration-upload
 //
 // Accepts ONE file for one 'file' / 'image' field on a public registration form
-// and stores it in the private `event-registration-uploads` bucket. Returns the
-// EventFormUpload object the client puts into custom_fields.
+// and stores it in Google Drive (Event Registrations / <event> / <form>), with
+// no public permission. Returns the EventFormUpload object the client puts into
+// custom_fields.
+//
+// Drive, not Supabase Storage, since 2026-10-08: one event's worth of
+// certificates was 153 MB of the storage quota. Answers saved before that carry
+// a `path` into the old private `event-registration-uploads` bucket instead of
+// a `driveFileId`; scripts/migrate-event-uploads-to-drive.mjs moves those.
 //
 // THIS ENDPOINT IS REACHABLE WITHOUT A SESSION, by necessity: the public
 // registration page has no login, and /api/upload 401s for guests. An open
@@ -18,22 +26,20 @@ export const dynamic = 'force-dynamic';
 //   3. the named field exists ON THAT FORM and is of type file|image — you
 //      cannot invent a field key to upload against;
 //   4. size and MIME are checked SERVER-SIDE against the field's type. An
-//      'image' field refuses a PDF here even though the bucket allows PDFs for
-//      'file' fields.
+//      'image' field refuses a PDF here even though 'file' fields allow PDFs.
 //
-// Only then does the service-role client write. The bucket has NO storage RLS
-// policies at all, so `anon` and `authenticated` can do nothing against it
-// directly — this route is the only door, and the checks above cannot be
-// side-stepped by talking to storage.
+// Only then is anything written. The file gets NO Drive sharing permission, so
+// nobody reaches it by link — this route is the only door in, and the checks
+// above cannot be side-stepped.
 
 import { NextRequest, NextResponse } from 'next/server';
 import { createServiceRoleClient } from '@/lib/supabase/server';
+import { isDriveConfigured } from '@/lib/google/drive-client';
+import { uploadEventRegistrationFile } from '@/lib/google/drive-upload';
 import { isFormOpen, UPLOAD_FIELD_TYPES } from '@/types/tournament';
-import type { FormFieldType } from '@/types/tournament';
+import type { EventFormUpload, FormFieldType } from '@/types/tournament';
 
-const BUCKET = 'event-registration-uploads';
-
-/** Tighter than the bucket's 10 MB: a passport photo has no business being 10 MB. */
+/** A passport photo has no business being 10 MB. */
 const MAX_BYTES: Record<'file' | 'image', number> = {
   file: 10 * 1024 * 1024,
   image: 5 * 1024 * 1024,
@@ -46,20 +52,6 @@ const FILE_MIMES = [
   'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
   ...IMAGE_MIMES,
 ];
-
-/** Keep an extension for round-tripping, drop everything else from the name. */
-function safeExtension(filename: string, mime: string): string {
-  const fromName = /\.([a-z0-9]{1,8})$/i.exec(filename)?.[1]?.toLowerCase();
-  if (fromName) return `.${fromName}`;
-  const fromMime: Record<string, string> = {
-    'application/pdf': '.pdf',
-    'image/jpeg': '.jpg',
-    'image/png': '.png',
-    'image/webp': '.webp',
-    'image/gif': '.gif',
-  };
-  return fromMime[mime] ?? '';
-}
 
 export async function POST(
   request: NextRequest,
@@ -83,13 +75,16 @@ export async function POST(
     if (!formId || !fieldKey) {
       return NextResponse.json({ error: 'form_id and field_key are required' }, { status: 400 });
     }
+    if (!isDriveConfigured()) {
+      return NextResponse.json({ error: 'File storage is not configured.' }, { status: 503 });
+    }
 
     const svc = createServiceRoleClient();
 
     // ---- 1. event open ----
     const { data: ev } = await (svc as any)
       .from('events')
-      .select('id, status, registration_open_date, registration_close_date')
+      .select('id, name, status, registration_open_date, registration_close_date')
       .eq('id', eventId)
       .maybeSingle();
     if (!ev || ['draft', 'cancelled'].includes(ev.status)) {
@@ -106,7 +101,7 @@ export async function POST(
     // ---- 2. form belongs to this event AND is open ----
     const { data: form } = await (svc as any)
       .from('event_registration_forms')
-      .select('id, is_enabled, starts_at, ends_at')
+      .select('id, name, is_enabled, starts_at, ends_at')
       .eq('id', formId)
       .eq('event_id', eventId)
       .maybeSingle();
@@ -117,8 +112,8 @@ export async function POST(
       );
     }
     // Same window rule as the submit route. Without it an expired form would
-    // still accept uploads — filling the bucket for a registration that can
-    // never be completed.
+    // still accept uploads — filling storage for a registration that can never
+    // be completed.
     if (!isFormOpen(form)) {
       return NextResponse.json({ error: 'This registration form is closed.' }, { status: 422 });
     }
@@ -154,8 +149,8 @@ export async function POST(
       );
     }
     const allowed = kind === 'image' ? IMAGE_MIMES : FILE_MIMES;
-    // file.type is browser-supplied and therefore untrusted, but the bucket's
-    // own allowed_mime_types is a second, server-side gate behind this one.
+    // file.type is browser-supplied and therefore untrusted — but the file is
+    // never executed or served from our origin, only stored for an organizer.
     if (!allowed.includes(file.type)) {
       return NextResponse.json(
         {
@@ -169,32 +164,27 @@ export async function POST(
     }
 
     // ---- store ----
-    // Path is server-generated: a client-supplied path could traverse into
-    // another event's folder or overwrite an existing registrant's document.
-    const objectPath = `${eventId}/${form.id}/${crypto.randomUUID()}${safeExtension(file.name, file.type)}`;
+    // Folder and filename are server-generated; nothing the client sends
+    // chooses where the file lands.
+    const uploaded = await uploadEventRegistrationFile({
+      eventId,
+      eventName: ev.name,
+      formId: form.id,
+      formName: form.name,
+      file,
+    });
 
-    const { error: uploadError } = await svc.storage
-      .from(BUCKET)
-      .upload(objectPath, file, { contentType: file.type, upsert: false });
-
-    if (uploadError) {
-      return NextResponse.json(
-        { error: uploadError.message || 'Upload failed' },
-        { status: 500 }
-      );
-    }
-
-    return NextResponse.json(
-      {
-        path: objectPath,
-        // Stored for display only, never used to build a filesystem path.
-        name: file.name.slice(0, 200),
-        size: file.size,
-        mime: file.type,
-      },
-      { status: 201 }
-    );
+    const answer: EventFormUpload = {
+      path: '',
+      driveFileId: uploaded.driveFileId,
+      // Stored for display only.
+      name: file.name.slice(0, 200),
+      size: uploaded.sizeBytes,
+      mime: uploaded.mimeType,
+    };
+    return NextResponse.json(answer, { status: 201 });
   } catch (err) {
+    console.error('[registration-upload] failed', err);
     return NextResponse.json(
       { error: err instanceof Error ? err.message : 'Upload failed' },
       { status: 500 }

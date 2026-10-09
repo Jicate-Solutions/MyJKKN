@@ -44,6 +44,7 @@ import type {
 	BosWebResource,
 	BosPoMapping,
 	BosPracticalTopic,
+	BosProjectUnit,
 	BosAssessmentStructure,
 	BosConceptApplicationsData,
 	BosAssessmentPatternData,
@@ -125,6 +126,8 @@ export interface CourseSyllabusDOCXData {
 	/** Accepted for parity with the PDF data shape; the DOCX experiments section
 	 *  does not yet consume it. */
 	number_practical_topics?: boolean
+	/** Project-paper content (`course_content.project_units`), Project mode. */
+	project_units?: BosProjectUnit[]
 	instruction?: string
 	textbooks?: BosTextbook[]
 	references?: BosTextbook[]
@@ -534,6 +537,72 @@ function rowsCourseContent(data: CourseSyllabusDOCXData): TableRow[] {
 	}
 
 	return rows
+}
+
+// Project papers — Content tab Project mode (course_content.project_units).
+// Mirrors renderProjectUnits in course-syllabus-pdf.ts.
+function rowsProjectContent(data: CourseSyllabusDOCXData): TableRow[] {
+	if (!data.project_units || data.project_units.length === 0) return []
+
+	const rows: TableRow[] = []
+
+	data.project_units.forEach((unit, idx) => {
+		const unitTitle = (unit.unit_title ?? '').trim()
+		const rules = (unit.rules ?? [])
+			.map(r => ({
+				title: (r.unit_of_experiment ?? '').trim().replace(/[:\s]+$/, ''),
+				content: (r.content ?? '').trim(),
+			}))
+			.filter(r => r.title || r.content)
+		const remarks = (unit.remarks ?? '').trim()
+
+		const paragraphs: Paragraph[] = []
+
+		// No rules → the title box holds the whole guideline paragraph (body text).
+		if (unitTitle) {
+			paragraphs.push(p(unitTitle, { bold: rules.length > 0, alignment: AlignmentType.JUSTIFIED }))
+		}
+		for (const r of rules) {
+			if (r.title && r.content) {
+				paragraphs.push(
+					pRuns(
+						[run(`${r.title}: `, { bold: true }), run(r.content, { bold: false })],
+						{ alignment: AlignmentType.JUSTIFIED },
+					),
+				)
+			} else if (r.title) {
+				paragraphs.push(p(r.title, { bold: true, alignment: AlignmentType.JUSTIFIED }))
+			} else {
+				paragraphs.push(p(r.content, { alignment: AlignmentType.JUSTIFIED }))
+			}
+		}
+		if (remarks) paragraphs.push(p(remarks, { alignment: AlignmentType.JUSTIFIED }))
+
+		if (paragraphs.length === 0) return
+
+		rows.push(
+			new TableRow({
+				children: [
+					tc([p(unit.unit_id || String(idx + 1), { bold: true, alignment: AlignmentType.CENTER })], {
+						valign: VerticalAlign.TOP,
+					}),
+					tc(paragraphs, { columnSpan: 4, valign: VerticalAlign.TOP }),
+				],
+			}),
+		)
+	})
+
+	if (rows.length === 0) return []
+
+	return [
+		new TableRow({
+			children: [
+				tc([p('Unit', { bold: true, alignment: AlignmentType.CENTER })]),
+				tc([p('Course content', { bold: true, alignment: AlignmentType.CENTER })], { columnSpan: 4 }),
+			],
+		}),
+		...rows,
+	]
 }
 
 function rowsInstructions(data: CourseSyllabusDOCXData): TableRow[] {
@@ -1038,6 +1107,7 @@ function buildMasterTable(data: CourseSyllabusDOCXData): Table {
 		...rowsObjectives(data),
 		...rowsCLOs(data),
 		...rowsCourseContent(data),
+		...rowsProjectContent(data),
 		...rowsInstructions(data),
 		...rowsBooksAndPedagogy(data),
 	]

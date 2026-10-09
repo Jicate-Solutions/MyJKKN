@@ -102,6 +102,7 @@ function initials(name: string | null): string {
 export function AssignedWillingnessView({ id }: { id: string }) {
   const { data: detail } = useCdcDrive(id);
   const [institution, setInstitution] = useState('all');
+  const [program, setProgram] = useState('all');
   const [semester, setSemester] = useState('all');
   const [status, setStatus] = useState('all');
   const [responded, setResponded] = useState('all');
@@ -116,6 +117,7 @@ export function AssignedWillingnessView({ id }: { id: string }) {
 
   const params: UseCdcDriveAssignedParams = {
     institution_id: institution === 'all' ? undefined : institution,
+    program_id: program === 'all' ? undefined : program,
     semester_order: semester === 'all' ? undefined : parseInt(semester, 10),
     status: status === 'all' ? undefined : (status as CdcAssignedWillingnessBucket),
     responded: responded === 'all' ? undefined : (responded as 'yes' | 'no'),
@@ -127,17 +129,42 @@ export function AssignedWillingnessView({ id }: { id: string }) {
   const { data, isLoading, error, isFetching } = useCdcDriveAssigned(id);
 
   const drive = detail?.data;
+  // Filters cascade: Institution -> Program -> Semester. Each list only offers
+  // what the audience actually holds under the choice above it.
+  const programOptions = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const r of data?.data ?? []) {
+      if (!r.program_id) continue;
+      if (params.institution_id && r.institution_id !== params.institution_id) continue;
+      if (!map.has(r.program_id)) map.set(r.program_id, r.program_name ?? 'Unnamed program');
+    }
+    return Array.from(map, ([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name));
+  }, [data, params.institution_id]);
+
+  // Semester choices come from the learners in the list, NOT from the drive's
+  // rolled-up `semester_orders`: that is [] whenever one degree block (UG / PG /
+  // Other) means "all semesters", which hid the other blocks' semesters.
   const semesterOptions = useMemo(() => {
     const set = new Set<number>();
-    (drive?.institution_semesters ?? []).forEach((t) => t.semester_orders.forEach((o) => set.add(o)));
-    return Array.from(set).sort((a, b) => a - b);
-  }, [drive]);
+    for (const r of data?.data ?? []) {
+      if (params.institution_id && r.institution_id !== params.institution_id) continue;
+      if (params.program_id && r.program_id !== params.program_id) continue;
+      if (r.semester_order != null) set.add(r.semester_order);
+    }
+    return Array.from(set).sort((x, y) => x - y);
+  }, [data, params.institution_id, params.program_id]);
+  const allSemesters = useMemo(() => {
+    const set = new Set<number>();
+    for (const r of data?.data ?? []) if (r.semester_order != null) set.add(r.semester_order);
+    return Array.from(set).sort((x, y) => x - y);
+  }, [data]);
 
   const rows = useMemo(() => {
     const all = data?.data ?? [];
     const q = (params.q ?? '').toLowerCase();
     return all.filter((r) => {
       if (params.institution_id && r.institution_id !== params.institution_id) return false;
+      if (params.program_id && r.program_id !== params.program_id) return false;
       if (params.semester_order != null && r.semester_order !== params.semester_order) return false;
       if (params.status && r.bucket !== params.status) return false;
       if (params.responded && r.responded !== (params.responded === 'yes')) return false;
@@ -149,16 +176,17 @@ export function AssignedWillingnessView({ id }: { id: string }) {
       }
       return true;
     });
-  }, [data, params.q, params.institution_id, params.semester_order, params.status, params.responded]);
+  }, [data, params.q, params.institution_id, params.program_id, params.semester_order, params.status, params.responded]);
   // Score cards follow the institution / semester filter (search, willingness
   // and response filters are left out so the cards can still be used to
   // switch between Willing / Not willing / Pending within that audience).
   const summary = useMemo(() => {
     const all = data?.data ?? [];
-    if (!params.institution_id && params.semester_order == null) return data?.summary;
+    if (!params.institution_id && !params.program_id && params.semester_order == null) return data?.summary;
     const scoped = all.filter(
       (r) =>
         (!params.institution_id || r.institution_id === params.institution_id) &&
+        (!params.program_id || r.program_id === params.program_id) &&
         (params.semester_order == null || r.semester_order === params.semester_order)
     );
     const s = { assigned: scoped.length, responded: 0, willing: 0, not_willing: 0, pending: 0 };
@@ -167,7 +195,7 @@ export function AssignedWillingnessView({ id }: { id: string }) {
       s[r.bucket] += 1;
     }
     return s;
-  }, [data, params.institution_id, params.semester_order]);
+  }, [data, params.institution_id, params.program_id, params.semester_order]);
   const canMark = data?.can_mark_willing === true;
   const pickable = useMemo(() => rows.filter((r) => r.bucket !== 'willing'), [rows]);
   const pickedVisible = pickable.filter((r) => picked.has(r.learner_id)).length;
@@ -208,12 +236,13 @@ export function AssignedWillingnessView({ id }: { id: string }) {
   const safePage = Math.min(page, pageCount);
   const pageStart = pageSize === 'all' ? 0 : (safePage - 1) * pageSize;
   const pageRows = pageSize === 'all' ? rows : rows.slice(pageStart, pageStart + pageSize);
-  const filtersActive = institution !== 'all' || semester !== 'all' || status !== 'all' || responded !== 'all' || !!search.trim();
+  const filtersActive = institution !== 'all' || program !== 'all' || semester !== 'all' || status !== 'all' || responded !== 'all' || !!search.trim();
   const exportUrl = cdcDriveAssignedExportUrl(id, params);
   const exportAllUrl = cdcDriveAssignedExportUrl(id);
 
   function resetFilters() {
     setInstitution('all');
+    setProgram('all');
     setSemester('all');
     setStatus('all');
     setResponded('all');
@@ -324,7 +353,7 @@ export function AssignedWillingnessView({ id }: { id: string }) {
               </span>
               <span>
                 <span className="font-medium text-foreground">Semesters:</span>{' '}
-                {semesterOptions.length ? semesterOptions.join(', ') : 'All'}
+                {allSemesters.length ? allSemesters.join(', ') : 'All'}
               </span>
             </div>
           ) : null}
@@ -370,7 +399,7 @@ export function AssignedWillingnessView({ id }: { id: string }) {
           <CardHeader className="pb-3">
             <CardTitle className="text-base">Search &amp; filters</CardTitle>
             <CardDescription>
-              The Excel download uses the same search and filters. The score cards follow the institution and semester filter.
+              The Excel download uses the same search and filters. The score cards follow the institution, program and semester filter.
               {data && !data.contact_released
                 ? ' Profile contact is hidden for your role; only contact a learner shared at submission is shown.'
                 : ''}
@@ -386,8 +415,16 @@ export function AssignedWillingnessView({ id }: { id: string }) {
                 onChange={(e) => setSearch(e.target.value)}
               />
             </div>
-            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
-              <Select value={institution} onValueChange={setInstitution}>
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+              <Select
+                value={institution}
+                onValueChange={(v) => {
+                  setInstitution(v);
+                  // Program and semester lists change with the institution.
+                  setProgram('all');
+                  setSemester('all');
+                }}
+              >
                 <SelectTrigger>
                   <SelectValue placeholder="Institution" />
                 </SelectTrigger>
@@ -396,6 +433,25 @@ export function AssignedWillingnessView({ id }: { id: string }) {
                   {(drive?.institutions ?? []).map((instId) => (
                     <SelectItem key={instId} value={instId}>
                       {detail?.institution_names[instId] ?? instId}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Select
+                value={program}
+                onValueChange={(v) => {
+                  setProgram(v);
+                  setSemester('all');
+                }}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Program" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All programs</SelectItem>
+                  {programOptions.map((p) => (
+                    <SelectItem key={p.id} value={p.id}>
+                      {p.name}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -487,9 +543,15 @@ export function AssignedWillingnessView({ id }: { id: string }) {
                   </TableHeader>
                   <TableBody>
                     {pageRows.map((r, i) => (
-                      <TableRow key={r.learner_id} data-state={picked.has(r.learner_id) ? 'selected' : undefined}>
+                      <TableRow
+                        key={r.learner_id}
+                        data-state={picked.has(r.learner_id) ? 'selected' : undefined}
+                        // Clicking anywhere on a selectable row ticks its checkbox.
+                        className={canMark && r.bucket !== 'willing' ? 'cursor-pointer' : undefined}
+                        onClick={canMark && r.bucket !== 'willing' ? () => togglePick(r.learner_id) : undefined}
+                      >
                         {canMark ? (
-                          <TableCell>
+                          <TableCell onClick={(e) => e.stopPropagation()}>
                             {r.bucket === 'willing' ? null : (
                               <Checkbox
                                 checked={picked.has(r.learner_id)}
@@ -533,7 +595,7 @@ export function AssignedWillingnessView({ id }: { id: string }) {
                             {ASSIGNED_NOTIFICATION_LABEL[r.notification_state]}
                           </Badge>
                         </TableCell>
-                        <TableCell>
+                        <TableCell onClick={(e) => e.stopPropagation()}>
                           <Button variant="ghost" size="sm" onClick={() => setSelected(r)}>
                             <Eye className="h-4 w-4 mr-1" /> View
                           </Button>

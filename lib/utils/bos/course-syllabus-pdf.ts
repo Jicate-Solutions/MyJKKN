@@ -5,6 +5,7 @@ import type {
 	BosCourseLearnOutcome,
 	BosUnit,
 	BosPracticalTopic,
+	BosProjectUnit,
 	BosTextbook,
 	BosWebResource,
 	BosPoMapping,
@@ -636,6 +637,12 @@ export interface CourseSyllabusPDFData {
 	 * syllabi are unchanged; `false` drops the prefix (S.No column still numbers).
 	 */
 	number_practical_topics?: boolean
+	/**
+	 * Project-paper content (`course_content.project_units`) — set instead of
+	 * `units` when the Content tab is in Project mode. Each unit is a title plus
+	 * titled guideline paragraphs ("rules") and optional remarks.
+	 */
+	project_units?: BosProjectUnit[]
 	/** Instructions displayed after all course content (units/topics) */
 	instruction?: string
 	textbooks?: BosTextbook[]
@@ -1034,10 +1041,90 @@ export function renderCourseSyllabusPDF(
 	}
 	}
 
+	// Project papers — the Content tab's Project mode stores project_units[]
+	// (title + guideline "rules" + remarks) instead of units[]/topics[]. Same
+	// "Unit | Course content" table as theory so the paper reads consistently.
+	const renderProjectUnits = () => {
+	if (data.project_units && data.project_units.length > 0) {
+		const contentColW = TABLE_W - LABEL_W
+		const contentMaxTextW = contentColW - 4 // cellPadding (2) on each side
+
+		const rows: AnyCell[][] = [
+			[
+				bold('Unit', { halign: 'center' }),
+				bold('Course content', { halign: 'center' }),
+			],
+		]
+
+		const pushPlain = (allLines: BosMixedLine[], text: string) => {
+			doc.setFont('times', 'normal')
+			doc.setFontSize(FONT_SIZE)
+			const wrapped = doc.splitTextToSize(text, contentMaxTextW) as string[]
+			wrapped.forEach((l, idx) =>
+				allLines.push({ text: l, prefixEnd: 0, justify: idx < wrapped.length - 1 }),
+			)
+		}
+
+		data.project_units.forEach((unit, idx) => {
+			const unitTitle = sanitize(unit.unit_title || '').trim()
+			const rules = (unit.rules ?? [])
+				.map(r => ({
+					title: sanitize(r.unit_of_experiment || '').trim().replace(/[:\s]+$/, ''),
+					content: sanitize(r.content || '').trim(),
+				}))
+				.filter(r => r.title || r.content)
+			const remarks = sanitize(unit.remarks || '').trim()
+
+			const allLines: BosMixedLine[] = []
+
+			if (unitTitle) {
+				// A unit with no rules carries its whole guideline in the title box
+				// (authors paste the paragraph there) — print it as body text. With
+				// rules beneath it, the title is a heading and stays bold.
+				if (rules.length === 0) pushPlain(allLines, unitTitle)
+				else allLines.push(...wrapBoldPrefixRest(doc, unitTitle, '', contentMaxTextW))
+			}
+
+			for (const r of rules) {
+				if (r.title && r.content) {
+					allLines.push(...wrapBoldPrefixRest(doc, `${r.title}: `, r.content, contentMaxTextW))
+				} else if (r.title) {
+					allLines.push(...wrapBoldPrefixRest(doc, r.title, '', contentMaxTextW))
+				} else {
+					pushPlain(allLines, r.content)
+				}
+			}
+
+			if (remarks) pushPlain(allLines, remarks)
+
+			if (allLines.length === 0) return
+
+			rows.push([
+				{
+					content: unit.unit_id || String(idx + 1),
+					styles: { fontStyle: 'bold', halign: 'center', valign: 'top' },
+				},
+				{
+					content: allLines.map(l => l.text).join('\n'),
+					_bosMixed: { lines: allLines },
+				},
+			])
+		})
+
+		if (rows.length > 1) {
+			y = table(doc, y, rows, {
+				0: { cellWidth: LABEL_W },
+				1: { cellWidth: contentColW },
+			})
+		}
+	}
+	}
+
 	// Theory first, then practical — combined "Theory + Practical" courses print
 	// the units section above the "List of Experiments" section.
 	renderTheoryUnits()
 	renderPracticalTopics()
+	renderProjectUnits()
 
 	// ── SECTION 5.5: Instructions (after units/topics) ──────────────────────────
 	if (data.instruction && data.instruction.trim()) {
