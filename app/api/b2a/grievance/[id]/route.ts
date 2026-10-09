@@ -164,7 +164,7 @@ export async function GET(
     };
 
     let result = await buildQuery(true);
-    // The app reached production before migration 20270420090000: the column
+    // The app reached production before migration 20271010020000: the column
     // does not exist yet, so no complaint can be marked about the Joint MD and
     // the read as it was before that migration is exact (lib/grievance/schema-compat).
     if (result.error && isMissingGrievanceSchema(result.error, ABOUT_JOINT_MD_COLUMN)) {

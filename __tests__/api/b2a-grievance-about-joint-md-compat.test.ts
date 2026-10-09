@@ -6,7 +6,7 @@
  *   GET /api/b2a/grievance/:id        (detail)
  *   GET /api/b2a/grievance/dashboard  (counts)
  *
- * With migration 20270420090000 applied, every read leaves out complaints
+ * With migration 20271010020000 applied, every read leaves out complaints
  * about the Joint MD (.eq('about_joint_md', false)). If the app reaches
  * production first, that column does not exist and PostgREST answers 42703;
  * the routes must then answer exactly as before the PR (no ticket can be

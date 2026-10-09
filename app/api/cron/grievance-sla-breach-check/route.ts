@@ -7,7 +7,7 @@
 // their deadline, every one at escalation_level 0 and with no assignee.
 //
 // ONE RPC. Every rule lives in fn_grievance_escalation_tick, in the database
-// (migration 20270420090000_grievance_sla_escalation.sql):
+// (migration 20271010020000_grievance_sla_escalation.sql):
 //   * newly overdue tickets are stamped breached (what this route always did);
 //   * a ticket overdue at its current level moves up ONE level — HOD, then
 //     Principal, then Director — is reassigned, notified and given that
@@ -40,7 +40,7 @@ import { isMissingGrievanceSchema } from '@/lib/grievance/schema-compat';
 const ESCALATION_TICK = 'fn_grievance_escalation_tick';
 
 /**
- * What this route did before migration 20270420090000 (deep review of #4079,
+ * What this route did before migration 20271010020000 (deep review of #4079,
  * M4): stamp newly overdue tickets breached, nothing else. Used only while the
  * escalation function does not exist yet, so an app deployed ahead of its
  * migration keeps the NAAC breach record instead of failing every hour. No
@@ -52,7 +52,7 @@ async function legacyBreachStamp(
   dryRun: boolean,
   started: number
 ) {
-  logger.warn('grievance/cron/escalation', `${ESCALATION_TICK} is not in the database yet; breach stamping only (migration 20270420090000 not applied)`);
+  logger.warn('grievance/cron/escalation', `${ESCALATION_TICK} is not in the database yet; breach stamping only (migration 20271010020000 not applied)`);
 
   const { data: eligible, error: selectError } = await admin
     .from('grievance_tickets')
@@ -85,7 +85,7 @@ async function legacyBreachStamp(
 
   const summary =
     `${dryRun ? 'DRY RUN — would mark' : 'marked'} breached ${ids.length} ` +
-    '(escalation not installed yet: migration 20270420090000 pending)';
+    '(escalation not installed yet: migration 20271010020000 pending)';
   return NextResponse.json({
     ok: true,
     summary,
@@ -110,6 +110,8 @@ interface EscalationTickResult {
   levels_skipped?: number;
   at_ceiling?: number;
   switched_off?: number;
+  /** Complaints about the Joint MD with nobody handling them (no usable Director): a bare count. */
+  held_for_director?: number;
   tickets?: unknown[];
 }
 
@@ -128,7 +130,7 @@ export async function GET(request: NextRequest) {
 
   const { data, error } = await admin.rpc('fn_grievance_escalation_tick', { p_dry_run: dryRun });
   if (error && isMissingGrievanceSchema(error, ESCALATION_TICK)) {
-    // The app reached production before migration 20270420090000: do what
+    // The app reached production before migration 20271010020000: do what
     // this route did before it, so breach stamping never stops.
     return legacyBreachStamp(admin, dryRun, started);
   }
@@ -157,6 +159,7 @@ export async function GET(request: NextRequest) {
     levels_skipped: Number(result.levels_skipped ?? 0),
     at_ceiling: Number(result.at_ceiling ?? 0),
     switched_off: Number(result.switched_off ?? 0),
+    held_for_director: Number(result.held_for_director ?? 0),
   };
 
   const summary =
@@ -164,11 +167,14 @@ export async function GET(request: NextRequest) {
     `marked breached ${counters.breached}, no one to escalate to ${counters.skipped_no_target}, ` +
     `at the top level ${counters.at_ceiling}` +
     (counters.notify_failed > 0 ? `, ${counters.notify_failed} notice(s) FAILED to send` : '') +
+    (counters.held_for_director > 0
+      ? `, ${counters.held_for_director} held with nobody to handle them (set grievance.escalation.about_joint_md_profile_id)`
+      : '') +
     (result.enabled === false ? ' (escalation switched off)' : '');
 
   // A ticket nobody can take, or a notice that did not send, is something a
   // person must fix — say it loudly.
-  if (counters.skipped_no_target > 0 || counters.notify_failed > 0) {
+  if (counters.skipped_no_target > 0 || counters.notify_failed > 0 || counters.held_for_director > 0) {
     logger.warn('grievance/cron/escalation', summary, { ...counters, tickets: result.tickets });
   } else {
     logger.info('grievance/cron/escalation', summary, counters);

@@ -178,6 +178,23 @@ describe('what the run does and reports', () => {
   });
 });
 
+describe('complaints held with nobody to handle them (round 2, M4)', () => {
+  it('reports the bare count every run, and says so loudly', async () => {
+    rpcData = { ...(rpcData as object), held_for_director: 2 };
+    const res = await GET(request({ bearer: SECRET }));
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.held_for_director).toBe(2);
+    expect(body.summary).toContain('2 held with nobody to handle them');
+  });
+
+  it('says nothing about it when there are none', async () => {
+    const body = await (await GET(request({ bearer: SECRET }))).json();
+    expect(body.held_for_director).toBe(0);
+    expect(body.summary).not.toContain('held');
+  });
+});
+
 describe('an app deployed before its migration (M4)', () => {
   const missing = {
     code: 'PGRST202',

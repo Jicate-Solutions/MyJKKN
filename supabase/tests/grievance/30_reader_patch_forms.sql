@@ -62,6 +62,56 @@ SELECT set_config('request.jwt.claim.sub', 'a0000000-0000-0000-0000-00000000000f
 SELECT t_ok(t_jmd_caller('10000000-0000-0000-0000-000000000001') = :plain_a + :ticked_a, 'caller rule: anyone else still does');
 SELECT set_config('request.jwt.claim.sub', '', false);
 
+-- ------------------------------------------------ 1b. column references that name the table (round 2, M7)
+-- After wrapping, the read is named grievance_tickets with no schema, so a
+-- schema-qualified column (public.grievance_tickets.id) in a select list or a
+-- subquery would fail only when the function RUNS. The patch drops the schema,
+-- and the function is run here to prove it.
+CREATE FUNCTION t_jmd_qualified(p_inst uuid) RETURNS integer[] LANGUAGE plpgsql AS $fn$
+DECLARE a int; b int; c int;
+BEGIN
+  SELECT count(public.grievance_tickets.id) INTO a FROM public.grievance_tickets WHERE public.grievance_tickets.institution_id = p_inst;
+  SELECT count(*) INTO b FROM institutions i
+   WHERE i.id = p_inst
+     AND EXISTS (SELECT 1 FROM grievance_tickets WHERE "public"."grievance_tickets".institution_id = i.id AND grievance_tickets.about_joint_md);
+  SELECT (SELECT max(grievance_tickets.created_at) IS NOT NULL)::int INTO c FROM grievance_tickets WHERE grievance_tickets.institution_id = p_inst;
+  RETURN ARRAY[a, b, c];
+END
+$fn$;
+SELECT t_ok(t_jmd_qualified('10000000-0000-0000-0000-000000000001') = ARRAY[:plain_a + :ticked_a, 1, 1],
+            'before the patch: ' || t_jmd_qualified('10000000-0000-0000-0000-000000000001')::text);
+SELECT t_ok(fn_grievance_jmd_patch_reader('t_jmd_qualified(uuid)'::regprocedure, 'all') = 6,
+            'three reads wrapped and three schema-qualified columns repaired');
+SELECT t_ok(t_jmd_qualified('10000000-0000-0000-0000-000000000001') = ARRAY[:plain_a, 0, 1],
+            'after the patch it RUNS and leaves them out: ' || t_jmd_qualified('10000000-0000-0000-0000-000000000001')::text);
+SELECT t_ok((SELECT w.wrapped = 0 FROM fn_grievance_jmd_wrap_reads((SELECT prosrc FROM pg_proc WHERE proname = 't_jmd_qualified'), 'all') w),
+            'and the section-14 check finds nothing left');
+-- what section 14 must catch: a wrapped read with a schema-qualified column left over
+SELECT t_ok((SELECT w.wrapped = 1 FROM fn_grievance_jmd_wrap_reads(
+               'SELECT public.grievance_tickets.id FROM (SELECT * FROM public.grievance_tickets AS __jmd WHERE NOT COALESCE(__jmd.about_joint_md, false)) AS grievance_tickets', 'all') w),
+            'section 14 flags a schema-qualified column left next to a wrapped read');
+DO $$ BEGIN
+  PERFORM fn_grievance_jmd_wrap_reads('SELECT grievance_tickets.id FROM (SELECT * FROM public.grievance_tickets AS __jmd WHERE true) AS g', 'all', 'test');
+  RAISE EXCEPTION 'FAIL: a grievance_tickets.<col> with no read of that name was accepted';
+EXCEPTION WHEN raise_exception THEN
+  IF SQLERRM LIKE 'FAIL:%' THEN RAISE; END IF;
+END $$;
+SELECT t_ok(true, 'section 14 refuses grievance_tickets.<col> when no read carries that name');
+
+-- ------------------------------------------------ 1c. the real readers, as main's migrations leave them
+-- run.sh loaded each reader's newest definition from the migrations that sort
+-- BEFORE this one into schema "replay" (replay_readers.py, which also failed
+-- the run if a later migration re-creates one). Patch them and re-create
+-- them: the rewritten text of every real body parses.
+SELECT t_ok(count(*) = 5, 'five real readers replayed: ' || string_agg(p.proname, ', '))
+  FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace AND n.nspname = 'replay';
+SELECT t_ok(fn_grievance_jmd_patch_reader(p.oid::regprocedure, CASE p.proname WHEN 'replay_fn_my_desk_waiting' THEN 'caller' ELSE 'all' END) >= 1,
+            'replay.' || p.proname || ': patched and re-created')
+  FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace AND n.nspname = 'replay';
+SELECT t_ok(w.wrapped = 0 AND w.already >= 1, 'replay.' || p.proname || ': every read wrapped (' || w.already || ')')
+  FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace AND n.nspname = 'replay',
+       fn_grievance_jmd_wrap_reads(p.prosrc, 'all', p.proname) w;
+
 -- ------------------------------------------------ 2. what it refuses (a person has to look)
 DO $$
 DECLARE

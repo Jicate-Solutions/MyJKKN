@@ -121,7 +121,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     };
 
     let results = await countAll(true);
-    // The app reached production before migration 20270420090000: the column
+    // The app reached production before migration 20271010020000: the column
     // does not exist yet, so no complaint can be marked about the Joint MD and
     // the counts as they were before that migration are exact
     // (lib/grievance/schema-compat).

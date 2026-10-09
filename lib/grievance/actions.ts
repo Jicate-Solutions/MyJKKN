@@ -127,9 +127,10 @@ export interface SendBackToNormalPathResult {
 /**
  * "Send back to the normal path" (Director ruling, 9 Oct 2026): a complaint
  * ticked "about the Joint MD" by mistake goes back to ordinary routing and the
- * tick is cleared. Every rule — only the Director or a super admin, never the
+ * tick is cleared. Every rule — only the Director named in
+ * grievance.escalation.about_joint_md_profile_id, not a super admin, never the
  * Joint MD; who is logged; where it goes next — lives in
- * fn_grievance_send_back_to_normal_path (migration 20270420090000), called on
+ * fn_grievance_send_back_to_normal_path (migration 20271010020000), called on
  * the caller's own session so auth.uid() is the person who clicked.
  */
 export async function sendBackToNormalPathAction(
@@ -149,6 +150,11 @@ export async function sendBackToNormalPathAction(
     p_ticket_id: id,
     p_note: note?.trim() ? note.trim().slice(0, 500) : undefined,
   });
+  // 42501 = the database refused this person (or the complaint does not
+  // exist — the same sentence on purpose). Its message is written for them.
+  if (error?.code === '42501') {
+    return { success: false, error: error.message };
+  }
   if (error) {
     logger.error(MODULE, 'Send back to the normal path failed', error);
     return { success: false, error: 'Could not send this complaint back. Try again.' };

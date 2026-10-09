@@ -84750,7 +84750,7 @@ GRANT  EXECUTE ON FUNCTION public.fn_hr_playbook_decide(uuid, text, text, text) 
 -- =====================================================================
 -- Updated: 2026-09-28 - Grievance: route on create, escalate on breach (policies + functions)
 -- Updated: 2026-10-09 - the "about the Joint MD" tick (rulings 9 Oct 23:18, 23:25)
--- Source of truth for apply: supabase/migrations/20270420090000_grievance_sla_escalation.sql
+-- Source of truth for apply: supabase/migrations/20271010020000_grievance_sla_escalation.sql
 -- =====================================================================
 -- ---------------------------------------------------------------------
 -- 2) Policies (seeded once; never overwrite a value someone has set)
@@ -85383,6 +85383,10 @@ REVOKE EXECUTE ON FUNCTION public.fn_grievance_notify_on_create() FROM anon, aut
 -- super admin, and not even a count may reach her (deep review of #4079, M6).
 -- Its outcome is on the ticket itself (metadata.escalations /
 -- escalation_blocked), which she cannot read.
+-- The one exception is held_for_director: how many complaints about the
+-- Joint MD are open with NOBODY handling them (no usable Director set), as a
+-- bare count every hour, so a stuck complaint is never silent (round 2, M4).
+-- It names no ticket.
 CREATE OR REPLACE FUNCTION public.fn_grievance_escalation_tick(p_dry_run boolean DEFAULT false)
 RETURNS jsonb
 LANGUAGE plpgsql
@@ -85416,6 +85420,7 @@ DECLARE
   v_event      jsonb;
   v_nid        uuid;
   v_show       boolean;
+  v_held       integer := 0;
 BEGIN
   IF auth.uid() IS NOT NULL THEN
     RAISE EXCEPTION 'the grievance escalation run is started by the scheduler, not by a person' USING ERRCODE = '42501';
@@ -85566,6 +85571,13 @@ BEGIN
     IF v_show THEN v_escalated := v_escalated + 1; END IF;
   END LOOP;
 
+  -- 3) Complaints about the Joint MD that nobody holds: a count, nothing else.
+  SELECT count(*) INTO v_held
+  FROM public.grievance_tickets
+  WHERE COALESCE(about_joint_md, false) AND assigned_to IS NULL
+    AND status IN ('open', 'in_progress', 'pending_info', 'reopened')
+    AND resolved_at IS NULL AND withdrawn_at IS NULL;
+
   RETURN jsonb_build_object(
     'success',           true,
     'dry_run',           v_dry,
@@ -85578,6 +85590,7 @@ BEGIN
     'levels_skipped',    v_lv_skipped,
     'at_ceiling',        v_ceiling,
     'switched_off',      v_off,
+    'held_for_director', v_held,
     'tickets',           v_rows);
 END;
 $$;
@@ -85585,7 +85598,7 @@ REVOKE EXECUTE ON FUNCTION public.fn_grievance_escalation_tick(boolean) FROM ano
 GRANT  EXECUTE ON FUNCTION public.fn_grievance_escalation_tick(boolean) TO service_role;
 
 COMMENT ON FUNCTION public.fn_grievance_escalation_tick(boolean) IS
-  'Hourly (via /api/cron/grievance-sla-breach-check): stamps sla_breached_at on newly overdue tickets, then moves each ticket overdue at its current level up ONE chain level (HOD, Principal, Director), reassigning and notifying. Rules and safety limits: migration 20270420090000_grievance_sla_escalation.sql. Scheduler only.';
+  'Hourly (via /api/cron/grievance-sla-breach-check): stamps sla_breached_at on newly overdue tickets, then moves each ticket overdue at its current level up ONE chain level (HOD, Principal, Director), reassigning and notifying. Rules and safety limits: migration 20271010020000_grievance_sla_escalation.sql. Scheduler only.';
 
 -- ---------------------------------------------------------------------
 -- 9) fn_generate_unresolved_issue_items — the dead link
@@ -85745,7 +85758,7 @@ AS $$
 BEGIN
   IF COALESCE(OLD.about_joint_md, false) AND NOT COALESCE(NEW.about_joint_md, false)
      AND COALESCE(current_setting('app.grievance_send_back', true), '') <> 'on' THEN
-    RAISE EXCEPTION 'This complaint is marked as about the Joint MD. Only the Director or a super admin can send it back to the normal path, with the "Send back to the normal path" button on the complaint.'
+    RAISE EXCEPTION 'This complaint is marked as about the Joint MD. Only the Director can send it back to the normal path, with the "Send back to the normal path" button on the complaint.'
       USING ERRCODE = '42501';
   END IF;
   IF NOT COALESCE(OLD.about_joint_md, false) AND COALESCE(NEW.about_joint_md, false) THEN
@@ -85964,6 +85977,8 @@ DECLARE
   v_end   integer;
   v_cur   integer := 1;
   v_out   text := '';
+  v_qual  integer := 0;   -- column qualifiers grievance_tickets.<col>
+  v_named integer := 0;   -- reads (or aliases) named grievance_tickets
 BEGIN
   IF p_rule IS NULL OR p_rule NOT IN ('caller', 'all') THEN
     RAISE EXCEPTION 'grievance: unknown about-the-Joint-MD rule %', p_rule;
@@ -86073,8 +86088,24 @@ BEGIN
       CONTINUE;   -- another schema's table, or a column called grievance_tickets
     END IF;
 
-    -- not a read: a column qualifier (grievance_tickets.id) or %ROWTYPE
-    CONTINUE WHEN substr(v_m, v_qe + 1, 200) ~ '^\s*[.%]';
+    -- A column qualifier is not a read. Unqualified (grievance_tickets.id)
+    -- it names a read's alias and is left alone (checked below). Schema-
+    -- qualified (public.grievance_tickets.id) it would name a table that is no
+    -- longer in the FROM list once the read is wrapped, and fail only when the
+    -- function runs: the schema is dropped, and that counts as a place still
+    -- to fix, so section 14 cannot pass while one is left (round 2, M7).
+    IF substr(v_m, v_qe + 1, 200) ~ '^\s*\.' THEN
+      IF v_rs < v_qs THEN
+        v_out := v_out || array_to_string(v_c[v_cur : v_rs - 1], '');
+        v_cur := v_qs;
+        wrapped := wrapped + 1;
+      ELSE
+        v_qual := v_qual + 1;
+      END IF;
+      CONTINUE;
+    END IF;
+    -- not a read either: %ROWTYPE
+    CONTINUE WHEN substr(v_m, v_qe + 1, 200) ~ '^\s*%';
     -- a read this patch already wrapped
     IF substr(v_m, v_qe + 1, 200) ~* '^\s+AS\s+__jmd\M' THEN
       already := already + 1;
@@ -86085,7 +86116,10 @@ BEGIN
     v_pre := regexp_match(right(substr(v_m, 1, v_rs - 1), 300),
                           '([A-Za-z_]+|[,()])(\s*)((?:\monly\s+)?)$', 'i');
     v_tok := lower(v_pre[1]);
-    CONTINUE WHEN v_tok = 'as';   -- an alias named grievance_tickets (this patch's own)
+    IF v_tok = 'as' THEN          -- an alias named grievance_tickets (this patch's own)
+      v_named := v_named + 1;
+      CONTINUE;
+    END IF;
     IF v_tok IS NULL OR v_tok NOT IN ('from', 'join', ',') THEN
       RAISE EXCEPTION 'grievance: % uses grievance_tickets in a way the about-the-Joint-MD patch does not recognise as a read (after "%"): ...%... Compare pg_get_functiondef with main before re-running.',
         p_label, COALESCE(v_pre[1], ''),
@@ -86104,6 +86138,9 @@ BEGIN
       v_end   := v_qe;
       v_alias := 'grievance_tickets';
     END IF;
+    IF lower(v_alias) IN ('grievance_tickets', '"grievance_tickets"') THEN
+      v_named := v_named + 1;
+    END IF;
 
     v_k := v_rs - length(COALESCE(v_pre[3], ''));   -- ONLY, if any, moves inside
     v_out := v_out || array_to_string(v_c[v_cur : v_k - 1], '')
@@ -86115,6 +86152,12 @@ BEGIN
     v_p   := v_end + 1;
     wrapped := wrapped + 1;
   END LOOP;
+
+  -- grievance_tickets.<col> with no read named grievance_tickets points at a
+  -- table outside every wrapped FROM: it cannot be vouched for.
+  IF v_qual > 0 AND v_named = 0 THEN
+    RAISE EXCEPTION 'grievance: % qualifies a column with grievance_tickets but no read in it is named grievance_tickets, so the about-the-Joint-MD patch cannot vouch for it. Compare pg_get_functiondef with main before re-running.', p_label;
+  END IF;
 
   body := v_out || array_to_string(v_c[v_cur : v_n], '');
 END;
@@ -86154,14 +86197,21 @@ REVOKE EXECUTE ON FUNCTION public.fn_grievance_jmd_patch_reader(regprocedure, te
 -- ---------------------------------------------------------------------
 -- 13) "Send back to the normal path" (ruling 9 Oct 2026 23:25 (a))
 -- ---------------------------------------------------------------------
--- For a complaint ticked "about the Joint MD" by mistake. Only the Director
--- (the person grievance.escalation.about_joint_md_profile_id names for that
--- college) or a super admin — and NEVER anyone in the Joint MD's seat — may
--- do it. It clears the tick, routes the ticket exactly as a new complaint is
--- routed (fn_grievance_initial_route), restarts its escalation from there,
--- tells the new handler, and records who did it (grievance_history + the
--- ticket's metadata). The refusal for "no such complaint" and "not yours to
--- do" is the same sentence, so the answer reveals nothing.
+-- For a complaint ticked "about the Joint MD" by mistake. ONLY the Director —
+-- the profile grievance.escalation.about_joint_md_profile_id names for that
+-- college (else the global row) — may do it: not a super admin, not the
+-- database owner, and never anyone in the Joint MD's seat. If that setting is
+-- empty, nobody can (ruling 23:25 (a); deep review of #4079 round 2, M3).
+-- It clears the tick, routes the ticket exactly as a new complaint is routed
+-- (fn_grievance_initial_route), gives it a FRESH SLA deadline computed the
+-- way a new ticket's is (calculate_grievance_sla_deadline over the ticket's
+-- sla_hours / its category's default_sla_hours; round 2, M6 — the old
+-- deadline had usually passed while it was held, so the next hourly run
+-- escalated it at once), restarts its escalation from there, tells the new
+-- handler, and records who did it (grievance_history + the ticket's
+-- metadata, which keeps the previous deadline and breach stamp). Every
+-- refusal ("no such complaint", "not yours to do") is the same 42501 error,
+-- so the answer reveals nothing.
 CREATE OR REPLACE FUNCTION public.fn_grievance_send_back_to_normal_path(p_ticket_id uuid, p_note text DEFAULT NULL)
 RETURNS jsonb
 LANGUAGE plpgsql
@@ -86169,13 +86219,15 @@ SECURITY DEFINER
 SET search_path = public
 AS $$
 DECLARE
-  c_refuse CONSTANT text := 'This complaint does not exist, or only the Director or a super admin can send it back to the normal path.';
+  c_refuse CONSTANT text := 'This complaint does not exist, or only the Director can send it back to the normal path.';
   v_uid    uuid := auth.uid();
   v_t      public.grievance_tickets;
   v_was    public.grievance_tickets;
-  v_dir    jsonb;
+  v_dir    uuid;
   v_route  jsonb;
   v_to     uuid;
+  v_hours  integer;
+  v_due    timestamptz;
   v_note   text := NULLIF(left(btrim(COALESCE(p_note, '')), 500), '');
 BEGIN
   IF v_uid IS NULL THEN
@@ -86184,14 +86236,22 @@ BEGIN
 
   SELECT * INTO v_t FROM public.grievance_tickets WHERE id = p_ticket_id FOR UPDATE;
   IF NOT FOUND THEN
-    RETURN jsonb_build_object('success', false, 'error', c_refuse);
+    RAISE EXCEPTION '%', c_refuse USING ERRCODE = '42501';
   END IF;
-  IF v_uid = ANY (public.fn_grievance_joint_md_ids(v_t.institution_id)) THEN
-    RETURN jsonb_build_object('success', false, 'error', c_refuse);
-  END IF;
-  v_dir := public.fn_grievance_about_joint_md_target(v_t);
-  IF NOT (COALESCE(public.is_super_admin(), false) OR v_uid IS NOT DISTINCT FROM (v_dir ->> 'to')::uuid) THEN
-    RETURN jsonb_build_object('success', false, 'error', c_refuse);
+  -- The Director = the profile the setting names, read straight from the
+  -- policy rows (this college first, then global): no per-user row, no
+  -- super-admin shortcut. Unset or unreadable = nobody.
+  SELECT public.fn_grievance_policy_profile_id(pp.value) INTO v_dir
+  FROM public.platform_policies pp
+  WHERE pp.is_active
+    AND pp.policy_key = 'grievance.escalation.about_joint_md_profile_id'
+    AND ((pp.scope_type = 'institution' AND pp.scope_id = v_t.institution_id)
+      OR (pp.scope_type = 'global' AND pp.scope_id IS NULL))
+  ORDER BY CASE pp.scope_type WHEN 'institution' THEN 1 ELSE 2 END
+  LIMIT 1;
+  IF v_dir IS NULL OR v_uid IS DISTINCT FROM v_dir
+     OR v_uid = ANY (public.fn_grievance_joint_md_ids(v_t.institution_id)) THEN
+    RAISE EXCEPTION '%', c_refuse USING ERRCODE = '42501';
   END IF;
 
   IF NOT COALESCE(v_t.about_joint_md, false) THEN
@@ -86210,6 +86270,15 @@ BEGIN
   v_route := public.fn_grievance_initial_route(v_t);
   v_to := (v_route ->> 'assigned_to')::uuid;
 
+  -- A fresh SLA, computed the way a new ticket's is (M6).
+  v_hours := GREATEST(COALESCE(v_t.sla_hours,
+               (SELECT c.default_sla_hours FROM public.grievance_categories c WHERE c.id = v_t.category_id),
+               72), 1);
+  IF to_regprocedure('public.calculate_grievance_sla_deadline(uuid,integer,timestamptz)') IS NOT NULL THEN
+    v_due := public.calculate_grievance_sla_deadline(v_t.institution_id, v_hours, now());
+  END IF;
+  v_due := COALESCE(v_due, now() + make_interval(hours => v_hours));
+
   PERFORM set_config('app.grievance_send_back', 'on', true);
   UPDATE public.grievance_tickets
      SET about_joint_md      = false,
@@ -86218,13 +86287,19 @@ BEGIN
          escalation_level    = 0,
          escalated_at        = NULL,
          escalation_deadline = NULL,
+         sla_hours           = v_hours,
+         sla_deadline        = v_due,
+         sla_breached_at     = NULL,
+         sla_status          = 'on_track',
          metadata = (COALESCE(metadata, '{}'::jsonb) - 'about_joint_md_hold' - 'escalation_blocked')
                     || jsonb_build_object(
                          'auto_route', v_route -> 'auto_route',
                          'about_joint_md_sent_back', jsonb_build_object(
                            'by', v_uid, 'at', now(), 'note', v_note,
                            'previous_assignee', v_was.assigned_to,
-                           'previous_level', v_was.escalation_level))
+                           'previous_level', v_was.escalation_level,
+                           'previous_sla_deadline', v_was.sla_deadline,
+                           'previous_sla_breached_at', v_was.sla_breached_at))
    WHERE id = v_was.id
    RETURNING * INTO v_t;
   PERFORM set_config('app.grievance_send_back', '', true);

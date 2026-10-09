@@ -12401,7 +12401,7 @@ CREATE POLICY ig_learner_post_claims_delete ON public.ig_learner_post_claims
 -- =====================================================================
 -- Updated: 2026-09-28 - Grievance: route on create, escalate on breach (row-level security)
 -- Updated: 2026-10-09 - the "about the Joint MD" tick (rulings 9 Oct 23:18, 23:25)
--- Source of truth for apply: supabase/migrations/20270420090000_grievance_sla_escalation.sql
+-- Source of truth for apply: supabase/migrations/20271010020000_grievance_sla_escalation.sql
 -- =====================================================================
 DROP POLICY IF EXISTS grievance_tickets_hide_about_joint_md ON public.grievance_tickets;
 CREATE POLICY grievance_tickets_hide_about_joint_md ON public.grievance_tickets
