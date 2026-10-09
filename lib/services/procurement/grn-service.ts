@@ -14,6 +14,13 @@ import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { getAdapter } from './domain-adapters/registry';
 import { matchLine, validateLineForVerify } from './three-way-match';
 import {
+  expiredLineBlocks,
+  findDuplicateGrns,
+  lateReasonMissing,
+  localToday,
+  type DuplicateCandidate,
+} from './invoice-checks';
+import {
   PO_PURCHASE_REQUEST_EMBED,
   rfqIdsForRequestSearch,
   sanitizeOrSearch,
@@ -36,6 +43,15 @@ function withGrnPurchaseRequest(row: any) {
   if (!row?.purchase_order) return { ...row, purchase_request: null };
   const { purchase_request, ...purchase_order } = withPurchaseRequest(row.purchase_order);
   return { ...row, purchase_order, purchase_request };
+}
+
+/** An earlier receipt shown side by side when an invoice number repeats (I1). */
+export interface SupplierInvoiceGrn extends DuplicateCandidate {
+  grn_number: string;
+  invoice_date: string | null;
+  invoice_amount: number | null;
+  created_at: string;
+  received_by_profile?: { full_name: string | null } | null;
 }
 
 export class ProcurementGrnService {
@@ -293,6 +309,51 @@ export class ProcurementGrnService {
         );
       }
 
+      // Invoice checks I1/I2/I4 (lib/services/procurement/invoice-checks.ts), re-applied
+      // here so the save path enforces what the form shows, not only the form.
+      const today = localToday();
+
+      // I2 — already-expired goods are never accepted into stock (rejecting them is fine).
+      const expired = input.lines
+        .filter((l) => expiredLineBlocks(l, today))
+        .map((l) => `"${poItemMap.get(l.po_item_id)?.item_name ?? 'A line'}" expired on ${l.expiry_date}`);
+      if (expired.length) {
+        throw new Error(
+          `Expired goods cannot be accepted — reject them or correct the expiry date:\n${expired.join('\n')}`
+        );
+      }
+
+      // I4 — an invoice older than the receiver's limit needs a typed reason.
+      if (
+        lateReasonMissing(
+          input.invoice_date,
+          today,
+          expectations?.max_invoice_age_days ?? null,
+          input.late_invoice_reason
+        )
+      ) {
+        throw new Error(
+          `This invoice is older than the ${expectations?.max_invoice_age_days} days you allowed — say why before recording it.`
+        );
+      }
+
+      // I1 — the same invoice number from the same supplier was already recorded. Only a
+      // verifier who is not the receiver may confirm it is a different invoice; the DB
+      // trigger fn_procurement_grn_invoice_checks decides whether that confirmer is valid.
+      const duplicates = findDuplicateGrns(
+        await this.getSupplierInvoiceGrns(po.supplier_id),
+        po.supplier_id,
+        input.invoice_number
+      );
+      if (duplicates.length && !input.duplicate_confirmed_by) {
+        throw new Error(
+          `Invoice ${input.invoice_number} from this supplier is already recorded on ${duplicates
+            .map((d) => d.grn_number)
+            .join(', ')}. Only a verifier other than the receiver can confirm it is a different invoice.`
+        );
+      }
+      const lateReason = input.late_invoice_reason?.trim() || null;
+
       // 3) Insert header, then lines.
       const grnNumber = await this.generateGrnNumber(po.institution_id);
       const { data: grn, error: grnErr } = await this.supabase
@@ -311,6 +372,10 @@ export class ProcurementGrnService {
           status: 'pending_verification',
           received_by: userId,
           notes: this.composeNotes(input.notes, expectations),
+          // Sent only when set, so recording a delivery keeps working on a database where
+          // 20261009120000_procurement_grn_invoice_checks has not been applied yet.
+          ...(lateReason ? { late_invoice_reason: lateReason } : {}),
+          ...(input.duplicate_confirmed_by ? { duplicate_confirmed_by: input.duplicate_confirmed_by } : {}),
         })
         .select()
         .single();
@@ -326,6 +391,26 @@ export class ProcurementGrnService {
       console.error('[ProcurementGrnService] createGrnAgainstPO:', error);
       throw error;
     }
+  }
+
+  /**
+   * Earlier receipts from one supplier that carry an invoice number — the candidate set
+   * for the I1 duplicate check (matched on the normalised number by findDuplicateGrns).
+   * Read under the caller's RLS, so it covers the institutions the caller can see.
+   */
+  static async getSupplierInvoiceGrns(supplierId: string): Promise<SupplierInvoiceGrn[]> {
+    const { data, error } = await this.supabase
+      .from('procurement_grn')
+      .select(
+        `id, grn_number, supplier_id, invoice_number, invoice_date, invoice_amount, status, created_at,
+         received_by_profile:profiles!received_by(full_name)`
+      )
+      .eq('supplier_id', supplierId)
+      .not('invoice_number', 'is', null)
+      .order('created_at', { ascending: false })
+      .limit(500);
+    if (error) throw error;
+    return (data ?? []) as SupplierInvoiceGrn[];
   }
 
   /**

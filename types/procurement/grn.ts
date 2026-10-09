@@ -36,6 +36,11 @@ export interface ProcurementGrn {
   verified_by: string | null;
   verified_at: string | null;
   notes: string | null;
+  /** I1: verifier (never the receiver) who confirmed a same-number invoice is genuinely different. */
+  duplicate_confirmed_by?: string | null;
+  duplicate_confirmed_at?: string | null;
+  /** I4: why an invoice older than the receiver's limit was accepted. */
+  late_invoice_reason?: string | null;
   created_at: string;
   updated_at: string;
   supplier?: { id: string; name: string; code: string; gstin: string | null } | null;
@@ -128,6 +133,13 @@ export interface CreateGrnInput {
   invoice_document_url?: string | null;
   notes?: string | null;
   expectations?: GrnExpectations | null;
+  /** I4: required when the invoice is older than expectations.max_invoice_age_days. */
+  late_invoice_reason?: string | null;
+  /**
+   * I1: set only by a verifier who is not the receiver. The DB trigger
+   * fn_procurement_grn_invoice_checks rejects any other value and stamps the time.
+   */
+  duplicate_confirmed_by?: string | null;
   lines: GrnLineInput[];
 }
 
