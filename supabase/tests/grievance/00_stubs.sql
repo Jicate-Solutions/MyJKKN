@@ -147,3 +147,89 @@ BEGIN
   INSERT INTO stub_work_items VALUES (p_key, p_target, p_metadata) ON CONFLICT DO NOTHING;
   RETURN 1;
 END $$;
+
+-- ---------------------------------------------------------------- about the Joint MD (9 Oct 2026)
+-- Comments and history of a ticket (types/supabase.ts shapes; select policies
+-- copied from rls_initplan_wrap_sweep.sql). Section 11 adds a restrictive
+-- policy to each.
+CREATE TABLE public.grievance_comments (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(), ticket_id uuid NOT NULL REFERENCES grievance_tickets(id),
+  author_id uuid, author_name text NOT NULL, author_type text NOT NULL, content text NOT NULL,
+  is_internal boolean DEFAULT false, attachments jsonb, created_at timestamptz DEFAULT now());
+CREATE TABLE public.grievance_history (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(), ticket_id uuid NOT NULL REFERENCES grievance_tickets(id),
+  action text NOT NULL, old_value text, new_value text, performed_by uuid, performed_at timestamptz DEFAULT now());
+GRANT SELECT, INSERT ON public.grievance_comments, public.grievance_history TO authenticated;
+ALTER TABLE public.grievance_comments ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.grievance_history ENABLE ROW LEVEL SECURITY;
+CREATE POLICY grievance_comments_select ON public.grievance_comments FOR SELECT USING ((( SELECT is_super_admin() AS is_super_admin) OR ( SELECT is_admin() AS is_admin) OR (EXISTS ( SELECT 1
+   FROM grievance_tickets gt
+  WHERE ((gt.id = grievance_comments.ticket_id) AND ((gt.raised_by_id = ( SELECT auth.uid() AS uid)) OR (gt.assigned_to = ( SELECT auth.uid() AS uid)) OR (gt.filed_by = ( SELECT auth.uid() AS uid)) OR (( SELECT user_has_permission('grievance.tickets.view'::text) AS user_has_permission) AND role_has_institution_access(gt.institution_id))) AND ((NOT grievance_comments.is_internal) OR (( SELECT user_has_permission('grievance.tickets.edit'::text) AS user_has_permission) AND role_has_institution_access(gt.institution_id))))))));
+CREATE POLICY grievance_history_select ON public.grievance_history FOR SELECT USING (((EXISTS ( SELECT 1
+   FROM grievance_tickets gt
+  WHERE ((gt.id = grievance_history.ticket_id) AND ((gt.raised_by_id = ( SELECT auth.uid() AS uid)) OR (gt.assigned_to = ( SELECT auth.uid() AS uid)))))) OR (EXISTS ( SELECT 1
+   FROM (grievance_tickets gt
+     JOIN profiles up ON ((up.institution_id = gt.institution_id)))
+  WHERE ((gt.id = grievance_history.ticket_id) AND (up.id = ( SELECT auth.uid() AS uid)) AND (up.role = ANY (ARRAY['admin'::text, 'super_admin'::text, 'staff'::text, 'hod'::text, 'principal'::text])))))));
+-- The production policy for UPDATE (same sweep), so "the Joint MD cannot change it" is tested against it.
+CREATE POLICY grievance_tickets_update ON public.grievance_tickets FOR UPDATE USING ((( SELECT is_super_admin() AS is_super_admin) OR ( SELECT is_admin() AS is_admin) OR (assigned_to = ( SELECT auth.uid() AS uid)) OR ((raised_by_id = ( SELECT auth.uid() AS uid)) AND ((status)::text = 'open'::text)) OR (( SELECT user_has_permission('grievance.tickets.edit'::text) AS user_has_permission) AND role_has_institution_access(institution_id)))) WITH CHECK ((( SELECT is_super_admin() AS is_super_admin) OR ( SELECT is_admin() AS is_admin) OR (assigned_to = ( SELECT auth.uid() AS uid)) OR (raised_by_id = ( SELECT auth.uid() AS uid)) OR (( SELECT user_has_permission('grievance.tickets.edit'::text) AS user_has_permission) AND role_has_institution_access(institution_id))));
+
+-- The SECURITY DEFINER readers that COUNT grievance_tickets (section 12
+-- patches them in place). Each grievance statement is production's, verbatim
+-- (20260817000000, 20260419000007, 20260722200000, 20260419000009), inside a
+-- minimal body that returns just that count.
+CREATE OR REPLACE FUNCTION public.fn_dashboard_metrics(p_institution_id uuid DEFAULT NULL::uuid, p_department_id uuid DEFAULT NULL::uuid)
+RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+DECLARE
+  v_escalations_open INT := 0;
+  v_effective_institution uuid := p_institution_id;
+BEGIN
+  SELECT COUNT(*) INTO v_escalations_open FROM grievance_tickets
+  WHERE status NOT IN ('resolved', 'closed', 'cancelled') AND sla_deadline IS NOT NULL AND sla_deadline < NOW()
+    AND (v_effective_institution IS NULL OR institution_id = v_effective_institution);
+  RETURN jsonb_build_object('escalations_open', v_escalations_open);
+END $$;
+CREATE OR REPLACE FUNCTION public.fn_compute_ohs_for_institution(p_institution_id uuid)
+RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+DECLARE
+  v_escalations_open INT := 0;
+BEGIN
+  -- Escalations: open grievances past SLA
+  SELECT COUNT(*) INTO v_escalations_open
+  FROM grievance_tickets
+  WHERE status NOT IN ('resolved', 'closed', 'cancelled')
+    AND sla_deadline IS NOT NULL
+    AND sla_deadline < NOW()
+    AND (p_institution_id IS NULL OR institution_id = p_institution_id);
+  RETURN jsonb_build_object('escalations_open', v_escalations_open);
+END $$;
+CREATE OR REPLACE FUNCTION public.fn_hod_metrics()
+RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+DECLARE
+  v_dept_id uuid; v_inst_id uuid; v_open_grievances int := 0; v_grievance_oldest_days int := 0;
+BEGIN
+  SELECT department_id, institution_id INTO v_dept_id, v_inst_id FROM profiles WHERE id = auth.uid();
+  SELECT COUNT(*), COALESCE(CURRENT_DATE - MIN(created_at)::date, 0)
+  INTO v_open_grievances, v_grievance_oldest_days
+  FROM grievance_tickets
+  WHERE department_id = v_dept_id AND institution_id = v_inst_id
+    AND status NOT IN ('resolved', 'closed', 'Resolved', 'Closed');
+  RETURN jsonb_build_object('open_grievances', v_open_grievances);
+END $$;
+CREATE OR REPLACE FUNCTION public.fn_compute_dhs_for_user(p_user_id uuid)
+RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+DECLARE
+  v_dept_id uuid; v_inst_id uuid; v_30d_start date := CURRENT_DATE - 30;
+  v_dhs_griev_resolved int := 0; v_dhs_griev_total int := 0;
+BEGIN
+  SELECT department_id, institution_id INTO v_dept_id, v_inst_id FROM profiles WHERE id = p_user_id;
+  SELECT
+    COUNT(*) FILTER (WHERE status IN ('resolved', 'closed', 'Resolved', 'Closed')),
+    COUNT(*)
+  INTO v_dhs_griev_resolved, v_dhs_griev_total
+  FROM grievance_tickets
+  WHERE department_id = v_dept_id
+    AND institution_id = v_inst_id
+    AND created_at >= v_30d_start::timestamptz;
+  RETURN jsonb_build_object('grievances_total', v_dhs_griev_total);
+END $$;

@@ -13,8 +13,18 @@ case "$PGHOST" in 127.0.0.1|localhost|::1) ;; *) echo "refusing: PGHOST=$PGHOST 
 psql -d postgres -qc "DROP DATABASE IF EXISTS $DB" && psql -d postgres -qc "CREATE DATABASE $DB"
 psql -d "$DB" -v ON_ERROR_STOP=1 -q -f "$HERE/00_stubs.sql"
 psql -d "$DB" -v ON_ERROR_STOP=1 -q -f "$HERE/05_preseed.sql"
+# Production's My Desk reader, the REAL body from the newest migration that
+# defines it, so the migration's in-place patch (section 12) is rehearsed on
+# the text it will meet, not on a stub. (PL/pgSQL only checks syntax at
+# CREATE, so the tables it reads need not exist here.)
+DESK=$(grep -lE 'FUNCTION public\.fn_my_desk_waiting\(\)' "$ROOT"/supabase/migrations/*.sql | sort | tail -1)
+sed -nE '/^CREATE (OR REPLACE )?FUNCTION public\.fn_my_desk_waiting\(\)/,/^\$function\$;/p' "$DESK" \
+  | psql -d "$DB" -v ON_ERROR_STOP=1 -q
 psql -d "$DB" -v ON_ERROR_STOP=1 -q -f "$MIG"
 # the migration must be safe to apply twice
 psql -d "$DB" -v ON_ERROR_STOP=1 -q -f "$MIG"
-OUT=$(psql -d "$DB" -v ON_ERROR_STOP=1 -At -f "$HERE/10_escalation.sql" 2>&1) || { echo "$OUT" | grep -E "FAIL|ERROR" | head -5; exit 1; }
-echo "$OUT" | grep -E "FAIL|GRIEVANCE ESCALATION SCENARIOS PASSED"
+# Every scenario file, in order, on the same database (20_ builds on 10_'s people).
+for T in "$HERE"/[1-9][0-9]_*.sql; do
+  OUT=$(psql -d "$DB" -v ON_ERROR_STOP=1 -At -f "$T" 2>&1) || { echo "$(basename "$T"):"; echo "$OUT" | grep -E "FAIL|ERROR" | head -5; exit 1; }
+  echo "$OUT" | grep -E "FAIL|SCENARIOS PASSED"
+done
