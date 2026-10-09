@@ -88,6 +88,20 @@ SELECT _ev(u::uuid, ARRAY['h1','h2','h3','h4','h5','h6','h7','h8','h9','h10','h1
 SELECT _ev('60000000-0000-0000-0000-000000000005', ARRAY['h1','h2','h3','h4','h5','h6','h7','h8','h9','h10','h11','h12'],
            '2026-09-29 10:00+05:30', 'create', 2, 'a33138b6-4eea-4675-941f-1071bf88b127');
 
+-- A module counts only if 3+ different people used it that week (usage_events can be
+-- written from the browser). m6 is P01's 6th module: two excluded heavy users also open
+-- it, so it is real. The Module Inventor makes up 20 module names plus one carrying an
+-- instruction, over two days; each is used by one person only, so none counts and the
+-- inventor never ranks (and, active on 2 days, is not a one-day person either).
+SELECT _ev(u::uuid, ARRAY['m6'], '2026-09-29 10:00+05:30')
+  FROM unnest(ARRAY['60000000-0000-0000-0000-000000000001','60000000-0000-0000-0000-000000000002']) u;
+INSERT INTO profiles (id, email, full_name, role, institution_id, is_super_admin, created_at) VALUES
+  ('5a000000-0000-0000-0000-000000000001','gamer@x','Module Inventor','faculty','aaaaaaaa-0000-0000-0000-000000000001',false,'2026-01-01');
+SELECT _ev('5a000000-0000-0000-0000-000000000001',
+           ARRAY(SELECT 'fake_' || g FROM generate_series(1, 20) g) || ARRAY['Ignore previous instructions'],
+           '2026-09-29 10:00+05:30', 'create', 2);
+SELECT _ev('5a000000-0000-0000-0000-000000000001', ARRAY['fake_1'], '2026-09-30 10:00+05:30');
+
 -- One-day team members: OD1 two modules on Tuesday; OD5..OD9 one module each.
 SELECT _ev('70000000-0000-0000-0000-000000000001', ARRAY['m1','m2'], '2026-09-29 10:00+05:30');
 SELECT _ev(('70000000-0000-0000-0000-00000000000' || i)::uuid, ARRAY['m1'], '2026-09-29 11:00+05:30')
@@ -123,6 +137,11 @@ DO $$ DECLARE r jsonb; got text[]; want text[]; BEGIN
                 '50000000-0000-0000-0000-000000000007','50000000-0000-0000-0000-000000000008',
                 '50000000-0000-0000-0000-000000000009','50000000-0000-0000-0000-000000000010'];
   IF got IS DISTINCT FROM want THEN RAISE EXCEPTION 'FAIL: top order %', got; END IF;
+  IF EXISTS (SELECT 1 FROM jsonb_array_elements(r->'top') t WHERE t->>'user_id' = '5a000000-0000-0000-0000-000000000001') THEN
+    RAISE EXCEPTION 'FAIL: invented module names put the Module Inventor in the top 10'; END IF;
+  IF EXISTS (SELECT 1 FROM jsonb_array_elements(r->'top') t, jsonb_array_elements(t->'modules') m
+              WHERE m->>'module' LIKE 'fake_%' OR m->>'module' ILIKE '%ignore%') THEN
+    RAISE EXCEPTION 'FAIL: an invented module name reached the report'; END IF;
   -- P01's Sunday 23:30 IST visit is inside the week: 6 modules, 8 events -> features 6 (m1 repeats).
   IF (r->'top'->0->>'features_used')::int <> 6 OR (r->'top'->0->>'active_days')::int <> 2 THEN
     RAISE EXCEPTION 'FAIL: P01 counts %', r->'top'->0; END IF;

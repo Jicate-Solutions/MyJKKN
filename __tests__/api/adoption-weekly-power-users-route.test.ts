@@ -6,14 +6,14 @@
  * Who is counted, ranked or left out is fn_adoption_power_users's job and is
  * proved by supabase/tests/adoption/25_power_users.sql. Here, the route's own
  * promises:
- *   - no CRON_SECRET configured = 500; no or wrong secret = 401, nothing read;
- *   - ?week= must be a Monday (400 otherwise), and is what the RPC receives;
+ *   - no CRON_SECRET configured = 500; no, wrong or ?secret= secret = 401 (Bearer only), nothing read;
+ *   - ?week= must be a Monday no later than the last completed IST week (400 otherwise), and is what the RPC receives;
  *   - ?dry_run=1 writes nothing and queues nothing, but shows the prompts;
  *   - a real run queues at most 10 agenda jobs, one per top person, with the
  *     dedupe key adoption-agenda:<week>:<user>, and stores the job ids;
  *   - a person's prompt holds only that person's data;
- *   - a re-run keeps people who already have an agenda job;
- *   - an RPC error, or a run where every job failed to queue, is a 500.
+ *   - a re-run keeps people whose agenda job is queued or readable, found by dedupe key;
+ *   - an RPC error, or a run where ANY job failed to queue, is a 500.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
@@ -21,7 +21,9 @@ type Result = { data: unknown; error: { message: string } | null };
 type Call = { table: string; op: string; args: unknown[] };
 
 let rpcResult: Result;
-let tableResults: Record<string, Result>;
+// A table's result, or a function of this query's own recorded calls (to answer
+// two queries on one table differently).
+let tableResults: Record<string, Result | ((ops: Call[]) => Result)>;
 let calls: Call[];
 const MERGE_FN = 'fn_adoption_power_user_weeks_merge_jobs';
 let mergeResult: Result;
@@ -36,8 +38,10 @@ function builder(table: string) {
   const record = (op: string, args: unknown[]) => calls.push({ table, op, args });
   // eq() filters array rows on columns the row actually has, like the database would.
   const eqs: Array<[string, unknown]> = [];
+  const own: Call[] = [];
   const result = (): Result => {
-    const r = tableResults[table] ?? { data: null, error: null };
+    const entry = tableResults[table] ?? { data: null, error: null };
+    const r = typeof entry === 'function' ? entry(own) : entry;
     if (!Array.isArray(r.data)) return r;
     const rows = (r.data as Array<Record<string, unknown>>).filter((row) =>
       eqs.every(([col, val]) => !(col in row) || row[col] === val)
@@ -48,6 +52,7 @@ function builder(table: string) {
   for (const op of ['select', 'in', 'gte', 'order', 'limit', 'eq', 'upsert', 'update']) {
     chain[op] = (...args: unknown[]) => {
       record(op, args);
+      own.push({ table, op, args });
       if (op === 'eq') eqs.push([args[0] as string, args[1]]);
       return chain;
     };
@@ -174,6 +179,12 @@ describe('who can start the run', () => {
 });
 
 describe('which week', () => {
+  it('refuses a week that has not ended yet with 400 (it would hide the real report)', async () => {
+    const res = await GET(request({ bearer: SECRET, query: '?week=2099-01-05' }));
+    expect(res.status).toBe(400);
+    expect(rpc).not.toHaveBeenCalled();
+  });
+
   it('refuses a week that is not a Monday with 400, before reading anything', async () => {
     const res = await GET(request({ bearer: SECRET, query: '?week=2026-09-29' }));
     expect(res.status).toBe(400);
@@ -317,13 +328,41 @@ describe('a real run', () => {
     expect(users).toContain('u-01');
   });
 
-  it('when the lookup fails, trusts a stored id as before and queues the rest', async () => {
+  it('when the lookup fails, queues nobody (no doubled agenda) and answers 500 so the next run retries', async () => {
     tableResults.adoption_power_user_weeks = { data: { agenda_jobs: { 'u-01': 'old-1' } }, error: null };
     tableResults.ai_jobs = { data: null, error: { message: 'boom' } };
     const res = await GET(request({ bearer: SECRET, query: `?week=${WEEK}` }));
+    expect(res.status).toBe(500);
     const body = await res.json();
     expect(body.kept).toBe(1);
-    expect(body.enqueued).toBe(9);
+    expect(body.enqueued).toBe(0);
+    expect(body.failed).toBe(9);
+    expect(enqueueJobsLane).not.toHaveBeenCalled();
+  });
+
+  it('records the id of a job another run queued at the same moment (in_flight)', async () => {
+    enqueueJobsLane.mockImplementation(() => Promise.resolve({ ok: false, reason: 'in_flight' }));
+    // the dedupe-key lookup before queueing sees nothing; the in_flight lookup finds the live job
+    tableResults.ai_jobs = (ops) =>
+      ops.some((o) => o.op === 'eq' && o.args[0] === 'payload->>_dedupe')
+        ? { data: [{ id: 'live-1', status: 'pending' }], error: null }
+        : { data: [], error: null };
+    const res = await GET(request({ bearer: SECRET, query: `?week=${WEEK}` }));
+    expect(res.status).toBe(200);
+    expect(merged()?.['u-01']).toBe('live-1');
+  });
+
+  it("marks only the person whose problem-report read failed as 'could not be read'", async () => {
+    tableResults.bug_reports = (ops) =>
+      ops.some((o) => o.op === 'eq' && o.args[1] === 'u-02')
+        ? { data: null, error: { message: 'timeout' } }
+        : { data: [{ reporter_user_id: 'u-01', status: 'open', module_name: 'Attendance', sub_module_name: null, created_at: '2026-10-01' }], error: null };
+    await GET(request({ bearer: SECRET, query: `?week=${WEEK}` }));
+    const promptOf = (u: string) =>
+      (enqueueJobsLane.mock.calls.find((c) => (c[1] as { context: { user_id: string } }).context.user_id === u)?.[1] as { prompt: string }).prompt;
+    expect(promptOf('u-02')).toContain('(could not be read this week)');
+    expect(promptOf('u-01')).not.toContain('(could not be read this week)');
+    expect(promptOf('u-03')).toContain('(none)');
   });
 
   it('counts an already-queued job as in flight, not a failure', async () => {

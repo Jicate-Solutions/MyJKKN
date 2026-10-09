@@ -33,13 +33,13 @@ function Agenda({ agenda }: { agenda: ChatAgenda | null | undefined }) {
   return (
     <div className="space-y-1 text-xs">
       <ol className="list-decimal space-y-0.5 pl-4 text-foreground">
-        {agenda.questions.map((question) => (
-          <li key={question}>{question}</li>
+        {agenda.questions.map((question, index) => (
+          <li key={`${index}-${question}`}>{question}</li>
         ))}
       </ol>
       <div className="flex flex-wrap gap-1">
-        {agenda.topics.map((topic) => (
-          <span key={topic} className="rounded-full bg-muted px-2 py-0.5 text-muted-foreground">
+        {agenda.topics.map((topic, index) => (
+          <span key={`${index}-${topic}`} className="rounded-full bg-muted px-2 py-0.5 text-muted-foreground">
             {topic}
           </span>
         ))}

@@ -80,13 +80,22 @@ export async function GET(request: NextRequest) {
 
   const started = Date.now();
   const weekParam = request.nextUrl.searchParams.get('week');
+  const lastCompletedWeek = previousIstWeekStart(new Date());
   if (weekParam !== null && !isMondayDate(weekParam)) {
     return NextResponse.json(
       { ok: false, error: `week must be a Monday written YYYY-MM-DD (got ${weekParam})` },
       { status: 400 }
     );
   }
-  const weekStart = weekParam ?? previousIstWeekStart(new Date());
+  // Only a week that has ended: a current or future week would be half empty
+  // and, being the newest row, would hide the real report on /admin/adoption.
+  if (weekParam !== null && weekParam > lastCompletedWeek) {
+    return NextResponse.json(
+      { ok: false, error: `week must be ${lastCompletedWeek} or earlier — that week has not ended (got ${weekParam})` },
+      { status: 400 }
+    );
+  }
+  const weekStart = weekParam ?? lastCompletedWeek;
   const dryRun = ['1', 'true'].includes(request.nextUrl.searchParams.get('dry_run') ?? '');
   const admin = createServiceRoleClient();
 
@@ -101,7 +110,8 @@ export async function GET(request: NextRequest) {
 
   // 2) each top person's OWN problem reports, last 30 days, newest first
   const bugsByUser = new Map<string, OwnBugReport[]>();
-  let bugsReadable = true;
+  // Per person: one failed read marks only THAT person's prompt "could not be read".
+  const bugsUnreadable = new Set<string>();
   if (top.length > 0) {
     const since = new Date(Date.now() - BUG_LOOKBACK_DAYS * 24 * 3600_000).toISOString();
     // One read per person, so one prolific reporter cannot crowd out the others.
@@ -116,9 +126,9 @@ export async function GET(request: NextRequest) {
           .limit(MAX_BUGS_PER_PERSON)
       )
     );
-    for (const { data: bugs, error: bugErr } of reads) {
+    for (const [i, { data: bugs, error: bugErr }] of reads.entries()) {
       if (bugErr) {
-        bugsReadable = false;
+        bugsUnreadable.add(top[i].user_id);
         logger.warn(LOG_MODULE, `bug_reports read failed; prompts say so: ${bugErr.message}`);
         continue;
       }
@@ -139,7 +149,7 @@ export async function GET(request: NextRequest) {
     prompt: buildAgendaPrompt(
       weekStart,
       person,
-      bugsReadable ? (bugsByUser.get(person.user_id) ?? []) : null
+      bugsUnreadable.has(person.user_id) ? null : (bugsByUser.get(person.user_id) ?? [])
     ),
   }));
 
@@ -229,9 +239,20 @@ export async function GET(request: NextRequest) {
     const latest = latestByKey.get(dedupeKey);
     // Usable = still queued/running, or finished with an agenda the page can
     // read. An errored job, or a finished one whose answer is unreadable, is
-    // replaced. If the lookup itself failed, a stored id is trusted as before.
-    if (latest ? isUsableAgendaJob(latest) : lookupFailed && !!agendaJobs[userId]) {
-      if (latest) agendaJobs[userId] = latest.id;
+    // replaced. If the lookup itself failed we cannot tell, so nobody is queued:
+    // a stored id is kept, and anyone else is counted as failed (HTTP 500), so
+    // a finished agenda is never doubled; the next run retries.
+    if (lookupFailed) {
+      if (agendaJobs[userId]) {
+        kept++;
+      } else {
+        failed++;
+        failures.push('earlier agenda jobs unreadable — not queued, to avoid a second agenda');
+      }
+      continue;
+    }
+    if (latest && isUsableAgendaJob(latest)) {
+      agendaJobs[userId] = latest.id;
       kept++;
       continue;
     }
@@ -246,7 +267,19 @@ export async function GET(request: NextRequest) {
       agendaJobs[userId] = res.jobId;
       enqueued++;
     } else if (res.reason === 'in_flight') {
-      inFlight++; // queued between the lookup and now; the next run records it
+      inFlight++;
+      // Queued between the lookup and now (another run). Record its id now —
+      // the next scheduled run is for a different week and would never do it.
+      const { data: live } = await admin
+        .from('ai_jobs')
+        .select('id')
+        .eq('job_type', AGENDA_JOB_TYPE)
+        .eq('payload->>_dedupe', dedupeKey)
+        .in('status', ['pending', 'claimed', 'running'])
+        .order('requested_at', { ascending: false })
+        .limit(1);
+      const liveId = (live as Array<{ id: string }> | null)?.[0]?.id;
+      if (liveId) agendaJobs[userId] = liveId;
     } else {
       failed++;
       failures.push(res.error ? `${res.reason}: ${res.error}` : res.reason);

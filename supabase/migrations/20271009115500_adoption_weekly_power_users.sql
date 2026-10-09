@@ -137,9 +137,23 @@ BEGIN
       FROM public.usage_events e
      WHERE e.created_at >= v_start AND e.created_at < v_end
   ),
+  -- A part of MyJKKN counts only if its name looks like a real route
+  -- (lower-case, digits, / _ . -, at most 64 characters) AND at least 3
+  -- different people used it that week. usage_events can be written from the
+  -- browser, so a single person inventing module names can neither climb the
+  -- ranking nor put free text into the agenda prompt.
+  valid_modules AS (
+    SELECT ev.module
+      FROM ev
+     WHERE ev.module ~ '^[a-z0-9_/.-]{1,64}$'
+     GROUP BY ev.module
+    HAVING count(DISTINCT ev.user_id) >= 3
+  ),
   per_user AS (
     SELECT ev.user_id,
-           count(DISTINCT (ev.module, COALESCE(ev.feature, ''))) FILTER (WHERE ev.module IS NOT NULL) AS features_used,
+           count(DISTINCT (ev.module, COALESCE(ev.feature, ''))) FILTER (
+             WHERE ev.module IN (SELECT vm.module FROM valid_modules vm)
+               AND COALESCE(ev.feature, '') ~ '^[a-z0-9_/.:-]{0,64}$')                               AS features_used,
            count(*) FILTER (WHERE ev.event_type IN ('create', 'update', 'export'))                    AS records_saved,
            count(*)                                                                                  AS total_events,
            count(DISTINCT ev.ist_day)                                                                AS active_days,
@@ -195,7 +209,8 @@ BEGIN
               'modules', (SELECT COALESCE(jsonb_agg(jsonb_build_object('module', m.module, 'count', m.n)
                                                     ORDER BY m.n DESC, m.module), '[]'::jsonb)
                             FROM (SELECT ev.module, count(*) AS n FROM ev
-                                   WHERE ev.user_id = r.user_id AND ev.module IS NOT NULL
+                                   WHERE ev.user_id = r.user_id
+                                     AND ev.module IN (SELECT vm.module FROM valid_modules vm)
                                    GROUP BY ev.module ORDER BY count(*) DESC, ev.module LIMIT 15) m)
             ) ORDER BY r.rnk), '[]'::jsonb)
        FROM ranked r WHERE r.rnk <= 10),
