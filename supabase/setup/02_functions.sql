@@ -11049,6 +11049,12 @@ COMMENT ON FUNCTION public.fn_is_the_director() IS
 --   otherwise 42501. (Round 2, 2026-09-29: college scoping added.) The SELECT is the 20260731180000 body, which also
 --   brings this mirror up to date with cohort scope. Callers with no signed-in user
 --   (service role, cron) are unaffected; anon has no EXECUTE.
+-- Updated: 2026-10-09 - the Director list ('platform.the_director_profile_ids')
+--   is readable only by super admins and listed people. 20270520090000 section 7
+--   patches the live body in place, one guard after each key filter; this copy
+--   carries the same two guards so the file matches what the database runs.
+--   (No comment inside the body names the filter: the patch's regex would
+--   count it.)
 CREATE OR REPLACE FUNCTION public.fn_get_policy(p_key text, p_scope_id uuid DEFAULT NULL::uuid)
 RETURNS jsonb
 LANGUAGE plpgsql
@@ -11081,10 +11087,6 @@ BEGIN
     END IF;
   END IF;
 
-  -- Updated: 2026-10-09 - the Director list is readable only by super admins
-  -- and listed people. 20270520090000 section 7 patches the live body in
-  -- place (one guard after every "policy_key = p_key"); this copy carries the
-  -- same guard so the file matches what the database runs.
   RETURN (
   SELECT value FROM platform_policies
   WHERE policy_key = p_key AND (p_key IS DISTINCT FROM 'platform.the_director_profile_ids' OR (SELECT public.is_super_admin()) OR (SELECT public.fn_is_the_director())) AND is_active = true
