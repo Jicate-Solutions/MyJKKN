@@ -74,6 +74,11 @@ const ROW: StaffSalaryDirectoryRow = {
   allowance_label: null,
   effective_from: '2026-04-01',
   notes: null,
+  in_force_salary_id: 'sal-1',
+  in_force_monthly_gross: 21000,
+  in_force_annual_gross: 252000,
+  in_force_allowance_amount: null,
+  in_force_effective_from: '2026-04-01',
 };
 
 function suggested(figure: number): SalarySuggestionPayload {
