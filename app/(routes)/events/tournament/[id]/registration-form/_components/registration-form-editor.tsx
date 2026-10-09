@@ -36,7 +36,15 @@ import {
 import { RichTextFieldEditor } from '@/components/events/registration/rich-text-field-editor';
 import { StandardFieldsCard, StandardFieldsPreview } from './standard-fields-card';
 import { FORM_FIELD_TYPES, isAnswerableField } from '@/types/tournament';
-import { REGISTRATION_PREFILL_SOURCES } from '@/lib/services/events/registration/form-prefill';
+import {
+  REGISTRATION_PREFILL_SOURCES,
+  type ContactBlockMode,
+} from '@/lib/services/events/registration/form-prefill';
+import {
+  ContactBlockBuilderRow,
+  ContactBlockPreview,
+  resolveContactBlock,
+} from '@/components/events/registration/contact-block-preview';
 import { parseConditionList, SPORT_CONDITION_KEY } from '@/lib/services/events/registration/form-visibility';
 import type {
   EventRegistrationFormField,
@@ -681,6 +689,7 @@ export function RegistrationFormEditor({
   formId,
   variant = 'tournament',
   backHref,
+  contactBlock = 'top',
 }: {
   eventId: string;
   /**
@@ -700,6 +709,12 @@ export function RegistrationFormEditor({
   variant?: 'tournament' | 'general';
   /** Where "Back" returns to. Defaults to the tournament detail page. */
   backHref?: string;
+  /**
+   * General events only: where the public form puts its built-in name / phone /
+   * email block (event_registration_forms.contact_block). Drawn greyed in the
+   * builder and preview so organizers know registrants are asked for it.
+   */
+  contactBlock?: ContactBlockMode;
 }) {
   const router = useRouter();
   const isTournament = variant === 'tournament';
@@ -938,6 +953,17 @@ export function RegistrationFormEditor({
     [sections]
   );
 
+  // Mirrors the public form's blockMode: 'hidden' with no field able to supply
+  // a name falls back to 'top', so the builder never shows less than the page.
+  // null = not a general event, or the block is genuinely switched off.
+  const { mode: contactMode, fellBack: contactFellBack } = useMemo(
+    () =>
+      isTournament
+        ? { mode: null, fellBack: false }
+        : resolveContactBlock(contactBlock, sections.flatMap((s) => s.fields)),
+    [isTournament, contactBlock, sections]
+  );
+
   if (isLoading) {
     return (
       <div className="flex h-64 items-center justify-center">
@@ -997,8 +1023,9 @@ export function RegistrationFormEditor({
         </>
       ) : (
         <p className="text-sm text-muted-foreground">
-          Build the questions attendees answer when they register for this event. Unlike a
-          tournament, nothing is collected automatically — every question here is one you add.
+          Build the questions attendees answer when they register for this event. Apart from the
+          built-in name, phone &amp; email block (shown greyed below), every question here is one
+          you add.
         </p>
       )}
 
@@ -1009,6 +1036,7 @@ export function RegistrationFormEditor({
               organizer does not re-create a built-in field as a custom one.
               Tournament-only — a general event collects nothing by default. */}
           {isTournament && <StandardFieldsCard />}
+          {contactMode === 'top' && <ContactBlockBuilderRow mode="top" fellBack={contactFellBack} />}
 
           {sections.length === 0 && (
             <Card>
@@ -1075,6 +1103,8 @@ export function RegistrationFormEditor({
           <Button type="button" variant="outline" onClick={addSection}>
             <Plus className="mr-1 h-3.5 w-3.5" /> Add section
           </Button>
+
+          {contactMode === 'bottom' && <ContactBlockBuilderRow mode="bottom" />}
         </div>
 
         {/* ── Live preview ── */}
@@ -1086,11 +1116,14 @@ export function RegistrationFormEditor({
               whether or not custom fields are enabled, so this heading would
               otherwise lie. A general event has no standard fields to show. */}
           {isTournament && <StandardFieldsPreview />}
+          {contactMode === 'top' && <ContactBlockPreview />}
           {!isEnabled && (
             <p className="rounded-md bg-muted px-3 py-2 text-sm text-muted-foreground">
               {isTournament
                 ? 'Custom fields are turned off — learners will only see the standard fields.'
-                : 'Custom fields are turned off — this form collects nothing.'}
+                : contactMode
+                  ? 'Custom fields are turned off — this form collects only the name, phone & email block.'
+                  : 'Custom fields are turned off — this form collects nothing.'}
             </p>
           )}
           {isEnabled && previewSections.length === 0 && (
@@ -1114,6 +1147,7 @@ export function RegistrationFormEditor({
                   ))}
               </div>
             ))}
+          {contactMode === 'bottom' && <ContactBlockPreview />}
         </div>
       </div>
     </div>
