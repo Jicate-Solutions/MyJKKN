@@ -1,10 +1,18 @@
 'use client';
 
 import { useState } from 'react';
-import { ArrowDown, ArrowUp, GripVertical, Pencil, Plus, X } from 'lucide-react';
+import { ArrowDown, ArrowUp, GripVertical, Pencil, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { Input } from '@/components/ui/input';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectLabel,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
 import { useUserInstitutionAccess } from '@/hooks/use-user-institution-access';
 import { useSaveCategorySteps, useSaveProcurementCategory } from '@/hooks/procurement/use-approval-chains';
@@ -20,11 +28,11 @@ function stepDetail(s: CategoryStep): string {
   return s.same_college ? `${s.role_key} of the request's college` : `${s.role_key}`;
 }
 
-/** One list of one scope: `institutionId` null = the default chain, set = that college's own chain. */
+/** One list of one scope: `institutionId` null = the common approvers, set = that college's own (asked first). */
 export const stepsOf = (c: ProcurementCategory, stage: ApprovalStage, institutionId: string | null = null) =>
   (c.steps ?? []).filter((s) => (s.stage ?? 'request') === stage && (s.institution_id ?? null) === institutionId);
 
-/** Colleges that have a chain of their own for this category. */
+/** Colleges that have approvers of their own for this category. */
 export const customisedColleges = (c: ProcurementCategory): string[] => [
   ...new Set((c.steps ?? []).map((s) => s.institution_id).filter((id): id is string => !!id)),
 ];
@@ -32,7 +40,7 @@ export const customisedColleges = (c: ProcurementCategory): string[] => [
 /**
  * The selected category, top to bottom:
  *   header        — name (click to rename) · Open for requests
- *   college bar   — All colleges (default) · colleges with their own chain · Add a college
+ *   college picker — one dropdown: Common (all colleges) · colleges with their own approvers · add a college
  *   A and B       — the two approver lists, side by side when there is room
  *       A Request approval — approves the items asked for
  *       B Final approval   — approves the vendors and prices chosen after quotations
@@ -48,8 +56,8 @@ export function CategoryDetail({
   const saveCategory = useSaveProcurementCategory();
   const [renaming, setRenaming] = useState(false);
   const [name, setName] = useState(category.name);
-  // null = the default chain. A college picked with "Add a college" is only a tab until its
-  // first approver is saved.
+  // null = the common approvers. A college picked under "Add approvers for a college" stays in
+  // the dropdown's own group until its first approver is saved.
   const [scope, setScope] = useState<string | null>(null);
   const [draftColleges, setDraftColleges] = useState<string[]>([]);
 
@@ -126,7 +134,13 @@ export function CategoryDetail({
           stage="request"
           marker="A"
           title="Request approval"
-          empty="No approvers yet. Requesters can’t pick this category until you add one."
+          empty={
+            scope
+              ? 'No college approvers. Requests go straight to the common approvers.'
+              : customisedColleges(category).length > 0
+                ? 'No common approvers. Only colleges with their own approvers (see the college list above) can pick this category.'
+                : 'No common approvers yet. Requesters can’t pick this category until it has at least one.'
+          }
         />
         <ApproverList
           category={category}
@@ -135,7 +149,11 @@ export function CategoryDetail({
           stage="final"
           marker="B"
           title="Final approval"
-          empty="No approvers. A Super Admin gives the final approval."
+          empty={
+            scope
+              ? 'No college approvers. The common final approvers decide.'
+              : 'No common approvers. A Super Admin gives the final approval when a college has none either.'
+          }
           emptyIsFine
         />
       </div>
@@ -144,8 +162,8 @@ export function CategoryDetail({
 }
 
 /**
- * Which chain is being edited: the default (every college) or one college's own.
- * A college chain replaces the whole default for that college; colleges without one use the default.
+ * Which list is being edited: the common approvers (every college) or one college's own.
+ * A college's approvers are asked first, then the common approvers — never instead of them.
  */
 function CollegeBar({
   category,
@@ -168,78 +186,117 @@ function CollegeBar({
   const tabs = [...new Set([...customisedColleges(category), ...draftColleges])];
   const addable = institutions.filter((i) => !tabs.includes(i.institution_id));
   const hasOwn = scope !== null && customisedColleges(category).includes(scope);
-  const requestMissing = scope !== null && stepsOf(category, 'request', scope).length === 0;
+  // Other colleges already set up for this category; their two lists can be copied here.
+  const copyColleges = scope ? customisedColleges(category).filter((id) => id !== scope) : [];
+
+  /** Replace this college's request and final lists with another college's (Undo restores them). */
+  const copyCollege = async (fromId: string) => {
+    if (!scope) return;
+    const fresh = (stage: ApprovalStage, id: string) =>
+      // New rows for this college: never the source's step ids, or saving moves its rows here.
+      stepsOf(category, stage, id).map(({ id: _id, ...st }) => ({ ...st, institution_id: scope }));
+    const before = { request: fresh('request', scope), final: fresh('final', scope) };
+    const save = (lists: { request: CategoryStep[]; final: CategoryStep[] }) =>
+      Promise.all(
+        (['request', 'final'] as const).map((stage) =>
+          saveSteps.mutateAsync({ categoryId: category.id, steps: lists[stage], stage, institutionId: scope })
+        )
+      );
+    try {
+      await save({ request: fresh('request', fromId), final: fresh('final', fromId) });
+      onDraft(scope);
+      const hadAny = before.request.length + before.final.length > 0;
+      toast.success(
+        `Copied ${nameOf(fromId)}’s approvers to ${nameOf(scope)}`,
+        hadAny
+          ? { action: { label: 'Undo', onClick: () => void save(before).then(() => toast.success('Restored')) } }
+          : undefined
+      );
+    } catch (e) {
+      toast.error(errorMessage(e, 'Could not copy'));
+    }
+  };
 
   const removeChain = async () => {
     if (!scope) return;
     try {
       await saveSteps.mutateAsync({ categoryId: category.id, steps: [], stage: 'request', institutionId: scope });
       await saveSteps.mutateAsync({ categoryId: category.id, steps: [], stage: 'final', institutionId: scope });
-      toast.success(`${nameOf(scope)} now uses the default chain`);
+      toast.success(`${nameOf(scope)} now uses only the common approvers`);
       onRemoved(scope);
     } catch (e) {
       toast.error(errorMessage(e, 'Could not remove it'));
     }
   };
 
-  const chip = (active: boolean) =>
-    cn(
-      'h-9 shrink-0 rounded-md border px-3 text-sm',
-      active ? 'border-primary bg-primary text-primary-foreground' : 'bg-background hover:bg-muted'
-    );
+  // One dropdown instead of a button per college: with ten colleges the buttons wrapped to four rows.
+  const COMMON = '__common';
+  const pick = (v: string) => {
+    if (v === COMMON) onScope(null);
+    else if (tabs.includes(v)) onScope(v);
+    else onDraft(v); // a college without approvers yet: shown until its first one is saved
+  };
 
   return (
-    <div className="space-y-2 border-b px-4 py-3">
-      <div className="flex flex-wrap items-center gap-2" role="tablist" aria-label="Which colleges this chain is for">
-        <button type="button" role="tab" aria-selected={scope === null} className={chip(scope === null)} onClick={() => onScope(null)}>
-          All colleges (default)
-        </button>
-        {tabs.map((id) => (
-          <button key={id} type="button" role="tab" aria-selected={scope === id} className={chip(scope === id)} onClick={() => onScope(id)}>
-            {nameOf(id)}
-          </button>
-        ))}
-        {addable.length > 0 && (
-          <Select value="" onValueChange={onDraft}>
-            <SelectTrigger className="h-9 w-auto gap-1.5 border-dashed bg-background text-sm" aria-label="Add a college chain">
-              <Plus className="h-4 w-4" />
-              <SelectValue placeholder="Add a college" />
-            </SelectTrigger>
-            <SelectContent>
+    // One row: which list · copy from another college · remove. No help text; the greyed
+    // "Then the common approvers" under each list already shows how the two combine.
+    <div className="flex flex-wrap items-center gap-2 border-b px-4 py-3">
+      <span className="text-sm font-medium text-muted-foreground">Approvers for</span>
+      <Select value={scope ?? COMMON} onValueChange={pick}>
+        <SelectTrigger className="h-9 w-full bg-background text-sm sm:w-[360px]" aria-label="Which approvers to edit">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value={COMMON}>Common (all colleges)</SelectItem>
+          {tabs.length > 0 && (
+            <SelectGroup>
+              <SelectLabel>Colleges with their own approvers</SelectLabel>
+              {tabs.map((id) => (
+                <SelectItem key={id} value={id}>
+                  {nameOf(id)}
+                </SelectItem>
+              ))}
+            </SelectGroup>
+          )}
+          {addable.length > 0 && (
+            <SelectGroup>
+              <SelectLabel>Add approvers for a college</SelectLabel>
               {addable.map((i) => (
                 <SelectItem key={i.institution_id} value={i.institution_id}>
                   {i.institution_name}
                 </SelectItem>
               ))}
-            </SelectContent>
-          </Select>
-        )}
-      </div>
-
-      {scope === null ? (
-        <p className="text-xs text-muted-foreground">
-          {tabs.length > 0
-            ? `Used by every college except ${tabs.length === 1 ? 'the one' : 'the ones'} with a tab here.`
-            : 'Used by every college. Add a college to give it different approvers.'}
-        </p>
-      ) : (
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <p className={cn('text-xs', requestMissing ? 'text-amber-700 dark:text-amber-400' : 'text-muted-foreground')}>
-            {requestMissing
-              ? `Add request approvers first. Until then ${nameOf(scope)} uses the default chain.`
-              : `Requests from ${nameOf(scope)} use this chain instead of the default (both lists).`}
-          </p>
-          {hasOwn && (
-            <button
-              type="button"
-              onClick={() => void removeChain()}
-              disabled={saveSteps.isPending}
-              className="h-8 rounded-md px-2 text-xs text-destructive hover:bg-destructive/10"
-            >
-              Use the default for {nameOf(scope)}
-            </button>
+            </SelectGroup>
           )}
-        </div>
+        </SelectContent>
+      </Select>
+      {scope !== null && copyColleges.length > 0 && (
+        <Select value="" onValueChange={(id) => void copyCollege(id)}>
+          <SelectTrigger
+            className="h-9 w-auto gap-2 bg-background text-sm"
+            aria-label={`Copy another college's approvers to ${nameOf(scope)}`}
+          >
+            <SelectValue placeholder="Copy from college…" />
+          </SelectTrigger>
+          <SelectContent>
+            {copyColleges.map((id) => (
+              <SelectItem key={id} value={id}>
+                {nameOf(id)}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      )}
+      {hasOwn && (
+        <button
+          type="button"
+          onClick={() => void removeChain()}
+          disabled={saveSteps.isPending}
+          aria-label={`Remove ${nameOf(scope!)}’s approvers`}
+          className="ml-auto h-9 rounded-md px-2 text-sm text-destructive hover:bg-destructive/10"
+        >
+          Remove
+        </button>
       )}
     </div>
   );
@@ -257,7 +314,7 @@ function ApproverList({
 }: {
   category: ProcurementCategory;
   categories: ProcurementCategory[];
-  /** null = the default chain; set = that college's own chain. */
+  /** null = the common approvers; set = that college's own (the common ones are shown after). */
   institutionId: string | null;
   stage: ApprovalStage;
   /** "A" / "B" */
@@ -268,7 +325,10 @@ function ApproverList({
   emptyIsFine?: boolean;
 }) {
   const steps = stepsOf(category, stage, institutionId);
+  // In a college tab the common approvers follow; shown read-only so the whole route is visible.
+  const commonAfter = institutionId ? stepsOf(category, stage) : [];
   const saveSteps = useSaveCategorySteps();
+  const { institutions } = useUserInstitutionAccess();
   const [dragFrom, setDragFrom] = useState<number | null>(null);
 
   const persist = async (next: CategoryStep[], done: string, undo?: CategoryStep[]) => {
@@ -307,20 +367,23 @@ function ApproverList({
     void persist(next, 'Order saved');
   };
 
-  // "Default chain" (this category) is offered inside a college tab; other categories copy their default.
-  const DEFAULT_KEY = '__default';
-  const copySources: Array<{ id: string; name: string }> = [
-    ...(institutionId && stepsOf(category, stage).length > 0 ? [{ id: DEFAULT_KEY, name: 'Default chain' }] : []),
-    ...categories.filter((c) => c.id !== category.id && stepsOf(c, stage).length > 0).map((c) => ({ id: c.id, name: c.name })),
-  ];
-  const copyFrom = (sourceId: string) => {
-    const source = sourceId === DEFAULT_KEY ? category : categories.find((c) => c.id === sourceId);
-    const from = source ? stepsOf(source, stage) : [];
-    if (!from.length) return;
+  // Copy sources for this one list: other colleges' lists in this category, and other
+  // categories' common lists. This category's own common list is not offered in a college
+  // tab: those approvers are asked anyway, so copying them would ask them twice.
+  const nameOf = (id: string) => institutions.find((i) => i.institution_id === id)?.institution_name ?? 'College';
+  const collegeSources = customisedColleges(category)
+    .filter((id) => id !== institutionId && stepsOf(category, stage, id).length > 0)
+    .map((id) => ({ key: `college:${id}`, name: nameOf(id), steps: stepsOf(category, stage, id) }));
+  const categorySources = categories
+    .filter((c) => c.id !== category.id && stepsOf(c, stage).length > 0)
+    .map((c) => ({ key: `category:${c.id}`, name: c.name, steps: stepsOf(c, stage) }));
+  const copyFrom = (key: string) => {
+    const source = [...collegeSources, ...categorySources].find((x) => x.key === key);
+    if (!source) return;
     void persist(
       // New rows for this scope: never the source's step ids, or saving moves its rows here.
-      from.map(({ id: _id, ...s }) => ({ ...s, institution_id: institutionId })),
-      `Copied ${title.toLowerCase()} from ${sourceId === DEFAULT_KEY ? 'the default chain' : source!.name}`,
+      source.steps.map(({ id: _id, ...s }) => ({ ...s, institution_id: institutionId })),
+      `Copied ${title.toLowerCase()} from ${source.name}`,
       steps.length ? steps : undefined
     );
   };
@@ -331,17 +394,32 @@ function ApproverList({
         <h3 className="min-w-0 text-sm font-bold">
           {marker} · {title}
         </h3>
-        {copySources.length > 0 && (
+        {collegeSources.length + categorySources.length > 0 && (
           <Select value="" onValueChange={copyFrom}>
-            <SelectTrigger className="h-8 w-auto gap-2 bg-background text-xs" aria-label={`Copy ${title} from another category`}>
+            <SelectTrigger className="h-8 w-auto gap-2 bg-background text-xs" aria-label={`Copy ${title} from another college or category`}>
               <SelectValue placeholder="Copy from…" />
             </SelectTrigger>
             <SelectContent>
-              {copySources.map((c) => (
-                <SelectItem key={c.id} value={c.id}>
-                  {c.name}
-                </SelectItem>
-              ))}
+              {collegeSources.length > 0 && (
+                <SelectGroup>
+                  <SelectLabel>Another college</SelectLabel>
+                  {collegeSources.map((x) => (
+                    <SelectItem key={x.key} value={x.key}>
+                      {x.name}
+                    </SelectItem>
+                  ))}
+                </SelectGroup>
+              )}
+              {categorySources.length > 0 && (
+                <SelectGroup>
+                  <SelectLabel>Another category (common)</SelectLabel>
+                  {categorySources.map((x) => (
+                    <SelectItem key={x.key} value={x.key}>
+                      {x.name}
+                    </SelectItem>
+                  ))}
+                </SelectGroup>
+              )}
             </SelectContent>
           </Select>
         )}
@@ -431,6 +509,28 @@ function ApproverList({
       {steps.length < 10 && (
         <div className="[&_button]:h-9 [&_button]:border-dashed [&_button]:bg-background [&_button]:text-sm">
           <PersonPicker value={null} onChange={add} placeholder="+ Add approver by name or email" />
+        </div>
+      )}
+
+      {commonAfter.length > 0 && (
+        <div className="mt-1 border-t border-dashed pt-2">
+          <p className="mb-1 text-xs font-medium text-muted-foreground">Then the common approvers</p>
+          <ol aria-label={`Common ${title.toLowerCase()}, asked after these`}>
+            {commonAfter
+              // A named person already on the college list is asked once, at the college position.
+              .filter((s) => !(s.approver_kind === 'user' && steps.some((o) => o.user_id === s.user_id)))
+              .map((s, i) => (
+                <li key={s.id ?? i} className="flex items-center gap-2.5 py-1 opacity-70">
+                  <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-primary/40 text-xs font-bold text-primary">
+                    {steps.length + i + 1}
+                  </span>
+                  <div className="flex min-w-0 flex-1 flex-col">
+                    <span className="truncate text-sm font-semibold">{s.label}</span>
+                    <span className="truncate text-xs text-muted-foreground">{stepDetail(s)}</span>
+                  </div>
+                </li>
+              ))}
+          </ol>
         </div>
       )}
     </div>
