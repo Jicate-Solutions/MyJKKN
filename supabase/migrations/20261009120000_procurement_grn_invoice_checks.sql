@@ -526,6 +526,15 @@ BEGIN
       -- revived receipt is re-judged. Who may confirm is checked by fn_procurement_grn_invoice_checks,
       -- which fires first (trg_pgrn_00_invoice_checks) and voids a confirmation
       -- whose invoice number or supplier changed.
+      -- Review round 2 (red team): the permission refusal comes BEFORE the I1 check, so
+      -- a caller without the right to post never learns from the I1 message whether
+      -- this supplier's invoice number is already recorded somewhere.
+      -- (v_chain is NULL, not false, when the setting was never set: coalesce it.)
+      IF v_key IS NOT NULL AND NOT coalesce(v_chain, false)
+         AND NOT (is_super_admin() OR is_admin() OR user_has_permission(v_key)) THEN
+        RAISE EXCEPTION 'not authorized to % — this requires the % permission', v_what, v_key
+          USING ERRCODE = '42501';
+      END IF;
       IF NEW.status IN ('accepted', 'partially_accepted', 'replacement_requested', 'completed')
          AND (TG_OP = 'INSERT'
               OR OLD.status NOT IN ('accepted', 'partially_accepted', 'replacement_requested', 'completed'))
