@@ -470,6 +470,19 @@ export class NativeSchedulingService {
    * (U2, D12) when a connection exists. Google 'failed' = fail CLOSED (D19) —
    * a host whose protection broke must not look free.
    */
+  /**
+   * The host's busy times (confirmed meetings + Google Calendar) between two
+   * instants. Fails CLOSED: anything it cannot verify comes back as busy.
+   */
+  static async hostBusy(
+    supabase: SupabaseClient,
+    hostProfileId: string,
+    fromIso: string,
+    toIso: string,
+  ): Promise<Array<{ start: string; end: string }>> {
+    return this.loadBusy(supabase, hostProfileId, fromIso, toIso);
+  }
+
   private static async loadBusy(
     supabase: SupabaseClient,
     hostProfileId: string,
