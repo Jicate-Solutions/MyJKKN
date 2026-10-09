@@ -36,6 +36,10 @@ interface InboxPageProps {
 // Anything that is neither a uuid nor 'none' is ignored rather than erroring.
 const NO_TYPE = 'none';
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+/** Rows per request when counting types — PostgREST's max_rows cuts anything larger. */
+const TYPE_COUNT_PAGE = 1000;
+/** Counted at most this many pages (10,000 meetings) per tab; beyond that the page says so. */
+const TYPE_COUNT_MAX_PAGES = 10;
 
 /** The inbox link for a status tab and type, dropping the defaults. */
 function inboxHref(status: string, type: string | null): string {
@@ -93,8 +97,9 @@ function formatBookingTime(iso: string, tz?: string | null): string {
 
 export default async function MeetingsInboxPage({ searchParams }: InboxPageProps) {
   const { status: statusParam, type: typeParam } = await searchParams;
+  // Ids are stored lower-case; an upper-case link must still select its chip.
   const typeFilter =
-    typeParam === NO_TYPE || (typeParam && UUID_RE.test(typeParam)) ? typeParam : null;
+    typeParam === NO_TYPE ? NO_TYPE : typeParam && UUID_RE.test(typeParam) ? typeParam.toLowerCase() : null;
   const filterKey = (STATUS_FILTERS.find((f) => f.key === statusParam)?.key ?? 'upcoming') as
     | 'awaiting'
     | 'upcoming'
@@ -130,19 +135,45 @@ export default async function MeetingsInboxPage({ searchParams }: InboxPageProps
 
   // Type chips: every meeting type that has at least one booking under the
   // current tab, with its count. Read through the same session client, so RLS
-  // limits it to exactly the bookings this person can already see.
-  const { data: typeRows } = await withStatus(
-    supabase.from('meeting_bookings').select('meeting_type_id')
-  ).limit(5000);
+  // limits it to exactly the bookings this person can already see. Counted in
+  // pages (PostgREST returns at most TYPE_COUNT_PAGE rows a request), ordered by
+  // id so the pages neither overlap nor skip; past TYPE_COUNT_MAX_PAGES the page
+  // says the counts are partial instead of showing a quietly short number.
+  const { count: tabTotal, error: totalError } = await withStatus(
+    supabase.from('meeting_bookings').select('id', { count: 'exact', head: true })
+  );
+  const pageCount = Math.min(Math.ceil((tabTotal ?? 0) / TYPE_COUNT_PAGE), TYPE_COUNT_MAX_PAGES);
+  const pages = await Promise.all(
+    Array.from({ length: pageCount }, (_, i) =>
+      withStatus(supabase.from('meeting_bookings').select('id, meeting_type_id'))
+        .order('id', { ascending: true })
+        .range(i * TYPE_COUNT_PAGE, (i + 1) * TYPE_COUNT_PAGE - 1)
+    )
+  );
   const typeCounts = new Map<string | null, number>();
-  for (const r of (typeRows ?? []) as { meeting_type_id: string | null }[]) {
-    typeCounts.set(r.meeting_type_id, (typeCounts.get(r.meeting_type_id) ?? 0) + 1);
+  let counted = 0;
+  for (const page of pages as { data: { meeting_type_id: string | null }[] | null }[]) {
+    for (const r of page.data ?? []) {
+      counted += 1;
+      typeCounts.set(r.meeting_type_id, (typeCounts.get(r.meeting_type_id) ?? 0) + 1);
+    }
   }
+  const pageError = (pages as { error: unknown }[]).find((p) => p.error)?.error;
+  const typeCountsPartial = !totalError && !pageError && counted < (tabTotal ?? 0);
   const typeIds = [...typeCounts.keys()].filter((id): id is string => Boolean(id));
-  if (typeFilter && typeFilter !== NO_TYPE && !typeIds.includes(typeFilter)) typeIds.push(typeFilter);
-  const { data: typeNames } = typeIds.length
-    ? await supabase.from('meeting_types').select('id, title').in('id', typeIds)
-    : { data: [] as { id: string; title: string }[] };
+  // Names also for the list's own rows, so a row never shows the fallback label
+  // just because its type fell outside the counted pages.
+  const listTypeIds = ((rows ?? []) as { meeting_type_id: string | null }[])
+    .map((r) => r.meeting_type_id)
+    .filter((id): id is string => Boolean(id));
+  const nameIds = [...new Set([...typeIds, ...listTypeIds, ...(typeFilter && typeFilter !== NO_TYPE ? [typeFilter] : [])])];
+  const { data: typeNames, error: namesError } = nameIds.length
+    ? await supabase.from('meeting_types').select('id, title').in('id', nameIds)
+    : { data: [] as { id: string; title: string }[], error: null };
+  const typeFilterError = totalError ?? pageError ?? namesError ?? null;
+  if (typeFilterError) {
+    console.error('[meetings/inbox] type filter query failed:', (typeFilterError as { message?: string }).message ?? typeFilterError);
+  }
   const typeTitle = new Map(((typeNames ?? []) as { id: string; title: string }[]).map((t) => [t.id, t.title]));
   const typeChips = [
     ...typeIds
@@ -236,7 +267,19 @@ export default async function MeetingsInboxPage({ searchParams }: InboxPageProps
               </Link>
             ))}
           </div>
+          {typeCountsPartial ? (
+            <p className="text-xs text-muted-foreground">
+              Counts cover the first {counted.toLocaleString('en-IN')} of {(tabTotal ?? 0).toLocaleString('en-IN')} meetings
+              in this tab. Clicking a type still shows all of its meetings.
+            </p>
+          ) : null}
         </div>
+      ) : null}
+
+      {typeFilterError ? (
+        <p className="text-xs text-muted-foreground" role="status">
+          The meeting type filter could not load just now. The list below is not affected.
+        </p>
       ) : null}
 
       {error ? (

@@ -25,22 +25,35 @@ const TYPES = [
   { id: T_REVIEW, title: 'Weekly Review' },
 ];
 
+/** Extra bookings for the paging tests, and a table whose reads fail. */
+let extraBookings: typeof BOOKINGS = [];
+let failingTable: string | null = null;
+/** Reads that returned rows, with the range each asked for (PostgREST would cap an unranged read). */
+let rangeReads: Array<[number, number]> = [];
+
 function makeQuery(table: string) {
   const preds: Array<(r: any) => boolean> = [];
   let head = false;
+  let range: [number, number] | null = null;
+  let cap: number | null = null;
   const q: any = {
     select: (_c: string, opts?: { head?: boolean }) => ((head = Boolean(opts?.head)), q),
     order: () => q,
-    limit: () => q,
+    limit: (n: number) => ((cap = n), q),
+    range: (from: number, to: number) => ((range = [from, to]), rangeReads.push([from, to]), q),
     in: (col: string, vals: unknown[]) => (preds.push((r) => vals.includes(r[col])), q),
     eq: (col: string, v: unknown) => (preds.push((r) => r[col] === v), q),
     is: (col: string, v: unknown) => (preds.push((r) => r[col] === v), q),
     gte: (col: string, v: string) => (preds.push((r) => r[col] >= v), q),
     lt: (col: string, v: string) => (preds.push((r) => r[col] < v), q),
     then: (ok: (v: unknown) => unknown) => {
-      const src = table === 'meeting_types' ? TYPES : BOOKINGS;
-      const data = src.filter((r) => preds.every((p) => p(r)));
-      return Promise.resolve(head ? { count: data.length, error: null } : { data, error: null }).then(ok);
+      if (failingTable === table) {
+        return Promise.resolve({ data: null, count: null, error: { message: 'timeout' } }).then(ok);
+      }
+      const src = table === 'meeting_types' ? TYPES : [...BOOKINGS, ...extraBookings];
+      const all = src.filter((r) => preds.every((p) => p(r)));
+      const data = range ? all.slice(range[0], range[1] + 1) : cap !== null ? all.slice(0, cap) : all;
+      return Promise.resolve(head ? { count: all.length, error: null } : { data, error: null }).then(ok);
     },
   };
   return q;
@@ -58,7 +71,23 @@ import MeetingsInboxPage from '@/app/(routes)/meetings/inbox/page';
 async function renderInbox(params: { status?: string; type?: string }) {
   render(await MeetingsInboxPage({ searchParams: Promise.resolve(params) }));
 }
-afterEach(() => cleanup());
+afterEach(() => {
+  cleanup();
+  extraBookings = [];
+  failingTable = null;
+  rangeReads = [];
+});
+
+const manyInterviews = (n: number) =>
+  Array.from({ length: n }, (_, i) => ({
+    id: `m${String(i).padStart(6, '0')}`,
+    uid: `um${i}`,
+    status: 'confirmed',
+    start_time: future(10),
+    meeting_type_id: T_INTERVIEW as string | null,
+    attendee_name: `Bulk ${i}`,
+    attendee_email: `bulk${i}@x.in`,
+  }));
 
 const typeGroup = () => screen.getByRole('group', { name: 'Filter by meeting type' });
 const listedPeople = () =>
@@ -120,5 +149,39 @@ describe('meeting type filter', () => {
   it('ignores a type that is not a meeting type id', async () => {
     await renderInbox({ type: "x' or 1=1" });
     expect(listedPeople()).toHaveLength(4);
+  });
+});
+
+describe('type counts are exact, or say they are not', () => {
+  it('counts past one 1,000-row page', async () => {
+    extraBookings = manyInterviews(2_300);
+    await renderInbox({});
+    expect(within(typeGroup()).getByRole('link', { name: /Job Interview/ })).toHaveTextContent('2302');
+    // three pages of at most 1,000 rows each, none overlapping
+    expect(rangeReads).toEqual([[0, 999], [1000, 1999], [2000, 2999]]);
+    expect(screen.queryByText(/Counts cover the first/)).not.toBeInTheDocument();
+  });
+
+  it('beyond 10,000 meetings the page says the counts are partial', async () => {
+    extraBookings = manyInterviews(10_050);
+    await renderInbox({});
+    expect(rangeReads).toHaveLength(10);
+    expect(screen.getByText(/Counts cover the first 10,000 of 10,054 meetings in this tab/)).toBeInTheDocument();
+  });
+
+  it('a failed type lookup says so and leaves the list alone', async () => {
+    failingTable = 'meeting_types';
+    const err = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    await renderInbox({});
+    expect(screen.getByRole('status')).toHaveTextContent('The meeting type filter could not load just now');
+    expect(listedPeople()).toHaveLength(4);
+    expect(err).toHaveBeenCalled();
+    err.mockRestore();
+  });
+
+  it('an upper-case type id in the link still selects its chip', async () => {
+    await renderInbox({ type: T_INTERVIEW.toUpperCase() });
+    expect(listedPeople()).toHaveLength(2);
+    expect(within(typeGroup()).getByRole('button', { pressed: true })).toHaveTextContent('Job Interview');
   });
 });
