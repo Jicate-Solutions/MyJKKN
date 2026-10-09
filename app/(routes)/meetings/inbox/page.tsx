@@ -178,7 +178,8 @@ export default async function MeetingsInboxPage({ searchParams }: InboxPageProps
         )
       : Promise.resolve({ data: null, error: null } as Res<{ id: string }[]>),
   ]);
-  let { data: rows, error } = listRes as { data: unknown[] | null; error: { message: string } | null };
+  // Untyped client (see above): rows are read the same way the list always has.
+  let { data: rows, error } = listRes as { data: any[] | null; error: { message: string } | null };
   const { data: typeCountRows, error: typeFilterError } = countRes;
   if (typeFilterError) {
     console.error(
@@ -198,7 +199,7 @@ export default async function MeetingsInboxPage({ searchParams }: InboxPageProps
     const allRead = !typeRowRes.error && !typeUsedRes.error && !typeFilterError;
     if (!known && allRead) {
       typeFilter = null;
-      ({ data: rows, error } = (await listFor(null)) as { data: unknown[] | null; error: { message: string } | null });
+      ({ data: rows, error } = (await listFor(null)) as { data: any[] | null; error: { message: string } | null });
     }
   }
   const typeTitle = new Map<string, string>();
