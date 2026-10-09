@@ -20,20 +20,32 @@
 -- GUARD
 --   The DO block refuses (and nothing changes) unless, on this database:
 --     every one of the 13 functions exists;
---     none of them still calls ai_rpc_accessible_scope;
+--     every one of the 13 calls a college-scope check —
+--       public.role_has_institution_access( or public._user_accessible_institutions( —
+--       so a body with no tenant filter can never be switched on;
+--     the 11 that called the missing helper carry 20270308090000's
+--       "[scope-repair 2026-09-24]" marker (its repaired scope lines);
+--     none of them still calls ai_rpc_accessible_scope(;
 --     ai_rpc_academic_context no longer reads is_current;
 --     ai_rpc_admission_analytics no longer nests the aggregate
 --       (the same marker 20270308090000's own self-check uses).
---   So it can only switch on bodies that are past the three known failures.
+--   All matches are case-insensitive regular expressions on the live body.
 --
 -- NOT PROVEN HERE
 --   2b(a) also asks that "a call as a real person returns rows". That needs a
 --   signed-in call on production and is left to the Director (ask the
 --   assistant) after this applies.
 --
--- Re-running is a no-op. Undo:
+-- ORDER
+--   bug_report_details is narrowed to the assistant BEFORE anything is
+--   switched on, so there is no moment when the door could read it.
+--
+-- Re-running is a no-op. Undo (the audience narrowing is the Director's
+-- ruling and is meant to stay; the second line is only for a full revert):
 --   UPDATE public.ai_tool_catalog SET enabled = false, updated_at = now()
 --    WHERE kind = 'rpc' AND target IN (<the 13 below>);
+--   UPDATE public.ai_tool_catalog SET audience = ARRAY['assistant','door']::text[], updated_at = now()
+--    WHERE kind = 'rpc' AND target = 'ai_rpc_bug_report_details';
 -- Re-applying 20270301090000 after this file switches the 13 off again
 -- (its section 2b) — the applier runs each version once, so only a manual
 -- re-apply would do that.
@@ -47,6 +59,8 @@ DECLARE
     'ai_rpc_academic_context',
     'ai_rpc_admission_analytics'
   ];
+  -- the 11 that called the missing scope helper and were repaired by 20270308090000
+  v_scope_repaired text[] := v_targets[1:11];
   v_missing text;
   v_bad text;
 BEGIN
@@ -62,7 +76,23 @@ BEGIN
   SELECT string_agg(DISTINCT p.proname, ', ') INTO v_bad
     FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
    WHERE n.nspname = 'public' AND p.proname = ANY (v_targets)
-     AND p.prosrc LIKE '%ai_rpc_accessible_scope%';
+     AND p.prosrc !~* '(role_has_institution_access|_user_accessible_institutions)\s*\(';
+  IF v_bad IS NOT NULL THEN
+    RAISE EXCEPTION '20271009100500: no college-scope check in the live body, nothing turned on: %', v_bad;
+  END IF;
+
+  SELECT string_agg(DISTINCT p.proname, ', ') INTO v_bad
+    FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+   WHERE n.nspname = 'public' AND p.proname = ANY (v_scope_repaired)
+     AND position('[scope-repair 2026-09-24]' IN p.prosrc) = 0;
+  IF v_bad IS NOT NULL THEN
+    RAISE EXCEPTION '20271009100500: 20270308090000''s scope repair is not in the live body (apply it first), nothing turned on: %', v_bad;
+  END IF;
+
+  SELECT string_agg(DISTINCT p.proname, ', ') INTO v_bad
+    FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+   WHERE n.nspname = 'public' AND p.proname = ANY (v_targets)
+     AND p.prosrc ~* 'ai_rpc_accessible_scope\s*\(';
   IF v_bad IS NOT NULL THEN
     RAISE EXCEPTION '20271009100500: still calls the missing ai_rpc_accessible_scope (apply 20270308090000 first), nothing turned on: %', v_bad;
   END IF;
@@ -70,7 +100,7 @@ BEGIN
   IF EXISTS (
     SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
      WHERE n.nspname = 'public' AND p.proname = 'ai_rpc_academic_context'
-       AND p.prosrc LIKE '%is_current%'
+       AND p.prosrc ~* '\mis_current\M'
   ) THEN
     RAISE EXCEPTION '20271009100500: ai_rpc_academic_context still reads is_current, nothing turned on';
   END IF;
@@ -78,12 +108,20 @@ BEGIN
   IF EXISTS (
     SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
      WHERE n.nspname = 'public' AND p.proname = 'ai_rpc_admission_analytics'
-       AND p.prosrc LIKE '%jsonb_object_agg(TO_CHAR(created_at%'
+       AND p.prosrc ~* 'jsonb_object_agg\s*\(\s*to_char\s*\(\s*created_at'
   ) THEN
     RAISE EXCEPTION '20271009100500: ai_rpc_admission_analytics still nests an aggregate, nothing turned on';
   END IF;
 END
 $guard$;
+
+-- Director 2026-10-09: bug report details reach the in-app assistant only.
+-- Narrowed FIRST, so the door never sees it switched on.
+UPDATE public.ai_tool_catalog
+   SET audience = ARRAY['assistant']::text[], updated_at = now()
+ WHERE kind = 'rpc'
+   AND target = 'ai_rpc_bug_report_details'
+   AND audience IS DISTINCT FROM ARRAY['assistant']::text[];
 
 UPDATE public.ai_tool_catalog
    SET enabled = true, updated_at = now()
@@ -96,10 +134,3 @@ UPDATE public.ai_tool_catalog
      'ai_rpc_academic_context',
      'ai_rpc_admission_analytics'
    );
-
--- Director 2026-10-09: bug report details reach the in-app assistant only.
-UPDATE public.ai_tool_catalog
-   SET audience = ARRAY['assistant']::text[], updated_at = now()
- WHERE kind = 'rpc'
-   AND target = 'ai_rpc_bug_report_details'
-   AND audience IS DISTINCT FROM ARRAY['assistant']::text[];

@@ -26,6 +26,11 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 
 const REPO = path.resolve(__dirname, '..', '..');
 const CATALOG = readFileSync(path.join(REPO, 'supabase/migrations/20270301090000_ai_tool_catalog.sql'), 'utf8');
+const REPAIRED = readFileSync(path.join(REPO, 'supabase/migrations/20270308090000_ai_rpc_repair_dead_scope_lookups.sql'), 'utf8');
+const ACADEMIC_CONTEXT = readFileSync(
+  path.join(REPO, 'supabase/migrations/20270421090000_ai_academic_context_current_year.sql'),
+  'utf8'
+);
 const REENABLE = readFileSync(
   path.join(REPO, 'supabase/migrations/20271009100500_ai_tool_catalog_reenable_13_lookups.sql'),
   'utf8'
@@ -85,12 +90,26 @@ CREATE TABLE public.api_keys (
 );
 `;
 
-/** A working stand-in for every seeded function (bodies carry none of the known failures). */
-function stubs(): string {
+/** One function's CREATE statement, cut verbatim from a migration file. */
+function createOf(sql: string, fn: string): string {
+  const m = sql.match(new RegExp(`CREATE OR REPLACE FUNCTION public\\.${fn}\\([\\s\\S]*?\\n\\$function\\$;`));
+  if (!m) throw new Error(`no CREATE for ${fn}`);
+  return m[0];
+}
+
+/**
+ * The 13 are the REAL live bodies: 12 from 20270308090000 (#3999) and
+ * academic_context from 20270421090000 (#4088, the newer one). plpgsql bodies
+ * are not resolved at CREATE time, so they install without their tables.
+ * Every other seeded target is a stand-in.
+ */
+function functions(): string {
   const targets = [...new Set([...CATALOG.matchAll(/'rpc', '(ai_rpc_[a-z0-9_]+)'/g)].map((m) => m[1]))];
-  return targets
-    .map((t) => `CREATE FUNCTION public.${t}() RETURNS jsonb LANGUAGE sql AS $f$ SELECT '{}'::jsonb $f$;`)
-    .join('\n');
+  const others = targets
+    .filter((t) => !THIRTEEN.includes(t))
+    .map((t) => `CREATE FUNCTION public.${t}() RETURNS jsonb LANGUAGE sql AS $f$ SELECT '{}'::jsonb $f$;`);
+  const real = THIRTEEN.map((t) => createOf(t === 'ai_rpc_academic_context' ? ACADEMIC_CONTEXT : REPAIRED, t));
+  return [...others, ...real].join('\n');
 }
 
 const SNAPSHOT = `SELECT name, kind, target, description, params, is_write, audience, requires_permission, enabled
@@ -108,7 +127,7 @@ async function freshDb(tweak?: string): Promise<Client> {
   await db.connect();
   opened.push({ db, name });
   await db.query(SCHEMA);
-  await db.query(stubs());
+  await db.query(functions());
   if (tweak) await db.query(tweak);
   await db.query(CATALOG);
   return db;
@@ -184,23 +203,36 @@ describe('switching the 13 lookups back on', () => {
 });
 
 describe('the guard refuses and switches nothing on', () => {
+  /** Replaces one of the 13 with a body that has the given text. */
+  const swap = (fn: string, body: string) =>
+    `DROP FUNCTION public.${fn}; CREATE FUNCTION public.${fn}() RETURNS jsonb LANGUAGE plpgsql AS $f$ ${body} $f$;`;
   const cases: [string, string, RegExp][] = [
     [
-      'a lookup still calls ai_rpc_accessible_scope',
-      `CREATE OR REPLACE FUNCTION public.ai_rpc_periods() RETURNS jsonb LANGUAGE plpgsql AS $f$
-         BEGIN PERFORM public.ai_rpc_accessible_scope(auth.uid()); RETURN '{}'::jsonb; END $f$;`,
+      'a lookup with no college-scope check at all (a bare body)',
+      swap('ai_rpc_courses', `BEGIN /* [scope-repair 2026-09-24] */ RETURN (SELECT jsonb_agg(c) FROM courses c); END`),
+      /no college-scope check in the live body.*ai_rpc_courses/,
+    ],
+    [
+      'a scoped lookup without 20270308090000\'s repair',
+      swap('ai_rpc_degrees', `BEGIN PERFORM public.role_has_institution_access(NULL::uuid); RETURN '{}'::jsonb; END`),
+      /scope repair is not in the live body.*ai_rpc_degrees/,
+    ],
+    [
+      'a lookup still calls ai_rpc_accessible_scope (any case)',
+      swap('ai_rpc_periods', `BEGIN /* [scope-repair 2026-09-24] */ PERFORM public.role_has_institution_access(NULL::uuid);
+         PERFORM public.AI_RPC_ACCESSIBLE_SCOPE (auth.uid()); RETURN '{}'::jsonb; END`),
       /still calls the missing ai_rpc_accessible_scope.*ai_rpc_periods/,
     ],
     [
       'academic_context still reads is_current',
-      `CREATE OR REPLACE FUNCTION public.ai_rpc_academic_context() RETURNS jsonb LANGUAGE sql AS $f$
-         SELECT jsonb_build_object('current', (SELECT 1 WHERE (SELECT true AS is_current))) $f$;`,
+      swap('ai_rpc_academic_context', `BEGIN PERFORM public.role_has_institution_access(NULL::uuid);
+         RETURN (SELECT jsonb_agg(y) FROM academic_years y WHERE y.IS_CURRENT); END`),
       /academic_context still reads is_current/,
     ],
     [
-      'admission_analytics still nests the aggregate',
-      `CREATE OR REPLACE FUNCTION public.ai_rpc_admission_analytics() RETURNS jsonb LANGUAGE sql AS $f$
-         SELECT jsonb_object_agg(TO_CHAR(created_at, 'YYYY-MM'), 1) FROM (SELECT now() AS created_at) s $f$;`,
+      'admission_analytics still nests the aggregate (any case or spacing)',
+      swap('ai_rpc_admission_analytics', `BEGIN PERFORM public.role_has_institution_access(NULL::uuid);
+         RETURN (SELECT JSONB_OBJECT_AGG( to_char( created_at, 'YYYY-MM'), 1) FROM (SELECT now() AS created_at) s); END`),
       /admission_analytics still nests an aggregate/,
     ],
   ];
@@ -215,7 +247,7 @@ describe('the guard refuses and switches nothing on', () => {
 
   it('one of the 13 functions is missing', async () => {
     const db = await freshDb();
-    await db.query(`DROP FUNCTION public.ai_rpc_staff_plans()`);
+    await db.query(`DROP FUNCTION public.ai_rpc_staff_plans`);
     await expect(db.query(REENABLE)).rejects.toThrow(/function\(s\) missing.*ai_rpc_staff_plans/);
     expect(await offTargets(db)).toEqual(THIRTEEN);
   });
