@@ -62,7 +62,8 @@ vi.mock('@/lib/supabase/server', () => ({
 const enqueueJobsLane = vi.fn();
 vi.mock('@/lib/services/platform/ai-jobs-lane', () => ({
   enqueueJobsLane: (...args: unknown[]) => enqueueJobsLane(...args),
-  extractJobResultText: () => null,
+  extractJobResultText: (r: unknown) =>
+    typeof r === 'string' ? r : ((r as { answer?: string } | null)?.answer ?? null),
 }));
 
 import { GET } from '@/app/api/cron/adoption-weekly-power-users/route';
@@ -117,8 +118,8 @@ beforeEach(() => {
   tableResults = {
     bug_reports: {
       data: [
-        { reporter_user_id: 'u-01', status: 'open', description: 'Attendance page   shows the wrong date', created_at: '2026-10-01' },
-        { reporter_user_id: 'u-02', status: 'resolved', description: 'Someone else entirely', created_at: '2026-10-01' },
+        { reporter_user_id: 'u-01', status: 'open', module_name: 'Attendance', sub_module_name: null, description: 'Mr Kumar in Room 4 is rude', created_at: '2026-10-01' },
+        { reporter_user_id: 'u-02', status: 'resolved', module_name: 'Someone else module', sub_module_name: null, description: 'x', created_at: '2026-10-01' },
       ],
       error: null,
     },
@@ -234,37 +235,85 @@ describe('a real run', () => {
     const prompt = (enqueueJobsLane.mock.calls[0][1] as { prompt: string }).prompt;
     expect(prompt).toContain('College 1');
     expect(prompt).toContain('module-of-1: 7');
-    expect(prompt).toContain('[open] Attendance page shows the wrong date');
+    expect(prompt).toContain('[open] Attendance');
+    expect(prompt).not.toContain('Mr Kumar'); // a report's free text never reaches the model
     expect(prompt).not.toContain('Person 1'); // not even their own name
     expect(prompt).not.toContain('u-01');
     expect(prompt).not.toContain('College 2');
     expect(prompt).not.toContain('module-of-2');
-    expect(prompt).not.toContain('Someone else entirely');
+    expect(prompt).not.toContain('Someone else module');
   });
 
-  it('keeps people who already have an agenda job this week, and retries one that ended in error', async () => {
-    tableResults.adoption_power_user_weeks = {
-      data: { agenda_jobs: { 'u-01': 'old-1', 'u-02': 'old-2' } },
-      error: null,
-    };
+  const agenda = JSON.stringify({ questions: ['q1', 'q2', 'q3'], topics: ['t1', 't2'] });
+  const job = (user: string, id: string, status: string, result: unknown = null) => ({
+    id,
+    status,
+    result,
+    dedupe: `adoption-agenda:${WEEK}:${user}`,
+  });
+
+  it('keeps a queued job or a finished readable agenda; replaces an errored job', async () => {
     tableResults.ai_jobs = {
       data: [
-        { id: 'old-1', status: 'done' },
-        { id: 'old-2', status: 'error' },
+        job('u-01', 'old-1', 'done', { answer: agenda }),
+        job('u-02', 'old-2', 'error'),
+        job('u-03', 'old-3', 'pending'),
       ],
       error: null,
     };
     const res = await GET(request({ bearer: SECRET, query: `?week=${WEEK}` }));
     const body = await res.json();
-    expect(body.kept).toBe(1);
-    expect(body.enqueued).toBe(9);
+    expect(body.kept).toBe(2);
+    expect(body.enqueued).toBe(8);
     const users = enqueueJobsLane.mock.calls.map((c) => (c[1] as { context: { user_id: string } }).context.user_id);
     expect(users).not.toContain('u-01');
+    expect(users).not.toContain('u-03');
     expect(users).toContain('u-02');
     const update = calls.find((c) => c.op === 'update');
     const stored = (update?.args[0] as { agenda_jobs: Record<string, string> }).agenda_jobs;
     expect(stored['u-01']).toBe('old-1');
+    expect(stored['u-03']).toBe('old-3');
     expect(stored['u-02']).not.toBe('old-2');
+  });
+
+  it('finds a job whose id was never saved — even a finished one — so no second agenda is made', async () => {
+    // agenda_jobs is empty: an earlier run queued the job, then failed to save its id
+    tableResults.ai_jobs = { data: [job('u-01', 'lost-1', 'done', { answer: agenda })], error: null };
+    await GET(request({ bearer: SECRET, query: `?week=${WEEK}` }));
+    const lookup = calls.filter((c) => c.table === 'ai_jobs' && c.op === 'in');
+    expect(lookup[0]?.args[0]).toBe('payload->>_dedupe');
+    expect(lookup[0]?.args[1]).toContain(`adoption-agenda:${WEEK}:u-01`);
+    const users = enqueueJobsLane.mock.calls.map((c) => (c[1] as { context: { user_id: string } }).context.user_id);
+    expect(users).not.toContain('u-01');
+    const update = calls.find((c) => c.op === 'update');
+    const stored = (update?.args[0] as { agenda_jobs: Record<string, string> }).agenda_jobs;
+    expect(stored['u-01']).toBe('lost-1');
+  });
+
+  it('replaces a finished job whose answer cannot be read as an agenda', async () => {
+    tableResults.ai_jobs = { data: [job('u-01', 'bad-1', 'done', { answer: 'Sorry, I cannot help.' })], error: null };
+    await GET(request({ bearer: SECRET, query: `?week=${WEEK}` }));
+    const users = enqueueJobsLane.mock.calls.map((c) => (c[1] as { context: { user_id: string } }).context.user_id);
+    expect(users).toContain('u-01');
+  });
+
+  it('uses only the newest job per person', async () => {
+    tableResults.ai_jobs = {
+      data: [job('u-01', 'new-err', 'error'), job('u-01', 'old-ok', 'done', { answer: agenda })],
+      error: null,
+    };
+    await GET(request({ bearer: SECRET, query: `?week=${WEEK}` }));
+    const users = enqueueJobsLane.mock.calls.map((c) => (c[1] as { context: { user_id: string } }).context.user_id);
+    expect(users).toContain('u-01');
+  });
+
+  it('when the lookup fails, trusts a stored id as before and queues the rest', async () => {
+    tableResults.adoption_power_user_weeks = { data: { agenda_jobs: { 'u-01': 'old-1' } }, error: null };
+    tableResults.ai_jobs = { data: null, error: { message: 'boom' } };
+    const res = await GET(request({ bearer: SECRET, query: `?week=${WEEK}` }));
+    const body = await res.json();
+    expect(body.kept).toBe(1);
+    expect(body.enqueued).toBe(9);
   });
 
   it('counts an already-queued job as in flight, not a failure', async () => {
@@ -274,18 +323,6 @@ describe('a real run', () => {
     const body = await res.json();
     expect(body.in_flight).toBe(10);
     expect(body.failed).toBe(0);
-  });
-
-  it('recovers a queued job id an earlier run failed to save, so nobody gets a second job', async () => {
-    enqueueJobsLane.mockImplementation(() => Promise.resolve({ ok: false, reason: 'in_flight' }));
-    tableResults.ai_jobs = { data: [{ id: 'live-1', status: 'pending' }], error: null };
-    const res = await GET(request({ bearer: SECRET, query: `?week=${WEEK}` }));
-    expect(res.status).toBe(200);
-    const lookup = calls.filter((c) => c.table === 'ai_jobs' && c.op === 'eq');
-    expect(lookup.map((c) => c.args)).toContainEqual(['payload->>_dedupe', `adoption-agenda:${WEEK}:u-01`]);
-    const update = calls.find((c) => c.op === 'update');
-    const stored = (update?.args[0] as { agenda_jobs: Record<string, string> }).agenda_jobs;
-    expect(stored['u-01']).toBe('live-1');
   });
 
   it("reads each person's own problem reports separately, so one busy reporter cannot crowd out the rest", async () => {

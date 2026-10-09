@@ -63,15 +63,17 @@ describe('buildAgendaPrompt', () => {
 
   it('carries the person’s own facts and asks for strict JSON', () => {
     const prompt = buildAgendaPrompt('2026-09-28', person, [
-      { status: 'open', description: 'x'.repeat(200), created_at: '2026-10-01' },
+      { status: 'open', module_name: 'Attendance', sub_module_name: 'Daily marking', created_at: '2026-10-01' },
+      { status: 'resolved', module_name: null, sub_module_name: null, created_at: '2026-09-20' },
     ]);
     expect(prompt).toContain('Role: principal');
     expect(prompt).toContain('College: College A');
     expect(prompt).toContain('academic/attendance: 30');
     expect(prompt).toContain('Records saved (created, updated or exported): 4');
     expect(prompt).toContain('Days active: 5 of 7');
-    expect(prompt).toContain(`[open] ${'x'.repeat(110)}\n`);
-    expect(prompt).not.toContain('x'.repeat(111));
+    // status + which part of MyJKKN only; a report's free text never reaches the model
+    expect(prompt).toContain('[open] Attendance / Daily marking\n');
+    expect(prompt).toContain('[resolved] part not recorded');
     expect(prompt).toContain('{"questions"');
     expect(prompt).not.toContain('Private Name');
     expect(prompt).not.toContain(person.user_id);

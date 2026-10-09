@@ -19,9 +19,8 @@ export const AGENDA_JOB_TYPE = 'adoption.chat_agenda';
 export const MAX_AGENDAS = 10;
 /** A person's own problem reports from this many days back go into their prompt. */
 export const BUG_LOOKBACK_DAYS = 30;
-/** At most this many of their reports, newest first, each cut to BUG_TEXT_CHARS. */
+/** At most this many of their reports, newest first (status + part of MyJKKN only). */
 export const MAX_BUGS_PER_PERSON = 5;
-export const BUG_TEXT_CHARS = 110;
 
 export interface PowerUser {
   user_id: string;
@@ -54,10 +53,31 @@ export interface PowerUsersPayload {
   one_day_learners_by_college: CollegeCount[];
 }
 
+/**
+ * A person's own problem report, as the model sees it: status and which part of
+ * MyJKKN only. The free text is never sent — it can name other people.
+ */
 export interface OwnBugReport {
   status: string | null;
-  description: string | null;
+  module_name: string | null;
+  sub_module_name: string | null;
   created_at: string;
+}
+
+/** An earlier adoption.chat_agenda job for this week, found by its dedupe key. */
+export interface ExistingAgendaJob {
+  id: string;
+  status: string;
+  result: unknown;
+  dedupe: string | null;
+}
+
+const LIVE_JOB_STATES = new Set(['pending', 'claimed', 'running']);
+
+/** Still queued/running, or finished with an agenda the page can read. */
+export function isUsableAgendaJob(job: Pick<ExistingAgendaJob, 'status' | 'result'>): boolean {
+  if (LIVE_JOB_STATES.has(job.status)) return true;
+  return job.status === 'done' && parseAgenda(extractJobResultText(job.result as never)) !== null;
 }
 
 export interface ChatAgenda {
@@ -87,8 +107,10 @@ export function isMondayDate(value: string): boolean {
   );
 }
 
-function oneLine(text: string | null | undefined, max: number): string {
-  return (text ?? '').replace(/\s+/g, ' ').trim().slice(0, max);
+/** Which part of MyJKKN a report was about — never its free text. */
+function partOf(b: OwnBugReport): string {
+  const part = [b.module_name, b.sub_module_name].filter((x) => x && x.trim()).join(' / ');
+  return part || 'part not recorded';
 }
 
 /**
@@ -112,7 +134,7 @@ export function buildAgendaPrompt(
         ? '  (none)'
         : bugs
             .slice(0, MAX_BUGS_PER_PERSON)
-            .map((b) => `  - [${b.status ?? 'unknown'}] ${oneLine(b.description, BUG_TEXT_CHARS)}`)
+            .map((b) => `  - [${b.status ?? 'unknown'}] ${partOf(b)}`)
             .join('\n');
 
   return `You are helping the MyJKKN adoption team prepare a short chat with ONE person who used MyJKKN a lot in the week starting ${weekStart}. Use ONLY the facts below about this one person. Do not guess or add facts.
@@ -125,7 +147,7 @@ ${modules || '  (none recorded)'}
 - Different features used: ${person.features_used}
 - Records saved (created, updated or exported): ${person.records_saved}
 - Days active: ${person.active_days} of 7
-- Their own problem reports in the last ${BUG_LOOKBACK_DAYS} days (status, then what they wrote):
+- Their own problem reports in the last ${BUG_LOOKBACK_DAYS} days (status, then which part of MyJKKN):
 ${reports}
 
 WRITE

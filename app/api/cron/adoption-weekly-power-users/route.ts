@@ -22,9 +22,12 @@
 //   4. upsert the week's row in adoption_power_user_weeks (agenda_jobs is not
 //      touched by the upsert, so a re-run keeps the job ids it already has);
 //   5. one agenda job per top-10 person (dedupe key adoption-agenda:<week>:<user>).
-//      Someone who already has a job this week is skipped ('kept') unless that
-//      job ended in error — a re-run never makes a second agenda for a person;
-//   6. the new job ids are merged into agenda_jobs.
+//      Someone whose newest job this week (found by dedupe key) is still queued,
+//      or finished with a readable agenda, is skipped ('kept'); an errored job or
+//      an unreadable answer is replaced — a re-run never makes a second agenda;
+//   6. the job ids are merged into agenda_jobs.
+// Privacy: problem reports reach the model as status + which part of MyJKKN
+// only, never their free text, which can name other people.
 // Messages nobody: no notifications, no meetings, no emails, no other table.
 //
 // Auth: CRON_SECRET via `Authorization: Bearer <secret>` only — the dispatcher
@@ -49,16 +52,15 @@ import {
   MAX_BUGS_PER_PERSON,
   buildAgendaPrompt,
   isMondayDate,
+  isUsableAgendaJob,
   previousIstWeekStart,
   summarisePowerUsersRun,
+  type ExistingAgendaJob,
   type OwnBugReport,
   type PowerUsersPayload,
 } from '@/lib/adoption/power-users';
 
 const LOG_MODULE = 'adoption/weekly-power-users';
-/** A job in one of these states may be queued again on a re-run. */
-const RETRYABLE_JOB_STATES = new Set(['error', 'failed', 'canceled', 'cancelled']);
-
 function fail(message: string, started: number, status = 500) {
   logger.error(LOG_MODULE, message);
   return NextResponse.json({ ok: false, error: message, elapsed_ms: Date.now() - started }, { status });
@@ -105,7 +107,7 @@ export async function GET(request: NextRequest) {
       top.map((p) =>
         admin
           .from('bug_reports')
-          .select('reporter_user_id, status, description, created_at')
+          .select('reporter_user_id, status, module_name, sub_module_name, created_at')
           .eq('reporter_user_id', p.user_id)
           .gte('created_at', since)
           .order('created_at', { ascending: false })
@@ -120,7 +122,12 @@ export async function GET(request: NextRequest) {
       }
       for (const bug of (bugs ?? []) as Array<OwnBugReport & { reporter_user_id: string }>) {
         const list = bugsByUser.get(bug.reporter_user_id) ?? [];
-        list.push({ status: bug.status, description: bug.description, created_at: bug.created_at });
+        list.push({
+          status: bug.status,
+          module_name: bug.module_name,
+          sub_module_name: bug.sub_module_name,
+          created_at: bug.created_at,
+        });
         bugsByUser.set(bug.reporter_user_id, list);
       }
     }
@@ -182,36 +189,50 @@ export async function GET(request: NextRequest) {
     );
   if (upsertErr) return fail(`week row write failed: ${upsertErr.message}`, started);
 
-  // Jobs from an earlier run this week that ended badly may be queued again.
-  const retryable = new Set<string>();
-  const earlierIds = top.map((p) => agendaJobs[p.user_id]).filter((id): id is string => !!id);
-  if (earlierIds.length > 0) {
-    const { data: earlier, error: earlierErr } = await admin
+  // 5a) what each person already has this week. Looked up by the dedupe key,
+  // not only by the stored id: if an earlier run queued a job but failed to
+  // save its id, the job is still found here — a finished one too — so nobody
+  // gets a second agenda. The newest job per person decides.
+  const keyOf = (userId: string) => `adoption-agenda:${weekStart}:${userId}`;
+  const latestByKey = new Map<string, ExistingAgendaJob>();
+  let lookupFailed = false;
+  if (prompts.length > 0) {
+    const { data: existing, error: existingErr } = await admin
       .from('ai_jobs')
-      .select('id, status')
-      .in('id', earlierIds);
-    if (earlierErr) {
-      logger.warn(LOG_MODULE, `earlier agenda jobs unreadable; none retried: ${earlierErr.message}`);
+      .select('id, status, result, requested_at, dedupe:payload->>_dedupe')
+      .eq('job_type', AGENDA_JOB_TYPE)
+      .in(
+        'payload->>_dedupe',
+        prompts.map((p) => keyOf(p.user_id))
+      )
+      .order('requested_at', { ascending: false });
+    if (existingErr) {
+      lookupFailed = true;
+      logger.warn(LOG_MODULE, `earlier agenda jobs unreadable; stored ids kept: ${existingErr.message}`);
     }
-    for (const job of (earlier ?? []) as Array<{ id: string; status: string }>) {
-      if (RETRYABLE_JOB_STATES.has(job.status)) retryable.add(job.id);
+    for (const job of (existing ?? []) as ExistingAgendaJob[]) {
+      if (job.dedupe && !latestByKey.has(job.dedupe)) latestByKey.set(job.dedupe, job);
     }
   }
 
-  // 5) one agenda job per top person
+  // 5b) one agenda job per top person, unless they already have a usable one
+  const savedBefore = JSON.stringify(agendaJobs);
   let enqueued = 0;
   let inFlight = 0;
   let failed = 0;
   let kept = 0;
-  let recovered = 0;
   const failures: string[] = [];
   for (const { user_id: userId, prompt } of prompts) {
-    const earlierId = agendaJobs[userId];
-    if (earlierId && !retryable.has(earlierId)) {
+    const dedupeKey = keyOf(userId);
+    const latest = latestByKey.get(dedupeKey);
+    // Usable = still queued/running, or finished with an agenda the page can
+    // read. An errored job, or a finished one whose answer is unreadable, is
+    // replaced. If the lookup itself failed, a stored id is trusted as before.
+    if (latest ? isUsableAgendaJob(latest) : lookupFailed && !!agendaJobs[userId]) {
+      if (latest) agendaJobs[userId] = latest.id;
       kept++;
       continue;
     }
-    const dedupeKey = `adoption-agenda:${weekStart}:${userId}`;
     const res = await enqueueJobsLane(admin, {
       jobType: AGENDA_JOB_TYPE,
       prompt,
@@ -223,25 +244,7 @@ export async function GET(request: NextRequest) {
       agendaJobs[userId] = res.jobId;
       enqueued++;
     } else if (res.reason === 'in_flight') {
-      inFlight++;
-      // Already queued. If an earlier run queued it but failed to save the id,
-      // recover it, or the page shows "not ready" all week and a later run
-      // queues a second job for the same person.
-      if (!earlierId) {
-        const { data: live } = await admin
-          .from('ai_jobs')
-          .select('id')
-          .eq('job_type', AGENDA_JOB_TYPE)
-          .eq('payload->>_dedupe', dedupeKey)
-          .in('status', ['pending', 'claimed', 'running'])
-          .order('requested_at', { ascending: false })
-          .limit(1);
-        const liveId = (live as Array<{ id: string }> | null)?.[0]?.id;
-        if (liveId) {
-          agendaJobs[userId] = liveId;
-          recovered++;
-        }
-      }
+      inFlight++; // queued between the lookup and now; the next run records it
     } else {
       failed++;
       failures.push(res.error ? `${res.reason}: ${res.error}` : res.reason);
@@ -249,7 +252,7 @@ export async function GET(request: NextRequest) {
   }
 
   // 6) remember the job ids
-  if (enqueued > 0 || recovered > 0) {
+  if (JSON.stringify(agendaJobs) !== savedBefore) {
     const { error: updateErr } = await admin
       .from('adoption_power_user_weeks')
       .update({ agenda_jobs: agendaJobs })
