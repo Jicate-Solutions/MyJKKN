@@ -12405,19 +12405,19 @@ CREATE POLICY ig_learner_post_claims_delete ON public.ig_learner_post_claims
 -- =====================================================================
 DROP POLICY IF EXISTS grievance_tickets_hide_about_joint_md ON public.grievance_tickets;
 CREATE POLICY grievance_tickets_hide_about_joint_md ON public.grievance_tickets
-  AS RESTRICTIVE FOR ALL
+  AS RESTRICTIVE FOR ALL TO authenticated
   USING (NOT about_joint_md
          OR NOT ((SELECT public.fn_grievance_caller_joint_md_scope())
                  && ARRAY[institution_id, '00000000-0000-0000-0000-000000000000'::uuid]));
 
 DROP POLICY IF EXISTS grievance_comments_hide_about_joint_md ON public.grievance_comments;
 CREATE POLICY grievance_comments_hide_about_joint_md ON public.grievance_comments
-  AS RESTRICTIVE FOR ALL
+  AS RESTRICTIVE FOR ALL TO authenticated
   USING (CASE WHEN cardinality((SELECT public.fn_grievance_caller_joint_md_scope())) = 0 THEN true
               ELSE NOT public.fn_grievance_ticket_hidden_from_caller(ticket_id) END);
 
 DROP POLICY IF EXISTS grievance_history_hide_about_joint_md ON public.grievance_history;
 CREATE POLICY grievance_history_hide_about_joint_md ON public.grievance_history
-  AS RESTRICTIVE FOR ALL
+  AS RESTRICTIVE FOR ALL TO authenticated
   USING (CASE WHEN cardinality((SELECT public.fn_grievance_caller_joint_md_scope())) = 0 THEN true
               ELSE NOT public.fn_grievance_ticket_hidden_from_caller(ticket_id) END);

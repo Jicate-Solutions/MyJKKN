@@ -35,6 +35,67 @@ export const maxDuration = 60;
 import { NextRequest, NextResponse } from 'next/server';
 import { createServiceRoleClient } from '@/lib/supabase/server';
 import { logger } from '@/lib/utils/enhanced-logger';
+import { isMissingGrievanceSchema } from '@/lib/grievance/schema-compat';
+
+const ESCALATION_TICK = 'fn_grievance_escalation_tick';
+
+/**
+ * What this route did before migration 20270420090000 (deep review of #4079,
+ * M4): stamp newly overdue tickets breached, nothing else. Used only while the
+ * escalation function does not exist yet, so an app deployed ahead of its
+ * migration keeps the NAAC breach record instead of failing every hour. No
+ * ticket can be marked "about the Joint MD" then (the column comes with the
+ * same migration), so the counts here leave nothing out that they should.
+ */
+async function legacyBreachStamp(
+  admin: ReturnType<typeof createServiceRoleClient>,
+  dryRun: boolean,
+  started: number
+) {
+  logger.warn('grievance/cron/escalation', `${ESCALATION_TICK} is not in the database yet; breach stamping only (migration 20270420090000 not applied)`);
+
+  const { data: eligible, error: selectError } = await admin
+    .from('grievance_tickets')
+    .select('id')
+    .in('status', ['open', 'in_progress', 'pending_info', 'reopened'])
+    .is('sla_breached_at', null)
+    .lt('sla_deadline', new Date().toISOString());
+  if (selectError) {
+    logger.error('grievance/cron/escalation', 'legacy breach select failed', selectError);
+    return NextResponse.json(
+      { ok: false, error: `breach select failed: ${selectError.message}`, elapsed_ms: Date.now() - started },
+      { status: 500 }
+    );
+  }
+
+  const ids = (eligible ?? []).map((t: { id: string }) => t.id);
+  if (!dryRun && ids.length > 0) {
+    const { error: updateError } = await admin
+      .from('grievance_tickets')
+      .update({ sla_breached_at: new Date().toISOString(), sla_status: 'breached' })
+      .in('id', ids);
+    if (updateError) {
+      logger.error('grievance/cron/escalation', 'legacy breach update failed', updateError);
+      return NextResponse.json(
+        { ok: false, error: `breach update failed: ${updateError.message}`, elapsed_ms: Date.now() - started },
+        { status: 500 }
+      );
+    }
+  }
+
+  const summary =
+    `${dryRun ? 'DRY RUN — would mark' : 'marked'} breached ${ids.length} ` +
+    '(escalation not installed yet: migration 20270420090000 pending)';
+  return NextResponse.json({
+    ok: true,
+    summary,
+    dry_run: dryRun,
+    enabled: null,
+    legacy: true,
+    breached: ids.length,
+    elapsed_ms: Date.now() - started,
+  });
+}
 
 interface EscalationTickResult {
   success?: boolean;
@@ -66,6 +127,11 @@ export async function GET(request: NextRequest) {
   const admin = createServiceRoleClient();
 
   const { data, error } = await admin.rpc('fn_grievance_escalation_tick', { p_dry_run: dryRun });
+  if (error && isMissingGrievanceSchema(error, ESCALATION_TICK)) {
+    // The app reached production before migration 20270420090000: do what
+    // this route did before it, so breach stamping never stops.
+    return legacyBreachStamp(admin, dryRun, started);
+  }
   if (error) {
     logger.error('grievance/cron/escalation', 'fn_grievance_escalation_tick failed', error);
     return NextResponse.json(
