@@ -66,6 +66,9 @@ export const LEGACY_REDIRECTS: readonly LegacyRedirect[] = [
   { from: '/admin/voice-memo-monitor', to: '/admission/settings/voice-memo-monitor', status: 307 },
   { from: '/admin/exophone-mapping', to: '/admission/settings/exophone-mapping', status: 307 },
   { from: '/admin/notifications', to: '/notifications/admin', status: 307 },
+  // Billing "Discounts" renamed to "Scholarships" end to end (2026-10-09). Bookmarks and
+  // the ?bill_id= / ?bill_ids= deep links from bill screens keep working (query is preserved).
+  { from: '/billing/discounts', to: '/billing/scholarships', status: 308 },
 ];
 
 /** The redirect for `pathname`, or null when it is not a legacy path. */

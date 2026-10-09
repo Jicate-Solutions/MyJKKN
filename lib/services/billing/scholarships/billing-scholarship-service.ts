@@ -1,37 +1,37 @@
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { logActivityForCurrentUser, BillingActivityTemplates } from '@/lib/utils/activity-logger-client';
 import type {
-  BillingDiscount,
-  DiscountFilters,
-  DiscountListResponse,
-  CreateDiscountDto,
-  UpdateDiscountDto,
+  BillingScholarship,
+  ScholarshipFilters,
+  ScholarshipListResponse,
+  CreateScholarshipDto,
+  UpdateScholarshipDto,
   BulkOperationResult
 } from '@/types/billing-schedule';
 
-export class BillingDiscountService {
+export class BillingScholarshipService {
   private static supabase = createClientSupabaseClient();
 
-  static async createBillingDiscount(
-    discountData: CreateDiscountDto
-  ): Promise<BillingDiscount> {
+  static async createBillingScholarship(
+    scholarshipData: CreateScholarshipDto
+  ): Promise<BillingScholarship> {
     try {
-      // Calculate discount amount based on type and value
+      // Calculate scholarship amount based on type and value
       const billQuery = await this.supabase
         .from('billing_student_bills')
         .select('total_amount')
-        .eq('id', discountData.bill_id)
+        .eq('id', scholarshipData.bill_id)
         .single();
 
       if (billQuery.error) throw billQuery.error;
 
       const billAmount = (billQuery.data as { total_amount: number }).total_amount;
-      let discountAmount = 0;
+      let scholarshipAmount = 0;
 
-      if (discountData.discount_type === 'percentage') {
-        discountAmount = (billAmount * discountData.discount_value) / 100;
+      if (scholarshipData.value_mode === 'percentage') {
+        scholarshipAmount = (billAmount * scholarshipData.scholarship_value) / 100;
       } else {
-        discountAmount = discountData.discount_value;
+        scholarshipAmount = scholarshipData.scholarship_value;
       }
 
       // Get current user for created_by field
@@ -40,17 +40,18 @@ export class BillingDiscountService {
       } = await this.supabase.auth.getUser();
 
       const { data, error } = await this.supabase
-        .from('billing_discounts')
+        .from('billing_scholarships')
         .insert({
-          bill_id: discountData.bill_id,
-          discount_category: discountData.discount_category,
-          discount_type: discountData.discount_type,
-          discount_value: discountData.discount_value,
-          discount_amount: discountAmount,
-          discount_reason: discountData.discount_reason,
-          supporting_documents: discountData.supporting_documents,
-          effective_date: discountData.effective_date,
-          expiry_date: discountData.expiry_date,
+          bill_id: scholarshipData.bill_id,
+          scholarship_category_id: scholarshipData.scholarship_category_id,
+          scholarship_type_id: scholarshipData.scholarship_type_id,
+          value_mode: scholarshipData.value_mode,
+          scholarship_value: scholarshipData.scholarship_value,
+          scholarship_amount: scholarshipAmount,
+          scholarship_reason: scholarshipData.scholarship_reason,
+          supporting_documents: scholarshipData.supporting_documents,
+          effective_date: scholarshipData.effective_date,
+          expiry_date: scholarshipData.expiry_date,
           approval_status: 'pending',
           created_by: user?.id
         } as any)
@@ -69,9 +70,19 @@ export class BillingDiscountService {
               student_email
             )
           ),
-          authorizer:profiles!fk_billing_discounts_authorizer (
+          authorizer:profiles!fk_billing_scholarships_authorizer (
             id,
             full_name
+          ),
+          scholarship_category:billing_scholarship_categories (
+            id,
+            name,
+            code
+          ),
+          scholarship_type:billing_scholarship_types (
+            id,
+            name,
+            code
           )
         `
         )
@@ -80,9 +91,9 @@ export class BillingDiscountService {
       if (error) throw error;
 
       const studentName = `${(data as any)?.bill?.student?.first_name || ''} ${(data as any)?.bill?.student?.last_name || ''}`.trim() || 'Unknown';
-      const template = BillingActivityTemplates.discountCreated(
-        discountData.discount_category,
-        discountAmount,
+      const template = BillingActivityTemplates.scholarshipCreated(
+        (data as any)?.scholarship_category?.name ?? 'Scholarship',
+        scholarshipAmount,
         studentName
       );
       logActivityForCurrentUser({
@@ -90,30 +101,30 @@ export class BillingDiscountService {
         resourceId: (data as any).id,
         metadata: {
           sub_type: template.sub_type,
-          bill_id: discountData.bill_id,
-          discount_type: discountData.discount_type,
-          discount_value: discountData.discount_value,
-          discount_amount: discountAmount,
+          bill_id: scholarshipData.bill_id,
+          value_mode: scholarshipData.value_mode,
+          scholarship_value: scholarshipData.scholarship_value,
+          scholarship_amount: scholarshipAmount,
         },
       });
 
-      return data as unknown as BillingDiscount;
+      return data as unknown as BillingScholarship;
     } catch (error) {
-      console.error('Error creating discount:', error);
+      console.error('Error creating scholarship:', error);
       throw new Error(
-        error instanceof Error ? error.message : 'Failed to create discount'
+        error instanceof Error ? error.message : 'Failed to create scholarship'
       );
     }
   }
 
-  static async updateBillingDiscount(
+  static async updateBillingScholarship(
     id: string,
-    discountData: UpdateDiscountDto
-  ): Promise<BillingDiscount> {
+    scholarshipData: UpdateScholarshipDto
+  ): Promise<BillingScholarship> {
     try {
       const { data, error } = await (this.supabase as any)
-        .from('billing_discounts')
-        .update(discountData)
+        .from('billing_scholarships')
+        .update(scholarshipData)
         .eq('id', id)
         .select(
           `
@@ -130,9 +141,19 @@ export class BillingDiscountService {
               student_email
             )
           ),
-          authorizer:profiles!fk_billing_discounts_authorizer (
+          authorizer:profiles!fk_billing_scholarships_authorizer (
             id,
             full_name
+          ),
+          scholarship_category:billing_scholarship_categories (
+            id,
+            name,
+            code
+          ),
+          scholarship_type:billing_scholarship_types (
+            id,
+            name,
+            code
           )
         `
         )
@@ -140,50 +161,50 @@ export class BillingDiscountService {
 
       if (error) throw error;
 
-      const template = BillingActivityTemplates.discountUpdated(id);
+      const template = BillingActivityTemplates.scholarshipUpdated(id);
       logActivityForCurrentUser({
         ...template,
         resourceId: id,
-        metadata: { sub_type: template.sub_type, updated_fields: Object.keys(discountData) },
+        metadata: { sub_type: template.sub_type, updated_fields: Object.keys(scholarshipData) },
       });
 
-      return data as unknown as BillingDiscount;
+      return data as unknown as BillingScholarship;
     } catch (error) {
-      console.error('Error updating discount:', error);
+      console.error('Error updating scholarship:', error);
       throw new Error(
-        error instanceof Error ? error.message : 'Failed to update discount'
+        error instanceof Error ? error.message : 'Failed to update scholarship'
       );
     }
   }
 
-  static async deleteBillingDiscount(id: string): Promise<void> {
+  static async deleteBillingScholarship(id: string): Promise<void> {
     try {
       const { error } = await this.supabase
-        .from('billing_discounts')
+        .from('billing_scholarships')
         .delete()
         .eq('id', id);
 
       if (error) throw error;
 
-      const template = BillingActivityTemplates.discountDeleted(id);
+      const template = BillingActivityTemplates.scholarshipDeleted(id);
       logActivityForCurrentUser({
         ...template,
         resourceId: id,
         metadata: { sub_type: template.sub_type },
       });
     } catch (error) {
-      console.error('Error deleting discount:', error);
+      console.error('Error deleting scholarship:', error);
       throw new Error(
-        error instanceof Error ? error.message : 'Failed to delete discount'
+        error instanceof Error ? error.message : 'Failed to delete scholarship'
       );
     }
   }
 
-  static async getBillingDiscounts(
-    filters: DiscountFilters = {}
-  ): Promise<DiscountListResponse> {
+  static async getBillingScholarships(
+    filters: ScholarshipFilters = {}
+  ): Promise<ScholarshipListResponse> {
     try {
-      let query = (this.supabase as any).from('billing_discounts').select(
+      let query = (this.supabase as any).from('billing_scholarships').select(
         `
           *,
           bill:billing_student_bills (
@@ -198,9 +219,19 @@ export class BillingDiscountService {
               student_email
             )
           ),
-          authorizer:profiles!fk_billing_discounts_authorizer (
+          authorizer:profiles!fk_billing_scholarships_authorizer (
             id,
             full_name
+          ),
+          scholarship_category:billing_scholarship_categories (
+            id,
+            name,
+            code
+          ),
+          scholarship_type:billing_scholarship_types (
+            id,
+            name,
+            code
           )
         `,
         { count: 'exact' }
@@ -209,7 +240,7 @@ export class BillingDiscountService {
       // Apply filters
       if (filters.search) {
         query = query.or(
-          `discount_reason.ilike.%${filters.search}%,bill.student.first_name.ilike.%${filters.search}%,bill.student.last_name.ilike.%${filters.search}%`
+          `scholarship_reason.ilike.%${filters.search}%,bill.student.first_name.ilike.%${filters.search}%,bill.student.last_name.ilike.%${filters.search}%`
         );
       }
 
@@ -217,12 +248,16 @@ export class BillingDiscountService {
         query = query.eq('bill_id', filters.bill_id);
       }
 
-      if (filters.discount_category) {
-        query = query.eq('discount_category', filters.discount_category);
+      if (filters.scholarship_category_id) {
+        query = query.eq('scholarship_category_id', filters.scholarship_category_id);
       }
 
-      if (filters.discount_type) {
-        query = query.eq('discount_type', filters.discount_type);
+      if (filters.scholarship_type_id) {
+        query = query.eq('scholarship_type_id', filters.scholarship_type_id);
+      }
+
+      if (filters.value_mode) {
+        query = query.eq('value_mode', filters.value_mode);
       }
 
       if (filters.approval_status) {
@@ -258,17 +293,17 @@ export class BillingDiscountService {
         }
       };
     } catch (error) {
-      console.error('Error fetching discounts:', error);
+      console.error('Error fetching scholarships:', error);
       throw new Error(
-        error instanceof Error ? error.message : 'Failed to fetch discounts'
+        error instanceof Error ? error.message : 'Failed to fetch scholarships'
       );
     }
   }
 
-  static async getBillingDiscount(id: string): Promise<BillingDiscount> {
+  static async getBillingScholarship(id: string): Promise<BillingScholarship> {
     try {
       const { data, error } = await this.supabase
-        .from('billing_discounts')
+        .from('billing_scholarships')
         .select(
           `
           *,
@@ -284,9 +319,19 @@ export class BillingDiscountService {
               student_email
             )
           ),
-          authorizer:profiles!fk_billing_discounts_authorizer (
+          authorizer:profiles!fk_billing_scholarships_authorizer (
             id,
             full_name
+          ),
+          scholarship_category:billing_scholarship_categories (
+            id,
+            name,
+            code
+          ),
+          scholarship_type:billing_scholarship_types (
+            id,
+            name,
+            code
           )
         `
         )
@@ -294,19 +339,19 @@ export class BillingDiscountService {
         .single();
 
       if (error) throw error;
-      return data as unknown as BillingDiscount;
+      return data as unknown as BillingScholarship;
     } catch (error) {
-      console.error('Error fetching discount:', error);
+      console.error('Error fetching scholarship:', error);
       throw new Error(
-        error instanceof Error ? error.message : 'Failed to fetch discount'
+        error instanceof Error ? error.message : 'Failed to fetch scholarship'
       );
     }
   }
 
-  static async approveDiscount(id: string): Promise<BillingDiscount> {
+  static async approveScholarship(id: string): Promise<BillingScholarship> {
     try {
-      // First get the discount details to access bill_id and discount_amount
-      const discountData = await this.getBillingDiscount(id);
+      // First get the scholarship details to access bill_id and scholarship_amount
+      const scholarshipData = await this.getBillingScholarship(id);
 
       // Get current user
       const {
@@ -317,44 +362,44 @@ export class BillingDiscountService {
       const { data: billData, error: billError } = await this.supabase
         .from('billing_student_bills')
         .select('final_amount, balance_amount, status')
-        .eq('id', discountData.bill_id)
+        .eq('id', scholarshipData.bill_id)
         .single();
 
       if (billError) throw billError;
 
       const billDataTyped = billData as { final_amount: number; balance_amount: number; status: string };
 
-      // Validate that discount doesn't exceed bill amount
-      if (discountData.discount_amount > billDataTyped.final_amount) {
-        throw new Error('Discount amount cannot exceed bill amount');
+      // Validate that scholarship doesn't exceed bill amount
+      if (scholarshipData.scholarship_amount > billDataTyped.final_amount) {
+        throw new Error('Scholarship amount cannot exceed bill amount');
       }
 
-      // Check if discount is already approved
-      if (discountData.approval_status === 'approved') {
-        throw new Error('This discount is already approved');
+      // Check if scholarship is already approved
+      if (scholarshipData.approval_status === 'approved') {
+        throw new Error('This scholarship is already approved');
       }
 
-      // Calculate new amounts after discount
+      // Calculate new amounts after scholarship
       const newFinalAmount =
-        billDataTyped.final_amount - discountData.discount_amount;
+        billDataTyped.final_amount - scholarshipData.scholarship_amount;
 
       // For balance_amount calculation:
       // - If bill is unpaid: balance_amount = new final_amount
-      // - If bill is partially_paid: balance_amount = current balance - discount_amount (but not less than 0)
+      // - If bill is partially_paid: balance_amount = current balance - scholarship_amount (but not less than 0)
       let newBalanceAmount = 0;
       if (billDataTyped.status === 'unpaid') {
         newBalanceAmount = newFinalAmount;
       } else if (billDataTyped.status === 'partially_paid') {
         newBalanceAmount = Math.max(
           0,
-          billDataTyped.balance_amount - discountData.discount_amount
+          billDataTyped.balance_amount - scholarshipData.scholarship_amount
         );
       }
 
-      // Start a transaction to update both discount and bill
-      const { data: updatedDiscount, error: discountError } =
+      // Start a transaction to update both scholarship and bill
+      const { data: updatedScholarship, error: scholarshipError } =
         await (this.supabase as any)
-          .from('billing_discounts')
+          .from('billing_scholarships')
           .update({
             approval_status: 'approved',
             approval_date: new Date().toISOString(),
@@ -376,15 +421,25 @@ export class BillingDiscountService {
               student_email
             )
           ),
-          authorizer:profiles!fk_billing_discounts_authorizer (
+          authorizer:profiles!fk_billing_scholarships_authorizer (
             id,
             full_name
+          ),
+          scholarship_category:billing_scholarship_categories (
+            id,
+            name,
+            code
+          ),
+          scholarship_type:billing_scholarship_types (
+            id,
+            name,
+            code
           )
         `
           )
           .single();
 
-      if (discountError) throw discountError;
+      if (scholarshipError) throw scholarshipError;
 
       // Update the bill amounts
       const { error: billUpdateError } = await (this.supabase as any)
@@ -394,14 +449,14 @@ export class BillingDiscountService {
           balance_amount: newBalanceAmount,
           updated_at: new Date().toISOString()
         })
-        .eq('id', discountData.bill_id);
+        .eq('id', scholarshipData.bill_id);
 
       if (billUpdateError) throw billUpdateError;
 
-      const studentNameApprove = `${discountData.bill?.student?.first_name || ''} ${discountData.bill?.student?.last_name || ''}`.trim() || 'Unknown';
-      const templateApprove = BillingActivityTemplates.discountApproved(
-        discountData.discount_category,
-        discountData.discount_amount,
+      const studentNameApprove = `${scholarshipData.bill?.student?.first_name || ''} ${scholarshipData.bill?.student?.last_name || ''}`.trim() || 'Unknown';
+      const templateApprove = BillingActivityTemplates.scholarshipApproved(
+        scholarshipData.scholarship_category?.name ?? 'Scholarship',
+        scholarshipData.scholarship_amount,
         studentNameApprove
       );
       logActivityForCurrentUser({
@@ -409,8 +464,8 @@ export class BillingDiscountService {
         resourceId: id,
         metadata: {
           sub_type: templateApprove.sub_type,
-          bill_id: discountData.bill_id,
-          discount_amount: discountData.discount_amount,
+          bill_id: scholarshipData.bill_id,
+          scholarship_amount: scholarshipData.scholarship_amount,
           new_final_amount: newFinalAmount,
           new_balance_amount: newBalanceAmount,
         },
@@ -424,40 +479,40 @@ export class BillingDiscountService {
             status: 'paid',
             payment_date: new Date().toISOString()
           })
-          .eq('id', discountData.bill_id);
+          .eq('id', scholarshipData.bill_id);
 
         if (statusUpdateError) throw statusUpdateError;
       }
 
-      return updatedDiscount;
+      return updatedScholarship;
     } catch (error) {
-      console.error('Error approving discount:', error);
+      console.error('Error approving scholarship:', error);
       throw new Error(
-        error instanceof Error ? error.message : 'Failed to approve discount'
+        error instanceof Error ? error.message : 'Failed to approve scholarship'
       );
     }
   }
 
-  static async rejectDiscount(
+  static async rejectScholarship(
     id: string,
     reason: string
-  ): Promise<BillingDiscount> {
+  ): Promise<BillingScholarship> {
     try {
       // Get current user - this would come from auth context in real implementation
       const {
         data: { user }
       } = await this.supabase.auth.getUser();
 
-      // First get the current discount to access the discount_reason
-      const currentDiscount = await this.getBillingDiscount(id);
+      // First get the current scholarship to access the scholarship_reason
+      const currentScholarship = await this.getBillingScholarship(id);
 
       const { data, error } = await (this.supabase as any)
-        .from('billing_discounts')
+        .from('billing_scholarships')
         .update({
           approval_status: 'rejected',
           approval_date: new Date().toISOString(),
           authorizer_id: user?.id,
-          discount_reason: `${currentDiscount.discount_reason} (Rejected: ${reason})`
+          scholarship_reason: `${currentScholarship.scholarship_reason} (Rejected: ${reason})`
         })
         .eq('id', id)
         .select(
@@ -475,9 +530,19 @@ export class BillingDiscountService {
               student_email
             )
           ),
-          authorizer:profiles!fk_billing_discounts_authorizer (
+          authorizer:profiles!fk_billing_scholarships_authorizer (
             id,
             full_name
+          ),
+          scholarship_category:billing_scholarship_categories (
+            id,
+            name,
+            code
+          ),
+          scholarship_type:billing_scholarship_types (
+            id,
+            name,
+            code
           )
         `
         )
@@ -485,9 +550,9 @@ export class BillingDiscountService {
 
       if (error) throw error;
 
-      const studentNameReject = `${currentDiscount.bill?.student?.first_name || ''} ${currentDiscount.bill?.student?.last_name || ''}`.trim() || 'Unknown';
-      const templateReject = BillingActivityTemplates.discountRejected(
-        currentDiscount.discount_category,
+      const studentNameReject = `${currentScholarship.bill?.student?.first_name || ''} ${currentScholarship.bill?.student?.last_name || ''}`.trim() || 'Unknown';
+      const templateReject = BillingActivityTemplates.scholarshipRejected(
+        currentScholarship.scholarship_category?.name ?? 'Scholarship',
         studentNameReject
       );
       logActivityForCurrentUser({
@@ -498,20 +563,20 @@ export class BillingDiscountService {
 
       return data;
     } catch (error) {
-      console.error('Error rejecting discount:', error);
+      console.error('Error rejecting scholarship:', error);
       throw new Error(
-        error instanceof Error ? error.message : 'Failed to reject discount'
+        error instanceof Error ? error.message : 'Failed to reject scholarship'
       );
     }
   }
 
-  static async reverseDiscount(id: string): Promise<BillingDiscount> {
+  static async reverseScholarship(id: string): Promise<BillingScholarship> {
     try {
-      // First get the discount details
-      const discountData = await this.getBillingDiscount(id);
+      // First get the scholarship details
+      const scholarshipData = await this.getBillingScholarship(id);
 
-      if (discountData.approval_status !== 'approved') {
-        throw new Error('Can only reverse approved discounts');
+      if (scholarshipData.approval_status !== 'approved') {
+        throw new Error('Can only reverse approved scholarships');
       }
 
       // Get current user
@@ -525,30 +590,30 @@ export class BillingDiscountService {
         .select(
           'final_amount, balance_amount, status, total_amount, tax_amount'
         )
-        .eq('id', discountData.bill_id)
+        .eq('id', scholarshipData.bill_id)
         .single();
 
       if (billError) throw billError;
 
       const billDataTyped = billData as { final_amount: number; balance_amount: number; status: string; total_amount: number; tax_amount: number };
 
-      // Calculate restored amounts (add back the discount)
+      // Calculate restored amounts (add back the scholarship)
       const restoredFinalAmount =
-        billDataTyped.final_amount + discountData.discount_amount;
+        billDataTyped.final_amount + scholarshipData.scholarship_amount;
 
-      // For balance_amount calculation, add back the discount amount
+      // For balance_amount calculation, add back the scholarship amount
       const restoredBalanceAmount =
-        billDataTyped.balance_amount + discountData.discount_amount;
+        billDataTyped.balance_amount + scholarshipData.scholarship_amount;
 
-      // Update the discount status to 'reversed'
-      const { data: updatedDiscount, error: discountError } =
+      // Update the scholarship status to 'reversed'
+      const { data: updatedScholarship, error: scholarshipError } =
         await (this.supabase as any)
-          .from('billing_discounts')
+          .from('billing_scholarships')
           .update({
-            approval_status: 'rejected', // We'll use rejected status for reversed discounts
+            approval_status: 'rejected', // We'll use rejected status for reversed scholarships
             approval_date: new Date().toISOString(),
             authorizer_id: user?.id,
-            discount_reason: `${discountData.discount_reason} (Reversed by ${
+            scholarship_reason: `${scholarshipData.scholarship_reason} (Reversed by ${
               user?.email || 'system'
             })`
           })
@@ -568,15 +633,25 @@ export class BillingDiscountService {
               student_email
             )
           ),
-          authorizer:profiles!fk_billing_discounts_authorizer (
+          authorizer:profiles!fk_billing_scholarships_authorizer (
             id,
             full_name
+          ),
+          scholarship_category:billing_scholarship_categories (
+            id,
+            name,
+            code
+          ),
+          scholarship_type:billing_scholarship_types (
+            id,
+            name,
+            code
           )
         `
           )
           .single();
 
-      if (discountError) throw discountError;
+      if (scholarshipError) throw scholarshipError;
 
       // Restore the bill amounts
       const { error: billUpdateError } = await (this.supabase as any)
@@ -587,14 +662,14 @@ export class BillingDiscountService {
           status: restoredBalanceAmount > 0 ? 'partially_paid' : 'paid',
           updated_at: new Date().toISOString()
         })
-        .eq('id', discountData.bill_id);
+        .eq('id', scholarshipData.bill_id);
 
       if (billUpdateError) throw billUpdateError;
 
-      const studentNameReverse = `${discountData.bill?.student?.first_name || ''} ${discountData.bill?.student?.last_name || ''}`.trim() || 'Unknown';
-      const templateReverse = BillingActivityTemplates.discountReversed(
-        discountData.discount_category,
-        discountData.discount_amount,
+      const studentNameReverse = `${scholarshipData.bill?.student?.first_name || ''} ${scholarshipData.bill?.student?.last_name || ''}`.trim() || 'Unknown';
+      const templateReverse = BillingActivityTemplates.scholarshipReversed(
+        scholarshipData.scholarship_category?.name ?? 'Scholarship',
+        scholarshipData.scholarship_amount,
         studentNameReverse
       );
       logActivityForCurrentUser({
@@ -602,37 +677,37 @@ export class BillingDiscountService {
         resourceId: id,
         metadata: {
           sub_type: templateReverse.sub_type,
-          bill_id: discountData.bill_id,
-          discount_amount: discountData.discount_amount,
+          bill_id: scholarshipData.bill_id,
+          scholarship_amount: scholarshipData.scholarship_amount,
           restored_final_amount: restoredFinalAmount,
           restored_balance_amount: restoredBalanceAmount,
         },
       });
 
-      return updatedDiscount;
+      return updatedScholarship;
     } catch (error) {
-      console.error('Error reversing discount:', error);
+      console.error('Error reversing scholarship:', error);
       throw new Error(
-        error instanceof Error ? error.message : 'Failed to reverse discount'
+        error instanceof Error ? error.message : 'Failed to reverse scholarship'
       );
     }
   }
 
-  static async bulkApplyDiscounts(
-    discounts: CreateDiscountDto[]
+  static async bulkApplyScholarships(
+    scholarships: CreateScholarshipDto[]
   ): Promise<BulkOperationResult> {
     const results: BulkOperationResult = {
       success: [],
       failed: []
     };
 
-    for (const discountData of discounts) {
+    for (const scholarshipData of scholarships) {
       try {
-        const discount = await this.createBillingDiscount(discountData);
-        results.success.push(discount.id);
+        const scholarship = await this.createBillingScholarship(scholarshipData);
+        results.success.push(scholarship.id);
       } catch (error) {
         results.failed.push({
-          id: discountData.bill_id,
+          id: scholarshipData.bill_id,
           error: error instanceof Error ? error.message : 'Unknown error'
         });
       }
@@ -641,15 +716,15 @@ export class BillingDiscountService {
     return results;
   }
 
-  // Utility method to get bill with discount calculations
-  static async getBillWithDiscountSummary(billId: string): Promise<{
+  // Utility method to get bill with scholarship calculations
+  static async getBillWithScholarshipSummary(billId: string): Promise<{
     bill: any;
-    discounts: BillingDiscount[];
+    scholarships: BillingScholarship[];
     originalAmount: number;
-    totalDiscountAmount: number;
+    totalScholarshipAmount: number;
     effectiveAmount: number;
-    appliedDiscounts: BillingDiscount[];
-    pendingDiscounts: BillingDiscount[];
+    appliedScholarships: BillingScholarship[];
+    pendingScholarships: BillingScholarship[];
   }> {
     try {
       // Get bill details
@@ -661,49 +736,49 @@ export class BillingDiscountService {
 
       if (billError) throw billError;
 
-      // Get all discounts for this bill
-      const { data: discounts, error: discountError } = await this.supabase
-        .from('billing_discounts')
+      // Get all scholarships for this bill
+      const { data: scholarships, error: scholarshipError } = await this.supabase
+        .from('billing_scholarships')
         .select('*')
         .eq('bill_id', billId)
         .order('created_at', { ascending: false });
 
-      if (discountError) throw discountError;
+      if (scholarshipError) throw scholarshipError;
 
-      const discountsTyped = discounts as unknown as BillingDiscount[];
+      const scholarshipsTyped = scholarships as unknown as BillingScholarship[];
       const billTyped = bill as { total_amount: number; tax_amount: number; final_amount: number };
 
-      // Calculate discount totals
-      const appliedDiscounts = discountsTyped.filter(
+      // Calculate scholarship totals
+      const appliedScholarships = scholarshipsTyped.filter(
         (d: any) => d.approval_status === 'approved'
       );
-      const pendingDiscounts = discountsTyped.filter(
+      const pendingScholarships = scholarshipsTyped.filter(
         (d: any) => d.approval_status === 'pending'
       );
-      const totalDiscountAmount = appliedDiscounts.reduce(
-        (sum: number, d: any) => sum + d.discount_amount,
+      const totalScholarshipAmount = appliedScholarships.reduce(
+        (sum: number, d: any) => sum + d.scholarship_amount,
         0
       );
 
       // Calculate effective amount (this should match bill.final_amount if our logic is correct)
       const originalAmount = billTyped.total_amount + (billTyped.tax_amount || 0);
-      const effectiveAmount = originalAmount - totalDiscountAmount;
+      const effectiveAmount = originalAmount - totalScholarshipAmount;
 
       return {
         bill,
-        discounts: discountsTyped as BillingDiscount[],
+        scholarships: scholarshipsTyped as BillingScholarship[],
         originalAmount,
-        totalDiscountAmount,
+        totalScholarshipAmount,
         effectiveAmount,
-        appliedDiscounts: appliedDiscounts as BillingDiscount[],
-        pendingDiscounts: pendingDiscounts as BillingDiscount[]
+        appliedScholarships: appliedScholarships as BillingScholarship[],
+        pendingScholarships: pendingScholarships as BillingScholarship[]
       };
     } catch (error) {
-      console.error('Error getting bill with discount summary:', error);
+      console.error('Error getting bill with scholarship summary:', error);
       throw new Error(
         error instanceof Error
           ? error.message
-          : 'Failed to get bill discount summary'
+          : 'Failed to get bill scholarship summary'
       );
     }
   }

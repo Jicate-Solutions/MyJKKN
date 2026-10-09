@@ -956,12 +956,34 @@ export class LeaveService {
     return data as HRLeaveApplication;
   }
 
-  // ----- Cancel (post-approval, supersede pattern per decision 6) -----
+  // ----- Cancel (post-approval, by the person it belongs to) -----
 
+  /**
+   * The owner takes back their own APPROVED request.
+   *
+   * ONE UPDATE of the original row to 'cancelled', and nothing else. The balance
+   * (hr_trig_update_leave_balance) and a comp-off credit (hr_trig_comp_off_consume)
+   * are both given back by an UPDATE of status from 'approved', so the database
+   * does the restoring; re-implementing it here would be a second answer that can
+   * disagree. A closed attendance month refuses the write (trg_hla_block_locked_period).
+   *
+   * THIS USED TO INSERT A COPY already marked 'cancelled' and then link the
+   * original to it. Both halves were wrong: the balance trigger fires on UPDATE of
+   * status, never on INSERT, and the link UPDATE leaves the row 'approved', which
+   * hla_update's WITH CHECK refuses for the owner. The original stayed approved
+   * and deducted, and every retry left another stray row (2026-10-09).
+   *
+   * OWNER ONLY, checked here. hla_update would also admit an approver for the
+   * organisation, and taking back somebody else's approved leave is a revocation
+   * with its own gate (revokeApplication).
+   *
+   * THE ATTENDANCE DAY IS NOT TOUCHED HERE. The approval stamped LEAVE over it and
+   * no trigger reverses that; the route handler re-judges it (recomputeForRevokedLeave).
+   */
   static async cancelApplication(
     supabase: SupabaseClient,
     applicationId: string,
-    cancelledBy: string
+    _cancelledBy: string
   ) {
     const app = await this.getApplication(supabase, applicationId);
     if (!app) throw new Error('Application not found');
@@ -969,44 +991,24 @@ export class LeaveService {
       throw new Error(`Only approved applications can be cancelled. Use withdraw for pending. Status: ${app.status}`);
     }
 
-    // Clone the row with status=cancelled, link back via superseded_by
-    const clone: Record<string, unknown> = {
-      hr_organization_id: app.hr_organization_id,
-      employee_id: app.employee_id,
-      leave_type_id: app.leave_type_id,
-      hr_academic_year_id: app.hr_academic_year_id,
-      start_date: app.start_date,
-      end_date: app.end_date,
-      duration_type: app.duration_type,
-      start_time: app.start_time,
-      end_time: app.end_time,
-      reason: `[CANCELLED] ${app.reason}`,
-      documents: app.documents,
-      is_emergency: app.is_emergency,
-      approval_chain: app.approval_chain,
-      current_step: app.current_step,
-      final_approver_id: app.final_approver_id,
-      final_decided_at: app.final_decided_at,
-      applied_by: cancelledBy,
-      status: 'cancelled',
-    };
+    const { data: myStaffIds, error: identityError } = await supabase.rpc('fn_my_staff_ids');
+    if (identityError) throw identityError;
+    if (!((myStaffIds ?? []) as string[]).includes(app.employee_id)) {
+      throw new Error('Only the person this leave belongs to can cancel it.');
+    }
 
-    const { data: newRow, error: insertErr } = await supabase
+    const { data, error } = await supabase
       .from('hr_leave_applications')
-      .insert(clone)
+      .update({ status: 'cancelled' })
+      .eq('id', applicationId)
+      .eq('status', 'approved')
       .select()
-      .single();
-    if (insertErr) throw insertErr;
-
-    // Link original to the cancellation row
-    const { error: updateErr } = await supabase
-      .from('hr_leave_applications')
-      .update({ superseded_by: newRow.id })
-      .eq('id', applicationId);
-    if (updateErr) throw updateErr;
-
-    // DB trigger on status-change-to-cancelled restores the balance delta
-    return newRow as HRLeaveApplication;
+      .maybeSingle();
+    if (error) throw error;
+    if (!data) {
+      throw new Error('This request is no longer approved — it may have just changed.');
+    }
+    return data as HRLeaveApplication;
   }
 
   // ----- Withdraw (pre-approval, soft-delete per decision 5) -----

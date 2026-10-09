@@ -131,6 +131,19 @@ ADDED.push(
   }
 );
 
+// Heats (2026-10-10): group rounds for athletics-style divisions.
+const HEAT_ID = '3d9b7e15-6a42-4c08-b1f7-2e8d4a6c0b93';
+ADDED.push(
+  { url: 'heats', slug: ['heats'], name: 'heats', params: {}, methods: ['GET', 'POST'] },
+  {
+    url: `heats/${HEAT_ID}`,
+    slug: ['heats', HEAT_ID],
+    name: 'heats-heat',
+    params: { heatId: HEAT_ID },
+    methods: ['PATCH', 'DELETE'],
+  }
+);
+
 const ALL_ROUTES: Expected[] = [...ORIGINALS, ...ADDED];
 
 const ALL_METHODS: TournamentMethod[] = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'];

@@ -2,28 +2,28 @@
 
 import { useEffect } from 'react';
 import Link from 'next/link';
-import { Plus, Percent, TrendingDown } from 'lucide-react';
+import { Plus, Percent, Settings2, TrendingDown } from 'lucide-react';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { Button } from '@/components/ui/button';
 import { usePermissions } from '@/hooks/use-permissions';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { BeatLoader } from 'react-spinners';
-import { DiscountList } from './_components/discount-list';
-import { DiscountFilters } from './_components/discount-filters';
+import { ScholarshipList } from './_components/scholarship-list';
+import { ScholarshipFilters } from './_components/scholarship-filters';
 import { PageBreadcrumb } from '@/components/navigation/Breadcrumbs';
-import { useBillingDiscounts } from '@/hooks/billing/use-billing-discounts';
+import { useBillingScholarships } from '@/hooks/billing/use-billing-scholarships';
 
-export default function BillingDiscountsPage() {
+export default function BillingScholarshipsPage() {
   const {
-    discounts,
+    scholarships,
     loading,
     error,
     metadata,
     filters,
     updateFilters,
     changePage,
-    fetchDiscounts
-  } = useBillingDiscounts();
+    fetchScholarships
+  } = useBillingScholarships();
 
   const {
     canAccess,
@@ -31,13 +31,15 @@ export default function BillingDiscountsPage() {
     isLoading: permissionsLoading
   } = usePermissions();
 
-  const canViewDiscounts =
-    isSuperAdmin || canAccess('billing.discounts', 'view');
-  const canCreateDiscounts =
-    isSuperAdmin || canAccess('billing.discounts', 'create');
+  const canViewScholarships =
+    isSuperAdmin || canAccess('billing.scholarships', 'view');
+  const canCreateScholarships =
+    isSuperAdmin || canAccess('billing.scholarships', 'create');
+  const canViewSetup =
+    isSuperAdmin || canAccess('billing.scholarship_setup', 'view');
 
   useEffect(() => {
-    fetchDiscounts();
+    fetchScholarships();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Show loading state while permissions are loading
@@ -51,7 +53,7 @@ export default function BillingDiscountsPage() {
     );
   }
 
-  if (!canViewDiscounts) {
+  if (!canViewScholarships) {
     return (
       <ContentLayout title='Scholarship Management'>
         <div className='text-center py-8'>
@@ -70,9 +72,9 @@ export default function BillingDiscountsPage() {
           <p className='text-destructive'>{error}</p>
           <Button
             variant='outline'
-            onClick={() => fetchDiscounts()}
+            onClick={() => fetchScholarships()}
             className='mt-4'
-            disabled={!canViewDiscounts}
+            disabled={!canViewScholarships}
           >
             Try Again
           </Button>
@@ -82,15 +84,15 @@ export default function BillingDiscountsPage() {
   }
 
   // Calculate summary statistics
-  const totalDiscounts = discounts.length;
-  const pendingApprovals = discounts.filter(
+  const totalScholarships = scholarships.length;
+  const pendingApprovals = scholarships.filter(
     (d) => d.approval_status === 'pending'
   ).length;
-  const totalDiscountAmount = discounts.reduce(
-    (sum, d) => sum + d.discount_amount,
+  const totalScholarshipAmount = scholarships.reduce(
+    (sum, d) => sum + d.scholarship_amount,
     0
   );
-  const approvedDiscounts = discounts.filter(
+  const approvedScholarships = scholarships.filter(
     (d) => d.approval_status === 'approved'
   ).length;
 
@@ -100,7 +102,7 @@ export default function BillingDiscountsPage() {
         items={[
           { label: 'Home', href: '/' },
           { label: 'Billing', href: '/billing' },
-          { label: 'Scholarships', href: '/billing/discounts' }
+          { label: 'Scholarships', href: '/billing/scholarships' }
         ]}
       />
       <div className='space-y-6 mt-4'>
@@ -113,9 +115,9 @@ export default function BillingDiscountsPage() {
             </p>
           </div>
           <div className='flex flex-col sm:flex-row gap-2'>
-            {canCreateDiscounts ? (
+            {canCreateScholarships ? (
               <Button className='w-full sm:w-auto' asChild>
-                <Link href='/billing/discounts/new'>
+                <Link href='/billing/scholarships/new'>
                   <Plus className='mr-2 h-4 w-4' />
                   Apply Scholarship
                 </Link>
@@ -130,14 +132,22 @@ export default function BillingDiscountsPage() {
                 Apply Scholarship
               </Button>
             )}
+            {canViewSetup && (
+              <Button variant='outline' asChild>
+                <Link href='/billing/scholarships/setup'>
+                  <Settings2 className='mr-2 h-4 w-4' />
+                  Categories &amp; Types
+                </Link>
+              </Button>
+            )}
             <Button variant='outline' asChild>
-              <Link href='/billing/discounts/policies'>
+              <Link href='/billing/scholarships/policies'>
                 <Percent className='mr-2 h-4 w-4' />
                 Policies
               </Link>
             </Button>
             <Button variant='outline' asChild>
-              <Link href='/billing/discounts/bulk'>
+              <Link href='/billing/scholarships/bulk'>
                 <TrendingDown className='mr-2 h-4 w-4' />
                 Bulk Apply
               </Link>
@@ -155,7 +165,7 @@ export default function BillingDiscountsPage() {
               <Percent className='h-4 w-4 text-muted-foreground' />
             </CardHeader>
             <CardContent>
-              <div className='text-2xl font-bold'>{totalDiscounts}</div>
+              <div className='text-2xl font-bold'>{totalScholarships}</div>
               <p className='text-xs text-muted-foreground'>
                 All time scholarships
               </p>
@@ -186,7 +196,7 @@ export default function BillingDiscountsPage() {
             </CardHeader>
             <CardContent>
               <div className='text-2xl font-bold text-green-600'>
-                ₹{totalDiscountAmount.toLocaleString()}
+                ₹{totalScholarshipAmount.toLocaleString()}
               </div>
               <p className='text-xs text-muted-foreground'>
                 Total scholarships
@@ -203,8 +213,8 @@ export default function BillingDiscountsPage() {
             </CardHeader>
             <CardContent>
               <div className='text-2xl font-bold'>
-                {totalDiscounts > 0
-                  ? Math.round((approvedDiscounts / totalDiscounts) * 100)
+                {totalScholarships > 0
+                  ? Math.round((approvedScholarships / totalScholarships) * 100)
                   : 0}
                 %
               </div>
@@ -217,18 +227,18 @@ export default function BillingDiscountsPage() {
 
         <Card>
           <CardContent className='p-6'>
-            <DiscountFilters filters={filters} onFilterChange={updateFilters} />
+            <ScholarshipFilters filters={filters} onFilterChange={updateFilters} />
 
             {loading ? (
               <div className='flex justify-center items-center p-8'>
                 <BeatLoader color='#00e902' />
               </div>
             ) : (
-              <DiscountList
-                discounts={discounts}
+              <ScholarshipList
+                scholarships={scholarships}
                 metadata={metadata}
                 onPageChange={changePage}
-                onRefresh={fetchDiscounts}
+                onRefresh={fetchScholarships}
               />
             )}
           </CardContent>

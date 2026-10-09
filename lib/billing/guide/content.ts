@@ -22,10 +22,10 @@
  *     (/billing/payment-accounts); a receipt is what records any payment, cash
  *     or online. So the payer lane is VIEW-honest: see what you owe, see what you
  *     paid, and (where online payment is enabled) pay from your bill.
- *   - "Discounts" is labelled **Scholarships** everywhere in the UI (sidebar +
- *     page title). The route is still /billing/discounts. The guide says
- *     "scholarship" to match the screen.
- *   - /billing/discounts/policies, /billing/discounts/bulk, /billing/refunds/policies
+ *   - Scholarships (formerly "Discounts", renamed end to end in 2026-10: route
+ *     /billing/scholarships, table billing_scholarships, keys billing.scholarships.*).
+ *     The guide says "scholarship" to match the screen.
+ *   - /billing/scholarships/policies, /billing/scholarships/bulk, /billing/refunds/policies
  *     and /billing/refunds/bulk are buttons on the list pages but have NO page
  *     file in this checkout — they are deliberately NOT used as deep-links here.
  *   - /billing/student-bills has only a [billId] detail route, no list page — so
@@ -215,18 +215,18 @@ export const GUIDES: GuideBook = {
             {
               action: 'Open **Scholarships** to see applied scholarships and pending approvals.',
               detail:
-                'A scholarship (a discount) lowers what a student owes — by a fixed amount or a percentage. The page also shows how many are awaiting approval.',
+                'A scholarship lowers what a student owes — by a fixed amount or a percentage. The page also shows how many are awaiting approval.',
               platforms: {
-                web: 'Left sidebar → **Billing** → **Scholarships**.',
+                web: 'Left sidebar → **Billing & Accounts** → **Scholarships** → **All Scholarships**.',
               },
-              link: { label: 'Take me there', href: '/billing/discounts' },
+              link: { label: 'Take me there', href: '/billing/scholarships' },
             },
             {
               action: 'Click **Apply Scholarship** to add one to a student’s bill.',
               detail:
-                'Pick the category, choose fixed-amount or percentage, and enter the value. Most scholarships need an approver to sign off before they reduce the bill.',
+                'Pick the scholarship category, then one of its types, choose fixed-amount or percentage, and enter the value. Most scholarships need an approver to sign off before they reduce the bill.',
               tip: 'A scholarship sits as Pending until it is approved — only an approved scholarship changes the outstanding amount.',
-              link: { label: 'Take me there', href: '/billing/discounts/new' },
+              link: { label: 'Take me there', href: '/billing/scholarships/new' },
             },
           ],
         },
@@ -467,7 +467,7 @@ export const GUIDES: GuideBook = {
     ['Outstanding / Due', 'The amount still left to pay on a bill after payments and approved scholarships. The single number that says whether a student still owes anything.'],
     ['Partially Paid', 'A bill where some of the amount has been paid and a balance remains. The outstanding figure is what is still owed.'],
     ['Overdue', 'A bill whose due date has passed while a balance remains. Flagged in red so it gets cleared first.'],
-    ['Scholarship (Discount)', 'A reduction in what a student owes, as a fixed amount or a percentage. Labelled "Scholarship" in the screens; usually needs approval before it lowers the bill.'],
+    ['Scholarship', 'A reduction in what a student owes, as a fixed amount or a percentage. Usually needs approval before it lowers the bill.'],
     ['Refund / Adjustment', 'Money returned to a student for an overpayment or a withdrawal. A refund is tied to the receipt the payment came in on and moves through Pending → Approved → Processed.'],
     ['Payment mode', 'How a payment was made — cash, online, bank transfer, DD (demand draft), or cheque. Recorded on the receipt.'],
     ['Reconciliation', 'Checking that recorded receipts match the money actually received — making sure every payment has a receipt and every receipt has a real payment behind it.'],

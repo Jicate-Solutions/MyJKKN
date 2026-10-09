@@ -582,7 +582,7 @@ export function BillingScheduleDataTable({
           deleteModal.selectedBills.length
         } student bill${
           deleteModal.selectedBills.length > 1 ? 's' : ''
-        }. All related data including payments, discounts, receipts, and refunds will also be removed.`}
+        }. All related data including payments, scholarships, receipts, and refunds will also be removed.`}
         items={deleteModal.selectedBills.map((bill) => ({
           id: bill.id,
           title: `${bill.student?.first_name || ''} ${bill.student?.last_name || ''} - ${bill.bill_description}`,
@@ -596,7 +596,7 @@ export function BillingScheduleDataTable({
         itemType={deleteModal.selectedBills.length > 1 ? 'bills' : 'bill'}
         isLoading={deleteModal.isLoading}
         showCascadeWarning
-        warningMessage='This will permanently remove all payment history, discounts, and related financial records.'
+        warningMessage='This will permanently remove all payment history, scholarships, and related financial records.'
       />
 
       {/* One reason and one set of notes covers the whole selection — the

@@ -49,6 +49,7 @@ import {
   isTeamDivision,
   supportsDoubles,
 } from '@/types/tournament';
+import { HEAT_SPORTS } from '@/types/tournament';
 import type {
   TournamentDivision,
   TournamentScope,
@@ -438,7 +439,12 @@ function EditTournamentForm({
           sport,
           gender,
           age_band: selectedDivision.age_band?.trim() || undefined,
-          format: selectedDivision.format || 'knockout',
+          // Heat sports always run as heats; a heats template never leaks into a 1-vs-1 sport.
+          format: HEAT_SPORTS.includes(sport)
+            ? 'heats'
+            : selectedDivision.format && selectedDivision.format !== 'heats'
+              ? selectedDivision.format
+              : 'knockout',
           level: selectedDivision.level ?? 'intra_college',
           config,
           sort_order: Math.max(0, ...divisions.map((d) => d.sort_order ?? 0)) + 1,

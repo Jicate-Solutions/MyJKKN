@@ -40,6 +40,10 @@ export function buildComparisonRows(
             other_specs: qi.other_specs,
             awarded: qi.awarded,
             previous_unit_price: qi.previous_unit_price ?? null,
+            quoted_name: qi.quoted_name ?? null,
+            quoted_qty: qi.quoted_qty != null ? Number(qi.quoted_qty) : null,
+            quoted_pack: qi.quoted_pack ?? null,
+            match_note: qi.match_note ?? null,
           }))
       )
       // Not-quoted (unit_price null) sorts last — plain `a - b` would coerce null to 0
