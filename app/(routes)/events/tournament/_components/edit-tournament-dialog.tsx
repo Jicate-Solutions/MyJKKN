@@ -64,6 +64,7 @@ import {
   useDeleteDivision,
 } from '@/hooks/events/use-tournaments';
 import { useTournamentEntries } from '@/hooks/events/use-tournament-registrations';
+import { useTournamentMatches } from '@/hooks/events/use-tournament-fixtures';
 import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
 import { HostInstitutionsPicker, hostInstitutionsDto } from './host-institutions-picker';
 import { NaacCriteriaField } from '@/components/events/shared/naac-criteria-field';
@@ -85,6 +86,12 @@ const divisionKey = (
     (gender || 'open').trim().toLowerCase(),
     (ageBand ?? '').trim().toLowerCase(),
   ].join('|');
+
+/**
+ * Match statuses that mean a result is recorded. Same set the database guard
+ * (trg_tournament_division_results_lock) and fn_tournament_set_fixture_mode use.
+ */
+const RECORDED_RESULT_STATUSES = ['completed', 'walkover', 'disqualified'];
 
 /** Categories offered as one-click variant chips for the shown division's sport. */
 const VARIANT_GENDERS = ['male', 'female', 'mixed'] as const;
@@ -119,11 +126,14 @@ function DivisionFields({
   edits,
   onEdit,
   onEditConfig,
+  resultsLocked = false,
 }: {
   division: TournamentDivision;
   edits: UpdateDivisionDto;
   onEdit: (field: keyof UpdateDivisionDto, value: string) => void;
   onEditConfig: (patch: Record<string, unknown>) => void;
+  /** Results are recorded: sport, category and format can no longer change. */
+  resultsLocked?: boolean;
 }) {
   const sport = (edits.sport ?? division.sport) || '';
   // Keep a legacy/renamed sport selectable even if it left the catalog.
@@ -139,11 +149,21 @@ function DivisionFields({
 
   return (
     <div className="space-y-4">
+      {resultsLocked && (
+        <p className="text-xs text-muted-foreground">
+          This division already has recorded results, so its sport, category and format are
+          fixed. Use Add sport below to create a new division instead.
+        </p>
+      )}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <div className="space-y-1.5">
           <Label>Sport</Label>
-          <Select value={sport} onValueChange={(v) => onEdit('sport', v)}>
-            <SelectTrigger>
+          <Select
+            value={sport}
+            onValueChange={(v) => onEdit('sport', v)}
+            disabled={resultsLocked}
+          >
+            <SelectTrigger aria-label="Sport">
               <SelectValue placeholder="Select sport" />
             </SelectTrigger>
             <SelectContent>
@@ -181,8 +201,9 @@ function DivisionFields({
           <Select
             value={(edits.format ?? division.format) || undefined}
             onValueChange={(v) => onEdit('format', v)}
+            disabled={resultsLocked}
           >
-            <SelectTrigger>
+            <SelectTrigger aria-label="Format">
               <SelectValue placeholder="Select format" />
             </SelectTrigger>
             <SelectContent>
@@ -199,8 +220,9 @@ function DivisionFields({
           <Select
             value={(edits.gender ?? division.gender) || undefined}
             onValueChange={(v) => onEdit('gender', v)}
+            disabled={resultsLocked}
           >
-            <SelectTrigger>
+            <SelectTrigger aria-label="Category">
               <SelectValue placeholder="Select category" />
             </SelectTrigger>
             <SelectContent>
@@ -292,6 +314,10 @@ function EditTournamentForm({
   // Entries/fixtures cascade-delete with their division, so a division that
   // already has entries can't be removed here.
   const { data: entries, isLoading: entriesLoading } = useTournamentEntries(tournament.id);
+  // A division with recorded results keeps its sport, category and format
+  // (BALAM-2K26: a chess division with results was turned into a 400 m one).
+  // The database trigger enforces it; this only explains it up front.
+  const { data: matches } = useTournamentMatches(tournament.id);
 
   // Director decision (2026-09-07): an event's college may still be changed
   // while it is a DRAFT, and is fixed once it leaves draft. Before publication
@@ -359,6 +385,12 @@ function EditTournamentForm({
 
   const selectedDivision =
     divisions.find((d) => d.id === selectedDivisionId) ?? divisions[0] ?? null;
+  const selectedHasResults =
+    !!selectedDivision &&
+    (matches ?? []).some(
+      (m) =>
+        m.division_id === selectedDivision.id && RECORDED_RESULT_STATUSES.includes(m.status)
+    );
 
   const set = (field: string, value: string | boolean) =>
     setForm((prev) => ({ ...prev, [field]: value }));
@@ -801,6 +833,7 @@ function EditTournamentForm({
               edits={divisionEdits}
               onEdit={setDivision}
               onEditConfig={setDivisionConfig}
+              resultsLocked={selectedHasResults}
             />
           ) : (
             <>
