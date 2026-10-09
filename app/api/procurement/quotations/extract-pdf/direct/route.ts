@@ -9,8 +9,8 @@ import {
 } from '@/lib/procurement/quotation-pdf-direct';
 
 export const runtime = 'nodejs';
-// A Haiku read of a quotation PDF normally finishes in 10-30s.
-export const maxDuration = 60;
+// ~5 s for a one-page quotation; a long multi-page one can take 50–80 s (see quotation-pdf-direct.ts).
+export const maxDuration = 300;
 
 const JOB_TYPE = 'procurement.quotation_extract';
 const BUCKET = 'procurement-quotation-pdfs';

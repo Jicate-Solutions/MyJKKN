@@ -6,7 +6,7 @@
 // schema and parsing, so what it scores is what the app runs.
 
 import type Anthropic from '@anthropic-ai/sdk';
-import { namesShareAWord } from '@/lib/procurement/item-name-match';
+import { namesAgree } from '@/lib/procurement/item-name-match';
 
 export interface DirectExtractItem {
   id: string;
@@ -15,7 +15,16 @@ export interface DirectExtractItem {
   item_spec?: string | null;
   quantity?: number | null;
   unit_label?: string | null;
+  /** Names staff already confirmed as this item, from other quotations ("Whatman No.1"). */
+  aka?: string[] | null;
 }
+
+/**
+ * What one line is to its requested item: the item itself, one PART of a set
+ * quoted in pieces (parts add up), or one OPTION among several the vendor offers
+ * for the same item (two brands — only the cheapest counts, never the sum).
+ */
+export type LineRole = 'item' | 'part' | 'option';
 
 export interface DirectExtractedLine {
   rfq_item_id: string | null;
@@ -25,6 +34,16 @@ export interface DirectExtractedLine {
   pack: string | null;
   /** The match to rfq_item_id is a guess a person must confirm. */
   uncertain: boolean;
+  role: LineRole;
+  /**
+   * A second, focused look agreed this line is that item (two independent readings
+   * agree) — enough to take a vendor's own name ("Whatman No.1") without asking.
+   */
+  checked?: boolean;
+  /** Why the second look paired them, in a few words ("NaOH is sodium hydroxide"). Shown to the person. */
+  reason?: string | null;
+  /** The vendor's catalogue / part / model code for this line ("1.06498.0500", "RM-500"). */
+  catalog_code?: string | null;
   manufacturer: string | null;
   quality_grade: string | null;
   concentration: string | null;
@@ -74,6 +93,8 @@ export interface DirectExtractResult {
   warranty: string | null;
   /** The grand total printed on the quotation — used to check the lines add up. */
   stated_total: number | null;
+  /** S.No of the last item line — a count the reading is checked against. */
+  last_serial_no?: number | null;
   /** What the reader changed after the model answered, in words (empty = nothing). Shown to the person. */
   read_notes: string[];
   /** True when that printed total already includes GST. null = not clear. */
@@ -93,7 +114,13 @@ export interface DirectExtractResult {
 // so quotation-math.ts can check the reading adds up instead of trusting it.
 // 9: unit_price is the NET rate after the line discount; list_price and discount_percent
 // are captured too (a quote printing MRP 299 and net 134.55 was read as 299).
-export const EXTRACT_RESULT_VERSION = 9;
+// 10: lines carry `role` — part of a set vs one of several options — so two brands
+// offered for one item are no longer added up as if they were a set.
+// 11: a second, text-only look settles what the first read left open (vendor names),
+// marking lines `checked` with a `reason` — cached v10 reads never had it.
+// 12: lines carry `catalog_code`; the second look also places the parts of a set.
+// (Items now go to the model as short refs, I1…; the stored result is unchanged.)
+export const EXTRACT_RESULT_VERSION = 12;
 
 export const RECORD_TOOL: Anthropic.Tool = {
   name: 'record_quotation',
@@ -132,6 +159,10 @@ export const RECORD_TOOL: Anthropic.Tool = {
       },
       payment_terms: { type: 'string', description: 'Payment terms as written (e.g. "50% advance"), if stated.' },
       warranty: { type: 'string', description: 'Warranty as written (e.g. "1 year"), if stated. Omit if not stated.' },
+      last_serial_no: {
+        type: 'integer',
+        description: 'The serial number (S.No) of the LAST item line, when the lines are numbered. Omit if not numbered.',
+      },
       stated_total: {
         type: 'number',
         description:
@@ -147,10 +178,10 @@ export const RECORD_TOOL: Anthropic.Tool = {
         items: {
           type: 'object',
           properties: {
-            rfq_item_id: {
+            item: {
               type: 'string',
               description:
-                'The id of the requested item this line is for (from the provided list). Empty string if it is for none of them.',
+                'The ref (I1, I2…) of the requested item this line is for, from the provided list. Empty string if it is for none of them.',
             },
             match: {
               type: 'string',
@@ -159,6 +190,14 @@ export const RECORD_TOOL: Anthropic.Tool = {
                 '"same" = clearly the same kind of product as the requested item (a different brand or model of it is fine). ' +
                 '"similar" = plausibly it, but you are not sure. "none" = a different kind of product, or no requested item fits. ' +
                 'Never pick an item just because it is the only one requested.',
+            },
+            role: {
+              type: 'string',
+              enum: ['item', 'part', 'option'],
+              description:
+                '"item" = this line is the requested item. "part" = one part of a requested SET quoted in pieces ' +
+                '(the parts together make the item). "option" = the vendor offers several alternatives for the same ' +
+                'requested item (different brands/models/grades) and this is one of them.',
             },
             item_name: {
               type: 'string',
@@ -205,6 +244,12 @@ export const RECORD_TOOL: Anthropic.Tool = {
                 'quotation, use it for every line. Omit if no GST rate is printed.',
             },
             hsn: { type: 'string', description: 'HSN/SAC code printed for this line. Omit if not shown.' },
+            catalog_code: {
+              type: 'string',
+              description:
+                'The catalogue / product / part / model number printed for this line (e.g. "1.06498.0500", "Cat. No. 4012"), ' +
+                'NOT the HSN code. Omit if none.',
+            },
             quantity: {
               type: 'number',
               description: 'The quantity printed on this line (a parts list usually prints 1). Omit if not printed.',
@@ -221,7 +266,7 @@ export const RECORD_TOOL: Anthropic.Tool = {
                 'Any other product-specific detail printed for this line that does not fit the fields above. Omit if none.',
             },
           },
-          required: ['rfq_item_id', 'match', 'item_name', 'unit_price'],
+          required: ['item', 'match', 'item_name', 'unit_price'],
         },
       },
     },
@@ -282,14 +327,31 @@ export function correctDiscountedPrices(lines: DirectExtractedLine[]): string[] 
   return n ? [`${n} price${n === 1 ? '' : 's'} taken as the amount after discount ÷ quantity, not the list rate`] : [];
 }
 
+/**
+ * Requested items go to the model as short refs ("I7"), not their uuids. Reading time
+ * is almost all output, and a matched line used to repeat a 36-character id — about a
+ * quarter of every answer. The refs are mapped back here; a real id is still accepted
+ * (older cached reads, the office runner).
+ */
+export const itemRef = (n: number) => `I${n + 1}`;
+
+export function idFromRef(items: DirectExtractItem[], raw: unknown): string | null {
+  const v = String(raw ?? '').trim();
+  if (!v) return null;
+  const m = /^I(\d+)$/i.exec(v);
+  if (m) return items[Number(m[1]) - 1]?.id ?? null;
+  return items.some((i) => i.id === v) ? v : null;
+}
+
 /** The instruction sent with the PDF, ending with the requested items. */
 export function buildExtractPrompt(items: DirectExtractItem[]): string {
   // The specification and quantity go with the name: "Sodium Hydroxide — 10%, 500 g"
   // and "Sodium Hydroxide — 10%, 500 ml" are two different requests.
   const itemList = items
-    .map((i) => {
+    .map((i, n) => {
       const qty = i.quantity ? `qty ${i.quantity}${i.unit_label ? ` ${i.unit_label}` : ''}` : '';
-      return [i.id, i.item_name, i.item_spec?.trim() || '', qty].filter(Boolean).join(' — ');
+      const aka = i.aka?.length ? `also called: ${i.aka.slice(0, 5).join('; ')}` : '';
+      return [itemRef(n), i.item_name, i.item_spec?.trim() || '', qty, aka].filter(Boolean).join(' — ');
     })
     .join('\n');
 
@@ -298,11 +360,16 @@ export function buildExtractPrompt(items: DirectExtractItem[]): string {
                 'and payment terms from the header, and each line item with its UNIT price. ' +
                 'For each line, decide which requested item it is FOR, by meaning (spelling and brand may differ): ' +
                 'it must be the same kind of product — a PoE injector is not a keyboard, a switch is not a camera. ' +
-                'Grade it: match "same", "similar" (unsure) or "none". When it is "none", set rfq_item_id to "". ' +
+                'Grade it: match "same", "similar" (unsure) or "none". When it is "none", set item to "". ' +
                 'A quotation often lists things nobody asked for; leave those unmatched rather than forcing a fit. ' +
-                'Exception — sets: when a requested item is a complete set (e.g. a computer or desktop) and the ' +
+                'Exception — sets: when a requested item is a complete set (e.g. a computer or desktop, or a pair such as ' +
+                '"Fehling\'s solution A & B" quoted as solution 1 and solution 2) and the ' +
                 'quotation prices it as its parts (processor, motherboard, RAM, SSD, monitor, keyboard, mouse, cabinet…), ' +
-                'give EVERY part line that requested item\'s id with match "similar"; one item may then have many lines. ' +
+                'give EVERY part line that requested item\'s id with match "similar" and role "part"; one item may then have many lines. ' +
+                'When the vendor instead offers two or more ALTERNATIVES for one requested item (e.g. two brands), give ' +
+                'each the same id with role "option" — they are choices, not parts. Otherwise role is "item". ' +
+                'Vendors use their own names: a brand or trade name for the requested product is still a "same" match ' +
+                '(e.g. "Whatman No.1" is filter paper). Some requested items list names staff already confirmed ("also called"). ' +
                 'Give each part its own UNIT price, as quoted. ' +
                 'Return unit_price as a plain number, for the pack printed on that line, and record that pack. ' +
                 "Use each requested item's specification to tell apart items with the same name (a 500 g solid " +
@@ -313,7 +380,8 @@ export function buildExtractPrompt(items: DirectExtractItem[]): string {
                 'When a line shows a list/MRP rate and a discount, unit_price is the DISCOUNTED rate (the price actually paid per unit), never the list rate. ' +
                 'Also capture manufacturer, quality_grade, ' +
                 'concentration, and other_specs when the quotation states them for that line — ' +
-                'leave them out when not shown, do not guess.\n\nRequested items (id — name — specification — quantity):\n' +
+                'leave them out when not shown, do not guess.' +
+                '\n\nRequested items (ref — name — specification — quantity):\n' +
                 itemList
   );
 }
@@ -332,8 +400,7 @@ export function normalizeExtraction(rawInput: unknown, items: DirectExtractItem[
   }
   const rows = Array.isArray(rawLines) ? (rawLines as Array<Record<string, unknown>>) : [];
 
-  // Never trust an id the model invents: keep only ids we actually sent.
-  const validIds = new Set(items.map((i) => i.id));
+  // Never trust an id the model invents: only refs/ids we actually sent map to an item.
   const lines: DirectExtractedLine[] = [];
   const unmatched: string[] = [];
 
@@ -341,11 +408,13 @@ export function normalizeExtraction(rawInput: unknown, items: DirectExtractItem[
     const price = Number(row?.unit_price);
     if (!(price > 0)) continue;
     const name = String(row?.item_name ?? '').trim();
-    const idRaw = String(row?.rfq_item_id ?? '').trim();
+    const idRaw = idFromRef(items, row?.item ?? row?.rfq_item_id);
     const grade = String(row?.match ?? '').trim();
-    const id = validIds.has(idRaw) && grade !== 'none' ? idRaw : null;
+    const id = idRaw && grade !== 'none' ? idRaw : null;
     if (!id && name) unmatched.push(name);
     const requested = id ? items.find((i) => i.id === id)?.item_name ?? '' : '';
+    const roleRaw = String(row?.role ?? '').trim();
+    const role: LineRole = roleRaw === 'part' || roleRaw === 'option' ? roleRaw : 'item';
     lines.push({
       rfq_item_id: id,
       item_name: name,
@@ -353,13 +422,18 @@ export function normalizeExtraction(rawInput: unknown, items: DirectExtractItem[
       pack: asSpec(row?.pack),
       // A person confirms anything the model was unsure of, and anything whose
       // name shares no word with what was asked for — whatever the model said.
-      uncertain: !!id && (grade !== 'same' || !namesShareAWord(requested, name)),
+      // Sure only when the model said "same" AND the vendor's name carries every key word
+      // of the requested one: "Cupric sulphate" for "Magnesium sulphate" shares a word but
+      // is not sure. Such lines go to the second look, which knows Copper = Cupric.
+      uncertain: !!id && (grade !== 'same' || !namesAgree(requested, name)),
+      role,
       manufacturer: asSpec(row?.manufacturer),
       quality_grade: asSpec(row?.quality_grade),
       concentration: asSpec(row?.concentration),
       other_specs: asSpec(row?.other_specs),
       gst_percent: gstRate(row?.gst_percent),
       hsn: asSpec(row?.hsn),
+      catalog_code: asSpec(row?.catalog_code)?.slice(0, 60) ?? null,
       quantity: Number(row?.quantity) > 0 ? Number(row?.quantity) : null,
       line_total: Number(row?.line_total) > 0 ? Number(row?.line_total) : null,
       list_price: Number(row?.list_price) > 0 ? Number(row?.list_price) : null,
@@ -390,6 +464,7 @@ export function normalizeExtraction(rawInput: unknown, items: DirectExtractItem[
     payment_terms: asSpec(input.payment_terms),
     warranty: asSpec(input.warranty),
     stated_total: Number(input.stated_total) > 0 ? Number(input.stated_total) : null,
+    last_serial_no: Number.isInteger(Number(input.last_serial_no)) && Number(input.last_serial_no) > 0 ? Number(input.last_serial_no) : null,
     read_notes,
     total_includes_gst: typeof input.total_includes_gst === 'boolean' ? input.total_includes_gst : null,
     lines,
@@ -398,3 +473,122 @@ export function normalizeExtraction(rawInput: unknown, items: DirectExtractItem[
       : null,
   };
 }
+
+// ── Second look ──────────────────────────────────────────────────────────────
+// The first read does everything at once (seller, terms, every price, every match),
+// so its matching is the weakest part — vendors use their own names. A second,
+// text-only call looks at nothing but what is still open: requested items without
+// a sure match, and vendor lines without a sure item. Cheap (no PDF, a few hundred
+// tokens) and only made when something is open.
+
+export const SECOND_LOOK_TOOL: Anthropic.Tool = {
+  name: 'pair_lines',
+  description: 'Say which vendor line is which requested item.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      pairs: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: {
+            line: { type: 'integer', description: 'The vendor line number (L#).' },
+            item: { type: 'string', description: 'The requested item ref (I#), or "" when the line is none of them.' },
+            verdict: {
+              type: 'string',
+              enum: ['same', 'part', 'not'],
+              description:
+                '"same" only when you are sure it is the same product. "part" when the requested item is a complete ' +
+                'set (a computer, a microscope kit…) and this line is one of its parts. Otherwise "not".',
+            },
+            reason: { type: 'string', description: 'Why, in under 12 words (e.g. "NaOH is sodium hydroxide").' },
+          },
+          required: ['line', 'item', 'verdict', 'reason'],
+        },
+      },
+    },
+    required: ['pairs'],
+  },
+};
+
+/** What is still open after the first read: unsure/unmatched lines, items without a sure line. */
+export function openForSecondLook(result: DirectExtractResult, items: DirectExtractItem[]) {
+  const sureItems = new Set(result.lines.filter((l) => l.rfq_item_id && !l.uncertain).map((l) => l.rfq_item_id));
+  const openItems = items.map((i, n) => ({ ...i, ref: itemRef(n) })).filter((i) => !sureItems.has(i.id));
+  const openLines = result.lines
+    .map((l, n) => ({ l, n }))
+    // Lines already tagged as parts of a set stay as they are; untagged lines are always looked at.
+    .filter(({ l }) => !l.rfq_item_id || (l.uncertain && l.role !== 'part'));
+  return { openItems, openLines };
+}
+
+export function buildSecondLookPrompt(
+  openItems: Array<DirectExtractItem & { ref: string }>,
+  openLines: Array<{ l: DirectExtractedLine; n: number }>,
+): string {
+  const itemList = openItems
+    .map((i) => [i.ref, i.item_name, i.item_spec?.trim() || '', i.aka?.length ? `also called: ${i.aka.join('; ')}` : '']
+      .filter(Boolean)
+      .join(' — '))
+    .join('\n');
+  const lineList = openLines
+    .map(({ l, n }) => `L${n}: ${[l.item_name, l.pack, l.manufacturer, l.catalog_code ? `cat. ${l.catalog_code}` : null, l.concentration, l.other_specs].filter(Boolean).join(' · ')}`)
+    .join('\n');
+  return (
+    'You are the purchase officer of an Indian college checking a vendor quotation against the requisition. ' +
+    'Vendors write items their own way: brand and trade names (Whatman No.1 = filter paper, Borosil = glassware), ' +
+    'chemical formulas and synonyms (NaOH = sodium hydroxide, caustic soda; IPA = isopropyl alcohol), abbreviations, ' +
+    'grades (AR, LR, GR) and catalogue codes. Use that knowledge.\n' +
+    'For each vendor line below, say which requested item it is. A different pack size, brand, grade or strength ' +
+    '(5N for 6N, 40% for 0.2%) of the same substance is still "same" — strength and pack are checked separately. ' +
+    'Spelling slips count as the same name (Molish = Molisch). A related but different product (sodium chloride for sodium hydroxide, a cable for a ' +
+    'switch) is "not". When a requested item is a complete set (a computer, a desktop, a kit) and the vendor priced it ' +
+    'in parts (processor, RAM, monitor, keyboard, cabinet…), every such part line is "part" of that item. ' +
+    'If you are unsure, answer "not" — a person will look.\n\n' +
+    `Requested items (ref — name — specification):\n${itemList}\n\nVendor lines:\n${lineList}`
+  );
+}
+
+/**
+ * Fold the second look into the reading. A line both readings put on the same item
+ * becomes `checked`; a line the second look places (the first had none) becomes a
+ * match still to confirm, with the reason shown. It only ever adds: a "not" leaves the
+ * first read's guess for a person. Never trusts an id or line number it was not given.
+ */
+export function applySecondLook(
+  result: DirectExtractResult,
+  items: DirectExtractItem[],
+  openLines: Array<{ l: DirectExtractedLine; n: number }>,
+  rawInput: unknown,
+): void {
+  const openNs = new Set(openLines.map((o) => o.n));
+  const pairs = Array.isArray((rawInput as { pairs?: unknown })?.pairs)
+    ? ((rawInput as { pairs: Array<Record<string, unknown>> }).pairs)
+    : [];
+  for (const p of pairs) {
+    const n = Number(p.line);
+    if (!Number.isInteger(n) || !openNs.has(n)) continue;
+    const line = result.lines[n];
+    const id = idFromRef(items, p.item) ?? '';
+    const reason = asSpec(p.reason)?.slice(0, 120) ?? null;
+    if (p.verdict === 'part' && id) {
+      // One part of a requested set: the parts add up, and a person looks at a set once anyway.
+      line.rfq_item_id = id;
+      line.role = 'part';
+      line.uncertain = true;
+      line.reason = reason;
+      continue;
+    }
+    // A "not" never removes the first read's guess: the guess stays for a person to
+    // confirm in one click (the second look says "not" whenever it is unsure).
+    if (p.verdict !== 'same' || !id) continue;
+    if (line.rfq_item_id === id) {
+      line.checked = true; // two readings agree
+    } else {
+      line.rfq_item_id = id;
+      line.uncertain = true;
+    }
+    line.reason = reason;
+  }
+}
+
