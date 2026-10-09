@@ -31,7 +31,7 @@ const resourceIcons: Record<string, React.ReactNode> = {
   bill: <BadgeIndianRupee className='h-3.5 w-3.5' />,
   receipt: <ReceiptIndianRupee className='h-3.5 w-3.5' />,
   invoice: <FileText className='h-3.5 w-3.5' />,
-  discount: <Tag className='h-3.5 w-3.5' />,
+  scholarship: <Tag className='h-3.5 w-3.5' />,
   refund: <CreditCard className='h-3.5 w-3.5' />,
   category: <Layers className='h-3.5 w-3.5' />
 };

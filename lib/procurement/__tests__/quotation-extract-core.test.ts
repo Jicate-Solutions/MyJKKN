@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { normalizeExtraction } from '../quotation-extract-core';
+import {
+  applySecondLook,
+  buildExtractPrompt,
+  buildSecondLookPrompt,
+  normalizeExtraction,
+  openForSecondLook,
+} from '../quotation-extract-core';
 
 const ITEMS = [{ id: 'comp', item_name: 'Computer', quantity: 25 }];
 
@@ -75,5 +81,105 @@ describe('normalizeExtraction', () => {
   it('returns no lines for an empty answer', () => {
     expect(normalizeExtraction({}, []).lines).toEqual([]);
     expect(normalizeExtraction(undefined, []).lines).toEqual([]);
+  });
+
+  it('keeps whether a line is a part of a set or one of several options', () => {
+    const r = normalizeExtraction(
+      {
+        lines: [
+          { rfq_item_id: 'comp', match: 'similar', role: 'part', item_name: 'Intel i5 processor', unit_price: 12000 },
+          { rfq_item_id: 'comp', match: 'same', role: 'option', item_name: 'Dell Optiplex', unit_price: 52000 },
+          { rfq_item_id: 'comp', match: 'same', role: 'nonsense', item_name: 'HP Pro', unit_price: 50000 },
+        ],
+      },
+      ITEMS
+    );
+    expect(r.lines.map((l) => l.role)).toEqual(['part', 'option', 'item']);
+  });
+});
+
+describe('buildExtractPrompt', () => {
+  it('tells the reader the names team members already confirmed for an item', () => {
+    const p = buildExtractPrompt([{ id: 'fp', item_name: 'Filter paper', aka: ['Whatman No.1 125mm'] }]);
+    expect(p).toContain('I1 — Filter paper — also called: Whatman No.1 125mm');
+  });
+
+  it('sends short refs, not ids, and maps them back', () => {
+    const items = [{ id: 'uuid-a', item_name: 'Pen' }, { id: 'uuid-b', item_name: 'Filter paper' }];
+    expect(buildExtractPrompt(items)).not.toContain('uuid-b');
+    const r = normalizeExtraction({ lines: [{ item: 'I2', match: 'same', item_name: 'Filter paper', unit_price: 5 }, { item: 'I9', match: 'same', item_name: 'Ink', unit_price: 3 }] }, items);
+    expect(r.lines.map((l) => l.rfq_item_id)).toEqual(['uuid-b', null]);
+  });
+});
+
+describe('second look', () => {
+  const items = [
+    { id: 'fp', item_name: 'Filter paper' },
+    { id: 'naoh', item_name: 'Sodium hydroxide' },
+  ];
+  const read = () =>
+    normalizeExtraction(
+      {
+        lines: [
+          { rfq_item_id: 'fp', match: 'similar', item_name: 'Whatman No.1 125mm', unit_price: 450 },
+          { rfq_item_id: '', match: 'none', item_name: 'Caustic soda flakes', unit_price: 120 },
+          { rfq_item_id: '', match: 'none', item_name: 'Borosil beaker 250ml', unit_price: 90 },
+        ],
+      },
+      items
+    );
+
+  it('asks only about what is still open', () => {
+    const { openItems, openLines } = openForSecondLook(read(), items);
+    expect(openItems.map((i) => i.id)).toEqual(['fp', 'naoh']);
+    expect(openLines.map((o) => o.n)).toEqual([0, 1, 2]);
+    expect(buildSecondLookPrompt(openItems, openLines)).toContain('L1: Caustic soda flakes');
+  });
+
+  it('marks agreement as checked, places new matches as still to confirm, and ignores invented lines', () => {
+    const r = read();
+    const { openLines } = openForSecondLook(r, items);
+    applySecondLook(r, items, openLines, {
+      pairs: [
+        { line: 0, item: 'fp', verdict: 'same', reason: 'Whatman No.1 is filter paper' },
+        { line: 1, item: 'naoh', verdict: 'same', reason: 'Caustic soda is sodium hydroxide' },
+        { line: 2, item: 'naoh', verdict: 'not', reason: 'a beaker' },
+        { line: 9, item: 'fp', verdict: 'same', reason: 'made up' },
+        { line: 2, item: 'ghost', verdict: 'same', reason: 'unknown id' },
+      ],
+    });
+    expect(r.lines[0]).toMatchObject({ rfq_item_id: 'fp', checked: true, reason: 'Whatman No.1 is filter paper' });
+    expect(r.lines[1]).toMatchObject({ rfq_item_id: 'naoh', uncertain: true, reason: 'Caustic soda is sodium hydroxide' });
+    expect(r.lines[1].checked).toBeUndefined();
+    expect(r.lines[2].rfq_item_id).toBeNull();
+  });
+
+  it('never removes a first-read guess — a person confirms it in one click', () => {
+    const r = read();
+    const { openLines } = openForSecondLook(r, items);
+    applySecondLook(r, items, openLines, { pairs: [{ line: 0, item: 'fp', verdict: 'not', reason: 'unsure' }] });
+    expect(r.lines[0]).toMatchObject({ rfq_item_id: 'fp', uncertain: true });
+    expect(r.lines[0].checked).toBeUndefined();
+  });
+});
+
+describe('dropped lines', () => {
+  it('flags a reading with fewer lines than the quotation numbers, and asks for a re-read', async () => {
+    const { checkQuotationMath, needsReread } = await import('../quotation-math');
+    const lines = Array.from({ length: 39 }, (_, i) => ({ item_name: `L${i}`, unit_price: 10 }));
+    const m = checkQuotationMath({ lines, last_serial_no: 59 });
+    expect(m.issues[0]).toBe('The quotation numbers 59 lines, but 39 were read — 20 may be missing');
+    expect(needsReread({ lines, last_serial_no: 59 })).toBe(true);
+    expect(needsReread({ lines, last_serial_no: 39 })).toBe(false);
+  });
+});
+
+describe('early stop on a long PDF', () => {
+  it('counts PDF pages and treats a line or two from four pages as a failed reading', async () => {
+    const { needsReread, pdfPageCount } = await import('../quotation-math');
+    const fake = new TextEncoder().encode('<< /Type /Pages /Count 4 >> ' + '<< /Type /Page >> '.repeat(4));
+    expect(pdfPageCount(fake)).toBe(4);
+    expect(needsReread({ lines: [{ item_name: 'Molisch', unit_price: 135 }] }, 4)).toBe(true);
+    expect(needsReread({ lines: [{ item_name: 'Molisch', unit_price: 135 }] }, 1)).toBe(false);
   });
 });

@@ -153,4 +153,11 @@ export const queryKeys = {
     stats: (courseEventId: string) =>
       [...queryKeys.courseApplications.all, 'stats', courseEventId] as const,
   },
+  // Scholarship categories + their types (global lists). The Apply form, the
+  // edit form, the list filters and the setup page all read the same cache, so
+  // a mutation on the setup page invalidates `.all` and every dropdown moves.
+  scholarshipSetup: {
+    all: ['billing-scholarship-setup'] as const,
+    tree: () => [...queryKeys.scholarshipSetup.all, 'tree'] as const,
+  },
 } as const;

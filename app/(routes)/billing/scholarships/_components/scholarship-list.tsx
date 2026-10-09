@@ -17,15 +17,16 @@ import {
   FileText
 } from 'lucide-react';
 import { toast } from 'react-hot-toast';
-import type { BillingDiscount } from '@/types/billing-schedule';
-import { BillingDiscountService } from '@/lib/services/billing/discounts/billing-discount-service';
+import type { BillingScholarship } from '@/types/billing-schedule';
+import { BillingScholarshipService } from '@/lib/services/billing/scholarships/billing-scholarship-service';
 import { usePermissions } from '@/hooks/use-permissions';
 import {
-  useApproveDiscount,
-  useRejectDiscount
-} from '@/hooks/billing/use-billing-discounts';
+  useApproveScholarship,
+  useRejectScholarship
+} from '@/hooks/billing/use-billing-scholarships';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { ScholarshipCategoryBadge } from '@/components/billing/scholarship-labels';
 import {
   Table,
   TableBody,
@@ -62,8 +63,8 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 
-interface DiscountListProps {
-  discounts: BillingDiscount[];
+interface ScholarshipListProps {
+  scholarships: BillingScholarship[];
   metadata: {
     total: number;
     page: number;
@@ -74,61 +75,61 @@ interface DiscountListProps {
   onRefresh: () => void;
 }
 
-export function DiscountList({
-  discounts,
+export function ScholarshipList({
+  scholarships,
   metadata,
   onPageChange,
   onRefresh
-}: DiscountListProps) {
+}: ScholarshipListProps) {
   const [isLoading, setIsLoading] = useState(false);
-  const [discountToDelete, setDiscountToDelete] =
-    useState<BillingDiscount | null>(null);
-  const [selectedDiscounts, setSelectedDiscounts] = useState<string[]>([]);
+  const [scholarshipToDelete, setScholarshipToDelete] =
+    useState<BillingScholarship | null>(null);
+  const [selectedScholarships, setSelectedScholarships] = useState<string[]>([]);
   const [showBulkDeleteDialog, setShowBulkDeleteDialog] = useState(false);
   const [rejectDialog, setRejectDialog] = useState<{
     open: boolean;
-    discountId: string;
+    scholarshipId: string;
   }>({
     open: false,
-    discountId: ''
+    scholarshipId: ''
   });
   const [rejectionReason, setRejectionReason] = useState('');
 
   const { canAccess, isSuperAdmin } = usePermissions();
-  const approveDiscountMutation = useApproveDiscount();
-  const rejectDiscountMutation = useRejectDiscount();
+  const approveScholarshipMutation = useApproveScholarship();
+  const rejectScholarshipMutation = useRejectScholarship();
 
-  const canViewDiscounts =
-    isSuperAdmin || canAccess('billing.discounts', 'view');
-  const canEditDiscounts =
-    isSuperAdmin || canAccess('billing.discounts', 'edit');
-  const canDeleteDiscounts =
-    isSuperAdmin || canAccess('billing.discounts', 'delete');
-  const canApproveDiscounts =
-    isSuperAdmin || canAccess('billing.discounts', 'approve');
+  const canViewScholarships =
+    isSuperAdmin || canAccess('billing.scholarships', 'view');
+  const canEditScholarships =
+    isSuperAdmin || canAccess('billing.scholarships', 'edit');
+  const canDeleteScholarships =
+    isSuperAdmin || canAccess('billing.scholarships', 'delete');
+  const canApproveScholarships =
+    isSuperAdmin || canAccess('billing.scholarships', 'approve');
 
   const handleDelete = async () => {
-    if (!discountToDelete) return;
+    if (!scholarshipToDelete) return;
 
     try {
       setIsLoading(true);
-      await BillingDiscountService.deleteBillingDiscount(discountToDelete.id);
-      toast.success('Discount deleted successfully');
+      await BillingScholarshipService.deleteBillingScholarship(scholarshipToDelete.id);
+      toast.success('Scholarship deleted successfully');
       onRefresh();
     } catch (error) {
-      console.error('Error deleting discount:', error);
+      console.error('Error deleting scholarship:', error);
       toast.error(
-        error instanceof Error ? error.message : 'Failed to delete discount'
+        error instanceof Error ? error.message : 'Failed to delete scholarship'
       );
     } finally {
       setIsLoading(false);
-      setDiscountToDelete(null);
+      setScholarshipToDelete(null);
     }
   };
 
-  const handleApprove = async (discountId: string) => {
+  const handleApprove = async (scholarshipId: string) => {
     try {
-      await approveDiscountMutation.mutateAsync(discountId);
+      await approveScholarshipMutation.mutateAsync(scholarshipId);
       onRefresh();
     } catch (error) {
       // Error is handled by the mutation
@@ -136,14 +137,14 @@ export function DiscountList({
   };
 
   const handleReject = async () => {
-    if (!rejectionReason || !rejectDialog.discountId) return;
+    if (!rejectionReason || !rejectDialog.scholarshipId) return;
 
     try {
-      await rejectDiscountMutation.mutateAsync({
-        id: rejectDialog.discountId,
+      await rejectScholarshipMutation.mutateAsync({
+        id: rejectDialog.scholarshipId,
         reason: rejectionReason
       });
-      setRejectDialog({ open: false, discountId: '' });
+      setRejectDialog({ open: false, scholarshipId: '' });
       setRejectionReason('');
       onRefresh();
     } catch (error) {
@@ -152,20 +153,20 @@ export function DiscountList({
   };
 
   const toggleSelectAll = () => {
-    if (selectedDiscounts.length === discounts.length) {
-      setSelectedDiscounts([]);
+    if (selectedScholarships.length === scholarships.length) {
+      setSelectedScholarships([]);
     } else {
-      setSelectedDiscounts(discounts.map((discount) => discount.id));
+      setSelectedScholarships(scholarships.map((scholarship) => scholarship.id));
     }
   };
 
-  const toggleSelectDiscount = (id: string) => {
-    if (selectedDiscounts.includes(id)) {
-      setSelectedDiscounts(
-        selectedDiscounts.filter((discountId) => discountId !== id)
+  const toggleSelectScholarship = (id: string) => {
+    if (selectedScholarships.includes(id)) {
+      setSelectedScholarships(
+        selectedScholarships.filter((scholarshipId) => scholarshipId !== id)
       );
     } else {
-      setSelectedDiscounts([...selectedDiscounts, id]);
+      setSelectedScholarships([...selectedScholarships, id]);
     }
   };
 
@@ -182,30 +183,7 @@ export function DiscountList({
     }).format(amount);
   };
 
-  const getDiscountCategoryBadge = (category: string) => {
-    const categoryConfig = {
-      merit_scholarship: {
-        variant: 'default' as const,
-        label: 'Merit Scholarship'
-      },
-      financial_aid: { variant: 'secondary' as const, label: 'Financial Aid' },
-      staff_quota: { variant: 'outline' as const, label: 'Staff Quota' },
-      sports_quota: { variant: 'secondary' as const, label: 'Sports Quota' },
-      special_circumstances: {
-        variant: 'outline' as const,
-        label: 'Special Circumstances'
-      }
-    };
-
-    const config = categoryConfig[category as keyof typeof categoryConfig] || {
-      variant: 'secondary' as const,
-      label: category.replace('_', ' ').toUpperCase()
-    };
-
-    return <Badge variant={config.variant}>{config.label}</Badge>;
-  };
-
-  const getDiscountTypeBadge = (type: string) => {
+  const getScholarshipValueModeBadge = (type: string) => {
     const typeConfig = {
       amount: { variant: 'default' as const, label: 'Fixed Amount' },
       percentage: { variant: 'secondary' as const, label: 'Percentage' }
@@ -247,15 +225,15 @@ export function DiscountList({
   return (
     <div className='space-y-4'>
       <div className='flex justify-between items-center'>
-        {selectedDiscounts.length > 0 && (
+        {selectedScholarships.length > 0 && (
           <Button
             variant='destructive'
             size='sm'
             onClick={() => setShowBulkDeleteDialog(true)}
-            disabled={!canDeleteDiscounts || isLoading}
+            disabled={!canDeleteScholarships || isLoading}
           >
             <Trash2 className='mr-2 h-4 w-4' />
-            Delete Selected ({selectedDiscounts.length})
+            Delete Selected ({selectedScholarships.length})
           </Button>
         )}
 
@@ -263,8 +241,8 @@ export function DiscountList({
           variant='outline'
           size='sm'
           onClick={onRefresh}
-          className={selectedDiscounts.length > 0 ? 'ml-auto' : 'ml-auto'}
-          disabled={!canViewDiscounts}
+          className={selectedScholarships.length > 0 ? 'ml-auto' : 'ml-auto'}
+          disabled={!canViewScholarships}
         >
           <RefreshCw className='mr-2 h-4 w-4' />
           Refresh
@@ -275,11 +253,11 @@ export function DiscountList({
         <Table>
           <TableHeader>
             <TableRow>
-              {canDeleteDiscounts && (
+              {canDeleteScholarships && (
                 <TableHead className='w-12'>
                   <div className='flex items-center' onClick={toggleSelectAll}>
-                    {selectedDiscounts.length === discounts.length &&
-                    discounts.length > 0 ? (
+                    {selectedScholarships.length === scholarships.length &&
+                    scholarships.length > 0 ? (
                       <CheckSquare className='h-4 w-4 cursor-pointer' />
                     ) : (
                       <Square className='h-4 w-4 cursor-pointer' />
@@ -289,8 +267,8 @@ export function DiscountList({
               )}
               <TableHead>Student</TableHead>
               <TableHead>Bill Description</TableHead>
-              <TableHead>Category</TableHead>
-              <TableHead>Type</TableHead>
+              <TableHead>Category / Type</TableHead>
+              <TableHead>Value Mode</TableHead>
               <TableHead>Value</TableHead>
               <TableHead>Amount</TableHead>
               <TableHead>Status</TableHead>
@@ -299,28 +277,28 @@ export function DiscountList({
             </TableRow>
           </TableHeader>
           <TableBody>
-            {discounts.length === 0 ? (
+            {scholarships.length === 0 ? (
               <TableRow>
                 <TableCell
-                  colSpan={canDeleteDiscounts ? 10 : 9}
+                  colSpan={canDeleteScholarships ? 10 : 9}
                   className='text-center py-8'
                 >
                   <div className='flex flex-col items-center space-y-3'>
                     <Percent className='h-8 w-8 text-muted-foreground' />
-                    <p className='text-muted-foreground'>No discounts found</p>
+                    <p className='text-muted-foreground'>No scholarships found</p>
                   </div>
                 </TableCell>
               </TableRow>
             ) : (
-              discounts.map((discount) => (
-                <TableRow key={discount.id}>
-                  {canDeleteDiscounts && (
+              scholarships.map((scholarship) => (
+                <TableRow key={scholarship.id}>
+                  {canDeleteScholarships && (
                     <TableCell>
                       <div
                         className='flex items-center'
-                        onClick={() => toggleSelectDiscount(discount.id)}
+                        onClick={() => toggleSelectScholarship(scholarship.id)}
                       >
-                        {selectedDiscounts.includes(discount.id) ? (
+                        {selectedScholarships.includes(scholarship.id) ? (
                           <CheckSquare className='h-4 w-4 cursor-pointer' />
                         ) : (
                           <Square className='h-4 w-4 cursor-pointer' />
@@ -331,44 +309,47 @@ export function DiscountList({
                   <TableCell>
                     <div className='flex flex-col'>
                       <span className='font-medium'>
-                        {`${discount.bill?.student?.first_name} ${
-                          discount.bill?.student?.last_name || ''
+                        {`${scholarship.bill?.student?.first_name} ${
+                          scholarship.bill?.student?.last_name || ''
                         }`.trim()}
                       </span>
                       <span className='text-sm text-muted-foreground'>
-                        {discount.bill?.student?.roll_number}
+                        {scholarship.bill?.student?.roll_number}
                       </span>
                     </div>
                   </TableCell>
                   <TableCell>
                     <div className='flex flex-col max-w-xs'>
                       <span className='font-medium truncate'>
-                        {discount.bill?.bill_description}
+                        {scholarship.bill?.bill_description}
                       </span>
                       <span className='text-sm text-muted-foreground'>
                         Total:{' '}
-                        {formatCurrency(discount.bill?.total_amount || 0)}
+                        {formatCurrency(scholarship.bill?.total_amount || 0)}
                       </span>
                     </div>
                   </TableCell>
                   <TableCell>
-                    {getDiscountCategoryBadge(discount.discount_category)}
+                    <ScholarshipCategoryBadge
+                      category={scholarship.scholarship_category}
+                      type={scholarship.scholarship_type}
+                    />
                   </TableCell>
                   <TableCell>
-                    {getDiscountTypeBadge(discount.discount_type)}
+                    {getScholarshipValueModeBadge(scholarship.value_mode)}
                   </TableCell>
                   <TableCell>
-                    {discount.discount_type === 'percentage'
-                      ? `${discount.discount_value}%`
-                      : formatCurrency(discount.discount_value)}
+                    {scholarship.value_mode === 'percentage'
+                      ? `${scholarship.scholarship_value}%`
+                      : formatCurrency(scholarship.scholarship_value)}
                   </TableCell>
                   <TableCell>
-                    {formatCurrency(discount.discount_amount)}
+                    {formatCurrency(scholarship.scholarship_amount)}
                   </TableCell>
                   <TableCell>
-                    {getApprovalStatusBadge(discount.approval_status)}
+                    {getApprovalStatusBadge(scholarship.approval_status)}
                   </TableCell>
-                  <TableCell>{formatDate(discount.effective_date)}</TableCell>
+                  <TableCell>{formatDate(scholarship.effective_date)}</TableCell>
                   <TableCell className='text-right'>
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
@@ -382,18 +363,18 @@ export function DiscountList({
                         <DropdownMenuSeparator />
 
                         <DropdownMenuItem asChild>
-                          <Link href={`/billing/discounts/${discount.id}`}>
+                          <Link href={`/billing/scholarships/${scholarship.id}`}>
                             <Eye className='mr-2 h-4 w-4' />
                             View Details
                           </Link>
                         </DropdownMenuItem>
 
-                        {discount.approval_status === 'pending' &&
-                          canApproveDiscounts && (
+                        {scholarship.approval_status === 'pending' &&
+                          canApproveScholarships && (
                             <>
                               <DropdownMenuItem
-                                onClick={() => handleApprove(discount.id)}
-                                disabled={approveDiscountMutation.isPending}
+                                onClick={() => handleApprove(scholarship.id)}
+                                disabled={approveScholarshipMutation.isPending}
                                 className='text-green-600'
                               >
                                 <Check className='mr-2 h-4 w-4' />
@@ -404,7 +385,7 @@ export function DiscountList({
                                 onClick={() =>
                                   setRejectDialog({
                                     open: true,
-                                    discountId: discount.id
+                                    scholarshipId: scholarship.id
                                   })
                                 }
                                 className='text-red-600'
@@ -415,10 +396,10 @@ export function DiscountList({
                             </>
                           )}
 
-                        {canEditDiscounts && (
+                        {canEditScholarships && (
                           <DropdownMenuItem asChild>
                             <Link
-                              href={`/billing/discounts/${discount.id}/edit`}
+                              href={`/billing/scholarships/${scholarship.id}/edit`}
                             >
                               <Edit className='mr-2 h-4 w-4' />
                               Edit
@@ -426,10 +407,10 @@ export function DiscountList({
                           </DropdownMenuItem>
                         )}
 
-                        {canDeleteDiscounts && (
+                        {canDeleteScholarships && (
                           <DropdownMenuItem
                             className='text-destructive'
-                            onClick={() => setDiscountToDelete(discount)}
+                            onClick={() => setScholarshipToDelete(scholarship)}
                           >
                             <Trash2 className='mr-2 h-4 w-4' />
                             Delete
@@ -479,17 +460,17 @@ export function DiscountList({
 
       {/* Delete confirmation dialog */}
       <AlertDialog
-        open={!!discountToDelete}
-        onOpenChange={() => setDiscountToDelete(null)}
+        open={!!scholarshipToDelete}
+        onOpenChange={() => setScholarshipToDelete(null)}
       >
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Are you sure?</AlertDialogTitle>
             <AlertDialogDescription>
               This action cannot be undone. This will permanently delete the
-              discount for &quot;
-              {`${discountToDelete?.bill?.student?.first_name} ${
-                discountToDelete?.bill?.student?.last_name || ''
+              scholarship for &quot;
+              {`${scholarshipToDelete?.bill?.student?.first_name} ${
+                scholarshipToDelete?.bill?.student?.last_name || ''
               }`.trim()}
               &quot;.
             </AlertDialogDescription>
@@ -513,7 +494,7 @@ export function DiscountList({
         onOpenChange={(open) =>
           setRejectDialog({
             open,
-            discountId: open ? rejectDialog.discountId : ''
+            scholarshipId: open ? rejectDialog.scholarshipId : ''
           })
         }
       >
@@ -535,16 +516,16 @@ export function DiscountList({
             <div className='flex justify-end space-x-2'>
               <Button
                 variant='outline'
-                onClick={() => setRejectDialog({ open: false, discountId: '' })}
+                onClick={() => setRejectDialog({ open: false, scholarshipId: '' })}
               >
                 Cancel
               </Button>
               <Button
                 onClick={handleReject}
-                disabled={!rejectionReason || rejectDiscountMutation.isPending}
+                disabled={!rejectionReason || rejectScholarshipMutation.isPending}
                 variant='destructive'
               >
-                {rejectDiscountMutation.isPending ? 'Rejecting...' : 'Reject'}
+                {rejectScholarshipMutation.isPending ? 'Rejecting...' : 'Reject'}
               </Button>
             </div>
           </div>

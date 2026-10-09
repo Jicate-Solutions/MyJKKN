@@ -12,6 +12,7 @@ import {
   TableRow
 } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
+import { ScholarshipCategoryBadge } from '@/components/billing/scholarship-labels';
 import {
   AlertCircle,
   Download,
@@ -20,21 +21,21 @@ import {
   IndianRupee
 } from 'lucide-react';
 import {
-  useDiscountReport,
+  useScholarshipReport,
   useReportExport
 } from '@/hooks/billing/use-billing-reports';
 import { ReportPagination } from './report-pagination';
 import type { BillingReportFilters } from '@/types/billing-schedule';
 
-interface DiscountReportTabProps {
+interface ScholarshipReportTabProps {
   filters: BillingReportFilters;
   canExport: boolean;
 }
 
-export function DiscountReportTab({
+export function ScholarshipReportTab({
   filters,
   canExport
-}: DiscountReportTabProps) {
+}: ScholarshipReportTabProps) {
   const {
     report,
     totalCount,
@@ -44,7 +45,7 @@ export function DiscountReportTab({
     loading,
     error,
     refetch
-  } = useDiscountReport(filters);
+  } = useScholarshipReport(filters);
   const { exportReport, loading: exportLoading } = useReportExport();
 
   const formatCurrency = (amount: number) => {
@@ -58,37 +59,6 @@ export function DiscountReportTab({
 
   const formatDate = (date: string) => {
     return new Date(date).toLocaleDateString('en-IN');
-  };
-
-  const getDiscountCategoryBadge = (category: string) => {
-    const categoryConfig = {
-      merit_scholarship: {
-        label: 'Merit Scholarship',
-        className: 'bg-green-100 text-green-800'
-      },
-      financial_aid: {
-        label: 'Financial Aid',
-        className: 'bg-blue-100 text-blue-800'
-      },
-      staff_quota: {
-        label: 'Staff Quota',
-        className: 'bg-purple-100 text-purple-800'
-      },
-      sports_quota: {
-        label: 'Sports Quota',
-        className: 'bg-orange-100 text-orange-800'
-      },
-      special_circumstances: {
-        label: 'Special',
-        className: 'bg-gray-100 text-gray-800'
-      }
-    };
-
-    const config =
-      categoryConfig[category as keyof typeof categoryConfig] ||
-      categoryConfig.financial_aid;
-
-    return <Badge className={config.className}>{config.label}</Badge>;
   };
 
   const getApprovalStatusBadge = (status: string) => {
@@ -115,7 +85,7 @@ export function DiscountReportTab({
 
   const handleExport = async () => {
     try {
-      await exportReport('discount', filters, {
+      await exportReport('scholarship', filters, {
         format: 'csv',
         include_summary: true,
         include_charts: false
@@ -128,12 +98,12 @@ export function DiscountReportTab({
   // These are derived from the fetched PAGE only — the RPC does not return a
   // true cross-page total for the amount or the approved subset, so both
   // cards below are labelled "(this page)".
-  const totalDiscountAmount = report.reduce(
-    (sum, discount) => sum + discount.discount_amount,
+  const totalScholarshipAmount = report.reduce(
+    (sum, scholarship) => sum + scholarship.scholarship_amount,
     0
   );
-  const approvedDiscounts = report.filter(
-    (discount) => discount.approval_status === 'approved'
+  const approvedScholarships = report.filter(
+    (scholarship) => scholarship.approval_status === 'approved'
   ).length;
 
   if (loading) {
@@ -168,7 +138,7 @@ export function DiscountReportTab({
         <Card>
           <CardHeader className='flex flex-row items-center justify-between space-y-0 pb-2'>
             <CardTitle className='text-sm font-medium'>
-              Total Discounts
+              Total Scholarships
             </CardTitle>
             <ReceiptIndianRupee className='h-4 w-4 text-muted-foreground' />
           </CardHeader>
@@ -180,13 +150,13 @@ export function DiscountReportTab({
         <Card>
           <CardHeader className='flex flex-row items-center justify-between space-y-0 pb-2'>
             <CardTitle className='text-sm font-medium'>
-              Approved Discounts (this page)
+              Approved Scholarships (this page)
             </CardTitle>
             <Percent className='h-4 w-4 text-muted-foreground' />
           </CardHeader>
           <CardContent>
             <div className='text-2xl font-bold text-green-600'>
-              {approvedDiscounts}
+              {approvedScholarships}
             </div>
           </CardContent>
         </Card>
@@ -198,19 +168,19 @@ export function DiscountReportTab({
           </CardHeader>
           <CardContent>
             <div className='text-2xl font-bold text-red-600'>
-              {formatCurrency(totalDiscountAmount)}
+              {formatCurrency(totalScholarshipAmount)}
             </div>
           </CardContent>
         </Card>
       </div>
 
-      {/* Discount Report Table */}
+      {/* Scholarship Report Table */}
       <Card>
         <CardHeader>
           <div className='flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between'>
             <CardTitle className='flex items-center gap-2'>
               <ReceiptIndianRupee className='h-5 w-5' />
-              Discount Report
+              Scholarship Report
             </CardTitle>
             {canExport && (
               <div className='flex items-center gap-2'>
@@ -237,9 +207,9 @@ export function DiscountReportTab({
           {report.length === 0 ? (
             <div className='text-center py-8'>
               <ReceiptIndianRupee className='h-12 w-12 text-muted-foreground mx-auto mb-4' />
-              <h3 className='text-lg font-semibold mb-2'>No Discounts</h3>
+              <h3 className='text-lg font-semibold mb-2'>No Scholarships</h3>
               <p className='text-muted-foreground'>
-                No discounts found matching the current filters.
+                No scholarships found matching the current filters.
               </p>
             </div>
           ) : (
@@ -250,8 +220,8 @@ export function DiscountReportTab({
                     <TableHead>Student</TableHead>
                     <TableHead>Institution</TableHead>
                     <TableHead>Bill Description</TableHead>
-                    <TableHead>Category</TableHead>
-                    <TableHead>Type</TableHead>
+                    <TableHead>Category / Type</TableHead>
+                    <TableHead>Value Mode</TableHead>
                     <TableHead>Value</TableHead>
                     <TableHead className='text-right'>Amount</TableHead>
                     <TableHead>Status</TableHead>
@@ -259,47 +229,58 @@ export function DiscountReportTab({
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {report.map((discount) => (
-                    <TableRow key={discount.discount_id}>
+                  {report.map((scholarship) => (
+                    <TableRow key={scholarship.scholarship_id}>
                       <TableCell>
                         <div>
                           <div className='font-medium'>
-                            {`${discount.first_name} ${
-                              discount.last_name || ''
+                            {`${scholarship.first_name} ${
+                              scholarship.last_name || ''
                             }`.trim()}
                           </div>
-                          {discount.roll_number && (
+                          {scholarship.roll_number && (
                             <div className='text-sm text-muted-foreground'>
-                              {discount.roll_number}
+                              {scholarship.roll_number}
                             </div>
                           )}
                         </div>
                       </TableCell>
-                      <TableCell>{discount.institution_name}</TableCell>
+                      <TableCell>{scholarship.institution_name}</TableCell>
                       <TableCell className='max-w-48 truncate'>
-                        {discount.bill_description}
+                        {scholarship.bill_description}
                       </TableCell>
                       <TableCell>
-                        {getDiscountCategoryBadge(discount.discount_category)}
+                        <ScholarshipCategoryBadge
+                          category={
+                            scholarship.scholarship_category_name
+                              ? { name: scholarship.scholarship_category_name }
+                              : null
+                          }
+                          type={
+                            scholarship.scholarship_type_name
+                              ? { name: scholarship.scholarship_type_name }
+                              : null
+                          }
+                        />
                       </TableCell>
                       <TableCell>
                         <Badge variant='outline'>
-                          {discount.discount_type.toUpperCase()}
+                          {scholarship.value_mode.toUpperCase()}
                         </Badge>
                       </TableCell>
                       <TableCell>
-                        {discount.discount_type === 'percentage'
-                          ? `${discount.discount_value}%`
-                          : formatCurrency(discount.discount_value)}
+                        {scholarship.value_mode === 'percentage'
+                          ? `${scholarship.scholarship_value}%`
+                          : formatCurrency(scholarship.scholarship_value)}
                       </TableCell>
                       <TableCell className='text-right font-semibold text-red-600'>
-                        {formatCurrency(discount.discount_amount)}
+                        {formatCurrency(scholarship.scholarship_amount)}
                       </TableCell>
                       <TableCell>
-                        {getApprovalStatusBadge(discount.approval_status)}
+                        {getApprovalStatusBadge(scholarship.approval_status)}
                       </TableCell>
                       <TableCell>
-                        {formatDate(discount.effective_date)}
+                        {formatDate(scholarship.effective_date)}
                       </TableCell>
                     </TableRow>
                   ))}

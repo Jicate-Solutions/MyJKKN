@@ -608,3 +608,37 @@ export function projectRowsByCategory(
   }
   return out;
 }
+
+/** Fee categories present in the rows with how many receipts settled each,
+ *  for the category picker. '' is the Uncategorised bucket (also receipts with
+ *  no breakdown); it sorts last. */
+export function categoriesPresent(
+  rows: CollectionDaywiseRow[]
+): { category: string; receipts: number }[] {
+  const map = new Map<string, number>();
+  for (const r of rows) {
+    const breakdown = r.category_breakdown ?? [];
+    const keys =
+      breakdown.length === 0
+        ? ['']
+        : Array.from(new Set(breakdown.map((c) => c.category || '')));
+    for (const k of keys) map.set(k, (map.get(k) ?? 0) + 1);
+  }
+  return Array.from(map.entries())
+    .map(([category, receipts]) => ({ category, receipts }))
+    .sort((a, b) =>
+      a.category === '' ? 1 : b.category === '' ? -1 : a.category.localeCompare(b.category)
+    );
+}
+
+/** `keep` for projectRowsByCategory: the picked categories (none picked = all),
+ *  minus Transport Maintenance Fee unless it is included. */
+export function buildCategoryKeep(
+  selected: string[],
+  includeTransport: boolean
+): (category: string) => boolean {
+  const picked = new Set(selected);
+  return (category) =>
+    (picked.size === 0 || picked.has(category)) &&
+    (includeTransport || !isTransportMaintenanceFee(category));
+}

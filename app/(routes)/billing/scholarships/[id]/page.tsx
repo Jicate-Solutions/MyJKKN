@@ -18,6 +18,7 @@ import { ContentLayout } from '@/components/layout/content-layout';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { ScholarshipCategoryBadge } from '@/components/billing/scholarship-labels';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Separator } from '@/components/ui/separator';
 import { Label } from '@/components/ui/label';
@@ -34,18 +35,18 @@ import { PageBreadcrumb } from '@/components/navigation/Breadcrumbs';
 import { BeatLoader } from 'react-spinners';
 import { toast } from 'react-hot-toast';
 import {
-  useBillingDiscount,
-  useApproveDiscount,
-  useRejectDiscount
-} from '@/hooks/billing/use-billing-discounts';
+  useBillingScholarship,
+  useApproveScholarship,
+  useRejectScholarship
+} from '@/hooks/billing/use-billing-scholarships';
 import { UserService } from '@/lib/services/users/user-service';
-import type { BillingDiscount } from '@/types/billing-schedule';
+import type { BillingScholarship } from '@/types/billing-schedule';
 import type { Profile } from '@/types/auth';
 
-export default function DiscountDetailsPage() {
+export default function ScholarshipDetailsPage() {
   const router = useRouter();
   const params = useParams();
-  const discountId = params.id as string;
+  const scholarshipId = params.id as string;
 
   const [approverUsers, setApproverUsers] = useState<Profile[]>([]);
   const [selectedApprover, setSelectedApprover] = useState<string>('');
@@ -60,27 +61,27 @@ export default function DiscountDetailsPage() {
     isLoading: permissionsLoading
   } = usePermissions();
 
-  const canViewDiscounts =
-    isSuperAdmin || canAccess('billing.discounts', 'view');
-  const canApproveDiscounts =
-    isSuperAdmin || canAccess('billing.discounts', 'approve');
+  const canViewScholarships =
+    isSuperAdmin || canAccess('billing.scholarships', 'view');
+  const canApproveScholarships =
+    isSuperAdmin || canAccess('billing.scholarships', 'approve');
 
-  const { data: discount, isLoading, error } = useBillingDiscount(discountId);
-  const approveDiscountMutation = useApproveDiscount();
-  const rejectDiscountMutation = useRejectDiscount();
+  const { data: scholarship, isLoading, error } = useBillingScholarship(scholarshipId);
+  const approveScholarshipMutation = useApproveScholarship();
+  const rejectScholarshipMutation = useRejectScholarship();
 
-  // Fetch users who can approve discounts
+  // Fetch users who can approve scholarships
   useEffect(() => {
-    if (canApproveDiscounts && discount?.approval_status === 'pending') {
+    if (canApproveScholarships && scholarship?.approval_status === 'pending') {
       fetchApproverUsers();
     }
-  }, [canApproveDiscounts, discount]);
+  }, [canApproveScholarships, scholarship]);
 
   const fetchApproverUsers = async () => {
     try {
       setLoadingUsers(true);
       const users = await UserService.getUsersWithRoles();
-      // Filter users who can approve discounts (super_admin, administrator, finance_manager)
+      // Filter users who can approve scholarships (super_admin, administrator, finance_manager)
       const approvers = users.filter((user) =>
         [
           'super_admin',
@@ -101,7 +102,7 @@ export default function DiscountDetailsPage() {
   // Show loading state while permissions are loading
   if (permissionsLoading || isLoading) {
     return (
-      <ContentLayout title='Discount Details'>
+      <ContentLayout title='Scholarship Details'>
         <div className='flex items-center justify-center min-h-[400px]'>
           <BeatLoader color='#00e902' />
         </div>
@@ -109,12 +110,12 @@ export default function DiscountDetailsPage() {
     );
   }
 
-  if (!canViewDiscounts) {
+  if (!canViewScholarships) {
     return (
-      <ContentLayout title='Discount Details'>
+      <ContentLayout title='Scholarship Details'>
         <div className='text-center py-8'>
           <p className='text-destructive'>
-            You don&apos;t have permission to view discount details.
+            You don&apos;t have permission to view scholarship details.
           </p>
         </div>
       </ContentLayout>
@@ -123,10 +124,10 @@ export default function DiscountDetailsPage() {
 
   if (error) {
     return (
-      <ContentLayout title='Discount Details'>
+      <ContentLayout title='Scholarship Details'>
         <div className='text-center py-8'>
           <p className='text-destructive'>
-            Error loading discount details: {error.message}
+            Error loading scholarship details: {error.message}
           </p>
           <Button
             variant='outline'
@@ -140,11 +141,11 @@ export default function DiscountDetailsPage() {
     );
   }
 
-  if (!discount) {
+  if (!scholarship) {
     return (
-      <ContentLayout title='Discount Details'>
+      <ContentLayout title='Scholarship Details'>
         <div className='text-center py-8'>
-          <p className='text-muted-foreground'>Discount not found</p>
+          <p className='text-muted-foreground'>Scholarship not found</p>
           <Button
             variant='outline'
             onClick={() => router.back()}
@@ -158,16 +159,16 @@ export default function DiscountDetailsPage() {
   }
 
   const handleApprove = async () => {
-    if (!selectedApprover && canApproveDiscounts) {
+    if (!selectedApprover && canApproveScholarships) {
       toast.error('Please select an approver');
       return;
     }
 
     try {
-      await approveDiscountMutation.mutateAsync(discountId);
+      await approveScholarshipMutation.mutateAsync(scholarshipId);
       setShowApprovalDialog(false);
       setSelectedApprover('');
-      toast.success('Discount approved successfully');
+      toast.success('Scholarship approved successfully');
     } catch (error) {
       // Error is handled by the mutation
     }
@@ -180,13 +181,13 @@ export default function DiscountDetailsPage() {
     }
 
     try {
-      await rejectDiscountMutation.mutateAsync({
-        id: discountId,
+      await rejectScholarshipMutation.mutateAsync({
+        id: scholarshipId,
         reason: rejectionReason
       });
       setShowRejectionDialog(false);
       setRejectionReason('');
-      toast.success('Discount rejected');
+      toast.success('Scholarship rejected');
     } catch (error) {
       // Error is handled by the mutation
     }
@@ -205,30 +206,7 @@ export default function DiscountDetailsPage() {
     return format(new Date(date), 'PPP');
   };
 
-  const getDiscountCategoryBadge = (category: string) => {
-    const categoryConfig = {
-      merit_scholarship: {
-        variant: 'default' as const,
-        label: 'Merit Scholarship'
-      },
-      financial_aid: { variant: 'secondary' as const, label: 'Financial Aid' },
-      staff_quota: { variant: 'outline' as const, label: 'Staff Quota' },
-      sports_quota: { variant: 'secondary' as const, label: 'Sports Quota' },
-      special_circumstances: {
-        variant: 'outline' as const,
-        label: 'Special Circumstances'
-      }
-    };
-
-    const config = categoryConfig[category as keyof typeof categoryConfig] || {
-      variant: 'secondary' as const,
-      label: category.replace('_', ' ').toUpperCase()
-    };
-
-    return <Badge variant={config.variant}>{config.label}</Badge>;
-  };
-
-  const getDiscountTypeBadge = (type: string) => {
+  const getScholarshipValueModeBadge = (type: string) => {
     const typeConfig = {
       amount: { variant: 'default' as const, label: 'Fixed Amount' },
       percentage: { variant: 'secondary' as const, label: 'Percentage' }
@@ -282,8 +260,8 @@ export default function DiscountDetailsPage() {
         items={[
           { label: 'Home', href: '/' },
           { label: 'Billing', href: '/billing/schedule' },
-          { label: 'Scholarships', href: '/billing/discounts' },
-          { label: 'Details', href: `/billing/discounts/${discountId}` }
+          { label: 'Scholarships', href: '/billing/scholarships' },
+          { label: 'Details', href: `/billing/scholarships/${scholarshipId}` }
         ]}
       />
 
@@ -302,11 +280,11 @@ export default function DiscountDetailsPage() {
               </p>
             </div>
           </div>
-          {canApproveDiscounts && discount.approval_status === 'pending' && (
+          {canApproveScholarships && scholarship.approval_status === 'pending' && (
             <div className='flex gap-2'>
               <Button
                 onClick={() => setShowApprovalDialog(true)}
-                disabled={approveDiscountMutation.isPending}
+                disabled={approveScholarshipMutation.isPending}
                 className='bg-green-600 hover:bg-green-700'
               >
                 <Check className='mr-2 h-4 w-4' />
@@ -315,7 +293,7 @@ export default function DiscountDetailsPage() {
               <Button
                 variant='destructive'
                 onClick={() => setShowRejectionDialog(true)}
-                disabled={rejectDiscountMutation.isPending}
+                disabled={rejectScholarshipMutation.isPending}
               >
                 <X className='mr-2 h-4 w-4' />
                 Reject
@@ -325,9 +303,9 @@ export default function DiscountDetailsPage() {
         </div>
 
         <div className='grid grid-cols-1 lg:grid-cols-3 gap-6'>
-          {/* Main Discount Information */}
+          {/* Main Scholarship Information */}
           <div className='lg:col-span-2 space-y-6'>
-            {/* Discount Overview */}
+            {/* Scholarship Overview */}
             <Card>
               <CardHeader>
                 <CardTitle className='flex items-center gap-2'>
@@ -342,22 +320,32 @@ export default function DiscountDetailsPage() {
                       <Label className='text-sm font-medium text-muted-foreground'>
                         Scholarship ID
                       </Label>
-                      <p className='font-mono text-sm'>{discount.id}</p>
+                      <p className='font-mono text-sm'>{scholarship.id}</p>
                     </div>
                     <div>
                       <Label className='text-sm font-medium text-muted-foreground'>
                         Category
                       </Label>
                       <div className='mt-1'>
-                        {getDiscountCategoryBadge(discount.discount_category)}
+                        <ScholarshipCategoryBadge
+                          category={scholarship.scholarship_category}
+                        />
                       </div>
                     </div>
                     <div>
                       <Label className='text-sm font-medium text-muted-foreground'>
                         Type
                       </Label>
+                      <p className='mt-1 text-sm'>
+                        {scholarship.scholarship_type?.name ?? '—'}
+                      </p>
+                    </div>
+                    <div>
+                      <Label className='text-sm font-medium text-muted-foreground'>
+                        Value Mode
+                      </Label>
                       <div className='mt-1'>
-                        {getDiscountTypeBadge(discount.discount_type)}
+                        {getScholarshipValueModeBadge(scholarship.value_mode)}
                       </div>
                     </div>
                     <div>
@@ -365,7 +353,7 @@ export default function DiscountDetailsPage() {
                         Status
                       </Label>
                       <div className='mt-1'>
-                        {getApprovalStatusBadge(discount.approval_status)}
+                        {getApprovalStatusBadge(scholarship.approval_status)}
                       </div>
                     </div>
                   </div>
@@ -375,9 +363,9 @@ export default function DiscountDetailsPage() {
                         Scholarship Value
                       </Label>
                       <p className='text-lg font-semibold'>
-                        {discount.discount_type === 'percentage'
-                          ? `${discount.discount_value}%`
-                          : formatCurrency(discount.discount_value)}
+                        {scholarship.value_mode === 'percentage'
+                          ? `${scholarship.scholarship_value}%`
+                          : formatCurrency(scholarship.scholarship_value)}
                       </p>
                     </div>
                     <div>
@@ -385,21 +373,21 @@ export default function DiscountDetailsPage() {
                         Scholarship Amount
                       </Label>
                       <p className='text-lg font-semibold text-green-600'>
-                        {formatCurrency(discount.discount_amount)}
+                        {formatCurrency(scholarship.scholarship_amount)}
                       </p>
                     </div>
                     <div>
                       <Label className='text-sm font-medium text-muted-foreground'>
                         Effective Date
                       </Label>
-                      <p>{formatDate(discount.effective_date)}</p>
+                      <p>{formatDate(scholarship.effective_date)}</p>
                     </div>
-                    {discount.expiry_date && (
+                    {scholarship.expiry_date && (
                       <div>
                         <Label className='text-sm font-medium text-muted-foreground'>
                           Expiry Date
                         </Label>
-                        <p>{formatDate(discount.expiry_date)}</p>
+                        <p>{formatDate(scholarship.expiry_date)}</p>
                       </div>
                     )}
                   </div>
@@ -412,14 +400,14 @@ export default function DiscountDetailsPage() {
                     Scholarship Reason
                   </Label>
                   <p className='mt-1 p-3 bg-muted rounded-md'>
-                    {discount.discount_reason}
+                    {scholarship.scholarship_reason}
                   </p>
                 </div>
               </CardContent>
             </Card>
 
             {/* Bill Information */}
-            {discount.bill && (
+            {scholarship.bill && (
               <Card>
                 <CardHeader>
                   <CardTitle className='flex items-center gap-2'>
@@ -434,7 +422,7 @@ export default function DiscountDetailsPage() {
                         Bill Description
                       </Label>
                       <p className='font-medium'>
-                        {discount.bill.bill_description}
+                        {scholarship.bill.bill_description}
                       </p>
                     </div>
                     <div>
@@ -442,12 +430,12 @@ export default function DiscountDetailsPage() {
                         Bill Amount
                       </Label>
                       <p className='font-medium'>
-                        {formatCurrency(discount.bill.total_amount)}
+                        {formatCurrency(scholarship.bill.total_amount)}
                       </p>
                     </div>
                   </div>
 
-                  {discount.bill.student && (
+                  {scholarship.bill.student && (
                     <>
                       <Separator />
                       <div>
@@ -458,21 +446,21 @@ export default function DiscountDetailsPage() {
                           <Avatar className='h-8 w-8'>
                             <AvatarFallback className='text-xs'>
                               {getInitials(
-                                `${discount.bill.student.first_name} ${
-                                  discount.bill.student.last_name || ''
+                                `${scholarship.bill.student.first_name} ${
+                                  scholarship.bill.student.last_name || ''
                                 }`.trim()
                               )}
                             </AvatarFallback>
                           </Avatar>
                           <div>
                             <p className='font-medium'>
-                              {`${discount.bill.student.first_name} ${
-                                discount.bill.student.last_name || ''
+                              {`${scholarship.bill.student.first_name} ${
+                                scholarship.bill.student.last_name || ''
                               }`.trim()}
                             </p>
                             <p className='text-sm text-muted-foreground'>
-                              {discount.bill.student.roll_number} •{' '}
-                              {discount.bill.student.college_email}
+                              {scholarship.bill.student.roll_number} •{' '}
+                              {scholarship.bill.student.college_email}
                             </p>
                           </div>
                         </div>
@@ -487,7 +475,7 @@ export default function DiscountDetailsPage() {
           {/* Sidebar */}
           <div className='space-y-6'>
             {/* Approval Information */}
-            {discount.authorizer && (
+            {scholarship.authorizer && (
               <Card>
                 <CardHeader>
                   <CardTitle className='flex items-center gap-2'>
@@ -499,16 +487,16 @@ export default function DiscountDetailsPage() {
                   <div className='flex items-center gap-3'>
                     <Avatar>
                       <AvatarFallback>
-                        {getInitials(discount.authorizer.full_name)}
+                        {getInitials(scholarship.authorizer.full_name)}
                       </AvatarFallback>
                     </Avatar>
                     <div>
                       <p className='font-medium'>
-                        {discount.authorizer.full_name}
+                        {scholarship.authorizer.full_name}
                       </p>
                       <p className='text-sm text-muted-foreground'>
-                        {discount.approval_date &&
-                          formatDate(discount.approval_date)}
+                        {scholarship.approval_date &&
+                          formatDate(scholarship.approval_date)}
                       </p>
                     </div>
                   </div>
@@ -517,7 +505,7 @@ export default function DiscountDetailsPage() {
             )}
 
             {/* Who Can Approve */}
-            {discount.approval_status === 'pending' && (
+            {scholarship.approval_status === 'pending' && (
               <Card>
                 <CardHeader>
                   <CardTitle className='flex items-center gap-2'>
@@ -575,21 +563,21 @@ export default function DiscountDetailsPage() {
                 <div className='space-y-3 text-sm'>
                   <div className='flex justify-between'>
                     <span className='text-muted-foreground'>Created</span>
-                    <span>{formatDate(discount.created_at)}</span>
+                    <span>{formatDate(scholarship.created_at)}</span>
                   </div>
-                  {discount.approval_date && (
+                  {scholarship.approval_date && (
                     <div className='flex justify-between'>
                       <span className='text-muted-foreground'>
-                        {discount.approval_status === 'approved'
+                        {scholarship.approval_status === 'approved'
                           ? 'Approved'
                           : 'Rejected'}
                       </span>
-                      <span>{formatDate(discount.approval_date)}</span>
+                      <span>{formatDate(scholarship.approval_date)}</span>
                     </div>
                   )}
                   <div className='flex justify-between'>
                     <span className='text-muted-foreground'>Last Updated</span>
-                    <span>{formatDate(discount.updated_at)}</span>
+                    <span>{formatDate(scholarship.updated_at)}</span>
                   </div>
                 </div>
               </CardContent>
@@ -606,9 +594,9 @@ export default function DiscountDetailsPage() {
           </DialogHeader>
           <div className='space-y-4'>
             <p className='text-sm text-muted-foreground'>
-              Are you sure you want to approve this discount of{' '}
+              Are you sure you want to approve this scholarship of{' '}
               <span className='font-medium'>
-                {formatCurrency(discount.discount_amount)}
+                {formatCurrency(scholarship.scholarship_amount)}
               </span>
               ?
             </p>
@@ -623,10 +611,10 @@ export default function DiscountDetailsPage() {
             </Button>
             <Button
               onClick={handleApprove}
-              disabled={approveDiscountMutation.isPending}
+              disabled={approveScholarshipMutation.isPending}
               className='bg-green-600 hover:bg-green-700'
             >
-              {approveDiscountMutation.isPending ? 'Approving...' : 'Approve'}
+              {approveScholarshipMutation.isPending ? 'Approving...' : 'Approve'}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -636,7 +624,7 @@ export default function DiscountDetailsPage() {
       <Dialog open={showRejectionDialog} onOpenChange={setShowRejectionDialog}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Reject Discount</DialogTitle>
+            <DialogTitle>Reject Scholarship</DialogTitle>
           </DialogHeader>
           <div className='space-y-4'>
             <div>
@@ -663,9 +651,9 @@ export default function DiscountDetailsPage() {
             <Button
               variant='destructive'
               onClick={handleReject}
-              disabled={!rejectionReason || rejectDiscountMutation.isPending}
+              disabled={!rejectionReason || rejectScholarshipMutation.isPending}
             >
-              {rejectDiscountMutation.isPending ? 'Rejecting...' : 'Reject'}
+              {rejectScholarshipMutation.isPending ? 'Rejecting...' : 'Reject'}
             </Button>
           </DialogFooter>
         </DialogContent>

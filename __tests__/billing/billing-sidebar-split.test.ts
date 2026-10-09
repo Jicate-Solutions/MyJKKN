@@ -18,7 +18,7 @@ const PRE_SPLIT_ROUTES = [
   '/billing/coverage',
   '/billing/onboarding',
   '/billing/receipts',
-  '/billing/discounts',
+  '/billing/scholarships',
   '/billing/refunds',
   '/billing/refund-approvals',
   '/billing/receipt-cancellations',
@@ -40,12 +40,15 @@ const PRE_SPLIT_ROUTES = [
 describe('Billing & Accounts sidebar split', () => {
   // A fourth menu, 'Settings', was added 2026-10-01 (58c6987f64) for the
   // group-wide pages (Categories, Reports, Analytics, Activities, Payment
-  // Gateway Accounts) that used to sit at the bottom of Colleges.
-  it('exposes exactly four menus, in domain order', () => {
+  // Gateway Accounts) that used to sit at the bottom of Colleges. A fifth,
+  // 'Scholarships', was split out of Colleges 2026-10-09; it sits before
+  // Settings, which stays last.
+  it('exposes exactly five menus, in domain order', () => {
     expect(billingGroup('/billing').menus.map((m) => m.label)).toEqual([
       'Colleges',
       'Transport Fees',
       'Schools',
+      'Scholarships',
       'Settings',
     ]);
   });
@@ -60,10 +63,16 @@ describe('Billing & Accounts sidebar split', () => {
   });
 
   // Colleges: 17 at the split, +1 Bill Cancellations (dc2495ff05, 28 Sep),
-  // -5 group-wide pages moved to Settings (58c6987f64, 1 Oct) = 13.
-  it('splits the routes 13 / 0 / 5 / 5 across the four menus', () => {
-    const [colleges, transport, schools, settings] = billingGroup('/billing').menus;
-    expect(colleges.submenus).toHaveLength(13);
+  // -5 group-wide pages moved to Settings (58c6987f64, 1 Oct), -1 Scholarships
+  // moved to its own menu (2026-10-09) = 12.
+  it('splits the routes 12 / 0 / 5 / 3 / 5 across the five menus', () => {
+    const [colleges, transport, schools, scholarships, settings] = billingGroup('/billing').menus;
+    expect(colleges.submenus).toHaveLength(12);
+    expect(scholarships.submenus.map((s) => s.href)).toEqual([
+      '/billing/scholarships',
+      '/billing/scholarships/new',
+      '/billing/scholarships/setup',
+    ]);
     // A direct link: an empty submenus[] is what makes the filter gate this
     // menu on its own billing.transport.view mapping.
     expect(transport.submenus).toHaveLength(0);
@@ -88,6 +97,7 @@ describe('Billing & Accounts sidebar split', () => {
     const [colleges, , schools] = billingGroup('/billing').menus;
     expect(colleges.submenus.filter((s) => s.href.startsWith('/billing/school-fees'))).toEqual([]);
     expect(colleges.submenus.filter((s) => s.href.startsWith('/billing/transport'))).toEqual([]);
+    expect(colleges.submenus.filter((s) => s.href.startsWith('/billing/scholarships'))).toEqual([]);
     expect(schools.submenus.every((s) => s.href.startsWith('/billing/school-fees'))).toBe(true);
   });
 
@@ -109,6 +119,11 @@ describe('Billing & Accounts sidebar split', () => {
     ['/billing/school-fees', 'Schools'],
     ['/billing/school-fees/collect', 'Schools'],
     ['/billing/school-fees/term-calendar', 'Schools'],
+    ['/billing/scholarships', 'Scholarships'],
+    ['/billing/scholarships/new', 'Scholarships'],
+    ['/billing/scholarships/setup', 'Scholarships'],
+    ['/billing/scholarships/02ea8e45-509e-4e67-b4de-27933b2482e2', 'Scholarships'],
+    ['/billing/scholarships/02ea8e45-509e-4e67-b4de-27933b2482e2/edit', 'Scholarships'],
   ])('highlights exactly one menu on %s', (pathname, expected) => {
     const active = billingGroup(pathname).menus.filter((m) => m.active).map((m) => m.label);
     expect(active).toEqual([expected]);
@@ -126,6 +141,20 @@ describe('Billing & Accounts sidebar split', () => {
   ])('highlights exactly one Schools submenu on %s', (pathname, expected) => {
     const schools = billingGroup(pathname).menus.find((m) => m.label === 'Schools')!;
     const active = schools.submenus.filter((s) => s.active).map((s) => s.label);
+    expect(active).toEqual([expected]);
+  });
+
+  // 'All Scholarships' owns the list plus its /[id] and /[id]/edit pages but
+  // NOT /new or /setup, which have their own rows.
+  it.each([
+    ['/billing/scholarships', 'All Scholarships'],
+    ['/billing/scholarships/02ea8e45-509e-4e67-b4de-27933b2482e2', 'All Scholarships'],
+    ['/billing/scholarships/02ea8e45-509e-4e67-b4de-27933b2482e2/edit', 'All Scholarships'],
+    ['/billing/scholarships/new', 'Apply Scholarship'],
+    ['/billing/scholarships/setup', 'Categories & Types'],
+  ])('highlights exactly one Scholarships submenu on %s', (pathname, expected) => {
+    const scholarships = billingGroup(pathname).menus.find((m) => m.label === 'Scholarships')!;
+    const active = scholarships.submenus.filter((s) => s.active).map((s) => s.label);
     expect(active).toEqual([expected]);
   });
 });

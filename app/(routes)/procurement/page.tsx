@@ -29,14 +29,17 @@ export default function ProcurementHome() {
   // Requests whose category approval step is mine right now (HOD, Principal, CAO…).
   const { data: myApprovals = [] } = useMyApprovals();
 
+  // HODs hold procurement_officer + store_admin (rfq_manage, quotation_manage, grn_create)
+  // only so they can buy for their own department, so those keys no longer make someone
+  // "staff": they open on My requests, with the approvals banner when something waits on them.
   const isStaff =
     isSuperAdmin ||
-    ['request_approve', 'rfq_manage', 'quotation_manage', 'grn_create', 'grn_verify'].some((p) =>
-      canAccess('procurement', p)
-    );
+    ['view_all_departments', 'request_approve', 'grn_verify'].some((p) => canAccess('procurement', p));
   const canCreateRequest = isSuperAdmin || canAccess('procurement', 'request_create');
   const showMine = !isStaff || searchParams.get('as') === 'mine';
-  const college = searchParams.get('institution') ?? 'all';
+  // Others are held to their own department by RLS, so a college picker only confuses them.
+  const seesWholeCollege = isSuperAdmin || canAccess('procurement', 'view_all_departments');
+  const college = (seesWholeCollege && searchParams.get('institution')) || 'all';
 
   const setParam = (key: string, value: string | null) => {
     const next = new URLSearchParams(searchParams.toString());
@@ -64,13 +67,15 @@ export default function ProcurementHome() {
 
   const toolbarRight = (
     <div className="flex flex-wrap items-center gap-2">
-      <InstitutionFilter
-        className="w-full sm:w-52"
-        label={null}
-        allLabel="All colleges"
-        value={college}
-        onChange={(id) => setParam('institution', id === 'all' ? null : id)}
-      />
+      {seesWholeCollege && (
+        <InstitutionFilter
+          className="w-full sm:w-52"
+          label={null}
+          allLabel="All colleges"
+          value={college}
+          onChange={(id) => setParam('institution', id === 'all' ? null : id)}
+        />
+      )}
       {canCreateRequest && (
         <Link
           href="/procurement/requests?mine=1"
