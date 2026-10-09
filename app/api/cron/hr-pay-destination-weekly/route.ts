@@ -29,6 +29,7 @@ import { createServiceRoleClient } from '@/lib/supabase/server';
 import { fanoutNotification } from '@/lib/services/_shared/notifications/notify';
 import {
   type PayDestinationChange,
+  istWeekBounds,
   istWeekStart,
   totalChanges,
   weeklyNoticeBody,
@@ -71,8 +72,10 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  const since = new Date(Date.now() - 7 * 86_400_000).toISOString();
-  const { data, error } = await (admin as any).rpc('fn_hr_pay_destination_changes', { p_since: since });
+  // Last IST week, Monday 00:00 to Monday 00:00: fixed bounds, so a run that
+  // fires late or is retried covers exactly the same changes.
+  const { since, until } = istWeekBounds();
+  const { data, error } = await (admin as any).rpc('fn_hr_pay_destination_changes', { p_since: since, p_until: until });
   if (error) {
     return NextResponse.json({ ok: false, error: `change list failed: ${error.message}`, sent: 0 }, { status: 500 });
   }
@@ -92,7 +95,7 @@ export async function GET(request: NextRequest) {
     idempotencyKey: `hr-pay-destination-weekly:${weekStart}`,
     url: '/hr/payroll/salaries#pay-destination-changes',
     source: 'hr-pay-destination-weekly',
-    metadata: { weekStart, count: total },
+    metadata: { weekStart, since, until, count: total },
     // Weekly edition: expires just past the next Monday so editions never stack.
     extraColumns: { expires_at: new Date(Date.now() + 8 * 86_400_000).toISOString() },
   });

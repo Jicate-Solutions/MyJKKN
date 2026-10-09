@@ -13,6 +13,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import {
   describeChange,
+  istWeekBounds,
   istWeekStart,
   personLabel,
   totalChanges,
@@ -50,15 +51,15 @@ describe('the words', () => {
     expect(personLabel({ staff_name: null, staff_code: null, college: null })).toBe('A team member');
   });
   it('a quiet week still sends a notice that says none', () => {
-    expect(weeklyNoticeTitle(0)).toBe('Bank and paying-trust changes this week: none');
-    expect(weeklyNoticeBody([])).toBe('No bank account or paying trust was changed in the last 7 days.');
+    expect(weeklyNoticeTitle(0)).toBe('Bank and paying-trust changes last week: none');
+    expect(weeklyNoticeBody([])).toBe('No bank account or paying trust was changed last week.');
   });
   it('the notice lists each change with who made it, and points to the rest', () => {
     const many = Array.from({ length: 8 }, (_, i) => ({ ...bankChange, change_id: `c${i}` }));
     const body = weeklyNoticeBody(many);
     expect(body).toContain('Priya R (DCH061), JKKN Dental College: Bank account changed from account ending 9012 at SBI to account ending 7777 at HDFC, by HR Head.');
     expect(body).toContain('And 2 more on the salaries page.');
-    expect(weeklyNoticeTitle(8)).toBe('Bank and paying-trust changes this week: 8');
+    expect(weeklyNoticeTitle(8)).toBe('Bank and paying-trust changes last week: 8');
   });
   it('a person whose record was deleted is still named, from the kept snapshot', () => {
     const recordDeleted: PayDestinationChange = { ...bankChange, staff_id: null };
@@ -71,6 +72,45 @@ describe('the words', () => {
     expect(totalChanges([])).toBe(0);
     // A missing or smaller total never under-counts the rows actually returned.
     expect(totalChanges([{ total_count: undefined as unknown as number }, { total_count: 0 }])).toBe(2);
+  });
+  it('a salary register whose account number was edited, or is not the one on file, says so', () => {
+    const reg: PayDestinationChange = {
+      ...bankChange, kind: 'register_bank',
+      before: { account_last4: '1212', register_run_id: 'r1' }, after: { account_last4: '5555', register_run_id: 'r1' },
+    };
+    expect(describeChange(reg)).toBe('Bank account on a salary register changed from account ending 1212 to account ending 5555');
+    expect(describeChange({ ...reg, after: { account_last4: '9090', differs_from_file: true }, before: bankChange.before }))
+      .toBe('A salary register pays account ending 9090, but the account on file is account ending 9012 at SBI');
+    expect(describeChange({ ...reg, after: { account_last4: '9090', differs_from_file: true }, before: null }))
+      .toBe('A salary register pays account ending 9090, but no account is on file');
+    expect(describeChange({ ...reg, after: null })).toBe('Bank account on a salary register cleared: was account ending 1212');
+  });
+  it('a salary register whose paying trust was edited, or is not the one on file, says so', () => {
+    const reg: PayDestinationChange = {
+      ...bankChange, kind: 'register_payer',
+      before: { organization_id: 'o1', organization_name: 'JKKN Educational Trust', register_run_id: 'r1' },
+      after: { organization_id: 'o2', organization_name: 'JKKN Dental Trust', register_run_id: 'r1' },
+    };
+    expect(describeChange(reg)).toBe('Paying trust on a salary register changed from JKKN Educational Trust to JKKN Dental Trust');
+    expect(describeChange({ ...reg, after: { ...reg.after, differs_from_file: true } }))
+      .toBe('A salary register names JKKN Dental Trust as the paying trust, but the paying trust on file is JKKN Educational Trust');
+    expect(describeChange({ ...reg, before: null, after: { ...reg.after, differs_from_file: true } }))
+      .toBe('A salary register names JKKN Dental Trust as the paying trust, but no paying trust is on file');
+    expect(describeChange({ ...reg, after: null })).toBe('Paying trust on a salary register cleared: was JKKN Educational Trust');
+  });
+  it('the notice covers one fixed IST week, Monday 00:00 to Monday 00:00, whenever it runs', () => {
+    // Monday 08:17 IST and the same Monday's late retry at 23:00 IST: the same week.
+    const onTime = istWeekBounds(Date.parse('2026-10-05T02:47:00Z'));
+    const late = istWeekBounds(Date.parse('2026-10-05T17:30:00Z'));
+    expect(onTime).toEqual({ since: '2026-09-27T18:30:00.000Z', until: '2026-10-04T18:30:00.000Z' });
+    expect(late).toEqual(onTime);
+    // The next edition starts exactly where this one stopped: nothing falls between.
+    const next = istWeekBounds(Date.parse('2026-10-12T02:47:00Z'));
+    expect(next.since).toBe(onTime.until);
+    // A change at Monday 03:00 IST is after this edition's end and inside the next one.
+    const mondayEarly = Date.parse('2026-10-04T21:30:00Z');
+    expect(mondayEarly >= Date.parse(onTime.until)).toBe(true);
+    expect(mondayEarly >= Date.parse(next.since) && mondayEarly < Date.parse(next.until)).toBe(true);
   });
   it('the week is the IST week, so a Sunday-night run and a Monday run are different editions', () => {
     expect(istWeekStart(Date.parse('2026-10-05T03:00:00Z'))).toBe('2026-10-05'); // Monday 08:30 IST
@@ -128,25 +168,26 @@ describe('the Monday route', () => {
     expect(res.status).toBe(200);
     expect(fan.calls).toHaveLength(1);
     expect(fan.calls[0].userIds).toEqual(['d1', 'd6']);
-    expect(fan.calls[0].title).toBe('Bank and paying-trust changes this week: 2');
+    expect(fan.calls[0].title).toBe('Bank and paying-trust changes last week: 2');
     expect(fan.calls[0].url).toBe('/hr/payroll/salaries#pay-destination-changes');
     expect(String(fan.calls[0].idempotencyKey)).toMatch(/^hr-pay-destination-weekly:\d{4}-\d{2}-\d{2}$/);
     expect(fan.calls[0].priority).toBe('high');
   });
 
-  it('asks for exactly the last 7 days', async () => {
-    const before = Date.now();
+  it('asks for last IST week with both ends fixed, so a late run covers the same changes', async () => {
     await call('Bearer cron-secret');
-    const since = Date.parse((db.rpcArgs[0] as { p_since: string }).p_since);
-    expect(before - since).toBeGreaterThanOrEqual(7 * 86_400_000 - 1000);
-    expect(before - since).toBeLessThan(7 * 86_400_000 + 5000);
+    const args = db.rpcArgs[0] as { p_since: string; p_until: string };
+    const week = istWeekBounds();
+    expect(args).toEqual({ p_since: week.since, p_until: week.until });
+    expect(Date.parse(args.p_until) - Date.parse(args.p_since)).toBe(7 * 86_400_000);
+    expect(Date.parse(args.p_until)).toBeLessThanOrEqual(Date.now());
   });
 
   it('past the cap, the notice and the run report the true count', async () => {
     db.rpcRows = [{ ...bankChange, total_count: 2345 }, { ...payerChange, total_count: 2345 }];
     const res = await call('Bearer cron-secret');
     const json = await res.json();
-    expect(fan.calls[0].title).toBe('Bank and paying-trust changes this week: 2345');
+    expect(fan.calls[0].title).toBe('Bank and paying-trust changes last week: 2345');
     expect(String(fan.calls[0].body)).toContain('And 2343 more on the salaries page.');
     expect((fan.calls[0].metadata as { count: number }).count).toBe(2345);
     expect(json.count).toBe(2345);
@@ -156,7 +197,7 @@ describe('the Monday route', () => {
   it('a quiet week still sends, at normal priority', async () => {
     db.rpcRows = [];
     await call('Bearer cron-secret');
-    expect(fan.calls[0].title).toBe('Bank and paying-trust changes this week: none');
+    expect(fan.calls[0].title).toBe('Bank and paying-trust changes last week: none');
     expect(fan.calls[0].priority).toBe('normal');
   });
 
@@ -201,6 +242,7 @@ describe('the panel', () => {
   it('shows each change, who made it, and lets the Director widen the window', () => {
     hooks.isDirector = true;
     render(<PayDestinationChanges />);
+    expect(screen.getByText(/Only the Director list sees this\./)).toBeInTheDocument();
     expect(screen.getAllByTestId('pay-destination-change')).toHaveLength(2);
     expect(screen.getByText('Priya R (DCH061), JKKN Dental College')).toBeInTheDocument();
     expect(screen.getByText(/Bank account changed from account ending 9012 at SBI to account ending 7777 at HDFC\. By HR Head/)).toBeInTheDocument();

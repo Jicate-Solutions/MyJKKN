@@ -3088,11 +3088,22 @@ CREATE TRIGGER trg_ig_learner_post_claims_guard
 -- Source: 20270614090000_hr_pay_destination_changes.sql
 -- Updated: 2026-10-01 - Director ruling: every bank / paying-trust change goes on a weekly list to the Director list
 -- Updated: 2026-10-09 - History survives a staff delete (SET NULL + name snapshot); the list reports its true count past the 2,000 cap
+-- Updated: 2026-10-09 - Panel round 1: a bank or payer row cannot move to another person; the register's copies (account number, paying trust) are logged; the weekly list covers one fixed IST week (p_until)
 -- ----------------------------------------------------------------------------
 DROP TRIGGER IF EXISTS trg_hr_pay_destination_snapshot ON public.hr_pay_destination_changes;
 CREATE TRIGGER trg_hr_pay_destination_snapshot
   BEFORE INSERT ON public.hr_pay_destination_changes
   FOR EACH ROW EXECUTE FUNCTION public.fn_hr_pay_destination_snapshot();
+
+DROP TRIGGER IF EXISTS trg_hr_bank_account_owner_guard ON public.hr_staff_bank_accounts;
+CREATE TRIGGER trg_hr_bank_account_owner_guard
+  BEFORE INSERT OR UPDATE ON public.hr_staff_bank_accounts
+  FOR EACH ROW EXECUTE FUNCTION public.fn_hr_bank_account_owner_guard();
+
+DROP TRIGGER IF EXISTS trg_hr_staff_payroll_owner_guard ON public.hr_staff_payroll;
+CREATE TRIGGER trg_hr_staff_payroll_owner_guard
+  BEFORE UPDATE OF staff_id ON public.hr_staff_payroll
+  FOR EACH ROW EXECUTE FUNCTION public.fn_hr_staff_payroll_owner_guard();
 
 DROP TRIGGER IF EXISTS trg_hr_log_bank_destination_change ON public.hr_staff_bank_accounts;
 CREATE TRIGGER trg_hr_log_bank_destination_change
@@ -3103,3 +3114,13 @@ DROP TRIGGER IF EXISTS trg_hr_log_payer_destination_change ON public.hr_staff_pa
 CREATE TRIGGER trg_hr_log_payer_destination_change
   AFTER INSERT OR UPDATE OF hr_organization_id OR DELETE ON public.hr_staff_payroll
   FOR EACH ROW EXECUTE FUNCTION public.fn_hr_log_payer_destination_change();
+
+DROP TRIGGER IF EXISTS trg_hr_log_register_bank_change ON public.hr_salary_register_lines;
+CREATE TRIGGER trg_hr_log_register_bank_change
+  AFTER INSERT OR UPDATE OF bank_account_number, staff_id ON public.hr_salary_register_lines
+  FOR EACH ROW EXECUTE FUNCTION public.fn_hr_log_register_bank_change();
+
+DROP TRIGGER IF EXISTS trg_hr_log_register_payer_change ON public.hr_salary_register_lines;
+CREATE TRIGGER trg_hr_log_register_payer_change
+  AFTER INSERT OR UPDATE OF paid_by_organization_id, staff_id ON public.hr_salary_register_lines
+  FOR EACH ROW EXECUTE FUNCTION public.fn_hr_log_register_payer_change();

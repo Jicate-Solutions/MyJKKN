@@ -206,5 +206,167 @@ SELECT count(*) = 2000 AND bool_and(l.total_count = t.n) AND max(t.n) > 2000,
   CROSS JOIN public.cap_expect t;
 RESET ROLE;
 
+-- 20. Panel round 1 (9 Oct): a row belongs to one person. Moving a bank row
+--     or a payer row to someone else, or pointing one person's bank row at
+--     another person's, is refused, in either order.
+-- Arun's first account: no other row points at it, and Kavya has none, so
+-- only the guard stands between this row and Kavya.
+SELECT public.fn_hr_set_staff_bank_account('5a000000-0000-4000-8000-000000000002', 'ARUN K', '313131313131', 'SBIN0001234', 'SBI');
+DO $$ BEGIN
+  UPDATE public.hr_staff_bank_accounts SET staff_id = '5a000000-0000-4000-8000-000000000005'
+   WHERE staff_id = '5a000000-0000-4000-8000-000000000002' AND superseded_by IS NULL;
+  INSERT INTO public.r (ok, what) VALUES (false, 'moving Arun''s account in use to Kavya should be refused');
+EXCEPTION WHEN check_violation THEN
+  INSERT INTO public.r (ok, what) VALUES (true, 'moving a bank row to another person (staff_id): refused');
+END $$;
+DO $$ BEGIN
+  UPDATE public.hr_staff_bank_accounts
+     SET superseded_by = (SELECT id FROM public.hr_staff_bank_accounts WHERE staff_id = '5a000000-0000-4000-8000-000000000002' AND superseded_by IS NULL)
+   WHERE staff_id = '5a000000-0000-4000-8000-000000000001' AND superseded_by IS NULL;
+  INSERT INTO public.r (ok, what) VALUES (false, 'pointing Priya''s account in use at Arun''s should be refused');
+EXCEPTION WHEN check_violation THEN
+  INSERT INTO public.r (ok, what) VALUES (true, 'pointing one person''s bank row at another person''s: refused');
+END $$;
+DO $$ DECLARE v_x uuid := gen_random_uuid(); BEGIN
+  UPDATE public.hr_staff_bank_accounts SET superseded_by = v_x
+   WHERE staff_id = '5a000000-0000-4000-8000-000000000001' AND superseded_by IS NULL;
+  -- Written retired (pointing at Arun's own row) so the only thing that can
+  -- refuse it is the guard, not the one-account-in-use index.
+  INSERT INTO public.hr_staff_bank_accounts (id, staff_id, account_holder_name, account_number, ifsc_code, bank_name, superseded_by)
+  VALUES (v_x, '5a000000-0000-4000-8000-000000000002', 'ARUN K', '424242424242', 'SBIN0001234', 'SBI',
+          (SELECT id FROM public.hr_staff_bank_accounts WHERE staff_id = '5a000000-0000-4000-8000-000000000002' AND superseded_by IS NULL));
+  INSERT INTO public.r (ok, what) VALUES (false, 'pointer first, other person''s row second: should be refused');
+EXCEPTION WHEN check_violation THEN
+  INSERT INTO public.r (ok, what) VALUES (true, 'pointer to a not-yet-written id, then that id written for another person: refused');
+END $$;
+DO $$ BEGIN
+  INSERT INTO public.hr_staff_payroll (staff_id, hr_organization_id) VALUES ('5a000000-0000-4000-8000-000000000003', '0a000000-0000-4000-8000-000000000001');
+  UPDATE public.hr_staff_payroll SET staff_id = '5a000000-0000-4000-8000-000000000002' WHERE staff_id = '5a000000-0000-4000-8000-000000000003';
+  INSERT INTO public.r (ok, what) VALUES (false, 'moving a payer row to another person should be refused');
+EXCEPTION WHEN check_violation THEN
+  INSERT INTO public.r (ok, what) VALUES (true, 'moving a payer row to another person (staff_id): refused');
+END $$;
+-- The upsert the payroll page uses still works (staff_id set to itself).
+DO $$ BEGIN
+  INSERT INTO public.hr_staff_payroll (staff_id, hr_organization_id) VALUES ('5a000000-0000-4000-8000-000000000003', '0a000000-0000-4000-8000-000000000001')
+  ON CONFLICT (staff_id) DO UPDATE SET staff_id = EXCLUDED.staff_id, hr_organization_id = EXCLUDED.hr_organization_id;
+  INSERT INTO public.hr_staff_payroll (staff_id, hr_organization_id) VALUES ('5a000000-0000-4000-8000-000000000003', '0a000000-0000-4000-8000-000000000002')
+  ON CONFLICT (staff_id) DO UPDATE SET staff_id = EXCLUDED.staff_id, hr_organization_id = EXCLUDED.hr_organization_id;
+  INSERT INTO public.r (ok, what) SELECT count(*) = 2, 'the payroll page''s upsert (staff_id set to itself) still works and logs both (got ' || count(*) || ')'
+    FROM public.hr_pay_destination_changes WHERE kind = 'payer' AND staff_id = '5a000000-0000-4000-8000-000000000003';
+EXCEPTION WHEN others THEN
+  INSERT INTO public.r (ok, what) VALUES (false, 'the payroll page''s upsert failed: ' || SQLERRM);
+END $$;
+
+-- 21. Same person, other order: point the account in use at an id that does
+--     not exist yet, then insert that id already retired. Nothing is in use
+--     afterwards, and that is logged as removed.
+DO $$ DECLARE v_cur uuid; v_x uuid := gen_random_uuid(); BEGIN
+  SELECT id INTO v_cur FROM public.hr_staff_bank_accounts WHERE staff_id = '5a000000-0000-4000-8000-000000000002' AND superseded_by IS NULL;
+  UPDATE public.hr_staff_bank_accounts SET superseded_by = v_x WHERE id = v_cur;
+  INSERT INTO public.hr_staff_bank_accounts (id, staff_id, account_holder_name, account_number, ifsc_code, bank_name, superseded_by)
+  VALUES (v_x, '5a000000-0000-4000-8000-000000000002', 'ARUN K', '565656565656', 'SBIN0001234', 'SBI', v_cur);
+END $$;
+INSERT INTO public.r (ok, what) SELECT count(*) = 1,
+  'pointer to a not-yet-written id, then that id written already retired: logged as removed (was 3131) (got ' || count(*) || ')'
+  FROM public.hr_pay_destination_changes WHERE staff_id = '5a000000-0000-4000-8000-000000000002' AND kind = 'bank'
+   AND before->>'account_last4' = '3131' AND after IS NULL;
+INSERT INTO public.r (ok, what) SELECT NOT EXISTS (SELECT 1 FROM public.hr_staff_bank_accounts
+  WHERE staff_id = '5a000000-0000-4000-8000-000000000002' AND superseded_by IS NULL),
+  '(and Arun really has no account in use, so the removal is true)';
+
+-- 22. The account number printed on a salary register. Meena's account on
+--     file ends 1212 (probe 15).
+DO $$ DECLARE v_run uuid := gen_random_uuid(); n0 int; n1 int; BEGIN
+  SELECT count(*) INTO n0 FROM public.hr_pay_destination_changes WHERE kind = 'register_bank';
+  INSERT INTO public.hr_salary_register_lines (run_id, staff_id, bank_account_number)
+  VALUES (v_run, '5a000000-0000-4000-8000-000000000003', '121212121212'),
+         (v_run, '5a000000-0000-4000-8000-000000000001', NULL);
+  UPDATE public.hr_salary_register_lines SET remarks = 'checked' WHERE run_id = v_run;
+  SELECT count(*) INTO n1 FROM public.hr_pay_destination_changes WHERE kind = 'register_bank';
+  INSERT INTO public.r (ok, what) VALUES (n1 = n0, 'register: lines written with the account on file or no number, and a remarks edit, log nothing');
+  UPDATE public.hr_salary_register_lines SET bank_account_number = '777766665555'
+   WHERE run_id = v_run AND staff_id = '5a000000-0000-4000-8000-000000000003';
+  INSERT INTO public.hr_salary_register_lines (run_id, staff_id, bank_account_number)
+  VALUES (v_run, '5a000000-0000-4000-8000-000000000002', '909090909090');
+END $$;
+INSERT INTO public.r (ok, what) SELECT count(*) = 1,
+  'register: an edit of the number on a line is logged 1212 to 5555 (got ' || count(*) || ')'
+  FROM public.hr_pay_destination_changes WHERE kind = 'register_bank' AND staff_id = '5a000000-0000-4000-8000-000000000003'
+   AND before->>'account_last4' = '1212' AND after->>'account_last4' = '5555' AND after ? 'register_run_id'
+   AND NOT (after ? 'differs_from_file');
+INSERT INTO public.r (ok, what) SELECT count(*) = 1,
+  'register: a line written with a number that is not on file is logged, marked differs_from_file (got ' || count(*) || ')'
+  FROM public.hr_pay_destination_changes WHERE kind = 'register_bank' AND staff_id = '5a000000-0000-4000-8000-000000000002'
+   AND after->>'account_last4' = '9090' AND (after->>'differs_from_file')::boolean;
+INSERT INTO public.r (ok, what) SELECT NOT EXISTS (SELECT 1 FROM public.hr_pay_destination_changes
+  WHERE concat(before::text, after::text) ~ '(777766665555|909090909090|313131313131|565656565656)'),
+  'register and guard paths: no full account number stored';
+-- A register entry is never mistaken for the account on file. Arun's last
+-- bank entry is "removed, was 3131" (probe 21); his newest entry of all is
+-- the register's 9090. A new account written directly must start from 3131.
+INSERT INTO public.hr_staff_bank_accounts (staff_id, account_holder_name, account_number, ifsc_code, bank_name)
+VALUES ('5a000000-0000-4000-8000-000000000002', 'ARUN K', '232323232323', 'SBIN0001234', 'SBI');
+INSERT INTO public.r (ok, what) SELECT count(*) = 1,
+  'after a register entry, the next bank change still starts from the account on file (3131 to 2323) (got ' || count(*) || ')'
+  FROM public.hr_pay_destination_changes WHERE kind = 'bank' AND staff_id = '5a000000-0000-4000-8000-000000000002'
+   AND before->>'account_last4' = '3131' AND after->>'account_last4' = '2323';
+
+-- 23. The weekly notice's fixed week: p_until is exclusive.
+CREATE TABLE public.until_expect AS SELECT max(changed_at) AS t FROM public.hr_pay_destination_changes;
+GRANT SELECT ON public.until_expect TO PUBLIC;
+SET ROLE service_role; SELECT public.as_user(NULL, 'service_role');
+INSERT INTO public.r (ok, what) SELECT count(*) FILTER (WHERE l.changed_at >= u.t) = 0 AND count(*) > 0,
+  'p_until: a change at or after the bound is left out, earlier ones are kept (got ' || count(*) || ')'
+  FROM public.fn_hr_pay_destination_changes(now() - interval '1 day', (SELECT t FROM public.until_expect)) l
+  CROSS JOIN public.until_expect u;
+INSERT INTO public.r (ok, what) SELECT count(*) > 0 AND bool_and(l.changed_by_name = 'nobody signed in (a server job or a database change)'),
+  'a change with nobody signed in is labelled as such, not as a system job (got ' || count(*) || ')'
+  FROM public.fn_hr_pay_destination_changes(now() - interval '1 day') l WHERE l.after->>'account_last4' = '4242';
+RESET ROLE;
+
+-- 24. The paying trust named on a salary register line. Meena's trust on
+--     file is the Dental Trust (probe 20); Arun and Kavya have none on file.
+DO $$ DECLARE v_run uuid := gen_random_uuid(); n0 int; n1 int; BEGIN
+  SELECT count(*) INTO n0 FROM public.hr_pay_destination_changes WHERE kind = 'register_payer';
+  INSERT INTO public.hr_salary_register_lines (run_id, staff_id, paid_by_organization_id)
+  VALUES (v_run, '5a000000-0000-4000-8000-000000000003', '0a000000-0000-4000-8000-000000000002'),
+         (v_run, '5a000000-0000-4000-8000-000000000005', NULL);
+  UPDATE public.hr_salary_register_lines SET remarks = 'checked' WHERE run_id = v_run;
+  SELECT count(*) INTO n1 FROM public.hr_pay_destination_changes WHERE kind = 'register_payer';
+  INSERT INTO public.r (ok, what) VALUES (n1 = n0, 'register trust: lines written with the trust on file or none, and a remarks edit, log nothing (got ' || (n1 - n0) || ')');
+  UPDATE public.hr_salary_register_lines SET paid_by_organization_id = '0a000000-0000-4000-8000-000000000001'
+   WHERE run_id = v_run AND staff_id = '5a000000-0000-4000-8000-000000000003';
+  INSERT INTO public.hr_salary_register_lines (run_id, staff_id, paid_by_organization_id)
+  VALUES (v_run, '5a000000-0000-4000-8000-000000000002', '0a000000-0000-4000-8000-000000000001');
+  -- Kavya's line moved to Priya, naming a trust: Priya has none on file.
+  UPDATE public.hr_salary_register_lines SET paid_by_organization_id = '0a000000-0000-4000-8000-000000000002'
+   WHERE run_id = v_run AND staff_id = '5a000000-0000-4000-8000-000000000005';
+  UPDATE public.hr_salary_register_lines SET staff_id = '5a000000-0000-4000-8000-000000000001'
+   WHERE run_id = v_run AND staff_id = '5a000000-0000-4000-8000-000000000005';
+END $$;
+INSERT INTO public.r (ok, what) SELECT count(*) = 1,
+  'register trust: an edit on a line is logged Dental Trust to Educational Trust (got ' || count(*) || ')'
+  FROM public.hr_pay_destination_changes WHERE kind = 'register_payer' AND staff_id = '5a000000-0000-4000-8000-000000000003'
+   AND before->>'organization_name' = 'JKKN Dental Trust' AND after->>'organization_name' = 'JKKN Educational Trust'
+   AND after ? 'register_run_id' AND NOT (after ? 'differs_from_file');
+INSERT INTO public.r (ok, what) SELECT count(*) = 1,
+  'register trust: a line written naming a trust that is not on file is logged, marked differs_from_file (got ' || count(*) || ')'
+  FROM public.hr_pay_destination_changes WHERE kind = 'register_payer' AND staff_id = '5a000000-0000-4000-8000-000000000002'
+   AND before IS NULL AND after->>'organization_name' = 'JKKN Educational Trust' AND (after->>'differs_from_file')::boolean;
+INSERT INTO public.r (ok, what) SELECT count(*) = 1,
+  'register trust: a line moved to another person, naming a trust not on file for them, is logged for that person (got ' || count(*) || ')'
+  FROM public.hr_pay_destination_changes WHERE kind = 'register_payer' AND staff_id = '5a000000-0000-4000-8000-000000000001'
+   AND after->>'organization_name' = 'JKKN Dental Trust' AND (after->>'differs_from_file')::boolean;
+-- A register entry is never mistaken for the trust on file: Meena's next
+-- payer change still starts from the Dental Trust on file.
+UPDATE public.hr_staff_payroll SET hr_organization_id = '0a000000-0000-4000-8000-000000000001'
+ WHERE staff_id = '5a000000-0000-4000-8000-000000000003';
+INSERT INTO public.r (ok, what) SELECT count(*) = 1,
+  'after a register entry, the next paying-trust change still starts from the trust on file (got ' || count(*) || ')'
+  FROM (SELECT * FROM public.hr_pay_destination_changes WHERE kind = 'payer' AND staff_id = '5a000000-0000-4000-8000-000000000003'
+         ORDER BY changed_at DESC LIMIT 1) l
+ WHERE l.before->>'organization_name' = 'JKKN Dental Trust' AND l.after->>'organization_name' = 'JKKN Educational Trust';
+
 SELECT CASE WHEN ok THEN 'PASS' ELSE 'FAIL' END || ' | ' || what FROM public.r ORDER BY n;
 SELECT 'RESULT: ' || count(*) FILTER (WHERE ok) || ' PASS / ' || count(*) FILTER (WHERE NOT ok) || ' FAIL' FROM public.r;

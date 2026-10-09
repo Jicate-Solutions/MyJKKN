@@ -7,7 +7,7 @@
 # (20260821240000), its 20261020000000 changes and the newest
 # fn_hr_set_staff_bank_account, and fn_is_the_director (20270520090000).
 # stubs.sql stands in for everything else. The migration is applied TWICE.
-# Then ten MUTATION CONTROLS: a rule removed from a copy of the migration,
+# Then MUTATION CONTROLS: a rule removed from a copy of the migration,
 # the database rebuilt, and the probe must print a FAIL.
 # Run: bash supabase/tests/hr-pay-destination/run.sh
 set -u
@@ -47,7 +47,7 @@ probe() { "$BIN/psql" -h 127.0.0.1 -p "$PORT" -U postgres -d rehearsal -X -q -tA
 echo "== the migration as written (applied twice)"
 build "$MIG"; out="$(probe)"; echo "$out" | grep -E 'PASS|FAIL|RESULT'; grep -E 'ERROR' "$WORK/probe.err" | head -5; stop
 # A check that errors out prints nothing, which would look like a pass: count them.
-EXPECT=31; got=$(echo "$out" | grep -cE '^(PASS|FAIL) ')
+EXPECT=50; got=$(echo "$out" | grep -cE '^(PASS|FAIL) ')
 [ "$got" -eq "$EXPECT" ] && echo "CHECK COUNT OK | $got of $EXPECT checks ran" || echo "CHECK COUNT WRONG | $got of $EXPECT checks ran"
 
 mutate() { # $1 = label, $2 = text to replace, $3 = replacement
@@ -75,3 +75,30 @@ mutate "a staff delete erases the history" "ON DELETE SET NULL," "ON DELETE CASC
 mutate "the list inner-joins staff" "    LEFT JOIN public.staff s ON s.id = c.staff_id" "    JOIN public.staff s ON s.id = c.staff_id"
 mutate "who the change was for is not kept" "IF NEW.staff_id IS NOT NULL THEN" "IF false THEN"
 mutate "the true count stops at the cap" "count(*) OVER ()" "least(count(*) OVER (), 2000)"
+mutate "a bank row can be moved to another person" "IF TG_OP = 'UPDATE' AND OLD.staff_id IS DISTINCT FROM NEW.staff_id THEN
+    RAISE" "IF false THEN
+    RAISE"
+mutate "a bank row can point at another person's" "IF NEW.superseded_by IS NOT NULL
+     AND EXISTS (SELECT 1 FROM public.hr_staff_bank_accounts n
+                  WHERE n.id = NEW.superseded_by AND n.staff_id IS DISTINCT FROM NEW.staff_id) THEN" "IF false THEN"
+mutate "another person's row can be written where a pointer waits" "IF EXISTS (SELECT 1 FROM public.hr_staff_bank_accounts o
+              WHERE o.superseded_by = NEW.id AND o.id <> NEW.id
+                AND o.staff_id IS DISTINCT FROM NEW.staff_id) THEN" "IF false THEN"
+mutate "a payer row can be moved to another person" "  IF OLD.staff_id IS DISTINCT FROM NEW.staff_id THEN
+    RAISE EXCEPTION 'A paying-trust" "  IF false THEN
+    RAISE EXCEPTION 'A paying-trust"
+mutate "a row written already retired leaves no removal" "IF TG_OP = 'INSERT'
+       AND EXISTS (SELECT 1 FROM public.hr_staff_bank_accounts o" "IF false
+       AND EXISTS (SELECT 1 FROM public.hr_staff_bank_accounts o"
+mutate "an edit of a register line's number is not logged" "  IF TG_OP = 'UPDATE' AND OLD.bank_account_number IS DISTINCT FROM NEW.bank_account_number THEN
+    v_before" "  IF false THEN
+    v_before"
+mutate "a register line not matching the account on file is not logged" "    IF v_file_number IS NOT DISTINCT FROM NEW.bank_account_number THEN" "    IF true THEN"
+mutate "a register entry counts as the account on file" "WHERE c.staff_id = NEW.staff_id AND c.kind = 'bank'" "WHERE c.staff_id = NEW.staff_id"
+mutate "the weekly bound is ignored" "     AND (p_until IS NULL OR c.changed_at < p_until)" "     AND true"
+mutate "an edit of a register line's trust is not logged" "  IF TG_OP = 'UPDATE' AND OLD.paid_by_organization_id IS DISTINCT FROM NEW.paid_by_organization_id THEN
+    IF OLD" "  IF false THEN
+    IF OLD"
+mutate "a register line naming a trust not on file is not logged" "    IF v_file_org IS NOT DISTINCT FROM NEW.paid_by_organization_id THEN" "    IF true THEN"
+mutate "every register line is logged, even with the trust on file" "    IF v_file_org IS NOT DISTINCT FROM NEW.paid_by_organization_id THEN" "    IF false THEN"
+mutate "a register line's trust is not watched at all" "  AFTER INSERT OR UPDATE OF paid_by_organization_id, staff_id ON public.hr_salary_register_lines" "  AFTER DELETE ON public.hr_salary_register_lines"

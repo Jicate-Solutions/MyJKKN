@@ -47,7 +47,7 @@ export function PayDestinationChanges() {
             <Landmark className='h-4 w-4' /> Where pay goes: changes
           </h2>
           <p className='text-xs text-muted-foreground'>
-            Every bank account and paying trust changed, and who changed it. Only you and Isvarya see this.
+            Every bank account and paying trust changed, and who changed it. Only the Director list sees this.
           </p>
         </div>
         <div className='flex gap-1' role='group' aria-label='How far back'>

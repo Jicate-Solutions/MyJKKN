@@ -12281,6 +12281,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS ux_hr_memos_triggered_by_event
 -- Source: 20270614090000_hr_pay_destination_changes.sql
 -- Updated: 2026-10-01 - Director ruling: every bank / paying-trust change goes on a weekly list to the Director list
 -- Updated: 2026-10-09 - History survives a staff delete (SET NULL + name snapshot); the list reports its true count past the 2,000 cap
+-- Updated: 2026-10-09 - Panel round 1: a bank or payer row cannot move to another person; the register's copies (account number, paying trust) are logged; the weekly list covers one fixed IST week (p_until)
 -- ----------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS public.hr_pay_destination_changes (
   id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -12293,13 +12294,20 @@ CREATE TABLE IF NOT EXISTS public.hr_pay_destination_changes (
   staff_name  text,
   staff_code  text,
   college     text,
-  kind        text NOT NULL CHECK (kind IN ('bank', 'payer')),
-  -- auth.uid() of whoever made the change; NULL = a system job (service role).
+  -- bank: the account on file. payer: the paying trust. register_bank and
+  -- register_payer: the account number and the paying trust on one salary
+  -- register line (their own kinds, so they never count as what is on file
+  -- when the next bank or payer change looks back).
+  kind        text NOT NULL CHECK (kind IN ('bank', 'payer', 'register_bank', 'register_payer')),
+  -- auth.uid() of whoever made the change. NULL = nobody was signed in: a
+  -- server job or a change made straight in the database. The list says so.
   changed_by  uuid,
   -- clock_timestamp(), not now(): two changes in one transaction keep their order.
   changed_at  timestamptz NOT NULL DEFAULT clock_timestamp(),
   -- bank:  { holder, account_last4, ifsc, bank }   (never the full number)
   -- payer: { organization_id, organization_name }
+  -- register_bank:  { account_last4, register_run_id, differs_from_file }
+  -- register_payer: { organization_id, organization_name, register_run_id, differs_from_file }
   -- NULL before = first time recorded; NULL after = removed.
   before      jsonb,
   after       jsonb,

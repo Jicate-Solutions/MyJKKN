@@ -84766,6 +84766,7 @@ GRANT  EXECUTE ON FUNCTION public.fn_hr_playbook_decide(uuid, text, text, text) 
 -- Source: 20270614090000_hr_pay_destination_changes.sql
 -- Updated: 2026-10-01 - Director ruling: every bank / paying-trust change goes on a weekly list to the Director list
 -- Updated: 2026-10-09 - History survives a staff delete (SET NULL + name snapshot); the list reports its true count past the 2,000 cap
+-- Updated: 2026-10-09 - Panel round 1: a bank or payer row cannot move to another person; the register's copies (account number, paying trust) are logged; the weekly list covers one fixed IST week (p_until)
 -- ----------------------------------------------------------------------------
 -- Filled on every insert from the staff record, so a later staff delete
 -- (staff_id goes NULL) still leaves a name, code and college on the list.
@@ -84790,6 +84791,9 @@ $$;
 
 REVOKE EXECUTE ON FUNCTION public.fn_hr_pay_destination_snapshot() FROM anon, PUBLIC, authenticated;
 
+-- ----------------------------------------------------------------------------
+-- 2. What one bank row looks like in the log (never the full number)
+-- ----------------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION public.fn_hr_bank_destination_json(
   p_holder text, p_account text, p_ifsc text, p_bank text
 )
@@ -84809,6 +84813,76 @@ $$;
 REVOKE EXECUTE ON FUNCTION public.fn_hr_bank_destination_json(text, text, text, text) FROM anon, PUBLIC;
 GRANT  EXECUTE ON FUNCTION public.fn_hr_bank_destination_json(text, text, text, text) TO authenticated, service_role;
 
+-- ----------------------------------------------------------------------------
+-- 2b. Guards: a row belongs to one person
+-- ----------------------------------------------------------------------------
+-- The log is written per person. Two direct writes would move pay between
+-- people in a way no per-person entry describes, so they are refused:
+--   * changing staff_id on a bank row or a payer row (the account, or the
+--     trust, silently becomes someone else's);
+--   * pointing one person's bank row at another person's (superseded_by),
+--     in either order: the pointer first and the row later, or the reverse.
+-- No screen or function does either: the save function and the payer upserts
+-- always keep staff_id, and the save function only ever points a person's old
+-- row at their own new one. SECURITY DEFINER so the check sees every row,
+-- not only the colleges the writer's own access shows.
+CREATE OR REPLACE FUNCTION public.fn_hr_bank_account_owner_guard()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+  IF TG_OP = 'UPDATE' AND OLD.staff_id IS DISTINCT FROM NEW.staff_id THEN
+    RAISE EXCEPTION 'A bank account belongs to one person. Record a new account for the other person instead of moving this one.'
+      USING ERRCODE = '23514';
+  END IF;
+  IF NEW.superseded_by IS NOT NULL
+     AND EXISTS (SELECT 1 FROM public.hr_staff_bank_accounts n
+                  WHERE n.id = NEW.superseded_by AND n.staff_id IS DISTINCT FROM NEW.staff_id) THEN
+    RAISE EXCEPTION 'A bank account can only be replaced by another account of the same person.'
+      USING ERRCODE = '23514';
+  END IF;
+  IF EXISTS (SELECT 1 FROM public.hr_staff_bank_accounts o
+              WHERE o.superseded_by = NEW.id AND o.id <> NEW.id
+                AND o.staff_id IS DISTINCT FROM NEW.staff_id) THEN
+    RAISE EXCEPTION 'A bank account can only be replaced by another account of the same person.'
+      USING ERRCODE = '23514';
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+REVOKE EXECUTE ON FUNCTION public.fn_hr_bank_account_owner_guard() FROM anon, PUBLIC, authenticated;
+
+CREATE OR REPLACE FUNCTION public.fn_hr_staff_payroll_owner_guard()
+RETURNS trigger
+LANGUAGE plpgsql
+SET search_path = public
+AS $$
+BEGIN
+  IF OLD.staff_id IS DISTINCT FROM NEW.staff_id THEN
+    RAISE EXCEPTION 'A paying-trust record belongs to one person. Record the trust for the other person instead of moving this one.'
+      USING ERRCODE = '23514';
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+REVOKE EXECUTE ON FUNCTION public.fn_hr_staff_payroll_owner_guard() FROM anon, PUBLIC, authenticated;
+
+-- ----------------------------------------------------------------------------
+-- 3. Trigger: bank accounts
+-- ----------------------------------------------------------------------------
+-- Every way the account in use can change is logged, because the table's
+-- write policy lets a bank.manage holder write it directly, not only through
+-- fn_hr_set_staff_bank_account():
+--   * a new row becomes the account in use (the save function, or a direct
+--     insert), or an old row is put back in use;
+--   * the account in use is edited in place (number, IFSC, holder or bank);
+--   * the account in use is deleted, or superseded with nothing in its place.
+-- Verifying it, touching its notes, or editing an old superseded row is NOT a
+-- change of destination and is ignored.
 CREATE OR REPLACE FUNCTION public.fn_hr_log_bank_destination_change()
 RETURNS trigger
 LANGUAGE plpgsql
@@ -84847,6 +84921,27 @@ BEGIN
       VALUES (NEW.staff_id, 'bank', auth.uid(),
               public.fn_hr_bank_destination_json(OLD.account_holder_name, OLD.account_number, OLD.ifsc_code, OLD.bank_name),
               NULL);
+    END IF;
+    -- The same thing in the other order: the account in use was pointed at
+    -- an id that did not exist yet (the update above could not see it), and
+    -- that id is now inserted already retired. The person is left with
+    -- nothing in use. Logged once: not when the log already says removed.
+    IF TG_OP = 'INSERT'
+       AND EXISTS (SELECT 1 FROM public.hr_staff_bank_accounts o
+                    WHERE o.superseded_by = NEW.id AND o.id <> NEW.id)
+       AND NOT EXISTS (SELECT 1 FROM public.hr_staff_bank_accounts c
+                        WHERE c.staff_id = NEW.staff_id AND c.superseded_by IS NULL)
+       AND COALESCE((SELECT l.after IS NOT NULL FROM public.hr_pay_destination_changes l
+                      WHERE l.staff_id = NEW.staff_id AND l.kind = 'bank'
+                      ORDER BY l.changed_at DESC LIMIT 1), true) THEN
+      SELECT public.fn_hr_bank_destination_json(o.account_holder_name, o.account_number, o.ifsc_code, o.bank_name)
+        INTO v_before
+        FROM public.hr_staff_bank_accounts o
+       WHERE o.superseded_by = NEW.id AND o.id <> NEW.id
+       ORDER BY o.updated_at DESC
+       LIMIT 1;
+      INSERT INTO public.hr_pay_destination_changes (staff_id, kind, changed_by, before, after)
+      VALUES (NEW.staff_id, 'bank', auth.uid(), v_before, NULL);
     END IF;
     RETURN NEW;
   END IF;
@@ -84897,6 +84992,11 @@ $$;
 
 REVOKE EXECUTE ON FUNCTION public.fn_hr_log_bank_destination_change() FROM anon, PUBLIC, authenticated;
 
+-- ----------------------------------------------------------------------------
+-- 4. Trigger: paying trust
+-- ----------------------------------------------------------------------------
+-- hr_staff_payroll holds one row per person and is upserted over, so the old
+-- trust survives only in OLD here. Removing the payer (DELETE) is logged too.
 CREATE OR REPLACE FUNCTION public.fn_hr_log_payer_destination_change()
 RETURNS trigger
 LANGUAGE plpgsql
@@ -84937,7 +85037,140 @@ $$;
 
 REVOKE EXECUTE ON FUNCTION public.fn_hr_log_payer_destination_change() FROM anon, PUBLIC, authenticated;
 
-CREATE OR REPLACE FUNCTION public.fn_hr_pay_destination_changes(p_since timestamptz)
+-- ----------------------------------------------------------------------------
+-- 4b. Trigger: the account number printed on a salary register
+-- ----------------------------------------------------------------------------
+-- Register generation copies each person's account in use onto their line,
+-- and the Bank Letter and bank statement print that copy. A register.manage
+-- holder can update a line directly, so the copy is a second place where
+-- pay can be sent elsewhere without touching the account on file. Logged:
+--   * an edit of the number on a line (before and after, both masked);
+--   * a line written, or moved to another person, with a number that is not
+--     that person's account on file.
+-- A line written with the account on file (normal generation), or with no
+-- number, is not a change. Other edits (adjustments, remarks, hand-entered
+-- days) do not touch this column and do not fire.
+CREATE OR REPLACE FUNCTION public.fn_hr_log_register_bank_change()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_file_number text;
+  v_file        jsonb;
+  v_before      jsonb;
+  v_after       jsonb;
+BEGIN
+  IF TG_OP = 'UPDATE'
+     AND OLD.bank_account_number IS NOT DISTINCT FROM NEW.bank_account_number
+     AND OLD.staff_id IS NOT DISTINCT FROM NEW.staff_id THEN
+    RETURN NEW;
+  END IF;
+
+  IF TG_OP = 'UPDATE' AND OLD.bank_account_number IS DISTINCT FROM NEW.bank_account_number THEN
+    v_before := CASE WHEN OLD.bank_account_number IS NULL THEN NULL ELSE
+      public.fn_hr_bank_destination_json(NULL, OLD.bank_account_number, NULL, NULL)
+        || jsonb_build_object('register_run_id', OLD.run_id) END;
+    v_after := CASE WHEN NEW.bank_account_number IS NULL THEN NULL ELSE
+      public.fn_hr_bank_destination_json(NULL, NEW.bank_account_number, NULL, NULL)
+        || jsonb_build_object('register_run_id', NEW.run_id) END;
+  ELSE
+    -- A new line, or a line moved to another person with its number.
+    IF NEW.bank_account_number IS NULL THEN
+      RETURN NEW;
+    END IF;
+    SELECT b.account_number,
+           public.fn_hr_bank_destination_json(b.account_holder_name, b.account_number, b.ifsc_code, b.bank_name)
+      INTO v_file_number, v_file
+      FROM public.hr_staff_bank_accounts b
+     WHERE b.staff_id = NEW.staff_id AND b.superseded_by IS NULL;
+    IF v_file_number IS NOT DISTINCT FROM NEW.bank_account_number THEN
+      RETURN NEW;
+    END IF;
+    v_before := v_file;
+    v_after := public.fn_hr_bank_destination_json(NULL, NEW.bank_account_number, NULL, NULL)
+      || jsonb_build_object('register_run_id', NEW.run_id, 'differs_from_file', true);
+  END IF;
+
+  INSERT INTO public.hr_pay_destination_changes (staff_id, kind, changed_by, before, after)
+  VALUES (NEW.staff_id, 'register_bank', auth.uid(), v_before, v_after);
+  RETURN NEW;
+END;
+$$;
+
+REVOKE EXECUTE ON FUNCTION public.fn_hr_log_register_bank_change() FROM anon, PUBLIC, authenticated;
+
+-- The paying trust on a register line (paid_by_organization_id), the same
+-- way: an edit of it is logged, and so is a line written, or moved to another
+-- person, naming a trust that is not that person's paying trust on file
+-- (hr_staff_payroll). A line written with the trust on file, or with no
+-- trust, is not a change.
+CREATE OR REPLACE FUNCTION public.fn_hr_log_register_payer_change()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_file_org uuid;
+  v_before   jsonb;
+  v_after    jsonb;
+BEGIN
+  IF TG_OP = 'UPDATE'
+     AND OLD.paid_by_organization_id IS NOT DISTINCT FROM NEW.paid_by_organization_id
+     AND OLD.staff_id IS NOT DISTINCT FROM NEW.staff_id THEN
+    RETURN NEW;
+  END IF;
+
+  IF TG_OP = 'UPDATE' AND OLD.paid_by_organization_id IS DISTINCT FROM NEW.paid_by_organization_id THEN
+    IF OLD.paid_by_organization_id IS NOT NULL THEN
+      SELECT jsonb_build_object('organization_id', OLD.paid_by_organization_id, 'organization_name', o.name,
+                                'register_run_id', OLD.run_id)
+        INTO v_before FROM (SELECT 1) x LEFT JOIN public.hr_organizations o ON o.id = OLD.paid_by_organization_id;
+    END IF;
+    IF NEW.paid_by_organization_id IS NOT NULL THEN
+      SELECT jsonb_build_object('organization_id', NEW.paid_by_organization_id, 'organization_name', o.name,
+                                'register_run_id', NEW.run_id)
+        INTO v_after FROM (SELECT 1) x LEFT JOIN public.hr_organizations o ON o.id = NEW.paid_by_organization_id;
+    END IF;
+  ELSE
+    -- A new line, or a line moved to another person with its trust. A line
+    -- naming no trust is a gap the register already reports, not a change
+    -- (and is what a generator who cannot read payers would write for all).
+    IF NEW.paid_by_organization_id IS NULL THEN
+      RETURN NEW;
+    END IF;
+    SELECT p.hr_organization_id INTO v_file_org
+      FROM public.hr_staff_payroll p WHERE p.staff_id = NEW.staff_id;
+    IF v_file_org IS NOT DISTINCT FROM NEW.paid_by_organization_id THEN
+      RETURN NEW;
+    END IF;
+    IF v_file_org IS NOT NULL THEN
+      SELECT jsonb_build_object('organization_id', v_file_org, 'organization_name', o.name)
+        INTO v_before FROM (SELECT 1) x LEFT JOIN public.hr_organizations o ON o.id = v_file_org;
+    END IF;
+    SELECT jsonb_build_object('organization_id', NEW.paid_by_organization_id, 'organization_name', o.name,
+                              'register_run_id', NEW.run_id, 'differs_from_file', true)
+      INTO v_after FROM (SELECT 1) x LEFT JOIN public.hr_organizations o ON o.id = NEW.paid_by_organization_id;
+  END IF;
+
+  INSERT INTO public.hr_pay_destination_changes (staff_id, kind, changed_by, before, after)
+  VALUES (NEW.staff_id, 'register_payer', auth.uid(), v_before, v_after);
+  RETURN NEW;
+END;
+$$;
+
+REVOKE EXECUTE ON FUNCTION public.fn_hr_log_register_payer_change() FROM anon, PUBLIC, authenticated;
+
+-- ----------------------------------------------------------------------------
+-- 5. The list, with names, for the Director list and the weekly job
+-- ----------------------------------------------------------------------------
+-- p_until bounds the weekly notice to one fixed IST week (Monday 00:00 to
+-- the next Monday 00:00), so a late or retried run neither skips nor repeats
+-- changes. NULL = up to now (the panel).
+DROP FUNCTION IF EXISTS public.fn_hr_pay_destination_changes(timestamptz);
+CREATE OR REPLACE FUNCTION public.fn_hr_pay_destination_changes(p_since timestamptz, p_until timestamptz DEFAULT NULL)
 RETURNS TABLE (
   change_id       uuid,
   staff_id        uuid,
@@ -84976,7 +85209,7 @@ BEGIN
          c.kind,
          c.before,
          c.after,
-         CASE WHEN c.changed_by IS NULL THEN 'a system job'
+         CASE WHEN c.changed_by IS NULL THEN 'nobody signed in (a server job or a database change)'
               ELSE COALESCE(NULLIF(trim(p.full_name), ''), p.email, 'unknown account') END,
          c.changed_at,
          count(*) OVER ()
@@ -84985,13 +85218,14 @@ BEGIN
     LEFT JOIN public.institutions i ON i.id = s.institution_id
     LEFT JOIN public.profiles p ON p.id = c.changed_by
    WHERE c.changed_at >= COALESCE(p_since, now() - interval '7 days')
+     AND (p_until IS NULL OR c.changed_at < p_until)
    ORDER BY c.changed_at DESC
    LIMIT 2000;
 END;
 $$;
 
-REVOKE EXECUTE ON FUNCTION public.fn_hr_pay_destination_changes(timestamptz) FROM anon, PUBLIC;
-GRANT  EXECUTE ON FUNCTION public.fn_hr_pay_destination_changes(timestamptz) TO authenticated, service_role;
+REVOKE EXECUTE ON FUNCTION public.fn_hr_pay_destination_changes(timestamptz, timestamptz) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_hr_pay_destination_changes(timestamptz, timestamptz) TO authenticated, service_role;
 
-COMMENT ON FUNCTION public.fn_hr_pay_destination_changes(timestamptz) IS
-  'Bank-account and paying-trust changes since p_since (default 7 days), newest first, with the person, their college and who made the change; at most 2,000 rows, total_count gives the true number. Director list or service_role only. Migration 20270614090000.';
+COMMENT ON FUNCTION public.fn_hr_pay_destination_changes(timestamptz, timestamptz) IS
+  'Bank-account and paying-trust changes, on file or on a salary register line, from p_since (default 7 days ago) up to p_until (default now), newest first, with the person, their college and who made the change; at most 2,000 rows, total_count gives the true number. Director list or service_role only. Migration 20270614090000.';

@@ -18,7 +18,11 @@ export interface PayDestinationChange {
   staff_name: string | null;
   staff_code: string | null;
   college: string | null;
-  kind: 'bank' | 'payer';
+  /**
+   * register_bank / register_payer: the account number or the paying trust on
+   * one salary register line, edited there or not the one on file.
+   */
+  kind: 'bank' | 'payer' | 'register_bank' | 'register_payer';
   before: Record<string, unknown> | null;
   after: Record<string, unknown> | null;
   changed_by_name: string;
@@ -54,6 +58,24 @@ export function personLabel(c: Pick<PayDestinationChange, 'staff_name' | 'staff_
 
 /** "Bank: account ending 1234 at SBI → account ending 5678 at HDFC". */
 export function describeChange(c: Pick<PayDestinationChange, 'kind' | 'before' | 'after'>): string {
+  if (c.kind === 'register_bank') {
+    if (c.after?.differs_from_file === true) {
+      const onFile = c.before ? `the account on file is ${describeBank(c.before)}` : 'no account is on file';
+      return `A salary register pays ${describeBank(c.after)}, but ${onFile}`;
+    }
+    if (!c.before) return `Bank account on a salary register set to ${describeBank(c.after)}`;
+    if (!c.after) return `Bank account on a salary register cleared: was ${describeBank(c.before)}`;
+    return `Bank account on a salary register changed from ${describeBank(c.before)} to ${describeBank(c.after)}`;
+  }
+  if (c.kind === 'register_payer') {
+    if (c.after?.differs_from_file === true) {
+      const onFile = c.before ? `the paying trust on file is ${describePayer(c.before)}` : 'no paying trust is on file';
+      return `A salary register names ${describePayer(c.after)} as the paying trust, but ${onFile}`;
+    }
+    if (!c.before) return `Paying trust on a salary register set to ${describePayer(c.after)}`;
+    if (!c.after) return `Paying trust on a salary register cleared: was ${describePayer(c.before)}`;
+    return `Paying trust on a salary register changed from ${describePayer(c.before)} to ${describePayer(c.after)}`;
+  }
   if (c.kind === 'bank') {
     if (!c.before) return `Bank account recorded: ${describeBank(c.after)}`;
     if (!c.after) return `Bank account removed: was ${describeBank(c.before)}`;
@@ -76,7 +98,7 @@ export function totalChanges(changes: Pick<PayDestinationChange, 'total_count'>[
 /** The Monday notice's body: up to `max` one-line entries, then how many more. */
 export function weeklyNoticeBody(changes: PayDestinationChange[], max = 6, total = totalChanges(changes)): string {
   if (total === 0) {
-    return 'No bank account or paying trust was changed in the last 7 days.';
+    return 'No bank account or paying trust was changed last week.';
   }
   const shown = changes.slice(0, max);
   const lines = shown.map((c) => `${personLabel(c)}: ${describeChange(c)}, by ${c.changed_by_name}.`);
@@ -87,8 +109,8 @@ export function weeklyNoticeBody(changes: PayDestinationChange[], max = 6, total
 
 /** The Monday notice's headline. */
 export function weeklyNoticeTitle(count: number): string {
-  if (count === 0) return 'Bank and paying-trust changes this week: none';
-  return `Bank and paying-trust changes this week: ${count}`;
+  if (count === 0) return 'Bank and paying-trust changes last week: none';
+  return `Bank and paying-trust changes last week: ${count}`;
 }
 
 /** Monday (YYYY-MM-DD) of the IST week containing `now`: the edition's identity. */
@@ -97,4 +119,17 @@ export function istWeekStart(now = Date.now()): string {
   const daysSinceMonday = (ist.getUTCDay() + 6) % 7;
   ist.setUTCDate(ist.getUTCDate() - daysSinceMonday);
   return ist.toISOString().slice(0, 10);
+}
+
+/**
+ * The week a Monday notice covers: the previous IST Monday 00:00 up to this
+ * IST Monday 00:00 (exclusive). Fixed to the calendar, not to when the run
+ * fires, so a late or retried run neither skips nor repeats a change.
+ */
+export function istWeekBounds(now = Date.now()): { since: string; until: string } {
+  const until = Date.parse(`${istWeekStart(now)}T00:00:00+05:30`);
+  return {
+    since: new Date(until - 7 * 86_400_000).toISOString(),
+    until: new Date(until).toISOString(),
+  };
 }
