@@ -13,7 +13,8 @@
 
 export interface PayDestinationChange {
   change_id: string;
-  staff_id: string;
+  /** NULL once the staff record was deleted; the name fields then come from the snapshot kept on the log row. */
+  staff_id: string | null;
   staff_name: string | null;
   staff_code: string | null;
   college: string | null;
@@ -22,6 +23,8 @@ export interface PayDestinationChange {
   after: Record<string, unknown> | null;
   changed_by_name: string;
   changed_at: string;
+  /** Every matching change, before the database's 2,000-row cap. Same on every row. */
+  total_count: number;
 }
 
 const str = (v: unknown): string | null => (typeof v === 'string' && v.trim() !== '' ? v.trim() : null);
@@ -61,15 +64,24 @@ export function describeChange(c: Pick<PayDestinationChange, 'kind' | 'before' |
   return `Paying trust changed from ${describePayer(c.before)} to ${describePayer(c.after)}`;
 }
 
-/** The Monday notice's body: a count, then up to `max` one-line entries. */
-export function weeklyNoticeBody(changes: PayDestinationChange[], max = 6): string {
-  if (changes.length === 0) {
+/**
+ * The true number of changes. The list stops at 2,000 rows, so the number of
+ * rows returned can be smaller; every row carries the real total.
+ */
+export function totalChanges(changes: Pick<PayDestinationChange, 'total_count'>[]): number {
+  const total = Number(changes[0]?.total_count);
+  return Number.isFinite(total) && total >= changes.length ? total : changes.length;
+}
+
+/** The Monday notice's body: up to `max` one-line entries, then how many more. */
+export function weeklyNoticeBody(changes: PayDestinationChange[], max = 6, total = totalChanges(changes)): string {
+  if (total === 0) {
     return 'No bank account or paying trust was changed in the last 7 days.';
   }
-  const lines = changes
-    .slice(0, max)
-    .map((c) => `${personLabel(c)}: ${describeChange(c)}, by ${c.changed_by_name}.`);
-  const more = changes.length > max ? ` And ${changes.length - max} more on the salaries page.` : '';
+  const shown = changes.slice(0, max);
+  const lines = shown.map((c) => `${personLabel(c)}: ${describeChange(c)}, by ${c.changed_by_name}.`);
+  const rest = total - shown.length;
+  const more = rest > 0 ? ` And ${rest} more on the salaries page.` : '';
   return `${lines.join(' ')}${more}`;
 }
 

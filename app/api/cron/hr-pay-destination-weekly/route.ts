@@ -30,6 +30,7 @@ import { fanoutNotification } from '@/lib/services/_shared/notifications/notify'
 import {
   type PayDestinationChange,
   istWeekStart,
+  totalChanges,
   weeklyNoticeBody,
   weeklyNoticeTitle,
 } from '@/lib/hr/payroll/pay-destination-changes';
@@ -76,20 +77,22 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ ok: false, error: `change list failed: ${error.message}`, sent: 0 }, { status: 500 });
   }
   const changes = (data ?? []) as PayDestinationChange[];
+  // The list stops at 2,000 rows; the notice states the true count.
+  const total = totalChanges(changes);
 
   const weekStart = istWeekStart();
   const outcome = await fanoutNotification(admin, {
-    title: weeklyNoticeTitle(changes.length),
-    body: weeklyNoticeBody(changes),
+    title: weeklyNoticeTitle(total),
+    body: weeklyNoticeBody(changes, 6, total),
     userIds: ids,
     createdBy: ids[0],
     category: 'hr',
     kind: 'work_item',
-    priority: changes.length > 0 ? 'high' : 'normal',
+    priority: total > 0 ? 'high' : 'normal',
     idempotencyKey: `hr-pay-destination-weekly:${weekStart}`,
     url: '/hr/payroll/salaries#pay-destination-changes',
     source: 'hr-pay-destination-weekly',
-    metadata: { weekStart, count: changes.length },
+    metadata: { weekStart, count: total },
     // Weekly edition: expires just past the next Monday so editions never stack.
     extraColumns: { expires_at: new Date(Date.now() + 8 * 86_400_000).toISOString() },
   });
@@ -97,7 +100,8 @@ export async function GET(request: NextRequest) {
   return NextResponse.json({
     ok: true,
     weekStart,
-    count: changes.length,
+    count: total,
+    listed: changes.length,
     sent: outcome.notified,
     skipped: outcome.skipped ? 1 : 0,
   });

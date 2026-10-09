@@ -10,7 +10,7 @@ import { useState } from 'react';
 import { Landmark, Loader2 } from 'lucide-react';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
-import { describeChange, personLabel } from '@/lib/hr/payroll/pay-destination-changes';
+import { describeChange, personLabel, totalChanges } from '@/lib/hr/payroll/pay-destination-changes';
 import { useIsTheDirector, usePayDestinationChanges } from '@/hooks/hr/payroll/use-pay-destination-changes';
 
 const RANGES = [7, 30, 90] as const;
@@ -35,6 +35,9 @@ export function PayDestinationChanges() {
   const list = usePayDestinationChanges(days, director.data === true);
 
   if (director.data !== true) return null;
+
+  const rows = list.data ?? [];
+  const total = totalChanges(rows);
 
   return (
     <section id='pay-destination-changes' className='mb-6 rounded-xl border border-border bg-card p-4' data-testid='pay-destination-changes'>
@@ -69,19 +72,26 @@ export function PayDestinationChanges() {
             </Button>
           </AlertDescription>
         </Alert>
-      ) : (list.data ?? []).length === 0 ? (
+      ) : rows.length === 0 ? (
         <p className='text-sm text-muted-foreground'>No bank account or paying trust was changed in the last {days} days.</p>
       ) : (
-        <ul className='divide-y divide-border text-sm'>
-          {(list.data ?? []).map((c) => (
-            <li key={c.change_id} className='py-2' data-testid='pay-destination-change'>
-              <p className='font-medium text-foreground'>{personLabel(c)}</p>
-              <p className='text-muted-foreground'>
-                {describeChange(c)}. By {c.changed_by_name}, {when(c.changed_at)}.
-              </p>
-            </li>
-          ))}
-        </ul>
+        <>
+          {total > rows.length && (
+            <p className='mb-2 text-sm font-medium text-foreground' data-testid='pay-destination-cap'>
+              Showing the newest {rows.length.toLocaleString('en-IN')} of {total.toLocaleString('en-IN')} changes in the last {days} days.
+            </p>
+          )}
+          <ul className='divide-y divide-border text-sm'>
+            {rows.map((c) => (
+              <li key={c.change_id} className='py-2' data-testid='pay-destination-change'>
+                <p className='font-medium text-foreground'>{personLabel(c)}</p>
+                <p className='text-muted-foreground'>
+                  {describeChange(c)}. By {c.changed_by_name}, {when(c.changed_at)}.
+                </p>
+              </li>
+            ))}
+          </ul>
+        </>
       )}
     </section>
   );

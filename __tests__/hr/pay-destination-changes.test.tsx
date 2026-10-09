@@ -15,6 +15,7 @@ import {
   describeChange,
   istWeekStart,
   personLabel,
+  totalChanges,
   weeklyNoticeBody,
   weeklyNoticeTitle,
   type PayDestinationChange,
@@ -25,7 +26,7 @@ const bankChange: PayDestinationChange = {
   kind: 'bank',
   before: { holder: 'PRIYA R', account_last4: '9012', ifsc: 'SBIN0001234', bank: 'SBI' },
   after: { holder: 'PRIYA R', account_last4: '7777', ifsc: 'HDFC0000123', bank: 'HDFC' },
-  changed_by_name: 'HR Head', changed_at: '2026-10-01T05:00:00Z',
+  changed_by_name: 'HR Head', changed_at: '2026-10-01T05:00:00Z', total_count: 2,
 };
 const payerChange: PayDestinationChange = {
   ...bankChange, change_id: 'c2', staff_name: 'Arun K', staff_code: 'DCH062', kind: 'payer',
@@ -58,6 +59,17 @@ describe('the words', () => {
     expect(body).toContain('Priya R (DCH061), JKKN Dental College: Bank account changed from account ending 9012 at SBI to account ending 7777 at HDFC, by HR Head.');
     expect(body).toContain('And 2 more on the salaries page.');
     expect(weeklyNoticeTitle(8)).toBe('Bank and paying-trust changes this week: 8');
+  });
+  it('a person whose record was deleted is still named, from the kept snapshot', () => {
+    expect(personLabel({ ...bankChange, staff_id: null })).toBe('Priya R (DCH061), JKKN Dental College');
+  });
+  it('past the 2,000-row cap the notice states the true count, never the rows it got', () => {
+    const capped = Array.from({ length: 8 }, (_, i) => ({ ...bankChange, change_id: `c${i}`, total_count: 2345 }));
+    expect(totalChanges(capped)).toBe(2345);
+    expect(weeklyNoticeBody(capped)).toContain('And 2339 more on the salaries page.');
+    expect(totalChanges([])).toBe(0);
+    // A missing or smaller total never under-counts the rows actually returned.
+    expect(totalChanges([{ total_count: undefined as unknown as number }, { total_count: 0 }])).toBe(2);
   });
   it('the week is the IST week, so a Sunday-night run and a Monday run are different editions', () => {
     expect(istWeekStart(Date.parse('2026-10-05T03:00:00Z'))).toBe('2026-10-05'); // Monday 08:30 IST
@@ -129,6 +141,17 @@ describe('the Monday route', () => {
     expect(before - since).toBeLessThan(7 * 86_400_000 + 5000);
   });
 
+  it('past the cap, the notice and the run report the true count', async () => {
+    db.rpcRows = [{ ...bankChange, total_count: 2345 }, { ...payerChange, total_count: 2345 }];
+    const res = await call('Bearer cron-secret');
+    const json = await res.json();
+    expect(fan.calls[0].title).toBe('Bank and paying-trust changes this week: 2345');
+    expect(String(fan.calls[0].body)).toContain('And 2343 more on the salaries page.');
+    expect((fan.calls[0].metadata as { count: number }).count).toBe(2345);
+    expect(json.count).toBe(2345);
+    expect(json.listed).toBe(2);
+  });
+
   it('a quiet week still sends, at normal priority', async () => {
     db.rpcRows = [];
     await call('Bearer cron-secret');
@@ -182,6 +205,19 @@ describe('the panel', () => {
     expect(screen.getByText(/Bank account changed from account ending 9012 at SBI to account ending 7777 at HDFC\. By HR Head/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Last 30 days' }));
     expect(hooks.days.at(-1)).toBe(30);
+  });
+
+  it('past the cap, says plainly how many are not shown', () => {
+    hooks.isDirector = true;
+    hooks.rows = [{ ...bankChange, total_count: 2345 }, { ...payerChange, total_count: 2345 }];
+    render(<PayDestinationChanges />);
+    expect(screen.getByTestId('pay-destination-cap')).toHaveTextContent('Showing the newest 2 of 2,345 changes in the last 7 days.');
+  });
+
+  it('under the cap, no count line', () => {
+    hooks.isDirector = true;
+    render(<PayDestinationChanges />);
+    expect(screen.queryByTestId('pay-destination-cap')).not.toBeInTheDocument();
   });
 
   it('says plainly when nothing changed', () => {
