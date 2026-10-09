@@ -48,7 +48,7 @@ import { ScholarshipTypeDialog } from '../_components/scholarship-type-dialog';
  * `scripts/assert-nav-coverage.mjs`.
  */
 export const navMeta = {
-  invokedFrom: '/billing/discounts'
+  invokedFrom: '/billing/scholarships'
 } as const;
 
 type PendingDelete =
@@ -135,14 +135,14 @@ export default function ScholarshipSetupPage() {
         items={[
           { label: 'Home', href: '/' },
           { label: 'Billing', href: '/billing' },
-          { label: 'Scholarships', href: '/billing/discounts' },
-          { label: 'Categories & Types', href: '/billing/discounts/setup' }
+          { label: 'Scholarships', href: '/billing/scholarships' },
+          { label: 'Categories & Types', href: '/billing/scholarships/setup' }
         ]}
       />
 
       <div className='space-y-6 mt-4'>
         <div className='flex items-center gap-4'>
-          <Button variant='outline' size='sm' onClick={() => router.push('/billing/discounts')}>
+          <Button variant='outline' size='sm' onClick={() => router.push('/billing/scholarships')}>
             <ArrowLeft className='h-4 w-4' />
           </Button>
           <div>

@@ -1050,16 +1050,16 @@ CREATE UNIQUE INDEX IF NOT EXISTS billing_scholarship_types_category_code_uq
 CREATE UNIQUE INDEX IF NOT EXISTS billing_scholarship_types_category_name_uq
     ON public.billing_scholarship_types (category_id, lower(name));
 
--- Billing Discounts
-CREATE TABLE IF NOT EXISTS public.billing_discounts (
+-- Billing Scholarships (renamed from billing_discounts, 20271009130000)
+CREATE TABLE IF NOT EXISTS public.billing_scholarships (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     bill_id UUID NOT NULL,
     scholarship_category_id UUID NOT NULL,
     scholarship_type_id UUID NOT NULL,
-    discount_type VARCHAR(20) NOT NULL,
-    discount_value NUMERIC(15,2) NOT NULL,
-    discount_amount NUMERIC(15,2) NOT NULL,
-    discount_reason TEXT NOT NULL,
+    value_mode VARCHAR(20) NOT NULL,
+    scholarship_value NUMERIC(15,2) NOT NULL,
+    scholarship_amount NUMERIC(15,2) NOT NULL,
+    scholarship_reason TEXT NOT NULL,
     supporting_documents JSONB,
     authorizer_id UUID,
     approval_date DATE,

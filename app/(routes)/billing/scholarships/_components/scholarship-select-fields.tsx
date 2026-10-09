@@ -115,7 +115,7 @@ export function ScholarshipSelectFields({
             This category has no active types.{' '}
             {canManageSetup && (
               <Link
-                href='/billing/discounts/setup'
+                href='/billing/scholarships/setup'
                 className='underline underline-offset-2'
               >
                 Add one

@@ -13,20 +13,20 @@ import {
 } from '@/components/ui/select';
 import { useScholarshipSetup } from '@/hooks/billing/use-scholarship-setup';
 import type {
-  DiscountFilters,
-  DiscountType,
+  ScholarshipFilters,
+  ScholarshipValueMode,
   ApprovalStatus
 } from '@/types/billing-schedule';
 
-interface DiscountFiltersProps {
-  filters: DiscountFilters;
-  onFilterChange: (filters: Partial<DiscountFilters>) => void;
+interface ScholarshipFiltersProps {
+  filters: ScholarshipFilters;
+  onFilterChange: (filters: Partial<ScholarshipFilters>) => void;
 }
 
-export function DiscountFilters({
+export function ScholarshipFilters({
   filters,
   onFilterChange
-}: DiscountFiltersProps) {
+}: ScholarshipFiltersProps) {
   const { data: scholarshipTree = [] } = useScholarshipSetup();
   const typesOfSelectedCategory =
     scholarshipTree.find((c) => c.id === filters.scholarship_category_id)
@@ -38,7 +38,7 @@ export function DiscountFilters({
       bill_id: undefined,
       scholarship_category_id: undefined,
       scholarship_type_id: undefined,
-      discount_type: undefined,
+      value_mode: undefined,
       approval_status: undefined,
       effective_date_from: undefined,
       effective_date_to: undefined
@@ -50,7 +50,7 @@ export function DiscountFilters({
     filters.bill_id ||
     filters.scholarship_category_id ||
     filters.scholarship_type_id ||
-    filters.discount_type ||
+    filters.value_mode ||
     filters.approval_status ||
     filters.effective_date_from ||
     filters.effective_date_to;
@@ -62,14 +62,14 @@ export function DiscountFilters({
         <div className='relative'>
           <Search className='absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground h-4 w-4' />
           <Input
-            placeholder='Search discounts...'
+            placeholder='Search scholarships...'
             value={filters.search || ''}
             onChange={(e) => onFilterChange({ search: e.target.value })}
             className='pl-10'
           />
         </div>
 
-        {/* Discount Category Filter */}
+        {/* Scholarship Category Filter */}
         <Select
           value={filters.scholarship_category_id || 'all'}
           onValueChange={(value) =>
@@ -120,11 +120,11 @@ export function DiscountFilters({
 
         {/* Value Mode Filter */}
         <Select
-          value={filters.discount_type || 'all'}
+          value={filters.value_mode || 'all'}
           onValueChange={(value) =>
             onFilterChange({
-              discount_type:
-                value === 'all' ? undefined : (value as DiscountType)
+              value_mode:
+                value === 'all' ? undefined : (value as ScholarshipValueMode)
             })
           }
         >

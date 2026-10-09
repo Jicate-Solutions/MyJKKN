@@ -67,7 +67,7 @@ export default function BillingActivitiesPage() {
               <h1 className='text-2xl font-bold py-1'>Billing Activities</h1>
               <p className='text-sm sm:text-base text-muted-foreground'>
                 Audit trail of all billing operations — bills, receipts,
-                invoices, discounts, and refunds
+                invoices, scholarships, and refunds
               </p>
             </div>
             <Button

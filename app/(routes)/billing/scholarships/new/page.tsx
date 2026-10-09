@@ -21,7 +21,7 @@ import { PageBreadcrumb } from '@/components/navigation/Breadcrumbs';
 import { BeatLoader } from 'react-spinners';
 import { toast } from 'react-hot-toast';
 import { BillingReceiptService } from '@/lib/services/billing/receipts/billing-receipt-service';
-import { useCreateBillingDiscount } from '@/hooks/billing/use-billing-discounts';
+import { useCreateBillingScholarship } from '@/hooks/billing/use-billing-scholarships';
 import { useScholarshipSetup } from '@/hooks/billing/use-scholarship-setup';
 import {
   resolveTypeDefaults,
@@ -29,8 +29,8 @@ import {
 } from '@/lib/billing/scholarship-type-defaults';
 import { ScholarshipSelectFields } from '../_components/scholarship-select-fields';
 import type {
-  DiscountType,
-  CreateDiscountDto,
+  ScholarshipValueMode,
+  CreateScholarshipDto,
   ScholarshipType
 } from '@/types/billing-schedule';
 import {
@@ -49,22 +49,22 @@ import {
  * `scripts/assert-nav-coverage.mjs` for discoverability tracking.
  */
 export const navMeta = {
-  invokedFrom: '/billing/discounts',
+  invokedFrom: '/billing/scholarships',
 } as const;
 
-export default function NewDiscountPage() {
+export default function NewScholarshipPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const billId = searchParams.get('bill_id');
-  const billIds = searchParams.get('bill_ids'); // For bulk discount application
+  const billIds = searchParams.get('bill_ids'); // For bulk scholarship application
   const studentId = searchParams.get('student_id');
 
   const [selectedBills, setSelectedBills] = useState<any[]>([]);
   const [isLoadingBills, setIsLoadingBills] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [formData, setFormData] = useState<Partial<CreateDiscountDto>>({
-    discount_type: 'percentage',
-    discount_value: 0,
+  const [formData, setFormData] = useState<Partial<CreateScholarshipDto>>({
+    value_mode: 'percentage',
+    scholarship_value: 0,
     effective_date: new Date().toISOString().split('T')[0]
   });
 
@@ -74,12 +74,12 @@ export default function NewDiscountPage() {
     isLoading: permissionsLoading
   } = usePermissions();
 
-  const canApplyDiscounts =
-    isSuperAdmin || canAccess('billing.discounts', 'create');
+  const canApplyScholarships =
+    isSuperAdmin || canAccess('billing.scholarships', 'create');
   const canManageSetup =
     isSuperAdmin || canAccess('billing.scholarship_setup', 'view');
 
-  const createDiscountMutation = useCreateBillingDiscount();
+  const createScholarshipMutation = useCreateBillingScholarship();
   const { data: scholarshipTree = [] } = useScholarshipSetup();
 
   useEffect(() => {
@@ -120,19 +120,19 @@ export default function NewDiscountPage() {
     );
   }
 
-  if (!canApplyDiscounts) {
+  if (!canApplyScholarships) {
     return (
       <ContentLayout title='Apply Scholarship'>
         <div className='text-center py-8'>
           <p className='text-destructive'>
-            You don&apos;t have permission to apply discounts.
+            You don&apos;t have permission to apply scholarships.
           </p>
         </div>
       </ContentLayout>
     );
   }
 
-  const handleInputChange = (field: keyof CreateDiscountDto, value: any) => {
+  const handleInputChange = (field: keyof CreateScholarshipDto, value: any) => {
     setFormData((prev) => ({
       ...prev,
       [field]: value
@@ -158,11 +158,11 @@ export default function NewDiscountPage() {
     }));
   };
 
-  const calculateDiscountAmount = (billAmount: number) => {
-    if (formData.discount_type === 'percentage') {
-      return (billAmount * (formData.discount_value || 0)) / 100;
+  const calculateScholarshipAmount = (billAmount: number) => {
+    if (formData.value_mode === 'percentage') {
+      return (billAmount * (formData.scholarship_value || 0)) / 100;
     } else {
-      return formData.discount_value || 0;
+      return formData.scholarship_value || 0;
     }
   };
 
@@ -171,9 +171,9 @@ export default function NewDiscountPage() {
     0
   );
 
-  const totalDiscountAmount = selectedBills.reduce(
+  const totalScholarshipAmount = selectedBills.reduce(
     (sum, bill) =>
-      sum + calculateDiscountAmount(bill.total_amount || bill.final_amount),
+      sum + calculateScholarshipAmount(bill.total_amount || bill.final_amount),
     0
   );
 
@@ -190,55 +190,55 @@ export default function NewDiscountPage() {
       return;
     }
 
-    if (!formData.discount_type) {
+    if (!formData.value_mode) {
       toast.error('Please select a value mode');
       return;
     }
 
-    if (!formData.discount_value || formData.discount_value <= 0) {
-      toast.error('Please enter a valid discount value');
+    if (!formData.scholarship_value || formData.scholarship_value <= 0) {
+      toast.error('Please enter a valid scholarship value');
       return;
     }
 
-    if (!formData.discount_reason || formData.discount_reason.trim() === '') {
-      toast.error('Please provide a reason for the discount');
+    if (!formData.scholarship_reason || formData.scholarship_reason.trim() === '') {
+      toast.error('Please provide a reason for the scholarship');
       return;
     }
 
     if (selectedBills.length === 0) {
-      toast.error('No bills selected for discount application');
+      toast.error('No bills selected for scholarship application');
       return;
     }
 
     try {
       setIsSubmitting(true);
 
-      // Apply discount to each selected bill
-      const discountPromises = selectedBills.map(async (bill) => {
-        const discountData: CreateDiscountDto = {
+      // Apply scholarship to each selected bill
+      const scholarshipPromises = selectedBills.map(async (bill) => {
+        const scholarshipData: CreateScholarshipDto = {
           bill_id: bill.id,
           scholarship_category_id: formData.scholarship_category_id!,
           scholarship_type_id: formData.scholarship_type_id!,
-          discount_type: formData.discount_type!,
-          discount_value: formData.discount_value!,
-          discount_reason: formData.discount_reason!,
+          value_mode: formData.value_mode!,
+          scholarship_value: formData.scholarship_value!,
+          scholarship_reason: formData.scholarship_reason!,
           effective_date: formData.effective_date!,
           expiry_date: formData.expiry_date
         };
 
-        // Create the discount using the mutation
-        return await createDiscountMutation.mutateAsync(discountData);
+        // Create the scholarship using the mutation
+        return await createScholarshipMutation.mutateAsync(scholarshipData);
       });
 
-      await Promise.all(discountPromises);
+      await Promise.all(scholarshipPromises);
 
       toast.success(
-        `Discount applied successfully to ${selectedBills.length} bill(s)`
+        `Scholarship applied successfully to ${selectedBills.length} bill(s)`
       );
-      router.push('/billing/discounts');
+      router.push('/billing/scholarships');
     } catch (error) {
-      console.error('Error applying discount:', error);
-      toast.error('Failed to apply discount');
+      console.error('Error applying scholarship:', error);
+      toast.error('Failed to apply scholarship');
     } finally {
       setIsSubmitting(false);
     }
@@ -259,8 +259,8 @@ export default function NewDiscountPage() {
         items={[
           { label: 'Home', href: '/' },
           { label: 'Billing', href: '/billing/schedule' },
-          { label: 'Scholarships', href: '/billing/discounts' },
-          { label: 'Apply Scholarship', href: '/billing/discounts/new' }
+          { label: 'Scholarships', href: '/billing/scholarships' },
+          { label: 'Apply Scholarship', href: '/billing/scholarships/new' }
         ]}
       />
 
@@ -306,9 +306,9 @@ export default function NewDiscountPage() {
                   <TableBody>
                     {selectedBills.map((bill) => {
                       const billAmount = bill.total_amount || bill.final_amount;
-                      const discountAmount =
-                        calculateDiscountAmount(billAmount);
-                      const finalAmount = billAmount - discountAmount;
+                      const scholarshipAmount =
+                        calculateScholarshipAmount(billAmount);
+                      const finalAmount = billAmount - scholarshipAmount;
 
                       return (
                         <TableRow key={bill.id}>
@@ -341,7 +341,7 @@ export default function NewDiscountPage() {
                           </TableCell>
                           <TableCell className='text-right'>
                             <div className='font-medium text-green-600'>
-                              -{formatCurrency(discountAmount)}
+                              -{formatCurrency(scholarshipAmount)}
                             </div>
                           </TableCell>
                           <TableCell className='text-right'>
@@ -374,13 +374,13 @@ export default function NewDiscountPage() {
                       Total Scholarship:
                     </span>
                     <div className='font-semibold text-green-600'>
-                      -{formatCurrency(totalDiscountAmount)}
+                      -{formatCurrency(totalScholarshipAmount)}
                     </div>
                   </div>
                   <div>
                     <span className='text-muted-foreground'>Final Amount:</span>
                     <div className='font-semibold text-blue-600'>
-                      {formatCurrency(totalBillAmount - totalDiscountAmount)}
+                      {formatCurrency(totalBillAmount - totalScholarshipAmount)}
                     </div>
                   </div>
                 </div>
@@ -389,7 +389,7 @@ export default function NewDiscountPage() {
           </Card>
         )}
 
-        {/* Discount Form */}
+        {/* Scholarship Form */}
         <Card>
           <CardHeader>
             <CardTitle>Scholarship Details</CardTitle>
@@ -408,14 +408,14 @@ export default function NewDiscountPage() {
 
                 {/* Value Mode (percentage | fixed amount) */}
                 <div className='space-y-2'>
-                  <Label htmlFor='discount_type'>Value Mode *</Label>
+                  <Label htmlFor='value_mode'>Value Mode *</Label>
                   <Select
-                    value={formData.discount_type || ''}
+                    value={formData.value_mode || ''}
                     onValueChange={(value) =>
-                      handleInputChange('discount_type', value as DiscountType)
+                      handleInputChange('value_mode', value as ScholarshipValueMode)
                     }
                   >
-                    <SelectTrigger id='discount_type'>
+                    <SelectTrigger id='value_mode'>
                       <SelectValue placeholder='Select value mode' />
                     </SelectTrigger>
                     <SelectContent>
@@ -425,31 +425,31 @@ export default function NewDiscountPage() {
                   </Select>
                 </div>
 
-                {/* Discount Value */}
+                {/* Scholarship Value */}
                 <div className='space-y-2'>
-                  <Label htmlFor='discount_value'>
+                  <Label htmlFor='scholarship_value'>
                     Scholarship Value *{' '}
-                    {formData.discount_type === 'percentage' ? '(%)' : '(₹)'}
+                    {formData.value_mode === 'percentage' ? '(%)' : '(₹)'}
                   </Label>
                   <Input
-                    id='discount_value'
+                    id='scholarship_value'
                     type='number'
                     step={
-                      formData.discount_type === 'percentage' ? '0.01' : '1'
+                      formData.value_mode === 'percentage' ? '0.01' : '1'
                     }
                     min='0'
                     max={
-                      formData.discount_type === 'percentage'
+                      formData.value_mode === 'percentage'
                         ? '100'
                         : undefined
                     }
                     placeholder={
-                      formData.discount_type === 'percentage' ? '10.5' : '1000'
+                      formData.value_mode === 'percentage' ? '10.5' : '1000'
                     }
-                    value={formData.discount_value || ''}
+                    value={formData.scholarship_value || ''}
                     onChange={(e) =>
                       handleInputChange(
-                        'discount_value',
+                        'scholarship_value',
                         parseFloat(e.target.value)
                       )
                     }
@@ -486,15 +486,15 @@ export default function NewDiscountPage() {
                 </div>
               </div>
 
-              {/* Discount Reason */}
+              {/* Scholarship Reason */}
               <div className='space-y-2'>
-                <Label htmlFor='discount_reason'>Scholarship Reason *</Label>
+                <Label htmlFor='scholarship_reason'>Scholarship Reason *</Label>
                 <Textarea
-                  id='discount_reason'
+                  id='scholarship_reason'
                   placeholder='Provide detailed reason for applying this scholarship'
-                  value={formData.discount_reason || ''}
+                  value={formData.scholarship_reason || ''}
                   onChange={(e) =>
-                    handleInputChange('discount_reason', e.target.value)
+                    handleInputChange('scholarship_reason', e.target.value)
                   }
                   rows={3}
                   required
@@ -502,7 +502,7 @@ export default function NewDiscountPage() {
               </div>
 
               {/* Validation Warning */}
-              {totalDiscountAmount > totalBillAmount && (
+              {totalScholarshipAmount > totalBillAmount && (
                 <div className='flex items-center gap-2 p-3 bg-red-50 border border-red-200 rounded-lg'>
                   <AlertCircle className='h-4 w-4 text-red-600' />
                   <span className='text-sm text-red-600'>
@@ -524,12 +524,12 @@ export default function NewDiscountPage() {
                   type='submit'
                   disabled={
                     isSubmitting ||
-                    createDiscountMutation.isPending ||
-                    totalDiscountAmount > totalBillAmount
+                    createScholarshipMutation.isPending ||
+                    totalScholarshipAmount > totalBillAmount
                   }
                   className='min-w-[120px]'
                 >
-                  {isSubmitting || createDiscountMutation.isPending ? (
+                  {isSubmitting || createScholarshipMutation.isPending ? (
                     <>
                       <BeatLoader size={8} color='white' />
                       <span className='ml-2'>Applying...</span>

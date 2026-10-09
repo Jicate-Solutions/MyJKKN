@@ -22,9 +22,9 @@ import { PageBreadcrumb } from '@/components/navigation/Breadcrumbs';
 import { BeatLoader } from 'react-spinners';
 import { toast } from 'react-hot-toast';
 import {
-  useBillingDiscount,
-  useUpdateBillingDiscount
-} from '@/hooks/billing/use-billing-discounts';
+  useBillingScholarship,
+  useUpdateBillingScholarship
+} from '@/hooks/billing/use-billing-scholarships';
 import { useScholarshipSetup } from '@/hooks/billing/use-scholarship-setup';
 import {
   resolveTypeDefaults,
@@ -32,17 +32,17 @@ import {
 } from '@/lib/billing/scholarship-type-defaults';
 import { ScholarshipSelectFields } from '../../_components/scholarship-select-fields';
 import type {
-  DiscountType,
+  ScholarshipValueMode,
   ScholarshipType,
-  UpdateDiscountDto
+  UpdateScholarshipDto
 } from '@/types/billing-schedule';
 
-export default function EditDiscountPage() {
+export default function EditScholarshipPage() {
   const router = useRouter();
   const params = useParams();
-  const discountId = params.id as string;
+  const scholarshipId = params.id as string;
 
-  const [formData, setFormData] = useState<Partial<UpdateDiscountDto>>({});
+  const [formData, setFormData] = useState<Partial<UpdateScholarshipDto>>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const {
@@ -51,35 +51,35 @@ export default function EditDiscountPage() {
     isLoading: permissionsLoading
   } = usePermissions();
 
-  const canEditDiscounts =
-    isSuperAdmin || canAccess('billing.discounts', 'edit');
+  const canEditScholarships =
+    isSuperAdmin || canAccess('billing.scholarships', 'edit');
 
   const canManageSetup =
     isSuperAdmin || canAccess('billing.scholarship_setup', 'view');
 
-  const { data: discount, isLoading, error } = useBillingDiscount(discountId);
-  const updateDiscountMutation = useUpdateBillingDiscount();
+  const { data: scholarship, isLoading, error } = useBillingScholarship(scholarshipId);
+  const updateScholarshipMutation = useUpdateBillingScholarship();
   const { data: scholarshipTree = [] } = useScholarshipSetup();
 
-  // Initialize form data when discount is loaded
+  // Initialize form data when scholarship is loaded
   useEffect(() => {
-    if (discount) {
+    if (scholarship) {
       setFormData({
-        scholarship_category_id: discount.scholarship_category_id,
-        scholarship_type_id: discount.scholarship_type_id,
-        discount_type: discount.discount_type,
-        discount_value: discount.discount_value,
-        discount_reason: discount.discount_reason,
-        effective_date: discount.effective_date,
-        expiry_date: discount.expiry_date
+        scholarship_category_id: scholarship.scholarship_category_id,
+        scholarship_type_id: scholarship.scholarship_type_id,
+        value_mode: scholarship.value_mode,
+        scholarship_value: scholarship.scholarship_value,
+        scholarship_reason: scholarship.scholarship_reason,
+        effective_date: scholarship.effective_date,
+        expiry_date: scholarship.expiry_date
       });
     }
-  }, [discount]);
+  }, [scholarship]);
 
   // Show loading state while permissions are loading
   if (permissionsLoading || isLoading) {
     return (
-      <ContentLayout title='Edit Discount'>
+      <ContentLayout title='Edit Scholarship'>
         <div className='flex items-center justify-center min-h-[400px]'>
           <BeatLoader color='#00e902' />
         </div>
@@ -87,12 +87,12 @@ export default function EditDiscountPage() {
     );
   }
 
-  if (!canEditDiscounts) {
+  if (!canEditScholarships) {
     return (
-      <ContentLayout title='Edit Discount'>
+      <ContentLayout title='Edit Scholarship'>
         <div className='text-center py-8'>
           <p className='text-destructive'>
-            You don&apos;t have permission to edit discounts.
+            You don&apos;t have permission to edit scholarships.
           </p>
         </div>
       </ContentLayout>
@@ -101,10 +101,10 @@ export default function EditDiscountPage() {
 
   if (error) {
     return (
-      <ContentLayout title='Edit Discount'>
+      <ContentLayout title='Edit Scholarship'>
         <div className='text-center py-8'>
           <p className='text-destructive'>
-            Error loading discount: {error.message}
+            Error loading scholarship: {error.message}
           </p>
           <Button
             variant='outline'
@@ -118,11 +118,11 @@ export default function EditDiscountPage() {
     );
   }
 
-  if (!discount) {
+  if (!scholarship) {
     return (
-      <ContentLayout title='Edit Discount'>
+      <ContentLayout title='Edit Scholarship'>
         <div className='text-center py-8'>
-          <p className='text-muted-foreground'>Discount not found</p>
+          <p className='text-muted-foreground'>Scholarship not found</p>
           <Button
             variant='outline'
             onClick={() => router.back()}
@@ -135,14 +135,14 @@ export default function EditDiscountPage() {
     );
   }
 
-  // Don't allow editing approved or rejected discounts
-  if (discount.approval_status !== 'pending') {
+  // Don't allow editing approved or rejected scholarships
+  if (scholarship.approval_status !== 'pending') {
     return (
-      <ContentLayout title='Edit Discount'>
+      <ContentLayout title='Edit Scholarship'>
         <div className='text-center py-8'>
           <p className='text-muted-foreground'>
-            Cannot edit discount with status:{' '}
-            {discount.approval_status.toUpperCase()}
+            Cannot edit scholarship with status:{' '}
+            {scholarship.approval_status.toUpperCase()}
           </p>
           <Button
             variant='outline'
@@ -156,7 +156,7 @@ export default function EditDiscountPage() {
     );
   }
 
-  const handleInputChange = (field: keyof UpdateDiscountDto, value: any) => {
+  const handleInputChange = (field: keyof UpdateScholarshipDto, value: any) => {
     setFormData((prev) => ({
       ...prev,
       [field]: value
@@ -180,18 +180,18 @@ export default function EditDiscountPage() {
     }));
   };
 
-  const calculateDiscountAmount = () => {
-    if (!discount?.bill?.total_amount || !formData.discount_value) return 0;
+  const calculateScholarshipAmount = () => {
+    if (!scholarship?.bill?.total_amount || !formData.scholarship_value) return 0;
 
-    if (formData.discount_type === 'percentage') {
-      return (discount.bill.total_amount * formData.discount_value) / 100;
+    if (formData.value_mode === 'percentage') {
+      return (scholarship.bill.total_amount * formData.scholarship_value) / 100;
     } else {
-      return formData.discount_value;
+      return formData.scholarship_value;
     }
   };
 
-  const discountAmount = calculateDiscountAmount();
-  const billAmount = discount?.bill?.total_amount || 0;
+  const scholarshipAmount = calculateScholarshipAmount();
+  const billAmount = scholarship?.bill?.total_amount || 0;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -201,8 +201,8 @@ export default function EditDiscountPage() {
       formData.scholarship_category_id,
       formData.scholarship_type_id,
       {
-        allowInactiveCategoryId: discount.scholarship_category_id,
-        allowInactiveTypeId: discount.scholarship_type_id
+        allowInactiveCategoryId: scholarship.scholarship_category_id,
+        allowInactiveTypeId: scholarship.scholarship_type_id
       }
     );
     if (selectionError) {
@@ -210,44 +210,44 @@ export default function EditDiscountPage() {
       return;
     }
 
-    if (!formData.discount_type) {
+    if (!formData.value_mode) {
       toast.error('Please select a value mode');
       return;
     }
 
-    if (!formData.discount_value || formData.discount_value <= 0) {
-      toast.error('Please enter a valid discount value');
+    if (!formData.scholarship_value || formData.scholarship_value <= 0) {
+      toast.error('Please enter a valid scholarship value');
       return;
     }
 
-    if (!formData.discount_reason || formData.discount_reason.trim() === '') {
-      toast.error('Please provide a reason for the discount');
+    if (!formData.scholarship_reason || formData.scholarship_reason.trim() === '') {
+      toast.error('Please provide a reason for the scholarship');
       return;
     }
 
-    if (discountAmount > billAmount) {
-      toast.error('Discount amount cannot exceed bill amount');
+    if (scholarshipAmount > billAmount) {
+      toast.error('Scholarship amount cannot exceed bill amount');
       return;
     }
 
     try {
       setIsSubmitting(true);
 
-      const updateData: UpdateDiscountDto = {
+      const updateData: UpdateScholarshipDto = {
         ...formData,
-        discount_amount: discountAmount
+        scholarship_amount: scholarshipAmount
       };
 
-      await updateDiscountMutation.mutateAsync({
-        id: discountId,
+      await updateScholarshipMutation.mutateAsync({
+        id: scholarshipId,
         data: updateData
       });
 
-      toast.success('Discount updated successfully');
-      router.push(`/billing/discounts/${discountId}`);
+      toast.success('Scholarship updated successfully');
+      router.push(`/billing/scholarships/${scholarshipId}`);
     } catch (error) {
-      console.error('Error updating discount:', error);
-      toast.error('Failed to update discount');
+      console.error('Error updating scholarship:', error);
+      toast.error('Failed to update scholarship');
     } finally {
       setIsSubmitting(false);
     }
@@ -268,9 +268,9 @@ export default function EditDiscountPage() {
         items={[
           { label: 'Home', href: '/' },
           { label: 'Billing', href: '/billing/schedule' },
-          { label: 'Scholarships', href: '/billing/discounts' },
-          { label: 'Details', href: `/billing/discounts/${discountId}` },
-          { label: 'Edit', href: `/billing/discounts/${discountId}/edit` }
+          { label: 'Scholarships', href: '/billing/scholarships' },
+          { label: 'Details', href: `/billing/scholarships/${scholarshipId}` },
+          { label: 'Edit', href: `/billing/scholarships/${scholarshipId}/edit` }
         ]}
       />
 
@@ -292,7 +292,7 @@ export default function EditDiscountPage() {
         </div>
 
         {/* Bill Information Summary */}
-        {discount.bill && (
+        {scholarship.bill && (
           <Card>
             <CardHeader>
               <CardTitle className='flex items-center gap-2'>
@@ -307,7 +307,7 @@ export default function EditDiscountPage() {
                     Scholarship Description
                   </Label>
                   <p className='font-medium'>
-                    {discount.bill.bill_description}
+                    {scholarship.bill.bill_description}
                   </p>
                 </div>
                 <div>
@@ -315,8 +315,8 @@ export default function EditDiscountPage() {
                     Student
                   </Label>
                   <p className='font-medium'>
-                    {`${discount.bill.student?.first_name} ${
-                      discount.bill.student?.last_name || ''
+                    {`${scholarship.bill.student?.first_name} ${
+                      scholarship.bill.student?.last_name || ''
                     }`.trim()}
                   </p>
                 </div>
@@ -325,7 +325,7 @@ export default function EditDiscountPage() {
                     Scholarship Amount
                   </Label>
                   <p className='font-medium'>
-                    {formatCurrency(discount.bill.total_amount)}
+                    {formatCurrency(scholarship.bill.total_amount)}
                   </p>
                 </div>
               </div>
@@ -347,21 +347,21 @@ export default function EditDiscountPage() {
                   typeId={formData.scholarship_type_id}
                   onCategoryChange={handleCategoryChange}
                   onTypeChange={handleTypeChange}
-                  originalCategoryId={discount.scholarship_category_id}
-                  originalTypeId={discount.scholarship_type_id}
+                  originalCategoryId={scholarship.scholarship_category_id}
+                  originalTypeId={scholarship.scholarship_type_id}
                   canManageSetup={canManageSetup}
                 />
 
                 {/* Value Mode (percentage | fixed amount) */}
                 <div className='space-y-2'>
-                  <Label htmlFor='discount_type'>Value Mode *</Label>
+                  <Label htmlFor='value_mode'>Value Mode *</Label>
                   <Select
-                    value={formData.discount_type || ''}
+                    value={formData.value_mode || ''}
                     onValueChange={(value) =>
-                      handleInputChange('discount_type', value as DiscountType)
+                      handleInputChange('value_mode', value as ScholarshipValueMode)
                     }
                   >
-                    <SelectTrigger id='discount_type'>
+                    <SelectTrigger id='value_mode'>
                       <SelectValue placeholder='Select value mode' />
                     </SelectTrigger>
                     <SelectContent>
@@ -371,31 +371,31 @@ export default function EditDiscountPage() {
                   </Select>
                 </div>
 
-                {/* Discount Value */}
+                {/* Scholarship Value */}
                 <div className='space-y-2'>
-                  <Label htmlFor='discount_value'>
+                  <Label htmlFor='scholarship_value'>
                     Scholarship Value *{' '}
-                    {formData.discount_type === 'percentage' ? '(%)' : '(₹)'}
+                    {formData.value_mode === 'percentage' ? '(%)' : '(₹)'}
                   </Label>
                   <Input
-                    id='discount_value'
+                    id='scholarship_value'
                     type='number'
                     step={
-                      formData.discount_type === 'percentage' ? '0.01' : '1'
+                      formData.value_mode === 'percentage' ? '0.01' : '1'
                     }
                     min='0'
                     max={
-                      formData.discount_type === 'percentage'
+                      formData.value_mode === 'percentage'
                         ? '100'
                         : undefined
                     }
                     placeholder={
-                      formData.discount_type === 'percentage' ? '10.5' : '1000'
+                      formData.value_mode === 'percentage' ? '10.5' : '1000'
                     }
-                    value={formData.discount_value || ''}
+                    value={formData.scholarship_value || ''}
                     onChange={(e) =>
                       handleInputChange(
-                        'discount_value',
+                        'scholarship_value',
                         parseFloat(e.target.value)
                       )
                     }
@@ -433,23 +433,23 @@ export default function EditDiscountPage() {
                 </div>
               </div>
 
-              {/* Discount Reason */}
+              {/* Scholarship Reason */}
               <div className='space-y-2'>
-                <Label htmlFor='discount_reason'>Scholarship Reason *</Label>
+                <Label htmlFor='scholarship_reason'>Scholarship Reason *</Label>
                 <Textarea
-                  id='discount_reason'
+                  id='scholarship_reason'
                   placeholder='Provide detailed reason for applying this scholarship'
-                  value={formData.discount_reason || ''}
+                  value={formData.scholarship_reason || ''}
                   onChange={(e) =>
-                    handleInputChange('discount_reason', e.target.value)
+                    handleInputChange('scholarship_reason', e.target.value)
                   }
                   rows={3}
                   required
                 />
               </div>
 
-              {/* Discount Calculation Preview */}
-              {formData.discount_value && formData.discount_type && (
+              {/* Scholarship Calculation Preview */}
+              {formData.scholarship_value && formData.value_mode && (
                 <div className='p-4 bg-blue-50 border border-blue-200 rounded-lg'>
                   <h4 className='font-medium mb-3'>
                     Scholarship Calculation Preview
@@ -468,7 +468,7 @@ export default function EditDiscountPage() {
                         Scholarship:
                       </span>
                       <div className='font-semibold text-green-600'>
-                        -{formatCurrency(discountAmount)}
+                        -{formatCurrency(scholarshipAmount)}
                       </div>
                     </div>
                     <div>
@@ -476,7 +476,7 @@ export default function EditDiscountPage() {
                         Final Amount:
                       </span>
                       <div className='font-semibold text-blue-600'>
-                        {formatCurrency(billAmount - discountAmount)}
+                        {formatCurrency(billAmount - scholarshipAmount)}
                       </div>
                     </div>
                     <div>
@@ -485,7 +485,7 @@ export default function EditDiscountPage() {
                       </span>
                       <div className='font-semibold'>
                         {billAmount > 0
-                          ? Math.round((discountAmount / billAmount) * 100)
+                          ? Math.round((scholarshipAmount / billAmount) * 100)
                           : 0}
                         %
                       </div>
@@ -495,7 +495,7 @@ export default function EditDiscountPage() {
               )}
 
               {/* Validation Warning */}
-              {discountAmount > billAmount && (
+              {scholarshipAmount > billAmount && (
                 <div className='flex items-center gap-2 p-3 bg-red-50 border border-red-200 rounded-lg'>
                   <AlertCircle className='h-4 w-4 text-red-600' />
                   <span className='text-sm text-red-600'>
@@ -517,12 +517,12 @@ export default function EditDiscountPage() {
                   type='submit'
                   disabled={
                     isSubmitting ||
-                    updateDiscountMutation.isPending ||
-                    discountAmount > billAmount
+                    updateScholarshipMutation.isPending ||
+                    scholarshipAmount > billAmount
                   }
                   className='min-w-[120px]'
                 >
-                  {isSubmitting || updateDiscountMutation.isPending ? (
+                  {isSubmitting || updateScholarshipMutation.isPending ? (
                     <>
                       <BeatLoader size={8} color='white' />
                       <span className='ml-2'>Updating...</span>

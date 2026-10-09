@@ -1034,9 +1034,9 @@ export class StudentBillService {
             frequency
           ),
           academic_year:academic_years(id, academic_year_name),
-          discounts:billing_discounts(
+          scholarships:billing_scholarships(
             *,
-            authorizer:profiles!fk_billing_discounts_authorizer(id, full_name),
+            authorizer:profiles!fk_billing_scholarships_authorizer(id, full_name),
             scholarship_category:billing_scholarship_categories(id, name, code),
             scholarship_type:billing_scholarship_types(id, name, code)
           ),
@@ -1084,7 +1084,7 @@ export class StudentBillService {
             frequency
           ),
           academic_year:academic_years(id, academic_year_name),
-          discounts:billing_discounts(
+          scholarships:billing_scholarships(
             *,
             scholarship_category:billing_scholarship_categories(id, name, code),
             scholarship_type:billing_scholarship_types(id, name, code)

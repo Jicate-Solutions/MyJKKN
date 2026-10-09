@@ -30,7 +30,7 @@ import { PageBreadcrumb } from '@/components/navigation/Breadcrumbs';
 import { StudentBillService } from '@/lib/services/billing/schedule/student-bill-service';
 import type {
   StudentBill,
-  BillingDiscount,
+  BillingScholarship,
   BillingRefund
 } from '@/types/billing-schedule';
 import { usePermissions } from '@/hooks/use-permissions';
@@ -232,9 +232,9 @@ export default function StudentBillDetailPage() {
                 <Button
                   variant='outline'
                   size='sm'
-                  onClick={() => router.push(`/billing/discounts/new?bill_id=${bill.id}`)}
+                  onClick={() => router.push(`/billing/scholarships/new?bill_id=${bill.id}`)}
                 >
-                  <Percent className='mr-2 h-4 w-4' /> Apply Discount
+                  <Percent className='mr-2 h-4 w-4' /> Apply Scholarship
                 </Button>
               </>
             )}
@@ -358,18 +358,18 @@ export default function StudentBillDetailPage() {
                 <div className='space-y-3'>
                   <h3 className='font-semibold text-lg flex items-center gap-2'>
                     <Percent className='h-5 w-5 text-orange-600' />
-                    Apply Discount
+                    Apply Scholarship
                   </h3>
                   <p className='text-sm text-muted-foreground'>
-                    Apply a discount to reduce the bill amount
+                    Apply a scholarship to reduce the bill amount
                   </p>
                   <Button
                     variant='outline'
-                    onClick={() => router.push(`/billing/discounts/new?bill_id=${bill.id}`)}
+                    onClick={() => router.push(`/billing/scholarships/new?bill_id=${bill.id}`)}
                     className='w-full border-orange-300 text-orange-600 hover:bg-orange-50'
                   >
                     <Percent className='mr-2 h-4 w-4' />
-                    Apply Discount
+                    Apply Scholarship
                   </Button>
                 </div>
               </div>
@@ -383,7 +383,7 @@ export default function StudentBillDetailPage() {
                     </span>
                   </div>
                   <p className='text-xs text-yellow-700 dark:text-yellow-300 mt-1'>
-                    Generate a receipt to record payment or apply a discount to reduce the amount.
+                    Generate a receipt to record payment or apply a scholarship to reduce the amount.
                   </p>
                 </div>
               )}
@@ -453,12 +453,12 @@ export default function StudentBillDetailPage() {
           </Card>
         )}
 
-        {/* Applied Discounts Section */}
-        {bill.discounts && bill.discounts.length > 0 && (
+        {/* Applied Scholarships Section */}
+        {bill.scholarships && bill.scholarships.length > 0 && (
           <Card>
             <CardHeader>
-              <CardTitle>Applied Discounts</CardTitle>
-              <CardDescription>Discounts applied to this bill.</CardDescription>
+              <CardTitle>Applied Scholarships</CardTitle>
+              <CardDescription>Scholarships applied to this bill.</CardDescription>
             </CardHeader>
             <CardContent>
               <Table>
@@ -473,43 +473,43 @@ export default function StudentBillDetailPage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {bill.discounts.map((discount) => (
-                    <TableRow key={discount.id}>
+                  {bill.scholarships.map((scholarship) => (
+                    <TableRow key={scholarship.id}>
                       <TableCell>
-                        {discount.scholarship_category?.name ?? '—'}
-                        {discount.scholarship_type?.name
-                          ? ` · ${discount.scholarship_type.name}`
+                        {scholarship.scholarship_category?.name ?? '—'}
+                        {scholarship.scholarship_type?.name
+                          ? ` · ${scholarship.scholarship_type.name}`
                           : ''}
                       </TableCell>
                       <TableCell>
-                        {discount.discount_type.toUpperCase()}
+                        {scholarship.value_mode.toUpperCase()}
                       </TableCell>
                       <TableCell>
-                        {discount.discount_type === 'percentage'
-                          ? `${discount.discount_value}%`
-                          : formatCurrency(discount.discount_value)}
+                        {scholarship.value_mode === 'percentage'
+                          ? `${scholarship.scholarship_value}%`
+                          : formatCurrency(scholarship.scholarship_value)}
                       </TableCell>
                       <TableCell>
-                        {formatCurrency(discount.discount_amount)}
+                        {formatCurrency(scholarship.scholarship_amount)}
                       </TableCell>
                       <TableCell>
                         <Badge
                           variant={
-                            discount.approval_status === 'approved'
+                            scholarship.approval_status === 'approved'
                               ? 'default'
                               : 'outline'
                           }
                           className={
-                            discount.approval_status === 'approved'
+                            scholarship.approval_status === 'approved'
                               ? 'bg-green-100 text-green-700'
                               : ''
                           }
                         >
-                          {discount.approval_status.toUpperCase()}
+                          {scholarship.approval_status.toUpperCase()}
                         </Badge>
                       </TableCell>
                       <TableCell>
-                        {discount.authorizer?.full_name || 'N/A'}
+                        {scholarship.authorizer?.full_name || 'N/A'}
                       </TableCell>
                     </TableRow>
                   ))}

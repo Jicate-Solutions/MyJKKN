@@ -29,7 +29,7 @@ import { DashboardMetrics } from './_components/dashboard-metrics';
 import { OutstandingReportTab } from './_components/outstanding-report-tab';
 import { CollectionReportTab } from './_components/collection-report-tab';
 import { InvoiceReportTab } from './_components/invoice-report-tab';
-import { DiscountReportTab } from './_components/discount-report-tab';
+import { ScholarshipReportTab } from './_components/scholarship-report-tab';
 import { RefundReportTab } from './_components/refund-report-tab';
 import { localIsoDate } from '@/lib/services/billing/reports/collection-daywise';
 
@@ -38,7 +38,7 @@ const BILLING_REPORTS_TABS = [
   'outstanding',
   'collection',
   'invoices',
-  'discounts',
+  'scholarships',
   'refunds'
 ] as const;
 
@@ -189,9 +189,9 @@ function BillingReportsPageInner() {
               <FileText className='h-4 w-4' />
               Invoices
             </TabsTrigger>
-            <TabsTrigger value='discounts' className='flex items-center gap-2'>
+            <TabsTrigger value='scholarships' className='flex items-center gap-2'>
               <ReceiptIndianRupee className='h-4 w-4' />
-              Discounts
+              Scholarships
             </TabsTrigger>
             <TabsTrigger value='refunds' className='flex items-center gap-2'>
               <CreditCard className='h-4 w-4' />
@@ -244,8 +244,8 @@ function BillingReportsPageInner() {
             <InvoiceReportTab filters={filters} canExport={canExportReports} />
           </TabsContent>
 
-          <TabsContent value='discounts'>
-            <DiscountReportTab filters={filters} canExport={canExportReports} />
+          <TabsContent value='scholarships'>
+            <ScholarshipReportTab filters={filters} canExport={canExportReports} />
           </TabsContent>
 
           <TabsContent value='refunds'>

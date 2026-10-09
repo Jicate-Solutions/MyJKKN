@@ -1,5 +1,5 @@
 import type {
-  DiscountType,
+  ScholarshipValueMode,
   ScholarshipCategoryWithTypes,
   ScholarshipType
 } from '@/types/billing-schedule';
@@ -10,11 +10,11 @@ import type {
  */
 export function resolveTypeDefaults(
   type: Pick<ScholarshipType, 'default_value_mode' | 'default_value'>
-): { discount_type: DiscountType; discount_value?: number } {
+): { value_mode: ScholarshipValueMode; scholarship_value?: number } {
   return {
-    discount_type: type.default_value_mode,
+    value_mode: type.default_value_mode,
     ...(type.default_value != null
-      ? { discount_value: Number(type.default_value) }
+      ? { scholarship_value: Number(type.default_value) }
       : {})
   };
 }

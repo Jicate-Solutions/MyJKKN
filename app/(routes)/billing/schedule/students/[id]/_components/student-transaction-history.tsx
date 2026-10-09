@@ -52,7 +52,7 @@ interface TransactionEvent {
     | 'bill_created'
     | 'bill_cancelled'
     | 'payment_received'
-    | 'discount_applied'
+    | 'scholarship_applied'
     | 'refund_processed';
   date: string;
   amount: number;
@@ -60,7 +60,7 @@ interface TransactionEvent {
   status: string;
   reference?: string;
   actors: TransactionActor[];
-  /** Bills a payment/discount was applied to, so the row names the fee category. */
+  /** Bills a payment/scholarship was applied to, so the row names the fee category. */
   lines?: { label: string; sub?: string; amount?: number }[];
   details?: any;
 }
@@ -174,31 +174,31 @@ export function StudentTransactionHistory({
       });
     });
 
-    // Add discounts
-    summary.discounts.forEach((discount) => {
+    // Add scholarships
+    summary.scholarships.forEach((scholarship) => {
       transactions.push({
-        id: `discount-${discount.id}`,
-        type: 'discount_applied',
-        date: discount.effective_date,
-        amount: discount.discount_amount,
+        id: `scholarship-${scholarship.id}`,
+        type: 'scholarship_applied',
+        date: scholarship.effective_date,
+        amount: scholarship.scholarship_amount,
         description: `${
-          discount.scholarship_category?.name ?? 'Scholarship'
-        } discount`,
-        lines: discount.bill
+          scholarship.scholarship_category?.name ?? 'Scholarship'
+        } scholarship`,
+        lines: scholarship.bill
           ? [
               {
                 label:
-                  discount.bill.item_category?.category_name ??
+                  scholarship.bill.item_category?.category_name ??
                   'Unknown category',
-                sub: discount.bill.bill_description
+                sub: scholarship.bill.bill_description
               }
             ]
           : undefined,
-        status: discount.approval_status,
-        actors: discount.creator?.full_name
-          ? [{ label: 'Applied by', name: discount.creator.full_name }]
+        status: scholarship.approval_status,
+        actors: scholarship.creator?.full_name
+          ? [{ label: 'Applied by', name: scholarship.creator.full_name }]
           : [],
-        details: discount
+        details: scholarship
       });
     });
 
@@ -313,7 +313,7 @@ export function StudentTransactionHistory({
         return <Ban className='h-4 w-4' />;
       case 'payment_received':
         return <ReceiptIndianRupee className='h-4 w-4' />;
-      case 'discount_applied':
+      case 'scholarship_applied':
         return <Percent className='h-4 w-4' />;
       case 'refund_processed':
         return <RefreshCw className='h-4 w-4' />;
@@ -332,7 +332,7 @@ export function StudentTransactionHistory({
         return 'text-blue-600 bg-blue-50 border-blue-200';
       case 'payment_received':
         return 'text-green-600 bg-green-50 border-green-200';
-      case 'discount_applied':
+      case 'scholarship_applied':
         return 'text-purple-600 bg-purple-50 border-purple-200';
       case 'refund_processed':
         return 'text-orange-600 bg-orange-50 border-orange-200';
@@ -363,7 +363,7 @@ export function StudentTransactionHistory({
   const getAmountDisplay = (type: string, amount: number) => {
     const isPositive = type === 'payment_received';
     const isNegative =
-      type === 'refund_processed' || type === 'discount_applied';
+      type === 'refund_processed' || type === 'scholarship_applied';
 
     return (
       <div
@@ -423,7 +423,7 @@ export function StudentTransactionHistory({
             <SelectItem value='bill_created'>Bills Created</SelectItem>
             <SelectItem value='bill_cancelled'>Bills Cancelled</SelectItem>
             <SelectItem value='payment_received'>Payments</SelectItem>
-            <SelectItem value='discount_applied'>Discounts</SelectItem>
+            <SelectItem value='scholarship_applied'>Scholarships</SelectItem>
             <SelectItem value='refund_processed'>Refunds</SelectItem>
           </SelectContent>
         </Select>
@@ -567,9 +567,9 @@ export function StudentTransactionHistory({
             </div>
             <div className='text-center'>
               <div className='text-2xl font-bold text-purple-600'>
-                {summary.discounts.length}
+                {summary.scholarships.length}
               </div>
-              <div className='text-muted-foreground'>Discounts</div>
+              <div className='text-muted-foreground'>Scholarships</div>
             </div>
             <div className='text-center'>
               <div className='text-2xl font-bold text-orange-600'>

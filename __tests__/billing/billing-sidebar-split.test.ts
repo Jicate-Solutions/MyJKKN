@@ -18,7 +18,7 @@ const PRE_SPLIT_ROUTES = [
   '/billing/coverage',
   '/billing/onboarding',
   '/billing/receipts',
-  '/billing/discounts',
+  '/billing/scholarships',
   '/billing/refunds',
   '/billing/refund-approvals',
   '/billing/receipt-cancellations',

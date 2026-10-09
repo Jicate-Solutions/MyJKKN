@@ -50,7 +50,7 @@ const config: ModuleNavConfig = {
         { label: 'Schedule · Student Search', icon: 'UserSearch', href: '/billing/schedule/students' },
         { label: 'Bill Coverage', icon: 'ShieldCheck', href: '/billing/coverage' },
         { label: 'Learner Onboarding', icon: 'UserPlus', href: '/billing/onboarding' },
-        { label: 'Scholarships', icon: 'Award', href: '/billing/discounts' },
+        { label: 'Scholarships', icon: 'Award', href: '/billing/scholarships' },
         { label: 'Refunds', icon: 'Undo2', href: '/billing/refunds' },
         { label: 'Refund Approvals', icon: 'CheckCheck', href: '/billing/refund-approvals' },
         { label: 'Receipt Cancellations', icon: 'FileX', href: '/billing/receipt-cancellations' },
