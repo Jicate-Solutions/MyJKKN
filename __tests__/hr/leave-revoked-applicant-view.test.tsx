@@ -79,6 +79,11 @@ vi.mock('@/hooks/hr/use-leave', () => ({
   useWithdrawApplication: () => ({ mutateAsync: vi.fn(), isPending: false }),
   useCancelApplication: () => ({ mutateAsync: vi.fn(), isPending: false }),
 }));
+// The sheet asks who is looking, to show Cancel on an approved leave to its owner
+// only. These tests read a request as somebody else, so no Cancel button.
+vi.mock('@/hooks/hr/use-time-off-context', () => ({
+  useTimeOffContext: () => ({ employeeId: 'viewer-not-the-owner' }),
+}));
 vi.mock('@/app/(routes)/hr/leave/_components/leave-document-list', () => ({
   LeaveDocumentList: () => null,
 }));
