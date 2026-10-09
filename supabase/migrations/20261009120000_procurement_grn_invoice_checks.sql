@@ -21,19 +21,26 @@
 --      fn_procurement_guard_approval applies to verifying), and that user is NOT
 --      the GRN's received_by. The time is stamped here, never trusted from the
 --      client. received_by is pinned to the signed-in user at INSERT and frozen
---      after (admins excepted); invoice_number / supplier_id are frozen once the
---      receipt leaves pending, and changing them while pending voids the
---      confirmation. Institution scope is already enforced by the
+--      after (admins excepted); created_at is pinned to now() at INSERT and frozen
+--      after; supplier_id is always the purchase order's supplier and, with
+--      purchase_order_id, frozen after INSERT (admins excepted); invoice_number is
+--      frozen once the receipt leaves pending, and changing it while pending voids
+--      the confirmation. Institution scope is already enforced by the
 --      pgrn_institution_scope RLS policy on the INSERT/UPDATE itself.
 --
---   5. I1 HELD SAVE (Director 2026-10-09): a receipt whose invoice number repeats an
---      EARLIER one from the same supplier is saved, but cannot be VERIFIED (moved
---      into any posted status, 'completed' included) until that confirmation
---      exists. Enforced by extending the existing verify guard,
+--   5. I1 HELD SAVE (Director 2026-10-09): a receipt whose invoice number repeats
+--      another non-cancelled one from the same supplier that is already POSTED
+--      (accepted / partially_accepted / replacement_requested / completed) or was
+--      recorded EARLIER is saved, but cannot be VERIFIED (moved into any posted
+--      status, 'completed' included) until that confirmation exists. Recording
+--      order only decides which of two never-posted receipts is the original.
+--      Enforced by extending the existing verify guard,
 --      fn_procurement_guard_approval (procurement_grn branch), via
 --      fn_procurement_grn_has_duplicate. "Held" is derived live, not stored: a
---      later cancellation of the earlier receipt releases the hold by itself —
---      cancelling an already-verified receipt needs grn_verify.
+--      later cancellation of the other receipt releases the hold by itself —
+--      cancelling an already-verified receipt needs grn_verify, and so does
+--      reviving a cancelled one (cancelled -> any status); a revived receipt is
+--      re-judged by the same rule before it can be posted.
 --   6. Private bucket procurement-invoice-pdfs for the invoice PDFs the Max-lane
 --      runner reads. Read/upload for GRN rights only (grn_create / grn_verify,
 --      super admin, admin) AND only under a <po_id>/ folder of a purchase order
@@ -100,6 +107,16 @@ WHERE NOT EXISTS (
 --   a. received_by is the signed-in user, set at INSERT; only an admin may change it
 --      later. The "confirmer is not the receiver" rule below therefore compares
 --      against a value the client cannot choose (review round, 2026-10-09).
+--   a2. Every column the I1 hold rule reads is server-owned (review round 2):
+--      created_at = now() at INSERT and never changes after (it orders "earlier");
+--      supplier_id = the purchase order's supplier, looked up here under the
+--      caller's RLS, and purchase_order_id / supplier_id are frozen after INSERT
+--      (admins excepted, and an admin change re-pins supplier_id from the order).
+--      id is client-choosable at INSERT and frozen after; it only breaks an exact
+--      created_at tie, i.e. two receipts written in one transaction, and one of
+--      them is held either way. status and duplicate_confirmed_by are judged
+--      below / by the guard. updated_at, verified_*, invoice_date and notes are
+--      not read by the hold rule; invoice_number is rule (b).
 --   b. invoice_number / supplier_id are frozen once the receipt is no longer draft /
 --      pending_verification; while pending, changing either VOIDS any duplicate
 --      confirmation, so a confirmation always belongs to one number + supplier.
@@ -107,16 +124,54 @@ WHERE NOT EXISTS (
 --
 -- ORDERING IS LOAD-BEARING: this trigger is named trg_pgrn_00_invoice_checks so it
 -- fires BEFORE trg_pgrn_guard_approval (Postgres fires same-timing triggers in name
--- order). The guard's I1 check must see the confirmation AFTER rule (b) voided it.
+-- order). The guard's I1 check must see the confirmation AFTER rule (b) voided it,
+-- and the created_at / supplier_id pinned by rule (a2), never the client's values.
 -- A later migration that renames either trigger must keep this one sorting first.
 CREATE OR REPLACE FUNCTION public.fn_procurement_grn_invoice_checks()
 RETURNS trigger
 LANGUAGE plpgsql
 SET search_path = public
 AS $$
+DECLARE
+  v_po_supplier uuid;
 BEGIN
   IF coalesce(auth.role(), '') = 'service_role' THEN
     RETURN NEW;
+  END IF;
+
+  -- a2. Recording time is the server's, never the client's: the hold rule's
+  --     "recorded earlier" ordering reads it.
+  IF TG_OP = 'INSERT' THEN
+    NEW.created_at := now();
+  ELSE
+    NEW.created_at := OLD.created_at;
+    -- id is the hold rule's tie-break: it never changes once recorded.
+    IF NEW.id IS DISTINCT FROM OLD.id THEN
+      RAISE EXCEPTION 'a delivery record''s id cannot be changed'
+        USING ERRCODE = '42501';
+    END IF;
+  END IF;
+
+  -- a2. The supplier is the order's supplier — the hold is matched on it, so a
+  --     receiver cannot dodge a match by naming some other supplier.
+  IF TG_OP = 'UPDATE'
+     AND (NEW.purchase_order_id IS DISTINCT FROM OLD.purchase_order_id
+          OR NEW.supplier_id IS DISTINCT FROM OLD.supplier_id)
+     AND NOT (public.is_super_admin() OR public.is_admin()) THEN
+    RAISE EXCEPTION 'the purchase order and supplier of a delivery cannot be changed after it is recorded'
+      USING ERRCODE = '42501';
+  END IF;
+  IF TG_OP = 'INSERT'
+     OR NEW.purchase_order_id IS DISTINCT FROM OLD.purchase_order_id
+     OR NEW.supplier_id IS DISTINCT FROM OLD.supplier_id THEN
+    SELECT po.supplier_id INTO v_po_supplier
+      FROM public.procurement_purchase_orders po
+     WHERE po.id = NEW.purchase_order_id;
+    IF v_po_supplier IS NULL THEN
+      RAISE EXCEPTION 'purchase order not found for this delivery'
+        USING ERRCODE = '42501';
+    END IF;
+    NEW.supplier_id := v_po_supplier;
   END IF;
 
   -- a. The receiver is whoever is signed in when the receipt is recorded.
@@ -215,12 +270,17 @@ $$;
 REVOKE EXECUTE ON FUNCTION public.fn_procurement_normalise_invoice_number(text) FROM anon, PUBLIC;
 GRANT  EXECUTE ON FUNCTION public.fn_procurement_normalise_invoice_number(text) TO authenticated;
 
--- Does an EARLIER, non-cancelled receipt from this supplier carry the same normalised
--- invoice number? Only receipts recorded before this one count (created_at, then id
--- as the tie-break), so the original receipt is never held by a later repeat of it —
--- only the repeat is. p_created_at NULL = a receipt not saved yet: every other one is
--- earlier. SECURITY DEFINER so a duplicate recorded at a college the verifier cannot
--- see still holds the receipt. Answers only a yes/no, and only to procurement users
+-- Does another non-cancelled receipt from this supplier carry the same normalised
+-- invoice number AND is it either already POSTED (accepted / partially_accepted /
+-- replacement_requested / completed) or recorded EARLIER than this one (created_at,
+-- then id as the tie-break)? A posted one always counts, whenever it was recorded —
+-- so cancelling the original, posting the repeat, then reviving the original holds
+-- the original (review round 2). Recording order only decides which of two
+-- never-posted receipts is the original: the original is never held by a later,
+-- unposted repeat of it — only the repeat is. p_created_at NULL = a receipt not
+-- saved yet: every other one counts. created_at, id and supplier_id are
+-- server-owned (fn_procurement_grn_invoice_checks, rule a2). SECURITY DEFINER so a
+-- duplicate recorded at a college the verifier cannot see still holds the receipt. Answers only a yes/no, and only to procurement users
 -- (grn_create / grn_verify / super admin / admin); anyone else gets false.
 CREATE OR REPLACE FUNCTION public.fn_procurement_grn_has_duplicate(
   p_grn_id uuid,
@@ -252,7 +312,8 @@ BEGIN
        AND g.id IS DISTINCT FROM p_grn_id
        AND g.status <> 'cancelled'
        AND public.fn_procurement_normalise_invoice_number(g.invoice_number) = v_key
-       AND (p_created_at IS NULL
+       AND (g.status IN ('accepted', 'partially_accepted', 'replacement_requested', 'completed')
+            OR p_created_at IS NULL
             OR g.created_at < p_created_at
             OR (g.created_at = p_created_at AND g.id < p_grn_id))
   );
@@ -274,8 +335,13 @@ GRANT  EXECUTE ON FUNCTION public.fn_procurement_grn_has_duplicate(uuid, uuid, t
 --   * any status change OUT of a posted status (including to cancelled) needs
 --     grn_verify — a receiver with grn_create only can no longer cancel an earlier
 --     accepted receipt to lift a hold.
---   * I1: any entry into a posted status (INSERT or UPDATE) is refused while an
---     earlier same-number receipt exists and nobody has confirmed it. A
+--   * reviving a cancelled receipt (cancelled -> any status) needs grn_verify
+--     (review round 2). cancelled -> a posted status is the first arm; cancelled ->
+--     draft / pending_verification is the third. A revived pending receipt is
+--     judged by the same I1 rule below when it is verified.
+--   * I1: any entry into a posted status (INSERT or UPDATE) is refused while
+--     another same-number receipt that is posted, or was recorded earlier, exists
+--     and nobody has confirmed it. A
 --     replacement receipt carries no invoice number, so it never matches.
 -- Re-check the live definition before applying: if another migration has moved it
 -- since, merge these blocks into that version instead of applying this copy.
@@ -362,11 +428,17 @@ BEGIN
         -- Added 2026-10-09 (review round): undoing or re-stating a verified receipt.
         v_key  := 'procurement.grn_verify';
         v_what := 'change the status of a verified goods receipt note';
+      ELSIF TG_OP = 'UPDATE' AND OLD.status = 'cancelled' THEN
+        -- Added 2026-10-09 (review round 2): reviving a cancelled receipt.
+        v_key  := 'procurement.grn_verify';
+        v_what := 'restore a cancelled goods receipt note';
       END IF;
       -- Added 2026-10-09 (invoice check I1, held save): a receipt whose invoice
-      -- number repeats an earlier one from the same supplier cannot be verified
-      -- until a verifier other than the receiver has confirmed it is a different
-      -- invoice. Who may confirm is checked by fn_procurement_grn_invoice_checks,
+      -- number repeats another from the same supplier that is already posted, or
+      -- was recorded earlier, cannot be verified until a verifier other than the
+      -- receiver has confirmed it is a different invoice. This runs on EVERY entry
+      -- into a posted status from a non-posted one, cancelled included, so a
+      -- revived receipt is re-judged. Who may confirm is checked by fn_procurement_grn_invoice_checks,
       -- which fires first (trg_pgrn_00_invoice_checks) and voids a confirmation
       -- whose invoice number or supplier changed.
       IF NEW.status IN ('accepted', 'partially_accepted', 'replacement_requested', 'completed')
@@ -374,7 +446,7 @@ BEGIN
               OR OLD.status NOT IN ('accepted', 'partially_accepted', 'replacement_requested', 'completed'))
          AND NEW.duplicate_confirmed_by IS NULL
          AND public.fn_procurement_grn_has_duplicate(NEW.id, NEW.supplier_id, NEW.invoice_number, NEW.created_at) THEN
-        RAISE EXCEPTION 'this delivery''s invoice number repeats an earlier one from the same supplier — a verifier other than the receiver must confirm it is a different invoice before it is added to stock'
+        RAISE EXCEPTION 'this delivery''s invoice number repeats another delivery from the same supplier (already in stock, or recorded earlier) — a verifier other than the receiver must confirm it is a different invoice before it is added to stock'
           USING ERRCODE = '42501';
       END IF;
   END CASE;

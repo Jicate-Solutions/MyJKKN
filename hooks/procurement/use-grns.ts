@@ -57,7 +57,8 @@ export function useGrnDuplicateInvoice(
       ]);
       return {
         hasDuplicate,
-        // Only receipts recorded BEFORE this one: the original is never shown as held.
+        // Receipts already in stock, or recorded BEFORE this one — the same rule as the
+        // database: the original is never held by a later, not-yet-verified repeat.
         earlier: findDuplicateGrns(visible, g.supplier_id, g.invoice_number, g.id, g),
       };
     },

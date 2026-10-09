@@ -64,6 +64,21 @@ export interface DuplicateCandidate {
   created_at?: string | null;
 }
 
+/**
+ * GRN statuses whose accepted goods are already in stock — the same set the DB verify
+ * guard (fn_procurement_guard_approval) and fn_procurement_grn_has_duplicate treat as
+ * posted.
+ */
+export const POSTED_GRN_STATUSES: readonly string[] = [
+  'accepted',
+  'partially_accepted',
+  'replacement_requested',
+  'completed',
+];
+
+const isPosted = (g: { status?: string | null }) =>
+  !!g.status && POSTED_GRN_STATUSES.includes(g.status);
+
 /** True when `g` was recorded before `ref` — created_at first, id as the tie-break. */
 function recordedBefore(
   g: { id: string; created_at?: string | null },
@@ -76,14 +91,19 @@ function recordedBefore(
 }
 
 /**
- * Earlier GRNs from the SAME supplier with the same normalised invoice number.
+ * Other GRNs from the SAME supplier with the same normalised invoice number that hold
+ * this one.
  *
  * Cancelled receipts are excluded: a cancelled GRN was undone, and re-recording the same
  * invoice is the expected way to fix it. `excludeGrnId` skips the record being edited.
  *
- * `earlierThan` (an already-saved receipt) keeps only receipts recorded BEFORE it, the
- * same rule as fn_procurement_grn_has_duplicate: the original receipt is never held by
- * a later repeat of it — only the repeat is. Omit it for a receipt not saved yet.
+ * `earlierThan` (an already-saved receipt) keeps only receipts that are already POSTED
+ * (whenever they were recorded) or were recorded BEFORE it — the same rule as
+ * fn_procurement_grn_has_duplicate. A posted one always counts, so cancelling the
+ * original, verifying the repeat and reviving the original holds the original. Recording
+ * order only decides which of two never-posted receipts is the original: the original is
+ * never held by a later, unposted repeat of it — only the repeat is. Omit it for a
+ * receipt not saved yet (every other non-cancelled one counts).
  */
 export function findDuplicateGrns<T extends DuplicateCandidate>(
   candidates: readonly T[],
@@ -100,7 +120,7 @@ export function findDuplicateGrns<T extends DuplicateCandidate>(
       g.id !== excludeGrnId &&
       g.status !== 'cancelled' &&
       normaliseInvoiceNumber(g.invoice_number) === key &&
-      (!earlierThan || recordedBefore(g, earlierThan)),
+      (!earlierThan || isPosted(g) || recordedBefore(g, earlierThan)),
   );
 }
 
@@ -219,8 +239,8 @@ export function lateReasonMissing(
 // ── I1 held save (Director, 2026-10-09) ──────────────────────────────────────
 
 /**
- * A receipt whose invoice number repeats an earlier one from the same supplier is
- * SAVED, but held: it cannot be verified (added to stock) until a verifier confirms it
+ * A receipt whose invoice number repeats another from the same supplier (one already
+ * posted, or recorded earlier — see findDuplicateGrns) is SAVED, but held: it cannot be verified (added to stock) until a verifier confirms it
  * is a different invoice. The verifier must not be the person who received it.
  *
  *   held        — a duplicate exists and nobody has confirmed it yet
@@ -244,6 +264,34 @@ export function duplicateHold(input: {
     !!input.viewerId &&
     input.viewerId !== input.receivedBy;
   return { held, canConfirm, blocksVerify: held };
+}
+
+// ── Reusing a finished read (review round 2, 2026-10-09) ─────────────────────
+
+/**
+ * The invoice-read result contract version this app understands. The Max-lane runner
+ * stamps it on every result as `version`; bump it whenever the contract changes, so an
+ * older (or malformed) stored read of a PDF is read again instead of being replayed.
+ * Same pattern as EXTRACT_RESULT_VERSION for quotations.
+ */
+export const INVOICE_READ_RESULT_VERSION = 1;
+
+const isPlainObject = (v: unknown): v is Record<string, unknown> =>
+  !!v && typeof v === 'object' && !Array.isArray(v);
+
+/**
+ * May a stored, finished invoice read be handed out again for the same PDF + order?
+ * Only when it is the current contract version and has the documented shape:
+ * `invoice` an object or null/absent, `lines` an array of objects or absent. Anything
+ * else is read again, so one bad result is never replayed to every later upload.
+ */
+export function isReusableInvoiceRead(result: unknown): boolean {
+  if (!isPlainObject(result)) return false;
+  if (!(Number(result.version) >= INVOICE_READ_RESULT_VERSION)) return false;
+  if (result.invoice != null && !isPlainObject(result.invoice)) return false;
+  if (result.lines != null && !(Array.isArray(result.lines) && result.lines.every(isPlainObject)))
+    return false;
+  return true;
 }
 
 // ── Filling the form from a finished read (review round, 2026-10-09) ─────────

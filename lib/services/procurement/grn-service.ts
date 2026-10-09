@@ -445,7 +445,8 @@ export class ProcurementGrnService {
   static async hasDuplicateInvoice(
     grn: Pick<ProcurementGrn, 'id' | 'supplier_id' | 'invoice_number' | 'created_at'>
   ): Promise<boolean> {
-    // Only EARLIER receipts count: the original is never held by a later repeat of it.
+    // Receipts already in stock, or recorded EARLIER, count: the original is never held
+    // by a later, not-yet-verified repeat — but is held once that repeat is in stock.
     const { data, error } = await this.supabase.rpc('fn_procurement_grn_has_duplicate', {
       p_grn_id: grn.id,
       p_supplier_id: grn.supplier_id,
@@ -537,7 +538,7 @@ export class ProcurementGrnService {
         }).blocksVerify
       ) {
         throw new Error(
-          'This invoice number repeats an earlier one from the same supplier. A verifier other than the receiver must confirm it is a different invoice before it is added to stock.'
+          'This invoice number repeats another delivery from the same supplier (already in stock, or recorded earlier). A verifier other than the receiver must confirm it is a different invoice before it is added to stock.'
         );
       }
 

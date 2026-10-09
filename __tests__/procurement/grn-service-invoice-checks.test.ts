@@ -293,12 +293,12 @@ describe('verifyGrn — nothing reaches stock that the rules refuse', () => {
   it('I1: refuses an unconfirmed repeated invoice, before any write', async () => {
     verifyWorld([item()], true);
     await expect(ProcurementGrnService.verifyGrn('g2', 'verifier')).rejects.toThrow(
-      /repeats an earlier one/
+      /repeats another delivery from the same supplier/
     );
     expect(writesTo('procurement_grn')).toHaveLength(0);
   });
 
-  it('I1: asks the database about EARLIER receipts only (sends created_at)', async () => {
+  it('I1: sends the database this receipt\'s id and created_at (its ordering key)', async () => {
     verifyWorld([item()], false);
     await ProcurementGrnService.verifyGrn('g2', 'verifier').catch(() => {});
     const call = rpcCalls.find((c) => c.fn === 'fn_procurement_grn_has_duplicate');
@@ -319,6 +319,12 @@ describe('hasDuplicateInvoice fallback (database function not there yet)', () =>
       { id: 'g3', supplier_id: 'sup1', invoice_number: 'INV-5', status: 'pending_verification', created_at: '2026-10-09T09:00:00+00:00' },
     ]);
     await expect(ProcurementGrnService.hasDuplicateInvoice(g)).resolves.toBe(false);
+  });
+  it('DOES hold the original once a later repeat is already in stock (review round 2)', async () => {
+    verifyWorld([], 'rpc-missing', [
+      { id: 'g3', supplier_id: 'sup1', invoice_number: 'INV-5', status: 'accepted', created_at: '2026-10-09T09:00:00+00:00' },
+    ]);
+    await expect(ProcurementGrnService.hasDuplicateInvoice(g)).resolves.toBe(true);
   });
 });
 

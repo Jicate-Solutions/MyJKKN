@@ -11,6 +11,9 @@ import {
   duplicateHold,
   isIsoDate,
   mergeInvoiceRead,
+  isReusableInvoiceRead,
+  INVOICE_READ_RESULT_VERSION,
+  POSTED_GRN_STATUSES,
 } from '@/lib/services/procurement/invoice-checks';
 
 // Invoice checks I1–I4 (spec from Draft PR #4289). The model only reads the PDF; these
@@ -259,6 +262,65 @@ describe('I1 findDuplicateGrns — earlierThan (review round)', () => {
   });
   it('without earlierThan (a receipt not saved yet) every other receipt counts', () => {
     expect(findDuplicateGrns(rows, 's', 'INV-77').map((g) => g.id)).toEqual(['a', 'b']);
+  });
+});
+
+describe('I1 findDuplicateGrns — a posted receipt always holds (review round 2)', () => {
+  // A = the original, recorded first; B = the repeat, recorded later.
+  const A = { id: 'a', supplier_id: 's', invoice_number: 'INV-77', status: 'pending_verification', created_at: '2026-10-08T10:00:00Z' };
+  const B = { id: 'b', supplier_id: 's', invoice_number: 'inv 77', status: 'pending_verification', created_at: '2026-10-09T10:00:00Z' };
+
+  it.each(['accepted', 'partially_accepted', 'replacement_requested', 'completed'])(
+    'a LATER repeat that is already %s holds the original (cancel-and-revive)',
+    (status) => {
+      expect(findDuplicateGrns([A, { ...B, status }], 's', 'INV-77', 'a', A).map((g) => g.id)).toEqual(['b']);
+    }
+  );
+  it('a later repeat that is NOT posted still never holds the original', () => {
+    for (const status of ['draft', 'pending_verification']) {
+      expect(findDuplicateGrns([A, { ...B, status }], 's', 'INV-77', 'a', A)).toEqual([]);
+    }
+  });
+  it('a cancelled one never holds, posted or not', () => {
+    expect(findDuplicateGrns([A, { ...B, status: 'cancelled' }], 's', 'INV-77', 'a', A)).toEqual([]);
+  });
+  it('the posted set is exactly the database guard\'s', () => {
+    expect([...POSTED_GRN_STATUSES].sort()).toEqual(
+      ['accepted', 'completed', 'partially_accepted', 'replacement_requested']
+    );
+  });
+});
+
+describe('isReusableInvoiceRead — only a current, well-formed read is replayed (review round 2)', () => {
+  const v = INVOICE_READ_RESULT_VERSION;
+  const good = {
+    version: v,
+    from_scan: false,
+    invoice: { invoice_number: 'INV-1', invoice_date: '2026-10-02', invoice_amount: 10 },
+    lines: [{ po_item_id: 'p1', invoice_quantity: 2 }],
+    unmatched_note: null,
+  };
+  it('reuses a read of the current contract', () => {
+    expect(isReusableInvoiceRead(good)).toBe(true);
+    expect(isReusableInvoiceRead({ ...good, version: v + 1 })).toBe(true);
+    expect(isReusableInvoiceRead({ version: v, invoice: null, lines: [] })).toBe(true);
+    expect(isReusableInvoiceRead({ version: String(v), invoice: null })).toBe(true);
+  });
+  it('reads again when the version is missing or older', () => {
+    const { version: _v, ...noVersion } = good;
+    expect(isReusableInvoiceRead(noVersion)).toBe(false);
+    expect(isReusableInvoiceRead({ ...good, version: v - 1 })).toBe(false);
+    expect(isReusableInvoiceRead({ ...good, version: 'new' })).toBe(false);
+  });
+  it('reads again when the shape is wrong', () => {
+    for (const bad of [null, undefined, 'done', 42, [good], {}]) {
+      expect(isReusableInvoiceRead(bad)).toBe(false);
+    }
+    expect(isReusableInvoiceRead({ ...good, invoice: 'INV-1' })).toBe(false);
+    expect(isReusableInvoiceRead({ ...good, invoice: [good.invoice] })).toBe(false);
+    expect(isReusableInvoiceRead({ ...good, lines: { po_item_id: 'p1' } })).toBe(false);
+    expect(isReusableInvoiceRead({ ...good, lines: 'p1' })).toBe(false);
+    expect(isReusableInvoiceRead({ ...good, lines: [good.lines[0], null] })).toBe(false);
   });
 });
 

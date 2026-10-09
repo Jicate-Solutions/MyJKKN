@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createHash } from 'node:crypto';
 import { requireProcurement, PROC_GRN_CREATE } from '@/lib/utils/procurement-auth';
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server';
+import { isReusableInvoiceRead } from '@/lib/services/procurement/invoice-checks';
 
 export const runtime = 'nodejs';
 export const maxDuration = 15;
@@ -73,7 +74,9 @@ const str = (v: unknown) => (typeof v === 'string' && v.trim() ? v.trim().slice(
  * (`/procurement/grn/new?po=<po_id>` — never `/procurement/grn/<grn_id>`), with
  * idempotency_key `procurement.invoice_extract:<job_id>` and category
  * `procurement:invoice`. The runner should also check the downloaded bytes against
- * payload.sha256 before reading them.
+ * payload.sha256 before reading them. Every result MUST carry
+ * `version: INVOICE_READ_RESULT_VERSION` (invoice-checks.ts): a stored read without it,
+ * or of the wrong shape, is never reused — it is read again.
  * tolerance_pct / max_invoice_age_days are deliberately NOT sent: the app enforces them
  * (three-way-match.ts, invoice-checks.ts). The model only reads; it never decides.
  */
@@ -177,7 +180,9 @@ export async function POST(req: NextRequest) {
   // ── Reuse an identical read (decision 8) ───────────────────────────────────
   // Same file + same order = same answer. Also how a late result is used: the person
   // comes back from the "invoice read" notification, picks the same PDF, and the form
-  // fills from the finished job instead of reading it again.
+  // fills from the finished job instead of reading it again. Only a result of the
+  // current contract version and shape is reused (isReusableInvoiceRead); a malformed
+  // or older one falls through to a fresh read, which then becomes the newest match.
   try {
     const { data: prior } = await admin
       .from('ai_jobs')
@@ -188,7 +193,7 @@ export async function POST(req: NextRequest) {
       .order('completed_at', { ascending: false })
       .limit(1)
       .maybeSingle();
-    if (prior?.result) {
+    if (prior && isReusableInvoiceRead(prior.result)) {
       return NextResponse.json({ reused: true, job_id: prior.id, result: prior.result });
     }
 

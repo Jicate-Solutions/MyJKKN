@@ -229,7 +229,8 @@ export default function GrnDetailPage() {
             </div>
         </section>
 
-        {/* I1 held save — same invoice number from this supplier as an earlier receipt. */}
+        {/* I1 held save — same invoice number from this supplier as another receipt that
+            is already in stock or was recorded earlier. */}
         {pending && hold.held && (
           <section className="space-y-3 rounded-xl border border-destructive/40 bg-background px-5 py-4 shadow">
             <div className="flex items-start gap-1.5 text-sm">
@@ -237,8 +238,8 @@ export default function GrnDetailPage() {
               <div className="space-y-1">
                 <p className="font-medium">On hold — this invoice number is already recorded</p>
                 <p className="text-muted-foreground">
-                  {grn.supplier?.name ?? 'This supplier'} has billed invoice “{grn.invoice_number}” on an
-                  earlier delivery. Stock cannot be added until a verifier who did not receive these
+                  {grn.supplier?.name ?? 'This supplier'} has billed invoice “{grn.invoice_number}” on
+                  another delivery. Stock cannot be added until a verifier who did not receive these
                   goods compares the two and confirms they are different invoices.
                 </p>
               </div>
