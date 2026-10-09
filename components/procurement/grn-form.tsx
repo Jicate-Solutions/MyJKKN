@@ -425,7 +425,7 @@ export function GrnForm({ poId, onSaved, onCancel, compact, onDirtyChange }: Grn
                   type="button"
                   variant="secondary"
                   size="sm"
-                  className="h-9"
+                  className="h-10 sm:h-9"
                   onClick={handleReadInvoice}
                   disabled={reading}
                 >

@@ -147,10 +147,10 @@ export default function ApprovalFlowsPage() {
                 onKeyDown={(e) => e.key === 'Enter' && addCategory()}
               />
               <div className="flex gap-2">
-                <Button size="sm" className="h-9" onClick={addCategory} disabled={!newName.trim() || saveCategory.isPending}>
+                <Button size="sm" className="h-10 sm:h-9" onClick={addCategory} disabled={!newName.trim() || saveCategory.isPending}>
                   Add
                 </Button>
-                <Button size="sm" variant="ghost" className="h-9" onClick={() => setAdding(false)}>
+                <Button size="sm" variant="ghost" className="h-10 sm:h-9" onClick={() => setAdding(false)}>
                   Cancel
                 </Button>
               </div>
