@@ -369,7 +369,7 @@ export function buildExtractPrompt(items: DirectExtractItem[]): string {
                 'When the vendor instead offers two or more ALTERNATIVES for one requested item (e.g. two brands), give ' +
                 'each the same id with role "option" — they are choices, not parts. Otherwise role is "item". ' +
                 'Vendors use their own names: a brand or trade name for the requested product is still a "same" match ' +
-                '(e.g. "Whatman No.1" is filter paper). Some requested items list names staff already confirmed ("also called"). ' +
+                '(e.g. "Whatman No.1" is filter paper). Some requested items list names team members already confirmed ("also called"). ' +
                 'Give each part its own UNIT price, as quoted. ' +
                 'Return unit_price as a plain number, for the pack printed on that line, and record that pack. ' +
                 "Use each requested item's specification to tell apart items with the same name (a 500 g solid " +

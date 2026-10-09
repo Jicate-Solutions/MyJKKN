@@ -99,7 +99,7 @@ describe('normalizeExtraction', () => {
 });
 
 describe('buildExtractPrompt', () => {
-  it('tells the reader the names staff already confirmed for an item', () => {
+  it('tells the reader the names team members already confirmed for an item', () => {
     const p = buildExtractPrompt([{ id: 'fp', item_name: 'Filter paper', aka: ['Whatman No.1 125mm'] }]);
     expect(p).toContain('I1 — Filter paper — also called: Whatman No.1 125mm');
   });

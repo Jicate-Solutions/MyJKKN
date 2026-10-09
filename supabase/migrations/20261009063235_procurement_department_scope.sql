@@ -37,15 +37,16 @@ LANGUAGE sql
 STABLE SECURITY DEFINER
 SET search_path TO 'public'
 AS $$
-  SELECT role_has_institution_access(p_institution_id)
-     AND (
+  -- The college check comes first in meaning: false for any college the caller can't see.
+  SELECT (
           p_requested_by = (SELECT auth.uid())
        OR procurement_sees_all_departments()
        OR (
             p_department_id IS NOT NULL
         AND p_department_id = (SELECT department_id FROM profiles WHERE id = (SELECT auth.uid()))
           )
-     );
+         )
+     AND role_has_institution_access(p_institution_id);
 $$;
 
 REVOKE ALL ON FUNCTION public.procurement_sees_all_departments() FROM anon, public;
