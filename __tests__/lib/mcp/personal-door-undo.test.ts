@@ -235,8 +235,8 @@ const call = (name: string, args: Record<string, unknown>) =>
     KEY
   );
 /** The answer's text; a refusal arrives as {"error": "..."}. */
-const textOf = (res: { result: { content: { text: string }[]; isError?: boolean } }) => {
-  const t = res.result.content[0].text;
+const textOf = (res: { result?: any }): string => {
+  const t: string = res.result.content[0].text;
   return res.result.isError ? (JSON.parse(t) as { error: string }).error : t;
 };
 
