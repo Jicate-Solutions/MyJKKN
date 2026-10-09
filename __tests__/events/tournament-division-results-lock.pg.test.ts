@@ -1,6 +1,6 @@
 /**
  * Behavioural proof for
- * supabase/migrations/20271009120000_tournament_division_results_lock.sql
+ * supabase/migrations/20271009163000_tournament_division_results_lock.sql
  *
  * BALAM-2K26 (8 Oct 2026): a women's Chess knockout division with 7 recorded
  * results had its sport changed to "Athletics - 400 m". The migration is
@@ -22,7 +22,7 @@ import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 const REPO = path.resolve(__dirname, '..', '..');
 const MIGRATION = path.join(
   REPO,
-  'supabase/migrations/20271009120000_tournament_division_results_lock.sql'
+  'supabase/migrations/20271009163000_tournament_division_results_lock.sql'
 );
 
 const PGHOST = process.env.DIVLOCK_TEST_PGHOST ?? 'localhost';

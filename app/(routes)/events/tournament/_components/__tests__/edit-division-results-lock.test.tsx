@@ -206,7 +206,7 @@ describe('Edit dialog — save order', () => {
 describe('Database guard — trg_tournament_division_results_lock', () => {
   const dir = join(process.cwd(), 'supabase/migrations');
   const guard = readFileSync(
-    join(dir, '20271009120000_tournament_division_results_lock.sql'),
+    join(dir, '20271009163000_tournament_division_results_lock.sql'),
     'utf8'
   );
   const manual = readFileSync(join(dir, '20271007170000_tournament_manual_fixtures.sql'), 'utf8');
