@@ -18,7 +18,9 @@
  * `brew services start postgresql@16`). Fails loudly rather than skipping.
  * Override with AI_DOOR_TEST_PGHOST / _PGPORT / _PGUSER / _PGPASSWORD.
  */
-import { readFileSync } from 'fs';
+import { readFileSync, writeFileSync, mkdtempSync } from 'fs';
+import { tmpdir } from 'os';
+import { spawnSync } from 'child_process';
 import path from 'path';
 import { randomUUID } from 'crypto';
 import { Client } from 'pg';
@@ -228,6 +230,13 @@ describe('the guard refuses and switches nothing on', () => {
       /no college-scope check in the live body.*ai_rpc_courses/,
     ],
     [
+      'a lookup that mentions the college-scope check only in a comment',
+      swap('ai_rpc_timetables', `BEGIN /* [scope-repair 2026-09-24] role_has_institution_access( */
+         -- _user_accessible_institutions(
+         RETURN (SELECT jsonb_agg(t) FROM timetables t); END`),
+      /no college-scope check in the live body.*ai_rpc_timetables/,
+    ],
+    [
       'a scoped lookup without 20270308090000\'s repair',
       swap('ai_rpc_degrees', `BEGIN PERFORM public.role_has_institution_access(NULL::uuid); RETURN '{}'::jsonb; END`),
       /scope repair is not in the live body.*ai_rpc_degrees/,
@@ -259,6 +268,22 @@ describe('the guard refuses and switches nothing on', () => {
       expect(await offTargets(db)).toEqual(THIRTEEN);
     });
   }
+
+  it('run by psql WITHOUT ON_ERROR_STOP, a failed check still switches nothing on', async () => {
+    const db = await freshDb(swap('ai_rpc_courses', `BEGIN RETURN '{}'::jsonb; END`));
+    const name = opened[opened.length - 1].name;
+    const file = path.join(mkdtempSync(path.join(tmpdir(), 'reenable-')), 'm.sql');
+    writeFileSync(file, REENABLE);
+    const run = spawnSync('psql', ['-h', PGHOST, '-p', String(PGPORT), '-U', PGUSER, '-d', name, '-v', 'ON_ERROR_STOP=0', '-f', file], {
+      env: { ...process.env, ...(PGPASSWORD ? { PGPASSWORD } : {}) },
+      encoding: 'utf8',
+    });
+    expect(run.error).toBeUndefined();
+    expect(run.stderr).toMatch(/no college-scope check/);
+    expect(await offTargets(db)).toEqual(THIRTEEN);
+    const audience = await db.query(`SELECT audience FROM public.ai_tool_catalog WHERE target = 'ai_rpc_bug_report_details'`);
+    expect(audience.rows[0].audience).toEqual(['assistant', 'door']);
+  });
 
   it('one of the 13 functions is missing', async () => {
     const db = await freshDb();
