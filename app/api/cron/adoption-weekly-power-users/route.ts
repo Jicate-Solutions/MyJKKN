@@ -27,8 +27,8 @@
 //   6. the new job ids are merged into agenda_jobs.
 // Messages nobody: no notifications, no meetings, no emails, no other table.
 //
-// Auth: CRON_SECRET via `Authorization: Bearer <secret>` OR `?secret=` (the
-// improvement-rank-ideas form). An RPC or write error is HTTP 500, and so is a
+// Auth: CRON_SECRET via `Authorization: Bearer <secret>` only — the dispatcher
+// sends Bearer, and a secret in the URL ends up in request logs. An RPC or write error is HTTP 500, and so is a
 // run where EVERY agenda job failed to queue (no seat, job type missing) — the
 // agendas are the whole reason this routine uses the AI, so a dead pipe must
 // not read as a healthy 200.
@@ -70,8 +70,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ ok: false, error: 'CRON_SECRET not configured' }, { status: 500 });
   }
   const authHeader = request.headers.get('authorization');
-  const querySecret = request.nextUrl.searchParams.get('secret');
-  if (authHeader !== `Bearer ${cronSecret}` && querySecret !== cronSecret) {
+  if (authHeader !== `Bearer ${cronSecret}`) {
     return NextResponse.json({ ok: false, error: 'unauthorized' }, { status: 401 });
   }
 
@@ -101,26 +100,29 @@ export async function GET(request: NextRequest) {
   let bugsReadable = true;
   if (top.length > 0) {
     const since = new Date(Date.now() - BUG_LOOKBACK_DAYS * 24 * 3600_000).toISOString();
-    const { data: bugs, error: bugErr } = await admin
-      .from('bug_reports')
-      .select('reporter_user_id, status, description, created_at')
-      .in(
-        'reporter_user_id',
-        top.map((p) => p.user_id)
+    // One read per person, so one prolific reporter cannot crowd out the others.
+    const reads = await Promise.all(
+      top.map((p) =>
+        admin
+          .from('bug_reports')
+          .select('reporter_user_id, status, description, created_at')
+          .eq('reporter_user_id', p.user_id)
+          .gte('created_at', since)
+          .order('created_at', { ascending: false })
+          .limit(MAX_BUGS_PER_PERSON)
       )
-      .gte('created_at', since)
-      .order('created_at', { ascending: false })
-      .limit(MAX_AGENDAS * 20);
-    if (bugErr) {
-      bugsReadable = false;
-      logger.warn(LOG_MODULE, `bug_reports read failed; prompts say so: ${bugErr.message}`);
-    }
-    for (const bug of (bugs ?? []) as Array<OwnBugReport & { reporter_user_id: string }>) {
-      const list = bugsByUser.get(bug.reporter_user_id) ?? [];
-      if (list.length < MAX_BUGS_PER_PERSON) {
-        list.push({ status: bug.status, description: bug.description, created_at: bug.created_at });
+    );
+    for (const { data: bugs, error: bugErr } of reads) {
+      if (bugErr) {
+        bugsReadable = false;
+        logger.warn(LOG_MODULE, `bug_reports read failed; prompts say so: ${bugErr.message}`);
+        continue;
       }
-      bugsByUser.set(bug.reporter_user_id, list);
+      for (const bug of (bugs ?? []) as Array<OwnBugReport & { reporter_user_id: string }>) {
+        const list = bugsByUser.get(bug.reporter_user_id) ?? [];
+        list.push({ status: bug.status, description: bug.description, created_at: bug.created_at });
+        bugsByUser.set(bug.reporter_user_id, list);
+      }
     }
   }
   const prompts = top.map((person) => ({
@@ -201,6 +203,7 @@ export async function GET(request: NextRequest) {
   let inFlight = 0;
   let failed = 0;
   let kept = 0;
+  let recovered = 0;
   const failures: string[] = [];
   for (const { user_id: userId, prompt } of prompts) {
     const earlierId = agendaJobs[userId];
@@ -208,18 +211,37 @@ export async function GET(request: NextRequest) {
       kept++;
       continue;
     }
+    const dedupeKey = `adoption-agenda:${weekStart}:${userId}`;
     const res = await enqueueJobsLane(admin, {
       jobType: AGENDA_JOB_TYPE,
       prompt,
       context: { week_start: weekStart, user_id: userId },
-      dedupeKey: `adoption-agenda:${weekStart}:${userId}`,
+      dedupeKey,
     });
     // `in` narrowing: with strictNullChecks off, `res.ok` does not narrow the union.
     if ('jobId' in res) {
       agendaJobs[userId] = res.jobId;
       enqueued++;
     } else if (res.reason === 'in_flight') {
-      inFlight++; // already queued — keep whatever id is stored
+      inFlight++;
+      // Already queued. If an earlier run queued it but failed to save the id,
+      // recover it, or the page shows "not ready" all week and a later run
+      // queues a second job for the same person.
+      if (!earlierId) {
+        const { data: live } = await admin
+          .from('ai_jobs')
+          .select('id')
+          .eq('job_type', AGENDA_JOB_TYPE)
+          .eq('payload->>_dedupe', dedupeKey)
+          .in('status', ['pending', 'claimed', 'running'])
+          .order('requested_at', { ascending: false })
+          .limit(1);
+        const liveId = (live as Array<{ id: string }> | null)?.[0]?.id;
+        if (liveId) {
+          agendaJobs[userId] = liveId;
+          recovered++;
+        }
+      }
     } else {
       failed++;
       failures.push(res.error ? `${res.reason}: ${res.error}` : res.reason);
@@ -227,7 +249,7 @@ export async function GET(request: NextRequest) {
   }
 
   // 6) remember the job ids
-  if (enqueued > 0) {
+  if (enqueued > 0 || recovered > 0) {
     const { error: updateErr } = await admin
       .from('adoption_power_user_weeks')
       .update({ agenda_jobs: agendaJobs })

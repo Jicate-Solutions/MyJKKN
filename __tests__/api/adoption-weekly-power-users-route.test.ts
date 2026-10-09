@@ -27,11 +27,21 @@ const rpc = vi.fn((_name: string, _args?: Record<string, unknown>) => Promise.re
 
 function builder(table: string) {
   const record = (op: string, args: unknown[]) => calls.push({ table, op, args });
-  const result = () => tableResults[table] ?? { data: null, error: null };
+  // eq() filters array rows on columns the row actually has, like the database would.
+  const eqs: Array<[string, unknown]> = [];
+  const result = (): Result => {
+    const r = tableResults[table] ?? { data: null, error: null };
+    if (!Array.isArray(r.data)) return r;
+    const rows = (r.data as Array<Record<string, unknown>>).filter((row) =>
+      eqs.every(([col, val]) => !(col in row) || row[col] === val)
+    );
+    return { ...r, data: rows };
+  };
   const chain: Record<string, unknown> = {};
   for (const op of ['select', 'in', 'gte', 'order', 'limit', 'eq', 'upsert', 'update']) {
     chain[op] = (...args: unknown[]) => {
       record(op, args);
+      if (op === 'eq') eqs.push([args[0] as string, args[1]]);
       return chain;
     };
   }
@@ -139,8 +149,14 @@ describe('who can start the run', () => {
     expect(rpc).not.toHaveBeenCalled();
   });
 
-  it('accepts the secret as ?secret= (the improvement-rank-ideas form)', async () => {
+  it('refuses the secret in the URL — Bearer only, so it never lands in request logs', async () => {
     const res = await GET(request({ query: `?secret=${SECRET}&dry_run=1` }));
+    expect(res.status).toBe(401);
+    expect(rpc).not.toHaveBeenCalled();
+  });
+
+  it('accepts the Bearer secret', async () => {
+    const res = await GET(request({ bearer: SECRET, query: `?week=${WEEK}&dry_run=1` }));
     expect(res.status).toBe(200);
   });
 });
@@ -258,6 +274,25 @@ describe('a real run', () => {
     const body = await res.json();
     expect(body.in_flight).toBe(10);
     expect(body.failed).toBe(0);
+  });
+
+  it('recovers a queued job id an earlier run failed to save, so nobody gets a second job', async () => {
+    enqueueJobsLane.mockImplementation(() => Promise.resolve({ ok: false, reason: 'in_flight' }));
+    tableResults.ai_jobs = { data: [{ id: 'live-1', status: 'pending' }], error: null };
+    const res = await GET(request({ bearer: SECRET, query: `?week=${WEEK}` }));
+    expect(res.status).toBe(200);
+    const lookup = calls.filter((c) => c.table === 'ai_jobs' && c.op === 'eq');
+    expect(lookup.map((c) => c.args)).toContainEqual(['payload->>_dedupe', `adoption-agenda:${WEEK}:u-01`]);
+    const update = calls.find((c) => c.op === 'update');
+    const stored = (update?.args[0] as { agenda_jobs: Record<string, string> }).agenda_jobs;
+    expect(stored['u-01']).toBe('live-1');
+  });
+
+  it("reads each person's own problem reports separately, so one busy reporter cannot crowd out the rest", async () => {
+    await GET(request({ bearer: SECRET, query: `?week=${WEEK}&dry_run=1` }));
+    const perPerson = calls.filter((c) => c.table === 'bug_reports' && c.op === 'eq');
+    expect(perPerson).toHaveLength(10);
+    expect(perPerson.every((c) => c.args[0] === 'reporter_user_id')).toBe(true);
   });
 
   it('is a 500 when every agenda job fails to queue', async () => {

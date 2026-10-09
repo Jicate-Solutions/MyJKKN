@@ -52,7 +52,7 @@ ALTER TABLE public.adoption_power_user_weeks ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "adoption_power_user_weeks_select_super_admin" ON public.adoption_power_user_weeks;
 CREATE POLICY "adoption_power_user_weeks_select_super_admin" ON public.adoption_power_user_weeks
   FOR SELECT TO authenticated USING ((SELECT is_super_admin()));
-REVOKE ALL ON public.adoption_power_user_weeks FROM anon;
+REVOKE ALL ON public.adoption_power_user_weeks FROM anon, authenticated;
 GRANT SELECT ON public.adoption_power_user_weeks TO authenticated;
 GRANT ALL ON public.adoption_power_user_weeks TO service_role;
 
@@ -189,7 +189,7 @@ BEGIN
               'institution_id', r.institution_id, 'institution_name', r.institution_name,
               'features_used', r.features_used, 'records_saved', r.records_saved,
               'active_days', r.active_days, 'total_events', r.total_events,
-              'is_new', (v_prev_top IS NOT NULL AND NOT EXISTS (
+              'is_new', (jsonb_typeof(v_prev_top) = 'array' AND NOT EXISTS (
                            SELECT 1 FROM jsonb_array_elements(v_prev_top) pt
                             WHERE pt->>'user_id' = r.user_id::text)),
               'modules', (SELECT COALESCE(jsonb_agg(jsonb_build_object('module', m.module, 'count', m.n)
