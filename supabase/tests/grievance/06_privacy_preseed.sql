@@ -1,5 +1,5 @@
 -- The state production is in BEFORE the anonymity / tracking migration
--- (20271010003000), on top of 00_stubs.sql + 05_preseed.sql + #4079's
+-- (20271010030000), on top of 00_stubs.sql + 05_preseed.sql + #4079's
 -- migration. Carried from PR #4156 (06_privacy_preseed.sql), minus the ICC
 -- reader fixtures and the 10-character description rule (those rulings are
 -- not carried), and minus grievance_comments / grievance_history, which

@@ -2,7 +2,7 @@
 //
 // Director ruling 1 (30 Sep 2026): an anonymous complaint hides the filer from
 // everyone handling it. The database stores no filer since migration
-// 20271010003000 (proved by supabase/tests/grievance/run.sh); these
+// 20271010030000 (proved by supabase/tests/grievance/run.sh); these
 // tests prove the second line — no handler read or external API returns
 // raised_by_id / name / email / phone or filed_by on an anonymous row,
 // whatever the row carries — and that the writers no longer send the filer id

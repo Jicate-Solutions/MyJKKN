@@ -12320,7 +12320,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS ux_hr_memos_triggered_by_event
 -- =====================================================================
 -- Updated: 2026-09-28 - Grievance: route on create, escalate on breach (columns)
 -- Updated: 2026-10-09 - the "about the Joint MD" tick (rulings 9 Oct 23:18, 23:25)
--- Source of truth for apply: supabase/migrations/20270420090000_grievance_sla_escalation.sql
+-- Source of truth for apply: supabase/migrations/20271010020000_grievance_sla_escalation.sql
 -- =====================================================================
 -- ---------------------------------------------------------------------
 -- 1) Two columns: when the ticket last moved up, and that level's own deadline
@@ -12345,11 +12345,11 @@ ALTER TABLE public.grievance_tickets
   ADD COLUMN IF NOT EXISTS about_joint_md boolean NOT NULL DEFAULT false;
 
 COMMENT ON COLUMN public.grievance_tickets.about_joint_md IS
-  'The complainant ticked "This complaint is about the Joint MD". Such a ticket goes to the Director (policy grievance.escalation.about_joint_md_profile_id), never to the Joint MD; the Joint MD cannot see it, count it or be told about it. Cleared only by fn_grievance_send_back_to_normal_path (the Director or a super admin), which re-routes it the normal way. Migration 20270420090000.';
+  'The complainant ticked "This complaint is about the Joint MD". Such a ticket goes to the Director (policy grievance.escalation.about_joint_md_profile_id), never to the Joint MD; the Joint MD cannot see it, count it or be told about it. Cleared only by fn_grievance_send_back_to_normal_path (the Director alone), which re-routes it the normal way. Migration 20271010020000.';
 
 -- =====================================================================
 -- Updated: 2026-10-10 - Grievance: anonymous means anonymous; tracking-code follow-up (table)
--- Source of truth for apply: supabase/migrations/20271010003000_grievance_anonymity_tracking.sql
+-- Source of truth for apply: supabase/migrations/20271010030000_grievance_anonymity_tracking.sql
 -- =====================================================================
 CREATE TABLE IF NOT EXISTS public.grievance_anonymous_messages (
   id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),

@@ -18,11 +18,31 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 type RpcArgs = Record<string, unknown> | undefined;
 let rpcData: unknown = null;
-let rpcError: { message: string } | null = null;
+let rpcError: { message: string; code?: string } | null = null;
 const rpc = vi.fn((_name: string, _args?: RpcArgs) => Promise.resolve({ data: rpcData, error: rpcError }));
 
+// The pre-migration path (deep review of #4079, M4): a plain select + update.
+let overdueRows: { id: string }[] = [];
+const updates: { values: Record<string, unknown>; ids: string[] }[] = [];
+const from = vi.fn((_table: string) => ({
+  select: () => {
+    const chain = {
+      in: () => chain,
+      is: () => chain,
+      lt: () => Promise.resolve({ data: overdueRows, error: null }),
+    };
+    return chain;
+  },
+  update: (values: Record<string, unknown>) => ({
+    in: (_col: string, ids: string[]) => {
+      updates.push({ values, ids });
+      return Promise.resolve({ error: null });
+    },
+  }),
+}));
+
 vi.mock('@/lib/supabase/server', () => ({
-  createServiceRoleClient: () => ({ rpc }),
+  createServiceRoleClient: () => ({ rpc, from }),
 }));
 
 import { GET } from '@/app/api/cron/grievance-sla-breach-check/route';
@@ -39,6 +59,9 @@ function request(opts: { bearer?: string; query?: string } = {}) {
 
 beforeEach(() => {
   rpc.mockClear();
+  from.mockClear();
+  overdueRows = [];
+  updates.length = 0;
   rpcData = {
     success: true,
     dry_run: false,
@@ -152,5 +175,61 @@ describe('what the run does and reports', () => {
     const body = await res.json();
     expect(body.summary).toContain('(escalation switched off)');
     expect(body.switched_off).toBe(4);
+  });
+});
+
+describe('complaints held with nobody to handle them (round 2, M4)', () => {
+  it('reports the bare count every run, and says so loudly', async () => {
+    rpcData = { ...(rpcData as object), held_for_director: 2 };
+    const res = await GET(request({ bearer: SECRET }));
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.held_for_director).toBe(2);
+    expect(body.summary).toContain('2 held with nobody to handle them');
+  });
+
+  it('says nothing about it when there are none', async () => {
+    const body = await (await GET(request({ bearer: SECRET }))).json();
+    expect(body.held_for_director).toBe(0);
+    expect(body.summary).not.toContain('held');
+  });
+});
+
+describe('an app deployed before its migration (M4)', () => {
+  const missing = {
+    code: 'PGRST202',
+    message: 'Could not find the function public.fn_grievance_escalation_tick(p_dry_run) in the schema cache',
+  };
+
+  it('falls back to breach stamping only, as before the PR, instead of a 500 every hour', async () => {
+    rpcError = missing;
+    rpcData = null;
+    overdueRows = [{ id: 't1' }, { id: 't2' }];
+    const res = await GET(request({ bearer: SECRET }));
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body).toMatchObject({ ok: true, legacy: true, breached: 2 });
+    expect(from).toHaveBeenCalledWith('grievance_tickets');
+    expect(updates).toHaveLength(1);
+    expect(updates[0].ids).toEqual(['t1', 't2']);
+    expect(updates[0].values).toMatchObject({ sla_status: 'breached' });
+  });
+
+  it('a dry run on the fallback writes nothing', async () => {
+    rpcError = { ...missing, code: '42883', message: 'function public.fn_grievance_escalation_tick(boolean) does not exist' };
+    rpcData = null;
+    overdueRows = [{ id: 't1' }];
+    const res = await GET(request({ bearer: SECRET, query: '?dry_run=1' }));
+    expect(res.status).toBe(200);
+    expect((await res.json()).breached).toBe(1);
+    expect(updates).toHaveLength(0);
+  });
+
+  it('another missing function is still a 500, not a silent fallback', async () => {
+    rpcError = { code: 'PGRST202', message: 'Could not find the function public.fn_grievance_notify in the schema cache' };
+    rpcData = null;
+    const res = await GET(request({ bearer: SECRET }));
+    expect(res.status).toBe(500);
+    expect(from).not.toHaveBeenCalled();
   });
 });

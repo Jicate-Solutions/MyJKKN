@@ -5,7 +5,7 @@
 // 1-5 star rating once the complaint is resolved.
 //
 // Every call goes to a token-checked SECURITY DEFINER function from migration
-// 20271010003000 (fn_grievance_track_conversation / _answer / _rate), granted
+// 20271010030000 (fn_grievance_track_conversation / _answer / _rate), granted
 // to signed-in callers only. The page never reads grievance_anonymous_messages
 // or grievance_tickets directly: the filer has no row-level access to either,
 // by design, because she is not named on the ticket.

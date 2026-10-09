@@ -135,6 +135,13 @@ CREATE POLICY grievance_tickets_select ON public.grievance_tickets FOR SELECT US
   OR ((is_icc_only = false) AND ((assigned_to = ( SELECT auth.uid() AS uid)) OR (filed_by = ( SELECT auth.uid() AS uid))
      OR (( SELECT user_has_permission('grievance.tickets.view'::text) AS user_has_permission) AND role_has_institution_access(institution_id))))));
 
+-- Production's SLA deadline (20260423_grievance_business_day_sla_functions:
+-- add_business_hours over the college's work calendar), here wall-clock: the
+-- send-back reuses it for a fresh deadline.
+CREATE OR REPLACE FUNCTION public.calculate_grievance_sla_deadline(p_institution_id uuid, p_sla_hours int, p_start_ts timestamptz DEFAULT NULL)
+RETURNS timestamptz LANGUAGE sql STABLE AS $$
+  SELECT COALESCE(p_start_ts, now()) + make_interval(hours => p_sla_hours) $$;
+
 -- What fn_generate_unresolved_issue_items calls (production signatures).
 CREATE OR REPLACE FUNCTION public.fn_get_generator_config(p_name text, p_default jsonb) RETURNS jsonb LANGUAGE sql AS $$ SELECT p_default $$;
 CREATE OR REPLACE FUNCTION public.fn_resolve_dashboard_target(p_institution_id uuid DEFAULT NULL) RETURNS uuid LANGUAGE sql AS $$

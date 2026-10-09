@@ -27,7 +27,7 @@
 //      the gate, and it is why the assignment is an insert field rather than a
 //      follow-up call.
 //   2. The INSERT triggers on grievance_tickets (routing on create, and its
-//      notice — migration 20270420090000) skip this ticket: they never touch
+//      notice — migration 20271010020000) skip this ticket: they never touch
 //      a ticket marked metadata.about_superior (set below), nor one that
 //      already has an assignee. The SLA escalation run skips the HOD and
 //      Principal for it too and goes straight to the Director level.
@@ -42,7 +42,7 @@
 // this tick is set that route is never used, even if "about my HOD or
 // manager" is ticked too. The ticket is written with about_joint_md = true
 // and NO assignee; the database (fn_grievance_route_on_create, migration
-// 20270420090000) gives it to the Director, or holds it when no Director is
+// 20271010020000) gives it to the Director, or holds it when no Director is
 // set, and hides it from the Joint MD.
 // ============================================================================
 

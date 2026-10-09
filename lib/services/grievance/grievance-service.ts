@@ -27,7 +27,7 @@ import type {
   CreateGrievanceInput,
 } from '@/lib/types/grievance';
 
-/** A row of grievance_anonymous_messages (migration 20271010003000). */
+/** A row of grievance_anonymous_messages (migration 20271010030000). */
 export interface GrievanceAnonymousMessage {
   id: string;
   ticket_id: string;
@@ -42,7 +42,7 @@ export interface GrievanceAnonymousMessage {
  * What createTicket hands back. A named ticket comes back as the row. An
  * anonymous one comes back as its private tracking code ONLY: the database
  * stores no filer on it (no raised_by_id, no filed_by — migration
- * 20271010003000), so the person who filed it has no RLS path to read it back,
+ * 20271010030000), so the person who filed it has no RLS path to read it back,
  * and asking for the row would make PostgREST's RETURNING fail AFTER the insert
  * succeeded — "could not create" for a complaint that was filed.
  * A string discriminant, because tsconfig's strictNullChecks: false stops

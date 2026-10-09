@@ -108,8 +108,9 @@ export default function GrievanceDetailPage({
   };
 
   // "Send back to the normal path" (Director ruling, 9 Oct 2026). The server
-  // decides who may (the Director or a super admin, never the Joint MD — who
-  // cannot open this page for such a complaint anyway); a refusal is shown.
+  // decides who may (only the Director named in the about-the-Joint-MD
+  // setting — not a super admin, never the Joint MD, who cannot open this page
+  // for such a complaint anyway); anyone else is shown the refusal.
   const handleSendBack = async () => {
     if (!window.confirm('Send this complaint back to the normal path? The "about the Joint MD" mark is removed, it is routed like any other complaint, and the Joint MD will be able to see it.')) {
       return;

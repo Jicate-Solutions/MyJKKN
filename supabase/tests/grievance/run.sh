@@ -7,7 +7,7 @@ export PGHOST="${PGHOST:-127.0.0.1}" PGPORT="${PGPORT:-5432}" PGOPTIONS="-c clie
 DB="${GRIEVANCE_REHEARSAL_DB:-grievance_rehearsal}"
 HERE="$(cd "$(dirname "$0")" && pwd)"; ROOT="$(cd "$HERE/../../.." && pwd)"
 # GRIEVANCE_MIGRATION: a mutated copy, to prove the scenarios fail when a rule is broken
-MIG="${GRIEVANCE_MIGRATION:-$ROOT/supabase/migrations/20270420090000_grievance_sla_escalation.sql}"
+MIG="${GRIEVANCE_MIGRATION:-$ROOT/supabase/migrations/20271010020000_grievance_sla_escalation.sql}"
 case "$PGHOST" in 127.0.0.1|localhost|::1) ;; *) echo "refusing: PGHOST=$PGHOST is not local"; exit 2;; esac
 
 psql -d postgres -qc "DROP DATABASE IF EXISTS $DB" && psql -d postgres -qc "CREATE DATABASE $DB"
@@ -20,12 +20,18 @@ psql -d "$DB" -v ON_ERROR_STOP=1 -q -f "$HERE/05_preseed.sql"
 DESK=$(grep -lE 'FUNCTION public\.fn_my_desk_waiting\(\)' "$ROOT"/supabase/migrations/*.sql | sort | tail -1)
 sed -nE '/^CREATE (OR REPLACE )?FUNCTION public\.fn_my_desk_waiting\(\)/,/^\$function\$;/p' "$DESK" \
   | psql -d "$DB" -v ON_ERROR_STOP=1 -q
+# Migration order (nothing numbered after this file re-creates what it patches),
+# and the five readers exactly as main's migrations before it leave them, in
+# schema "replay" (30_ patches and re-creates them): replay_readers.py.
+REPLAY="$(mktemp)"; trap 'rm -f "$REPLAY"' EXIT
+python3 "$HERE/replay_readers.py" "$ROOT/supabase/migrations" 20271010020000_grievance_sla_escalation.sql > "$REPLAY"
+psql -d "$DB" -v ON_ERROR_STOP=1 -q -f "$REPLAY"
 psql -d "$DB" -v ON_ERROR_STOP=1 -q -f "$MIG"
 # the migration must be safe to apply twice
 psql -d "$DB" -v ON_ERROR_STOP=1 -q -f "$MIG"
-# Stacked: anonymity + tracking-code follow-up (20271010003000), on the state
+# Stacked: anonymity + tracking-code follow-up (20271010030000), on the state
 # production is in before it, applied twice. PRIVACY_MIGRATION: a mutated copy.
-PRIV="${PRIVACY_MIGRATION:-$ROOT/supabase/migrations/20271010003000_grievance_anonymity_tracking.sql}"
+PRIV="${PRIVACY_MIGRATION:-$ROOT/supabase/migrations/20271010030000_grievance_anonymity_tracking.sql}"
 psql -d "$DB" -v ON_ERROR_STOP=1 -q -f "$HERE/06_privacy_preseed.sql"
 psql -d "$DB" -v ON_ERROR_STOP=1 -q -f "$PRIV"
 psql -d "$DB" -v ON_ERROR_STOP=1 -q -f "$PRIV"

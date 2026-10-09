@@ -5,7 +5,7 @@
 -- 30 Sep 2026), trimmed by the Director's rulings of 8 Oct 06:20 and
 -- 9 Oct 23:18: ONLY the two privacy parts are kept.
 --
--- STACKED ON 20270420090000_grievance_sla_escalation.sql (#4079). Apply after it.
+-- STACKED ON 20271010020000_grievance_sla_escalation.sql (#4079). Apply after it.
 --
 -- KEPT FROM #4156
 --   1. Anonymous tickets keep NO trace of who filed them, from everyone — the
@@ -15,7 +15,7 @@
 --      scrubbed, and the comments and grievance_history rows their filer wrote
 --      are de-named.
 --      KNOWN CONSEQUENCE, accepted: SLA escalation (fn_grievance_level_target,
---      20270420090000) and the about-the-Joint-MD routing exclude raised_by_id
+--      20271010020000) and the about-the-Joint-MD routing exclude raised_by_id
 --      and filed_by from their targets. On an anonymous row both are NULL, so
 --      if the person at level 3 (or the Director) filed anonymously, her own
 --      complaint can reach her. Excluding her needs her id on the row, which
@@ -24,7 +24,7 @@
 --      question on the ticket; the filer reads it and answers on the tracking
 --      page, without a name. RLS: whoever can read the ticket — so a
 --      complaint about the Joint MD stays hidden from the Joint MD here too
---      (her ticket rows are filtered by 20270420090000 section 11).
+--      (her ticket rows are filtered by 20271010020000 section 11).
 --   3. Three SECURITY DEFINER functions for the tracking page, callable by a
 --      signed-in person holding the private code (never by anon):
 --        fn_grievance_track_conversation(token) -> the questions/answers + rating

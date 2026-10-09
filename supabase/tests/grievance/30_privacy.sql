@@ -1,6 +1,6 @@
 -- Grievance complaint-privacy rehearsal. Every assertion raises 'FAIL: …'.
 -- Run by run.sh: stubs -> preseed -> #4079 -> 06_privacy_preseed ->
--- 20271010003000 (twice) -> 10_, 20_ -> this file. Carried from PR #4156's
+-- 20271010030000 (twice) -> 10_, 20_ -> this file. Carried from PR #4156's
 -- 20_privacy.sql: sections 1, 2, 4, 5, 6 and the grants. Its sections 3
 -- (description minimum), 7, 8 and 10 (harassment-committee routing) are not carried.
 -- Section 11 is new: the Joint MD still sees nothing of a complaint about

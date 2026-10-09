@@ -3,7 +3,7 @@
 // An anonymous complaint never shows who filed it (Director ruling, 30 Sep 2026).
 //
 // The database is the first line: since migration
-// 20271010003000_grievance_complaint_privacy.sql an anonymous ticket is stored
+// 20271010030000_grievance_anonymity_tracking.sql an anonymous ticket is stored
 // with no raised_by_id / _name / _email / _phone and no filed_by at all, for
 // every writer, and the old rows were scrubbed. This helper is the second line,
 // for every read a handler or an external API makes: whatever a query happened

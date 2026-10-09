@@ -3092,7 +3092,7 @@ CREATE TRIGGER trg_ig_learner_post_claims_guard
 -- =====================================================================
 -- Updated: 2026-09-28 - Grievance: route on create, escalate on breach (triggers)
 -- Updated: 2026-10-09 - the "about the Joint MD" tick (rulings 9 Oct 23:18, 23:25)
--- Source of truth for apply: supabase/migrations/20270420090000_grievance_sla_escalation.sql
+-- Source of truth for apply: supabase/migrations/20271010020000_grievance_sla_escalation.sql
 -- =====================================================================
 DROP TRIGGER IF EXISTS trg_grievance_route_on_create ON public.grievance_tickets;
 CREATE TRIGGER trg_grievance_route_on_create
@@ -3114,7 +3114,7 @@ CREATE TRIGGER trg_grievance_about_joint_md_guard
 
 -- =====================================================================
 -- Updated: 2026-10-10 - Grievance: anonymous means anonymous; tracking-code follow-up (triggers)
--- Source of truth for apply: supabase/migrations/20271010003000_grievance_anonymity_tracking.sql
+-- Source of truth for apply: supabase/migrations/20271010030000_grievance_anonymity_tracking.sql
 -- =====================================================================
 DROP TRIGGER IF EXISTS trg_grievance_zz_scrub_anonymous_filer ON public.grievance_tickets;
 DROP TRIGGER IF EXISTS zzz_grievance_scrub_anonymous_filer ON public.grievance_tickets;
