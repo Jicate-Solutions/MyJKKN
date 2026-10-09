@@ -94,7 +94,7 @@ function stubs(): string {
 }
 
 const SNAPSHOT = `SELECT name, kind, target, description, params, is_write, audience, requires_permission, enabled
-                    FROM public.ai_tool_catalog ORDER BY name`;
+                    FROM public.ai_tool_catalog ORDER BY name COLLATE "C"`;
 
 let admin: Client;
 let adminConnected = false;
@@ -115,7 +115,7 @@ async function freshDb(tweak?: string): Promise<Client> {
 }
 
 async function offTargets(db: Client): Promise<string[]> {
-  const r = await db.query(`SELECT target FROM public.ai_tool_catalog WHERE NOT enabled ORDER BY target`);
+  const r = await db.query(`SELECT target FROM public.ai_tool_catalog WHERE NOT enabled ORDER BY target COLLATE "C"`);
   return r.rows.map((x) => x.target);
 }
 
@@ -176,9 +176,9 @@ describe('switching the 13 lookups back on', () => {
   it('re-running changes nothing', async () => {
     const db = await freshDb();
     await db.query(REENABLE);
-    const once = (await db.query(`SELECT name, enabled, updated_at FROM public.ai_tool_catalog ORDER BY name`)).rows;
+    const once = (await db.query(`SELECT name, enabled, updated_at FROM public.ai_tool_catalog ORDER BY name COLLATE "C"`)).rows;
     await db.query(REENABLE);
-    const twice = (await db.query(`SELECT name, enabled, updated_at FROM public.ai_tool_catalog ORDER BY name`)).rows;
+    const twice = (await db.query(`SELECT name, enabled, updated_at FROM public.ai_tool_catalog ORDER BY name COLLATE "C"`)).rows;
     expect(twice).toEqual(once);
   });
 });
