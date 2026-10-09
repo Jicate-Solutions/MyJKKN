@@ -67,10 +67,11 @@ import {
   tournamentStatusLabel,
 } from '@/types/tournament';
 import { useTournamentEntries } from '@/hooks/events/use-tournament-registrations';
-import { useTournamentMatches } from '@/hooks/events/use-tournament-fixtures';
+import { useTournamentHeats, useTournamentMatches } from '@/hooks/events/use-tournament-fixtures';
 import type { TournamentDivision, TournamentEntry, TournamentMatch } from '@/types/tournament';
 import { InchargePanel } from './_components/incharge-panel';
 import { DivisionFixtures } from './_components/fixtures-section';
+import { DivisionHeats } from './_components/division-heats';
 import { DivisionPlacings } from './_components/division-placings';
 import { RegistrationFormCard } from './_components/registration-form-card';
 import { EventFeedbackLinkCard } from '@/components/events/feedback/event-feedback-link-card';
@@ -315,6 +316,7 @@ export default function TournamentManagePage() {
   // which listed the same people from events_registrations.
   const { data: entries = [] } = useTournamentEntries(id);
   const { data: matches = [] } = useTournamentMatches(id);
+  const { data: heats = [] } = useTournamentHeats(id);
 
   const [editOpen, setEditOpen] = useState(false);
 
@@ -729,6 +731,15 @@ export default function TournamentManagePage() {
             shownDivisions.map((d) => (
               <div key={d.id}>
                 <p className="text-sm font-medium">{divisionLabel(d)}</p>
+                {d.format === 'heats' ? (
+                  <DivisionHeats
+                    eventId={id}
+                    divisionId={d.id}
+                    heats={heats.filter((h) => h.division_id === d.id)}
+                    entries={entriesByDivision.get(d.id) ?? []}
+                    canManage={canManage}
+                  />
+                ) : (
                 <DivisionFixtures
                   eventId={id}
                   divisionId={d.id}
@@ -740,6 +751,7 @@ export default function TournamentManagePage() {
                   divisionLabel={divisionLabel(d)}
                   entries={entriesByDivision.get(d.id) ?? []}
                 />
+                )}
                 <DivisionPlacings
                   eventId={id}
                   entries={entriesByDivision.get(d.id) ?? []}
