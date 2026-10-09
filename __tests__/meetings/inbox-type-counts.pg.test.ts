@@ -71,6 +71,8 @@ INSERT INTO public.meeting_bookings (host_profile_id, meeting_type_id, status, s
   ('${HOST_A}', NULL,     'confirmed', now() + interval '3 days'),
   ('${HOST_A}', '${T_A}', 'cancelled', now() - interval '1 day'),
   ('${HOST_A}', '${T_A}', 'completed', now() - interval '2 days'),
+  -- ended but nobody marked it: "Awaiting you", never "Upcoming"
+  ('${HOST_A}', '${T_A}', 'confirmed', now() - interval '5 days'),
   ('${HOST_B}', '${T_B}', 'confirmed', now() + interval '1 day'),
   -- a booking on HOST_A's calendar of HOST_B's type: A sees the booking, not the type
   ('${HOST_A}', '${T_B}', 'confirmed', now() + interval '4 days');
@@ -158,7 +160,9 @@ describe('fn_meeting_inbox_type_counts', () => {
 
   it('the Past and Cancelled filters match the page tabs', async () => {
     const past = await counts(HOST_A, ['confirmed', 'completed', 'no_show'], null, now());
-    expect(past.rows).toEqual([{ meeting_type_id: T_A, title: 'Interview', n: 1 }]);
+    expect(past.rows).toEqual([{ meeting_type_id: T_A, title: 'Interview', n: 2 }]);
+    const awaiting = await counts(HOST_A, ['confirmed'], null, now());
+    expect(awaiting.rows).toEqual([{ meeting_type_id: T_A, title: 'Interview', n: 1 }]);
     const cancelled = await counts(HOST_A, ['cancelled'], null, null);
     expect(cancelled.rows).toEqual([{ meeting_type_id: T_A, title: 'Interview', n: 1 }]);
   });
@@ -170,9 +174,18 @@ describe('fn_meeting_inbox_type_counts', () => {
     expect(r.rows[0].prosecdef).toBe(false);
   });
 
-  it('anon cannot run it', async () => {
-    const r = await counts(null, null, null, null);
-    expect(r.error).toMatch(/permission denied/);
+  it('anon and PUBLIC cannot run it; signed-in users can', async () => {
+    const sig = 'public.fn_meeting_inbox_type_counts(text[], timestamptz, timestamptz)';
+    const r = await db.query(
+      `SELECT has_function_privilege('anon', $1, 'EXECUTE') AS anon,
+              has_function_privilege('authenticated', $1, 'EXECUTE') AS authed,
+              EXISTS (SELECT 1 FROM pg_proc p, aclexplode(p.proacl) a
+                       WHERE p.oid = $1::regprocedure AND a.grantee = 0 AND a.privilege_type = 'EXECUTE') AS public`,
+      [sig]
+    );
+    expect(r.rows[0]).toEqual({ anon: false, authed: true, public: false });
+    const call = await counts(null, null, null, null);
+    expect(call.error).toMatch(/permission denied for function/);
   });
 
   it('applies twice', async () => {
