@@ -64,7 +64,7 @@ import {
   useDeleteDivision,
 } from '@/hooks/events/use-tournaments';
 import { useTournamentEntries } from '@/hooks/events/use-tournament-registrations';
-import { useTournamentMatches } from '@/hooks/events/use-tournament-fixtures';
+import { useTournamentMatches, useTournamentHeats } from '@/hooks/events/use-tournament-fixtures';
 import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
 import { HostInstitutionsPicker, hostInstitutionsDto } from './host-institutions-picker';
 import { NaacCriteriaField } from '@/components/events/shared/naac-criteria-field';
@@ -318,6 +318,8 @@ function EditTournamentForm({
   // (BALAM-2K26: a chess division with results was turned into a 400 m one).
   // The database trigger enforces it; this only explains it up front.
   const { data: matches } = useTournamentMatches(tournament.id);
+  // Heats divisions (athletics, swimming) keep results per athlete instead.
+  const { data: heats } = useTournamentHeats(tournament.id);
 
   // Director decision (2026-09-07): an event's college may still be changed
   // while it is a DRAFT, and is fixed once it leaves draft. Before publication
@@ -387,10 +389,18 @@ function EditTournamentForm({
     divisions.find((d) => d.id === selectedDivisionId) ?? divisions[0] ?? null;
   const selectedHasResults =
     !!selectedDivision &&
-    (matches ?? []).some(
+    ((matches ?? []).some(
       (m) =>
         m.division_id === selectedDivision.id && RECORDED_RESULT_STATUSES.includes(m.status)
-    );
+    ) ||
+      // Same test as the trigger: a place, a mark, or DNS/DNF/DQ.
+      (heats ?? []).some(
+        (h) =>
+          h.division_id === selectedDivision.id &&
+          (h.athletes ?? []).some(
+            (a) => a.position != null || a.mark_value != null || a.result_status !== 'ok'
+          )
+      ));
 
   const set = (field: string, value: string | boolean) =>
     setForm((prev) => ({ ...prev, [field]: value }));
@@ -550,28 +560,6 @@ function EditTournamentForm({
   const submit = async () => {
     if (!form.name.trim() || !form.institution_id) return;
     try {
-      await update.mutateAsync({
-        id: tournament.id,
-        dto: {
-          name: form.name.trim(),
-          ...hostInstitutionsDto(
-            { primaryId: form.institution_id, hostIds: form.host_ids },
-            !!tournament.host_institution_ids?.length
-          ),
-          description: form.description || undefined,
-          scope: form.scope,
-          start_date: form.start_date || undefined,
-          end_date: form.end_date || undefined,
-          registration_open_date: form.registration_open_date || undefined,
-          registration_close_date: form.registration_close_date || undefined,
-          venue: form.venue.trim() || undefined,
-          is_public: form.is_public,
-          allow_external_registration: form.allow_external_registration,
-          participant_org_type: form.participant_org_type,
-          naac_criteria: form.naac_criteria,
-        },
-      });
-
       if (selectedDivision && Object.keys(divisionEdits).length > 0) {
         await updateDivision.mutateAsync({
           id: selectedDivision.id,
@@ -598,6 +586,30 @@ function EditTournamentForm({
         };
         await createDivision.mutateAsync({ eventId: tournament.id, dto });
       }
+
+      // Tournament fields last: a division update the database refuses (e.g.
+      // results already recorded) stops here, before anything else is saved.
+      await update.mutateAsync({
+        id: tournament.id,
+        dto: {
+          name: form.name.trim(),
+          ...hostInstitutionsDto(
+            { primaryId: form.institution_id, hostIds: form.host_ids },
+            !!tournament.host_institution_ids?.length
+          ),
+          description: form.description || undefined,
+          scope: form.scope,
+          start_date: form.start_date || undefined,
+          end_date: form.end_date || undefined,
+          registration_open_date: form.registration_open_date || undefined,
+          registration_close_date: form.registration_close_date || undefined,
+          venue: form.venue.trim() || undefined,
+          is_public: form.is_public,
+          allow_external_registration: form.allow_external_registration,
+          participant_org_type: form.participant_org_type,
+          naac_criteria: form.naac_criteria,
+        },
+      });
 
       onSaved();
       onClose();

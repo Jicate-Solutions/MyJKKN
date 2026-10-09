@@ -4,11 +4,12 @@
 // division has recorded results its sport, category and format must stay put;
 // the dialog says so up front and the database trigger is the backstop.
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { render, screen, cleanup } from '@testing-library/react';
+import { render, screen, cleanup, fireEvent, waitFor } from '@testing-library/react';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-const state = vi.hoisted(() => ({ matches: [] as any[] }));
+const state = vi.hoisted(() => ({ matches: [] as any[], heats: [] as any[] }));
+const calls = vi.hoisted(() => ({ order: [] as string[], divisionFails: false }));
 
 vi.mock('react-hot-toast', () => ({ default: { success: vi.fn(), error: vi.fn() } }));
 vi.mock('@/hooks/events/use-tournaments', () => ({
@@ -36,8 +37,19 @@ vi.mock('@/hooks/events/use-tournaments', () => ({
       ],
     },
   }),
-  useUpdateTournament: () => ({ mutateAsync: vi.fn(), isPending: false }),
-  useUpdateDivision: () => ({ mutateAsync: vi.fn(), isPending: false }),
+  useUpdateTournament: () => ({
+    mutateAsync: async () => {
+      calls.order.push('tournament');
+    },
+    isPending: false,
+  }),
+  useUpdateDivision: () => ({
+    mutateAsync: async () => {
+      calls.order.push('division');
+      if (calls.divisionFails) throw new Error('This division already has recorded results');
+    },
+    isPending: false,
+  }),
   useCreateDivision: () => ({ mutateAsync: vi.fn(), isPending: false }),
   useDeleteDivision: () => ({ mutateAsync: vi.fn(), isPending: false }),
 }));
@@ -46,6 +58,7 @@ vi.mock('@/hooks/events/use-tournament-registrations', () => ({
 }));
 vi.mock('@/hooks/events/use-tournament-fixtures', () => ({
   useTournamentMatches: () => ({ data: state.matches }),
+  useTournamentHeats: () => ({ data: state.heats }),
 }));
 vi.mock('@/hooks/organization/use-institutions-with-access', () => ({
   useInstitutionsWithAccess: () => ({ institutions: [], loading: false }),
@@ -79,6 +92,9 @@ const isDisabled = (name: string) =>
 afterEach(() => {
   cleanup();
   state.matches = [];
+  state.heats = [];
+  calls.order = [];
+  calls.divisionFails = false;
 });
 
 describe('Edit dialog — division with recorded results', () => {
@@ -103,6 +119,54 @@ describe('Edit dialog — division with recorded results', () => {
     expect(isDisabled('Sport')).toBe(false);
     expect(isDisabled('Format')).toBe(false);
     expect(screen.queryByText(/already has recorded results/)).toBeNull();
+  });
+});
+
+const heat = (athlete: Record<string, unknown>) => ({
+  id: 'h1',
+  division_id: 'd-chess',
+  heat_no: 1,
+  status: 'pending',
+  athletes: [
+    { id: 'a1', heat_id: 'h1', entry_id: 'e1', position: null, mark: null, mark_value: null, result_status: 'ok', ...athlete },
+  ],
+});
+
+describe('Edit dialog — heats division with recorded results', () => {
+  it('locks the controls when an athlete has a mark, a place or DNS/DNF/DQ', () => {
+    for (const athlete of [{ mark_value: 58.2 }, { position: 1 }, { result_status: 'dnf' }]) {
+      state.heats = [heat(athlete)];
+      renderDialog();
+      expect(isDisabled('Sport')).toBe(true);
+      expect(isDisabled('Format')).toBe(true);
+      cleanup();
+    }
+  });
+
+  it('leaves them editable when the heats are drawn but no result is in', () => {
+    state.heats = [heat({ lane_no: 3 })];
+    renderDialog();
+    expect(isDisabled('Sport')).toBe(false);
+  });
+});
+
+describe('Edit dialog — save order', () => {
+  it('saves the division first and stops when the database refuses it', async () => {
+    calls.divisionFails = true;
+    renderDialog();
+    fireEvent.change(screen.getByLabelText('Age Band'), { target: { value: 'U-19' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save Changes' }));
+    await waitFor(() => expect(calls.order).toEqual(['division']));
+    // Give a wrongly ordered submit a chance to reach the tournament update.
+    await new Promise((r) => setTimeout(r, 20));
+    expect(calls.order).toEqual(['division']);
+  });
+
+  it('saves the tournament after a successful division update', async () => {
+    renderDialog();
+    fireEvent.change(screen.getByLabelText('Age Band'), { target: { value: 'U-19' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save Changes' }));
+    await waitFor(() => expect(calls.order).toEqual(['division', 'tournament']));
   });
 });
 
@@ -136,6 +200,17 @@ describe('Database guard — trg_tournament_division_results_lock', () => {
     expect(g).toContain('SET search_path = public');
     expect(g).toMatch(
       /REVOKE EXECUTE ON FUNCTION public\.fn_tournament_division_results_lock\(\) FROM PUBLIC, anon, authenticated/
+    );
+  });
+
+  it('makes every result write take FOR SHARE on the division row (race with an edit)', () => {
+    const g = norm(guard);
+    expect(g).toContain('PERFORM 1 FROM tournament_divisions WHERE id = NEW.division_id FOR SHARE');
+    expect(g).toContain(
+      'BEFORE INSERT OR UPDATE ON public.tournament_matches FOR EACH ROW EXECUTE FUNCTION public.fn_tournament_result_lock_division()'
+    );
+    expect(g).toContain(
+      'BEFORE INSERT OR UPDATE ON public.tournament_heat_entries FOR EACH ROW EXECUTE FUNCTION public.fn_tournament_result_lock_division()'
     );
   });
 });
