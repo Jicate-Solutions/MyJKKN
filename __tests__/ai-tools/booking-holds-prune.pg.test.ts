@@ -5,7 +5,9 @@
  * 20271008160000) and a recording stand-in for pg_cron.
  *
  * Proves:
- *   the job is scheduled nightly under one stable name;
+ *   the job is scheduled nightly (22:17 UTC = 03:47 India time) under one
+ *     stable name, with a lock and statement timeout;
+ *   it refuses to schedule before the reservations table exists;
  *   running the scheduled command deletes only rows older than 30 days,
  *     released or not, and keeps everything newer, so the 1-hour and
  *     24-hour booking limits never lose a row they count;
@@ -63,14 +65,14 @@ let admin: Client;
 let adminConnected = false;
 const opened: { db: Client; name: string }[] = [];
 
-async function freshDb(withCron: boolean): Promise<Client> {
+async function freshDb(withCron: boolean, withTable = true): Promise<Client> {
   const name = `ai_prune_${randomUUID().replace(/-/g, '').slice(0, 16)}`;
   await admin.query(`CREATE DATABASE ${name}`);
   const db = new Client({ host: PGHOST, port: PGPORT, user: PGUSER, password: PGPASSWORD, database: name });
   await db.connect();
   opened.push({ db, name });
   await db.query(BASE);
-  await db.query(TABLE as string);
+  if (withTable) await db.query(TABLE as string);
   if (withCron) await db.query(CRON_STUB);
   return db;
 }
@@ -105,7 +107,35 @@ describe('pruning booking holds older than 30 days', () => {
     const db = await freshDb(true);
     await db.query(PRUNE);
     const { rows } = await db.query(`SELECT jobname, schedule FROM cron.job`);
-    expect(rows).toEqual([{ jobname: 'ai-booking-reservations-retention', schedule: '47 3 * * *' }]);
+    // 22:17 UTC = 03:47 India time (pg_cron reads UTC)
+    expect(rows).toEqual([{ jobname: 'ai-booking-reservations-retention', schedule: '17 22 * * *' }]);
+  });
+
+  it('refuses, scheduling nothing, when the reservations table does not exist yet', async () => {
+    const db = await freshDb(true, false);
+    await expect(db.query(PRUNE)).rejects.toThrow(/apply 20271008160000 first/);
+    expect((await db.query(`SELECT count(*)::int AS n FROM cron.job`)).rows[0].n).toBe(0);
+  });
+
+  it('the job gives up on a held lock instead of waiting', { timeout: 30_000 }, async () => {
+    const db = await freshDb(true);
+    await db.query(PRUNE);
+    const { rows } = await db.query(`SELECT command FROM cron.job`);
+    expect(rows[0].command).toMatch(/SET LOCAL lock_timeout = '5s'; SET LOCAL statement_timeout = '60s';/);
+    // a second session holds the table; the job must fail fast, not queue
+    const dbName = opened[opened.length - 1].name;
+    const holder = new Client({ host: PGHOST, port: PGPORT, user: PGUSER, password: PGPASSWORD, database: dbName });
+    await holder.connect();
+    try {
+      await holder.query('BEGIN');
+      await holder.query('LOCK TABLE public.ai_booking_reservations IN ACCESS EXCLUSIVE MODE');
+      const started = Date.now();
+      await expect(db.query(rows[0].command)).rejects.toThrow(/lock timeout/);
+      expect(Date.now() - started).toBeLessThan(15_000);
+    } finally {
+      await holder.query('ROLLBACK').catch(() => undefined);
+      await holder.end();
+    }
   });
 
   it('the scheduled command deletes only rows older than 30 days', async () => {
