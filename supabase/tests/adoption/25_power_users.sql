@@ -93,8 +93,20 @@ SELECT _ev('60000000-0000-0000-0000-000000000005', ARRAY['h1','h2','h3','h4','h5
 -- it, so it is real. The Module Inventor makes up 20 module names plus one carrying an
 -- instruction, over two days; each is used by one person only, so none counts and the
 -- inventor never ranks (and, active on 2 days, is not a one-day person either).
+-- (Excluded and test accounts do NOT count toward the 3 people, so m6's two other users
+-- are two ordinary staff, active on 2 days so they are not one-day people, ranking
+-- far below the top 10. The super admins also open m6 and the inventor's fake_1, to
+-- prove excluded people cannot vouch for a name.)
+INSERT INTO profiles (id, email, full_name, role, institution_id, is_super_admin, created_at) VALUES
+  ('5b000000-0000-0000-0000-000000000001','bg1@x','Background 1','faculty','aaaaaaaa-0000-0000-0000-000000000001',false,'2026-01-01'),
+  ('5b000000-0000-0000-0000-000000000002','bg2@x','Background 2','faculty','aaaaaaaa-0000-0000-0000-000000000001',false,'2026-01-01');
 SELECT _ev(u::uuid, ARRAY['m6'], '2026-09-29 10:00+05:30')
-  FROM unnest(ARRAY['60000000-0000-0000-0000-000000000001','60000000-0000-0000-0000-000000000002']) u;
+  FROM unnest(ARRAY['5b000000-0000-0000-0000-000000000001','5b000000-0000-0000-0000-000000000002']) u;
+SELECT _ev(u::uuid, ARRAY['m6'], '2026-09-30 10:00+05:30')
+  FROM unnest(ARRAY['5b000000-0000-0000-0000-000000000001','5b000000-0000-0000-0000-000000000002']) u;
+SELECT _ev(u::uuid, ARRAY['fake_1','fake_2','fake_3','fake_4','fake_5','fake_6'], '2026-09-29 10:00+05:30')
+  FROM unnest(ARRAY['60000000-0000-0000-0000-000000000001','60000000-0000-0000-0000-000000000002',
+                    '60000000-0000-0000-0000-000000000006']) u;
 INSERT INTO profiles (id, email, full_name, role, institution_id, is_super_admin, created_at) VALUES
   ('5a000000-0000-0000-0000-000000000001','gamer@x','Module Inventor','faculty','aaaaaaaa-0000-0000-0000-000000000001',false,'2026-01-01');
 SELECT _ev('5a000000-0000-0000-0000-000000000001',

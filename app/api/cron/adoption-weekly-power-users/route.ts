@@ -54,6 +54,7 @@ import {
   MAX_BUGS_PER_PERSON,
   buildAgendaPrompt,
   isMondayDate,
+  isStaleAgendaJob,
   isUsableAgendaJob,
   previousIstWeekStart,
   summarisePowerUsersRun,
@@ -113,7 +114,11 @@ export async function GET(request: NextRequest) {
   // Per person: one failed read marks only THAT person's prompt "could not be read".
   const bugsUnreadable = new Set<string>();
   if (top.length > 0) {
-    const since = new Date(Date.now() - BUG_LOOKBACK_DAYS * 24 * 3600_000).toISOString();
+    // The 30 days that end with the reported week (not with today), so a
+    // re-run of an older week sees that week's reports.
+    const weekEnd = Date.parse(`${weekStart}T00:00:00+05:30`) + 7 * 24 * 3600_000;
+    const until = new Date(Math.min(weekEnd, Date.now())).toISOString();
+    const since = new Date(weekEnd - BUG_LOOKBACK_DAYS * 24 * 3600_000).toISOString();
     // One read per person, so one prolific reporter cannot crowd out the others.
     const reads = await Promise.all(
       top.map((p) =>
@@ -122,6 +127,7 @@ export async function GET(request: NextRequest) {
           .select('reporter_user_id, status, module_name, sub_module_name, created_at')
           .eq('reporter_user_id', p.user_id)
           .gte('created_at', since)
+          .lt('created_at', until)
           .order('created_at', { ascending: false })
           .limit(MAX_BUGS_PER_PERSON)
       )
@@ -243,12 +249,16 @@ export async function GET(request: NextRequest) {
     // a stored id is kept, and anyone else is counted as failed (HTTP 500), so
     // a finished agenda is never doubled; the next run retries.
     if (lookupFailed) {
-      if (agendaJobs[userId]) {
-        kept++;
-      } else {
-        failed++;
-        failures.push('earlier agenda jobs unreadable — not queued, to avoid a second agenda');
-      }
+      if (agendaJobs[userId]) kept++;
+      continue; // the whole run answers 500 below (lookupFailed), so the next run retries
+    }
+    if (latest && isStaleAgendaJob(latest)) {
+      // Queued more than a day ago and never picked up: the Max drain is down.
+      // A new job cannot replace it (the dedupe blocks a second live job), so
+      // the run reports it as a failure instead of a quiet 200.
+      agendaJobs[userId] = latest.id;
+      failed++;
+      failures.push('agenda job queued over 24 h ago and never picked up (is the Max drain down?)');
       continue;
     }
     if (latest && isUsableAgendaJob(latest)) {
@@ -267,19 +277,28 @@ export async function GET(request: NextRequest) {
       agendaJobs[userId] = res.jobId;
       enqueued++;
     } else if (res.reason === 'in_flight') {
-      inFlight++;
       // Queued between the lookup and now (another run). Record its id now —
       // the next scheduled run is for a different week and would never do it.
-      const { data: live } = await admin
+      // It may also have finished already, so 'done' is matched too. If the id
+      // cannot be found, that is a failure (500), not a quiet in_flight.
+      const { data: live, error: liveErr } = await admin
         .from('ai_jobs')
         .select('id')
         .eq('job_type', AGENDA_JOB_TYPE)
         .eq('payload->>_dedupe', dedupeKey)
-        .in('status', ['pending', 'claimed', 'running'])
+        .in('status', ['pending', 'claimed', 'running', 'done'])
         .order('requested_at', { ascending: false })
         .limit(1);
       const liveId = (live as Array<{ id: string }> | null)?.[0]?.id;
-      if (liveId) agendaJobs[userId] = liveId;
+      if (!liveErr && liveId) {
+        agendaJobs[userId] = liveId;
+        inFlight++;
+      } else {
+        failed++;
+        failures.push(
+          `queued by another run but its id could not be read${liveErr ? `: ${liveErr.message}` : ''}`
+        );
+      }
     } else {
       failed++;
       failures.push(res.error ? `${res.reason}: ${res.error}` : res.reason);
@@ -300,6 +319,12 @@ export async function GET(request: NextRequest) {
     if (mergeErr) return fail(`agenda job ids not saved: ${mergeErr.message}`, started);
   }
 
+  // A failed ai_jobs lookup means we could not tell who already has an agenda,
+  // so the run is a failure even when every person had a stored id.
+  if (lookupFailed) {
+    failed += prompts.length - kept;
+    failures.unshift('earlier agenda jobs unreadable — nobody queued, to avoid a second agenda');
+  }
   const counts = {
     top: top.length,
     oneDayStaff: payload.one_day_staff.length,
@@ -314,7 +339,7 @@ export async function GET(request: NextRequest) {
   // Any agenda that could not be queued is a failed run (HTTP 500), even when
   // the others went through: the report row and the queued jobs are already
   // saved, and the next run retries only the missing people.
-  if (failed > 0) {
+  if (failed > 0 || lookupFailed) {
     logger.error(LOG_MODULE, `${failed} agenda job(s) not queued (${failures[0]}) — ${summary}`);
     return NextResponse.json(
       {

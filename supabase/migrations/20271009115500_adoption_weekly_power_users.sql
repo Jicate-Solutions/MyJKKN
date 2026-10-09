@@ -142,10 +142,18 @@ BEGIN
   -- different people used it that week. usage_events can be written from the
   -- browser, so a single person inventing module names can neither climb the
   -- ranking nor put free text into the agenda prompt.
+  -- The 3 people are counted only among people the report itself counts (a
+  -- profile, not a super admin, not a test account, not an excluded college),
+  -- so excluded or test accounts cannot vouch for an invented name.
   valid_modules AS (
     SELECT ev.module
       FROM ev
+      JOIN public.profiles vp ON vp.id = ev.user_id
      WHERE ev.module ~ '^[a-z0-9_/.-]{1,64}$'
+       AND COALESCE(vp.role, '') <> 'super_admin'
+       AND COALESCE(vp.is_super_admin, false) = false
+       AND NOT (COALESCE(vp.email, '') ILIKE 'test%' OR COALESCE(vp.full_name, '') ILIKE 'test %')
+       AND NOT (COALESCE(COALESCE(vp.institution_id, ev.institution_id) = ANY (v_excluded), false))
      GROUP BY ev.module
     HAVING count(DISTINCT ev.user_id) >= 3
   ),
@@ -154,8 +162,11 @@ BEGIN
            count(DISTINCT (ev.module, COALESCE(ev.feature, ''))) FILTER (
              WHERE ev.module IN (SELECT vm.module FROM valid_modules vm)
                AND COALESCE(ev.feature, '') ~ '^[a-z0-9_/.:-]{0,64}$')                               AS features_used,
-           count(*) FILTER (WHERE ev.event_type IN ('create', 'update', 'export'))                    AS records_saved,
-           count(*)                                                                                  AS total_events,
+           -- the tie-breakers count only events on real modules too, so a burst of
+           -- browser-written events on made-up names cannot lift anyone
+           count(*) FILTER (WHERE ev.event_type IN ('create', 'update', 'export')
+                              AND ev.module IN (SELECT vm.module FROM valid_modules vm))         AS records_saved,
+           count(*) FILTER (WHERE ev.module IN (SELECT vm.module FROM valid_modules vm))         AS total_events,
            count(DISTINCT ev.ist_day)                                                                AS active_days,
            max(ev.ist_day)                                                                           AS last_day,
            (array_agg(ev.institution_id ORDER BY ev.created_at DESC)

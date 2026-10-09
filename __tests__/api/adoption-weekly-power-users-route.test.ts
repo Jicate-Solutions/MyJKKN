@@ -49,7 +49,7 @@ function builder(table: string) {
     return { ...r, data: rows };
   };
   const chain: Record<string, unknown> = {};
-  for (const op of ['select', 'in', 'gte', 'order', 'limit', 'eq', 'upsert', 'update']) {
+  for (const op of ['select', 'in', 'gte', 'lt', 'order', 'limit', 'eq', 'upsert', 'update']) {
     chain[op] = (...args: unknown[]) => {
       record(op, args);
       own.push({ table, op, args });
@@ -268,10 +268,11 @@ describe('a real run', () => {
   });
 
   const agenda = JSON.stringify({ questions: ['q1', 'q2', 'q3'], topics: ['t1', 't2'] });
-  const job = (user: string, id: string, status: string, result: unknown = null) => ({
+  const job = (user: string, id: string, status: string, result: unknown = null, requested_at: string | null = null) => ({
     id,
     status,
     result,
+    requested_at,
     dedupe: `adoption-agenda:${WEEK}:${user}`,
   });
 
@@ -340,6 +341,58 @@ describe('a real run', () => {
     expect(enqueueJobsLane).not.toHaveBeenCalled();
   });
 
+  it('is a 500 when a job lookup fails even if everyone already had a stored id', async () => {
+    const all = Object.fromEntries(Array.from({ length: 10 }, (_, i) => [`u-${String(i + 1).padStart(2, '0')}`, `old-${i}`]));
+    tableResults.adoption_power_user_weeks = { data: { agenda_jobs: all }, error: null };
+    tableResults.ai_jobs = { data: null, error: { message: 'boom' } };
+    const res = await GET(request({ bearer: SECRET, query: `?week=${WEEK}` }));
+    expect(res.status).toBe(500);
+    const body = await res.json();
+    expect(body.ok).toBe(false);
+    expect(body.kept).toBe(10);
+    expect(enqueueJobsLane).not.toHaveBeenCalled();
+  });
+
+  it('is a 500 when another run queued the job but its id cannot be read', async () => {
+    enqueueJobsLane.mockImplementation(() => Promise.resolve({ ok: false, reason: 'in_flight' }));
+    tableResults.ai_jobs = (ops) =>
+      ops.some((o) => o.op === 'eq' && o.args[0] === 'payload->>_dedupe')
+        ? { data: null, error: { message: 'timeout' } }
+        : { data: [], error: null };
+    const res = await GET(request({ bearer: SECRET, query: `?week=${WEEK}` }));
+    expect(res.status).toBe(500);
+    expect((await res.json()).failed).toBe(10);
+  });
+
+  it('records a job another run queued that has ALREADY finished (done)', async () => {
+    enqueueJobsLane.mockImplementation(() => Promise.resolve({ ok: false, reason: 'in_flight' }));
+    tableResults.ai_jobs = (ops) =>
+      ops.some((o) => o.op === 'eq' && o.args[0] === 'payload->>_dedupe')
+        ? { data: [{ id: 'done-1', status: 'done' }], error: null }
+        : { data: [], error: null };
+    await GET(request({ bearer: SECRET, query: `?week=${WEEK}` }));
+    const statusFilter = calls.find((c) => c.table === 'ai_jobs' && c.op === 'in' && c.args[0] === 'status');
+    expect(statusFilter?.args[1]).toContain('done');
+    expect(merged()?.['u-01']).toBe('done-1');
+  });
+
+  it('reports a job stuck in the queue for over a day as a failure (500), not a quiet 200', async () => {
+    const old = new Date(Date.now() - 30 * 3600_000).toISOString();
+    tableResults.ai_jobs = { data: [job('u-01', 'stuck-1', 'pending', null, old)], error: null };
+    const res = await GET(request({ bearer: SECRET, query: `?week=${WEEK}` }));
+    expect(res.status).toBe(500);
+    const body = await res.json();
+    expect(body.failures.join(' ')).toContain('24 h');
+  });
+
+  it("reads problem reports from the 30 days that END with the reported week", async () => {
+    await GET(request({ bearer: SECRET, query: `?week=${WEEK}&dry_run=1` }));
+    const lt = calls.find((c) => c.table === 'bug_reports' && c.op === 'lt');
+    const gte = calls.find((c) => c.table === 'bug_reports' && c.op === 'gte');
+    expect(lt?.args[1]).toBe(new Date(Date.parse(`${WEEK}T00:00:00+05:30`) + 7 * 86400_000).toISOString());
+    expect(gte?.args[1]).toBe(new Date(Date.parse(`${WEEK}T00:00:00+05:30`) + 7 * 86400_000 - 30 * 86400_000).toISOString());
+  });
+
   it('records the id of a job another run queued at the same moment (in_flight)', async () => {
     enqueueJobsLane.mockImplementation(() => Promise.resolve({ ok: false, reason: 'in_flight' }));
     // the dedupe-key lookup before queueing sees nothing; the in_flight lookup finds the live job
@@ -365,8 +418,12 @@ describe('a real run', () => {
     expect(promptOf('u-03')).toContain('(none)');
   });
 
-  it('counts an already-queued job as in flight, not a failure', async () => {
+  it('counts an already-queued job as in flight, not a failure, when its id can be read', async () => {
     enqueueJobsLane.mockImplementation(() => Promise.resolve({ ok: false, reason: 'in_flight' }));
+    tableResults.ai_jobs = (ops) =>
+      ops.some((o) => o.op === 'eq' && o.args[0] === 'payload->>_dedupe')
+        ? { data: [{ id: 'live-x', status: 'running' }], error: null }
+        : { data: [], error: null };
     const res = await GET(request({ bearer: SECRET, query: `?week=${WEEK}` }));
     expect(res.status).toBe(200);
     const body = await res.json();
