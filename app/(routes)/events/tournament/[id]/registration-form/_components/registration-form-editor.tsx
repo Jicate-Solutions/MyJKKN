@@ -719,7 +719,7 @@ export function RegistrationFormEditor({
   const router = useRouter();
   const isTournament = variant === 'tournament';
   const backTo = backHref ?? `/events/tournament/${eventId}`;
-  const { data: form, isLoading } = useRegistrationForm(formId);
+  const { data: form, isLoading, isError, refetch } = useRegistrationForm(formId);
   const save = useSaveRegistrationForm(eventId);
   // Tournament only: the built-in Sport dropdown can drive a show/hide rule too
   // (e.g. "Jersey size" only when Sport is Volleyball). Not a custom field, so
@@ -964,7 +964,25 @@ export function RegistrationFormEditor({
     [isTournament, contactBlock, sections]
   );
 
-  if (isLoading) {
+  // Never offer an editable builder before it is seeded from the server.
+  // BUG-006271: when the first load failed, the builder used to render empty
+  // and editable; the organizer added questions, a later refetch (any settings
+  // change invalidates this query) then seeded the server's empty form OVER her
+  // edits, and Save — still enabled — sent zero sections.
+  if (!seeded && isError && !form) {
+    return (
+      <Card>
+        <CardContent className="space-y-3 py-8 text-center text-sm text-muted-foreground">
+          <p>This form&apos;s questions could not be loaded, so it cannot be edited yet.</p>
+          <Button type="button" variant="outline" size="sm" onClick={() => refetch()}>
+            Try again
+          </Button>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (isLoading || !seeded) {
     return (
       <div className="flex h-64 items-center justify-center">
         <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
