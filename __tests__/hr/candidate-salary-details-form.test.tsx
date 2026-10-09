@@ -24,10 +24,10 @@ const CANDIDATE = '11111111-1111-4111-8111-111111111111';
 function payload(source: string | null) {
   return {
     details: { designation_id: 'dg-1', department_id: 'dept-1', prior_experience_years: 4, prior_experience_source: source },
-    roleTitle: 'Lab Assistant',
+    roleTitle: 'Office Assistant',
     hasCollege: true,
     roleTitleMatchId: 'dg-1',
-    designations: [{ id: 'dg-1', name: 'Lab Assistant' }],
+    designations: [{ id: 'dg-1', name: 'Office Assistant' }],
     departments: [{ id: 'dept-1', name: 'Mechanical' }],
   };
 }
