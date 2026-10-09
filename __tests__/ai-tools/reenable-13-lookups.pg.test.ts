@@ -1,0 +1,213 @@
+/**
+ * supabase/migrations/20271009100500_ai_tool_catalog_reenable_13_lookups.sql,
+ * applied VERBATIM on top of 20270301090000_ai_tool_catalog.sql in a
+ * throwaway PostgreSQL.
+ *
+ * Proves:
+ *   exactly the 13 lookups that 20270301090000 switched off are switched on,
+ *   and every other catalog row is unchanged (all columns but updated_at);
+ *   re-running is a no-op;
+ *   the guard refuses, and nothing is switched on, when any one of the 13
+ *   still has a known failure: it calls ai_rpc_accessible_scope, it is
+ *   missing, academic_context reads is_current, or admission_analytics nests
+ *   the aggregate.
+ *
+ * REQUIRES a PostgreSQL (CI's postgres:16 service; locally
+ * `brew services start postgresql@16`). Fails loudly rather than skipping.
+ * Override with AI_DOOR_TEST_PGHOST / _PGPORT / _PGUSER / _PGPASSWORD.
+ */
+import { readFileSync } from 'fs';
+import path from 'path';
+import { randomUUID } from 'crypto';
+import { Client } from 'pg';
+import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+
+const REPO = path.resolve(__dirname, '..', '..');
+const CATALOG = readFileSync(path.join(REPO, 'supabase/migrations/20270301090000_ai_tool_catalog.sql'), 'utf8');
+const REENABLE = readFileSync(
+  path.join(REPO, 'supabase/migrations/20271009100500_ai_tool_catalog_reenable_13_lookups.sql'),
+  'utf8'
+);
+
+const PGHOST = process.env.AI_DOOR_TEST_PGHOST ?? 'localhost';
+const PGPORT = Number(process.env.AI_DOOR_TEST_PGPORT ?? 5432);
+const PGUSER =
+  process.env.AI_DOOR_TEST_PGUSER ?? (process.env.CI ? 'postgres' : (process.env.USER ?? 'postgres'));
+const PGPASSWORD = process.env.AI_DOOR_TEST_PGPASSWORD;
+
+const THIRTEEN = [
+  'ai_rpc_academic_context',
+  'ai_rpc_academic_years',
+  'ai_rpc_admission_analytics',
+  'ai_rpc_attendance_summary',
+  'ai_rpc_bug_report_details',
+  'ai_rpc_courses',
+  'ai_rpc_degrees',
+  'ai_rpc_faculty_assignments',
+  'ai_rpc_periods',
+  'ai_rpc_staff_details',
+  'ai_rpc_staff_plans',
+  'ai_rpc_timetable_slots',
+  'ai_rpc_timetables',
+];
+
+// The minimum 20270301090000 needs (same stand-ins as personal-keys-and-menu.pg.test.ts).
+const SCHEMA = `
+DO $$ BEGIN CREATE ROLE anon NOLOGIN;          EXCEPTION WHEN duplicate_object OR unique_violation THEN NULL; END $$;
+DO $$ BEGIN CREATE ROLE authenticated NOLOGIN; EXCEPTION WHEN duplicate_object OR unique_violation THEN NULL; END $$;
+CREATE SCHEMA auth;
+CREATE SCHEMA extensions;
+CREATE EXTENSION pgcrypto SCHEMA extensions;
+CREATE FUNCTION auth.uid() RETURNS uuid LANGUAGE sql STABLE
+  AS $f$ SELECT nullif(current_setting('request.jwt.claim.sub', true), '')::uuid $f$;
+CREATE TABLE auth.users (id uuid PRIMARY KEY);
+CREATE TABLE public.profiles (id uuid PRIMARY KEY, institution_id uuid, is_super_admin boolean DEFAULT false,
+  is_active boolean DEFAULT true, is_login_disabled boolean NOT NULL DEFAULT false);
+CREATE FUNCTION public.is_super_admin() RETURNS boolean LANGUAGE sql STABLE AS $f$ SELECT false $f$;
+CREATE FUNCTION public.user_has_permission(permission_name text) RETURNS boolean LANGUAGE sql STABLE AS $f$ SELECT false $f$;
+CREATE TABLE public.api_keys (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  name VARCHAR(255) NOT NULL,
+  key_value VARCHAR(255) NOT NULL,
+  created_by UUID,
+  expires_at TIMESTAMPTZ,
+  last_used_at TIMESTAMPTZ,
+  is_active BOOLEAN DEFAULT true,
+  permissions JSONB DEFAULT '{"read": true, "write": false}'::jsonb,
+  created_at TIMESTAMPTZ DEFAULT timezone('utc'::text, now()),
+  updated_at TIMESTAMPTZ DEFAULT timezone('utc'::text, now()),
+  institution_id uuid,
+  user_id UUID REFERENCES auth.users(id) ON DELETE SET NULL,
+  user_role TEXT CHECK (user_role IN ('student', 'faculty', 'admin', 'super_admin')),
+  department_id UUID
+);
+`;
+
+/** A working stand-in for every seeded function (bodies carry none of the known failures). */
+function stubs(): string {
+  const targets = [...new Set([...CATALOG.matchAll(/'rpc', '(ai_rpc_[a-z0-9_]+)'/g)].map((m) => m[1]))];
+  return targets
+    .map((t) => `CREATE FUNCTION public.${t}() RETURNS jsonb LANGUAGE sql AS $f$ SELECT '{}'::jsonb $f$;`)
+    .join('\n');
+}
+
+const SNAPSHOT = `SELECT name, kind, target, description, params, is_write, audience, requires_permission, enabled
+                    FROM public.ai_tool_catalog ORDER BY name`;
+
+let admin: Client;
+let adminConnected = false;
+const opened: { db: Client; name: string }[] = [];
+
+/** A fresh database with the catalog applied; `tweak` runs before the catalog (e.g. to break one function). */
+async function freshDb(tweak?: string): Promise<Client> {
+  const name = `ai_reenable_${randomUUID().replace(/-/g, '').slice(0, 16)}`;
+  await admin.query(`CREATE DATABASE ${name}`);
+  const db = new Client({ host: PGHOST, port: PGPORT, user: PGUSER, password: PGPASSWORD, database: name });
+  await db.connect();
+  opened.push({ db, name });
+  await db.query(SCHEMA);
+  await db.query(stubs());
+  if (tweak) await db.query(tweak);
+  await db.query(CATALOG);
+  return db;
+}
+
+async function offTargets(db: Client): Promise<string[]> {
+  const r = await db.query(`SELECT target FROM public.ai_tool_catalog WHERE NOT enabled ORDER BY target`);
+  return r.rows.map((x) => x.target);
+}
+
+beforeAll(async () => {
+  admin = new Client({ host: PGHOST, port: PGPORT, user: PGUSER, password: PGPASSWORD, database: 'postgres' });
+  try {
+    await admin.connect();
+  } catch (e) {
+    throw new Error(
+      `Cannot reach PostgreSQL at ${PGHOST}:${PGPORT} as ${PGUSER}. This suite proves the migration against a ` +
+        `real engine and fails rather than skipping. Start one with: brew services start postgresql@16\n${e}`
+    );
+  }
+  adminConnected = true;
+}, 60_000);
+
+afterAll(async () => {
+  for (const { db } of opened) await db.end().catch(() => undefined);
+  if (adminConnected) {
+    for (const { name } of opened) await admin.query(`DROP DATABASE IF EXISTS ${name}`);
+    await admin.end();
+  }
+});
+
+describe('switching the 13 lookups back on', () => {
+  it('starts from exactly the 13 that 20270301090000 switched off', async () => {
+    const db = await freshDb();
+    expect(await offTargets(db)).toEqual(THIRTEEN);
+  });
+
+  it('switches on exactly those 13 and leaves every other row unchanged', async () => {
+    const db = await freshDb();
+    const before = (await db.query(SNAPSHOT)).rows;
+    await db.query(REENABLE);
+    const after = (await db.query(SNAPSHOT)).rows;
+
+    expect(await offTargets(db)).toEqual([]);
+    expect(after).toHaveLength(before.length);
+    for (let i = 0; i < before.length; i++) {
+      const was = before[i];
+      const now = after[i];
+      if (THIRTEEN.includes(was.target) && was.kind === 'rpc') {
+        expect({ ...now, enabled: false }).toEqual(was);
+        expect(now.enabled).toBe(true);
+      } else {
+        expect(now).toEqual(was);
+      }
+    }
+  });
+
+  it('re-running changes nothing', async () => {
+    const db = await freshDb();
+    await db.query(REENABLE);
+    const once = (await db.query(`SELECT name, enabled, updated_at FROM public.ai_tool_catalog ORDER BY name`)).rows;
+    await db.query(REENABLE);
+    const twice = (await db.query(`SELECT name, enabled, updated_at FROM public.ai_tool_catalog ORDER BY name`)).rows;
+    expect(twice).toEqual(once);
+  });
+});
+
+describe('the guard refuses and switches nothing on', () => {
+  const cases: [string, string, RegExp][] = [
+    [
+      'a lookup still calls ai_rpc_accessible_scope',
+      `CREATE OR REPLACE FUNCTION public.ai_rpc_periods() RETURNS jsonb LANGUAGE plpgsql AS $f$
+         BEGIN PERFORM public.ai_rpc_accessible_scope(auth.uid()); RETURN '{}'::jsonb; END $f$;`,
+      /still calls the missing ai_rpc_accessible_scope.*ai_rpc_periods/,
+    ],
+    [
+      'academic_context still reads is_current',
+      `CREATE OR REPLACE FUNCTION public.ai_rpc_academic_context() RETURNS jsonb LANGUAGE sql AS $f$
+         SELECT jsonb_build_object('current', (SELECT 1 WHERE (SELECT true AS is_current))) $f$;`,
+      /academic_context still reads is_current/,
+    ],
+    [
+      'admission_analytics still nests the aggregate',
+      `CREATE OR REPLACE FUNCTION public.ai_rpc_admission_analytics() RETURNS jsonb LANGUAGE sql AS $f$
+         SELECT jsonb_object_agg(TO_CHAR(created_at, 'YYYY-MM'), 1) FROM (SELECT now() AS created_at) s $f$;`,
+      /admission_analytics still nests an aggregate/,
+    ],
+  ];
+
+  for (const [label, breakIt, message] of cases) {
+    it(label, async () => {
+      const db = await freshDb(breakIt);
+      await expect(db.query(REENABLE)).rejects.toThrow(message);
+      expect(await offTargets(db)).toEqual(THIRTEEN);
+    });
+  }
+
+  it('one of the 13 functions is missing', async () => {
+    const db = await freshDb();
+    await db.query(`DROP FUNCTION public.ai_rpc_staff_plans()`);
+    await expect(db.query(REENABLE)).rejects.toThrow(/function\(s\) missing.*ai_rpc_staff_plans/);
+    expect(await offTargets(db)).toEqual(THIRTEEN);
+  });
+});
