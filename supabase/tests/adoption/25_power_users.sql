@@ -10,11 +10,11 @@ INSERT INTO institutions (id, name) VALUES
   ('479eac7f-3e5b-479e-bd91-dee9e0186b9b','Jicate Solutions'),
   ('a33138b6-4eea-4675-941f-1071bf88b127','JKKN College of Arts and Science (Aided)');
 
--- One event per (module) per call; n copies, all at ts.
+-- One event per (module) per call; n copies, all at ts (feature optional, NULL by default).
 CREATE FUNCTION _ev(p_user uuid, p_modules text[], p_ts timestamptz, p_type text DEFAULT 'page_visit',
-                    p_n int DEFAULT 1, p_inst uuid DEFAULT NULL) RETURNS void LANGUAGE sql AS $$
-  INSERT INTO usage_events (user_id, event_type, module, institution_id, created_at)
-  SELECT p_user, p_type, m, p_inst, p_ts FROM unnest(p_modules) m, generate_series(1, p_n) $$;
+                    p_n int DEFAULT 1, p_inst uuid DEFAULT NULL, p_feature text DEFAULT NULL) RETURNS void LANGUAGE sql AS $$
+  INSERT INTO usage_events (user_id, event_type, module, feature, institution_id, created_at)
+  SELECT p_user, p_type, m, p_feature, p_inst, p_ts FROM unnest(p_modules) m, generate_series(1, p_n) $$;
 
 INSERT INTO profiles (id, email, full_name, role, institution_id, is_super_admin, created_at) VALUES
   -- ranked people (College A / B)
@@ -176,13 +176,95 @@ DO $$ DECLARE r text; u text; BEGIN
     RAISE EXCEPTION 'FAIL: an event outside the IST week was counted'; END IF;
 END $$;
 
-\echo '--- one-day team members: EXPECT OD1, OD5, OD6, OD7, OD8 (cap 5); never OD2 (new account), OD3 (came back), OD4 (two days)'
+\echo '--- feature names: EXPECT a (module, feature) pair counts only if 3+ counted people used it (deep review of #4298)'
+-- usage_events can be written from the browser, so a real module with invented feature
+-- names must not lift anyone. The Feature Inventor uses the real module m1 with 30 made-up
+-- features over two days (so not a one-day person); two super admins also send (m1, x1) to
+-- prove excluded accounts cannot vouch for a feature. Before the fix the inventor had
+-- features_used = 30 and ranked #1.
+-- 2 people: P06 and Background 1 share (m2, two_only) -> P06 stays at 3 features.
+-- 3 people: P11, Background 1 and Background 2 share (m2, report.export) -> P11 rises to
+-- 4 features and ranks 6th, above P06..P09; P10 drops to 11th.
+INSERT INTO profiles (id, email, full_name, role, institution_id, is_super_admin, created_at) VALUES
+  ('5c000000-0000-0000-0000-000000000001','fgamer@x','Feature Inventor','faculty','aaaaaaaa-0000-0000-0000-000000000001',false,'2026-01-01');
+SELECT _ev('5c000000-0000-0000-0000-000000000001', ARRAY['m1'], '2026-09-29 10:00+05:30', 'create', 2, NULL, 'x' || g)
+  FROM generate_series(1, 30) g;
+SELECT _ev('5c000000-0000-0000-0000-000000000001', ARRAY['m1'], '2026-09-30 10:00+05:30', 'page_visit', 1, NULL, 'x1');
+SELECT _ev(u::uuid, ARRAY['m1'], '2026-09-29 10:00+05:30', 'page_visit', 1, NULL, 'x1')
+  FROM unnest(ARRAY['60000000-0000-0000-0000-000000000001','60000000-0000-0000-0000-000000000002']) u;
+SELECT _ev(u::uuid, ARRAY['m2'], '2026-09-29 10:00+05:30', 'page_visit', 1, NULL, 'two_only')
+  FROM unnest(ARRAY['50000000-0000-0000-0000-000000000006','5b000000-0000-0000-0000-000000000001']) u;
+SELECT _ev(u::uuid, ARRAY['m2'], '2026-09-29 10:00+05:30', 'page_visit', 1, NULL, 'report.export')
+  FROM unnest(ARRAY['50000000-0000-0000-0000-000000000011','5b000000-0000-0000-0000-000000000001',
+                    '5b000000-0000-0000-0000-000000000002']) u;
+DO $$ DECLARE r jsonb; got text[]; want text[]; BEGIN
+  r := fn_adoption_power_users('2026-09-28');
+  RAISE NOTICE 'top after features: %', (SELECT string_agg(t->>'full_name' || '=' || (t->>'features_used'), ', ') FROM jsonb_array_elements(r->'top') t);
+  IF EXISTS (SELECT 1 FROM jsonb_array_elements(r->'top') t WHERE t->>'user_id' = '5c000000-0000-0000-0000-000000000001') THEN
+    RAISE EXCEPTION 'FAIL: invented feature names put the Feature Inventor in the top 10'; END IF;
+  SELECT array_agg(t->>'user_id' ORDER BY o) INTO got FROM jsonb_array_elements(r->'top') WITH ORDINALITY x(t, o);
+  want := ARRAY['50000000-0000-0000-0000-000000000001','50000000-0000-0000-0000-000000000003',
+                '50000000-0000-0000-0000-000000000002','50000000-0000-0000-0000-000000000004',
+                '50000000-0000-0000-0000-000000000005','50000000-0000-0000-0000-000000000011',
+                '50000000-0000-0000-0000-000000000006','50000000-0000-0000-0000-000000000007',
+                '50000000-0000-0000-0000-000000000008','50000000-0000-0000-0000-000000000009'];
+  IF got IS DISTINCT FROM want THEN RAISE EXCEPTION 'FAIL: top order with features %', got; END IF;
+  IF (r->'top'->5->>'features_used')::int <> 4 THEN
+    RAISE EXCEPTION 'FAIL: a feature 3 people used did not count for P11 %', r->'top'->5; END IF;
+  IF (r->'top'->6->>'features_used')::int <> 3 THEN
+    RAISE EXCEPTION 'FAIL: a feature only 2 people used counted for P06 %', r->'top'->6; END IF;
+END $$;
+-- Strict: keep only the inventor's events plus bare m1 visits by P06, P07, P08 (so m1 is
+-- still a real module, vouched by 3 counted people); the rest is rolled back afterwards.
+-- The inventor is then in the top (4 people) and must count 0 features, not 30.
+DO $$ DECLARE n bigint; BEGIN
+  BEGIN
+    DELETE FROM usage_events
+     WHERE user_id <> '5c000000-0000-0000-0000-000000000001'
+       AND NOT (user_id IN ('50000000-0000-0000-0000-000000000006','50000000-0000-0000-0000-000000000007',
+                            '50000000-0000-0000-0000-000000000008')
+                AND module = 'm1' AND feature IS NULL);
+    SELECT (t->>'features_used')::bigint INTO n
+      FROM jsonb_array_elements(fn_adoption_power_users('2026-09-28')->'top') t
+     WHERE t->>'user_id' = '5c000000-0000-0000-0000-000000000001';
+    IF n IS DISTINCT FROM 0 THEN
+      RAISE EXCEPTION 'FAIL: invented features counted % for the Feature Inventor', n; END IF;
+    RAISE EXCEPTION 'undo_strict_check';
+  EXCEPTION WHEN raise_exception THEN
+    IF SQLERRM <> 'undo_strict_check' THEN RAISE; END IF;
+  END;
+  IF (SELECT count(*) FROM usage_events) < 100 THEN RAISE EXCEPTION 'FAIL: strict check did not roll back'; END IF;
+END $$;
+
+\echo '--- empty feature: EXPECT a visit with no feature counts whenever its module counts'
+-- m7 is used by 3 counted people (OD5, OD6, OD7), each with a different feature, so m7 is a
+-- real module but none of its (m7, feature) pairs is. OD8 opens m7 with no feature: that
+-- visit counts (OD8 = 2 features: m1 and m7), while OD5..OD7's lone features do not (1 each).
+-- Same Tuesday 11:00 IST as their m1 visit, so all four stay one-day people.
+SELECT _ev(('70000000-0000-0000-0000-00000000000' || i)::uuid, ARRAY['m7'], '2026-09-29 11:00+05:30',
+           'page_visit', 1, NULL, 'a' || i)
+  FROM generate_series(5, 7) i;
+SELECT _ev('70000000-0000-0000-0000-000000000008', ARRAY['m7'], '2026-09-29 11:00+05:30');
+DO $$ DECLARE r jsonb; BEGIN
+  r := fn_adoption_power_users('2026-09-28');
+  IF (SELECT (t->>'features_used')::int FROM jsonb_array_elements(r->'one_day_staff') t
+       WHERE t->>'user_id' = '70000000-0000-0000-0000-000000000008') IS DISTINCT FROM 2 THEN
+    RAISE EXCEPTION 'FAIL: a visit with no feature on a real module did not count for OD8 %', r->'one_day_staff'; END IF;
+  IF EXISTS (SELECT 1 FROM jsonb_array_elements(r->'one_day_staff') t
+              WHERE t->>'user_id' IN ('70000000-0000-0000-0000-000000000005','70000000-0000-0000-0000-000000000006',
+                                      '70000000-0000-0000-0000-000000000007')
+                AND (t->>'features_used')::int <> 1) THEN
+    RAISE EXCEPTION 'FAIL: a feature only 1 person used counted %', r->'one_day_staff'; END IF;
+END $$;
+
+\echo '--- one-day team members: EXPECT OD1, OD8, OD5, OD6, OD7 (cap 5); never OD2 (new account), OD3 (came back), OD4 (two days)'
+-- OD1 and OD8 have 2 features each (OD8's bare m7 visit, above); OD5..OD7 have 1; OD9 is 6th.
 DO $$ DECLARE r jsonb; got text[]; BEGIN
   r := fn_adoption_power_users('2026-09-28');
   SELECT array_agg(t->>'user_id' ORDER BY o) INTO got FROM jsonb_array_elements(r->'one_day_staff') WITH ORDINALITY x(t, o);
-  IF got IS DISTINCT FROM ARRAY['70000000-0000-0000-0000-000000000001','70000000-0000-0000-0000-000000000005',
-                                '70000000-0000-0000-0000-000000000006','70000000-0000-0000-0000-000000000007',
-                                '70000000-0000-0000-0000-000000000008'] THEN
+  IF got IS DISTINCT FROM ARRAY['70000000-0000-0000-0000-000000000001','70000000-0000-0000-0000-000000000008',
+                                '70000000-0000-0000-0000-000000000005','70000000-0000-0000-0000-000000000006',
+                                '70000000-0000-0000-0000-000000000007'] THEN
     RAISE EXCEPTION 'FAIL: one-day list %', got; END IF;
 END $$;
 

@@ -24,6 +24,9 @@
 --      the policy list (their profile's college, else the college on their
 --      latest event that week), test accounts (email starting 'test' or name
 --      starting 'test '), and usage with no profile.
+--      A module, and a (module, feature) pair, counts only if 3+ counted people
+--      used it that week (usage_events can be written from the browser); a visit
+--      with no feature counts whenever its module does.
 --      FAILS CLOSED: a missing, switched-off, draft or malformed policy row
 --      raises, so the run stops instead of reporting the excluded colleges.
 --   4. ai_job_types 'adoption.chat_agenda' — a copy of 'improvement.rank_ideas'
@@ -145,23 +148,40 @@ BEGIN
   -- The 3 people are counted only among people the report itself counts (a
   -- profile, not a super admin, not a test account, not an excluded college),
   -- so excluded or test accounts cannot vouch for an invented name.
-  valid_modules AS (
-    SELECT ev.module
+  vouch_ev AS (
+    SELECT ev.user_id, ev.module, ev.feature
       FROM ev
       JOIN public.profiles vp ON vp.id = ev.user_id
-     WHERE ev.module ~ '^[a-z0-9_/.-]{1,64}$'
-       AND COALESCE(vp.role, '') <> 'super_admin'
+     WHERE COALESCE(vp.role, '') <> 'super_admin'
        AND COALESCE(vp.is_super_admin, false) = false
        AND NOT (COALESCE(vp.email, '') ILIKE 'test%' OR COALESCE(vp.full_name, '') ILIKE 'test %')
        AND NOT (COALESCE(COALESCE(vp.institution_id, ev.institution_id) = ANY (v_excluded), false))
-     GROUP BY ev.module
-    HAVING count(DISTINCT ev.user_id) >= 3
+  ),
+  valid_modules AS (
+    SELECT v.module
+      FROM vouch_ev v
+     WHERE v.module ~ '^[a-z0-9_/.-]{1,64}$'
+     GROUP BY v.module
+    HAVING count(DISTINCT v.user_id) >= 3
+  ),
+  -- The same 3-people rule for each (module, feature) pair, so a real module
+  -- with invented feature names (x1 ... x5000) cannot lift "features used".
+  valid_features AS (
+    SELECT v.module, COALESCE(v.feature, '') AS feature
+      FROM vouch_ev v
+     WHERE v.module ~ '^[a-z0-9_/.-]{1,64}$'
+       AND COALESCE(v.feature, '') ~ '^[a-z0-9_/.:-]{0,64}$'
+     GROUP BY v.module, COALESCE(v.feature, '')
+    HAVING count(DISTINCT v.user_id) >= 3
+    -- A visit with no feature is not an invented name: it counts whenever the
+    -- module itself counts (at most one per real module, so it cannot be gamed).
+    UNION
+    SELECT vm.module, '' FROM valid_modules vm
   ),
   per_user AS (
     SELECT ev.user_id,
            count(DISTINCT (ev.module, COALESCE(ev.feature, ''))) FILTER (
-             WHERE ev.module IN (SELECT vm.module FROM valid_modules vm)
-               AND COALESCE(ev.feature, '') ~ '^[a-z0-9_/.:-]{0,64}$')                               AS features_used,
+             WHERE (ev.module, COALESCE(ev.feature, '')) IN (SELECT vf.module, vf.feature FROM valid_features vf)) AS features_used,
            -- the tie-breakers count only events on real modules too, so a burst of
            -- browser-written events on made-up names cannot lift anyone
            count(*) FILTER (WHERE ev.event_type IN ('create', 'update', 'export')
