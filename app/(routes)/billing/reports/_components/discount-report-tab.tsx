@@ -12,6 +12,7 @@ import {
   TableRow
 } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
+import { ScholarshipCategoryBadge } from '@/components/billing/scholarship-labels';
 import {
   AlertCircle,
   Download,
@@ -58,37 +59,6 @@ export function DiscountReportTab({
 
   const formatDate = (date: string) => {
     return new Date(date).toLocaleDateString('en-IN');
-  };
-
-  const getDiscountCategoryBadge = (category: string) => {
-    const categoryConfig = {
-      merit_scholarship: {
-        label: 'Merit Scholarship',
-        className: 'bg-green-100 text-green-800'
-      },
-      financial_aid: {
-        label: 'Financial Aid',
-        className: 'bg-blue-100 text-blue-800'
-      },
-      staff_quota: {
-        label: 'Staff Quota',
-        className: 'bg-purple-100 text-purple-800'
-      },
-      sports_quota: {
-        label: 'Sports Quota',
-        className: 'bg-orange-100 text-orange-800'
-      },
-      special_circumstances: {
-        label: 'Special',
-        className: 'bg-gray-100 text-gray-800'
-      }
-    };
-
-    const config =
-      categoryConfig[category as keyof typeof categoryConfig] ||
-      categoryConfig.financial_aid;
-
-    return <Badge className={config.className}>{config.label}</Badge>;
   };
 
   const getApprovalStatusBadge = (status: string) => {
@@ -250,8 +220,8 @@ export function DiscountReportTab({
                     <TableHead>Student</TableHead>
                     <TableHead>Institution</TableHead>
                     <TableHead>Bill Description</TableHead>
-                    <TableHead>Category</TableHead>
-                    <TableHead>Type</TableHead>
+                    <TableHead>Category / Type</TableHead>
+                    <TableHead>Value Mode</TableHead>
                     <TableHead>Value</TableHead>
                     <TableHead className='text-right'>Amount</TableHead>
                     <TableHead>Status</TableHead>
@@ -280,7 +250,18 @@ export function DiscountReportTab({
                         {discount.bill_description}
                       </TableCell>
                       <TableCell>
-                        {getDiscountCategoryBadge(discount.discount_category)}
+                        <ScholarshipCategoryBadge
+                          category={
+                            discount.scholarship_category_name
+                              ? { name: discount.scholarship_category_name }
+                              : null
+                          }
+                          type={
+                            discount.scholarship_type_name
+                              ? { name: discount.scholarship_type_name }
+                              : null
+                          }
+                        />
                       </TableCell>
                       <TableCell>
                         <Badge variant='outline'>

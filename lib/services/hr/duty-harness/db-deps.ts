@@ -37,7 +37,13 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { createServiceRoleClient } from '@/lib/supabase/server';
 import { fanoutNotification } from '@/lib/services/_shared/notifications/notify';
 import { fetchHolidayKeys } from '@/lib/hr/attendance/holiday-dates';
-import { HARNESS_POLICY_KEYS, itemKey, type ChaseDeps } from './chase-service';
+import {
+  HARNESS_POLICY_KEYS,
+  SOURCE_LOAD_LIMIT,
+  itemKey,
+  type ChaseDeps,
+  type HrHeadHolder
+} from './chase-service';
 import {
   parseLadder,
   type BlockedMark,
@@ -46,7 +52,9 @@ import {
 } from './ladder';
 
 /** Rows one source may load per run. The volume fuse is the real bound. */
-const LOAD_LIMIT = 500;
+const LOAD_LIMIT = SOURCE_LOAD_LIMIT;
+/** How long a claimed rung whose send keeps failing is retried. */
+export const UNSENT_RETRY_DAYS = 7;
 /** Ids per PostgREST `.in()` — the list travels in the URL. */
 const IN_CHUNK = 100;
 const DIRECTOR_LIST_KEY = 'platform.the_director_profile_ids';
@@ -126,7 +134,11 @@ async function staffByIds(
 // someone switches one on before its source exists.
 // ---------------------------------------------------------------------------
 
-type Adapter = (db: SupabaseClient, def: DutyDefinition) => Promise<WaitingItem[]>;
+/** `truncated` = the source query came back full, so more rows may be waiting. */
+type Adapter = (
+  db: SupabaseClient,
+  def: DutyDefinition
+) => Promise<{ items: WaitingItem[]; truncated: boolean }>;
 
 const L1_LEAVE: Adapter = async (db, def) => {
   const { data, error } = await db
@@ -162,7 +174,7 @@ const L1_LEAVE: Adapter = async (db, def) => {
       href: def.href ?? '/hr/leave/approvals'
     });
   }
-  return items;
+  return { items, truncated: rows.length >= LOAD_LIMIT };
 };
 
 const L2_COMP_OFF: Adapter = async (db, def) => {
@@ -176,7 +188,7 @@ const L2_COMP_OFF: Adapter = async (db, def) => {
   if (error) throw new Error(error.message);
   const rows = (data ?? []) as any[];
   const staff = await staffByIds(db, rows.map((r) => r.employee_id));
-  return rows.map((r) => {
+  const items: WaitingItem[] = rows.map((r) => {
     const s = staff.get(r.employee_id);
     return {
       dutyCode: def.code,
@@ -192,6 +204,7 @@ const L2_COMP_OFF: Adapter = async (db, def) => {
       href: def.href ?? '/hr/leave/compensatory-off'
     };
   });
+  return { items, truncated: rows.length >= LOAD_LIMIT };
 };
 
 const A3_REGULARISATION: Adapter = async (db, def) => {
@@ -204,7 +217,7 @@ const A3_REGULARISATION: Adapter = async (db, def) => {
   if (error) throw new Error(error.message);
   const rows = (data ?? []) as any[];
   const staff = await staffByIds(db, rows.map((r) => r.employee_id));
-  return rows.map((r) => {
+  const items: WaitingItem[] = rows.map((r) => {
     const s = staff.get(r.employee_id);
     return {
       dutyCode: def.code,
@@ -219,6 +232,7 @@ const A3_REGULARISATION: Adapter = async (db, def) => {
       href: def.href ?? '/hr/attendance/regularize/approvals'
     };
   });
+  return { items, truncated: rows.length >= LOAD_LIMIT };
 };
 
 const R5_RECRUITMENT_STEP: Adapter = async (db, def) => {
@@ -229,8 +243,9 @@ const R5_RECRUITMENT_STEP: Adapter = async (db, def) => {
     .order('submitted_at', { ascending: true })
     .limit(LOAD_LIMIT);
   if (error) throw new Error(error.message);
+  const rows = (data ?? []) as any[];
   const items: WaitingItem[] = [];
-  for (const r of (data ?? []) as any[]) {
+  for (const r of rows) {
     const chain = r.approval_chain;
     const idx = Number(r.current_step ?? 0);
     const step = Array.isArray(chain) ? chain[idx] : null;
@@ -251,7 +266,7 @@ const R5_RECRUITMENT_STEP: Adapter = async (db, def) => {
       href: def.href ?? '/hr/recruitment/approvals'
     });
   }
-  return items;
+  return { items, truncated: rows.length >= LOAD_LIMIT };
 };
 
 const S2_DOCUMENTS: Adapter = async (db, def) => {
@@ -264,7 +279,7 @@ const S2_DOCUMENTS: Adapter = async (db, def) => {
   if (error) throw new Error(error.message);
   const rows = (data ?? []) as any[];
   const staff = await staffByIds(db, rows.map((r) => r.staff_id));
-  return rows.map((r) => {
+  const items: WaitingItem[] = rows.map((r) => {
     const s = staff.get(r.staff_id);
     return {
       dutyCode: def.code,
@@ -279,6 +294,7 @@ const S2_DOCUMENTS: Adapter = async (db, def) => {
       href: def.href ?? '/hr/documents/verify'
     };
   });
+  return { items, truncated: rows.length >= LOAD_LIMIT };
 };
 
 const S3_PHOTOS: Adapter = async (db, def) => {
@@ -291,7 +307,7 @@ const S3_PHOTOS: Adapter = async (db, def) => {
   if (error) throw new Error(error.message);
   const rows = (data ?? []) as any[];
   const staff = await staffByIds(db, rows.map((r) => r.staff_id));
-  return rows.map((r) => {
+  const items: WaitingItem[] = rows.map((r) => {
     const s = staff.get(r.staff_id);
     return {
       dutyCode: def.code,
@@ -306,6 +322,7 @@ const S3_PHOTOS: Adapter = async (db, def) => {
       href: def.href ?? '/hr/staff-photos'
     };
   });
+  return { items, truncated: rows.length >= LOAD_LIMIT };
 };
 
 const G2_FORMS: Adapter = async (db, def) => {
@@ -354,7 +371,7 @@ const G2_FORMS: Adapter = async (db, def) => {
       href: def.href ?? '/hr/forms/inbox'
     });
   }
-  return items;
+  return { items, truncated: rows.length >= LOAD_LIMIT };
 };
 
 /** duty code -> source. Everything else has no adapter in this build. */
@@ -419,7 +436,13 @@ async function holdersOfRoles(
   return out;
 }
 
-function inReach(
+/**
+ * The holders who may act on an item of `institutionId`. An item with no
+ * college reaches only holders whose role covers every college: matching it
+ * to everyone would send one college's names and dates to all the others.
+ * Nobody in reach -> no owner, and the item goes to the HR head's list.
+ */
+export function inReach(
   holders: Array<{ userId: string; scopeAll: boolean; institutionId: string | null }>,
   institutionId: string | null,
   anyCollege: boolean
@@ -427,7 +450,12 @@ function inReach(
   return [
     ...new Set(
       holders
-        .filter((h) => anyCollege || !institutionId || h.scopeAll || h.institutionId === institutionId)
+        .filter(
+          (h) =>
+            anyCollege ||
+            h.scopeAll ||
+            (institutionId !== null && h.institutionId === institutionId)
+        )
         .map((h) => h.userId)
     )
   ].sort();
@@ -479,6 +507,18 @@ export function createHarnessDbDeps(db: SupabaseClient = createServiceRoleClient
       );
     }
     return roleCache.get(k)!;
+  };
+
+  // Named owners' active state for this run: prefetchOwners fills it for every
+  // item in one query, so resolveOwners needs no query per item.
+  const activeKnown = new Map<string, boolean>();
+  const activeAmong = async (ids: string[]): Promise<string[]> => {
+    const missing = [...new Set(ids.filter((id) => id && !activeKnown.has(id)))];
+    if (missing.length > 0) {
+      const active = await activeProfiles(db, missing);
+      for (const id of missing) activeKnown.set(id, active.has(id));
+    }
+    return [...new Set(ids.filter((id) => activeKnown.get(id)))].sort();
   };
 
   const holders = (cacheKey: string, roles: () => Promise<RoleRow[]>) => {
@@ -556,6 +596,32 @@ export function createHarnessDbDeps(db: SupabaseClient = createServiceRoleClient
       return out;
     },
 
+    async loadUnsentRungs(items) {
+      const out = new Map<string, Map<string, string>>();
+      const ids = [...new Set(items.map((i) => i.itemId))];
+      // A send that keeps failing is retried for UNSENT_RETRY_DAYS, then left:
+      // the item still climbs the ladder, and the run log has every failure.
+      const since = new Date(Date.now() - UNSENT_RETRY_DAYS * 86_400_000).toISOString();
+      for (const batch of chunk(ids)) {
+        const { data, error } = await db
+          .from('hr_duty_chase_ledger')
+          .select('id, duty_code, item_id, stage_key, step_key, notified_profile_ids')
+          .is('notification_id', null)
+          .is('resolved_at', null)
+          .gte('created_at', since)
+          .in('item_id', batch);
+        if (error) throw new Error(`ledger (unsent): ${error.message}`);
+        for (const r of (data ?? []) as any[]) {
+          // A rung with nobody to tell (the HR head's list) has nothing to send.
+          if (!Array.isArray(r.notified_profile_ids) || r.notified_profile_ids.length === 0) continue;
+          const k = itemKey({ dutyCode: r.duty_code, itemId: r.item_id, stageKey: r.stage_key });
+          if (!out.has(k)) out.set(k, new Map());
+          out.get(k)!.set(r.step_key, r.id);
+        }
+      }
+      return out;
+    },
+
     async loadBlockedMarks(items) {
       const out = new Map<string, BlockedMark>();
       const ids = [...new Set(items.map((i) => i.itemId))];
@@ -576,11 +642,12 @@ export function createHarnessDbDeps(db: SupabaseClient = createServiceRoleClient
       return out;
     },
 
+    async prefetchOwners(items) {
+      await activeAmong(items.flatMap((i) => i.pinnedOwnerIds));
+    },
+
     async resolveOwners(def, item) {
-      if (item.pinnedOwnerIds.length > 0) {
-        const active = await activeProfiles(db, item.pinnedOwnerIds);
-        return [...active.keys()].sort();
-      }
+      if (item.pinnedOwnerIds.length > 0) return activeAmong(item.pinnedOwnerIds);
       if (item.ownerRoleKeys.length > 0) {
         const keys = [...item.ownerRoleKeys].sort();
         const h = await holders(`roles:${keys.join(',')}`, () => rolesByKeys(keys));
@@ -670,10 +737,11 @@ export function createHarnessDbDeps(db: SupabaseClient = createServiceRoleClient
       return out;
     },
 
-    async resolveHrHeads(roleKeys) {
+    async resolveHrHeads(roleKeys): Promise<HrHeadHolder[]> {
       const keys = [...roleKeys].sort();
       const h = await holders(`roles:${keys.join(',')}`, () => rolesByKeys(keys));
-      return [...new Set(h.map((x) => x.userId))].sort();
+      // Each holder with their reach; the run sends each only their colleges.
+      return h.map((x) => ({ userId: x.userId, scopeAll: x.scopeAll, institutionId: x.institutionId }));
     },
 
     async resolveDirectors() {
@@ -742,8 +810,12 @@ export function createHarnessDbDeps(db: SupabaseClient = createServiceRoleClient
     },
 
     async finishLedger(id, notificationId) {
-      if (!notificationId) return;
-      await db.from('hr_duty_chase_ledger').update({ notification_id: notificationId }).eq('id', id);
+      // No notification id after a send that did not fail = nobody was told
+      // (the rung has nobody to tell any more, or the notification layer
+      // skipped it). Record exactly that, so the rung is not "unsent" for ever.
+      const patch = notificationId ? { notification_id: notificationId } : { notified_profile_ids: [] };
+      const { error } = await db.from('hr_duty_chase_ledger').update(patch).eq('id', id);
+      if (error) throw new Error(`ledger (finish): ${error.message}`);
     },
 
     async send(msg) {

@@ -181,7 +181,9 @@ export function StudentTransactionHistory({
         type: 'discount_applied',
         date: discount.effective_date,
         amount: discount.discount_amount,
-        description: `${discount.discount_category} discount`,
+        description: `${
+          discount.scholarship_category?.name ?? 'Scholarship'
+        } discount`,
         lines: discount.bill
           ? [
               {

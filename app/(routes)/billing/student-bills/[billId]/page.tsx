@@ -476,9 +476,10 @@ export default function StudentBillDetailPage() {
                   {bill.discounts.map((discount) => (
                     <TableRow key={discount.id}>
                       <TableCell>
-                        {discount.discount_category
-                          .replace('_', ' ')
-                          .toUpperCase()}
+                        {discount.scholarship_category?.name ?? '—'}
+                        {discount.scholarship_type?.name
+                          ? ` · ${discount.scholarship_type.name}`
+                          : ''}
                       </TableCell>
                       <TableCell>
                         {discount.discount_type.toUpperCase()}

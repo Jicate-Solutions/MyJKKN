@@ -1,26 +1,31 @@
 export const dynamic = 'force-dynamic';
+// googleapis + node:stream — the Drive client does not run on the edge runtime.
+export const runtime = 'nodejs';
 
 // POST /api/events/[eventId]/form-media
 //
-// Uploads an image the ORGANIZER attaches to a registration form — the picture
-// an 'image_display' field renders. Returns its public URL, which the builder
-// stores on the field as media_url.
+// Uploads an image the ORGANIZER attaches to a registration form — the event
+// banner, or the picture an 'image_display' field renders. Stored in Google
+// Drive (Event Form Media / <event>) since 2026-10-08; returns its public URL,
+// which the caller stores as events.hero_image_url / the field's media_url.
+// Older URLs point at the public Supabase `event-form-media` bucket and keep
+// rendering as long as that object exists.
 //
 // Deliberately NOT the same route as registration-upload, and deliberately a
-// different bucket, because the two have opposite audiences:
+// different Drive helper, because the two have opposite audiences:
 //
-//   registration-upload  anonymous WRITE, organizer-only READ, PRIVATE bucket.
+//   registration-upload  anonymous WRITE, organizer-only READ, NO sharing.
 //                        Someone's ID proof.
-//   form-media (here)    organizer-only WRITE, world READ, PUBLIC bucket.
+//   form-media (here)    organizer-only WRITE, world READ, anyone:reader.
 //                        Content the organizer is publishing.
 //
 // Keeping them apart means a mistake in one cannot expose the other: there is no
-// code path where a registrant's document can be written to the public bucket,
-// because this route never accepts an anonymous caller and that route never
-// touches this bucket.
+// code path where a registrant's document can be shared publicly, because this
+// route never accepts an anonymous caller and that route never grants a
+// permission.
 //
 // Public is required, not a shortcut: an anonymous visitor renders this with a
-// plain <img src>, and a signed URL would expire while the form is still live.
+// plain <img src>.
 //
 // Authorization reuses the gate that already governs form editing — the caller
 // must be able to read the form through THEIR OWN RLS context. If they cannot
@@ -28,18 +33,11 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from 'next/server';
 import { withAuth } from '@/lib/auth/with-auth';
-import { createServiceRoleClient } from '@/lib/supabase/server';
+import { isDriveConfigured } from '@/lib/google/drive-client';
+import { uploadEventFormMedia } from '@/lib/google/drive-upload';
 
-const BUCKET = 'event-form-media';
 const MAX_BYTES = 5 * 1024 * 1024;
 const ALLOWED = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
-
-const EXT_BY_MIME: Record<string, string> = {
-  'image/jpeg': '.jpg',
-  'image/png': '.png',
-  'image/webp': '.webp',
-  'image/gif': '.gif',
-};
 
 export const POST = withAuth(
   async (
@@ -98,27 +96,36 @@ export const POST = withAuth(
       );
     }
 
-    // Server-generated path: a client-supplied one could overwrite another
-    // form's media or escape the event's folder.
-    const objectPath = `${eventId}/${formId}/${crypto.randomUUID()}${EXT_BY_MIME[file.type] ?? ''}`;
+    if (!isDriveConfigured()) {
+      return NextResponse.json({ error: 'File storage is not configured.' }, { status: 503 });
+    }
 
-    const svc = createServiceRoleClient();
-    const { error: uploadError } = await svc.storage
-      .from(BUCKET)
-      .upload(objectPath, file, { contentType: file.type, upsert: false });
+    try {
+      // Only names the Drive folder — a miss falls back to "Event [<id8>]".
+      const { data: ev } = await auth.supabase
+        .from('events')
+        .select('name')
+        .eq('id', eventId)
+        .maybeSingle();
 
-    if (uploadError) {
+      // Folder and filename are server-generated: a client-supplied one could
+      // overwrite another form's media or escape the event's folder.
+      const uploaded = await uploadEventFormMedia({
+        eventId,
+        eventName: ev?.name ?? null,
+        file,
+      });
       return NextResponse.json(
-        { error: uploadError.message || 'Upload failed' },
+        { url: uploaded.url, driveFileId: uploaded.driveFileId, name: file.name },
+        { status: 201 }
+      );
+    } catch (err) {
+      console.error('[form-media] upload failed', err);
+      return NextResponse.json(
+        { error: err instanceof Error ? err.message : 'Upload failed' },
         { status: 500 }
       );
     }
-
-    const {
-      data: { publicUrl },
-    } = svc.storage.from(BUCKET).getPublicUrl(objectPath);
-
-    return NextResponse.json({ url: publicUrl, path: objectPath, name: file.name }, { status: 201 });
   },
   // Writing form content, so 'write' rather than the 'read' the signed-url
   // route uses.

@@ -456,6 +456,40 @@ export function renderEngineeringSyllabusPDF(
 		y += 3
 	}
 
+	// ── PROJECT GUIDELINES (project papers) ───────────────────────────────────
+	// Project mode stores project_units[] (title + guideline rules + remarks)
+	// instead of units[]/topics[]; neither block above reads it.
+	if (data.project_units && data.project_units.length > 0) {
+		doc.setFontSize(FS)
+		for (const unit of data.project_units) {
+			const unitTitle = sanitize(unit.unit_title || '')
+			const rules = (unit.rules ?? [])
+				.map(r => ({
+					title: sanitize(r.unit_of_experiment || '').replace(/[:\s]+$/, ''),
+					content: sanitize(r.content || ''),
+				}))
+				.filter(r => r.title || r.content)
+			const remarks = sanitize(unit.remarks || '')
+			if (!unitTitle && rules.length === 0 && !remarks) continue
+
+			ensure(LH + 2)
+			if (unitTitle) {
+				// No rules → the title box holds the whole guideline paragraph.
+				doc.setFont(FONT, rules.length === 0 ? 'normal' : 'bold')
+				paragraph(unitTitle, LEFT, CONTENT_W, { justify: rules.length === 0 })
+			}
+			doc.setFont(FONT, 'normal')
+			for (const r of rules) {
+				if (r.title && r.content) paragraphBoldLabel(`${r.title}:`, r.content, ' ', LEFT, CONTENT_W)
+				else if (r.title) { doc.setFont(FONT, 'bold'); paragraph(r.title, LEFT, CONTENT_W); doc.setFont(FONT, 'normal') }
+				else paragraph(r.content, LEFT, CONTENT_W, { justify: true })
+			}
+			if (remarks) paragraph(remarks, LEFT, CONTENT_W, { justify: true })
+			y += 2
+		}
+		y += 3
+	}
+
 	// ── INSTRUCTIONS (Content tab, below the units) ───────────────────────────
 	// Free-text notes authored under the course content — in practice the
 	// assessment weightage block ("Weightage: Continuous Assessment: 40%…",

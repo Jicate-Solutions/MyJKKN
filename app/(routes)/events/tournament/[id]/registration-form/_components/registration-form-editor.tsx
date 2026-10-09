@@ -33,8 +33,9 @@ import {
   isFieldVisible,
   isSectionVisible,
 } from '@/components/events/dynamic-field-input';
+import { RichTextFieldEditor } from '@/components/events/registration/rich-text-field-editor';
 import { StandardFieldsCard, StandardFieldsPreview } from './standard-fields-card';
-import { FORM_FIELD_TYPES } from '@/types/tournament';
+import { FORM_FIELD_TYPES, isAnswerableField } from '@/types/tournament';
 import { REGISTRATION_PREFILL_SOURCES } from '@/lib/services/events/registration/form-prefill';
 import { parseConditionList, SPORT_CONDITION_KEY } from '@/lib/services/events/registration/form-visibility';
 import type {
@@ -42,6 +43,7 @@ import type {
   FormFieldType,
   FormFieldOption,
   FormFieldCondition,
+  RichTextDoc,
 } from '@/types/tournament';
 
 // ── Editable shapes (client-only) ────────────────────────────────────────────
@@ -68,6 +70,8 @@ interface EditableField {
   condition: FormFieldCondition | null;
   /** Public image URL for an 'image_display' field; null for every other type. */
   media_url: string | null;
+  /** The text a 'rich_text' field shows; null for every other type. */
+  rich_content: RichTextDoc | null;
   /** Profile attribute to seed the answer from for a signed-in registrant. */
   prefill_source: string | null;
 }
@@ -114,6 +118,7 @@ function toEditableField(f: EventRegistrationFormField): EditableField {
     pattern: f.pattern,
     condition: f.condition,
     media_url: f.media_url ?? null,
+    rich_content: f.rich_content ?? null,
     prefill_source: f.prefill_source ?? null,
   };
 }
@@ -135,6 +140,7 @@ function newField(): EditableField {
     pattern: null,
     condition: null,
     media_url: null,
+    rich_content: null,
     prefill_source: null,
   };
 }
@@ -166,7 +172,8 @@ function serialize(sections: EditableSection[]): SaveFormSectionPayload[] {
       field_key: f.field_key ?? uniquify(slugifyKey(f.field_label)),
       field_label: f.field_label.trim() || 'Field',
       field_type: f.field_type,
-      is_required: f.is_required,
+      // A display-only field asks nothing, so it can never be required.
+      is_required: isAnswerableField(f.field_type) && f.is_required,
       display_order: fi,
       placeholder: f.placeholder,
       help_text: f.help_text?.trim() ? f.help_text.trim() : null,
@@ -180,6 +187,9 @@ function serialize(sections: EditableSection[]): SaveFormSectionPayload[] {
       // Without this the save RPC (which DELETEs and reinserts every field)
       // would wipe the organizer's image on any unrelated edit.
       media_url: f.media_url,
+      // Same rule as media_url. Dropped when the type was switched away from
+      // rich text, so a "Text" field does not carry a hidden block around.
+      rich_content: f.field_type === 'rich_text' ? f.rich_content : null,
       prefill_source: f.prefill_source,
     })),
   }));
@@ -207,6 +217,7 @@ function toPreviewField(f: EditableField, index: number): EventRegistrationFormF
     options: f.options,
     condition: f.condition,
     media_url: f.media_url,
+    rich_content: f.rich_content,
     prefill_source: f.prefill_source,
     created_at: '',
     updated_at: '',
@@ -405,8 +416,8 @@ function ConditionEditor({
 /**
  * Uploads the image an 'image_display' field shows and hands back its PUBLIC
  * URL. Organizer-side only: this posts to the authenticated /form-media route
- * and the public `event-form-media` bucket — never the private bucket that
- * holds registrants' documents.
+ * (a publicly shared Drive file) — never the unshared Drive folder that holds
+ * registrants' documents.
  */
 function FormMediaPicker({
   eventId,
@@ -505,19 +516,21 @@ function FieldRow({
   const needsOptions =
     field.field_type === 'select' || field.field_type === 'multi_select' || field.field_type === 'radio';
   const optionsText = (field.options ?? []).map((o) => o.label).join('\n');
-  // Display-only: it publishes an image instead of asking a question, so the
-  // answer-shaped settings (Required, validation) are meaningless for it.
+  // Display-only: it publishes an image or a block of text instead of asking a
+  // question, so the answer-shaped settings (Required, prefill) are meaningless.
   const isDisplayImage = field.field_type === 'image_display';
+  const isRichText = field.field_type === 'rich_text';
+  const isDisplayOnly = !isAnswerableField(field.field_type);
 
   return (
     <div className="space-y-3 rounded-lg border bg-background p-3">
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <div className="space-y-1.5">
-          <Label>Field label</Label>
+          <Label>{isRichText ? 'Name (not shown to registrants)' : 'Field label'}</Label>
           <Input
             value={field.field_label}
             onChange={(e) => onUpdate({ field_label: e.target.value })}
-            placeholder="e.g. T-shirt size"
+            placeholder={isRichText ? 'e.g. Rules' : 'e.g. T-shirt size'}
           />
         </div>
         <div className="space-y-1.5">
@@ -573,14 +586,27 @@ function FieldRow({
         />
       )}
 
-      <div className="space-y-1.5">
-        <Label>Help text (optional)</Label>
-        <Input
-          value={field.help_text ?? ''}
-          onChange={(e) => onUpdate({ help_text: e.target.value || null })}
-          placeholder="Shown under the field"
-        />
-      </div>
+      {isRichText && (
+        <div className="space-y-1.5">
+          <Label>Text shown to registrants</Label>
+          <RichTextFieldEditor
+            value={field.rich_content}
+            onChange={(doc) => onUpdate({ rich_content: doc })}
+          />
+        </div>
+      )}
+
+      {/* The rich text IS the text; a second, plain line under it adds nothing. */}
+      {!isRichText && (
+        <div className="space-y-1.5">
+          <Label>Help text (optional)</Label>
+          <Input
+            value={field.help_text ?? ''}
+            onChange={(e) => onUpdate({ help_text: e.target.value || null })}
+            placeholder="Shown under the field"
+          />
+        </div>
+      )}
 
       <ConditionEditor
         condition={field.condition}
@@ -589,7 +615,7 @@ function FieldRow({
         onPickSource={onPickConditionSource}
       />
 
-      {!isDisplayImage && (
+      {!isDisplayOnly && (
         <div className="space-y-1.5">
           <Label>Prefill from profile (signed-in MyJKKN users)</Label>
           <Select
@@ -618,7 +644,7 @@ function FieldRow({
 
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
-          {isDisplayImage ? (
+          {isDisplayOnly ? (
             <p className="text-xs text-muted-foreground">
               Shown to everyone — collects no answer.
             </p>
@@ -761,7 +787,7 @@ export function RegistrationFormEditor({
     const custom = sections
       .filter((s) => s.uid !== sectionUid)
       .flatMap((s) => s.fields)
-      .filter((f) => f.field_type !== 'image_display')
+      .filter((f) => isAnswerableField(f.field_type))
       .map((f) => ({
         uid: f.uid,
         key: f.field_key,
@@ -838,7 +864,7 @@ export function RegistrationFormEditor({
   function conditionSourcesFor(fieldUid: string): ConditionSourceField[] {
     const custom = sections
       .flatMap((s) => s.fields)
-      .filter((f) => f.uid !== fieldUid && f.field_type !== 'image_display')
+      .filter((f) => f.uid !== fieldUid && isAnswerableField(f.field_type))
       .map((f) => ({
         uid: f.uid,
         key: f.field_key,

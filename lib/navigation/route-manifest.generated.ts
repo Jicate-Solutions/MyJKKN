@@ -2088,6 +2088,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "label": "New",
             "iconName": "Plus",
             "children": []
+          },
+          {
+            "path": "/billing/discounts/setup",
+            "label": "Setup",
+            "iconName": "Wallet",
+            "children": []
           }
         ]
       },
@@ -4850,6 +4856,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         ]
       },
       {
+        "path": "/hr/playbooks",
+        "label": "Playbooks",
+        "iconName": "FileText",
+        "children": []
+      },
+      {
         "path": "/hr/policies",
         "label": "Policies",
         "iconName": "BookText",
@@ -4896,6 +4908,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "label": "Bring in Candidates",
             "iconName": "FileUp",
             "children": [
+              {
+                "path": "/hr/recruitment/intake/batch",
+                "label": "Batch",
+                "iconName": "UserSearch",
+                "children": []
+              },
               {
                 "path": "/hr/recruitment/intake/rules",
                 "label": "Learned Rules",

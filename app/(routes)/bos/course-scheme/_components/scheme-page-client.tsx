@@ -379,6 +379,9 @@ export function SchemePageClient() {
               practical_topics: syllabus.course_content?.is_practical
                 ? (syllabus.course_content?.topics ?? [])
                 : undefined,
+              project_units: syllabus.course_content?.is_project
+                ? (syllabus.course_content?.project_units ?? [])
+                : undefined,
               textbooks: syllabus.textbooks?.primary ?? [],
               references: syllabus.textbooks?.references ?? [],
               web_resources: syllabus.web_resources?.resources ?? [],

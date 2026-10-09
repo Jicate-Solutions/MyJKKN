@@ -26,6 +26,7 @@ import type {
   LockReason,
 } from '@/types/mark-entry';
 import type { IaPaperQuestion, IaTemplatePart } from '@/types/ia-question-paper';
+import { entryLabel, readSubQuestions } from '@/lib/utils/question-papers/sub-questions';
 
 /** `${part_label}|${question_number}` — the OR-pair identity. */
 export function choiceGroupOf(partLabel: string, questionNumber: number): string {
@@ -49,22 +50,49 @@ export function buildEntryPaper(
     (a, b) => (a.display_order ?? 0) - (b.display_order ?? 0)
   );
 
-  const entryQuestions: EntryQuestion[] = sorted.map((q) => {
+  // A split question ("12 a) i. / ii.") is marked per sub-division, so it
+  // contributes one column per sub-division — keyed on the SUB's id, with the
+  // sub's own marks / CO / K-level — instead of the parent. This mirrors COE's
+  // flattenEntryQuestions (lib/ia/sub-questions.ts), which is what COE's sync
+  // indexes question ids by; a mark filed under the parent id of a split
+  // question matches nothing there. choice_group stays the PARENT's, and
+  // branch_id names the OR branch, so 12a-i and 12a-ii can both be answered
+  // while 12b stays locked.
+  const entryQuestions: EntryQuestion[] = sorted.flatMap((q) => {
     const partLabel = q.part_label ?? '—';
-    return {
-      id: q.id,
-      label: `${q.question_number}${q.sub_label ?? ''}`,
+    const base = {
       part_label: partLabel,
       question_number: q.question_number,
       sub_label: q.sub_label,
       choice_group: choiceGroupOf(partLabel, q.question_number),
-      marks: Number(q.marks ?? 0),
+      branch_id: q.id,
       is_choice_alternative: !!q.is_choice_alternative,
-      co_code: q.co_code,
-      k_level: q.k_level,
-      question_text: q.question_text,
       display_order: q.display_order ?? 0,
     };
+    const subs = readSubQuestions(q);
+    if (subs.length === 0) {
+      return [
+        {
+          ...base,
+          id: q.id,
+          label: entryLabel(q),
+          marks: Number(q.marks ?? 0),
+          co_code: q.co_code,
+          k_level: q.k_level,
+          question_text: q.question_text,
+        },
+      ];
+    }
+    return subs.map((s) => ({
+      ...base,
+      id: s.id,
+      label: entryLabel(q, s),
+      marks: Number(s.marks ?? 0),
+      co_code: s.co_code ?? undefined,
+      k_level: s.k_level ?? undefined,
+      question_text: s.question_text || q.question_text,
+      parent_id: q.id,
+    }));
   });
 
   // Parts in the order the questions introduce them — the paper's own order, not
@@ -127,9 +155,11 @@ export function lockReasonFor(
 ): LockReason {
   if (marks[question.id] != null) return null;
 
+  // The OTHER branch of the OR pair — a sub-division of the same split question
+  // shares the branch and is not a rival.
   const siblingAnswered = questions.some(
     (q) =>
-      q.id !== question.id &&
+      q.branch_id !== question.branch_id &&
       q.choice_group === question.choice_group &&
       marks[q.id] != null
   );
@@ -205,19 +235,20 @@ export function validateLearnerMarks(
     }
   }
 
-  // One branch per OR pair.
-  const groupHits = new Map<string, string[]>();
+  // One branch per OR pair. Counted in BRANCHES, not columns: several marks on
+  // one branch are just that question's sub-divisions, which is allowed.
+  const groupHits = new Map<string, Map<string, string>>();
   for (const id of Object.keys(marks)) {
     const q = byId.get(id);
     if (!q) continue;
-    const list = groupHits.get(q.choice_group) ?? [];
-    list.push(q.label);
-    groupHits.set(q.choice_group, list);
+    const branches = groupHits.get(q.choice_group) ?? new Map<string, string>();
+    if (!branches.has(q.branch_id)) branches.set(q.branch_id, q.label);
+    groupHits.set(q.choice_group, branches);
   }
-  for (const labels of groupHits.values()) {
-    if (labels.length > 1) {
+  for (const branches of groupHits.values()) {
+    if (branches.size > 1) {
       errors.push(
-        `only one of ${labels.map((l) => `Q${l}`).join(' / ')} may be answered (OR choice)`
+        `only one of ${[...branches.values()].map((l) => `Q${l}`).join(' / ')} may be answered (OR choice)`
       );
     }
   }
@@ -304,13 +335,17 @@ export function computeAttainment(
 /**
  * Paper statuses marks may be entered against.
  *
- * Drafts are EXCLUDED, and this is a COE-enforced gate, not a preference: a draft
- * can still be re-authored or rebuilt from its template (`regenerate`), which
- * mints new question ids. Marks keyed against it would then point at questions
- * that no longer exist, with nothing to detect the orphaning. Filtering here
- * means the user never gets as far as typing into a grid COE would reject.
+ * Only an APPROVED paper opens entry ('locked' is an approved paper that has
+ * since been frozen, so it stays open). This is stricter than COE, which also
+ * accepts 'submitted':
+ *   - a draft can still be re-authored or rebuilt from its template
+ *     (`regenerate`), which mints new question ids and would orphan any marks
+ *     keyed against it;
+ *   - a submitted paper is still editable until it is approved, so its questions
+ *     and marks split can still change under the marks.
+ * Filtering here means the user never gets as far as typing into a grid.
  */
-export const ENTRY_ELIGIBLE_STATUSES = new Set(['submitted', 'approved', 'locked']);
+export const ENTRY_ELIGIBLE_STATUSES = new Set(['approved', 'locked']);
 
 export function isEntryEligible(status: string | undefined): boolean {
   return !!status && ENTRY_ELIGIBLE_STATUSES.has(status);
@@ -322,7 +357,7 @@ export function isEntryEligible(status: string | undefined): boolean {
  * Drops, in order:
  *   - papers stamped with a DIFFERENT cia_setting_id (they belong to another
  *     assessment);
- *   - papers whose status is not entry-eligible (draft).
+ *   - papers whose status is not entry-eligible (draft, submitted).
  *
  * Then orders: current-setting papers first, then those with no setting (the
  * normal case — the generator writes `cia_setting_id || null` and the Question
@@ -332,7 +367,6 @@ export function isEntryEligible(status: string | undefined): boolean {
 const STATUS_RANK: Record<string, number> = {
   locked: 0,
   approved: 1,
-  submitted: 2,
 };
 
 export function rankPapers<

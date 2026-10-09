@@ -27206,7 +27206,6 @@ export type Database = {
           created_at: string | null
           created_by: string | null
           discount_amount: number
-          discount_category: string
           discount_reason: string
           discount_type: string
           discount_value: number
@@ -27216,6 +27215,8 @@ export type Database = {
           is_outcome_based: boolean | null
           outcome_criteria: Json | null
           outcome_verification: Json | null
+          scholarship_category_id: string
+          scholarship_type_id: string
           supporting_documents: Json | null
           updated_at: string | null
         }
@@ -27227,7 +27228,6 @@ export type Database = {
           created_at?: string | null
           created_by?: string | null
           discount_amount: number
-          discount_category: string
           discount_reason: string
           discount_type: string
           discount_value: number
@@ -27237,6 +27237,8 @@ export type Database = {
           is_outcome_based?: boolean | null
           outcome_criteria?: Json | null
           outcome_verification?: Json | null
+          scholarship_category_id: string
+          scholarship_type_id: string
           supporting_documents?: Json | null
           updated_at?: string | null
         }
@@ -27248,7 +27250,6 @@ export type Database = {
           created_at?: string | null
           created_by?: string | null
           discount_amount?: number
-          discount_category?: string
           discount_reason?: string
           discount_type?: string
           discount_value?: number
@@ -27258,10 +27259,26 @@ export type Database = {
           is_outcome_based?: boolean | null
           outcome_criteria?: Json | null
           outcome_verification?: Json | null
+          scholarship_category_id?: string
+          scholarship_type_id?: string
           supporting_documents?: Json | null
           updated_at?: string | null
         }
         Relationships: [
+          {
+            foreignKeyName: "fk_billing_discounts_scholarship_category"
+            columns: ["scholarship_category_id"]
+            isOneToOne: false
+            referencedRelation: "billing_scholarship_categories"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fk_billing_discounts_scholarship_type"
+            columns: ["scholarship_type_id", "scholarship_category_id"]
+            isOneToOne: false
+            referencedRelation: "billing_scholarship_types"
+            referencedColumns: ["id", "category_id"]
+          },
           {
             foreignKeyName: "fk_billing_discounts_authorizer"
             columns: ["authorizer_id"]
@@ -29291,6 +29308,101 @@ export type Database = {
             columns: ["receipt_id"]
             isOneToOne: false
             referencedRelation: "billing_receipts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      billing_scholarship_categories: {
+        Row: {
+          code: string
+          created_at: string
+          created_by: string | null
+          description: string | null
+          id: string
+          is_active: boolean
+          name: string
+          sort_order: number
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          code: string
+          created_at?: string
+          created_by?: string | null
+          description?: string | null
+          id?: string
+          is_active?: boolean
+          name: string
+          sort_order?: number
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          code?: string
+          created_at?: string
+          created_by?: string | null
+          description?: string | null
+          id?: string
+          is_active?: boolean
+          name?: string
+          sort_order?: number
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: []
+      }
+      billing_scholarship_types: {
+        Row: {
+          category_id: string
+          code: string
+          created_at: string
+          created_by: string | null
+          default_value: number | null
+          default_value_mode: string
+          description: string | null
+          id: string
+          is_active: boolean
+          name: string
+          sort_order: number
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          category_id: string
+          code: string
+          created_at?: string
+          created_by?: string | null
+          default_value?: number | null
+          default_value_mode?: string
+          description?: string | null
+          id?: string
+          is_active?: boolean
+          name: string
+          sort_order?: number
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          category_id?: string
+          code?: string
+          created_at?: string
+          created_by?: string | null
+          default_value?: number | null
+          default_value_mode?: string
+          description?: string | null
+          id?: string
+          is_active?: boolean
+          name?: string
+          sort_order?: number
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "billing_scholarship_types_category_id_fkey"
+            columns: ["category_id"]
+            isOneToOne: false
+            referencedRelation: "billing_scholarship_categories"
             referencedColumns: ["id"]
           },
         ]
@@ -217625,7 +217737,6 @@ export type Database = {
           approval_status: string
           bill_description: string
           discount_amount: number
-          discount_category: string
           discount_id: string
           discount_type: string
           discount_value: number
@@ -217634,6 +217745,8 @@ export type Database = {
           institution_name: string
           last_name: string
           roll_number: string
+          scholarship_category_name: string
+          scholarship_type_name: string
           total_count: number
         }[]
       }

@@ -11,9 +11,9 @@ import {
   SelectTrigger,
   SelectValue
 } from '@/components/ui/select';
+import { useScholarshipSetup } from '@/hooks/billing/use-scholarship-setup';
 import type {
   DiscountFilters,
-  DiscountCategory,
   DiscountType,
   ApprovalStatus
 } from '@/types/billing-schedule';
@@ -27,11 +27,17 @@ export function DiscountFilters({
   filters,
   onFilterChange
 }: DiscountFiltersProps) {
+  const { data: scholarshipTree = [] } = useScholarshipSetup();
+  const typesOfSelectedCategory =
+    scholarshipTree.find((c) => c.id === filters.scholarship_category_id)
+      ?.types ?? [];
+
   const handleClearFilters = () => {
     onFilterChange({
       search: '',
       bill_id: undefined,
-      discount_category: undefined,
+      scholarship_category_id: undefined,
+      scholarship_type_id: undefined,
       discount_type: undefined,
       approval_status: undefined,
       effective_date_from: undefined,
@@ -42,7 +48,8 @@ export function DiscountFilters({
   const hasActiveFilters =
     filters.search ||
     filters.bill_id ||
-    filters.discount_category ||
+    filters.scholarship_category_id ||
+    filters.scholarship_type_id ||
     filters.discount_type ||
     filters.approval_status ||
     filters.effective_date_from ||
@@ -64,11 +71,12 @@ export function DiscountFilters({
 
         {/* Discount Category Filter */}
         <Select
-          value={filters.discount_category || 'all'}
+          value={filters.scholarship_category_id || 'all'}
           onValueChange={(value) =>
             onFilterChange({
-              discount_category:
-                value === 'all' ? undefined : (value as DiscountCategory)
+              scholarship_category_id: value === 'all' ? undefined : value,
+              // A type belongs to one category — drop it when the category moves.
+              scholarship_type_id: undefined
             })
           }
         >
@@ -77,17 +85,40 @@ export function DiscountFilters({
           </SelectTrigger>
           <SelectContent>
             <SelectItem value='all'>All categories</SelectItem>
-            <SelectItem value='merit_scholarship'>Merit Scholarship</SelectItem>
-            <SelectItem value='financial_aid'>Financial Aid</SelectItem>
-            <SelectItem value='staff_quota'>Staff Quota</SelectItem>
-            <SelectItem value='sports_quota'>Sports Quota</SelectItem>
-            <SelectItem value='special_circumstances'>
-              Special Circumstances
-            </SelectItem>
+            {scholarshipTree.map((category) => (
+              <SelectItem key={category.id} value={category.id}>
+                {category.name}
+                {category.is_active ? '' : ' (inactive)'}
+              </SelectItem>
+            ))}
           </SelectContent>
         </Select>
 
-        {/* Discount Type Filter */}
+        {/* Scholarship Type Filter (depends on the category) */}
+        <Select
+          value={filters.scholarship_type_id || 'all'}
+          disabled={!filters.scholarship_category_id}
+          onValueChange={(value) =>
+            onFilterChange({
+              scholarship_type_id: value === 'all' ? undefined : value
+            })
+          }
+        >
+          <SelectTrigger>
+            <SelectValue placeholder='All scholarship types' />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value='all'>All scholarship types</SelectItem>
+            {typesOfSelectedCategory.map((type) => (
+              <SelectItem key={type.id} value={type.id}>
+                {type.name}
+                {type.is_active ? '' : ' (inactive)'}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+
+        {/* Value Mode Filter */}
         <Select
           value={filters.discount_type || 'all'}
           onValueChange={(value) =>
@@ -98,10 +129,10 @@ export function DiscountFilters({
           }
         >
           <SelectTrigger>
-            <SelectValue placeholder='All types' />
+            <SelectValue placeholder='All value modes' />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value='all'>All types</SelectItem>
+            <SelectItem value='all'>All value modes</SelectItem>
             <SelectItem value='amount'>Fixed Amount</SelectItem>
             <SelectItem value='percentage'>Percentage</SelectItem>
           </SelectContent>

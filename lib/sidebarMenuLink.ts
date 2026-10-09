@@ -115,16 +115,10 @@ import {
   SearchCheck,
   BadgeCheck,
   Presentation,
-  LayoutPanelLeft,
   Siren,
   ShoppingBasket,
   ListTodo,
   PackageSearch,
-  ListFilter,
-  Drill,
-  Weight,
-  ChartPie,
-  HardHat,
   SlidersHorizontal,
   WandSparkles,
 } from 'lucide-react';
@@ -549,11 +543,16 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // row below and the page header.
   '/hr/staff-photos': 'hr.staff_photo.review',
   // HR duty playbooks (20271007161139). Reached from the "How this is done" card
-  // on each HR duty screen; no sidebar row. Written out so the tier-2 coverage
-  // gate sees it, with the SAME key it already resolved to by longest prefix
-  // ('/hr' -> 'hr.view'), so who can open it does not change. The Proposals tab
-  // inside checks hr.harness.playbooks.manage itself.
-  '/hr/playbooks': 'hr.view',
+  // on each HR duty screen; no sidebar row. Director 8 Oct 05:30: EVERY team
+  // member may read them, only HR changes them. Most roles hold no HR key
+  // (test.faculty's role has no hr.view), so this uses the universal signed-in
+  // sentinel `view_profile`, the same as /hr/my-pay-changes above. Without this
+  // entry app/(routes)/hr/layout.tsx would resolve '/hr' -> 'hr.view' by longest
+  // prefix and turn faculty away. Changing playbooks is NOT opened by this: the
+  // Proposals tab needs hr.harness.playbooks.manage, and fn_hr_playbook_decide /
+  // fn_hr_playbook_retire_line refuse anyone without it. Reading is still decided
+  // in Postgres (fn_hr_playbook_can_read: a staff row, admin, or the key).
+  '/hr/playbooks': 'view_profile',
   '/hr/employees': 'hr.employees.view',
   '/hr/employees/[id]': 'hr.employees.view',
   // WHO PAYS each team member. This entry is load-bearing, not decorative:
@@ -2366,21 +2365,22 @@ export function GetPages(pathname: string): MenuGroup[] {
           // institution shares, and reporting a broken tap should never be a
           // scavenger hunt down the sidebar.
           //
-          // Submenus (2026-10-01): the InstaSolver desk's screens, in the same
-          // order as the standalone app's menu (C:\jkkn_instasolver
-          // lib/constants/navigation.ts), so people who used
-          // instasolver.jkkn.ac.in find everything where it was. Each row has
-          // its own icon, none reused elsewhere in this sidebar, so the
-          // InstaSolver rows are recognisable at a glance.
-          // The 14-09 chooser at /instasolver (broken / complaint / track, My
-          // complaints, QR reports) stays as it is on main; the desk's screens
-          // are the submenus below. The chooser's lanes are not listed here
-          // (owner's decision 2026-10-01) but every one of them still works.
+          // Submenus — ONE report path (Director, 5–6 Oct 2026): the two
+          // InstaSolvers merge into one. Every "something is wrong" report goes
+          // through the chooser at /instasolver (broken / complaint / buy) and
+          // is routed straight to the person who fixes it. The desk ported in
+          // #4191 is no longer a second way in: its Report / Request pages send
+          // people to the chooser, its CAO triage step is dropped, and its
+          // dashboard / workload / analytics screens are hidden from everyone
+          // but the CAO (they sit under Administration as tier-3 chips).
           //
-          // Each row's MENU_PERMISSIONS key decides visibility:
-          // instasolver.view (everyone), .triage (CAO), .work (team-member
-          // roles), .analytics (Principal, CAO). Super Admin sees all. The
-          // parent shows because Dashboard is instasolver.view.
+          // Request an item goes to Procurement, as the chooser's Buy lane does
+          // (decision I3: purchases are not an InstaSolver lane). Its
+          // MENU_PERMISSIONS key, procurement.request_create, hides it from
+          // students and from everyone without that key.
+          //
+          // Each row's MENU_PERMISSIONS key decides visibility. The parent shows
+          // because Report a problem is instasolver.view (every login).
           href: '/instasolver',
           label: 'InstaSolver',
           active: pathname === '/instasolver' || pathname.startsWith('/instasolver/'),
@@ -2389,74 +2389,35 @@ export function GetPages(pathname: string): MenuGroup[] {
           icon: WandSparkles,
           submenus: [
             {
-              href: '/instasolver/dashboard',
-              label: 'Dashboard',
-              active: pathname === '/instasolver/dashboard',
-              icon: LayoutPanelLeft
-            },
-            {
-              href: '/instasolver/issues/new',
-              label: 'Report an issue',
-              active: pathname === '/instasolver/issues/new',
+              href: '/instasolver',
+              label: 'Report a problem',
+              active: pathname === '/instasolver',
               icon: Siren
             },
             {
-              href: '/instasolver/requirements/new',
-              label: 'Request an item',
-              active: pathname === '/instasolver/requirements/new',
-              icon: ShoppingBasket
-            },
-            {
-              href: '/instasolver/issues',
-              label: 'Issues',
-              active:
-                pathname === '/instasolver/issues' ||
-                (pathname.startsWith('/instasolver/issues/') && pathname !== '/instasolver/issues/new'),
+              href: '/instasolver/my-reports',
+              label: 'My reports',
+              active: pathname === '/instasolver/my-reports',
               icon: ListTodo
             },
             {
-              href: '/instasolver/requirements',
-              label: 'Requirements',
-              active:
-                pathname === '/instasolver/requirements' ||
-                (pathname.startsWith('/instasolver/requirements/') &&
-                  pathname !== '/instasolver/requirements/new'),
+              href: '/instasolver/my-complaints',
+              label: 'My complaints',
+              active: pathname === '/instasolver/my-complaints',
               icon: PackageSearch
             },
             {
-              href: '/instasolver/triage',
-              label: 'Triage queue',
-              active: pathname === '/instasolver/triage',
-              icon: ListFilter
-            },
-            {
-              href: '/instasolver/work',
-              label: 'My work',
-              active: pathname === '/instasolver/work',
-              icon: Drill
-            },
-            {
-              href: '/instasolver/workload',
-              label: 'Workload',
-              active: pathname === '/instasolver/workload',
-              icon: Weight
-            },
-            {
-              href: '/instasolver/analytics',
-              label: 'Analytics',
-              active: pathname === '/instasolver/analytics',
-              icon: ChartPie
-            },
-            {
-              href: '/instasolver/admin/teams',
-              label: 'Maintenance teams',
-              active: pathname === '/instasolver/admin/teams',
-              icon: HardHat
+              href: '/procurement/requests/new',
+              label: 'Request an item',
+              active: pathname === '/procurement/requests/new',
+              icon: ShoppingBasket
             },
             {
               href: '/instasolver/admin',
               label: 'Administration',
-              active: pathname === '/instasolver/admin' || pathname === '/instasolver/admin/categories',
+              active:
+                pathname === '/instasolver/admin' ||
+                pathname.startsWith('/instasolver/admin/'),
               icon: SlidersHorizontal
             }
           ]

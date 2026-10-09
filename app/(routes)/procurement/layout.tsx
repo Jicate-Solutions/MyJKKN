@@ -40,7 +40,7 @@ export default function ProcurementLayout({ children }: { children: React.ReactN
               You do not have permission to access the Procurement module. Please contact
               your administrator if you believe this is a mistake.
             </p>
-            <Button variant="outline" size="sm" onClick={() => router.push('/dashboard')}>
+            <Button variant="outline" size="sm" className="h-10 sm:h-8" onClick={() => router.push('/dashboard')}>
               Back to Dashboard
             </Button>
           </CardContent>

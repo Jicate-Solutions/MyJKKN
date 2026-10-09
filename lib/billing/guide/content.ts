@@ -224,7 +224,7 @@ export const GUIDES: GuideBook = {
             {
               action: 'Click **Apply Scholarship** to add one to a student’s bill.',
               detail:
-                'Pick the category, choose fixed-amount or percentage, and enter the value. Most scholarships need an approver to sign off before they reduce the bill.',
+                'Pick the scholarship category, then one of its types, choose fixed-amount or percentage, and enter the value (a type can pre-fill both). Most scholarships need an approver to sign off before they reduce the bill.',
               tip: 'A scholarship sits as Pending until it is approved — only an approved scholarship changes the outstanding amount.',
               link: { label: 'Take me there', href: '/billing/discounts/new' },
             },

@@ -15,12 +15,7 @@ export type BillStatus =
   | 'superseded';
 export type PaymentMode = 'cash' | 'online' | 'bank_transfer' | 'dd' | 'cheque' | 'combined';
 export type RecurrencePattern = 'monthly' | 'quarterly' | 'yearly';
-export type DiscountCategory =
-  | 'merit_scholarship'
-  | 'financial_aid'
-  | 'staff_quota'
-  | 'sports_quota'
-  | 'special_circumstances';
+/** Value mode of a scholarship — NOT the scholarship type (see ScholarshipType). */
 export type DiscountType = 'amount' | 'percentage';
 export type ApprovalStatus = 'pending' | 'approved' | 'rejected';
 export type RefundCategory =
@@ -352,11 +347,74 @@ export interface ReceiptListResponse {
   };
 }
 
+// Scholarship categories & types (admin-defined, global)
+export interface ScholarshipCategory {
+  id: string;
+  code: string;
+  name: string;
+  description: string | null;
+  sort_order: number;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ScholarshipType {
+  id: string;
+  category_id: string;
+  code: string;
+  name: string;
+  description: string | null;
+  default_value_mode: DiscountType;
+  default_value: number | null;
+  sort_order: number;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ScholarshipCategoryWithTypes extends ScholarshipCategory {
+  types: ScholarshipType[];
+}
+
+export interface CreateScholarshipCategoryDto {
+  name: string;
+  description?: string | null;
+  sort_order?: number;
+  is_active?: boolean;
+}
+
+export type UpdateScholarshipCategoryDto = Partial<CreateScholarshipCategoryDto>;
+
+export interface CreateScholarshipTypeDto {
+  category_id: string;
+  name: string;
+  description?: string | null;
+  default_value_mode: DiscountType;
+  default_value?: number | null;
+  sort_order?: number;
+  is_active?: boolean;
+}
+
+export type UpdateScholarshipTypeDto = Partial<
+  Omit<CreateScholarshipTypeDto, 'category_id'>
+>;
+
+/** The {id,name,code} slice embedded on discounts and reports. */
+export interface ScholarshipLabel {
+  id: string;
+  name: string;
+  code: string;
+}
+
 // Discount Interface
 export interface BillingDiscount {
   id: string;
   bill_id: string;
-  discount_category: DiscountCategory;
+  scholarship_category_id: string;
+  scholarship_type_id: string;
+  scholarship_category?: ScholarshipLabel | null;
+  scholarship_type?: ScholarshipLabel | null;
   discount_type: DiscountType;
   discount_value: number;
   discount_amount: number;
@@ -386,7 +444,8 @@ export interface BillingDiscount {
 // Create and Update DTOs for Discount
 export interface CreateDiscountDto {
   bill_id: string;
-  discount_category: DiscountCategory;
+  scholarship_category_id: string;
+  scholarship_type_id: string;
   discount_type: DiscountType;
   discount_value: number;
   discount_reason: string;
@@ -406,7 +465,8 @@ export interface UpdateDiscountDto extends Partial<CreateDiscountDto> {
 export interface DiscountFilters {
   search?: string;
   bill_id?: string;
-  discount_category?: DiscountCategory;
+  scholarship_category_id?: string;
+  scholarship_type_id?: string;
   discount_type?: DiscountType;
   approval_status?: ApprovalStatus;
   effective_date_from?: string;
@@ -948,7 +1008,8 @@ export interface DiscountReport {
   roll_number?: string;
   institution_name: string;
   bill_description: string;
-  discount_category: DiscountCategory;
+  scholarship_category_name?: string | null;
+  scholarship_type_name?: string | null;
   discount_type: DiscountType;
   discount_value: number;
   discount_amount: number;
