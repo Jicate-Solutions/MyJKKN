@@ -14,8 +14,13 @@
 --   One more change, Director's ruling 2026-10-09: bug_report_details
 --   returns error logs and an IP address, so it goes to the in-app assistant
 --   ONLY, never the outside-AI door (as export_data already is).
+--   Same narrowing, as the safe reversible default (W12 desk on the
+--   2026-10-10 review, which found they may return staff contact and HR
+--   data): staff_details and staff_plans also go to the in-app assistant
+--   only. The Director can widen any of the three to the door later (the
+--   Undo below shows how).
 --   requires_permission, params and every other catalog row are untouched;
---   the other 12 keep their seeded ['assistant','door'].
+--   the other 10 keep their seeded ['assistant','door'].
 --
 -- GUARD
 --   The DO block refuses (and nothing changes) unless, on this database:
@@ -46,15 +51,16 @@
 --   with ai_rpc_academic_context from either #3999 or the newer
 --   20270421090000 (#4088, applied live 2026-10-09) — both pass the guard and
 --   the pg test proves each.
---   bug_report_details is narrowed to the assistant BEFORE anything is
---   switched on, so there is no moment when the door could read it.
+--   bug_report_details, staff_details and staff_plans are narrowed to the
+--   assistant BEFORE anything is switched on, so there is no moment when
+--   the door could read them.
 --
--- Re-running is a no-op. Undo (the audience narrowing is the Director's
--- ruling and is meant to stay; the second line is only for a full revert):
+-- Re-running is a no-op. Undo (the audience narrowing is meant to stay; the
+-- second line is only for a full revert, or to widen one of the three):
 --   UPDATE public.ai_tool_catalog SET enabled = false, updated_at = now()
 --    WHERE kind = 'rpc' AND target IN (<the 13 below>);
 --   UPDATE public.ai_tool_catalog SET audience = ARRAY['assistant','door']::text[], updated_at = now()
---    WHERE kind = 'rpc' AND target = 'ai_rpc_bug_report_details';
+--    WHERE kind = 'rpc' AND target IN ('ai_rpc_bug_report_details', 'ai_rpc_staff_details', 'ai_rpc_staff_plans');
 -- Re-applying 20270301090000 after this file switches the 13 off again
 -- (its section 2b) — the applier runs each version once, so only a manual
 -- re-apply would do that.
@@ -125,12 +131,13 @@ BEGIN
   -- The changes run INSIDE this block, after every check, so a failed check
   -- can never be followed by an enable — however the file is run (psql
   -- without ON_ERROR_STOP, a runner that continues after an error).
-  -- Director 2026-10-09: bug report details reach the in-app assistant only.
-  -- Narrowed FIRST, so the door never sees it switched on.
+  -- Bug report details (Director 2026-10-09) and staff details / staff plans
+  -- (staff contact and HR data; safe default 2026-10-10) reach the in-app
+  -- assistant only. Narrowed FIRST, so the door never sees them switched on.
   UPDATE public.ai_tool_catalog
      SET audience = ARRAY['assistant']::text[], updated_at = now()
    WHERE kind = 'rpc'
-     AND target = 'ai_rpc_bug_report_details'
+     AND target IN ('ai_rpc_bug_report_details', 'ai_rpc_staff_details', 'ai_rpc_staff_plans')
      AND audience IS DISTINCT FROM ARRAY['assistant']::text[];
 
   UPDATE public.ai_tool_catalog

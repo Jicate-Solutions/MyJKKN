@@ -5,7 +5,7 @@
  *
  * Proves:
  *   exactly the 13 lookups that 20270301090000 switched off are switched on,
- *   bug_report_details leaves the outside-AI door (assistant only, Director
+ *   bug_report_details, staff_details and staff_plans leave the outside-AI door (assistant only, Director
  *   2026-10-09), and every other catalog row is unchanged (all columns but
  *   updated_at);
  *   re-running is a no-op;
@@ -43,6 +43,9 @@ const PGPORT = Number(process.env.AI_DOOR_TEST_PGPORT ?? 5432);
 const PGUSER =
   process.env.AI_DOOR_TEST_PGUSER ?? (process.env.CI ? 'postgres' : (process.env.USER ?? 'postgres'));
 const PGPASSWORD = process.env.AI_DOOR_TEST_PGPASSWORD;
+
+/** Narrowed to the in-app assistant: bug details (Director 9 Oct), staff details and plans (10 Oct). */
+const ASSISTANT_ONLY = ['ai_rpc_bug_report_details', 'ai_rpc_staff_details', 'ai_rpc_staff_plans'];
 
 const THIRTEEN = [
   'ai_rpc_academic_context',
@@ -182,7 +185,7 @@ describe('switching the 13 lookups back on', () => {
     for (let i = 0; i < before.length; i++) {
       const was = before[i];
       const now = after[i];
-      if (was.target === 'ai_rpc_bug_report_details') {
+      if (ASSISTANT_ONLY.includes(was.target)) {
         expect(was.audience).toEqual(['assistant', 'door']);
         expect({ ...now, enabled: false, audience: was.audience }).toEqual(was);
         expect(now.enabled).toBe(true);
@@ -281,8 +284,11 @@ describe('the guard refuses and switches nothing on', () => {
     expect(run.error).toBeUndefined();
     expect(run.stderr).toMatch(/no college-scope check/);
     expect(await offTargets(db)).toEqual(THIRTEEN);
-    const audience = await db.query(`SELECT audience FROM public.ai_tool_catalog WHERE target = 'ai_rpc_bug_report_details'`);
-    expect(audience.rows[0].audience).toEqual(['assistant', 'door']);
+    const audience = await db.query(
+      `SELECT target, audience FROM public.ai_tool_catalog WHERE target = ANY($1) ORDER BY target COLLATE "C"`,
+      [ASSISTANT_ONLY]
+    );
+    expect(audience.rows.every((r) => JSON.stringify(r.audience) === JSON.stringify(['assistant', 'door']))).toBe(true);
   });
 
   it('one of the 13 functions is missing', async () => {
