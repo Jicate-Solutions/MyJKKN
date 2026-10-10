@@ -12413,36 +12413,72 @@ CREATE POLICY ig_learner_post_claims_delete ON public.ig_learner_post_claims
 -- helpers below are not executable by anon. Without it an anonymous read
 -- that used to return no rows would fail with "permission denied for
 -- function" (deep review of #4079, M5); anon now behaves exactly as before.
+-- Fail closed (MEDIUM 2): where the Joint MD's seat cannot be resolved, only
+-- the Director who would handle it and its filer see it
+-- (fn_grievance_caller_may_see_about_jmd, section 3b). Only ticked rows ever
+-- call it.
 DROP POLICY IF EXISTS grievance_tickets_hide_about_joint_md ON public.grievance_tickets;
 
 CREATE POLICY grievance_tickets_hide_about_joint_md ON public.grievance_tickets
   AS RESTRICTIVE FOR ALL TO authenticated
   USING (NOT about_joint_md
-         OR NOT ((SELECT public.fn_grievance_caller_joint_md_scope())
-                 && ARRAY[institution_id, '00000000-0000-0000-0000-000000000000'::uuid]));
+         OR public.fn_grievance_caller_may_see_about_jmd(institution_id, raised_by_id, filed_by));
 
 -- CASE: for everybody who is not the Joint MD (an empty seat list, worked out
--- once per statement) the per-row lookup never runs.
+-- once per statement) the per-row lookup never runs — while every college's
+-- seat resolves; otherwise it does, and fails closed (MEDIUM 2).
 DROP POLICY IF EXISTS grievance_comments_hide_about_joint_md ON public.grievance_comments;
 
 CREATE POLICY grievance_comments_hide_about_joint_md ON public.grievance_comments
   AS RESTRICTIVE FOR ALL TO authenticated
-  USING (CASE WHEN cardinality((SELECT public.fn_grievance_caller_joint_md_scope())) = 0 THEN true
+  USING (CASE WHEN cardinality((SELECT public.fn_grievance_caller_joint_md_scope())) = 0
+                   AND (SELECT public.fn_grievance_joint_md_seat_known_everywhere()) THEN true
               ELSE NOT public.fn_grievance_ticket_hidden_from_caller(ticket_id) END);
 
 DROP POLICY IF EXISTS grievance_history_hide_about_joint_md ON public.grievance_history;
 
 CREATE POLICY grievance_history_hide_about_joint_md ON public.grievance_history
   AS RESTRICTIVE FOR ALL TO authenticated
-  USING (CASE WHEN cardinality((SELECT public.fn_grievance_caller_joint_md_scope())) = 0 THEN true
+  USING (CASE WHEN cardinality((SELECT public.fn_grievance_caller_joint_md_scope())) = 0
+                   AND (SELECT public.fn_grievance_joint_md_seat_known_everywhere()) THEN true
               ELSE NOT public.fn_grievance_ticket_hidden_from_caller(ticket_id) END);
 
+-- ---------------------------------------------------------------------
+-- 11b) Confidential notices and work items: their recipient only
+-- ---------------------------------------------------------------------
+-- notifications / user_notifications already let every super admin read all
+-- rows (notifications_select_super_admin, "Super admins can manage all user
+-- notifications") and update or delete them (notifications_update_admins /
+-- _delete_admins). The notice or work item about a complaint about the Joint
+-- MD is marked confidential (notifications.metadata.confidential, or
+-- action_config.confidential on a work item; sections 6 and 9), and these
+-- RESTRICTIVE policies — ANDed with every existing one, which stay exactly
+-- as they are — let ONLY the person it targets see, update or delete it.
+-- Every other row is untouched; the service role is not subject to them;
+-- inserts are not covered (the database writes these rows). The
+-- notifications screens (/notifications/admin, the bell) behave as before
+-- for every row that is not confidential (deep review round 6, H1).
+--
+-- Cost (W12 perf proof, 600k rows each, local): on notifications only the two
+-- jsonb flags are read for a row that is not confidential; a confidential row
+-- checks the canonical user_ids list inline first (the shape sections 6 and 9
+-- write; fn_notification_is_for_user answers true for it too) and calls the
+-- function only for any other shape. On
+-- user_notifications a reader's own row short-circuits on user_id; any other
+-- row is shown only when the reader can see its notification and that
+-- notification is not confidential — a plain EXISTS under the reader's own
+-- notifications RLS, which the planner runs as one hashed lookup for a whole
+-- table read (or an index probe for a few rows), never a per-row function
+-- call. On main only super admins read other people's rows, and they can see
+-- every notification that is not confidential, so nothing else changes.
+-- notifications' policies never read user_notifications (no RLS recursion).
 DROP POLICY IF EXISTS notifications_confidential_recipient_select ON public.notifications;
 
 CREATE POLICY notifications_confidential_recipient_select ON public.notifications
   AS RESTRICTIVE FOR SELECT TO authenticated
   USING (CASE WHEN metadata ->> 'confidential' = 'true' OR action_config ->> 'confidential' = 'true'
-              THEN public.fn_notification_is_for_user(targeting, (SELECT auth.uid()))
+              THEN (targeting -> 'user_ids' ? (SELECT auth.uid())::text)
+                   OR public.fn_notification_is_for_user(targeting, (SELECT auth.uid()))
               ELSE true END);
 
 DROP POLICY IF EXISTS notifications_confidential_recipient_update ON public.notifications;
@@ -12450,10 +12486,12 @@ DROP POLICY IF EXISTS notifications_confidential_recipient_update ON public.noti
 CREATE POLICY notifications_confidential_recipient_update ON public.notifications
   AS RESTRICTIVE FOR UPDATE TO authenticated
   USING (CASE WHEN metadata ->> 'confidential' = 'true' OR action_config ->> 'confidential' = 'true'
-              THEN public.fn_notification_is_for_user(targeting, (SELECT auth.uid()))
+              THEN (targeting -> 'user_ids' ? (SELECT auth.uid())::text)
+                   OR public.fn_notification_is_for_user(targeting, (SELECT auth.uid()))
               ELSE true END)
   WITH CHECK (CASE WHEN metadata ->> 'confidential' = 'true' OR action_config ->> 'confidential' = 'true'
-                   THEN public.fn_notification_is_for_user(targeting, (SELECT auth.uid()))
+                   THEN (targeting -> 'user_ids' ? (SELECT auth.uid())::text)
+                   OR public.fn_notification_is_for_user(targeting, (SELECT auth.uid()))
                    ELSE true END);
 
 DROP POLICY IF EXISTS notifications_confidential_recipient_delete ON public.notifications;
@@ -12461,7 +12499,8 @@ DROP POLICY IF EXISTS notifications_confidential_recipient_delete ON public.noti
 CREATE POLICY notifications_confidential_recipient_delete ON public.notifications
   AS RESTRICTIVE FOR DELETE TO authenticated
   USING (CASE WHEN metadata ->> 'confidential' = 'true' OR action_config ->> 'confidential' = 'true'
-              THEN public.fn_notification_is_for_user(targeting, (SELECT auth.uid()))
+              THEN (targeting -> 'user_ids' ? (SELECT auth.uid())::text)
+                   OR public.fn_notification_is_for_user(targeting, (SELECT auth.uid()))
               ELSE true END);
 
 DROP POLICY IF EXISTS user_notifications_confidential_recipient_select ON public.user_notifications;
@@ -12469,20 +12508,32 @@ DROP POLICY IF EXISTS user_notifications_confidential_recipient_select ON public
 CREATE POLICY user_notifications_confidential_recipient_select ON public.user_notifications
   AS RESTRICTIVE FOR SELECT TO authenticated
   USING (CASE WHEN user_id = (SELECT auth.uid()) THEN true
-              ELSE NOT public.fn_notification_is_confidential(notification_id) END);
+              ELSE EXISTS (SELECT 1 FROM public.notifications n
+                           WHERE n.id = user_notifications.notification_id
+                             AND (n.metadata ->> 'confidential') IS DISTINCT FROM 'true'
+                             AND (n.action_config ->> 'confidential') IS DISTINCT FROM 'true') END);
 
 DROP POLICY IF EXISTS user_notifications_confidential_recipient_update ON public.user_notifications;
 
 CREATE POLICY user_notifications_confidential_recipient_update ON public.user_notifications
   AS RESTRICTIVE FOR UPDATE TO authenticated
   USING (CASE WHEN user_id = (SELECT auth.uid()) THEN true
-              ELSE NOT public.fn_notification_is_confidential(notification_id) END)
+              ELSE EXISTS (SELECT 1 FROM public.notifications n
+                           WHERE n.id = user_notifications.notification_id
+                             AND (n.metadata ->> 'confidential') IS DISTINCT FROM 'true'
+                             AND (n.action_config ->> 'confidential') IS DISTINCT FROM 'true') END)
   WITH CHECK (CASE WHEN user_id = (SELECT auth.uid()) THEN true
-                   ELSE NOT public.fn_notification_is_confidential(notification_id) END);
+                   ELSE EXISTS (SELECT 1 FROM public.notifications n
+                           WHERE n.id = user_notifications.notification_id
+                             AND (n.metadata ->> 'confidential') IS DISTINCT FROM 'true'
+                             AND (n.action_config ->> 'confidential') IS DISTINCT FROM 'true') END);
 
 DROP POLICY IF EXISTS user_notifications_confidential_recipient_delete ON public.user_notifications;
 
 CREATE POLICY user_notifications_confidential_recipient_delete ON public.user_notifications
   AS RESTRICTIVE FOR DELETE TO authenticated
   USING (CASE WHEN user_id = (SELECT auth.uid()) THEN true
-              ELSE NOT public.fn_notification_is_confidential(notification_id) END);
+              ELSE EXISTS (SELECT 1 FROM public.notifications n
+                           WHERE n.id = user_notifications.notification_id
+                             AND (n.metadata ->> 'confidential') IS DISTINCT FROM 'true'
+                             AND (n.action_config ->> 'confidential') IS DISTINCT FROM 'true') END);
