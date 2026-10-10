@@ -438,6 +438,58 @@ describe('a requester who has LEFT JKKN (Director answers, 1 Oct 2026)', () => {
     expect(json.requested_by).toBe('u-9store');
   });
 
+  describe('HoDs and principals may raise requests too (Director, 9 Oct 2026) but are never the college office', () => {
+    beforeEach(() => {
+      db.custom_roles.push(
+        { id: 'r-hod', role_key: 'hod', is_active: true, permissions: { 'procurement.request_create': true } },
+        { id: 'r-principal', role_key: 'principal', is_active: true, permissions: { 'procurement.request_create': true } },
+        { id: 'r-office', role_key: 'office_assistant', is_active: true, permissions: { 'procurement.request_create': true } }
+      );
+    });
+
+    it('a college with only a HoD and a principal falls back to the Director', async () => {
+      leave();
+      db.profiles.push(person('u-0hod'), person('u-1principal'));
+      holds('u-0hod', 'r-hod');
+      holds('u-1principal', 'r-principal');
+      const { json } = await call({ action: 'begin', legacy_id: ID });
+      expect(json.requested_by).toBe(DIRECTOR);
+      expect(json.on_behalf_of).toBe('director');
+    });
+
+    it('Store Administrator first, then the Office Assistant, then other holders — never the HoD or principal', async () => {
+      leave();
+      db.profiles.push(person('u-0hod'), person('u-1principal'), person('u-2buyer'), person('u-8office'), person('u-9store'));
+      holds('u-0hod', 'r-hod');
+      holds('u-1principal', 'r-principal');
+      holds('u-2buyer', 'r-buyer');
+      holds('u-8office', 'r-office');
+      holds('u-9store', 'r-store');
+      let { json } = await call({ action: 'begin', legacy_id: ID });
+      expect(json.requested_by).toBe('u-9store');
+      await call({ action: 'release', legacy_id: ID, claimed_at: json.claimed_at });
+
+      db.user_roles = db.user_roles.filter((h) => h.user_id !== 'u-9store');
+      ({ json } = await call({ action: 'begin', legacy_id: ID }));
+      expect(json.requested_by).toBe('u-8office');
+      await call({ action: 'release', legacy_id: ID, claimed_at: json.claimed_at });
+
+      db.user_roles = db.user_roles.filter((h) => h.user_id !== 'u-8office');
+      ({ json } = await call({ action: 'begin', legacy_id: ID }));
+      expect(json.requested_by).toBe('u-2buyer');
+    });
+
+    it('a HoD who also holds the Store Administrator role still counts, through the store role', async () => {
+      leave();
+      db.profiles.push(person('u-0hod-store'), person('u-5office'));
+      holds('u-0hod-store', 'r-hod');
+      holds('u-0hod-store', 'r-store');
+      holds('u-5office', 'r-office');
+      const { json } = await call({ action: 'begin', legacy_id: ID });
+      expect(json.requested_by).toBe('u-0hod-store');
+    });
+  });
+
   it('with nobody at the college office, it is raised in the Director\'s name; no profile = role not recorded', async () => {
     row().reporter_profile_id = null;
     const { json } = await call({ action: 'begin', legacy_id: ID });

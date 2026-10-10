@@ -169,13 +169,21 @@ async function stillAtJkkn(admin: SupabaseClient, ids: string[]): Promise<Set<st
   return new Set([...statuses.values()].filter((p) => !hasLeftJkkn(p)).map((p) => p.id));
 }
 
+/** Roles that grant procurement.request_create but are not a college office. */
+const NOT_COLLEGE_OFFICE_ROLES = new Set(['hod', 'principal']);
+/** Who is picked first among a college's office holders (lower first). */
+const COLLEGE_OFFICE_RANK: Record<string, number> = { store_admin: 0, office_assistant: 1 };
+const OTHER_OFFICE_RANK = 2;
+
 /**
  * The college office an approved request from a departed person is raised on
  * behalf of: an active, login-enabled Store Administrator of that college,
- * else another active holder there of a role granting
- * procurement.request_create. Super admins are left out (the Director is the
- * caller's own fallback). Ordered so repeated calls agree: Store Administrator
- * first, then by profile id.
+ * else an Office Assistant there, else another active holder there of a role
+ * granting procurement.request_create. The HoD and Principal roles also grant
+ * it (Director, 9 Oct 2026) but never make someone the office: holding only
+ * those, a person is not picked. Super admins are left out (the Director is the
+ * caller's own fallback). Ordered so repeated calls agree: Store Administrator,
+ * Office Assistant, the rest, then by profile id.
  */
 async function findCollegeOffice(admin: SupabaseClient, institutionId: string | null): Promise<string | null> {
   if (!institutionId) return null;
@@ -185,9 +193,11 @@ async function findCollegeOffice(admin: SupabaseClient, institutionId: string | 
     .eq('is_active', true)
     .contains('permissions', { 'procurement.request_create': true });
   if (roleErr) return null;
-  const roleList = (roles ?? []) as Array<{ id: string; role_key: string }>;
+  const roleList = ((roles ?? []) as Array<{ id: string; role_key: string }>).filter(
+    (r) => !NOT_COLLEGE_OFFICE_ROLES.has(r.role_key)
+  );
   if (roleList.length === 0) return null;
-  const storeRoleIds = new Set(roleList.filter((r) => r.role_key === 'store_admin').map((r) => r.id));
+  const roleRank = new Map(roleList.map((r) => [r.id, COLLEGE_OFFICE_RANK[r.role_key] ?? OTHER_OFFICE_RANK]));
 
   // Paged: PostgREST returns at most 1000 rows a call, and a broad role
   // granted procurement.request_create could hide this college's holder.
@@ -202,8 +212,8 @@ async function findCollegeOffice(admin: SupabaseClient, institutionId: string | 
     if (heldErr) return null;
     const page = (held ?? []) as Array<{ user_id: string; role_id: string }>;
     for (const h of page) {
-      const r = storeRoleIds.has(h.role_id) ? 0 : 1;
-      rank.set(h.user_id, Math.min(rank.get(h.user_id) ?? 1, r));
+      const r = roleRank.get(h.role_id) ?? OTHER_OFFICE_RANK;
+      rank.set(h.user_id, Math.min(rank.get(h.user_id) ?? OTHER_OFFICE_RANK, r));
     }
     if (page.length < HOLDER_PAGE) break;
   }
@@ -220,7 +230,10 @@ async function findCollegeOffice(admin: SupabaseClient, institutionId: string | 
   if (!statuses) return null;
   const eligible = [...statuses.values()]
     .filter((p) => p.institution_id === institutionId && !hasLeftJkkn(p) && p.is_super_admin !== true)
-    .sort((a, b) => (rank.get(a.id) ?? 1) - (rank.get(b.id) ?? 1) || a.id.localeCompare(b.id));
+    .sort(
+      (a, b) =>
+        (rank.get(a.id) ?? OTHER_OFFICE_RANK) - (rank.get(b.id) ?? OTHER_OFFICE_RANK) || a.id.localeCompare(b.id)
+    );
   return eligible[0]?.id ?? null;
 }
 

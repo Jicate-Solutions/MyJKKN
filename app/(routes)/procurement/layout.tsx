@@ -9,8 +9,9 @@ import { useHasApprovalWork } from '@/hooks/procurement/use-approval-chains';
 
 /**
  * Procurement module gateway. Blocks users without `procurement.view` — except
- * people who are an approver on some request's category approval steps (an HOD,
- * Principal, CAO, Chairperson…): they get in to open and decide those requests.
+ * people who may raise a request (`procurement.request_create`), and people who are
+ * an approver on some request's category approval steps (an HOD, Principal, CAO,
+ * Chairperson…): they get in to open and decide those requests.
  * Their tabs stay hidden (AutoTabNav reads MENU_PERMISSIONS); RLS limits what they read.
  * Unlike IMS there is no store picker — procurement is institution-scoped,
  * so the layout only enforces the permission gate.
@@ -18,7 +19,9 @@ import { useHasApprovalWork } from '@/hooks/procurement/use-approval-chains';
 export default function ProcurementLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const { canAccess, isSuperAdmin, isLoading } = usePermissions();
-  const hasView = isSuperAdmin || canAccess('procurement', 'view');
+  // People who may raise a purchase request (HoDs, principals, office assistants — Director,
+  // 9 Oct 2026) get in to raise it and follow their own requests; RLS limits what they read.
+  const hasView = isSuperAdmin || canAccess('procurement', 'view') || canAccess('procurement', 'request_create');
   const { data: hasApprovalWork, isLoading: checkingWork } = useHasApprovalWork(!isLoading && !hasView);
 
   if (isLoading || (!hasView && checkingWork)) {
