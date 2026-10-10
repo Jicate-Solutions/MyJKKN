@@ -268,14 +268,33 @@ describe('type counts come from one grouped database count', () => {
     err.mockRestore();
   }, 15_000);
 
-  it('before the count function is applied, the page still renders with the note', async () => {
+  it('before the count function is applied, the chips are counted from rows instead', async () => {
     failingTable = 'rpc-missing';
-    const err = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    await renderInbox({});
+    expect(screen.queryByText(/could not load just now/)).not.toBeInTheDocument();
+    const chips = within(typeGroup()).getAllByRole('link').map((a) => a.textContent);
+    expect(chips).toEqual([
+      'All types',
+      'Job Interview Meeting with Director Inperson2',
+      'Weekly Review1',
+      'Scheduled directly (no type)1',
+    ]);
+    // the selected type still filters
+    cleanup();
     await renderInbox({ type: T_INTERVIEW });
-    expect(screen.getByRole('status')).toHaveTextContent('The meeting type filter could not load just now');
-    // the selected type still filters the list
     expect(listedPeople()).toHaveLength(2);
-    err.mockRestore();
+    expect(warn).toHaveBeenCalled();
+    warn.mockRestore();
+  });
+
+  it('the row-count fallback says when it is partial (over 10,000 meetings)', async () => {
+    failingTable = 'rpc-missing';
+    extraBookings = manyInterviews(10_050);
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    await renderInbox({});
+    expect(screen.getByText(/Counts cover the first 10,000 of 10,054 meetings in this tab/)).toBeInTheDocument();
+    warn.mockRestore();
   });
 
   it('a count that never answers gives up after 3 s and the list still renders', async () => {

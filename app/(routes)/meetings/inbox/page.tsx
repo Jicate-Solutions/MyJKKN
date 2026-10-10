@@ -42,6 +42,19 @@ const TYPE_COUNTS_TIMEOUT_MS = 3_000;
 const TYPE_READS_TOTAL_MS = 4_500;
 /** The failure-path name lookup always gets at least this long of its own. */
 const TYPE_NAMES_MIN_MS = 1_000;
+/**
+ * Before fn_meeting_inbox_type_counts is applied (the app can deploy first),
+ * the chips are counted from rows instead, as #4283 did: pages of
+ * TYPE_FALLBACK_PAGE (PostgREST's max_rows), at most TYPE_FALLBACK_MAX_PAGES.
+ */
+const TYPE_FALLBACK_PAGE = 1000;
+const TYPE_FALLBACK_MAX_PAGES = 10;
+
+/** PostgREST / Postgres saying the count function does not exist (yet). */
+function countFunctionMissing(err: unknown): boolean {
+  const code = (err as { code?: string } | null)?.code;
+  return code === 'PGRST202' || code === '42883';
+}
 
 /** A type's name, or a short distinguishable stand-in when its row cannot be read. */
 function typeLabel(id: string, title: string | null | undefined): string {
@@ -188,7 +201,51 @@ export default async function MeetingsInboxPage({ searchParams }: InboxPageProps
   ]);
   // Untyped client (see above): rows are read the same way the list always has.
   let { data: rows, error } = listRes as { data: any[] | null; error: { message: string } | null };
-  const { data: typeCountRows, error: typeFilterError } = countRes;
+  let { data: typeCountRows, error: typeFilterError } = countRes;
+  // The app deployed before the count function was applied: count from rows
+  // (#4283's way), inside the same deadline, and say so if it is partial.
+  let typeCountsPartial: { counted: number; total: number } | null = null;
+  if (typeFilterError && countFunctionMissing(typeFilterError)) {
+    try {
+      const { count: total, error: totalErr } = await withStatus(
+        supabase.from('meeting_bookings').select('id', { count: 'exact', head: true })
+      ).abortSignal(timeout());
+      if (totalErr) throw totalErr;
+      const pageCount = Math.min(Math.ceil((total ?? 0) / TYPE_FALLBACK_PAGE), TYPE_FALLBACK_MAX_PAGES);
+      const pages = await Promise.all(
+        Array.from({ length: pageCount }, (_, i) =>
+          withStatus(supabase.from('meeting_bookings').select('id, meeting_type_id'))
+            .order('id', { ascending: true })
+            .range(i * TYPE_FALLBACK_PAGE, (i + 1) * TYPE_FALLBACK_PAGE - 1)
+            .abortSignal(timeout())
+        )
+      );
+      const byType = new Map<string | null, number>();
+      let counted = 0;
+      for (const page of pages as { data: { meeting_type_id: string | null }[] | null; error: unknown }[]) {
+        if (page.error) throw page.error;
+        for (const r of page.data ?? []) {
+          counted += 1;
+          byType.set(r.meeting_type_id, (byType.get(r.meeting_type_id) ?? 0) + 1);
+        }
+      }
+      const ids = [...byType.keys()].filter((id): id is string => Boolean(id));
+      const { data: names } = ids.length
+        ? await supabase.from('meeting_types').select('id, title').in('id', ids).abortSignal(timeout())
+        : { data: [] as { id: string; title: string }[] };
+      const titleOf = new Map(((names ?? []) as { id: string; title: string }[]).map((t) => [t.id, t.title]));
+      typeCountRows = [...byType].map(([id, n]) => ({
+        meeting_type_id: id,
+        title: id ? titleOf.get(id) ?? null : null,
+        bookings: n,
+      }));
+      typeFilterError = null;
+      if (counted < (total ?? 0)) typeCountsPartial = { counted, total: total ?? 0 };
+      console.warn('[meetings/inbox] fn_meeting_inbox_type_counts is not applied yet; counted from rows');
+    } catch (err) {
+      typeFilterError = err;
+    }
+  }
   if (typeFilterError) {
     console.error(
       '[meetings/inbox] type counts failed:',
@@ -336,6 +393,12 @@ export default async function MeetingsInboxPage({ searchParams }: InboxPageProps
               </Link>
             ))}
           </div>
+          {typeCountsPartial ? (
+            <p className="text-xs text-muted-foreground">
+              Counts cover the first {typeCountsPartial.counted.toLocaleString('en-IN')} of{' '}
+              {typeCountsPartial.total.toLocaleString('en-IN')} meetings in this tab.
+            </p>
+          ) : null}
         </div>
       ) : null}
 
