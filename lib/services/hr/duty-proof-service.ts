@@ -27,12 +27,18 @@ export function toDutyProofError(err: { code?: string; message?: string } | null
   const message = err?.message || 'Something went wrong';
   switch (err?.code) {
     case '42501': return new DutyProofError(message, 403);
-    case '23505': return new DutyProofError(message, 409);
+    case '23505':
+    case '55000': // the amount changed after the check was opened: reload
+    case '55P03': // the item is being changed right now: try again
+      return new DutyProofError(message, 409);
     case '22023':
     case '23514': return new DutyProofError(message, 400);
     default: return new DutyProofError(message, 500);
   }
 }
+
+/** The six-argument second check is not there yet (20271008110105 not applied). */
+const SECOND_CHECK_MISSING_CODES = new Set(['PGRST202', '42883']);
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 export const isUuid = (v: unknown): v is string => typeof v === 'string' && UUID.test(v);
@@ -56,7 +62,7 @@ export const DutyProofService = {
     if (itemIds.length === 0) return [];
     const { data, error } = await supabase
       .from('hr_duty_proofs')
-      .select('id, duty_code, item_id, kind, storage_path, file_name, recorded_by, recorded_at, check_result, corrected_amount, check_note')
+      .select('id, duty_code, item_id, kind, storage_path, file_name, recorded_by, recorded_at, check_result, corrected_amount, check_note, revoked_at')
       .eq('duty_code', duty)
       .in('item_id', itemIds)
       .is('revoked_at', null);
@@ -85,18 +91,34 @@ export const DutyProofService = {
       check_result: (r.check_result as DutyProof['check_result']) ?? null,
       corrected_amount: r.corrected_amount === null || r.corrected_amount === undefined ? null : Number(r.corrected_amount),
       check_note: (r.check_note as string | null) ?? null,
+      revoked_at: (r.revoked_at as string | null) ?? null,
     }));
   },
 
-  /** Record a second check. Never changes the item itself. */
+  /**
+   * Record a second check. Never changes the item itself. Refused with a 409
+   * when the item's amount is no longer the one the checker was shown.
+   *
+   * Deploy order: until 20271008110105 is applied the six-argument function
+   * does not exist (PGRST202 / 42883), and the five-argument call it replaced
+   * is made instead, i.e. the behaviour before that file. Once it is applied
+   * the six-argument function is always found, so this never falls back.
+   */
   async recordSecondCheck(supabase: SupabaseClient, input: DutyProofSecondCheckInput): Promise<string> {
-    const { data, error } = await supabase.rpc('fn_hr_duty_proof_second_check', {
+    const base = {
       p_duty: input.duty,
       p_item_id: input.itemId,
       p_result: input.result,
       p_corrected_amount: input.result === 'corrected' ? input.correctedAmount ?? null : null,
       p_note: input.note ?? null,
+    };
+    let { data, error } = await supabase.rpc('fn_hr_duty_proof_second_check', {
+      ...base,
+      p_expected_amount: input.expectedAmount,
     });
+    if (error && SECOND_CHECK_MISSING_CODES.has(error.code ?? '')) {
+      ({ data, error } = await supabase.rpc('fn_hr_duty_proof_second_check', base));
+    }
     if (error) throw toDutyProofError(error);
     return String(data);
   },

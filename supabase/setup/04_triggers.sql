@@ -3088,3 +3088,12 @@ DROP TRIGGER IF EXISTS trg_ig_learner_post_claims_guard ON public.ig_learner_pos
 CREATE TRIGGER trg_ig_learner_post_claims_guard
   BEFORE INSERT OR UPDATE ON public.ig_learner_post_claims
   FOR EACH ROW EXECUTE FUNCTION public.fn_ig_learner_post_claim_guard();
+
+-- ============================================================================
+-- Updated: 2026-10-08 - HR duty proofs review fixes (follow-up to #4226)
+-- Source: supabase/migrations/20271008110105_hr_duty_proofs_review_fixes.sql
+-- hr_duty_proof_rules_audit_trg now also fires on INSERT.
+-- ============================================================================
+CREATE OR REPLACE TRIGGER hr_duty_proof_rules_audit_trg
+  AFTER INSERT OR UPDATE ON public.hr_duty_proof_rules
+  FOR EACH ROW EXECUTE FUNCTION public.fn_hr_duty_proof_rules_audit();

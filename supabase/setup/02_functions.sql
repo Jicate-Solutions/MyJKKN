@@ -84746,3 +84746,372 @@ BEGIN
 END $$;
 REVOKE EXECUTE ON FUNCTION public.fn_hr_playbook_decide(uuid, text, text, text) FROM anon, PUBLIC;
 GRANT  EXECUTE ON FUNCTION public.fn_hr_playbook_decide(uuid, text, text, text) TO authenticated;
+
+-- ============================================================================
+-- Updated: 2026-10-08 - HR duty proofs review fixes (follow-up to #4226)
+-- Source: supabase/migrations/20271008110105_hr_duty_proofs_review_fixes.sql
+-- fn_hr_duty_proof_try_timestamptz and the six-argument fn_hr_duty_proof_second_check (new), fn_hr_duty_proof_done_items, fn_hr_duty_proof_gaps and the five-argument fn_hr_duty_proof_second_check (replaced; the five-argument one now refuses every call with a reload message).
+-- ============================================================================
+CREATE OR REPLACE FUNCTION public.fn_hr_duty_proof_try_timestamptz(p_value text)
+RETURNS timestamptz
+LANGUAGE plpgsql
+STABLE
+SET search_path = public
+AS $$
+BEGIN
+  RETURN p_value::timestamptz;
+EXCEPTION WHEN OTHERS THEN
+  RETURN NULL;
+END $$;
+
+REVOKE EXECUTE ON FUNCTION public.fn_hr_duty_proof_try_timestamptz(text) FROM anon, PUBLIC, authenticated;
+
+-- ----------------------------------------------------------------------------
+-- 3 + 5. The one definition of "done" per duty (internal)
+-- ----------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.fn_hr_duty_proof_done_items(p_duty text, p_item_id uuid DEFAULT NULL)
+RETURNS TABLE (item_id uuid, done_at timestamptz, institution_id uuid, doer_ids uuid[], amount numeric,
+               decider_id uuid)
+LANGUAGE plpgsql
+STABLE
+SET search_path = public
+AS $$
+#variable_conflict use_column
+BEGIN
+  IF p_duty = 'L4' THEN
+    RETURN QUERY
+    SELECT e.id,
+           COALESCE(e.approved_at, e.updated_at),
+           o.institution_id,
+           array_remove(ARRAY[e.approved_by, s.profile_id], NULL),
+           e.total_amount::numeric,
+           e.approved_by
+    FROM public.hr_leave_encashments e
+    LEFT JOIN public.hr_organizations o ON o.id = e.hr_organization_id
+    LEFT JOIN public.staff s ON s.id = e.employee_id
+    WHERE e.status IN ('approved', 'paid')
+      AND (p_item_id IS NULL OR e.id = p_item_id);
+
+  ELSIF p_duty = 'G5' THEN
+    -- 2026-10-08: a malformed acted_at falls back to updated_at instead of
+    -- raising for every caller.
+    RETURN QUERY
+    SELECT c.id,
+           COALESCE(
+             CASE WHEN (d.entry->>'acted_at') ~ '^\d{4}-\d{2}-\d{2}'
+                  THEN public.fn_hr_duty_proof_try_timestamptz(d.entry->>'acted_at') END,
+             c.updated_at),
+           c.institution_id,
+           ARRAY[]::uuid[],
+           NULL::numeric,
+           NULL::uuid
+    FROM public.hr_offboarding_cases c
+    CROSS JOIN LATERAL (
+      SELECT x.entry
+      FROM jsonb_array_elements(
+             CASE WHEN jsonb_typeof(c.termination_approval_chain) = 'array'
+                  THEN c.termination_approval_chain ELSE '[]'::jsonb END) AS x(entry)
+      WHERE x.entry->>'step' = 'director' AND x.entry->>'status' = 'approved'
+      LIMIT 1
+    ) d
+    WHERE c.separation_type = 'termination'
+      AND (p_item_id IS NULL OR c.id = p_item_id);
+
+  ELSIF p_duty = 'G6' THEN
+    -- 2026-10-08: whoever calculated an F&F settlement for the case is a doer
+    -- too, alongside its approvers.
+    RETURN QUERY
+    SELECT c.id,
+           sc.completed_at,
+           c.institution_id,
+           array_remove(
+             ARRAY[sc.completed_by, s.profile_id]
+             || ARRAY(SELECT f.approved_by FROM public.hr_fnf_calculations f
+                      WHERE f.case_id = c.id AND f.approved_by IS NOT NULL)
+             || ARRAY(SELECT f.calculated_by FROM public.hr_fnf_calculations f
+                      WHERE f.case_id = c.id AND f.calculated_by IS NOT NULL),
+             NULL),
+           (SELECT f.net_payable::numeric FROM public.hr_fnf_calculations f
+            WHERE f.case_id = c.id AND f.approved_at IS NOT NULL
+            ORDER BY f.approved_at DESC LIMIT 1),
+           sc.completed_by
+    FROM public.hr_offboarding_cases c
+    JOIN public.hr_offboarding_step_completions sc
+      ON sc.case_id = c.id AND sc.step_key = 'final_settlement'
+    LEFT JOIN public.staff s ON s.id = c.staff_id
+    WHERE c.separation_type = 'termination'
+      AND (p_item_id IS NULL OR c.id = p_item_id);
+  END IF;
+  -- Any other duty code: no adapter yet, so nothing is listed as done.
+END $$;
+
+REVOKE EXECUTE ON FUNCTION public.fn_hr_duty_proof_done_items(text, uuid) FROM anon, PUBLIC, authenticated;
+
+-- ----------------------------------------------------------------------------
+-- 1 + 7 + 1c. Record a second check, against the amount the checker was shown
+-- ----------------------------------------------------------------------------
+-- p_expected_amount has NO default, and comes before the two that do, so a
+-- call without it never resolves here (nor is it ambiguous with the retired
+-- five-argument function below).
+-- lock_timeout: a check waits at most 5 seconds for an edit in progress, then
+-- is refused with a "try again" message instead of hanging the request.
+CREATE OR REPLACE FUNCTION public.fn_hr_duty_proof_second_check(
+  p_duty text,
+  p_item_id uuid,
+  p_result text,
+  p_expected_amount numeric,
+  p_corrected_amount numeric DEFAULT NULL,
+  p_note text DEFAULT NULL
+)
+RETURNS uuid
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+SET lock_timeout = '5s'
+AS $$
+DECLARE
+  v_uid  uuid := auth.uid();
+  v_rule public.hr_duty_proof_rules%ROWTYPE;
+  v_item record;
+  v_id   uuid;
+BEGIN
+  IF v_uid IS NULL THEN
+    RAISE EXCEPTION 'Sign in to record a second check' USING ERRCODE = '42501';
+  END IF;
+
+  -- 1. The rule, and it must be a second-check rule.
+  SELECT * INTO v_rule FROM public.hr_duty_proof_rules r
+  WHERE r.config_key = p_duty AND r.is_active;
+  IF NOT FOUND OR v_rule.proof_kind <> 'second_check' THEN
+    RAISE EXCEPTION 'Duty % does not take a second check', p_duty USING ERRCODE = '22023';
+  END IF;
+
+  IF p_result IS NULL OR p_result NOT IN ('confirmed', 'corrected') THEN
+    RAISE EXCEPTION 'A second check is either confirmed or corrected' USING ERRCODE = '22023';
+  END IF;
+
+  -- 6. A correction needs the right amount and a note of at least 10 characters.
+  IF p_result = 'corrected'
+     AND (p_corrected_amount IS NULL OR char_length(btrim(COALESCE(p_note, ''))) < 10) THEN
+    RAISE EXCEPTION 'A correction needs the right amount and a note of at least 10 characters'
+      USING ERRCODE = '22023';
+  END IF;
+
+  -- 6b. 2026-10-08: the right amount is zero or more and fits numeric(12,2).
+  -- The upper bound checks the ROUNDED value: 9999999999.995 rounds up to
+  -- 10000000000.00 on insert, which would overflow numeric(12,2) as a 500.
+  IF p_result = 'corrected'
+     AND (p_corrected_amount < 0 OR round(p_corrected_amount, 2) >= 10000000000) THEN
+    RAISE EXCEPTION 'The right amount must be between 0 and 9,999,999,999.99' USING ERRCODE = '22023';
+  END IF;
+
+  -- 2 + 3. The item, from its own table, and it must be done. Read once
+  --        WITHOUT a lock, so that only a caller allowed to check it in its
+  --        college ever waits on, or locks, its rows (review round 6).
+  SELECT * INTO v_item FROM public.fn_hr_duty_proof_done_items(p_duty, p_item_id) d LIMIT 1;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'This item is not decided yet, so there is nothing to check' USING ERRCODE = '22023';
+  END IF;
+
+  -- 4. The checker holds the rule's key AND has access to the item's college.
+  --    IS NOT TRUE, so a NULL from either helper is refused.
+  IF (public.is_super_admin()
+      OR (public.user_has_permission(v_rule.checker_permission_key)
+          AND public.role_has_institution_access(v_item.institution_id))) IS NOT TRUE THEN
+    RAISE EXCEPTION 'You do not have the permission to check this duty in this college'
+      USING ERRCODE = '42501';
+  END IF;
+
+  -- 1c. Now lock what the item's amount and decider are read from, then read
+  --     it again (FOR SHARE / FOR UPDATE cannot run inside the STABLE reader).
+  --     An edit already in progress is waited for (at most lock_timeout) and
+  --     its result is read below; an edit that starts now waits for this check.
+  --     L4: the encashment row holds the amount and the approver.
+  --     G6: the amount is the latest approved F&F row. A NEW F&F row cannot be
+  --     row-locked before it exists, so the case row is locked FOR UPDATE: an
+  --     INSERT into hr_fnf_calculations or hr_offboarding_step_completions
+  --     takes FOR KEY SHARE on the case through its foreign key, which
+  --     conflicts with FOR UPDATE, so every writer of a new row waits, with no
+  --     change to any writer. Existing F&F and step rows are locked FOR SHARE
+  --     against an UPDATE. Locks are released when the call's transaction ends.
+  BEGIN
+    IF p_duty = 'L4' THEN
+      PERFORM 1 FROM public.hr_leave_encashments e WHERE e.id = p_item_id FOR SHARE;
+    ELSIF p_duty = 'G6' THEN
+      PERFORM 1 FROM public.hr_offboarding_cases c WHERE c.id = p_item_id FOR UPDATE;
+      PERFORM 1 FROM public.hr_offboarding_step_completions sc
+       WHERE sc.case_id = p_item_id AND sc.step_key = 'final_settlement' FOR SHARE;
+      PERFORM 1 FROM public.hr_fnf_calculations f WHERE f.case_id = p_item_id FOR SHARE;
+    END IF;
+  EXCEPTION WHEN lock_not_available THEN
+    RAISE EXCEPTION 'This item is being changed right now. Try the check again in a moment.'
+      USING ERRCODE = '55P03';
+  END;
+
+  SELECT * INTO v_item FROM public.fn_hr_duty_proof_done_items(p_duty, p_item_id) d LIMIT 1;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'This item is not decided yet, so there is nothing to check' USING ERRCODE = '22023';
+  END IF;
+
+  -- 4 again, on the item as locked: its college could have changed meanwhile.
+  IF (public.is_super_admin()
+      OR (public.user_has_permission(v_rule.checker_permission_key)
+          AND public.role_has_institution_access(v_item.institution_id))) IS NOT TRUE THEN
+    RAISE EXCEPTION 'You do not have the permission to check this duty in this college'
+      USING ERRCODE = '42501';
+  END IF;
+
+  -- 5a. Fail closed when the decider is not recorded (L4 approved_by, G6
+  --     completed_by): the "not the person who decided it" rule below cannot
+  --     be enforced without it, so a 'Checked by' badge would be false comfort.
+  IF v_item.decider_id IS NULL THEN
+    RAISE EXCEPTION 'The approver of this item is not recorded, so an independent check cannot be confirmed'
+      USING ERRCODE = '22023';
+  END IF;
+
+  -- 5. Not the person who decided it, nor the team member it pays.
+  IF v_uid = ANY (v_item.doer_ids) THEN
+    RAISE EXCEPTION 'You decided this item or it pays you; another team member must check it'
+      USING ERRCODE = '42501';
+  END IF;
+
+  -- 1c. The amount the checker was shown must still be the item's amount,
+  --     compared in rupees and paise (what the screen shows; the item's own
+  --     amount can carry more decimals than a browser number keeps). NULL
+  --     matches NULL (a G6 case with no approved F&F yet). Otherwise the
+  --     check would be recorded against a figure the checker never saw.
+  --     55000 (object not in prerequisite state), a 409: NOT 40001, which
+  --     means "retry the transaction" and could be re-run by a retry layer.
+  IF round(p_expected_amount, 2) IS DISTINCT FROM round(v_item.amount, 2) THEN
+    RAISE EXCEPTION 'The amount changed after you opened this check. Reload the page and check the new amount.'
+      USING ERRCODE = '55000';
+  END IF;
+
+  -- 5b. 2026-10-08: an active check whose amount or decider no longer matches
+  --     the item is stale. Mark it revoked (kept as history) so the new check
+  --     can be recorded. A current check stays, and the insert below refuses.
+  UPDATE public.hr_duty_proofs p
+     SET revoked_at = now(), revoked_by = v_uid, updated_at = now()
+   WHERE p.duty_code = p_duty
+     AND p.item_id = p_item_id
+     AND p.kind = 'second_check'
+     AND p.revoked_at IS NULL
+     AND (p.checked_amount IS DISTINCT FROM v_item.amount
+          OR p.decider_id IS DISTINCT FROM v_item.decider_id);
+
+  -- 7. Insert, with the amount and decider that were checked. A note is kept
+  --    only on a correction. The source item is never updated.
+  BEGIN
+    INSERT INTO public.hr_duty_proofs
+      (duty_code, item_table, item_id, institution_id, kind, recorded_by,
+       check_result, corrected_amount, check_note, checked_amount, decider_id)
+    VALUES
+      (p_duty, v_rule.item_table, p_item_id, v_item.institution_id, 'second_check', v_uid,
+       p_result,
+       CASE WHEN p_result = 'corrected' THEN p_corrected_amount END,
+       CASE WHEN p_result = 'corrected' THEN NULLIF(btrim(COALESCE(p_note, '')), '') END,
+       v_item.amount,
+       v_item.decider_id)
+    RETURNING id INTO v_id;
+  EXCEPTION WHEN unique_violation THEN
+    RAISE EXCEPTION 'This item already has a second check' USING ERRCODE = '23505';
+  END;
+
+  RETURN v_id;
+END $$;
+
+REVOKE EXECUTE ON FUNCTION public.fn_hr_duty_proof_second_check(text, uuid, text, numeric, numeric, text) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_hr_duty_proof_second_check(text, uuid, text, numeric, numeric, text) TO authenticated;
+
+-- 1c. The five-argument function cannot be told what the checker was shown,
+--     so it refuses every call. It stays granted to signed-in users so that a
+--     screen built before this file gets a clear "reload" message rather than
+--     "permission denied" (review round 6: deploy order). The body records
+--     nothing, so the grant opens no path. The function itself stays.
+--     A signed-in caller is still asked for the duty's checker key first, as
+--     the six-argument function asks, so only a checker is told to reload;
+--     anyone else gets the refusal a reload would bring them to anyway.
+--     postgres / service_role (no auth.uid()) go straight to the reload
+--     message.
+CREATE OR REPLACE FUNCTION public.fn_hr_duty_proof_second_check(
+  p_duty text,
+  p_item_id uuid,
+  p_result text,
+  p_corrected_amount numeric DEFAULT NULL,
+  p_note text DEFAULT NULL
+)
+RETURNS uuid
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_rule public.hr_duty_proof_rules%ROWTYPE;
+BEGIN
+  IF auth.uid() IS NOT NULL THEN
+    SELECT * INTO v_rule FROM public.hr_duty_proof_rules r
+    WHERE r.config_key = p_duty AND r.is_active;
+    IF NOT FOUND OR v_rule.proof_kind <> 'second_check' THEN
+      RAISE EXCEPTION 'Duty % does not take a second check', p_duty USING ERRCODE = '22023';
+    END IF;
+    IF (public.is_super_admin()
+        OR public.user_has_permission(v_rule.checker_permission_key)) IS NOT TRUE THEN
+      RAISE EXCEPTION 'You do not have the permission to check this duty' USING ERRCODE = '42501';
+    END IF;
+  END IF;
+
+  RAISE EXCEPTION 'This screen is out of date. Reload the page and check again.' USING ERRCODE = '55000';
+END $$;
+
+REVOKE EXECUTE ON FUNCTION public.fn_hr_duty_proof_second_check(text, uuid, text, numeric, text) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_hr_duty_proof_second_check(text, uuid, text, numeric, text) TO authenticated;
+
+-- ----------------------------------------------------------------------------
+-- 1 + 9. Done items still missing their proof
+-- ----------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.fn_hr_duty_proof_gaps(p_duty text, p_since date DEFAULT NULL)
+RETURNS TABLE (item_id uuid, done_at timestamptz, institution_id uuid, amount numeric, caller_is_doer boolean)
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+#variable_conflict use_column
+DECLARE
+  v_rule public.hr_duty_proof_rules%ROWTYPE;
+  v_uid  uuid := auth.uid();
+BEGIN
+  SELECT * INTO v_rule FROM public.hr_duty_proof_rules r
+  WHERE r.config_key = p_duty AND r.is_active;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Duty % has no proof rule', p_duty USING ERRCODE = '22023';
+  END IF;
+
+  IF (public.is_super_admin() OR public.is_admin()
+      OR public.user_has_permission(v_rule.checker_permission_key)) IS NOT TRUE THEN
+    RAISE EXCEPTION 'You do not have the permission to see proof for this duty' USING ERRCODE = '42501';
+  END IF;
+
+  -- 2026-10-08: "since" is a date in India time; a second check covers the
+  -- item only while its amount and decider still match the item.
+  RETURN QUERY
+  SELECT d.item_id, d.done_at, d.institution_id, d.amount,
+         COALESCE(v_uid = ANY (d.doer_ids), false)
+  FROM public.fn_hr_duty_proof_done_items(p_duty) d
+  WHERE (p_since IS NULL OR (d.done_at AT TIME ZONE 'Asia/Kolkata')::date >= p_since)
+    AND public.fn_hr_duty_proof_can_view(p_duty, d.institution_id)
+    AND NOT EXISTS (
+      SELECT 1 FROM public.hr_duty_proofs p
+      WHERE p.duty_code = p_duty
+        AND p.item_id = d.item_id
+        AND p.kind = v_rule.proof_kind
+        AND p.revoked_at IS NULL
+        AND (p.kind <> 'second_check'
+             OR (p.checked_amount IS NOT DISTINCT FROM d.amount
+                 AND p.decider_id IS NOT DISTINCT FROM d.decider_id))
+    )
+  ORDER BY d.done_at DESC;
+END $$;
+
+REVOKE EXECUTE ON FUNCTION public.fn_hr_duty_proof_gaps(text, date) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_hr_duty_proof_gaps(text, date) TO authenticated;

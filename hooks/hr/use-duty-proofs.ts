@@ -68,7 +68,9 @@ export function useRecordSecondCheck() {
       if (!res.ok) throw new Error(await readError(res));
       return (await res.json()).data as { id: string };
     },
-    onSuccess: (_d, input) => qc.invalidateQueries({ queryKey: [KEY, input.duty] }),
+    // Also on a refusal: a check refused because the amount changed must
+    // show the new amount, not the one it was refused for.
+    onSettled: (_d, _e, input) => qc.invalidateQueries({ queryKey: [KEY, input.duty] }),
   });
 }
 
