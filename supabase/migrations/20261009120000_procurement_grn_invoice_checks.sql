@@ -172,20 +172,16 @@ CREATE UNIQUE INDEX IF NOT EXISTS procurement_grn_replacement_id_key
 -- expected. Production had 0 procurement_grn rows when this was written; if rows exist
 -- when it is applied, run
 --   SELECT id, invoice_number FROM procurement_grn
---    WHERE invoice_number IS NOT NULL AND invoice_number !~ '^[A-Za-z0-9/-]+$';
--- first — the ADD CONSTRAINT fails loudly on any such row.
-DO $$
-BEGIN
-  IF NOT EXISTS (
-    SELECT 1 FROM pg_constraint
-     WHERE conrelid = 'public.procurement_grn'::regclass
-       AND conname = 'procurement_grn_invoice_number_charset'
-  ) THEN
-    ALTER TABLE public.procurement_grn
-      ADD CONSTRAINT procurement_grn_invoice_number_charset
-      CHECK (invoice_number IS NULL OR invoice_number ~ '^[A-Za-z0-9/-]+$');
-  END IF;
-END $$;
+--    WHERE invoice_number IS NOT NULL
+--      AND invoice_number !~ '^[A-Za-z0-9/-]*[A-Za-z0-9][A-Za-z0-9/-]*$';
+-- first — the ADD CONSTRAINT fails loudly on any such row. Dropped and re-added so a
+-- database that took an earlier draft of this check (charset only) gets this one.
+ALTER TABLE public.procurement_grn
+  DROP CONSTRAINT IF EXISTS procurement_grn_invoice_number_charset;
+ALTER TABLE public.procurement_grn
+  ADD CONSTRAINT procurement_grn_invoice_number_charset
+  CHECK (invoice_number IS NULL
+         OR invoice_number ~ '^[A-Za-z0-9/-]*[A-Za-z0-9][A-Za-z0-9/-]*$');
 
 -- ----------------------------------------------------------------------------
 -- 3. Near-expiry window (I2) - substrate shape of 20260429000002 / ...000011
