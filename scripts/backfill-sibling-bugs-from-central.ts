@@ -6,7 +6,7 @@
  * Event Forms has none) already filed in the central bug reporter
  * (Supabase adakhqxgaoxaihtehfqw) into MyJKKN's own bug_reports, so that their
  * history sits next to the new reports the intake route
- * (app/api/v1/public/bug-reports, migration 20271010120000) files from now on.
+ * (app/api/v1/public/bug-reports, migration 20271010151437) files from now on.
  *
  * ── OPEN BUGS ONLY (Director, 10 Oct 2026 14:40) ───────────────────────────
  *   Only bugs whose central status is new, seen or in_progress are copied,
@@ -17,7 +17,7 @@
  *   The COE TEST entry (central "jkkn-coe") is excluded too.
  *
  * ── ORDER ──────────────────────────────────────────────────────────────────
- *   1. Apply migration 20271010120000_sibling_app_bug_intake.sql (PR #4322).
+ *   1. Apply migration 20271010151437_sibling_app_bug_intake.sql (PR #4322).
  *      It creates sibling_apps and adds the NULL-reporter guard to
  *      add_bug_reporter_as_participant. Without the guard, every copied bug
  *      whose reporter has no MyJKKN profile fails its insert.
@@ -107,7 +107,7 @@ import { argv, env, exit } from 'node:process';
 
 // ─── The app mapping ─────────────────────────────────────────────────────────
 // central applications.slug → MyJKKN sibling_apps.slug (seeded by migration
-// 20271010120000: mentor, tms, coe, library, event-forms).
+// 20271010151437: mentor, tms, coe, library, event-forms).
 export const APP_MAP: ReadonlyArray<{
   central: string;
   sibling: string;
@@ -794,7 +794,7 @@ async function main(): Promise<void> {
     exit(1);
   }
   if (simulated) {
-    console.error('✗ sibling_apps does not exist. Apply migration 20271010120000 first. Nothing written.');
+    console.error('✗ sibling_apps does not exist. Apply migration 20271010151437 first. Nothing written.');
     exit(1);
   }
   const needSlugs = [...new Set(selected.map((a) => a.sibling))];
