@@ -20,6 +20,16 @@ describe('bug report categories', () => {
     expect(route).not.toMatch(/\.enum\(\[\s*'bug'/);
   });
 
+  it.each([
+    'app/(routes)/admin/bug-reports/page.tsx',
+    'app/(routes)/my-bug-reports/page.tsx',
+  ])('%s lets you filter by every category the API accepts', (page) => {
+    const src = read(page);
+    for (const c of REPORT_CATEGORIES) {
+      expect(src).toContain(`<SelectItem value='${c}'>`);
+    }
+  });
+
   it('the widget offers the shared list, not its own copy', () => {
     const widget = read('components/bug-reporter/bug-reporter-widget.tsx');
     expect(widget).toMatch(/VALID_TOP_CATEGORIES = WIDGET_TOP_CATEGORIES/);
