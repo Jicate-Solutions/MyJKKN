@@ -148,6 +148,32 @@
 --      must already be stored there (its upload policy, section 6, ties the folder to
 --      an order the uploader can see). Other job types are untouched.
 --
+--  12. Deep-panel round 2 (2026-10-10, PR #4333 comment 6098066712):
+--      H1. Renumbered to 20271010170000 so it is applied after
+--          20271006130000_procurement_final_approval_chain.sql (see the header).
+--      H2. trg_pgrnr_replacement_checks INSERT: the delivery line is locked FOR UPDATE,
+--          a new replacement starts 'pending' with no fulfilment link, and all the
+--          replacements raised on a line together never exceed what that line rejected
+--          (before, each one was checked alone, so a retried verifyGrn could raise N).
+--      M3. trg_pgrni_delete_guard: a delivery line that is in stock, or belongs to a
+--          receipt that was ever posted, cannot be deleted except by an admin — the same
+--          rule and the same receiveReplacement-rollback carve-out as the header's
+--          delete guard (deleting the posted line first used to unlock the header one).
+--      M4. trg_pgrni_00_posted_lock reads the parent receipt FOR SHARE on INSERT and
+--          UPDATE, so a line cannot be added or changed while a verifier is posting it.
+--      M5. fn_procurement_grn_has_duplicate, called directly (pg_trigger_depth() = 0),
+--          answers only about a SAVED receipt of a college the caller can access, and
+--          uses that receipt's stored supplier, number and recording time (the
+--          caller's arguments are ignored). Inside the triggers it is unchanged (global).
+--      M6. trg_ai_jobs_00_invoice_extract_guard also fires on UPDATE OF payload,
+--          job_type and freezes both for app users.
+--      L7. Storage policies are dropped and re-created, and the bucket's settings are
+--          re-stated, so a database holding an earlier draft gets these ones.
+--      L9. fn_ims_grn_retired_guard also refuses app users reaching the tables through
+--          a SECURITY DEFINER function (auth.role() authenticated / anon).
+--      L10. invoice_number is trimmed, and a blank one stored as NULL, before the
+--          charset check runs (a form sending '' got a raw 23514).
+--
 -- I1 is deliberately NOT a unique index: the Director chose "confirm and allow" for
 -- honest resends, which a unique constraint would forbid.
 --
@@ -296,6 +322,14 @@ AS $$
 DECLARE
   v_po_supplier uuid;
 BEGIN
+  -- L10 (deep-panel round 2): an untrimmed or blank invoice number is tidied here, for
+  -- every caller, before procurement_grn_invoice_number_charset is checked (CHECK
+  -- constraints run after BEFORE ROW triggers): '' and '   ' become NULL (a pending
+  -- receipt with no number, which D2 still keeps out of stock) and surrounding spaces,
+  -- tabs and line breaks are dropped. Rule (b) below therefore sees ' INV-1 ' and
+  -- 'INV-1' as the same number.
+  NEW.invoice_number := nullif(btrim(NEW.invoice_number, E' \t\r\n'), '');
+
   -- d. Ever posted: server-owned for everyone, decided first (no early return above it).
   IF TG_OP = 'INSERT' THEN
     NEW.first_posted_at := NULL;
@@ -494,12 +528,24 @@ GRANT  EXECUTE ON FUNCTION public.fn_procurement_normalise_invoice_number(text) 
 -- so cancelling the original, posting the repeat, then reviving the original holds
 -- the original (review round 2). Recording order only decides which of two
 -- never-posted receipts is the original: the original is never held by a later,
--- unposted repeat of it — only the repeat is. p_created_at NULL = a receipt not
--- saved yet: every other one counts. created_at, id and supplier_id are
+-- unposted repeat of it — only the repeat is. p_created_at NULL (trigger callers only,
+-- see M5) = every other one counts. created_at, id and supplier_id are
 -- server-owned (fn_procurement_grn_invoice_checks, rules a2 and d). SECURITY DEFINER so
 -- a duplicate recorded at a college the verifier cannot see still holds the receipt.
 -- Called directly (the page's RPC) it answers only a yes/no, and only to procurement
--- users (grn_create / grn_verify / super admin / admin); anyone else gets false. Called
+-- users (grn_create / grn_verify / super admin / admin); anyone else gets false.
+-- M5 (deep-panel round 2): called directly it also answers only about a SAVED receipt
+-- (p_grn_id) of a college the caller can access (role_has_institution_access, or
+-- super admin / admin), and it reads that receipt's STORED supplier_id, invoice_number
+-- and created_at — the caller's p_supplier_id / p_invoice_number / p_created_at are
+-- ignored. Before, any grn_create user could pass any supplier and number with
+-- p_created_at NULL and learn whether it exists at any college. Now asking needs a
+-- saved receipt at one's own college whose supplier is pinned to its purchase order
+-- (rule a2), i.e. an audited row. The MATCH itself stays global on purpose: the verify
+-- guard holds a receipt on a repeat at another college, and the receipt page offers
+-- "This is a different invoice" only when this answer is yes (it says the other one is
+-- "recorded at a college you cannot open"), so a scoped answer would leave such a
+-- receipt held with no way to confirm it. All app callers pass a saved receipt. Called
 -- from inside a trigger (pg_trigger_depth() > 0 — the verify guard) it always answers:
 -- the gate is for the RPC, and must never switch the guard's own check off (review round
 -- 2, red team: a caller without procurement rights got "no duplicate" from the guard).
@@ -524,21 +570,38 @@ SECURITY DEFINER
 SET search_path = public
 AS $$
 DECLARE
-  v_key text := public.fn_procurement_normalise_invoice_number(p_invoice_number);
+  v_supplier uuid        := p_supplier_id;
+  v_number   text        := p_invoice_number;
+  v_created  timestamptz := p_created_at;
+  v_inst     uuid;
+  v_key      text;
 BEGIN
-  IF v_key IS NULL OR p_supplier_id IS NULL THEN
-    RETURN false;
+  IF NOT (coalesce(auth.role(), '') = 'service_role' OR pg_trigger_depth() > 0) THEN
+    -- The page's direct call.
+    IF NOT (public.is_super_admin() OR public.is_admin()
+            OR public.user_has_permission('procurement.grn_create')
+            OR public.user_has_permission('procurement.grn_verify')) THEN
+      RETURN false;
+    END IF;
+    IF p_received_by IS NOT NULL AND p_received_by IS DISTINCT FROM auth.uid() THEN
+      RETURN false;
+    END IF;
+    -- M5: a saved receipt of a college the caller can access, judged on its stored values.
+    IF p_grn_id IS NULL THEN
+      RETURN false;
+    END IF;
+    SELECT g.supplier_id, g.invoice_number, g.created_at, g.institution_id
+      INTO v_supplier, v_number, v_created, v_inst
+      FROM public.procurement_grn g
+     WHERE g.id = p_grn_id;
+    IF NOT FOUND
+       OR NOT (public.is_super_admin() OR public.is_admin()
+               OR public.role_has_institution_access(v_inst)) THEN
+      RETURN false;
+    END IF;
   END IF;
-  IF NOT (coalesce(auth.role(), '') = 'service_role'
-          OR pg_trigger_depth() > 0
-          OR public.is_super_admin() OR public.is_admin()
-          OR public.user_has_permission('procurement.grn_create')
-          OR public.user_has_permission('procurement.grn_verify')) THEN
-    RETURN false;
-  END IF;
-  IF p_received_by IS NOT NULL
-     AND p_received_by IS DISTINCT FROM auth.uid()
-     AND NOT (coalesce(auth.role(), '') = 'service_role' OR pg_trigger_depth() > 0) THEN
+  v_key := public.fn_procurement_normalise_invoice_number(v_number);
+  IF v_key IS NULL OR v_supplier IS NULL THEN
     RETURN false;
   END IF;
   -- 9d. D4 asks "did this person receive ANY other delivery with this number?": every
@@ -548,7 +611,7 @@ BEGIN
   IF p_received_by IS NOT NULL THEN
     RETURN EXISTS (
       SELECT 1 FROM public.procurement_grn g
-       WHERE g.supplier_id = p_supplier_id
+       WHERE g.supplier_id = v_supplier
          AND g.id IS DISTINCT FROM p_grn_id
          AND g.received_by = p_received_by
          AND public.fn_procurement_normalise_invoice_number(g.invoice_number) = v_key
@@ -556,15 +619,15 @@ BEGIN
   END IF;
   RETURN EXISTS (
     SELECT 1 FROM public.procurement_grn g
-     WHERE g.supplier_id = p_supplier_id
+     WHERE g.supplier_id = v_supplier
        AND g.id IS DISTINCT FROM p_grn_id
        AND public.fn_procurement_normalise_invoice_number(g.invoice_number) = v_key
        AND (g.first_posted_at IS NOT NULL
             OR g.status IN ('accepted', 'partially_accepted', 'replacement_requested', 'completed')
             OR (g.status <> 'cancelled'
-                AND (p_created_at IS NULL
-                     OR g.created_at < p_created_at
-                     OR (g.created_at = p_created_at AND g.id < p_grn_id))))
+                AND (v_created IS NULL
+                     OR g.created_at < v_created
+                     OR (g.created_at = v_created AND g.id < p_grn_id))))
   );
 END;
 $$;
@@ -573,8 +636,30 @@ REVOKE EXECUTE ON FUNCTION public.fn_procurement_grn_has_duplicate(uuid, uuid, t
 GRANT  EXECUTE ON FUNCTION public.fn_procurement_grn_has_duplicate(uuid, uuid, text, timestamptz, uuid) TO authenticated;
 
 -- The verify guard, extended. Copied from the live definition (identical to
--- 20271006130000_procurement_final_approval_chain.sql, checked 2026-10-09); the
--- ONLY changes are in the procurement_grn branch:
+-- 20271006130000_procurement_final_approval_chain.sql apart from its closing ';',
+-- re-checked with pg_get_functiondef on 2026-10-10, deep-panel round 2). That file is
+-- the newest one on main that defines this function; this migration sorts after it.
+--
+-- EXPECTED PRE-APPLY DIFF (deep-panel round 2, L8). Diff the live
+-- pg_get_functiondef('public.fn_procurement_guard_approval()'::regprocedure) against
+-- this copy, comments and blank lines ignored. Exactly these hunks are expected, all
+-- but the first inside the WHEN 'procurement_grn' branch; anything else means another
+-- migration moved the guard — STOP and merge these hunks into that version instead:
+--   G1. DECLARE: one new variable, v_inv text.
+--   G2. The first status arm: was "NEW.status IN (accepted, partially_accepted,
+--       replacement_requested) AND (INSERT OR OLD.status IN (draft,
+--       pending_verification))"; now 'completed' is a posted status too, and
+--       cancelled -> posted is guarded (INSERT into any posted status; UPDATE from
+--       draft / pending_verification / cancelled into one).
+--   G3. Two new ELSIF arms after it: out of a posted status, and reviving a cancelled
+--       receipt — both need grn_verify.
+--   G4. Early permission refusal (before D2 / I1 can answer), with
+--       coalesce(v_chain, false).
+--   G5. D2: no invoice number, no stock (replacement-receipt exemption).
+--   G6. I1: advisory lock + held-duplicate check + D4 re-check at entry into stock.
+--   G7. E1: self-check ban (INSERT replacement arm, UPDATE receiver arm).
+-- The other branches, the RFQ early arm and the tail after END CASE are unchanged.
+-- What each GRN hunk does:
 --   * a move INTO a posted status (accepted / partially_accepted /
 --     replacement_requested / completed) from draft, pending_verification or
 --     cancelled needs grn_verify. 'completed' and 'cancelled' are new here: before,
@@ -873,6 +958,63 @@ CREATE TRIGGER trg_pgrn_delete_guard
   BEFORE DELETE ON public.procurement_grn
   FOR EACH ROW EXECUTE FUNCTION public.fn_procurement_grn_delete_guard();
 
+-- M3 (deep-panel round 2): the same rule for the LINES. The header guard reads
+-- procurement_grn_items.domain_posted_at, but a line could be deleted on its own
+-- (pgrni_parent_scope is FOR ALL, institution only), so a receiver deleted the posted
+-- line first and then the header's "invoice-less, mine, no posted line" carve-out let
+-- them delete an ever-posted replacement receipt and free its replacement_id slot.
+-- Refused here unless the caller is an admin / the service role, when the line is in
+-- stock (domain_posted_at) or its receipt was ever posted / is posted now. The same
+-- carve-out as the header keeps receiveReplacement's rollback working: a line NOT in
+-- stock, of an invoice-less receipt the signed-in user received. When the parent row is
+-- already gone (a cascade from a header delete the header guard allowed) the line goes
+-- with it.
+CREATE OR REPLACE FUNCTION public.fn_procurement_grn_item_delete_guard()
+RETURNS trigger
+LANGUAGE plpgsql
+SET search_path = public
+AS $$
+DECLARE
+  v_status   text;
+  v_first    timestamptz;
+  v_invoice  text;
+  v_receiver uuid;
+BEGIN
+  IF coalesce(auth.role(), '') = 'service_role'
+     OR public.is_super_admin() OR public.is_admin() THEN
+    RETURN OLD;
+  END IF;
+  SELECT g.status, g.first_posted_at, g.invoice_number, g.received_by
+    INTO v_status, v_first, v_invoice, v_receiver
+    FROM public.procurement_grn g
+   WHERE g.id = OLD.grn_id;
+  IF NOT FOUND THEN
+    RETURN OLD;
+  END IF;
+  IF OLD.domain_posted_at IS NULL
+     AND v_first IS NULL
+     AND v_status NOT IN ('accepted', 'partially_accepted', 'replacement_requested', 'completed') THEN
+    RETURN OLD;
+  END IF;
+  IF OLD.domain_posted_at IS NULL
+     AND public.fn_procurement_normalise_invoice_number(v_invoice) IS NULL
+     AND v_receiver IS NOT DISTINCT FROM auth.uid()
+     AND auth.uid() IS NOT NULL THEN
+    RETURN OLD;
+  END IF;
+  RAISE EXCEPTION 'a line of a delivery that has been checked into stock cannot be deleted — ask an admin'
+    USING ERRCODE = '42501';
+END;
+$$;
+
+REVOKE EXECUTE ON FUNCTION public.fn_procurement_grn_item_delete_guard() FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_procurement_grn_item_delete_guard() TO authenticated;
+
+DROP TRIGGER IF EXISTS trg_pgrni_delete_guard ON public.procurement_grn_items;
+CREATE TRIGGER trg_pgrni_delete_guard
+  BEFORE DELETE ON public.procurement_grn_items
+  FOR EACH ROW EXECUTE FUNCTION public.fn_procurement_grn_item_delete_guard();
+
 -- ----------------------------------------------------------------------------
 -- 7f. Replacement rows come only from a verified receipt (review round 2, red team)
 -- ----------------------------------------------------------------------------
@@ -882,7 +1024,9 @@ CREATE TRIGGER trg_pgrn_delete_guard
 -- cannot match). The only real writer is verifyGrn, which inserts the row while the
 -- receipt is in a posted status (provisionally 'accepted'), for the line's rejected
 -- quantity. Enforced here for every caller but the service role: a verifier (or admin),
--- a parent receipt in a posted status, and 0 < rejected_quantity <= the line's.
+-- a parent receipt in a posted status, a 'pending' row with no fulfilment link, and
+-- 0 < rejected_quantity with every replacement on the line together <= the line's
+-- rejected quantity (deep-panel round 2 H2; the line row is locked while this is judged).
 CREATE OR REPLACE FUNCTION public.fn_procurement_grn_replacement_checks()
 RETURNS trigger
 LANGUAGE plpgsql
@@ -891,6 +1035,7 @@ AS $$
 DECLARE
   v_status   text;
   v_rejected numeric;
+  v_raised   numeric;
   v_receiver uuid;
 BEGIN
   IF coalesce(auth.role(), '') = 'service_role' THEN
@@ -933,10 +1078,13 @@ BEGIN
     RAISE EXCEPTION 'not authorized to raise a replacement — this requires the procurement.grn_verify permission'
       USING ERRCODE = '42501';
   END IF;
+  -- H2 (deep-panel round 2): the line is locked first, so two replacements raised at
+  -- the same moment for one line are judged one after the other.
   SELECT g.status, gi.rejected_quantity INTO v_status, v_rejected
     FROM public.procurement_grn_items gi
     JOIN public.procurement_grn g ON g.id = gi.grn_id
-   WHERE gi.id = NEW.grn_item_id;
+   WHERE gi.id = NEW.grn_item_id
+     FOR UPDATE OF gi;
   IF NOT FOUND THEN
     RAISE EXCEPTION 'delivery line not found for this replacement'
       USING ERRCODE = '42501';
@@ -945,9 +1093,27 @@ BEGIN
     RAISE EXCEPTION 'a replacement can only be raised on a delivery that has been checked into stock'
       USING ERRCODE = '42501';
   END IF;
+  -- H2: a replacement is raised as an open request. 'received' and the fulfilment link
+  -- are written later by receiveReplacement, through the UPDATE arm above (claiming
+  -- needs grn_verify and is barred to the original receiver); inserting a row already
+  -- 'received' skipped that claim.
+  IF NEW.status IS DISTINCT FROM 'pending' OR NEW.replacement_grn_item_id IS NOT NULL THEN
+    RAISE EXCEPTION 'a replacement is raised as pending, with no replacement delivery yet'
+      USING ERRCODE = '42501';
+  END IF;
+  -- H2: every replacement raised on this line, this one included, together stays within
+  -- what the line rejected. Before, each was checked alone, so a retried or doubled
+  -- verifyGrn (or a direct call) could raise N of them and bring N times the rejected
+  -- goods into stock. The status CHECK allows only 'pending' / 'received' today; a
+  -- 'cancelled' one, should that status be added, would not count.
+  SELECT coalesce(sum(r.rejected_quantity), 0) INTO v_raised
+    FROM public.procurement_grn_replacements r
+   WHERE r.grn_item_id = NEW.grn_item_id
+     AND r.status IS DISTINCT FROM 'cancelled'
+     AND r.id IS DISTINCT FROM NEW.id;
   IF NEW.rejected_quantity IS NULL OR NEW.rejected_quantity <= 0
-     OR NEW.rejected_quantity > coalesce(v_rejected, 0) THEN
-    RAISE EXCEPTION 'a replacement cannot be for more than the quantity rejected on that line'
+     OR v_raised + NEW.rejected_quantity > coalesce(v_rejected, 0) THEN
+    RAISE EXCEPTION 'replacements on a delivery line cannot add up to more than the quantity rejected on that line'
       USING ERRCODE = '42501';
   END IF;
   RETURN NEW;
@@ -980,8 +1146,12 @@ CREATE TRIGGER trg_pgrnr_replacement_checks
 --     links verifyGrn and receiveReplacement write while posting);
 --   * changing domain_posted_at once set (NULL -> now() stays possible: the RM RPC's own
 --     claim and the service's marker).
--- A line can never move to another receipt (grn_id), posted or not. Deleting lines is
--- unchanged (it adds no stock; the header's delete guard keeps the record).
+-- A line can never move to another receipt (grn_id), posted or not. Deleting a line is
+-- judged by trg_pgrni_delete_guard (section 7b, deep-panel round 2 M3).
+-- M4 (deep-panel round 2): the parent receipt is read FOR SHARE on INSERT and UPDATE,
+-- before the status test. A verifier posting the header holds its row lock until commit,
+-- so the line write waits and then sees the posted status (a locking read returns the
+-- newest committed row), instead of passing on a 'pending' snapshot.
 CREATE OR REPLACE FUNCTION public.fn_procurement_grn_item_checks()
 RETURNS trigger
 LANGUAGE plpgsql
@@ -1003,7 +1173,8 @@ BEGIN
   SELECT g.status, g.first_posted_at, g.replacement_id, g.received_by
     INTO v_status, v_first, v_rep, v_receiver
     FROM public.procurement_grn g
-   WHERE g.id = NEW.grn_id;
+   WHERE g.id = NEW.grn_id
+     FOR SHARE;
   IF NOT FOUND
      OR NOT (v_status IN ('accepted', 'partially_accepted', 'replacement_requested', 'completed')
              OR v_first IS NOT NULL) THEN
@@ -1078,8 +1249,14 @@ AS $$
 BEGIN
   -- A BEFORE DELETE trigger that returns NULL silently skips the delete, so every
   -- pass-through returns OLD on DELETE and NEW otherwise.
-  IF current_user NOT IN ('authenticated', 'anon')
-     OR coalesce(auth.role(), '') = 'service_role' THEN
+  -- L9 (deep-panel round 2): an app user is recognised by the request's JWT role too,
+  -- not only by current_user. A SECURITY DEFINER function runs as its owner, so a
+  -- current_user test alone let any such function (none writes these tables on
+  -- production today, checked 2026-10-10) create or approve IMS receipts for an app
+  -- user. Migrations (no JWT) and the service role still pass.
+  IF coalesce(auth.role(), '') = 'service_role'
+     OR (current_user NOT IN ('authenticated', 'anon')
+         AND coalesce(auth.role(), '') NOT IN ('authenticated', 'anon')) THEN
     RETURN CASE WHEN TG_OP = 'DELETE' THEN OLD ELSE NEW END;
   END IF;
   IF TG_OP = 'INSERT' THEN
@@ -1153,99 +1330,78 @@ VALUES (
   15728640, -- 15 MB — matches the extract-invoice route limit
   ARRAY['application/pdf']
 )
-ON CONFLICT (id) DO NOTHING;
+-- L7 (deep-panel round 2): re-stated on conflict, so a database that took an earlier
+-- draft of this bucket gets these settings.
+ON CONFLICT (id) DO UPDATE
+  SET public             = false,
+      file_size_limit    = EXCLUDED.file_size_limit,
+      allowed_mime_types = EXCLUDED.allowed_mime_types;
+
+-- L7 (deep-panel round 2): each policy below is dropped and re-created, not created only
+-- when missing, so an earlier draft (for example one without the <po_id>/ folder rule)
+-- never survives a re-apply.
 
 -- Upload: people who record or verify deliveries (or admins) only, and only into
 -- the folder of an order they can see.
-DO $$
-BEGIN
-  IF NOT EXISTS (
-    SELECT 1 FROM pg_policies
-    WHERE schemaname = 'storage' AND tablename = 'objects'
-      AND policyname = 'procurement_invoice_pdfs_insert'
-  ) THEN
-    EXECUTE $policy$
-      CREATE POLICY "procurement_invoice_pdfs_insert"
-      ON storage.objects FOR INSERT TO authenticated
-      WITH CHECK (
-        bucket_id = 'procurement-invoice-pdfs'
-        AND (
-          public.is_super_admin() OR public.is_admin()
-          OR public.user_has_permission('procurement.grn_create')
-          OR public.user_has_permission('procurement.grn_verify')
+DROP POLICY IF EXISTS "procurement_invoice_pdfs_insert" ON storage.objects;
+CREATE POLICY "procurement_invoice_pdfs_insert"
+ON storage.objects FOR INSERT TO authenticated
+WITH CHECK (
+  bucket_id = 'procurement-invoice-pdfs'
+  AND (
+    public.is_super_admin() OR public.is_admin()
+    OR public.user_has_permission('procurement.grn_create')
+    OR public.user_has_permission('procurement.grn_verify')
+  )
+  -- Only under <po_id>/ of an order the caller can see (the subquery runs
+  -- under the caller's RLS on procurement_purchase_orders). CASE keeps the
+  -- uuid cast from ever running on a name that is not one.
+  AND CASE
+        WHEN (storage.foldername(objects.name))[1]
+             ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+        THEN EXISTS (
+          SELECT 1 FROM public.procurement_purchase_orders po
+           WHERE po.id = ((storage.foldername(objects.name))[1])::uuid
         )
-        -- Only under <po_id>/ of an order the caller can see (the subquery runs
-        -- under the caller's RLS on procurement_purchase_orders). CASE keeps the
-        -- uuid cast from ever running on a name that is not one.
-        AND CASE
-              WHEN (storage.foldername(objects.name))[1]
-                   ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
-              THEN EXISTS (
-                SELECT 1 FROM public.procurement_purchase_orders po
-                 WHERE po.id = ((storage.foldername(objects.name))[1])::uuid
-              )
-              ELSE false
-            END
-      )
-    $policy$;
-  END IF;
-END $$;
+        ELSE false
+      END
+);
 
 -- Read: same gate, same folder rule. NOT public, and NOT quotation_manage — supplier bills.
 -- (The Max-lane runner reads with the service role, which bypasses RLS.)
-DO $$
-BEGIN
-  IF NOT EXISTS (
-    SELECT 1 FROM pg_policies
-    WHERE schemaname = 'storage' AND tablename = 'objects'
-      AND policyname = 'procurement_invoice_pdfs_read'
-  ) THEN
-    EXECUTE $policy$
-      CREATE POLICY "procurement_invoice_pdfs_read"
-      ON storage.objects FOR SELECT TO authenticated
-      USING (
-        bucket_id = 'procurement-invoice-pdfs'
-        AND (
-          public.is_super_admin() OR public.is_admin()
-          OR public.user_has_permission('procurement.grn_create')
-          OR public.user_has_permission('procurement.grn_verify')
+DROP POLICY IF EXISTS "procurement_invoice_pdfs_read" ON storage.objects;
+CREATE POLICY "procurement_invoice_pdfs_read"
+ON storage.objects FOR SELECT TO authenticated
+USING (
+  bucket_id = 'procurement-invoice-pdfs'
+  AND (
+    public.is_super_admin() OR public.is_admin()
+    OR public.user_has_permission('procurement.grn_create')
+    OR public.user_has_permission('procurement.grn_verify')
+  )
+  -- Only under <po_id>/ of an order the caller can see (the subquery runs
+  -- under the caller's RLS on procurement_purchase_orders). CASE keeps the
+  -- uuid cast from ever running on a name that is not one.
+  AND CASE
+        WHEN (storage.foldername(objects.name))[1]
+             ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+        THEN EXISTS (
+          SELECT 1 FROM public.procurement_purchase_orders po
+           WHERE po.id = ((storage.foldername(objects.name))[1])::uuid
         )
-        -- Only under <po_id>/ of an order the caller can see (the subquery runs
-        -- under the caller's RLS on procurement_purchase_orders). CASE keeps the
-        -- uuid cast from ever running on a name that is not one.
-        AND CASE
-              WHEN (storage.foldername(objects.name))[1]
-                   ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
-              THEN EXISTS (
-                SELECT 1 FROM public.procurement_purchase_orders po
-                 WHERE po.id = ((storage.foldername(objects.name))[1])::uuid
-              )
-              ELSE false
-            END
-      )
-    $policy$;
-  END IF;
-END $$;
+        ELSE false
+      END
+);
 
-DO $$
-BEGIN
-  IF NOT EXISTS (
-    SELECT 1 FROM pg_policies
-    WHERE schemaname = 'storage' AND tablename = 'objects'
-      AND policyname = 'procurement_invoice_pdfs_delete'
-  ) THEN
-    EXECUTE $policy$
-      CREATE POLICY "procurement_invoice_pdfs_delete"
-      ON storage.objects FOR DELETE TO authenticated
-      USING (
-        bucket_id = 'procurement-invoice-pdfs'
-        -- Admins only (review round, 2026-10-09): the route never deletes, and a
-        -- delete + re-upload at the same content-addressed key would swap the bytes.
-        AND (public.is_super_admin() OR public.is_admin())
-      )
-    $policy$;
-  END IF;
-END $$;
+DROP POLICY IF EXISTS "procurement_invoice_pdfs_delete" ON storage.objects;
+CREATE POLICY "procurement_invoice_pdfs_delete"
+ON storage.objects FOR DELETE TO authenticated
+USING (
+  bucket_id = 'procurement-invoice-pdfs'
+  -- Admins only (review round, 2026-10-09): the route never deletes, and a
+  -- delete + re-upload at the same content-addressed key would swap the bytes.
+  AND (public.is_super_admin() OR public.is_admin())
+);
 
 -- ----------------------------------------------------------------------------
 -- 11. Pin what an invoice-read job may point the runner at (deep-panel M3)
@@ -1270,6 +1426,20 @@ DECLARE
   v_sha  text := NEW.payload->>'sha256';
   v_path text := NEW.payload->>'storage_path';
 BEGIN
+  -- M6 (deep-panel round 2): on UPDATE the job's target is frozen for app users.
+  -- Production has no UPDATE path for them today (checked 2026-10-10: ai_jobs has RLS
+  -- with only a read-own SELECT policy, and no authenticated-callable function writes
+  -- payload or job_type), so this is defence in depth. The stored-object test is not
+  -- re-run on UPDATE: the payload it approved is the one kept.
+  IF TG_OP = 'UPDATE' THEN
+    IF coalesce(auth.role(), '') <> 'service_role'
+       AND (NEW.payload IS DISTINCT FROM OLD.payload
+            OR NEW.job_type IS DISTINCT FROM OLD.job_type) THEN
+      RAISE EXCEPTION 'an invoice read job''s type and payload cannot be changed after it is queued'
+        USING ERRCODE = '42501';
+    END IF;
+    RETURN NEW;
+  END IF;
   IF NEW.job_type IS DISTINCT FROM 'procurement.invoice_extract' THEN
     RETURN NEW;
   END IF;
@@ -1298,8 +1468,19 @@ $$;
 REVOKE EXECUTE ON FUNCTION public.fn_ai_jobs_invoice_extract_guard() FROM anon, PUBLIC;
 
 DROP TRIGGER IF EXISTS trg_ai_jobs_00_invoice_extract_guard ON public.ai_jobs;
+-- M6: also on UPDATE OF payload / job_type, for a row that is, or becomes, an invoice
+-- read job (OLD is not available in an INSERT trigger's WHEN, so the UPDATE test on OLD
+-- is a separate trigger).
 CREATE TRIGGER trg_ai_jobs_00_invoice_extract_guard
   BEFORE INSERT ON public.ai_jobs
   FOR EACH ROW
   WHEN (NEW.job_type = 'procurement.invoice_extract')
+  EXECUTE FUNCTION public.fn_ai_jobs_invoice_extract_guard();
+
+DROP TRIGGER IF EXISTS trg_ai_jobs_00_invoice_extract_freeze ON public.ai_jobs;
+CREATE TRIGGER trg_ai_jobs_00_invoice_extract_freeze
+  BEFORE UPDATE OF payload, job_type ON public.ai_jobs
+  FOR EACH ROW
+  WHEN (OLD.job_type = 'procurement.invoice_extract'
+        OR NEW.job_type = 'procurement.invoice_extract')
   EXECUTE FUNCTION public.fn_ai_jobs_invoice_extract_guard();
