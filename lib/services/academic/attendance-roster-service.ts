@@ -207,6 +207,39 @@ export class AttendanceRosterService {
     }
   }
 
+  // Added: 2026-10-10 (BUG-006276) - Gender per learner, for the "Boys, then
+  // girls" display order on the marking screen. fn_attendance_roster does not
+  // return gender and faculty cannot read learners_profiles, so this goes
+  // through fn_learner_genders (same permission gate as the roster). Never
+  // throws: on any failure every learner is "unknown" and the order falls back
+  // to names; the roster and saving are untouched.
+  static async getLearnerGenders(
+    institutionId: string,
+    learnerIds: string[]
+  ): Promise<Map<string, string | null>> {
+    const genders = new Map<string, string | null>();
+    if (!institutionId || learnerIds.length === 0) return genders;
+    try {
+      const { data, error } = await (this.supabase as any).rpc('fn_learner_genders', {
+        p_institution_id: institutionId,
+        p_learner_ids: learnerIds
+      });
+      if (error || !Array.isArray(data)) {
+        logger.warn('academic/attendance', 'Could not resolve learner genders; boys-then-girls order falls back to names', {
+          institutionId,
+          code: (error as any)?.code,
+          message: (error as any)?.message
+        });
+        return genders;
+      }
+      for (const row of data as any[]) genders.set(row.id, row.gender ?? null);
+      return genders;
+    } catch (error) {
+      logger.warn('academic/attendance', 'Could not resolve learner genders; boys-then-girls order falls back to names', error);
+      return genders;
+    }
+  }
+
   // =====================
   // ROSTER CHECKING / AGGREGATION METHODS
   // =====================

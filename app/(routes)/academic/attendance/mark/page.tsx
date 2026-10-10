@@ -29,6 +29,13 @@ import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
 import { Input } from '@/components/ui/input';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue
+} from '@/components/ui/select';
+import {
   Breadcrumb,
   BreadcrumbItem,
   BreadcrumbLink,
@@ -62,6 +69,13 @@ import type {
   RosterDivisionKind
 } from '@/lib/utils/academic/attendance-section-scope';
 import { narrowRosterToPracticalBatch } from '@/lib/utils/academic/practical-batch-roster';
+import {
+  isRosterOrder,
+  orderRoster,
+  ROSTER_ORDER_OPTIONS,
+  ROSTER_ORDER_STORAGE_KEY,
+  type RosterOrder
+} from '@/lib/utils/academic/attendance-roster-order';
 import type { PracticalBatchRosterResult } from '@/lib/utils/academic/practical-batch-roster';
 import { periodMarkedForLearners } from '@/lib/utils/practical-period-sections';
 import { AttendanceSummaryModal } from './components/attendance-summary-modal';
@@ -112,6 +126,10 @@ export default function AttendanceMarkPage() {
   const [historyLearner, setHistoryLearner] = useState<any | null>(null);
   const [savingAttendance, setSavingAttendance] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
+  // Added: 2026-10-10 (BUG-006276) - Display order of the marking list, kept
+  // per browser. Display only: `students` (what is saved) is never re-ordered.
+  const [rosterOrder, setRosterOrder] = useState<RosterOrder>('default');
+  const [learnerGenders, setLearnerGenders] = useState<Map<string, string | null>>(new Map());
   const [attendanceData, setAttendanceData] = useState<
     Record<string, 'Present' | 'Absent'>
   >({});
@@ -191,19 +209,60 @@ export default function AttendanceMarkPage() {
 
   const { saveConsolidatedAttendance } = useConsolidatedAttendance();
 
-  // Filter students based on search
-  const filteredStudents = useMemo(() => {
-    if (!searchTerm) return students;
+  // Added: 2026-10-10 (BUG-006276) - Restore the saved order after mount
+  // (read in an effect, not the initializer, to avoid a hydration mismatch).
+  useEffect(() => {
+    try {
+      const saved = window.localStorage.getItem(ROSTER_ORDER_STORAGE_KEY);
+      if (isRosterOrder(saved)) setRosterOrder(saved);
+    } catch {
+      // Storage blocked (private window etc.) - keep the default order.
+    }
+  }, []);
 
+  const changeRosterOrder = (value: string) => {
+    if (!isRosterOrder(value)) return;
+    setRosterOrder(value);
+    try {
+      window.localStorage.setItem(ROSTER_ORDER_STORAGE_KEY, value);
+    } catch {
+      // Storage blocked - the choice still applies for this visit.
+    }
+  };
+
+  // Gender is fetched only when "Boys, then girls" is chosen, so the default
+  // path makes no extra call.
+  useEffect(() => {
+    const needsGender = rosterOrder === 'boys_then_girls';
+    if (!needsGender || students.length === 0) return;
+    const institutionId = contextData?.institution_id;
+    if (!institutionId) return;
+    let cancelled = false;
+    AttendanceService.getLearnerGenders(
+      institutionId,
+      students.map((s) => s.id)
+    ).then((genders) => {
+      if (!cancelled) setLearnerGenders(genders);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [rosterOrder, students, contextData?.institution_id]);
+
+  // Filter students based on search, then apply the chosen display order
+  const filteredStudents = useMemo(() => {
     const term = searchTerm.toLowerCase();
-    return students.filter(
-      (student) =>
-        student.first_name?.toLowerCase().includes(term) ||
-        student.last_name?.toLowerCase().includes(term) ||
-        student.roll_number?.toLowerCase().includes(term) ||
-        student.student_email?.toLowerCase().includes(term)
-    );
-  }, [students, searchTerm]);
+    const matched = !searchTerm
+      ? students
+      : students.filter(
+          (student) =>
+            student.first_name?.toLowerCase().includes(term) ||
+            student.last_name?.toLowerCase().includes(term) ||
+            student.roll_number?.toLowerCase().includes(term) ||
+            student.student_email?.toLowerCase().includes(term)
+        );
+    return orderRoster(matched, rosterOrder, learnerGenders);
+  }, [students, searchTerm, rosterOrder, learnerGenders]);
 
   // Updated: 2026-03-13 - Filter subdivision groups to only show the faculty's assigned group
   // When navigating for a specific group (e.g., _group_1), only show that group
@@ -2764,6 +2823,23 @@ export default function AttendanceMarkPage() {
                   className='pl-10 h-12 border-0 bg-white dark:bg-gray-800 shadow-md focus:ring-2 focus:ring-blue-500'
                 />
               </div>
+
+              {/* Added: 2026-10-10 (BUG-006276) - List order (display only) */}
+              <Select value={rosterOrder} onValueChange={changeRosterOrder}>
+                <SelectTrigger
+                  aria-label='List order'
+                  className='w-full lg:w-56 h-12 border-0 bg-white dark:bg-gray-800 shadow-md'
+                >
+                  <SelectValue placeholder='List order' />
+                </SelectTrigger>
+                <SelectContent>
+                  {ROSTER_ORDER_OPTIONS.map((option) => (
+                    <SelectItem key={option.value} value={option.value}>
+                      {option.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
 
               <div className='flex gap-3 w-full lg:w-auto'>
                 <Button
