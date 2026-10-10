@@ -34,6 +34,8 @@ import {
 import { useAlumniSignal } from '@/hooks/hr/use-alumni-signal';
 import { useRecruitmentInstitutions } from '@/hooks/hr/use-recruitment-institutions';
 import { CandidateDiscussionThread } from '../../_components/candidate-discussion-thread';
+import { CandidateSalaryDetails } from './_components/candidate-salary-details';
+import { CandidateSalarySuggestionBox } from './_components/candidate-salary-suggestion-box';
 import { useAuth } from '@/hooks/use-auth';
 import { useProfiles } from '@/hooks/organization/use-profiles';
 import { usePermissions } from '@/hooks/use-permissions';
@@ -1182,6 +1184,10 @@ export default function CandidateDetailPage() {
             </div>
           </CardHeader>
           <CardContent>
+            <CandidateSalaryDetails
+              candidateId={id}
+              canEdit={isSuperAdmin || permissions['hr.recruitment.edit'] === true}
+            />
             {packages.length === 0 ? (
               <p className="text-sm text-muted-foreground">
                 No packages proposed yet.{' '}
@@ -1264,11 +1270,17 @@ export default function CandidateDetailPage() {
 
       {/* Propose package dialog */}
       <Dialog open={proposeOpen} onOpenChange={setProposeOpen}>
-        <DialogContent>
+        <DialogContent className="max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Propose Monthly Salary Package</DialogTitle>
           </DialogHeader>
           <form onSubmit={onPropose} className="space-y-3">
+            <CandidateSalarySuggestionBox
+              candidateId={id}
+              canSeeSalary={isSuperAdmin || permissions['hr.payroll.salary.view'] === true}
+              isSuperAdmin={isSuperAdmin}
+              onUseFigure={(figure) => setProposeCtc(String(figure))}
+            />
             <div>
               <Label htmlFor="proposeSalary">
                 Monthly Salary (₹){' '}

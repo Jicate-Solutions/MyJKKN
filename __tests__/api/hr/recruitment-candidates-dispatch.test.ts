@@ -15,7 +15,11 @@
  *   4. an unknown path is a miss (the route answers 404) and a verb the module
  *      never exported is a miss too (the route answers 405).
  */
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
+
+// The salary-suggestion handler's service is `import 'server-only'`, which only
+// Next's bundler resolves.
+vi.mock('server-only', () => ({}));
 
 import {
   CANDIDATE_ROUTES,
@@ -74,6 +78,9 @@ const base = `/api/hr/recruitment/candidates/${CANDIDATE_ID}`;
 const ADDED_ROUTES: OriginalRoute[] = [
   // 2026-09-24 — @mentions on the candidate discussion thread.
   { url: '/comments/mentions', slug: ['comments', 'mentions'], key: 'comment-mentions', methods: ['POST'] },
+  // 2026-10-08 — the suggested salary on Propose Package, and its three inputs.
+  { url: '/salary-details', slug: ['salary-details'], key: 'salary-details', methods: ['GET', 'PATCH'] },
+  { url: '/salary-suggestion', slug: ['salary-suggestion'], key: 'salary-suggestion', methods: ['GET'] },
 ];
 
 const ALL_ROUTES = [...ORIGINAL_ROUTES, ...ADDED_ROUTES];

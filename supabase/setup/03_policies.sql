@@ -5431,6 +5431,12 @@ CREATE POLICY "hr_recruitment_candidates_update_permission"
         AND role_has_institution_access(institution_id))
   );
 
+-- Updated: 2026-10-08 (20271008200600) - designation_id, department_id,
+-- prior_experience_years and prior_experience_source are covered by the row
+-- policies above; no new policy.
+-- hr_candidate_salary_suggestion_inputs() (02_functions.sql) repeats the SELECT
+-- predicate above inside the function: change both together.
+
 -- Narrowed 2026-08-05 (20260810170000_hr_recruitment_purge_rejected_applicant.sql):
 -- deleting a candidate destroys a person's whole record, so it is super-admin only.
 -- It previously also allowed is_admin() and every holder of 'hr.recruitment.delete'

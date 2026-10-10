@@ -33,6 +33,8 @@ import * as packageCounter from './handlers/package-counter';
 import * as packageDetail from './handlers/package-detail';
 import * as packages from './handlers/packages';
 import * as reject from './handlers/reject';
+import * as salaryDetails from './handlers/salary-details';
+import * as salarySuggestion from './handlers/salary-suggestion';
 import * as scheduleStepInterview from './handlers/schedule-step-interview';
 import * as status from './handlers/status';
 import * as stepComment from './handlers/step-comment';
@@ -83,6 +85,8 @@ export const CANDIDATE_ROUTES: readonly CandidateRouteEntry[] = [
   { key: 'package-counter', path: 'packages/[packageId]/counter', segments: ['packages', ':packageId', 'counter'], methods: ['POST'], module: packageCounter },
   { key: 'package-detail', path: 'packages/[packageId]', segments: ['packages', ':packageId'], methods: ['GET'], module: packageDetail },
   { key: 'reject', path: 'reject', segments: ['reject'], methods: ['POST'], module: reject },
+  { key: 'salary-details', path: 'salary-details', segments: ['salary-details'], methods: ['GET', 'PATCH'], module: salaryDetails },
+  { key: 'salary-suggestion', path: 'salary-suggestion', segments: ['salary-suggestion'], methods: ['GET'], module: salarySuggestion },
   { key: 'schedule-step-interview', path: 'schedule-step-interview', segments: ['schedule-step-interview'], methods: ['POST'], module: scheduleStepInterview },
   { key: 'status', path: 'status', segments: ['status'], methods: ['PATCH'], module: status },
   { key: 'step-comment', path: 'step-comment', segments: ['step-comment'], methods: ['PATCH'], module: stepComment },

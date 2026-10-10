@@ -84746,3 +84746,119 @@ BEGIN
 END $$;
 REVOKE EXECUTE ON FUNCTION public.fn_hr_playbook_decide(uuid, text, text, text) FROM anon, PUBLIC;
 GRANT  EXECUTE ON FUNCTION public.fn_hr_playbook_decide(uuid, text, text, text) TO authenticated;
+
+-- ===========================================================================
+-- hr_candidate_salary_suggestion_inputs(p_candidate_id) (2026-10-08)
+-- Updated: 2026-10-09 - also returns the college name and the CV note for the
+-- years before JKKN (prior_experience_source).
+-- Updated: 2026-10-09 - review panel round 1: the band ignores a retired or
+-- never-published row; at most one band row and one rule row (LIMIT 1); a job
+-- title of another HR organisation or a department of another college counts
+-- as not picked.
+-- Source: 20271008200600_hr_candidate_salary_suggestion_inputs.sql
+-- The suggested starting salary for a recruitment candidate: one candidate's
+-- inputs, the college band, and from hr.salary_suggestion_rule ONLY the amount
+-- for the candidate's department. Gated on hr.payroll.salary.view, then on the
+-- hr_recruitment_candidates SELECT policy's own predicate (03_policies.sql).
+-- Needs hr_salary_rule_department_rate / hr_salary_rule_round_to (above).
+-- ===========================================================================
+CREATE OR REPLACE FUNCTION public.hr_candidate_salary_suggestion_inputs(p_candidate_id uuid)
+RETURNS TABLE(
+  candidate_uuid         uuid,
+  institution_id         uuid,
+  institution_name       text,
+  designation_id         uuid,
+  designation            text,
+  department_id          uuid,
+  department_name        text,
+  prior_experience_years numeric,
+  prior_experience_source text,
+  band                   jsonb,
+  rule_rate              numeric,
+  rule_round_to          numeric,
+  rule_updated_at        timestamptz
+)
+LANGUAGE plpgsql
+STABLE SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_uid uuid := auth.uid();
+BEGIN
+  IF public.user_has_permission('hr.payroll.salary.view') IS NOT TRUE THEN
+    RAISE EXCEPTION 'hr.payroll.salary.view is required to suggest a salary.'
+      USING ERRCODE = 'insufficient_privilege';
+  END IF;
+
+  RETURN QUERY
+  SELECT c.id,
+         c.institution_id,
+         i.name::text,
+         dg.id,
+         dg.name::text,
+         d.id,
+         d.department_name::text,
+         c.prior_experience_years,
+         c.prior_experience_source,
+         bp.value,
+         public.hr_salary_rule_department_rate(rg.value, d.id),
+         public.hr_salary_rule_round_to(rg.value),
+         rg.updated_at
+    FROM public.hr_recruitment_candidates c
+    LEFT JOIN public.institutions i
+           ON i.id = c.institution_id
+    -- Only a job title of the candidate's OWN HR organisation and a department
+    -- of the candidate's OWN college count. If the candidate's college or HR
+    -- organisation changes after these were picked, the stale link reads as
+    -- "not picked" (the screen then asks for it again) instead of pairing one
+    -- college's band with another college's department amount.
+    LEFT JOIN public.hr_designations dg
+           ON dg.id = c.designation_id
+          AND dg.hr_organization_id = c.hr_organization_id
+    LEFT JOIN public.departments d
+           ON d.id = c.department_id
+          AND d.institution_id = c.institution_id
+    -- ONE band row and ONE rule row at most, so the function never returns two
+    -- rows for one candidate. platform_policies' unique index
+    -- (uq_platform_policies_key_scope) already allows only one per key and
+    -- scope; LIMIT 1 keeps that true even if the index were ever missing. A
+    -- retired (is_active false) or never-published (draft_only) row is never
+    -- used, for the band exactly as for the rule.
+    LEFT JOIN LATERAL (
+      SELECT b.value
+        FROM public.platform_policies b
+       WHERE b.policy_key = 'hr.pay_scales'
+         AND b.scope_type = 'institution'
+         AND b.scope_id = c.institution_id
+         AND b.is_active IS NOT FALSE
+         AND b.publication_state <> 'draft_only'
+       ORDER BY b.updated_at DESC NULLS LAST, b.id
+       LIMIT 1
+    ) bp ON true
+    LEFT JOIN LATERAL (
+      SELECT r.value, r.updated_at
+        FROM public.platform_policies r
+       WHERE r.policy_key = 'hr.salary_suggestion_rule'
+         AND r.scope_type = 'global'
+         AND r.scope_id IS NULL
+         AND r.is_active IS NOT FALSE
+         AND r.publication_state <> 'draft_only'
+       ORDER BY r.updated_at DESC NULLS LAST, r.id
+       LIMIT 1
+    ) rg ON true
+   WHERE c.id = p_candidate_id
+     AND (
+           public.is_super_admin() IS TRUE
+        OR public.is_admin() IS TRUE
+        OR (public.user_has_permission('hr.recruitment.view') IS TRUE
+            AND public.role_has_institution_access(c.institution_id) IS TRUE)
+        OR (v_uid IS NOT NULL AND c.submitted_by = v_uid)
+         );
+END;
+$function$;
+
+REVOKE EXECUTE ON FUNCTION public.hr_candidate_salary_suggestion_inputs(uuid) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.hr_candidate_salary_suggestion_inputs(uuid) TO authenticated;
+
+COMMENT ON FUNCTION public.hr_candidate_salary_suggestion_inputs(uuid) IS
+  'Inputs for the suggested salary of one recruitment candidate: college name, official job title, department, years before JKKN and their CV note, the college pay band, and from the group-wide hr.salary_suggestion_rule row only the amount for that department and the rounding step (published value only). Gated on hr.payroll.salary.view (IS NOT TRUE refuses) and on the candidate SELECT policy''s own predicate. Read only. Migration 20271008200600.';

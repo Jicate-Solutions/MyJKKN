@@ -12316,3 +12316,36 @@ CREATE INDEX IF NOT EXISTS idx_hr_intake_match_rules_job
 CREATE UNIQUE INDEX IF NOT EXISTS ux_hr_memos_triggered_by_event
   ON public.hr_memos (triggered_by_event_id)
   WHERE triggered_by_event_id IS NOT NULL;
+
+-- ===========================================================================
+-- Updated: 2026-10-08 - hr_recruitment_candidates: the inputs of the
+-- suggested salary on Propose Package (official job title, department, years
+-- of experience before JKKN). ADD ONLY; role_title is unchanged.
+-- Updated: 2026-10-09 - prior_experience_source: the CV note for those years;
+-- without it the years are not counted (the Director, 9 Oct).
+-- Source: 20271008200600_hr_candidate_salary_suggestion_inputs.sql
+-- ===========================================================================
+ALTER TABLE public.hr_recruitment_candidates
+  ADD COLUMN IF NOT EXISTS designation_id uuid
+    REFERENCES public.hr_designations(id) ON DELETE SET NULL;
+
+ALTER TABLE public.hr_recruitment_candidates
+  ADD COLUMN IF NOT EXISTS department_id uuid
+    REFERENCES public.departments(id) ON DELETE SET NULL;
+
+ALTER TABLE public.hr_recruitment_candidates
+  ADD COLUMN IF NOT EXISTS prior_experience_years numeric(4,1)
+    CONSTRAINT hr_recruitment_candidates_prior_experience_years_check
+    CHECK (prior_experience_years >= 0);
+
+ALTER TABLE public.hr_recruitment_candidates
+  ADD COLUMN IF NOT EXISTS prior_experience_source text;
+
+COMMENT ON COLUMN public.hr_recruitment_candidates.designation_id IS
+  'The official job title (hr_designations) the candidate is hired as; the pay band is looked up by its name. role_title stays the free-text title. Migration 20271008200600.';
+COMMENT ON COLUMN public.hr_recruitment_candidates.department_id IS
+  'The department the candidate is hired into; picks the Director''s amount per year in hr.salary_suggestion_rule. Migration 20271008200600.';
+COMMENT ON COLUMN public.hr_recruitment_candidates.prior_experience_years IS
+  'Years of experience before JKKN, one decimal. NULL = not recorded (not counted); 0 = none. Counted in the suggested salary only with prior_experience_source. Migration 20271008200600.';
+COMMENT ON COLUMN public.hr_recruitment_candidates.prior_experience_source IS
+  'Where the years before JKKN come from, written by HR, e.g. "CV page 2". NULL or blank = no note: the suggested salary does not count the years (the Director, 9 Oct 2026). Migration 20271008200600.';
