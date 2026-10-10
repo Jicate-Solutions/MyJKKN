@@ -2,6 +2,10 @@
  * GET /api/v1/public/leaderboard/[applicationId] — the SDK's leaderboard tab,
  * for the college apps that file bugs into MyJKKN with a bug-intake key.
  *
+ * Served from this static file: proxy.ts rewrites /api/v1/public/leaderboard/<applicationId>
+ * here (lib/bug-reports/sibling-intake-rewrites.ts), because a [applicationId] route
+ * file costs two of Vercel's 2048 routes. The SDK's URL is unchanged.
+ *
  * MyJKKN runs no leaderboard for the college apps, so this answers the
  * central reporter's "switched off" shape and nothing else:
  *   200 `{ success: true, data: { enabled: false, leaderboard: [], period, message } }`

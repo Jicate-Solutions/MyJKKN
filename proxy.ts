@@ -11,6 +11,7 @@ import {
 } from './lib/auth/token-validation-cache';
 import { routeMatcher } from './lib/auth/route-matcher';
 import { resolveLegacyRedirect } from './lib/auth/legacy-redirects';
+import { resolveSiblingIntakeRewrite } from './lib/bug-reports/sibling-intake-rewrites';
 import { routeAllowedByHandover } from './lib/auth/handover-route-access';
 import { FEATURE_FLAGS } from './lib/config/feature-flags';
 import { StudentValidationService } from './lib/services/auth/student-validation-service';
@@ -565,6 +566,20 @@ export async function proxy(request: NextRequest) {
       const url = request.nextUrl.clone();
       url.pathname = legacy.pathname;
       return NextResponse.redirect(url, legacy.status);
+    }
+
+    // The college apps' bug-reporter SDK calls /api/v1/public/bug-reports/<id>[/messages]
+    // and /api/v1/public/leaderboard/<appId>. Static route files answer them through a
+    // rewrite: a [id] route file costs two of Vercel's 2048 routes, a rewrite none.
+    // Public API (key-checked in-route), so no staff auth; never cached, like all /api.
+    const intake = resolveSiblingIntakeRewrite(currentPath);
+    if (intake) {
+      const url = request.nextUrl.clone();
+      url.pathname = intake.pathname;
+      if (intake.id !== undefined) url.searchParams.set('id', intake.id);
+      const res = NextResponse.rewrite(url);
+      res.headers.set('Cache-Control', 'private, no-store, max-age=0, must-revalidate');
+      return res;
     }
 
     // Parent Portal — fully isolated dual-auth domain. Gate /parent/* with the

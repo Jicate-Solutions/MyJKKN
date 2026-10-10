@@ -6,6 +6,10 @@
  *   GET  /api/v1/public/bug-reports/[id]/messages   (POST → 501)
  *   GET  /api/v1/public/leaderboard/[applicationId] (always empty)
  *
+ * The three dynamic URLs are answered by static route files (item,
+ * item-messages, leaderboard) that proxy.ts rewrites to; req() below applies
+ * that same rewrite, so every call here starts from the SDK's public URL.
+ *
  * The Supabase mock holds real fixture rows and APPLIES every .eq() filter
  * (including the metadata->>reporter_email path), so "another reporter's bug"
  * and "another app's bug" drop out only if the route actually filters on
@@ -144,23 +148,30 @@ vi.mock('@/lib/api-keys/audit-logger', () => ({
 }));
 
 import { GET as listMine, OPTIONS as meOptions } from '@/app/api/v1/public/bug-reports/me/route';
-import { GET as getOne } from '@/app/api/v1/public/bug-reports/[id]/route';
-import { GET as getMessages, POST as postMessage } from '@/app/api/v1/public/bug-reports/[id]/messages/route';
-import { GET as getLeaderboard } from '@/app/api/v1/public/leaderboard/[applicationId]/route';
+import { GET as getOne } from '@/app/api/v1/public/bug-reports/item/route';
+import { GET as getMessages, POST as postMessage } from '@/app/api/v1/public/bug-reports/item-messages/route';
+import { GET as getLeaderboard } from '@/app/api/v1/public/leaderboard/route';
+import { resolveSiblingIntakeRewrite } from '@/lib/bug-reports/sibling-intake-rewrites';
 import { _resetForTesting } from '@/lib/api-keys/rate-limiter';
 
 const BASE = 'https://www.jkkn.ai';
 
+// The SDK's public URL, rewritten to its static route file exactly as proxy.ts does.
 function req(path: string, key: string | null, init: { method?: string; body?: unknown } = {}) {
   const headers: Record<string, string> = { 'content-type': 'application/json' };
   if (key !== null) headers['x-api-key'] = key;
-  return new NextRequest(`${BASE}${path}`, {
+  const url = new URL(`${BASE}${path}`);
+  const rewrite = resolveSiblingIntakeRewrite(url.pathname);
+  if (rewrite) {
+    url.pathname = rewrite.pathname;
+    if (rewrite.id !== undefined) url.searchParams.set('id', rewrite.id);
+  }
+  return new NextRequest(url, {
     method: init.method ?? 'GET',
     headers,
     body: init.body === undefined ? undefined : JSON.stringify(init.body),
   });
 }
-const idParams = (id: string) => ({ params: Promise.resolve({ id }) });
 const q = (email: string | null, extra = '') =>
   `?${email === null ? '' : `reporter_email=${encodeURIComponent(email)}`}${extra}`;
 
@@ -296,7 +307,7 @@ describe('GET /api/v1/public/bug-reports/me', () => {
 
 describe('GET /api/v1/public/bug-reports/[id]', () => {
   it("returns the reporter's own bug, minimal, with the public thread only", async () => {
-    const res = await getOne(req(`/api/v1/public/bug-reports/${BUG_MINE}${q(ME)}`, MENTOR_KEY), idParams(BUG_MINE));
+    const res = await getOne(req(`/api/v1/public/bug-reports/${BUG_MINE}${q(ME)}`, MENTOR_KEY));
     expect(res.status).toBe(200);
     const json = await res.json();
     expect(json.data.bug_report.id).toBe(BUG_MINE);
@@ -310,9 +321,7 @@ describe('GET /api/v1/public/bug-reports/[id]', () => {
 
   it('leaves the thread out with include_messages=false', async () => {
     const res = await getOne(
-      req(`/api/v1/public/bug-reports/${BUG_MINE}${q(ME, '&include_messages=false')}`, MENTOR_KEY),
-      idParams(BUG_MINE)
-    );
+      req(`/api/v1/public/bug-reports/${BUG_MINE}${q(ME, '&include_messages=false')}`, MENTOR_KEY));
     const json = await res.json();
     expect(json.data.messages).toBeUndefined();
     expect(queries.some((x) => x.table === 'bug_report_messages')).toBe(false);
@@ -320,38 +329,32 @@ describe('GET /api/v1/public/bug-reports/[id]', () => {
 
   it("answers 404 for another reporter's bug, the same as for no bug", async () => {
     const res = await getOne(
-      req(`/api/v1/public/bug-reports/${BUG_OTHER_REPORTER}${q(ME)}`, MENTOR_KEY),
-      idParams(BUG_OTHER_REPORTER)
-    );
+      req(`/api/v1/public/bug-reports/${BUG_OTHER_REPORTER}${q(ME)}`, MENTOR_KEY));
     expect(res.status).toBe(404);
     const json = await res.json();
     expect(json.error).toEqual({ code: 'BUG_REPORT_NOT_FOUND', message: 'Bug report not found' });
     const none = await getOne(
-      req(`/api/v1/public/bug-reports/22222222-0000-4000-8000-00000000ffff${q(ME)}`, MENTOR_KEY),
-      idParams('22222222-0000-4000-8000-00000000ffff')
-    );
+      req(`/api/v1/public/bug-reports/22222222-0000-4000-8000-00000000ffff${q(ME)}`, MENTOR_KEY));
     expect(await none.json()).toEqual(json);
   });
 
   it("answers 404 for the reporter's own bug filed in another app", async () => {
     const res = await getOne(
-      req(`/api/v1/public/bug-reports/${BUG_MINE_OTHER_APP}${q(ME)}`, MENTOR_KEY),
-      idParams(BUG_MINE_OTHER_APP)
-    );
+      req(`/api/v1/public/bug-reports/${BUG_MINE_OTHER_APP}${q(ME)}`, MENTOR_KEY));
     expect(res.status).toBe(404);
   });
 
   it('answers 404 (not 500) for an id that is not a UUID', async () => {
-    const res = await getOne(req(`/api/v1/public/bug-reports/BUG-1${q(ME)}`, MENTOR_KEY), idParams('BUG-1'));
+    const res = await getOne(req(`/api/v1/public/bug-reports/BUG-1${q(ME)}`, MENTOR_KEY));
     expect(res.status).toBe(404);
   });
 
   it('refuses an administrator key, a wrong key, and a missing reporter_email', async () => {
-    const admin = await getOne(req(`/api/v1/public/bug-reports/${BUG_MINE}${q(ME)}`, 'jkkn_' + 'a'.repeat(48)), idParams(BUG_MINE));
+    const admin = await getOne(req(`/api/v1/public/bug-reports/${BUG_MINE}${q(ME)}`, 'jkkn_' + 'a'.repeat(48)));
     expect(admin.status).toBe(401);
-    const wrong = await getOne(req(`/api/v1/public/bug-reports/${BUG_MINE}${q(ME)}`, 'jkkn_bi_' + '00'.repeat(24)), idParams(BUG_MINE));
+    const wrong = await getOne(req(`/api/v1/public/bug-reports/${BUG_MINE}${q(ME)}`, 'jkkn_bi_' + '00'.repeat(24)));
     expect(wrong.status).toBe(401);
-    const noEmail = await getOne(req(`/api/v1/public/bug-reports/${BUG_MINE}`, MENTOR_KEY), idParams(BUG_MINE));
+    const noEmail = await getOne(req(`/api/v1/public/bug-reports/${BUG_MINE}`, MENTOR_KEY));
     expect(noEmail.status).toBe(400);
     expect(queries.some((x) => x.table === 'bug_reports')).toBe(false);
   });
@@ -360,9 +363,7 @@ describe('GET /api/v1/public/bug-reports/[id]', () => {
 describe('/api/v1/public/bug-reports/[id]/messages', () => {
   it("GET returns the reporter's own public thread, authors reduced to reporter/team", async () => {
     const res = await getMessages(
-      req(`/api/v1/public/bug-reports/${BUG_MINE}/messages${q(ME)}`, MENTOR_KEY),
-      idParams(BUG_MINE)
-    );
+      req(`/api/v1/public/bug-reports/${BUG_MINE}/messages${q(ME)}`, MENTOR_KEY));
     expect(res.status).toBe(200);
     const json = await res.json();
     expect(json.data.messages).toEqual([
@@ -374,32 +375,24 @@ describe('/api/v1/public/bug-reports/[id]/messages', () => {
 
   it("GET answers 404 for another reporter's bug and never reads its thread", async () => {
     const res = await getMessages(
-      req(`/api/v1/public/bug-reports/${BUG_OTHER_REPORTER}/messages${q(ME)}`, MENTOR_KEY),
-      idParams(BUG_OTHER_REPORTER)
-    );
+      req(`/api/v1/public/bug-reports/${BUG_OTHER_REPORTER}/messages${q(ME)}`, MENTOR_KEY));
     expect(res.status).toBe(404);
     expect(queries.some((x) => x.table === 'bug_report_messages')).toBe(false);
   });
 
   it("GET answers 404 for another app's bug", async () => {
     const res = await getMessages(
-      req(`/api/v1/public/bug-reports/${BUG_MINE_OTHER_APP}/messages${q(ME)}`, MENTOR_KEY),
-      idParams(BUG_MINE_OTHER_APP)
-    );
+      req(`/api/v1/public/bug-reports/${BUG_MINE_OTHER_APP}/messages${q(ME)}`, MENTOR_KEY));
     expect(res.status).toBe(404);
     expect(JSON.stringify(await res.json())).not.toContain('tms thread');
   });
 
   it('GET refuses an administrator key and a wrong key', async () => {
     const admin = await getMessages(
-      req(`/api/v1/public/bug-reports/${BUG_MINE}/messages${q(ME)}`, 'jkkn_' + 'a'.repeat(48)),
-      idParams(BUG_MINE)
-    );
+      req(`/api/v1/public/bug-reports/${BUG_MINE}/messages${q(ME)}`, 'jkkn_' + 'a'.repeat(48)));
     expect(admin.status).toBe(401);
     const wrong = await getMessages(
-      req(`/api/v1/public/bug-reports/${BUG_MINE}/messages${q(ME)}`, 'jkkn_bi_' + '00'.repeat(24)),
-      idParams(BUG_MINE)
-    );
+      req(`/api/v1/public/bug-reports/${BUG_MINE}/messages${q(ME)}`, 'jkkn_bi_' + '00'.repeat(24)));
     expect(wrong.status).toBe(401);
   });
 

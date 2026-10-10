@@ -2,6 +2,10 @@
  * /api/v1/public/bug-reports/[id]/messages — the reporter's conversation on
  * their own bug, for the widget's "My bugs" drawer.
  *
+ * Served from this static file: proxy.ts rewrites /api/v1/public/bug-reports/<id>/messages
+ * to /api/v1/public/bug-reports/item-messages?id=<id> (lib/bug-reports/sibling-intake-rewrites.ts),
+ * because a [id] route file costs two of Vercel's 2048 routes. The SDK's URL is unchanged.
+ *
  * GET: same request and response as the central reporter's route
  * (Jicate-Solutions/BugReporter app/api/v1/public/bug-reports/[id]/messages):
  *   - header `X-API-Key: <bug-intake key>`, query reporter_email (REQUIRED)
@@ -39,10 +43,7 @@ export async function OPTIONS() {
   return new NextResponse(null, { status: 204, headers: intakeCorsHeaders });
 }
 
-export async function GET(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-): Promise<NextResponse> {
+export async function GET(request: NextRequest): Promise<NextResponse> {
   const startTime = Date.now();
   const { ipAddress, userAgent } = extractRequestMeta(request);
 
@@ -56,11 +57,17 @@ export async function GET(
   const audit = (statusCode: number) =>
     auditIntakeRead({ keyId, endpoint: ENDPOINT, statusCode, startTime, ipAddress, userAgent });
 
-  const { id } = await params;
-  const reporterEmail = normalizeReporterEmail(new URL(request.url).searchParams.get('reporter_email'));
+  const { searchParams } = new URL(request.url);
+  const id = searchParams.get('id') ?? '';
+  const reporterEmail = normalizeReporterEmail(searchParams.get('reporter_email'));
   if (!reporterEmail) {
     audit(400);
     return intakeFail('VALIDATION_ERROR', 'reporter_email is required.', 400);
+  }
+
+  if (!id) {
+    audit(404);
+    return intakeFail('BUG_REPORT_NOT_FOUND', 'Bug report not found', 404);
   }
 
   const { bug, error } = await findReporterBug(supabase, id, app.id, reporterEmail);
