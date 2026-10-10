@@ -317,6 +317,23 @@ BEGIN
         USING ERRCODE = '42501';
     END IF;
 
+    -- 9b. The replacement marker is set at INSERT only (clearing it is harmless: it is
+    --     read only at INSERT, and ON DELETE SET NULL clears it).
+    IF NEW.replacement_id IS NOT NULL
+       AND NEW.replacement_id IS DISTINCT FROM OLD.replacement_id
+       AND NOT (public.is_super_admin() OR public.is_admin()) THEN
+      RAISE EXCEPTION 'which replacement a delivery fulfils cannot be changed after it is recorded'
+        USING ERRCODE = '42501';
+    END IF;
+
+    -- 9d. Reviving a cancelled receipt voids its duplicate confirmation (decisions
+    --     round, red team): a confirmation given while the receipt was live must not
+    --     survive a cancel / post-the-other / revive round trip. A fresh one is needed.
+    IF OLD.status = 'cancelled' AND NEW.status IS DISTINCT FROM 'cancelled' THEN
+      NEW.duplicate_confirmed_by := NULL;
+      NEW.duplicate_confirmed_at := NULL;
+    END IF;
+
     -- b. A confirmation is tied to one invoice number + supplier.
     IF NEW.invoice_number IS DISTINCT FROM OLD.invoice_number
        OR NEW.supplier_id IS DISTINCT FROM OLD.supplier_id THEN
