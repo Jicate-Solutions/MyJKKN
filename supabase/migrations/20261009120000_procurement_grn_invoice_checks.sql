@@ -81,8 +81,8 @@
 --      D2. A receipt with no invoice number cannot be added to stock: the verify guard
 --          refuses an UPDATE into a posted status (and an INSERT into any posted status
 --          other than 'completed') when the normalised invoice number is empty.
---          Replacement receipts are exempt: they are the one kind of receipt INSERTed
---          straight into 'completed' (receiveReplacement; verifier-only since 7c).
+--          Replacement receipts are exempt, but only when replacement_id names a real,
+--          claimed, unfulfilled replacement (9b; receiveReplacement, verifier-only).
 --      D3. procurement_grn_invoice_number_charset: a saved invoice number holds only
 --          A-Z, a-z, 0-9, '-' and '/' (NULL allowed, for replacement receipts). The
 --          normaliser stays, as defence in depth.
