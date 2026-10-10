@@ -52,7 +52,7 @@ export function localToday(now: Date = new Date()): string {
  * Returns null for an empty or missing number — an empty number never matches anything.
  *
  * MUST stay identical to fn_procurement_normalise_invoice_number (migration
- * 20261009120000): the strip set below is an explicit list of code points, the same list
+ * 20271010170000): the strip set below is an explicit list of code points, the same list
  * in both, because Postgres's character classes follow the server's C library and match
  * no JS class (measured on production: 840 BMP code points only Postgres's [[:alnum:]]
  * counts, 419 only JS [\p{L}\p{N}] counts). Pinned by the "agrees with
@@ -111,7 +111,7 @@ export function blankInvoiceBlocksStock(invoiceNumber: string | null | undefined
  * E1 (Director 2026-10-10 afternoon): self-check banned. Whoever received a delivery
  * (procurement_grn.received_by) never checks it into stock, whatever their rights —
  * admins and super admins included. The database verify guard refuses it too
- * (fn_procurement_guard_approval, migration 20261009120000).
+ * (fn_procurement_guard_approval, migration 20271010170000).
  */
 export const SELF_CHECK_MESSAGE =
   'You received this delivery, so someone else must check this delivery before it is added to stock.';

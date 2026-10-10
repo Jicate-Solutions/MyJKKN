@@ -16,7 +16,7 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 
 /**
  * Where the PDF is parked for the Windows runner: invoices have their own private
- * bucket (20261009120000_procurement_grn_invoice_checks.sql), readable only by people
+ * bucket (20271010170000_procurement_grn_invoice_checks.sql), readable only by people
  * with GRN rights — quotation-only managers cannot see supplier bills. The bucket name
  * rides in the payload so the runner never has to guess it. It is never taken from the
  * caller: this route sets it, and for a job enqueued any other way the database pins it

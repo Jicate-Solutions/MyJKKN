@@ -400,7 +400,7 @@ export class ProcurementGrnService {
         .select()
         .single();
       // late_invoice_reason is sent only when I4 fired. On a database where
-      // 20261009120000_procurement_grn_invoice_checks is not applied yet the column does
+      // 20271010170000_procurement_grn_invoice_checks is not applied yet the column does
       // not exist (PostgREST PGRST204): save anyway, with the reason kept in the notes,
       // so an old invoice can still be recorded and its reason is not lost.
       if (

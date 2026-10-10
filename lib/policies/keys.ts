@@ -397,7 +397,7 @@ export const POLICY_KEYS = {
   // Procurement invoice checks (2026-10-09, spec from Draft PR #4289). Days before
   // expiry at which a received line is WARNED as near-expiry (I2; already-expired lines
   // are blocked regardless). One global value. Seeded by
-  // 20261009120000_procurement_grn_invoice_checks.sql; read by the GRN form via
+  // 20271010170000_procurement_grn_invoice_checks.sql; read by the GRN form via
   // get-policy-client. In-code default 30.
   PROCUREMENT_INVOICE_NEAR_EXPIRY_DAYS: 'procurement.invoice.near_expiry_days',
 } as const;

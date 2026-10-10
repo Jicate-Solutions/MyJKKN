@@ -1,7 +1,16 @@
 -- ============================================================================
--- Migration: 20261009120000_procurement_grn_invoice_checks
+-- Migration: 20271010170000_procurement_grn_invoice_checks
 -- Updated: 2026-10-09 - Invoice checks I1-I4 for goods receipts (audit trail +
 --                       near-expiry setting). Spec: Draft PR #4289.
+-- Updated: 2026-10-10 - Renamed from 20261009120000_procurement_grn_invoice_checks.sql
+--                       (deep-panel round 2, #4333 H1). This file CREATE OR REPLACEs
+--                       fn_procurement_guard_approval, last defined on main by
+--                       20271006130000_procurement_final_approval_chain.sql; the old
+--                       2026 version sorted BEFORE that file, so any replay (db reset,
+--                       branch / preview DB) re-applied the 2027 guard last and dropped
+--                       every block added here. 20271010170000 sorts after that file,
+--                       after the newest file on main (20271010090000) and after the
+--                       newest production ledger row (20271010100000) when renamed.
 -- ============================================================================
 -- The invoice checks themselves run APP-SIDE and deterministically
 -- (lib/services/procurement/invoice-checks.ts, applied by the GRN form and by
