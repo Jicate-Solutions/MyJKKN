@@ -276,6 +276,8 @@ DECLARE
   v_bad integer;
   v_total integer;
   v_found integer;
+  v_ids uuid[];
+  v_forms uuid[];
 BEGIN
   IF auth.uid() IS NULL OR NOT COALESCE(public.fn_can_record_event_winners(p_event_id), false) THEN
     RAISE EXCEPTION 'Only the event''s creator, its in-charge or an administrator can record winners.'
@@ -306,29 +308,48 @@ BEGIN
       USING ERRCODE = '22023';
   END IF;
 
-  -- The last entry per registration wins.
-  WITH ch AS (
-    SELECT DISTINCT ON ((x->>'registration_id')::uuid)
-           (x->>'registration_id')::uuid AS reg_id,
-           NULLIF(x->>'final_rank', '')::smallint AS rank
-    FROM jsonb_array_elements(p_changes) WITH ORDINALITY AS t(x, ord)
-    ORDER BY (x->>'registration_id')::uuid, ord DESC
-  )
-  SELECT count(*), count(r.id) INTO v_total, v_found
-  FROM ch LEFT JOIN public.events_registrations r ON r.id = ch.reg_id AND r.event_id = p_event_id;
-  IF v_found <> v_total THEN
+  -- LOCKING, in the same order as a form DELETE (form row, then its
+  -- registrations — see fn_event_registration_forms_winner_guard), so the two
+  -- paths queue instead of deadlocking:
+  --   1. read the listed rows and their forms, without a lock;
+  --   2. lock those forms FOR SHARE, in id order (a form delete in flight
+  --      either finishes first or waits for this save);
+  --   3. lock the rows FOR UPDATE, in id order (overlapping saves queue);
+  --   4. re-check, on the locked rows, that every one is still in this event
+  --      and still on the form read in step 1 — before any write.
+  SELECT count(DISTINCT (x->>'registration_id')::uuid) INTO v_total
+  FROM jsonb_array_elements(p_changes) AS t(x);
+
+  -- 1.
+  SELECT array_agg(r.id ORDER BY r.id), array_agg(r.form_id ORDER BY r.id)
+    INTO v_ids, v_forms
+  FROM public.events_registrations r
+  WHERE r.id IN (SELECT (x->>'registration_id')::uuid FROM jsonb_array_elements(p_changes) AS t(x));
+
+  -- 2.
+  PERFORM 1
+  FROM public.event_registration_forms f
+  WHERE f.id = ANY (v_forms)
+  ORDER BY f.id
+  FOR SHARE OF f;
+
+  -- 3.
+  PERFORM 1
+  FROM public.events_registrations r
+  WHERE r.id = ANY (v_ids)
+  ORDER BY r.id
+  FOR UPDATE OF r;
+
+  -- 4. (a new statement: it sees anything committed while we waited)
+  SELECT count(*) INTO v_found
+  FROM public.events_registrations r
+  WHERE r.id = ANY (v_ids)
+    AND r.event_id = p_event_id
+    AND r.form_id IS NOT DISTINCT FROM v_forms[array_position(v_ids, r.id)];
+  IF COALESCE(v_found, 0) <> v_total THEN
     RAISE EXCEPTION 'A registration in the list does not belong to this event.'
       USING ERRCODE = '22023';
   END IF;
-
-  -- Lock the listed rows in a fixed order, so two overlapping saves queue
-  -- instead of deadlocking between pass 1 and pass 2.
-  PERFORM 1
-  FROM public.events_registrations r
-  WHERE r.id IN (SELECT (x->>'registration_id')::uuid FROM jsonb_array_elements(p_changes) AS t(x))
-    AND r.event_id = p_event_id
-  ORDER BY r.id
-  FOR UPDATE OF r;
 
   -- Pass 1: empty the places that must be emptied — a row being cleared, or a
   -- row whose current place another listed row is taking (a swap or a cycle).
@@ -483,6 +504,16 @@ BEGIN
   IF NOT EXISTS (SELECT 1 FROM public.events e WHERE e.id = OLD.event_id) THEN
     RETURN OLD;
   END IF;
+  -- Lock the form's registrations first: a placement committing after a
+  -- plain EXISTS would otherwise be wiped by ON DELETE SET NULL with no
+  -- authority check. The form row is already locked by this DELETE, so the
+  -- order is form -> rows, the same as fn_set_event_registration_ranks.
+  PERFORM 1
+  FROM public.events_registrations r
+  WHERE r.form_id = OLD.id
+  ORDER BY r.id
+  FOR UPDATE OF r;
+
   IF EXISTS (
        SELECT 1 FROM public.events_registrations r
        WHERE r.form_id = OLD.id AND r.final_rank IS NOT NULL

@@ -1170,3 +1170,130 @@ describe('review round 8 (#4311): one ACTIVE set of statuses', () => {
     await drop(row);
   });
 });
+
+describe('review round 9 (#4311): check-before-lock races, two connections', () => {
+  /** Act on ANY connection as a signed-in user (the same settings actAs uses). */
+  async function userOn(c: Client, uid: string, extra: Record<string, string> = {}) {
+    await c.query(`RESET ROLE`);
+    for (const k of ['test.super_admin', 'test.admin', 'test.admin_institution', 'test.incharge_event']) {
+      await c.query(`SELECT set_config($1, $2, false)`, [k, extra[k] ?? '']);
+    }
+    await c.query(`SELECT set_config('test.acting_uid', $1, false)`, [uid]);
+    await c.query(`SELECT set_config('test.acting_role', 'authenticated', false)`);
+    await c.query(`SET ROLE authenticated`);
+  }
+  async function ownerOn(c: Client) {
+    await c.query(`RESET ROLE`);
+    await c.query(`SELECT set_config('test.acting_uid', '', false)`);
+    await c.query(`SELECT set_config('test.acting_role', '', false)`);
+  }
+  const code = (p: Promise<unknown>) => p.then(() => null, (e: any) => (e.code as string) ?? 'unknown');
+  const place = (c: Client, eventId: string, regId: string, rank: number) =>
+    c.query(`SELECT public.fn_set_event_registration_ranks($1, $2::jsonb)`, [
+      eventId,
+      JSON.stringify([{ registration_id: regId, final_rank: rank }]),
+    ]);
+  /**
+   * Wait until the given backend is actually blocked on a lock (polled every
+   * 20 ms from the owner connection, up to 5 s), instead of a fixed sleep.
+   */
+  async function waitBlocked(pid: number, who: string) {
+    const deadline = Date.now() + 5000;
+    for (;;) {
+      const r = await admin.query(`SELECT cardinality(pg_blocking_pids($1)) > 0 AS blocked`, [pid]);
+      if (r.rows[0]?.blocked) return;
+      if (Date.now() > deadline) throw new Error(`timed out after 5 s waiting for ${who} (pid ${pid}) to block on a lock`);
+      await new Promise((res) => setTimeout(res, 20));
+    }
+  }
+  let aPid = 0;
+  let bPid = 0;
+
+  async function freshEventWithForm() {
+    const ev = (await admin.query(`INSERT INTO public.events (created_by) VALUES ($1) RETURNING id`, [ids.creator])).rows[0].id;
+    const f = await newForm(ev);
+    const row = (
+      await admin.query(`INSERT INTO public.events_registrations (event_id, form_id) VALUES ($1, $2) RETURNING id`, [ev, f])
+    ).rows[0].id;
+    return { ev, f, row };
+  }
+  const rowNow = async (row: string) =>
+    (await admin.query(`SELECT event_id, form_id, final_rank FROM public.events_registrations WHERE id = $1`, [row])).rows[0];
+
+  let b: Client;
+  beforeAll(async () => {
+    b = new Client({ host: PGHOST, port: Number(PGPORT), user: PGUSER, database: DBNAME });
+    await b.connect();
+    bPid = (await b.query(`SELECT pg_backend_pid() AS pid`)).rows[0].pid;
+    aPid = (await client.query(`SELECT pg_backend_pid() AS pid`)).rows[0].pid;
+  });
+  afterAll(async () => {
+    if (b) await b.end();
+  });
+
+  it('(a) a form delete by someone with only the forms policy waits for a placement in flight, then is refused', async () => {
+    await asOwner();
+    const { ev, f, row } = await freshEventWithForm();
+    await actAs(ids.creator);
+    await q(`BEGIN`);
+    await place(client, ev, row, 1);
+    await userOn(b, ids.outsider); // forms policy only, no winner authority
+    const del = code(b.query(`DELETE FROM public.event_registration_forms WHERE id = $1`, [f]));
+    await waitBlocked(bPid, 'session B');
+    await q(`COMMIT`);
+    expect(await del).toBe('42501');
+    expect(await rowNow(row)).toEqual({ event_id: ev, form_id: f, final_rank: 1 });
+    await ownerOn(b);
+    await asOwner();
+  });
+
+  it('(b) a row moved to another event while a save waits is refused, and nothing is written', async () => {
+    await asOwner();
+    const { ev, row } = await freshEventWithForm();
+    const other = (await admin.query(`INSERT INTO public.events (created_by) VALUES ($1) RETURNING id`, [ids.creator])).rows[0].id;
+    await q(`BEGIN`);
+    await q(`UPDATE public.events_registrations SET event_id = $1 WHERE id = $2`, [other, row]);
+    await userOn(b, ids.creator);
+    const save = code(place(b, ev, row, 1));
+    await waitBlocked(bPid, 'session B');
+    await q(`COMMIT`);
+    expect(await save).toBe('22023');
+    expect(await rowNow(row)).toMatchObject({ event_id: other, final_rank: null });
+    await ownerOn(b);
+  });
+
+  it('(c) a save and a form delete interleaved never deadlock, in either order, five times each', async () => {
+    for (let i = 0; i < 5; i++) {
+      // Order 1: the save holds first; the delete (by the creator) waits, then clears the place.
+      await asOwner();
+      let t = await freshEventWithForm();
+      await actAs(ids.creator);
+      await q(`BEGIN`);
+      await place(client, t.ev, t.row, 1);
+      await userOn(b, ids.creator);
+      const del = code(b.query(`DELETE FROM public.event_registration_forms WHERE id = $1`, [t.f]));
+      await waitBlocked(bPid, 'session B');
+      await q(`COMMIT`);
+      expect(await del).toBeNull();
+      expect(await rowNow(t.row)).toEqual({ event_id: t.ev, form_id: null, final_rank: null });
+
+      // Order 2: the delete holds first; the save waits, then sees the row left its form.
+      await asOwner();
+      t = await freshEventWithForm();
+      await userOn(b, ids.creator);
+      await b.query(`BEGIN`);
+      await b.query(`DELETE FROM public.event_registration_forms WHERE id = $1`, [t.f]);
+      await actAs(ids.creator);
+      const save = code(place(client, t.ev, t.row, 1));
+      await waitBlocked(aPid, 'session A');
+      await b.query(`COMMIT`);
+      const outcome = await save;
+      expect(outcome).not.toBe('40P01');
+      expect(outcome).toBe('22023');
+      expect(await rowNow(t.row)).toEqual({ event_id: t.ev, form_id: null, final_rank: null });
+    }
+    await ownerOn(b);
+    await asOwner();
+  }, 60_000);
+});
+
