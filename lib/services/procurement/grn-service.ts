@@ -14,13 +14,19 @@ import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { getAdapter } from './domain-adapters/registry';
 import { matchLine, validateLineForVerify } from './three-way-match';
 import {
+  BLANK_INVOICE_MESSAGE,
+  blankInvoiceBlocksStock,
   duplicateHold,
   expiredLineBlocks,
   findDuplicateGrns,
+  INVOICE_NUMBER_FORMAT_MESSAGE,
+  invoiceNumberFormatOk,
   isIsoDate,
   lateReasonMissing,
   localToday,
   POSTED_GRN_STATUSES,
+  receivedMatchingDelivery,
+  THIRD_PERSON_MESSAGE,
   type DuplicateCandidate,
 } from './invoice-checks';
 import {
@@ -177,8 +183,14 @@ export class ProcurementGrnService {
       if (!input.lines?.length) throw new Error('A delivery record needs at least one line.');
       // Supplier invoice is mandatory — a GRN records goods received against a billed
       // invoice, and the three-way match has nothing to compare against without it.
-      if (!input.invoice_number?.trim()) {
+      const invoiceNumber = input.invoice_number?.trim() ?? '';
+      if (!invoiceNumber) {
         throw new Error('Invoice number is required to record a delivery.');
+      }
+      // D3 (Director 2026-10-10): letters, digits, "-" and "/" only. The database's
+      // procurement_grn_invoice_number_charset CHECK refuses anything else too.
+      if (!invoiceNumberFormatOk(invoiceNumber)) {
+        throw new Error(INVOICE_NUMBER_FORMAT_MESSAGE);
       }
       if (!input.invoice_date) {
         throw new Error('Invoice date is required to record a delivery.');
@@ -368,7 +380,7 @@ export class ProcurementGrnService {
         purchase_order_id: po.id,
         supplier_id: po.supplier_id,
         domain,
-        invoice_number: input.invoice_number ?? null,
+        invoice_number: invoiceNumber,
         invoice_date: input.invoice_date ?? null,
         invoice_amount: input.invoice_amount ?? null,
         invoice_document_url: input.invoice_document_url ?? null,
@@ -427,7 +439,7 @@ export class ProcurementGrnService {
       .from('procurement_grn')
       .select(
         `id, grn_number, supplier_id, invoice_number, invoice_date, invoice_amount, status, created_at,
-         received_by_profile:profiles!received_by(full_name)`
+         received_by, received_by_profile:profiles!received_by(full_name)`
       )
       .eq('supplier_id', supplierId)
       .not('invoice_number', 'is', null)
@@ -462,12 +474,47 @@ export class ProcurementGrnService {
   }
 
   /**
+   * D4 (Director 2026-10-10), third-person rule: did `userId` receive another delivery
+   * that this receipt's invoice number repeats? Asks the database first
+   * (fn_procurement_grn_has_duplicate with p_received_by — it answers only about the
+   * signed-in user, and also sees colleges the caller cannot); falls back to the
+   * caller's own view where that argument does not exist yet.
+   */
+  static async receivedMatchingDelivery(
+    grn: Pick<ProcurementGrn, 'id' | 'supplier_id' | 'invoice_number' | 'created_at'>,
+    userId: string
+  ): Promise<boolean> {
+    const { data, error } = await this.supabase.rpc('fn_procurement_grn_has_duplicate', {
+      p_grn_id: grn.id,
+      p_supplier_id: grn.supplier_id,
+      p_invoice_number: grn.invoice_number,
+      p_created_at: grn.created_at,
+      p_received_by: userId,
+    });
+    if (!error && typeof data === 'boolean') return data;
+    const visible = await this.getSupplierInvoiceGrns(grn.supplier_id);
+    return receivedMatchingDelivery(visible, grn, userId);
+  }
+
+  /**
    * I1 held save: the verifier confirms that a repeated invoice number is a different
    * invoice. The DB trigger fn_procurement_grn_invoice_checks stamps the time and refuses
-   * anyone who is the receiver, lacks verify rights, or is not the signed-in user.
+   * anyone who is the receiver, received the other delivery (D4), lacks verify rights,
+   * or is not the signed-in user.
    */
   static async confirmDifferentInvoice(id: string, userId: string): Promise<ProcurementGrn> {
     try {
+      // D4: nor may whoever received the other delivery this one repeats — checked
+      // before any write.
+      const { data: current, error: curErr } = await this.supabase
+        .from('procurement_grn')
+        .select('id, supplier_id, invoice_number, created_at')
+        .eq('id', id)
+        .single();
+      if (curErr) throw curErr;
+      if (await this.receivedMatchingDelivery(current, userId)) {
+        throw new Error(THIRD_PERSON_MESSAGE);
+      }
       const { data, error } = await this.supabase
         .from('procurement_grn')
         .update({ duplicate_confirmed_by: userId, updated_at: new Date().toISOString() })
@@ -525,6 +572,13 @@ export class ProcurementGrnService {
         throw new Error(
           `Expired goods cannot be accepted — reject them or correct the expiry date:\n${expired.join('\n')}`
         );
+      }
+
+      // 1a2) D2 (Director 2026-10-10): a receipt with no invoice number never goes into
+      //      stock. (Replacement receipts are exempt, but they never pass through here.)
+      //      The database verify guard refuses it too.
+      if (blankInvoiceBlocksStock(grn.invoice_number)) {
+        throw new Error(BLANK_INVOICE_MESSAGE);
       }
 
       // 1b) I1 held save — a repeated invoice number must be confirmed as a different

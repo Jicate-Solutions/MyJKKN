@@ -71,6 +71,25 @@
 --         invisible characters (zero-width, soft hyphen, bidi and other format marks),
 --         from one explicit code-point list shared with the TS normaliser.
 --
+--   8. Director decisions 10 Oct 2026:
+--      D1. The IMS goods-receipt flow (/ims/stock/grn) is retired: every delivery is
+--          recorded as a procurement GRN. trg_ims_grn_00_retired refuses a NEW
+--          ims_goods_received_notes / ims_grn_items row and any move of an IMS receipt
+--          into 'verified' or 'approved' for app users (authenticated / anon). Reads,
+--          and cancelling an old receipt, still work. Migrations and the service role
+--          are not affected.
+--      D2. A receipt with no invoice number cannot be added to stock: the verify guard
+--          refuses an UPDATE into a posted status (and an INSERT into any posted status
+--          other than 'completed') when the normalised invoice number is empty.
+--          Replacement receipts are exempt: they are the one kind of receipt INSERTed
+--          straight into 'completed' (receiveReplacement; verifier-only since 7c).
+--      D3. procurement_grn_invoice_number_charset: a saved invoice number holds only
+--          A-Z, a-z, 0-9, '-' and '/' (NULL allowed, for replacement receipts). The
+--          normaliser stays, as defence in depth.
+--      D4. Third-person rule: whoever confirms a repeated invoice must not have
+--          received EITHER delivery — the held one, or any other receipt it matches
+--          (fn_procurement_grn_has_duplicate with p_received_by).
+--
 -- I1 is deliberately NOT a unique index: the Director chose "confirm and allow" for
 -- honest resends, which a unique constraint would forbid.
 --
@@ -108,6 +127,28 @@ UPDATE public.procurement_grn
    SET first_posted_at = coalesce(verified_at, updated_at, created_at, now())
  WHERE first_posted_at IS NULL
    AND status IN ('accepted', 'partially_accepted', 'replacement_requested', 'completed');
+
+-- 8/D3. Invoice numbers hold only letters, digits, '-' and '/' (Director 2026-10-10).
+-- NULL passes (replacement receipts carry none); '' does not. The range classes are
+-- exact here: on production (15.6, en_US.UTF-8) and the local check database (16) the
+-- pattern matches exactly 64 code points of U+0001-U+FFFF, the 26 + 26 + 10 + 2
+-- expected. Production had 0 procurement_grn rows when this was written; if rows exist
+-- when it is applied, run
+--   SELECT id, invoice_number FROM procurement_grn
+--    WHERE invoice_number IS NOT NULL AND invoice_number !~ '^[A-Za-z0-9/-]+$';
+-- first — the ADD CONSTRAINT fails loudly on any such row.
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+     WHERE conrelid = 'public.procurement_grn'::regclass
+       AND conname = 'procurement_grn_invoice_number_charset'
+  ) THEN
+    ALTER TABLE public.procurement_grn
+      ADD CONSTRAINT procurement_grn_invoice_number_charset
+      CHECK (invoice_number IS NULL OR invoice_number ~ '^[A-Za-z0-9/-]+$');
+  END IF;
+END $$;
 
 -- ----------------------------------------------------------------------------
 -- 3. Near-expiry window (I2) - substrate shape of 20260429000002 / ...000011
@@ -289,6 +330,16 @@ BEGIN
       USING ERRCODE = '42501';
   END IF;
 
+  -- D4 (Director 2026-10-10), third-person rule: nor may anyone who received the OTHER
+  -- delivery this one repeats. Asked through the SECURITY DEFINER duplicate check, so a
+  -- matching receipt at a college the confirmer cannot see still counts. Checked after
+  -- the permission test, so only a verifier learns anything from the refusal.
+  IF public.fn_procurement_grn_has_duplicate(
+       NEW.id, NEW.supplier_id, NEW.invoice_number, NEW.created_at, NEW.duplicate_confirmed_by) THEN
+    RAISE EXCEPTION 'you received the other delivery that carries this invoice number — a third person, who received neither, must confirm it'
+      USING ERRCODE = '42501';
+  END IF;
+
   NEW.duplicate_confirmed_at := now();
   RETURN NEW;
 END;
@@ -359,11 +410,18 @@ GRANT  EXECUTE ON FUNCTION public.fn_procurement_normalise_invoice_number(text) 
 -- from inside a trigger (pg_trigger_depth() > 0 — the verify guard) it always answers:
 -- the gate is for the RPC, and must never switch the guard's own check off (review round
 -- 2, red team: a caller without procurement rights got "no duplicate" from the guard).
+-- D4 (Director 2026-10-10): p_received_by, when given, narrows the answer to matching
+-- receipts THAT PERSON received — "did the would-be confirmer receive the other
+-- delivery?". Called directly, it may only be asked about the caller themself.
+-- The 4-argument form is dropped first: with a defaulted 5th argument both would match
+-- the 4-named-argument call and PostgREST would refuse it as ambiguous.
+DROP FUNCTION IF EXISTS public.fn_procurement_grn_has_duplicate(uuid, uuid, text, timestamptz);
 CREATE OR REPLACE FUNCTION public.fn_procurement_grn_has_duplicate(
   p_grn_id uuid,
   p_supplier_id uuid,
   p_invoice_number text,
-  p_created_at timestamptz DEFAULT NULL
+  p_created_at timestamptz DEFAULT NULL,
+  p_received_by uuid DEFAULT NULL
 )
 RETURNS boolean
 LANGUAGE plpgsql
@@ -384,10 +442,16 @@ BEGIN
           OR public.user_has_permission('procurement.grn_verify')) THEN
     RETURN false;
   END IF;
+  IF p_received_by IS NOT NULL
+     AND p_received_by IS DISTINCT FROM auth.uid()
+     AND NOT (coalesce(auth.role(), '') = 'service_role' OR pg_trigger_depth() > 0) THEN
+    RETURN false;
+  END IF;
   RETURN EXISTS (
     SELECT 1 FROM public.procurement_grn g
      WHERE g.supplier_id = p_supplier_id
        AND g.id IS DISTINCT FROM p_grn_id
+       AND (p_received_by IS NULL OR g.received_by = p_received_by)
        AND public.fn_procurement_normalise_invoice_number(g.invoice_number) = v_key
        AND (g.first_posted_at IS NOT NULL
             OR g.status IN ('accepted', 'partially_accepted', 'replacement_requested', 'completed')
@@ -399,8 +463,8 @@ BEGIN
 END;
 $$;
 
-REVOKE EXECUTE ON FUNCTION public.fn_procurement_grn_has_duplicate(uuid, uuid, text, timestamptz) FROM anon, PUBLIC;
-GRANT  EXECUTE ON FUNCTION public.fn_procurement_grn_has_duplicate(uuid, uuid, text, timestamptz) TO authenticated;
+REVOKE EXECUTE ON FUNCTION public.fn_procurement_grn_has_duplicate(uuid, uuid, text, timestamptz, uuid) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_procurement_grn_has_duplicate(uuid, uuid, text, timestamptz, uuid) TO authenticated;
 
 -- The verify guard, extended. Copied from the live definition (identical to
 -- 20271006130000_procurement_final_approval_chain.sql, checked 2026-10-09); the
@@ -535,6 +599,18 @@ BEGIN
         RAISE EXCEPTION 'not authorized to % — this requires the % permission', v_what, v_key
           USING ERRCODE = '42501';
       END IF;
+      -- D2 (Director 2026-10-10): a receipt with no invoice number never goes into stock.
+      -- Replacement receipts are exempt — the one kind INSERTed straight into 'completed'
+      -- (receiveReplacement, verifier-only). Every other entry into a posted status, the
+      -- verify UPDATE above all, needs a number.
+      IF NEW.status IN ('accepted', 'partially_accepted', 'replacement_requested', 'completed')
+         AND (TG_OP = 'INSERT'
+              OR OLD.status NOT IN ('accepted', 'partially_accepted', 'replacement_requested', 'completed'))
+         AND public.fn_procurement_normalise_invoice_number(NEW.invoice_number) IS NULL
+         AND NOT (TG_OP = 'INSERT' AND NEW.status = 'completed') THEN
+        RAISE EXCEPTION 'this delivery has no invoice number, so it cannot be added to stock — cancel it and record the delivery again with the invoice number from the bill'
+          USING ERRCODE = '23514';
+      END IF;
       IF NEW.status IN ('accepted', 'partially_accepted', 'replacement_requested', 'completed')
          AND (TG_OP = 'INSERT'
               OR OLD.status NOT IN ('accepted', 'partially_accepted', 'replacement_requested', 'completed'))
@@ -668,6 +744,56 @@ DROP TRIGGER IF EXISTS trg_pgrnr_replacement_checks ON public.procurement_grn_re
 CREATE TRIGGER trg_pgrnr_replacement_checks
   BEFORE INSERT ON public.procurement_grn_replacements
   FOR EACH ROW EXECUTE FUNCTION public.fn_procurement_grn_replacement_checks();
+
+-- ----------------------------------------------------------------------------
+-- 8/D1. The IMS goods-receipt flow is retired (Director 2026-10-10)
+-- ----------------------------------------------------------------------------
+-- All goods receipts go through procurement GRNs, which carry the invoice checks.
+-- ims_goods_received_notes / ims_grn_items had no triggers and institution-only RLS, so
+-- a direct API call could still create or approve an IMS receipt (and approveGRN then
+-- wrote stock). For app users (authenticated / anon) this refuses: a new IMS receipt or
+-- receipt line, and moving an IMS receipt into 'verified' or 'approved'. Reading,
+-- cancelling and other edits of the existing receipts (6 on production, latest
+-- 2026-08-22; GRN-260822-00002 is 'verified' and can now never be approved) are
+-- unchanged. Migrations and the service role are not app users and are not affected.
+CREATE OR REPLACE FUNCTION public.fn_ims_grn_retired_guard()
+RETURNS trigger
+LANGUAGE plpgsql
+SET search_path = public
+AS $$
+BEGIN
+  IF current_user NOT IN ('authenticated', 'anon')
+     OR coalesce(auth.role(), '') = 'service_role' THEN
+    RETURN NEW;
+  END IF;
+  IF TG_OP = 'INSERT' THEN
+    RAISE EXCEPTION 'IMS goods receipts are retired — record the delivery in Procurement → Deliveries (/procurement/grn). Older IMS receipts can still be viewed.'
+      USING ERRCODE = '42501';
+  END IF;
+  -- UPDATE fires only on ims_goods_received_notes (ims_grn_items has no status column;
+  -- its trigger is INSERT-only), so NEW.status is read only here.
+  IF TG_TABLE_NAME = 'ims_goods_received_notes' THEN
+    IF NEW.status IS DISTINCT FROM OLD.status AND NEW.status IN ('verified', 'approved') THEN
+      RAISE EXCEPTION 'IMS goods receipts are retired — they can no longer be verified or approved. Record the delivery in Procurement → Deliveries (/procurement/grn).'
+        USING ERRCODE = '42501';
+    END IF;
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+REVOKE EXECUTE ON FUNCTION public.fn_ims_grn_retired_guard() FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_ims_grn_retired_guard() TO authenticated;
+
+DROP TRIGGER IF EXISTS trg_ims_grn_00_retired ON public.ims_goods_received_notes;
+CREATE TRIGGER trg_ims_grn_00_retired
+  BEFORE INSERT OR UPDATE ON public.ims_goods_received_notes
+  FOR EACH ROW EXECUTE FUNCTION public.fn_ims_grn_retired_guard();
+
+DROP TRIGGER IF EXISTS trg_ims_grn_items_00_retired ON public.ims_grn_items;
+CREATE TRIGGER trg_ims_grn_items_00_retired
+  BEFORE INSERT ON public.ims_grn_items
+  FOR EACH ROW EXECUTE FUNCTION public.fn_ims_grn_retired_guard();
 
 -- ----------------------------------------------------------------------------
 -- 6. Private bucket for the supplier invoice PDFs (mirrors 20260805090000)

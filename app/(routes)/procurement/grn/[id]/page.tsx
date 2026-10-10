@@ -15,7 +15,12 @@ import {
   useGrnDuplicateInvoice,
   useConfirmDifferentInvoice,
 } from '@/hooks/procurement/use-grns';
-import { duplicateHold, POSTED_GRN_STATUSES } from '@/lib/services/procurement/invoice-checks';
+import {
+  BLANK_INVOICE_MESSAGE,
+  blankInvoiceBlocksStock,
+  duplicateHold,
+  POSTED_GRN_STATUSES,
+} from '@/lib/services/procurement/invoice-checks';
 import { DuplicateInvoiceCompare } from '@/components/procurement/duplicate-invoice-compare';
 import { validateLineForVerify } from '@/lib/services/procurement/three-way-match';
 import { GRN_STATUS_CONFIG, GRN_MATCH_CONFIG, type ProcurementGrnReplacement } from '@/types/procurement';
@@ -73,7 +78,7 @@ export default function GrnDetailPage() {
   const receiveReplacement = useReceiveReplacement(id);
   const updateItem = useUpdateGrnItem(id);
   // I1 held save: a repeated invoice number must be confirmed before verify.
-  const { data: dup } = useGrnDuplicateInvoice(grn);
+  const { data: dup } = useGrnDuplicateInvoice(grn, profile?.id);
   const confirmDifferent = useConfirmDifferentInvoice();
   const [confirmDupOpen, setConfirmDupOpen] = useState(false);
 
@@ -166,7 +171,11 @@ export default function GrnDetailPage() {
     viewerId: profile?.id,
     receivedBy: grn.received_by,
     viewerCanVerify: canVerify,
+    viewerReceivedMatch: !!dup?.viewerReceivedMatch,
   });
+  // D2 (Director 2026-10-10): no invoice number, no stock. The service and the database
+  // refuse it too.
+  const noInvoiceNumber = blankInvoiceBlocksStock(grn.invoice_number);
   const canVerifyNow = pending && canVerify;
   // Replacement goods are received only against a delivery already checked into stock —
   // never one that is pending (and possibly held under I1). The service and the database
@@ -199,7 +208,9 @@ export default function GrnDetailPage() {
             canVerifyNow && (
               <Button
                 className="h-11 px-5 sm:h-9"
-                disabled={verifyGrn.isPending || chemicalBlocks.length > 0 || hold.blocksVerify}
+                disabled={
+                  verifyGrn.isPending || chemicalBlocks.length > 0 || hold.blocksVerify || noInvoiceNumber
+                }
                 onClick={verify}
               >
                 <CheckCircle2 className="mr-1.5 h-4 w-4" />
@@ -270,7 +281,9 @@ export default function GrnDetailPage() {
               <p className="text-xs text-muted-foreground">
                 {profile?.id === grn.received_by
                   ? 'You received these goods, so a different verifier must confirm this.'
-                  : 'Only someone who can verify deliveries can confirm this.'}
+                  : hold.viewerIsParty
+                    ? 'You received the other delivery with this invoice number, so a third person, who received neither, must confirm this.'
+                    : 'Only someone who can verify deliveries can confirm this.'}
               </p>
             )}
           </section>
@@ -284,8 +297,14 @@ export default function GrnDetailPage() {
         )}
 
         {/* Verify warnings */}
-        {pending && (hasMismatch || chemicalBlocks.length > 0) && (
+        {pending && (hasMismatch || chemicalBlocks.length > 0 || noInvoiceNumber) && (
           <div className="space-y-2">
+            {noInvoiceNumber && (
+              <div className="flex items-start gap-1.5 text-sm text-destructive">
+                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                <span>{BLANK_INVOICE_MESSAGE}</span>
+              </div>
+            )}
             {hasMismatch && (
               <span className="flex items-center gap-1.5 text-sm text-foreground">
                 <AlertTriangle className="h-4 w-4" />

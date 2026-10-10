@@ -10,7 +10,9 @@ import {
   expiredLineBlocks,
   expiryState,
   findDuplicateGrns,
+  INVOICE_NUMBER_FORMAT_MESSAGE,
   invoiceAgeCheck,
+  invoiceNumberFormatOk,
   lateReasonMissing,
   localToday,
   mergeInvoiceRead,
@@ -503,8 +505,15 @@ export function GrnForm({ poId, onSaved, onCancel, compact, onDirtyChange }: Grn
 
     // Supplier invoice is mandatory — the GRN records goods received against a billed
     // invoice, and the three-way match needs it to compare against.
-    if (!invoiceNumber.trim()) {
+    const invoiceNo = invoiceNumber.trim();
+    if (!invoiceNo) {
       toast.error('Invoice number is required.');
+      return;
+    }
+    // D3 (Director 2026-10-10): letters, digits, "-" and "/" only — retyped, never
+    // silently cleaned (an AI-read number with a space fails here too).
+    if (!invoiceNumberFormatOk(invoiceNo)) {
+      toast.error(INVOICE_NUMBER_FORMAT_MESSAGE);
       return;
     }
     if (!invoiceDate) {
@@ -547,7 +556,7 @@ export function GrnForm({ poId, onSaved, onCancel, compact, onDirtyChange }: Grn
         const earlier = findDuplicateGrns(
           await ProcurementGrnService.getSupplierInvoiceGrns(po.supplier_id),
           po.supplier_id,
-          invoiceNumber
+          invoiceNo
         );
         if (earlier.length) {
           setDuplicateOf(earlier);
@@ -583,7 +592,7 @@ export function GrnForm({ poId, onSaved, onCancel, compact, onDirtyChange }: Grn
       const grn = await createGrn.mutateAsync({
         input: {
           purchase_order_id: po.id,
-          invoice_number: invoiceNumber || null,
+          invoice_number: invoiceNo,
           invoice_date: invoiceDate || null,
           invoice_amount: invoiceAmount ? Number(invoiceAmount) : null,
           invoice_document_url,
@@ -773,11 +782,17 @@ export function GrnForm({ poId, onSaved, onCancel, compact, onDirtyChange }: Grn
                   setInvoiceNumber(e.target.value);
                   clearAiMark('invoice_number');
                 }}
-                aria-invalid={triedSubmit && !invoiceNumber.trim()}
+                aria-invalid={
+                  (triedSubmit && !invoiceNumber.trim()) ||
+                  (!!invoiceNumber.trim() && !invoiceNumberFormatOk(invoiceNumber.trim()))
+                }
                 className={cn('h-9', aiFilled.invoice_number && 'border-secondary')}
               />
               {aiFilled.invoice_number && <AiTag />}
               {triedSubmit && !invoiceNumber.trim() && <p className="text-xs text-destructive">Required.</p>}
+              {!!invoiceNumber.trim() && !invoiceNumberFormatOk(invoiceNumber.trim()) && (
+                <p className="text-xs text-destructive">{INVOICE_NUMBER_FORMAT_MESSAGE}</p>
+              )}
             </div>
             <div className="space-y-1">
               <Label htmlFor="grn-invoice-date" className="text-xs font-semibold">

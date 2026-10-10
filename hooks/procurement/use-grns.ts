@@ -45,18 +45,22 @@ export function useGrnDuplicateInvoice(
   grn:
     | { id: string; supplier_id: string; invoice_number: string | null; created_at: string }
     | null
-    | undefined
+    | undefined,
+  viewerId?: string | null
 ) {
   return useQuery({
-    queryKey: ['procurement-grn-duplicate', grn?.id, grn?.supplier_id, grn?.invoice_number],
+    queryKey: ['procurement-grn-duplicate', grn?.id, grn?.supplier_id, grn?.invoice_number, viewerId],
     queryFn: async () => {
       const g = grn!;
-      const [hasDuplicate, visible] = await Promise.all([
+      const [hasDuplicate, visible, viewerReceivedMatch] = await Promise.all([
         ProcurementGrnService.hasDuplicateInvoice(g),
         ProcurementGrnService.getSupplierInvoiceGrns(g.supplier_id),
+        // D4 third-person rule: did the viewer receive the other delivery?
+        viewerId ? ProcurementGrnService.receivedMatchingDelivery(g, viewerId) : Promise.resolve(false),
       ]);
       return {
         hasDuplicate,
+        viewerReceivedMatch,
         // Receipts already in stock, or recorded BEFORE this one — the same rule as the
         // database: the original is never held by a later, not-yet-verified repeat.
         earlier: findDuplicateGrns(visible, g.supplier_id, g.invoice_number, g.id, g),

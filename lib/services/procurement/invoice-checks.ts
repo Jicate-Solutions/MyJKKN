@@ -74,6 +74,37 @@ export function normaliseInvoiceNumber(raw: string | null | undefined): string |
   return n || null;
 }
 
+// ── Invoice-number format, D2 + D3 (Director, 2026-10-10) ─────────────────────
+
+/**
+ * D3: a saved invoice number holds only A-Z, a-z, 0-9, "-" and "/". The database's
+ * procurement_grn_invoice_number_charset CHECK uses the same pattern; both match exactly
+ * these 64 characters (checked on Postgres 15.6 and 16, and in the tests here).
+ * The normaliser above stays as defence in depth.
+ */
+export const INVOICE_NUMBER_ALLOWED = /^[A-Za-z0-9/-]+$/;
+
+export const INVOICE_NUMBER_FORMAT_MESSAGE =
+  'An invoice number can only have letters (A–Z), digits (0–9), "-" and "/". Retype it as printed on the bill, without spaces or other symbols.';
+
+/** D3: is this (already trimmed) invoice number allowed to be saved? */
+export function invoiceNumberFormatOk(value: string | null | undefined): boolean {
+  return typeof value === 'string' && INVOICE_NUMBER_ALLOWED.test(value);
+}
+
+export const BLANK_INVOICE_MESSAGE =
+  'This delivery has no invoice number, so it cannot be added to stock. Cancel it and record the delivery again with the invoice number from the bill.';
+
+/**
+ * D2: a receipt with no invoice number never goes into stock. Replacement receipts are
+ * exempt, but they are created already in stock (receiveReplacement) and never pass
+ * through verify, so every receipt that reaches verify needs a number. Same test as the
+ * database guard: nothing left after normalising.
+ */
+export function blankInvoiceBlocksStock(invoiceNumber: string | null | undefined): boolean {
+  return normaliseInvoiceNumber(invoiceNumber) === null;
+}
+
 /** The fields of an existing GRN the duplicate check (and the side-by-side) needs. */
 export interface DuplicateCandidate {
   id: string;
@@ -81,6 +112,7 @@ export interface DuplicateCandidate {
   invoice_number: string | null;
   status?: string | null;
   created_at?: string | null;
+  received_by?: string | null;
 }
 
 /**
@@ -275,15 +307,38 @@ export function duplicateHold(input: {
   viewerId: string | null | undefined;
   receivedBy: string | null | undefined;
   viewerCanVerify: boolean;
-}): { held: boolean; canConfirm: boolean; blocksVerify: boolean } {
+  /**
+   * D4 (Director 2026-10-10), third-person rule: did the viewer receive the OTHER
+   * delivery this one repeats? Then they may not confirm either.
+   */
+  viewerReceivedMatch?: boolean;
+}): { held: boolean; canConfirm: boolean; blocksVerify: boolean; viewerIsParty: boolean } {
   const held = input.hasDuplicate && !input.confirmedBy;
-  const canConfirm =
-    held &&
-    input.viewerCanVerify &&
-    !!input.viewerId &&
-    input.viewerId !== input.receivedBy;
-  return { held, canConfirm, blocksVerify: held };
+  const viewerIsParty =
+    !!input.viewerId && (input.viewerId === input.receivedBy || !!input.viewerReceivedMatch);
+  const canConfirm = held && input.viewerCanVerify && !!input.viewerId && !viewerIsParty;
+  return { held, canConfirm, blocksVerify: held, viewerIsParty };
 }
+
+/**
+ * D4: of the receipts the caller can see, does any one this receipt repeats (the
+ * findDuplicateGrns set) have `userId` as its receiver? The fallback for a database
+ * without fn_procurement_grn_has_duplicate's p_received_by; the database answer also
+ * covers colleges the caller cannot see.
+ */
+export function receivedMatchingDelivery<T extends DuplicateCandidate>(
+  candidates: readonly T[],
+  grn: { id: string; supplier_id: string; invoice_number: string | null; created_at: string },
+  userId: string | null | undefined,
+): boolean {
+  if (!userId) return false;
+  return findDuplicateGrns(candidates, grn.supplier_id, grn.invoice_number, grn.id, grn).some(
+    (g) => g.received_by === userId,
+  );
+}
+
+export const THIRD_PERSON_MESSAGE =
+  'You received the other delivery that carries this invoice number, so you cannot confirm it. A third person, who received neither delivery, must confirm.';
 
 // ── Reusing a finished read (review round 2, 2026-10-09) ─────────────────────
 

@@ -3,11 +3,10 @@
 // IMS implementation of ProcurementDomainAdapter — the FIRST registered domain.
 // Maps procurement's polymorphic item view onto the ims_* catalog + inventory.
 //
-// postReceipt() intentionally mirrors the proven stock-posting block in
+// postReceipt() was modelled on the stock-posting block of the old
 // ImsGRNService.approveGRN (batch insert -> stock_summary upsert -> 'purchase'
-// financial txn). It is duplicated rather than imported so the existing GRN
-// service stays untouched; the two should later be unified into one shared helper.
-// Source of truth: lib/services/ims/grn-service.ts (approveGRN, ~lines 338-403).
+// financial txn). That IMS goods-receipt flow was retired on 2026-10-10 (Director
+// decision D1), so this is now the only place goods receipts post IMS stock.
 
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import type {
