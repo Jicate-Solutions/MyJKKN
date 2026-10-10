@@ -172,6 +172,10 @@ function extractMeetUrl(json: {
 
 // ── service ──────────────────────────────────────────────────────────────────
 
+/** patchEventTimeOutcome: how long the token step and the PATCH may take. */
+const PATCH_OUTCOME_TOKEN_MS = 5_000;
+const PATCH_OUTCOME_FETCH_MS = 10_000;
+
 export class GoogleCalendarService {
   /** OAuth consent URL for a host. Throws if the integration env is missing. */
   static buildAuthUrl(hostProfileId: string): string {
@@ -607,12 +611,23 @@ export class GoogleCalendarService {
     endIso: string,
     timezone: string,
   ): Promise<'applied' | 'refused' | 'unknown'> {
+    // Bounded well under the booking door's 25 s write deadline, so a hung
+    // Google call always gets a decided outcome.
     let token: string | null;
+    let tokenTimer: ReturnType<typeof setTimeout> | undefined;
     try {
-      token = await this.accessTokenForHost(supabase, hostProfileId);
+      token = await Promise.race([
+        this.accessTokenForHost(supabase, hostProfileId),
+        new Promise<null>((_, reject) => {
+          tokenTimer = setTimeout(() => reject(new Error('token step timed out')), PATCH_OUTCOME_TOKEN_MS);
+        }),
+      ]);
     } catch (err) {
+      // The PATCH was never sent, so Google cannot have applied it.
       console.error(`${LOG_PREFIX} token step failed before the patch:`, err);
       return 'refused';
+    } finally {
+      clearTimeout(tokenTimer);
     }
     if (!token) return 'refused';
     let res: Response;
@@ -626,6 +641,8 @@ export class GoogleCalendarService {
             start: { dateTime: startIso, timeZone: timezone },
             end: { dateTime: endIso, timeZone: timezone },
           }),
+          // aborting after the PATCH left counts as 'unknown' below
+          signal: AbortSignal.timeout(PATCH_OUTCOME_FETCH_MS),
         },
       );
     } catch (err) {

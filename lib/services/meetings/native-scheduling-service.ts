@@ -1200,9 +1200,16 @@ export class NativeSchedulingService {
     const participants = (Array.isArray(answers.participants) ? answers.participants : [])
       .map((p) => ({ email: typeof p?.email === 'string' ? p.email : '', name: typeof p?.name === 'string' ? p.name : '' }))
       .filter((p) => p.email);
-    const recipients = participants.length
+    const listedRecipients = participants.length
       ? participants
       : [{ email: booking.attendee_email ?? '', name: booking.attendee_name ?? '' }];
+    // On an attendee's (token) cancel, that attendee goes first: the host's
+    // single copy rides the first send, so it names the person who cancelled
+    // and carries their reason.
+    const isCanceller = (e: string) => e.toLowerCase() === (booking.attendee_email ?? '').toLowerCase();
+    const recipients = byToken
+      ? [...listedRecipients.filter((r) => isCanceller(r.email)), ...listedRecipients.filter((r) => !isCanceller(r.email))]
+      : listedRecipients;
 
     if (booking.google_event_id) {
       const originalSummary = `${meetingTitle} — ${booking.attendee_name ?? ''}`.trim();

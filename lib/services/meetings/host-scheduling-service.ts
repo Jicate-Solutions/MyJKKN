@@ -516,11 +516,38 @@ export class HostSchedulingService {
           mayHaveChanged: true,
         };
       }
-      const landed = a.status === 'confirmed' && sameInstant(a.start_time, startIso) && a.reschedule_count === newCount;
-      if (!landed) {
+      const atNew = sameInstant(a.start_time, startIso) && a.reschedule_count === newCount;
+      const untouched =
+        a.status === 'confirmed' &&
+        sameInstant(a.start_time, oldStart) &&
+        a.reschedule_count === ((booking.reschedule_count as number | null) ?? 0);
+      if (untouched) {
         return { ok: false, error: { code: 'UNKNOWN', message: 'The meeting could not be moved.' } };
       }
-      // landed: fall through, exactly as if the update had answered
+      if (atNew && a.status !== 'confirmed') {
+        // It moved, then a cancel landed before anyone was told.
+        return {
+          ok: false,
+          error: {
+            code: 'CANCELLED_MEANWHILE',
+            message:
+              'The meeting was cancelled while it was being moved. The cancellation stands; nobody was sent the new time.',
+          },
+        };
+      }
+      if (!atNew) {
+        // Neither where it was nor where this move put it: something else
+        // changed it, and this move cannot tell what it did itself.
+        return {
+          ok: false,
+          error: {
+            code: 'UNKNOWN',
+            message: "MyJKKN could not confirm whether the meeting moved. Check the owner's Meetings inbox.",
+          },
+          mayHaveChanged: true,
+        };
+      }
+      // landed and still confirmed: fall through, exactly as if the update had answered
     } else if (!moved) {
       return { ok: false, error: { code: 'NOT_FOUND', message: 'That meeting was changed or cancelled meanwhile.' } };
     }

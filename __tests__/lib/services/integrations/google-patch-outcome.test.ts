@@ -49,6 +49,27 @@ describe('patchEventTimeOutcome', () => {
     fetchMock.mockRejectedValue(new Error('socket hang up'));
     expect(await call()).toBe('unknown');
   });
+  it('the PATCH carries an abort signal, so a hung Google call ends (and counts as unknown)', async () => {
+    fetchMock.mockImplementation(async (_url: string, init: { signal?: AbortSignal }) => {
+      expect(init.signal).toBeInstanceOf(AbortSignal);
+      throw Object.assign(new Error('The operation was aborted due to timeout'), { name: 'TimeoutError' });
+    });
+    expect(await call()).toBe('unknown');
+  });
+
+  it('a hung token step gives up after 5 s as refused (the PATCH was never sent)', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      svc.accessTokenForHost = vi.fn(() => new Promise<string | null>(() => {}));
+      const pending = call();
+      await vi.advanceTimersByTimeAsync(5_100);
+      expect(await pending).toBe('refused');
+      expect(fetchMock).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('no calendar access, or the token step failing before the PATCH = refused (never sent)', async () => {
     svc.accessTokenForHost = vi.fn(async () => null);
     expect(await call()).toBe('refused');

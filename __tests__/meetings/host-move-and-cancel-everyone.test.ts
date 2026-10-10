@@ -135,6 +135,7 @@ function makeDb(
             if (lieAfterCommit) {
               const ok = current && Object.entries(where).every(([k, v]) => (current as any)[k] === v);
               if (ok) current = { ...(current as object), ...payload };
+              if (ok && opts.cancelAfterMove) current = { ...(current as object), status: 'cancelled' };
               return { data: null, error: { code: '08006', message: 'connection reset after commit' } };
             }
             if (isRestore && opts.restoreFails) return { data: null, error: { code: 'XX', message: 'down' } };
@@ -498,6 +499,28 @@ describe('the three-lens pass (10 Oct)', () => {
     expect(sentEmails.map((e) => e.to)).toEqual(expect.arrayContaining(['parent@gmail.com', 'viswanathan.s@jkkn.ac.in']));
   });
 
+  it('a move update that errored, landed, and was then cancelled is reported as CANCELLED_MEANWHILE', async () => {
+    const { db } = makeDb(row(), { errorButCommitted: 'move', cancelAfterMove: true });
+    const r = await HostSchedulingService.moveDirect(db, { uid: 'uid-1', hostProfileId: HOST, startIso: NEW_START, durationMin: 30 });
+    expect(r).toMatchObject({ ok: false, error: { code: 'CANCELLED_MEANWHILE' } });
+    expect(r.error?.message).toMatch(/nobody was sent the new time/);
+    expect(patchEventTime).not.toHaveBeenCalled();
+    expect(sentEmails).toHaveLength(0);
+  });
+
+  it('a move update that errored and left the row somewhere else entirely says it may have moved', async () => {
+    const h = makeDb(row(), { updateError: { code: '08006', message: 'connection reset' } });
+    const realFrom = h.db.from.bind(h.db);
+    let n = 0;
+    h.db.from = (t: string) => {
+      // another change moves it elsewhere right after our failed update
+      if (t === 'meeting_bookings' && ++n === 3) (h.now() as any).start_time = '2099-01-13T09:00:00.000Z';
+      return realFrom(t);
+    };
+    const r = await HostSchedulingService.moveDirect(h.db, { uid: 'uid-1', hostProfileId: HOST, startIso: NEW_START, durationMin: 30 });
+    expect(r).toMatchObject({ ok: false, error: { code: 'UNKNOWN' }, mayHaveChanged: true });
+  });
+
   it('a move update whose outcome cannot be read back says it may have moved', async () => {
     const { db } = makeDb(row(), { updateError: { code: '08006', message: 'connection reset' }, statusReadFails: true });
     const r = await HostSchedulingService.moveDirect(db, { uid: 'uid-1', hostProfileId: HOST, startIso: NEW_START, durationMin: 30 });
@@ -510,6 +533,22 @@ describe('the three-lens pass (10 Oct)', () => {
     const r = await HostSchedulingService.moveDirect(db, { uid: 'uid-1', hostProfileId: HOST, startIso: NEW_START, durationMin: 30 });
     expect(r).toMatchObject({ ok: false, error: { code: 'CALENDAR_FAILED' } });
     expect(now()).toMatchObject({ start_time: OLD_START });
+  });
+
+  it('on an attendee\'s cancel, the host\'s copy names that attendee and carries their reason, even when they are not first', async () => {
+    const { db } = makeDb(
+      row({
+        attendee_email: 'viswanathan.s@jkkn.ac.in',
+        attendee_name: 'Viswanathan S',
+      })
+    );
+    const { resend } = await import('@/lib/resend');
+    const send = resend.emails.send as unknown as ReturnType<typeof vi.fn>;
+    send.mockClear();
+    await NativeSchedulingService.cancelBooking(db, 'uid-1', { cancelToken: 'tok' }, 'Clash with an exam');
+    const hostMail = send.mock.calls.find((c) => c[0].to === 'director@jkkn.ac.in')!;
+    expect(String(hostMail[0].html)).toMatch(/Viswanathan S/);
+    expect(String(hostMail[0].html)).toMatch(/Clash with an exam/);
   });
 
   it('an attendee\'s cancel reason reaches that attendee and the host only', async () => {
