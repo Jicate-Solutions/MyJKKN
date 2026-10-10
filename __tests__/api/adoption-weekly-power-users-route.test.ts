@@ -374,7 +374,7 @@ describe('a real run', () => {
     enqueueJobsLane.mockImplementation(() => Promise.resolve({ ok: false, reason: 'in_flight' }));
     tableResults.ai_jobs = (ops) =>
       ops.some((o) => o.op === 'eq' && o.args[0] === 'payload->>_dedupe')
-        ? { data: [{ id: 'done-1', status: 'done' }], error: null }
+        ? { data: [{ id: 'done-1', status: 'done', result: { answer: agenda } }], error: null }
         : { data: [], error: null };
     await GET(request({ bearer: SECRET, query: `?week=${WEEK}` }));
     const statusFilter = calls.find((c) => c.table === 'ai_jobs' && c.op === 'in' && c.args[0] === 'status');
@@ -489,6 +489,51 @@ describe('a real run', () => {
     const gte = calls.find((c) => c.table === 'bug_reports' && c.op === 'gte');
     expect(lt?.args[1]).toBe(new Date(Date.parse(`${WEEK}T00:00:00+05:30`) + 7 * 86400_000).toISOString());
     expect(gte?.args[1]).toBe(new Date(Date.parse(`${WEEK}T00:00:00+05:30`) + 7 * 86400_000 - 30 * 86400_000).toISOString());
+  });
+
+  it('in_flight: a job another run queued that is STUCK counts as failed (500 naming the ?week=), not success', async () => {
+    enqueueJobsLane.mockImplementation(() => Promise.resolve({ ok: false, reason: 'in_flight' }));
+    const old = new Date(Date.now() - 30 * 3600_000).toISOString();
+    tableResults.ai_jobs = (ops) =>
+      ops.some((o) => o.op === 'eq' && o.args[0] === 'payload->>_dedupe')
+        ? { data: [{ id: 'stuck-x', status: 'pending', result: null, requested_at: old }], error: null }
+        : { data: [], error: null };
+    const res = await GET(request({ bearer: SECRET, query: `?week=${WEEK}` }));
+    expect(res.status).toBe(500);
+    const body = await res.json();
+    expect(body.failed).toBe(10);
+    expect(body.in_flight).toBe(0);
+    expect(body.error).toContain(`?week=${WEEK}`);
+    expect(merged()?.['u-01']).toBeUndefined();
+  });
+
+  it('in_flight: a finished job whose answer cannot be read as an agenda counts as failed', async () => {
+    enqueueJobsLane.mockImplementation(() => Promise.resolve({ ok: false, reason: 'in_flight' }));
+    tableResults.ai_jobs = (ops) =>
+      ops.some((o) => o.op === 'eq' && o.args[0] === 'payload->>_dedupe')
+        ? { data: [{ id: 'bad-x', status: 'done', result: { answer: 'not json at all' } }], error: null }
+        : { data: [], error: null };
+    const res = await GET(request({ bearer: SECRET, query: `?week=${WEEK}` }));
+    expect(res.status).toBe(500);
+    const body = await res.json();
+    expect(body.failed).toBe(10);
+    expect(body.in_flight).toBe(0);
+  });
+
+  it('in_flight: a fresh pending job another run queued is success, and no second job is queued', async () => {
+    enqueueJobsLane.mockImplementation(() => Promise.resolve({ ok: false, reason: 'in_flight' }));
+    const now = new Date().toISOString();
+    tableResults.ai_jobs = (ops) =>
+      ops.some((o) => o.op === 'eq' && o.args[0] === 'payload->>_dedupe')
+        ? { data: [{ id: 'fresh-x', status: 'pending', result: null, requested_at: now }], error: null }
+        : { data: [], error: null };
+    const res = await GET(request({ bearer: SECRET, query: `?week=${WEEK}` }));
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.in_flight).toBe(10);
+    expect(body.failed).toBe(0);
+    expect(enqueueJobsLane).toHaveBeenCalledTimes(10); // one attempt per person, no retry
+    expect(merged()?.['u-01']).toBe('fresh-x');
   });
 
   it('records the id of a job another run queued at the same moment (in_flight)', async () => {

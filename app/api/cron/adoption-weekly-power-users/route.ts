@@ -327,24 +327,28 @@ export async function GET(request: NextRequest) {
     } else if (res.reason === 'in_flight') {
       // Queued between the lookup and now (another run). Record its id now —
       // the next scheduled run is for a different week and would never do it.
-      // It may also have finished already, so 'done' is matched too. If the id
-      // cannot be found, that is a failure (500), not a quiet in_flight.
+      // It may also have finished already, so 'done' is matched too. Only a
+      // USABLE job counts (live and not stuck, or done with a readable agenda);
+      // a stuck or unreadable one, or none found, is a failure (500), not a
+      // quiet in_flight.
       const { data: live, error: liveErr } = await admin
         .from('ai_jobs')
-        .select('id')
+        .select('id, status, result, requested_at, claimed_at, started_at')
         .eq('job_type', AGENDA_JOB_TYPE)
         .eq('payload->>_dedupe', dedupeKey)
         .in('status', ['pending', 'claimed', 'running', 'done'])
         .order('requested_at', { ascending: false })
         .limit(1);
-      const liveId = (live as Array<{ id: string }> | null)?.[0]?.id;
-      if (!liveErr && liveId) {
-        agendaJobs[userId] = liveId;
+      const current = (live as ExistingAgendaJob[] | null)?.[0];
+      if (!liveErr && current && isUsableAgendaJob(current)) {
+        agendaJobs[userId] = current.id;
         inFlight++;
       } else {
         failed++;
         failures.push(
-          `queued by another run but its id could not be read${liveErr ? `: ${liveErr.message}` : ''}`
+          liveErr || !current
+            ? `queued by another run but its id could not be read${liveErr ? `: ${liveErr.message}` : ''}`
+            : `queued by another run but that job is stuck or its answer cannot be read (${current.status})`
         );
       }
     } else {
