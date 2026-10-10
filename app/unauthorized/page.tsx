@@ -47,6 +47,20 @@ function UnauthorizedContent() {
           buttonHref: '/events',
           statusBadge: null
         };
+      case 'soi_unavailable':
+        // Sent by /startup-studio/school-of-influence when the programme lookup
+        // itself failed (#4339 review). Not "not open" and not a refusal: a
+        // temporary fault, so the honest next step is to try again.
+        return {
+          icon: <AlertTriangle className='h-16 w-16 text-amber-500' />,
+          title: "School of Influencer couldn't be opened",
+          subtitle: 'Something went wrong on our side',
+          message:
+            "School of Influencer couldn't be opened — try again. If it keeps happening, please report it with the Report a bug button.",
+          buttonText: 'Try again',
+          buttonHref: '/startup-studio/school-of-influence',
+          statusBadge: null
+        };
       default:
         return {
           icon: <ShieldAlert className='h-16 w-16 text-amber-500' />,
