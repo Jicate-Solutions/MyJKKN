@@ -33,10 +33,7 @@
 export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from 'next/server';
-import { createHash } from 'crypto';
 import { z } from 'zod';
-import { createServiceRoleClient } from '@/lib/supabase/server';
-import { checkRateLimit } from '@/lib/api-keys/rate-limiter';
 import { extractRequestMeta, logApiUsage } from '@/lib/api-keys/audit-logger';
 import { logger } from '@/lib/utils/enhanced-logger';
 import {
@@ -48,6 +45,7 @@ import {
   likeLiteral,
   type DecodedScreenshot,
 } from '@/lib/bug-reports/sibling-intake';
+import { authenticateIntakeKey, intakeFail as fail } from '@/lib/bug-reports/sibling-intake-auth';
 
 const LOG_MODULE = 'bug-reports/intake';
 const ENDPOINT = '/api/v1/public/bug-reports';
@@ -75,13 +73,6 @@ const bodySchema = z.object({
   attachments: z.array(z.any()).optional().nullable(),
 });
 
-function fail(code: string, message: string, status: number, extraHeaders?: Record<string, string>) {
-  return NextResponse.json(
-    { success: false, error: { code, message } },
-    { status, headers: { ...intakeCorsHeaders, ...extraHeaders } }
-  );
-}
-
 export async function OPTIONS() {
   return new NextResponse(null, { status: 204, headers: intakeCorsHeaders });
 }
@@ -90,59 +81,19 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   const startTime = Date.now();
   const { ipAddress, userAgent } = extractRequestMeta(request);
 
-  // ── 1. Key: present, the bug-intake shape, and a live bug_intake row ──────
-  const apiKey = (request.headers.get('x-api-key') ?? '').trim();
-  if (!apiKey) {
-    return fail('UNAUTHORIZED', 'API key is required. Send it in the X-API-Key header.', 401);
-  }
-  if (!apiKey.startsWith('jkkn_bi_')) {
-    // Admin keys (jkkn_…), personal keys (jkkn_pk_…) and anything else: no
-    // lookup at all. Only a bug-intake key may be used from a browser.
-    return fail('UNAUTHORIZED', 'This endpoint accepts only a bug-intake key.', 401);
-  }
-
-  const supabase = createServiceRoleClient();
-  const hashedKey = createHash('sha256').update(apiKey).digest('hex');
-
-  const { data: keyRow, error: keyError } = await supabase
-    .from('api_keys')
-    .select('id, is_active, expires_at, key_kind, sibling_app_id')
-    .eq('key_value', hashedKey)
-    .eq('is_active', true)
-    .maybeSingle();
-
-  if (keyError || !keyRow) {
-    return fail('UNAUTHORIZED', 'Invalid or inactive API key.', 401);
-  }
-  if (keyRow.expires_at && new Date(keyRow.expires_at) < new Date()) {
-    return fail('UNAUTHORIZED', 'API key has expired.', 401);
-  }
-  if (keyRow.key_kind !== 'bug_intake' || !keyRow.sibling_app_id) {
-    return fail('FORBIDDEN', 'This key cannot submit bug reports.', 403);
-  }
-
-  const { data: app, error: appError } = await supabase
-    .from('sibling_apps')
-    .select('id, slug, name, is_active')
-    .eq('id', keyRow.sibling_app_id)
-    .maybeSingle();
-
-  if (appError || !app || app.is_active !== true) {
-    return fail('FORBIDDEN', 'The app this key belongs to is not accepting bug reports.', 403);
-  }
-
-  // ── 2. Rate limit: per key AND per caller, since the key itself is public ─
-  const rate = checkRateLimit(`bug-intake:${keyRow.id}:${ipAddress ?? 'unknown'}`);
-  if (!rate.allowed) {
-    const retryAfter = Math.max(1, Math.ceil((rate.resetAt.getTime() - Date.now()) / 1000));
-    return fail('RATE_LIMITED', 'Too many bug reports. Please try again in a minute.', 429, {
-      'Retry-After': String(retryAfter),
-    });
-  }
+  // ── 1–2. Key (live bug_intake row, active app) and rate limit ────────────
+  // Shared with the reporter's read routes: lib/bug-reports/sibling-intake-auth.ts
+  const auth = await authenticateIntakeKey(request, {
+    rateLimitBucket: 'bug-intake',
+    rateLimitedMessage: 'Too many bug reports. Please try again in a minute.',
+    ipAddress,
+  });
+  if ('response' in auth) return auth.response;
+  const { app, supabase, keyId } = auth;
 
   const audit = (statusCode: number) =>
     logApiUsage({
-      apiKeyId: keyRow.id,
+      apiKeyId: keyId,
       endpoint: ENDPOINT,
       module: 'bug-reports',
       institutionId: null,
