@@ -495,14 +495,33 @@ export class HostSchedulingService {
         };
       }
       console.error(`${LOG_PREFIX} move failed for ${input.uid}:`, upErr.message);
-      // The update was sent; its answer was an error. It may still have landed.
-      return {
-        ok: false,
-        error: { code: 'UNKNOWN', message: 'MyJKKN could not confirm whether the meeting moved.' },
-        mayHaveChanged: true,
-      };
-    }
-    if (!moved) {
+      // The update was sent; its answer was an error. It may still have
+      // landed, so look: if the row is now exactly where THIS move put it
+      // (same time, this move's number), carry on with Google and the emails
+      // so nobody is left on the old time; if it is untouched, nothing
+      // changed; if it cannot be read, say so.
+      const { data: after, error: afterErr } = await (supabase as any)
+        .from('meeting_bookings')
+        .select('status, start_time, reschedule_count')
+        .eq('id', booking.id)
+        .maybeSingle();
+      const a = after as { status?: string; start_time?: string; reschedule_count?: number } | null;
+      if (afterErr || !a) {
+        return {
+          ok: false,
+          error: {
+            code: 'UNKNOWN',
+            message: "MyJKKN could not confirm whether the meeting moved. Check the owner's Meetings inbox.",
+          },
+          mayHaveChanged: true,
+        };
+      }
+      const landed = a.status === 'confirmed' && sameInstant(a.start_time, startIso) && a.reschedule_count === newCount;
+      if (!landed) {
+        return { ok: false, error: { code: 'UNKNOWN', message: 'The meeting could not be moved.' } };
+      }
+      // landed: fall through, exactly as if the update had answered
+    } else if (!moved) {
       return { ok: false, error: { code: 'NOT_FOUND', message: 'That meeting was changed or cancelled meanwhile.' } };
     }
 
@@ -590,14 +609,25 @@ export class HostSchedulingService {
           .eq('start_time', startIso) // nor one another change has moved
           .select('id')
           .maybeSingle();
-        if (!backErr && back) {
-          return {
-            ok: false,
-            error: {
-              code: 'CALENDAR_FAILED',
-              message: 'Google Calendar did not accept the new time, so nothing was changed.',
-            },
-          };
+        const calendarFailed: MoveDirectOutcome = {
+          ok: false,
+          error: {
+            code: 'CALENDAR_FAILED',
+            message: 'Google Calendar did not accept the new time, so nothing was changed.',
+          },
+        };
+        if (!backErr && back) return calendarFailed;
+        if (backErr) {
+          // The put-back's answer was an error; it may have landed. If the row
+          // is back at the old time, that was THIS move's put-back, not
+          // another change: nothing changed.
+          const { data: after } = await (supabase as any)
+            .from('meeting_bookings')
+            .select('status, start_time')
+            .eq('id', booking.id)
+            .maybeSingle();
+          const b = after as { status?: string; start_time?: string } | null;
+          if (b?.status === 'confirmed' && sameInstant(b.start_time, oldStart)) return calendarFailed;
         }
         const c2 = await changedSince();
         if (c2) return stopped(c2);

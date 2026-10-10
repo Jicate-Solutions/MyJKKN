@@ -109,6 +109,8 @@ function makeDb(
     statusReadFails?: boolean;
     /** An update commits but its returned row is hidden (an RLS-limited client). */
     hideReturning?: boolean;
+    /** The move update (or the put-back, with which: 'restore') commits but answers with an error. */
+    errorButCommitted?: 'move' | 'restore';
   } = {}
 ) {
   const updates: Array<{ table: string; payload: Record<string, unknown>; where: Record<string, unknown> }> = [];
@@ -128,6 +130,13 @@ function makeDb(
             if (table !== 'meeting_bookings') return { data: { id: 'x' }, error: null };
             const isRestore = where.start_time === NEW_START;
             if (!isRestore && opts.updateError) return { data: null, error: opts.updateError };
+            const lieAfterCommit =
+              (opts.errorButCommitted === 'move' && !isRestore) || (opts.errorButCommitted === 'restore' && isRestore);
+            if (lieAfterCommit) {
+              const ok = current && Object.entries(where).every(([k, v]) => (current as any)[k] === v);
+              if (ok) current = { ...(current as object), ...payload };
+              return { data: null, error: { code: '08006', message: 'connection reset after commit' } };
+            }
             if (isRestore && opts.restoreFails) return { data: null, error: { code: 'XX', message: 'down' } };
             const matches = current && Object.entries(where).every(([k, v]) => (current as any)[k] === v);
             if (!matches) return { data: null, error: null };
@@ -471,10 +480,48 @@ describe('the three-lens pass (10 Oct)', () => {
     expect(updates).toHaveLength(0);
   });
 
-  it('a lost answer to the move update says it may have moved (mayHaveChanged)', async () => {
-    const { db } = makeDb(row(), { updateError: { code: '08006', message: 'connection reset' } });
+  it('a move update that errored WITHOUT landing: nothing changed (no mayHaveChanged)', async () => {
+    const { db, now } = makeDb(row(), { updateError: { code: '08006', message: 'connection reset' } });
+    const r = await HostSchedulingService.moveDirect(db, { uid: 'uid-1', hostProfileId: HOST, startIso: NEW_START, durationMin: 30 });
+    expect(r).toMatchObject({ ok: false, error: { code: 'UNKNOWN' } });
+    expect(r.mayHaveChanged).toBeFalsy();
+    expect(now()).toMatchObject({ start_time: OLD_START });
+    expect(patchEventTime).not.toHaveBeenCalled();
+  });
+
+  it('a move update that errored but LANDED carries on: Google patched and everyone emailed', async () => {
+    const { db, now } = makeDb(row(), { errorButCommitted: 'move' });
+    const r = await HostSchedulingService.moveDirect(db, { uid: 'uid-1', hostProfileId: HOST, startIso: NEW_START, durationMin: 30 });
+    expect(r.ok).toBe(true);
+    expect(now()).toMatchObject({ start_time: NEW_START, reschedule_count: 1 });
+    expect(patchEventTime).toHaveBeenCalled();
+    expect(sentEmails.map((e) => e.to)).toEqual(expect.arrayContaining(['parent@gmail.com', 'viswanathan.s@jkkn.ac.in']));
+  });
+
+  it('a move update whose outcome cannot be read back says it may have moved', async () => {
+    const { db } = makeDb(row(), { updateError: { code: '08006', message: 'connection reset' }, statusReadFails: true });
     const r = await HostSchedulingService.moveDirect(db, { uid: 'uid-1', hostProfileId: HOST, startIso: NEW_START, durationMin: 30 });
     expect(r).toMatchObject({ ok: false, error: { code: 'UNKNOWN' }, mayHaveChanged: true });
+  });
+
+  it('a put-back that errored but landed is THIS move\'s put-back: nothing changed (not CHANGED_MEANWHILE)', async () => {
+    patchEventTime.mockResolvedValue('refused');
+    const { db, now } = makeDb(row(), { errorButCommitted: 'restore' });
+    const r = await HostSchedulingService.moveDirect(db, { uid: 'uid-1', hostProfileId: HOST, startIso: NEW_START, durationMin: 30 });
+    expect(r).toMatchObject({ ok: false, error: { code: 'CALENDAR_FAILED' } });
+    expect(now()).toMatchObject({ start_time: OLD_START });
+  });
+
+  it('an attendee\'s cancel reason reaches that attendee and the host only', async () => {
+    const { db } = makeDb(row());
+    const { resend } = await import('@/lib/resend');
+    const send = resend.emails.send as unknown as ReturnType<typeof vi.fn>;
+    send.mockClear();
+    await NativeSchedulingService.cancelBooking(db, 'uid-1', { cancelToken: 'tok' }, 'I am unwell');
+    const htmlFor = (to: string) => send.mock.calls.filter((c) => c[0].to === to).map((c) => String(c[0].html)).join(' ');
+    expect(htmlFor('parent@gmail.com')).toMatch(/I am unwell/);
+    expect(htmlFor('director@jkkn.ac.in')).toMatch(/I am unwell/);
+    expect(htmlFor('viswanathan.s@jkkn.ac.in')).not.toMatch(/I am unwell/);
   });
 
   it('each move is its own email (a move back to an earlier time is not deduped)', async () => {

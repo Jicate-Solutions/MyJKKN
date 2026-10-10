@@ -1246,7 +1246,9 @@ export class NativeSchedulingService {
           attendeeEmail: r.email,
           attendeePhone: null,
           cancelledBy: byToken ? 'attendee' : 'host',
-          reason: reason ?? null,
+          // An attendee's own words go back to that attendee and the host
+          // only, never to the other invitees.
+          reason: byToken && r.email.toLowerCase() !== (booking.attendee_email ?? '').toLowerCase() ? null : reason ?? null,
         });
         if (!sent?.attendee?.success && !sent?.attendee?.skipped) notEmailed.push(r.email);
         // The host counts as told only once their copy really went (or there
