@@ -90,6 +90,24 @@
 --          received EITHER delivery — the held one, or any other receipt it matches
 --          (fn_procurement_grn_has_duplicate with p_received_by).
 --
+--   9. Decisions round — red team (2026-10-10):
+--      a. D1: the retired IMS receipts are a kept record. App users can no longer DELETE
+--         an IMS receipt or its lines, nor edit a line (institution-only RLS let any
+--         signed-in user of the college, students included, do either). Header edits
+--         stay limited to what the app does: cancel, notes.
+--      b. D2: the "replacement" exemption is tied to a server-checkable marker,
+--         procurement_grn.replacement_id, not to the INSERT-into-'completed' shape. It
+--         must name a replacement row that is 'received', not yet fulfilled, on a line
+--         of a posted receipt of the same purchase order; one receipt per replacement;
+--         frozen after INSERT.
+--      c. D3: a saved invoice number needs at least one letter or digit ('---' and
+--         '/' normalised to blank and could never be verified).
+--      d. D4: the third-person question ("did the confirmer receive another delivery
+--         with this number?") counts EVERY such receipt — later, unposted and cancelled
+--         ones too — and is asked again at the moment of entry into stock, not only when
+--         the confirmation is written. Reviving a cancelled receipt voids its
+--         confirmation.
+--
 -- I1 is deliberately NOT a unique index: the Director chose "confirm and allow" for
 -- honest resends, which a unique constraint would forbid.
 --
