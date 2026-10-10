@@ -8,19 +8,19 @@ const UNCLAIMED_DEADLINE_MS = 120_000; // drain offline → give up early
 const TOTAL_DEADLINE_MS = 285_000; // < maxDuration so we always respond first
 
 /** Candidate shortlist size handed to the model. Bounded to keep the prompt small. */
-const CANDIDATE_LIMIT = 15;
+export const CANDIDATE_LIMIT = 15;
 /** Deliberately BELOW fn_bug_cluster_scan's 0.45 attach floor — see the migration
  *  header. Trigram is a cheap pre-filter here, not the judge. */
-const CANDIDATE_FLOOR = 0.15;
+export const CANDIDATE_FLOOR = 0.15;
 /** Per-candidate description clip: 15 × 600 keeps the prompt inside a sane budget. */
-const CANDIDATE_DESC_CHARS = 600;
+export const CANDIDATE_DESC_CHARS = 600;
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
 const VERDICTS = ['duplicate', 'related', 'distinct'] as const;
 const CONFIDENCES = ['low', 'medium', 'high'] as const;
 
-interface CandidateRow {
+export interface CandidateRow {
   bug_id: string;
   display_id: string | null;
   status: string | null;
@@ -318,7 +318,7 @@ export async function POST(
 }
 
 /** Merge the verdict into metadata, re-reading first to shrink the clobber window. */
-async function persist(
+export async function persist(
   adminSupabase: any,
   reportId: string,
   stored: Record<string, unknown>
@@ -345,7 +345,7 @@ async function persist(
 
 /** The runner returns { answer: "<text>" }; the text should be strict JSON but
  *  may arrive fenced or padded — parse defensively, like ai-triage does. */
-function parseCheck(
+export function parseCheck(
   result: unknown,
   candidates: CandidateRow[]
 ): Record<string, unknown> | null {

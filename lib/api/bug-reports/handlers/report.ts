@@ -64,9 +64,23 @@ export async function GET(
       );
     }
 
+    // ── AI text is for admins and bug fixers ONLY (Director decision #4,
+    // 2026-10-10). This one route serves BOTH the admin detail page and the
+    // reporter's own /my-bug-reports/[id] page, and it returns the whole
+    // bug_reports_with_details row — metadata included. The reporter's SCREEN
+    // has never rendered the AI keys, but until now the raw briefing (severity,
+    // root cause, fix steps) and the duplicate verdict travelled inside the
+    // page data to anyone who filed the bug. That was 8 reports' worth; the
+    // automatic producer makes it every open report, so it is stripped here.
+    //
+    // Stripped SERVER-side, before the response is built: a client-side filter
+    // would still have put the text on the wire. Admins keep everything.
+    const isBugAdmin = await callerIsBugAdmin(supabase, user.id);
+    const safeReport = isBugAdmin ? report : stripAiMetadata(report);
+
     // Transform the data to match the expected DetailedBugReport interface
     const detailedReport = {
-      ...report,
+      ...safeReport,
       reporter: report.reporter_name
         ? {
             id: report.reporter_user_id,
@@ -403,4 +417,42 @@ export async function DELETE(
       { status: 500 }
     );
   }
+}
+
+
+/**
+ * May this caller see the AI text? Matches the gate the AI routes themselves
+ * use (ai-triage / duplicate-check / cluster handlers), widened with 'admin'
+ * because the bug_reports SELECT policy already grants that role the full row —
+ * so this never takes away a read somebody already has.
+ */
+async function callerIsBugAdmin(
+  supabase: Awaited<ReturnType<typeof createServerSupabaseClient>>,
+  userId: string
+): Promise<boolean> {
+  const { data: profile, error } = await supabase
+    .from('profiles')
+    .select('role, is_super_admin')
+    .eq('id', userId)
+    .single();
+  if (error || !profile) return false; // unreadable profile → treat as reporter
+  if ((profile as any).is_super_admin) return true;
+  return ['super_admin', 'administrator', 'admin', 'ceo'].includes(
+    (profile as any).role
+  );
+}
+
+/** Remove every AI-written key from the row's metadata, keeping the technical
+ *  details the reporter's own page does show (userAgent, screenResolution,
+ *  viewport, …). Prefix-matched on `ai_` so a future AI key is covered the day
+ *  it is added rather than the day someone remembers this function. */
+function stripAiMetadata<T extends { metadata?: unknown }>(row: T): T {
+  const meta = row?.metadata;
+  if (!meta || typeof meta !== 'object' || Array.isArray(meta)) return row;
+  const clean: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(meta as Record<string, unknown>)) {
+    if (k.startsWith('ai_')) continue;
+    clean[k] = v;
+  }
+  return { ...row, metadata: clean };
 }

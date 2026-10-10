@@ -50,6 +50,10 @@
       "schedule": "10,25,40,55 * * * *"
     },
     {
+      "path": "/api/cron/bug-ai-auto?secret=${CRON_SECRET}",
+      "schedule": "6 * * * *"
+    },
+    {
       "path": "/api/cron/scf-generate-suggestions?mode=collect&secret=${CRON_SECRET}",
       "schedule": "10,40 * * * *"
     },
