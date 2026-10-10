@@ -27,6 +27,7 @@ import {
   Truck,
   PackageCheck,
   ArrowLeft,
+  CircleDashed,
 } from 'lucide-react';
 import Link from 'next/link';
 import type { ImsIndentSummary, ImsIndentByDepartment } from '@/types/ims';
@@ -94,6 +95,8 @@ function IndentsReportPageInner() {
         { label: 'Rejected', value: summary.rejected, icon: XCircle, color: 'text-red-600', bg: 'bg-red-50 dark:bg-red-950/30' },
         { label: 'Issued', value: summary.issued, icon: Truck, color: 'text-purple-600', bg: 'bg-purple-50 dark:bg-purple-950/30' },
         { label: 'Delivered', value: summary.delivered, icon: PackageCheck, color: 'text-green-600', bg: 'bg-green-50 dark:bg-green-950/30' },
+        // Draft, cancelled and the rest, so the cards add up to Total (BUG-005881).
+        { label: 'Draft / Other', value: summary.other, icon: CircleDashed, color: 'text-gray-600', bg: 'bg-gray-50 dark:bg-gray-950/30' },
       ]
     : [];
 
@@ -123,7 +126,7 @@ function IndentsReportPageInner() {
           </div>
         ) : (
           <>
-            <div className='grid gap-4 grid-cols-2 md:grid-cols-3 lg:grid-cols-6'>
+            <div className='grid gap-4 grid-cols-2 md:grid-cols-4 lg:grid-cols-7'>
               {statusCards.map((card) => {
                 const Icon = card.icon;
                 return (

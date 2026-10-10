@@ -78,6 +78,8 @@ export interface ImsIndentSummary {
   rejected: number;
   issued: number;
   delivered: number;
+  /** Draft, cancelled and any status not in the cards above, so the cards add up to total. */
+  other: number;
 }
 
 export interface ImsIndentByDepartment {
