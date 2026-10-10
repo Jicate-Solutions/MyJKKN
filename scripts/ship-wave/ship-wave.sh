@@ -767,6 +767,13 @@ def tier(p):
     files = [f["path"] for f in (p.get("files") or [])]
     if not files: return "HELD", ["file list unreadable — held for the Director"]   # interview: unknown risk = HELD
     reasons = []
+    # An owner's explicit hold outranks every path/word rule (2026-09-28 11:00: #4078 carried the
+    # held-for-director label and "[HELD]" in its title, but "marked" is not the word "mark", so the
+    # rules below rated it NORMAL and an --approve-normal wave reached its merge step). Listed FIRST so
+    # the [:4] cut never drops it, and a non-migration reason also keeps policy P1 from auto-approving it.
+    labels = {(l or {}).get("name", "") for l in (p.get("labels") or [])}
+    if "held-for-director" in labels: reasons.append("label: held-for-director")
+    elif re.search(r"\[HELD\]", p.get("title") or "", re.I): reasons.append("title: [HELD]")
     for f in files:
         if f.startswith("supabase/migrations/") or f.endswith(".sql"): reasons.append(f"migration: {f}")
         # the fleet's own tooling is not a money/grades domain: scripts/ship-wave/failure-ledger.sh is not the
@@ -873,7 +880,7 @@ sweep() {  # $1=run dir → writes prs.json + plan.json
   # first (retried), then files + checks hydrated per PR in parallel with retries (hydrate.py merges).
   local i ok="" here; here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
   for i in 1 2 3; do
-    gh pr list --repo "$REPO" --state open --limit 200 --json number,title,mergeStateStatus,reviewDecision,isDraft,headRefName,baseRefName,updatedAt > "$1/light.json" 2>"$1/prs.err" && ok=1 && break
+    gh pr list --repo "$REPO" --state open --limit 200 --json number,title,mergeStateStatus,reviewDecision,isDraft,headRefName,baseRefName,updatedAt,labels > "$1/light.json" 2>"$1/prs.err" && ok=1 && break
     sleep $((i*5))
   done
   [ -n "$ok" ] || { say "SWEEP FAIL: $(head -c 300 "$1/prs.err")"; return 1; }
