@@ -75,6 +75,7 @@ vi.mock('@/lib/services/procurement/purchase-order-service', () => ({
 }));
 
 import { ProcurementGrnService } from '@/lib/services/procurement/grn-service';
+import { GRN_STUCK_POSTED_MESSAGE } from '@/lib/services/procurement/invoice-checks';
 
 const TODAY_NOON = new Date('2026-10-09T12:00:00');
 const writesTo = (table: string) => calls.filter((c) => c.table === table && c.op !== 'select');
@@ -326,11 +327,19 @@ describe('verifyGrn — the lines checked are the lines that post (skeptic M4)',
     onRpc = (fn) =>
       fn === 'fn_procurement_grn_has_duplicate' ? { data: false, error: null } : { data: null, error: null };
   }
+  // Deep-panel round 3 (S-H1): the reopen matches EVERY posted status and this verifier's
+  // own provisional post — not only 'accepted'.
   const reopens = () =>
     writesTo('procurement_grn').filter(
       (c) =>
         (c.payload as Record<string, unknown>)?.status === 'pending_verification' &&
-        c.filters.some(([op, k, v]) => op === 'eq' && k === 'status' && v === 'accepted')
+        c.filters.some(
+          ([op, k, v]) =>
+            op === 'in' &&
+            k === 'status' &&
+            JSON.stringify(v) === JSON.stringify(['accepted', 'partially_accepted', 'replacement_requested', 'completed'])
+        ) &&
+        c.filters.some(([op, k, v]) => op === 'eq' && k === 'verified_by' && v === 'verifier')
     );
 
   it.each([
@@ -362,6 +371,65 @@ describe('verifyGrn — the lines checked are the lines that post (skeptic M4)',
     });
     expect(reopens()).toHaveLength(1);
     expect(adapter.postReceipt).not.toHaveBeenCalled();
+  });
+
+  // S-H1 / S-L6: a reopen that matched no row (the status was already refined, or another
+  // reopen ran) used to pass silently and say "check it again" while the receipt stayed
+  // posted with nothing in stock.
+  it('a reopen that matches no row is a loud failure with its own message', async () => {
+    raceWorld([item()], [item(), item({ id: 'gi2' })]);
+    const base = onTable;
+    onTable = (c) =>
+      c.table === 'procurement_grn' && c.op === 'update' && (c.payload as any)?.status === 'pending_verification'
+        ? { data: [], error: null }
+        : base(c);
+    await expect(ProcurementGrnService.verifyGrn('g2', 'verifier')).rejects.toThrow(GRN_STUCK_POSTED_MESSAGE);
+    expect(reopens()).toHaveLength(1);
+    expect(adapter.postReceipt).not.toHaveBeenCalled();
+    expect(console.error).toHaveBeenCalledWith(
+      expect.stringMatching(/could NOT be reopened \(0 rows matched\)/),
+      null
+    );
+  });
+
+  it('a reopen that errors is the same loud failure', async () => {
+    raceWorld([item()], [item({ accepted_quantity: 9 })]);
+    const base = onTable;
+    onTable = (c) =>
+      c.table === 'procurement_grn' && c.op === 'update' && (c.payload as any)?.status === 'pending_verification'
+        ? { data: null, error: { message: 'denied' } }
+        : base(c);
+    await expect(ProcurementGrnService.verifyGrn('g2', 'verifier')).rejects.toThrow(GRN_STUCK_POSTED_MESSAGE);
+  });
+
+  it('S-H1: a failed post on an exactly-once domain whose reopen matches no row is a loud failure', async () => {
+    raceWorld([item({ domain_item_id: 'd1' })], [item({ domain_item_id: 'd1' })]);
+    const base = onTable;
+    onTable = (c) =>
+      c.table === 'procurement_grn' && c.op === 'update' && (c.payload as any)?.status === 'pending_verification'
+        ? { data: [], error: null }
+        : base(c);
+    (adapter as any).idempotentPosts = true;
+    adapter.postReceipt.mockRejectedValueOnce(new Error('rpc down'));
+    try {
+      await expect(ProcurementGrnService.verifyGrn('g2', 'verifier')).rejects.toThrow(GRN_STUCK_POSTED_MESSAGE);
+      expect(reopens()).toHaveLength(1);
+    } finally {
+      (adapter as any).idempotentPosts = false;
+    }
+  });
+
+  it('S-M3: a failed domain_posted_at mark after the post is logged, and the verify completes', async () => {
+    raceWorld([item({ domain_item_id: 'd1' })], [item({ domain_item_id: 'd1' })]);
+    const base = onTable;
+    onTable = (c) =>
+      c.table === 'procurement_grn_items' && c.op === 'update' && (c.payload as any)?.domain_posted_at
+        ? { data: null, error: { message: 'network blip' } }
+        : base(c);
+    await expect(ProcurementGrnService.verifyGrn('g2', 'verifier')).resolves.toBeTruthy();
+    expect(adapter.postReceipt).toHaveBeenCalledTimes(1);
+    expect(reopens()).toHaveLength(0);
+    expect(console.error).toHaveBeenCalledWith(expect.stringMatching(/IS in stock but its domain_posted_at mark failed/), expect.anything());
   });
 
   it('unchanged lines go on to post as before (no reopen)', async () => {
@@ -645,6 +713,11 @@ describe('D4 verifyGrn — the confirmation is re-checked at verify time (decisi
     verifyWorld([item()], true, [
       { id: 'g1', supplier_id: 'sup1', invoice_number: 'INV-5', status: 'accepted', created_at: '2026-10-08T05:00:00+00:00', received_by: 'someone-else' },
     ]);
+    // The database: a repeat exists (hold), and the confirmer v2 received no other one.
+    onRpc = (fn, args) =>
+      fn === 'fn_procurement_grn_has_duplicate'
+        ? { data: args.p_received_by ? false : true, error: null }
+        : { data: null, error: null };
     const base = onTable;
     onTable = (c) =>
       c.table === 'procurement_grn' && c.op === 'select' && !c.filters.some(([, k]) => k === 'supplier_id')
@@ -653,6 +726,293 @@ describe('D4 verifyGrn — the confirmation is re-checked at verify time (decisi
     await expect(ProcurementGrnService.verifyGrn('g2', 'verifier')).rejects.toMatchObject({
       message: 'stop: write reached',
     });
+  });
+});
+
+// Deep-panel round 3 (S-M2): when the confirmer is someone else, verify asks the DATABASE
+// about the confirmer (it sees every college) — never the caller's RLS-capped list.
+describe('S-M2 verifyGrn — the confirmer is asked of the database, strictly', () => {
+  const confirmedBy = (who: string) => {
+    const base = onTable;
+    onTable = (c) =>
+      c.table === 'procurement_grn' && c.op === 'select' && !c.filters.some(([, k]) => k === 'supplier_id')
+        ? { data: { ...GRN, duplicate_confirmed_by: who }, error: null }
+        : base(c);
+  };
+
+  it('asks fn_procurement_grn_has_duplicate with p_received_by = the confirmer and refuses on yes', async () => {
+    // The caller's own view shows nothing the confirmer received …
+    verifyWorld([item()], true, []);
+    confirmedBy('v3');
+    onRpc = (fn, args) =>
+      fn === 'fn_procurement_grn_has_duplicate'
+        ? { data: args.p_received_by === 'v3' ? true : !args.p_received_by, error: null }
+        : { data: null, error: null };
+    // … but the database knows v3 received one (at another college): refused.
+    await expect(ProcurementGrnService.verifyGrn('g2', 'verifier')).rejects.toThrow(/confirmation does not count/);
+    expect(rpcCalls.some((c) => c.args.p_received_by === 'v3')).toBe(true);
+    expect(writesTo('procurement_grn')).toHaveLength(0);
+  });
+
+  it('with no database answer about the confirmer it refuses — no fallback to the visible list', async () => {
+    verifyWorld([item()], true, [
+      { id: 'g1', supplier_id: 'sup1', invoice_number: 'INV-5', status: 'accepted', created_at: '2026-10-08T05:00:00+00:00', received_by: 'someone-else' },
+    ]);
+    confirmedBy('v3');
+    onRpc = (fn, args) =>
+      fn === 'fn_procurement_grn_has_duplicate'
+        ? args.p_received_by
+          ? { data: null, error: { code: 'PGRST202', message: 'function not found' } }
+          : { data: true, error: null }
+        : { data: null, error: null };
+    await expect(ProcurementGrnService.verifyGrn('g2', 'verifier')).rejects.toThrow(
+      /repeated-invoice check is not installed/
+    );
+    expect(writesTo('procurement_grn')).toHaveLength(0);
+    expect(adapter.postReceipt).not.toHaveBeenCalled();
+  });
+
+  it('outside verify (the page) it still falls back to the visible list', async () => {
+    verifyWorld([], 'rpc-missing', [
+      { id: 'g1', supplier_id: 'sup1', invoice_number: 'inv5', status: 'cancelled', created_at: '2026-10-08T05:00:00+00:00', received_by: 'v3' },
+    ]);
+    await expect(
+      ProcurementGrnService.confirmerReceivedMatch({ ...GRN, duplicate_confirmed_by: 'v3' }, 'viewer')
+    ).resolves.toBe(true);
+  });
+});
+
+// Deep-panel round 3 (S-L8): the earlier-receipts list is read to the end, page by page.
+describe('S-L8 getSupplierInvoiceGrns — no 500-row cap', () => {
+  it('reads every page until a short one', async () => {
+    let page = 0;
+    onTable = (c) => {
+      if (c.table !== 'procurement_grn') return { data: null, error: null };
+      page += 1;
+      const n = page === 1 ? 1000 : 3;
+      return { data: Array.from({ length: n }, (_, i) => ({ id: `g${page}-${i}` })), error: null };
+    };
+    const rows = await ProcurementGrnService.getSupplierInvoiceGrns('sup1');
+    expect(rows).toHaveLength(1003);
+    expect(page).toBe(2);
+  });
+});
+
+// Deep-panel round 3 (S-L7): the late-invoice reason is stored only when I4 fired.
+describe('S-L7 createGrnAgainstPO — late_invoice_reason only for an invoice past the limit', () => {
+  it('drops a reason sent for an invoice that is NOT too old', async () => {
+    createWorld();
+    await ProcurementGrnService.createGrnAgainstPO(
+      baseInput({ invoice_date: '2026-10-01', expectations: { max_invoice_age_days: 30 }, late_invoice_reason: 'not needed' }),
+      'u1'
+    );
+    expect(writesTo('procurement_grn')[0].payload).not.toHaveProperty('late_invoice_reason');
+  });
+  it('keeps it for an invoice past the limit', async () => {
+    createWorld();
+    await ProcurementGrnService.createGrnAgainstPO(
+      baseInput({ invoice_date: '2026-08-01', expectations: { max_invoice_age_days: 30 }, late_invoice_reason: 'resent' }),
+      'u1'
+    );
+    expect((writesTo('procurement_grn')[0].payload as any).late_invoice_reason).toBe('resent');
+  });
+});
+
+// Deep-panel round 3 (S-M4): "today" is the IST business day, not the runtime's clock.
+describe('S-M4 dates are IST business days', () => {
+  it('at 00:30 IST (19:00 UTC the day before) goods that expired "yesterday" (IST) are refused', async () => {
+    vi.setSystemTime(new Date('2026-10-09T19:00:00Z')); // = 2026-10-10 00:30 IST
+    createWorld();
+    await expect(
+      ProcurementGrnService.createGrnAgainstPO(baseInput({}, { expiry_date: '2026-10-09' }), 'u1')
+    ).rejects.toThrow(/Expired goods cannot be accepted/);
+  });
+  it('at 23:30 IST goods expiring that IST day are still accepted', async () => {
+    vi.setSystemTime(new Date('2026-10-10T18:00:00Z')); // = 2026-10-10 23:30 IST
+    createWorld();
+    await expect(
+      ProcurementGrnService.createGrnAgainstPO(baseInput({}, { expiry_date: '2026-10-10' }), 'u1')
+    ).resolves.toEqual({ id: 'g-new' });
+  });
+  it('verifyGrn judges I2 on the IST day too', async () => {
+    vi.setSystemTime(new Date('2026-10-09T19:00:00Z')); // = 2026-10-10 00:30 IST
+    verifyWorld([item({ expiry_date: '2026-10-09' })], false);
+    await expect(ProcurementGrnService.verifyGrn('g2', 'verifier')).rejects.toThrow(/Expired goods cannot be accepted/);
+  });
+  it('receiveReplacement judges I2 on the IST day too', async () => {
+    vi.setSystemTime(new Date('2026-10-09T19:00:00Z')); // = 2026-10-10 00:30 IST
+    onTable = (c) => {
+      if (c.table === 'procurement_grn_replacements' && c.op === 'select')
+        return { data: { id: 'rep1', status: 'pending', rejected_quantity: 5, grn_item: { id: 'gi1', item_name: 'Acid', is_chemical: false, grn_id: 'g1', po_item_id: 'poi1' } }, error: null };
+      if (c.table === 'procurement_grn' && c.op === 'select')
+        return { data: { id: 'g1', institution_id: 'inst1', domain: 'ims', grn_number: 'GRN-1', status: 'accepted', received_by: 'r0' }, error: null };
+      return { data: null, error: { message: 'stop: write reached' } };
+    };
+    await expect(
+      ProcurementGrnService.receiveReplacement({ replacement_id: 'rep1', accepted_quantity: 5, expiry_date: '2026-10-09' } as any, 'u1')
+    ).rejects.toThrow(/Expired goods cannot be accepted/);
+  });
+});
+
+// Deep-panel round 3 (S-M3 + D-M1): receiveReplacement after the stock post.
+describe('S-M3 receiveReplacement — a failed mark after the post neither throws nor rolls back', () => {
+  function world(opts: { markFails?: boolean; originItem?: Record<string, unknown> } = {}) {
+    onTable = (c) => {
+      if (c.table === 'procurement_grn_replacements' && c.op === 'select')
+        return {
+          data: {
+            id: 'rep1', status: 'pending', rejected_quantity: 5,
+            grn_item: { id: 'gi1', item_name: 'Acid', is_chemical: false, grn_id: 'g1', po_item_id: 'poi1', domain_item_id: 'item1', cost_price: 2, ...opts.originItem },
+          },
+          error: null,
+        };
+      if (c.table === 'procurement_grn' && c.op === 'select')
+        return { data: { id: 'g1', institution_id: 'inst1', domain: 'ims', grn_number: 'GRN-1', status: 'replacement_requested', purchase_order_id: 'po1', received_by: 'r0' }, error: null };
+      if (c.table === 'procurement_purchase_order_items' && c.op === 'select') return { data: { domain_item_id: 'item7' }, error: null };
+      if (c.table === 'procurement_grn_replacements' && c.op === 'update') return { data: { id: 'rep1' }, error: null };
+      if (c.table === 'procurement_grn' && c.op === 'insert') return { data: { id: 'g-rep' }, error: null };
+      if (c.table === 'procurement_grn_items' && c.op === 'insert') return { data: { id: 'gi-rep' }, error: null };
+      if (c.table === 'procurement_grn_items' && c.op === 'update' && (c.payload as any)?.domain_posted_at && opts.markFails)
+        return { data: null, error: { message: 'network blip' } };
+      return { data: null, error: null };
+    };
+    onRpc = (fn) => (fn === 'procurement_next_number' ? { data: 3, error: null } : { data: null, error: null });
+  }
+  const input = { replacement_id: 'rep1', accepted_quantity: 5, expiry_date: '2027-12-31' } as any;
+
+  it('completes (links the fulfilment), deletes nothing, re-opens no claim', async () => {
+    world({ markFails: true });
+    await expect(ProcurementGrnService.receiveReplacement(input, 'u1')).resolves.toEqual({ id: 'g-rep' });
+    expect(adapter.postReceipt).toHaveBeenCalledTimes(1);
+    expect(calls.filter((c) => c.op === 'delete')).toHaveLength(0);
+    const repWrites = writesTo('procurement_grn_replacements').map((c) => c.payload as any);
+    expect(repWrites.some((p) => p?.status === 'pending')).toBe(false);
+    expect(repWrites.some((p) => p?.replacement_grn_item_id === 'gi-rep')).toBe(true);
+    expect(console.error).toHaveBeenCalledWith(expect.stringMatching(/IS in stock but its domain_posted_at mark failed/), expect.anything());
+  });
+
+  it('D-M1: the new line is written already linked; only the ORIGIN line is back-linked', async () => {
+    world({ originItem: { domain_item_id: null } });
+    await ProcurementGrnService.receiveReplacement(input, 'u1');
+    const lineInsert = writesTo('procurement_grn_items').find((c) => c.op === 'insert');
+    expect((lineInsert?.payload as any).domain_item_id).toBe('item7');
+    const relinks = writesTo('procurement_grn_items').filter((c) => c.op === 'update' && (c.payload as any)?.domain_item_id);
+    expect(relinks).toHaveLength(1);
+    expect(relinks[0].filters).toEqual([['eq', 'id', 'gi1']]);
+  });
+});
+
+// Deep-panel round 4 (#4342 skeptic): a stock post that THROWS may still have committed
+// (the RM RPC raises stock + stamps domain_posted_at in one transaction; the response is
+// then lost). The catch undoes nothing unless the evidence proves no stock landed.
+describe('R4 receiveReplacement — a stock post that throws is not proof nothing posted', () => {
+  function world(opts: {
+    domain?: 'resource_mgmt' | 'ims';
+    readback?: Res; // procurement_grn_items select of domain_posted_at (RM evidence)
+    batches?: Res; // ims_stock_batches select (IMS evidence)
+    lineDelete?: Res;
+  }) {
+    onTable = (c) => {
+      if (c.table === 'procurement_grn_replacements' && c.op === 'select')
+        return {
+          data: {
+            id: 'rep1', status: 'pending', rejected_quantity: 5,
+            grn_item: { id: 'gi1', item_name: 'Acid', is_chemical: false, grn_id: 'g1', po_item_id: 'poi1', domain_item_id: 'item1', cost_price: 2 },
+          },
+          error: null,
+        };
+      if (c.table === 'procurement_grn' && c.op === 'select')
+        return { data: { id: 'g1', institution_id: 'inst1', domain: opts.domain ?? 'resource_mgmt', grn_number: 'GRN-1', status: 'replacement_requested', purchase_order_id: 'po1', received_by: 'r0' }, error: null };
+      if (c.table === 'procurement_grn_replacements' && c.op === 'update') return { data: { id: 'rep1' }, error: null };
+      if (c.table === 'procurement_grn' && c.op === 'insert') return { data: { id: 'g-rep' }, error: null };
+      if (c.table === 'procurement_grn_items' && c.op === 'insert') return { data: { id: 'gi-rep' }, error: null };
+      if (c.table === 'procurement_grn_items' && c.op === 'select') return opts.readback ?? { data: { domain_posted_at: null }, error: null };
+      if (c.table === 'ims_stock_batches' && c.op === 'select') return opts.batches ?? { data: [], error: null };
+      if (c.table === 'procurement_grn_items' && c.op === 'delete') return opts.lineDelete ?? { data: [{ id: 'gi-rep' }], error: null };
+      return { data: null, error: null };
+    };
+    onRpc = (fn) => (fn === 'procurement_next_number' ? { data: 3, error: null } : { data: null, error: null });
+  }
+  const input = { replacement_id: 'rep1', accepted_quantity: 5, expiry_date: '2027-12-31' } as any;
+  const lost = Object.assign(new Error('TypeError: Failed to fetch'), { code: '' });
+  const kept = () => {
+    expect(calls.filter((c) => c.op === 'delete')).toHaveLength(0);
+    const repWrites = writesTo('procurement_grn_replacements').map((c) => c.payload as any);
+    expect(repWrites.some((p) => p?.status === 'pending')).toBe(false);
+  };
+  const rolledBack = () => {
+    const del = calls.filter((c) => c.op === 'delete');
+    expect(del.map((c) => c.table)).toEqual(['procurement_grn_items', 'procurement_grn']);
+    expect(del[0].filters).toEqual(expect.arrayContaining([['eq', 'id', 'gi-rep'], ['is', 'domain_posted_at', null]]));
+    const repWrites = writesTo('procurement_grn_replacements').map((c) => c.payload as any);
+    expect(repWrites.some((p) => p?.status === 'pending')).toBe(true);
+  };
+
+  it('RM: the post threw but the line IS stamped posted — nothing deleted, the claim stays', async () => {
+    world({ readback: { data: { domain_posted_at: '2026-10-11T05:00:00Z' }, error: null } });
+    adapter.postReceipt.mockRejectedValueOnce(lost);
+    await expect(ProcurementGrnService.receiveReplacement(input, 'u1')).rejects.toBe(lost);
+    kept();
+  });
+
+  it('RM: the post threw and the evidence read fails too — keep everything (fail closed)', async () => {
+    world({ readback: { data: null, error: { message: 'offline' } } });
+    adapter.postReceipt.mockRejectedValueOnce(lost);
+    await expect(ProcurementGrnService.receiveReplacement(input, 'u1')).rejects.toBe(lost);
+    kept();
+  });
+
+  it('RM: the post was refused and the line is NOT posted — the receipt is voided and the claim reopened', async () => {
+    world({});
+    const refused = Object.assign(new Error('line not linked'), { code: 'P0001' });
+    adapter.postReceipt.mockRejectedValueOnce(refused);
+    await expect(ProcurementGrnService.receiveReplacement(input, 'u1')).rejects.toBe(refused);
+    rolledBack();
+  });
+
+  it('RM: the line delete matches nothing (a post committed meanwhile) — the receipt and claim stay', async () => {
+    world({ lineDelete: { data: [], error: null } });
+    adapter.postReceipt.mockRejectedValueOnce(lost);
+    await expect(ProcurementGrnService.receiveReplacement(input, 'u1')).rejects.toBe(lost);
+    expect(calls.filter((c) => c.op === 'delete').map((c) => c.table)).toEqual(['procurement_grn_items']);
+    const repWrites = writesTo('procurement_grn_replacements').map((c) => c.payload as any);
+    expect(repWrites.some((p) => p?.status === 'pending')).toBe(false);
+  });
+
+  it('IMS: the post threw after a stock batch for this receipt was written — keep everything', async () => {
+    world({ domain: 'ims', batches: { data: [{ id: 'b1' }], error: null } });
+    adapter.postReceipt.mockRejectedValueOnce(lost);
+    await expect(ProcurementGrnService.receiveReplacement(input, 'u1')).rejects.toBe(lost);
+    kept();
+    const ev = calls.find((c) => c.table === 'ims_stock_batches');
+    expect(ev?.filters).toEqual([['eq', 'grn_id', 'g-rep']]);
+  });
+
+  it('IMS: the post threw before any stock batch — rolled back', async () => {
+    world({ domain: 'ims' });
+    adapter.postReceipt.mockRejectedValueOnce(lost);
+    await expect(ProcurementGrnService.receiveReplacement(input, 'u1')).rejects.toBe(lost);
+    rolledBack();
+  });
+
+  it('a failure BEFORE the post still rolls back cleanly (the post was never attempted)', async () => {
+    world({});
+    const base = onTable;
+    onRpc = (fn) =>
+      fn === 'procurement_next_number'
+        ? { data: 3, error: null }
+        : fn === 'fn_procurement_recompute_po_line_received'
+          ? { data: null, error: null }
+          : { data: null, error: null };
+    onTable = (c) =>
+      c.table === 'procurement_grn_items' && c.op === 'insert'
+        ? { data: null, error: { message: 'line insert refused', code: '23514' } }
+        : base(c);
+    await expect(ProcurementGrnService.receiveReplacement(input, 'u1')).rejects.toMatchObject({ code: '23514' });
+    expect(adapter.postReceipt).not.toHaveBeenCalled();
+    expect(calls.filter((c) => c.op === 'delete').map((c) => c.table)).toEqual(['procurement_grn']);
+    const repWrites = writesTo('procurement_grn_replacements').map((c) => c.payload as any);
+    expect(repWrites.some((p) => p?.status === 'pending')).toBe(true);
   });
 });
 

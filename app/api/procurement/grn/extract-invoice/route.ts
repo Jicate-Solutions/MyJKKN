@@ -194,6 +194,21 @@ export async function POST(req: NextRequest) {
   const sha256 = createHash('sha256').update(bytes).digest('hex');
   const admin = createServiceRoleClient();
 
+  // The same person's read of this PDF for this order that is still queued or running.
+  const findInFlight = async (): Promise<string | null> => {
+    const { data: inFlight } = await admin
+      .from('ai_jobs')
+      .select('id')
+      .eq('job_type', JOB_TYPE)
+      .eq('requested_by', user.id)
+      .in('status', ['pending', 'claimed', 'running'])
+      .contains('payload', { sha256, po_id: poId })
+      .order('requested_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    return typeof inFlight?.id === 'string' ? inFlight.id : null;
+  };
+
   // ── Reuse an identical read (decision 8) ───────────────────────────────────
   // Same file + same order + same person = same answer. This is how a late result is
   // used: the person comes back from the "invoice read" notification, picks the same
@@ -229,17 +244,8 @@ export async function POST(req: NextRequest) {
     }
 
     // The same person pressing the button again while their read is still queued.
-    const { data: inFlight } = await admin
-      .from('ai_jobs')
-      .select('id')
-      .eq('job_type', JOB_TYPE)
-      .eq('requested_by', user.id)
-      .in('status', ['pending', 'claimed', 'running'])
-      .contains('payload', { sha256, po_id: poId })
-      .order('requested_at', { ascending: false })
-      .limit(1)
-      .maybeSingle();
-    if (inFlight?.id) return NextResponse.json({ job_id: inFlight.id });
+    const inFlightId = await findInFlight();
+    if (inFlightId) return NextResponse.json({ job_id: inFlightId });
   } catch {
     // A dedupe miss must never block a fresh read — fall through.
   }
@@ -304,6 +310,10 @@ export async function POST(req: NextRequest) {
       storage_path: storagePath,
       sha256,
       po_id: poId,
+      // Deep-panel round 3 (S-L9): one in-flight read per person + order + PDF, enforced by
+      // the unique index ai_jobs_inflight_dedupe_idx. The database guard re-writes this key
+      // itself (trg_ai_jobs_00_invoice_extract_guard), so a caller cannot choose it.
+      _dedupe: `${user.id}:${poId.toLowerCase()}:${sha256}`,
       grn_id: grnId,
       po_items: items,
       notify_url: `/procurement/grn/new?po=${poId}`,
@@ -313,6 +323,14 @@ export async function POST(req: NextRequest) {
       },
     },
   });
+
+  // S-L9: two requests at the same moment both passed the in-flight lookup above; the
+  // database let only one of them queue (unique violation 23505 for the other). That one is
+  // answered with the read already queued, as if it had arrived a moment later.
+  if (enqError && (enqError as { code?: string }).code === '23505') {
+    const queuedId = await findInFlight().catch(() => null);
+    if (queuedId) return NextResponse.json({ job_id: queuedId });
+  }
 
   if (enqError || !enq?.ok || typeof enq?.job_id !== 'string') {
     const errText = typeof enq?.error === 'string' ? enq.error : '';
