@@ -8,6 +8,8 @@ type Tables = Record<string, any[]>;
 let tables: Tables = {};
 // Tables whose reads return an error instead of data.
 let failing: Set<string> = new Set();
+// Called after each page is served — lets a test change the table mid-read.
+let onPage: ((table: string) => void) | null = null;
 
 // Minimal PostgREST-style fake: eq / in filters, order, range, maybeSingle,
 // awaitable. Like real PostgREST it never returns more than 1,000 rows in one
@@ -16,11 +18,14 @@ const MAX_ROWS = 1000;
 function from(table: string) {
   let rows = [...(tables[table] ?? [])];
   let slice: [number, number] | null = null;
+  let cap = MAX_ROWS;
   const err = () => (failing.has(table) ? { message: `boom: ${table}` } : null);
   const result = () => {
     if (err()) return { data: null, error: err() };
     const picked = slice ? rows.slice(slice[0], slice[1] + 1) : rows;
-    return { data: picked.slice(0, MAX_ROWS), error: null };
+    const data = picked.slice(0, Math.min(cap, MAX_ROWS));
+    onPage?.(table);
+    return { data, error: null };
   };
   const q: any = {
     select: () => q,
@@ -28,6 +33,8 @@ function from(table: string) {
     in: (col: string, vals: any[]) => { rows = rows.filter((r) => vals.includes(r[col])); return q; },
     order: (col: string) => { rows.sort((a, b) => String(a[col]).localeCompare(String(b[col]))); return q; },
     range: (a: number, b: number) => { slice = [a, b]; return q; },
+    gt: (col: string, val: any) => { rows = rows.filter((r) => String(r[col]) > String(val)); return q; },
+    limit: (n: number) => { cap = n; return q; },
     maybeSingle: async () => (err() ? { data: null, error: err() } : { data: rows[0] ?? null, error: null }),
     then: (res: any, rej: any) => Promise.resolve(result()).then(res, rej),
   };
@@ -70,6 +77,7 @@ let errSpy: any;
 beforeEach(() => {
   roster = baseRoster;
   failing = new Set();
+  onPage = null;
   errSpy?.mockRestore();
   errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
   tables = {
@@ -129,6 +137,32 @@ describe('induction attendance report — day-scope feedback', () => {
     const out = await dayReport(1);
     expect(Object.keys(out)).toHaveLength(n);
     expect(Object.values(out).every(Boolean)).toBe(true);
+  });
+
+  it('does not skip a learner when earlier feedback rows disappear between pages (keyset, not offset)', async () => {
+    const n = 300;
+    roster = Array.from({ length: n }, (_, i) => ({
+      learner_id: `P${String(i).padStart(3, '0')}`, name: `P${i}`, status: 'present',
+    }));
+    tables.induction_programs = [{ event_id: 'E1', feedback_day_enabled: false }];
+    tables.event_sessions = Array.from({ length: 5 }, (_, s) => ({ id: `D${s}`, event_id: 'E1', day_number: 1 }));
+    tables.event_session_feedback = [];
+    let k = 0;
+    for (const r of roster) for (let s = 0; s < 5; s++) {
+      tables.event_session_feedback.push({
+        id: `x${String(k++).padStart(5, '0')}`, session_id: `D${s}`, learner_id: r.learner_id,
+      });
+    }
+    // After the first page is served, the 10 lowest rows go away (P000, P001).
+    // Offset paging would then start page 2 ten rows late and miss P200/P201.
+    let served = 0;
+    onPage = (table) => {
+      if (table !== 'event_session_feedback' || served++ > 0) return;
+      tables.event_session_feedback = tables.event_session_feedback.slice(10);
+    };
+    const out = await dayReport(1);
+    expect(out['P200']).toBe(true);
+    expect(out['P201']).toBe(true);
   });
 
   it('returns 500 when the induction_programs lookup fails', async () => {

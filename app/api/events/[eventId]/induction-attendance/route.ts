@@ -132,6 +132,8 @@ export async function GET(
       const day = Number(dayParam);
       const { data: program, error: programError } = await admin.from('induction_programs')
         .select('feedback_day_enabled').eq('event_id', eventId).maybeSingle();
+      // maybeSingle is safe: verified live 10 Oct 2026 — UNIQUE index
+      // induction_programs_event_id_key ON (event_id), 0 duplicate event_ids.
       if (programError) return feedbackFailed('induction_programs lookup', programError);
       // Session path ONLY when the program row exists and has day feedback
       // switched off. No row keeps the original day-feedback behaviour.
@@ -184,21 +186,29 @@ export async function GET(
   }
 }
 
-// PostgREST returns at most 1,000 rows per request. Page through with a stable
-// order until a short page, unioning learner ids. `build` must return a FRESH
-// query each call — a PostgREST builder cannot be re-run.
+// PostgREST returns at most 1,000 rows per request. Page through by KEYSET
+// (id > last id seen, ordered by id) until an EMPTY page, unioning learner ids.
+// Keyset, not offset: offset paging over rows that change while we read can
+// skip a row when an earlier one is deleted. Looping to an empty page (not a
+// short one) stays correct if the server's max-rows is set below our page size.
+// Verified live 10 Oct 2026: event_day_feedback and event_session_feedback both
+// have PRIMARY KEY (id) uuid, so id is a unique, total order.
+// `build` must return a FRESH query each call — a PostgREST builder cannot be
+// re-run.
 const FEEDBACK_PAGE = 1000;
 async function collectLearnerIds(
   build: () => any,
 ): Promise<{ ids: Set<string>; error: unknown }> {
   const ids = new Set<string>();
-  for (let from = 0; ; from += FEEDBACK_PAGE) {
-    const { data, error } = await build()
-      .order('id', { ascending: true })
-      .range(from, from + FEEDBACK_PAGE - 1);
+  let lastId: string | null = null;
+  for (;;) {
+    let q = build();
+    if (lastId) q = q.gt('id', lastId);
+    const { data, error } = await q.order('id', { ascending: true }).limit(FEEDBACK_PAGE);
     if (error) return { ids, error };
     const page = (data as any[]) ?? [];
+    if (page.length === 0) return { ids, error: null };
     for (const r of page) if (r.learner_id) ids.add(r.learner_id);
-    if (page.length < FEEDBACK_PAGE) return { ids, error: null };
+    lastId = page[page.length - 1].id;
   }
 }
