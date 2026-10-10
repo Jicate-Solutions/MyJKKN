@@ -5,6 +5,7 @@ import { authenticateApiKey, resolveInstitutionId } from '@/lib/api-keys/authent
 import { checkRateLimit } from '@/lib/api-keys/rate-limiter';
 import { logApiUsage, extractRequestMeta } from '@/lib/api-keys/audit-logger';
 import { createServiceRoleClient } from '@/lib/supabase/server';
+import { leaveOutAboutJointMd, readLeavingOutAboutJointMd } from '@/lib/grievance/about-joint-md-filter';
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -130,30 +131,41 @@ export async function GET(
   try {
     const supabase = createServiceRoleClient();
 
-    let query = supabase
-      .from('grievance_tickets')
-      .select(
-        'id, ticket_number, category_id, institution_id, subject, description, priority, status, ' +
-        'raised_by_type, raised_by_id, raised_by_name, raised_by_email, raised_by_phone, ' +
-        'assigned_to, assigned_at, department_id, sla_hours, sla_deadline, sla_status, ' +
-        'resolution, resolved_at, resolved_by, satisfaction_rating, satisfaction_feedback, ' +
-        'is_emergency, is_anonymous, is_icc_only, escalation_level, sla_breached_at, ' +
-        'withdrawn_at, withdrawn_reason, created_at, updated_at'
-      )
-      .eq('id', id);
+    const buildQuery = (leaveOut: boolean) => {
+      let query = supabase
+        .from('grievance_tickets')
+        .select(
+          'id, ticket_number, category_id, institution_id, subject, description, priority, status, ' +
+          'raised_by_type, raised_by_id, raised_by_name, raised_by_email, raised_by_phone, ' +
+          'assigned_to, assigned_at, department_id, sla_hours, sla_deadline, sla_status, ' +
+          'resolution, resolved_at, resolved_by, satisfaction_rating, satisfaction_feedback, ' +
+          'is_emergency, is_anonymous, is_icc_only, escalation_level, sla_breached_at, ' +
+          'withdrawn_at, withdrawn_reason, created_at, updated_at'
+        )
+        .eq('id', id);
 
-    if (institutionId) {
-      query = query.eq('institution_id', institutionId);
-    }
+      if (institutionId) {
+        query = query.eq('institution_id', institutionId);
+      }
 
-    // Confidentiality gate: ICC-only tickets (confidential sexual-harassment
-    // cases per spec R4.1) are never exposed over B2A. An external API key
-    // carries no ICC membership, so this filter is unconditional. This route
-    // is the only B2A grievance read that returns raised_by_email/phone.
-    // Mirrors the read path in lib/mcp/tools/grievance.ts.
-    query = query.eq('is_icc_only', false);
+      // Confidentiality gate: ICC-only tickets (confidential sexual-harassment
+      // cases per spec R4.1) are never exposed over B2A. An external API key
+      // carries no ICC membership, so this filter is unconditional. This route
+      // is the only B2A grievance read that returns raised_by_email/phone.
+      // Mirrors the read path in lib/mcp/tools/grievance.ts.
+      query = query.eq('is_icc_only', false);
+      // A complaint about the Joint MD (Director ruling, 9 Oct 2026) is never
+      // exposed over B2A either: a key cannot prove it is not the Joint MD's.
+      if (leaveOut) {
+        query = leaveOutAboutJointMd(query);
+      }
 
-    const { data, error } = await query.single();
+      return query.single();
+    };
+
+    // Leaves out complaints about the Joint MD; before migration 20271010020000
+    // reaches the database, reads as it did before (lib/grievance/about-joint-md-filter).
+    const { data, error } = await readLeavingOutAboutJointMd(supabase, buildQuery);
 
     if (error) {
       if (error.code === 'PGRST116') {

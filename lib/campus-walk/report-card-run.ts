@@ -50,6 +50,7 @@ import {
   type ReportWeek
 } from '@/lib/campus-walk/report-card';
 import { logger } from '@/lib/utils/enhanced-logger';
+import { leaveOutAboutJointMd, readLeavingOutAboutJointMd } from '@/lib/grievance/about-joint-md-filter';
 
 const LOG_MODULE = 'campus-walk/report-card';
 
@@ -199,16 +200,21 @@ export async function loadComplaintRows(
 ): Promise<{ rows: ComplaintRow[]; truncated: boolean }> {
   const weekStartIso = new Date(week.startMs).toISOString();
   const weekEndIso = new Date(week.endMs).toISOString();
-  const { data, error } = await admin
-    .from('grievance_tickets')
-    .select('institution_id, status, created_at, resolved_at, sla_deadline, withdrawn_at, is_icc_only')
-    .eq('is_icc_only', false)
-    .lt('created_at', weekEndIso)
-    .or(`resolved_at.is.null,resolved_at.gte."${weekStartIso}"`)
-    // Newest first, so if the limit is ever hit it is the oldest backlog that
-    // is cut — and the cut is reported, never silent.
-    .order('created_at', { ascending: false })
-    .limit(COMPLAINT_LIMIT);
+  // Complaints marked "about the Joint MD" are left out of every college's
+  // counts: this read is the service role, and the cards are seen widely.
+  const { data, error } = await readLeavingOutAboutJointMd(admin, (leaveOut) => {
+    const base = admin
+      .from('grievance_tickets')
+      .select('institution_id, status, created_at, resolved_at, sla_deadline, withdrawn_at, is_icc_only')
+      .eq('is_icc_only', false);
+    return (leaveOut ? leaveOutAboutJointMd(base) : base)
+      .lt('created_at', weekEndIso)
+      .or(`resolved_at.is.null,resolved_at.gte."${weekStartIso}"`)
+      // Newest first, so if the limit is ever hit it is the oldest backlog that
+      // is cut — and the cut is reported, never silent.
+      .order('created_at', { ascending: false })
+      .limit(COMPLAINT_LIMIT);
+  });
   if (error) throw new Error(`complaint_read_failed: ${error.message}`);
   const rows = (data ?? []) as ComplaintRow[];
   const truncated = rows.length >= COMPLAINT_LIMIT;

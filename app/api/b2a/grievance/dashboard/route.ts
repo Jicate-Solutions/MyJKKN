@@ -5,6 +5,7 @@ import { authenticateApiKey, resolveInstitutionId } from '@/lib/api-keys/authent
 import { checkRateLimit } from '@/lib/api-keys/rate-limiter';
 import { logApiUsage, extractRequestMeta } from '@/lib/api-keys/audit-logger';
 import { createServiceRoleClient } from '@/lib/supabase/server';
+import { leaveOutAboutJointMd, readLeavingOutAboutJointMd } from '@/lib/grievance/about-joint-md-filter';
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
   const startTime = Date.now();
@@ -96,34 +97,33 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     // API key carries no ICC membership, so this filter is unconditional —
     // otherwise the aggregates would leak how many confidential cases exist.
     // Mirrors the read path in lib/mcp/tools/grievance.ts.
-    const makeCountQueryByStatus = (status: string) => {
-      const base = supabase
-        .from('grievance_tickets')
-        .select('id', { count: 'exact', head: true })
-        .eq('is_icc_only', false)
-        .eq('status', status);
-      return institutionId ? base.eq('institution_id', institutionId) : base;
+    // Complaints about the Joint MD are left out of every counter for the same
+    // reason (Director ruling, 9 Oct 2026: not even a count reaches the Joint MD).
+    const countAll = (leaveOut: boolean) => {
+      const counted = () => {
+        const base = supabase
+          .from('grievance_tickets')
+          .select('id', { count: 'exact', head: true })
+          .eq('is_icc_only', false);
+        const scoped = leaveOut ? leaveOutAboutJointMd(base) : base;
+        return institutionId ? scoped.eq('institution_id', institutionId) : scoped;
+      };
+      return Promise.all([
+        counted().eq('status', 'open'),
+        counted().eq('status', 'in_progress'),
+        counted().eq('status', 'pending_info'),
+        counted().eq('status', 'resolved'),
+        counted().eq('status', 'closed'),
+        counted().eq('status', 'reopened'),
+        counted().eq('is_emergency', true).not('status', 'in', '(resolved,closed)'),
+        counted().eq('sla_status', 'breached').not('status', 'in', '(resolved,closed)'),
+      ]);
     };
 
-    const emergencyOpenQuery = (() => {
-      const base = supabase
-        .from('grievance_tickets')
-        .select('id', { count: 'exact', head: true })
-        .eq('is_icc_only', false)
-        .eq('is_emergency', true)
-        .not('status', 'in', '(resolved,closed)');
-      return institutionId ? base.eq('institution_id', institutionId) : base;
-    })();
-
-    const slaBreachedQuery = (() => {
-      const base = supabase
-        .from('grievance_tickets')
-        .select('id', { count: 'exact', head: true })
-        .eq('is_icc_only', false)
-        .eq('sla_status', 'breached')
-        .not('status', 'in', '(resolved,closed)');
-      return institutionId ? base.eq('institution_id', institutionId) : base;
-    })();
+    // Leaves out complaints about the Joint MD; before migration 20271010020000
+    // reaches the database, counts as before. These are head:true counts, whose
+    // errors arrive EMPTY — the helper probes once to tell (round 3, M4).
+    const results = await readLeavingOutAboutJointMd(supabase, countAll);
 
     const [
       openResult,
@@ -134,27 +134,9 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       reopenedResult,
       emergencyOpenResult,
       slaBreachedResult,
-    ] = await Promise.all([
-      makeCountQueryByStatus('open'),
-      makeCountQueryByStatus('in_progress'),
-      makeCountQueryByStatus('pending_info'),
-      makeCountQueryByStatus('resolved'),
-      makeCountQueryByStatus('closed'),
-      makeCountQueryByStatus('reopened'),
-      emergencyOpenQuery,
-      slaBreachedQuery,
-    ]);
+    ] = results;
 
-    const firstError = [
-      openResult,
-      inProgressResult,
-      pendingInfoResult,
-      resolvedResult,
-      closedResult,
-      reopenedResult,
-      emergencyOpenResult,
-      slaBreachedResult,
-    ].find(r => r.error)?.error;
+    const firstError = results.find(r => r.error)?.error;
 
     if (firstError) {
       statusCode = 500;

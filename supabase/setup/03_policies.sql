@@ -12397,3 +12397,55 @@ CREATE POLICY ig_learner_post_claims_delete ON public.ig_learner_post_claims
           OR (public.user_has_permission('social.learner_credit.review')
               AND public.role_has_institution_access(institution_id))))
   );
+
+-- =====================================================================
+-- Grievance escalation + "about the Joint MD" (policies): GENERATED from the
+-- migration by supabase/tests/grievance/mirror_setup.py — do not edit by hand.
+-- Source of truth for apply: supabase/migrations/20271010020000_grievance_sla_escalation.sql
+-- =====================================================================
+-- ---------------------------------------------------------------------
+-- 11) About the Joint MD: the Joint MD cannot read it (row-level security)
+-- ---------------------------------------------------------------------
+-- RESTRICTIVE, so it is ANDed with every existing permissive policy —
+-- including is_super_admin() / is_admin(), which the Joint MD may hold.
+-- The existing policies are left exactly as they are.
+-- TO authenticated: the Joint MD only ever reads signed in, and the two
+-- helpers below are not executable by anon. Without it an anonymous read
+-- that used to return no rows would fail with "permission denied for
+-- function" (deep review of #4079, M5); anon now behaves exactly as before.
+-- Fail closed (MEDIUM 2): where the Joint MD's seat cannot be resolved, only
+-- the Director who would handle it and its filer see it
+-- (fn_grievance_caller_may_see_about_jmd, section 3b). Only ticked rows ever
+-- call it.
+DROP POLICY IF EXISTS grievance_tickets_hide_about_joint_md ON public.grievance_tickets;
+
+CREATE POLICY grievance_tickets_hide_about_joint_md ON public.grievance_tickets
+  AS RESTRICTIVE FOR ALL TO authenticated
+  USING (NOT about_joint_md
+         OR public.fn_grievance_caller_may_see_about_jmd(institution_id, raised_by_id, filed_by));
+
+-- The comments and the history of such a ticket are hidden the same way
+-- (grievance_comments_select admits every super admin and admin outright):
+-- a row is visible only while its TICKET is visible to the caller, through
+-- the ticket's own row-level security above — a plain EXISTS, no function
+-- anybody could call to ask about a ticket id (round 8: the round-5 helper
+-- fn_grievance_ticket_hidden_from_caller(uuid) was an existence oracle and is
+-- gone). For everybody who is not the Joint MD (an empty seat list, worked
+-- out once per statement) the lookup never runs while every college's seat
+-- resolves; otherwise it does, and fails closed.
+-- grievance_tickets' policies never read comments or history (no recursion).
+DROP POLICY IF EXISTS grievance_comments_hide_about_joint_md ON public.grievance_comments;
+
+CREATE POLICY grievance_comments_hide_about_joint_md ON public.grievance_comments
+  AS RESTRICTIVE FOR ALL TO authenticated
+  USING (CASE WHEN cardinality((SELECT public.fn_grievance_caller_joint_md_scope())) = 0
+                   AND (SELECT public.fn_grievance_joint_md_seat_known_everywhere()) THEN true
+              ELSE EXISTS (SELECT 1 FROM public.grievance_tickets t WHERE t.id = grievance_comments.ticket_id) END);
+
+DROP POLICY IF EXISTS grievance_history_hide_about_joint_md ON public.grievance_history;
+
+CREATE POLICY grievance_history_hide_about_joint_md ON public.grievance_history
+  AS RESTRICTIVE FOR ALL TO authenticated
+  USING (CASE WHEN cardinality((SELECT public.fn_grievance_caller_joint_md_scope())) = 0
+                   AND (SELECT public.fn_grievance_joint_md_seat_known_everywhere()) THEN true
+              ELSE EXISTS (SELECT 1 FROM public.grievance_tickets t WHERE t.id = grievance_history.ticket_id) END);

@@ -32,6 +32,7 @@ import { usePermissions } from '@/hooks/use-permissions';
 import { useAuth } from '@/hooks/use-auth';
 import type { GrievanceStatus, GrievancePriority } from '@/lib/types/grievance';
 import { handledByLabel } from '@/lib/grievance/complaint-display';
+import { ConfidentialAwaitingBanner } from './_components/confidential-awaiting-banner';
 
 const STATUSES: Array<{ value: GrievanceStatus; label: string }> = [
   { value: 'open', label: 'Open' },
@@ -84,17 +85,29 @@ export default function GrievanceListPage() {
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [priorityFilter, setPriorityFilter] = useState<string>('all');
   const [emergencyOnly, setEmergencyOnly] = useState<boolean>(false);
+  const [confidentialOnly, setConfidentialOnly] = useState<boolean>(false);
   const [page, setPage] = useState(1);
   const limit = 20;
 
+  // Complaints about the Joint MD raise no bell notice; the Director's alert
+  // is this count (0 for everybody else, so the banner never shows for them).
+  const { data: confidentialCount = 0 } = useQuery({
+    queryKey: ['grievance', 'confidential-awaiting', profile?.id],
+    queryFn: () => GrievanceService.getConfidentialAwaitingCount(),
+    enabled: !!profile?.id,
+    staleTime: 60_000,
+  });
+  const confidentialAssignee = confidentialOnly ? profile?.id ?? undefined : undefined;
+
   const { data, isLoading, error } = useQuery({
-    queryKey: ['grievance', 'list', institutionId, statusFilter, priorityFilter, emergencyOnly, page],
+    queryKey: ['grievance', 'list', institutionId, statusFilter, priorityFilter, emergencyOnly, confidentialAssignee, page],
     queryFn: () =>
       GrievanceService.listTickets({
         institutionId,
         status: statusFilter === 'all' ? undefined : (statusFilter as GrievanceStatus),
         priority: priorityFilter === 'all' ? undefined : (priorityFilter as GrievancePriority),
         isEmergency: emergencyOnly ? true : undefined,
+        confidentialAssignee,
         page,
         limit,
       }),
@@ -129,6 +142,12 @@ export default function GrievanceListPage() {
           </Link>
         </Button>
       </div>
+
+      <ConfidentialAwaitingBanner
+        count={confidentialCount}
+        showingOnlyThese={confidentialOnly}
+        onToggle={next => { setConfidentialOnly(next); setPage(1); }}
+      />
 
       <Card>
         <CardHeader>

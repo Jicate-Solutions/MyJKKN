@@ -3088,3 +3088,79 @@ DROP TRIGGER IF EXISTS trg_ig_learner_post_claims_guard ON public.ig_learner_pos
 CREATE TRIGGER trg_ig_learner_post_claims_guard
   BEFORE INSERT OR UPDATE ON public.ig_learner_post_claims
   FOR EACH ROW EXECUTE FUNCTION public.fn_ig_learner_post_claim_guard();
+
+-- =====================================================================
+-- Grievance escalation + "about the Joint MD" (triggers): GENERATED from the
+-- migration by supabase/tests/grievance/mirror_setup.py — do not edit by hand.
+-- Source of truth for apply: supabase/migrations/20271010020000_grievance_sla_escalation.sql
+-- =====================================================================
+DROP TRIGGER IF EXISTS trg_grievance_route_on_create ON public.grievance_tickets;
+
+CREATE TRIGGER trg_grievance_route_on_create
+  BEFORE INSERT ON public.grievance_tickets
+  FOR EACH ROW EXECUTE FUNCTION public.fn_grievance_route_on_create();
+
+DROP TRIGGER IF EXISTS trg_grievance_notify_on_create ON public.grievance_tickets;
+
+CREATE TRIGGER trg_grievance_notify_on_create
+  AFTER INSERT ON public.grievance_tickets
+  FOR EACH ROW
+  WHEN (NEW.assigned_to IS NOT NULL
+        AND (NEW.metadata -> 'auto_route' ->> 'assigned_to') = NEW.assigned_to::text)
+  EXECUTE FUNCTION public.fn_grievance_notify_on_create();
+
+DROP TRIGGER IF EXISTS trg_grievance_about_joint_md_guard ON public.grievance_tickets;
+
+CREATE TRIGGER trg_grievance_about_joint_md_guard
+  BEFORE UPDATE ON public.grievance_tickets
+  FOR EACH ROW EXECUTE FUNCTION public.fn_grievance_about_joint_md_guard();
+
+DROP TRIGGER IF EXISTS trg_grievance_comment_ticket_guard ON public.grievance_comments;
+
+CREATE TRIGGER trg_grievance_comment_ticket_guard
+  BEFORE INSERT ON public.grievance_comments
+  FOR EACH ROW EXECUTE FUNCTION public.fn_grievance_child_ticket_guard();
+
+DROP TRIGGER IF EXISTS trg_grievance_history_ticket_guard ON public.grievance_history;
+
+CREATE TRIGGER trg_grievance_history_ticket_guard
+  BEFORE INSERT ON public.grievance_history
+  FOR EACH ROW EXECUTE FUNCTION public.fn_grievance_child_ticket_guard();
+
+-- ---------------------------------------------------------------------
+-- 14) Self-check
+-- ---------------------------------------------------------------------
+DO $$
+DECLARE
+  v_gate text;
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                  WHERE table_schema = 'public' AND table_name = 'grievance_tickets'
+                    AND column_name = 'about_joint_md') THEN
+    RAISE EXCEPTION 'grievance_tickets.about_joint_md was not added';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_policy WHERE polname = 'grievance_tickets_hide_about_joint_md'
+                    AND polrelid = 'public.grievance_tickets'::regclass AND NOT polpermissive) THEN
+    RAISE EXCEPTION 'the restrictive policy hiding complaints about the Joint MD was not created';
+  END IF;
+  -- THE READER GATE (section 12b): no function, view or materialized view
+  -- anywhere may read grievance_tickets / _comments / _history unless every
+  -- read is wrapped or it is allow-listed with a reason.
+  SELECT string_agg(g.kind || ' ' || g.object || ': ' || g.problem, E'\n  ') INTO v_gate
+  FROM public.fn_grievance_jmd_reader_gate() AS g;
+  IF v_gate IS NOT NULL THEN
+    RAISE EXCEPTION E'grievance: these read complaints without leaving out the ones about the Joint MD:\n  %\nWrap them (section 12) or allow-list them with a reason (fn_grievance_jmd_reader_allow_list).', v_gate;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                  WHERE table_schema = 'public' AND table_name = 'grievance_tickets'
+                    AND column_name = 'escalation_deadline') THEN
+    RAISE EXCEPTION 'grievance_tickets.escalation_deadline was not added';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'trg_grievance_route_on_create'
+                    AND tgrelid = 'public.grievance_tickets'::regclass) THEN
+    RAISE EXCEPTION 'trg_grievance_route_on_create was not created';
+  END IF;
+  IF has_function_privilege('authenticated', 'public.fn_grievance_escalation_tick(boolean)', 'EXECUTE') THEN
+    RAISE EXCEPTION 'fn_grievance_escalation_tick must not be executable by signed-in users';
+  END IF;
+END $$;

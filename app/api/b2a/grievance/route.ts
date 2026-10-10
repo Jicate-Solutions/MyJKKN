@@ -5,6 +5,7 @@ import { authenticateApiKey, resolveInstitutionId } from '@/lib/api-keys/authent
 import { checkRateLimit } from '@/lib/api-keys/rate-limiter';
 import { logApiUsage, extractRequestMeta } from '@/lib/api-keys/audit-logger';
 import { createServiceRoleClient } from '@/lib/supabase/server';
+import { leaveOutAboutJointMd, readLeavingOutAboutJointMd } from '@/lib/grievance/about-joint-md-filter';
 
 // Status values match production grievance_tickets_status_check constraint.
 const VALID_STATUSES = [
@@ -129,43 +130,52 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   try {
     const supabase = createServiceRoleClient();
 
-    let query = supabase
-      .from('grievance_tickets')
-      .select(
-        'id, ticket_number, category_id, institution_id, subject, priority, status, ' +
-        'raised_by_type, raised_by_id, raised_by_name, assigned_to, department_id, ' +
-        'sla_deadline, sla_status, resolved_at, is_emergency, is_anonymous, escalation_level, ' +
-        'created_at, updated_at',
-        { count: 'exact' }
-      );
+    const buildQuery = (leaveOut: boolean) => {
+      let query = supabase
+        .from('grievance_tickets')
+        .select(
+          'id, ticket_number, category_id, institution_id, subject, priority, status, ' +
+          'raised_by_type, raised_by_id, raised_by_name, assigned_to, department_id, ' +
+          'sla_deadline, sla_status, resolved_at, is_emergency, is_anonymous, escalation_level, ' +
+          'created_at, updated_at',
+          { count: 'exact' }
+        );
 
-    if (institutionId) {
-      query = query.eq('institution_id', institutionId);
-    }
+      if (institutionId) {
+        query = query.eq('institution_id', institutionId);
+      }
 
-    // Confidentiality gate: ICC-only tickets (confidential sexual-harassment
-    // cases per spec R4.1) are never exposed over B2A. An external API key
-    // carries no ICC membership, so this filter is unconditional.
-    // Mirrors the read path in lib/mcp/tools/grievance.ts.
-    query = query.eq('is_icc_only', false);
+      // Confidentiality gate: ICC-only tickets (confidential sexual-harassment
+      // cases per spec R4.1) are never exposed over B2A. An external API key
+      // carries no ICC membership, so this filter is unconditional.
+      // Mirrors the read path in lib/mcp/tools/grievance.ts.
+      query = query.eq('is_icc_only', false);
+      // A complaint about the Joint MD (Director ruling, 9 Oct 2026) is never
+      // exposed over B2A either: a key cannot prove it is not the Joint MD's.
+      if (leaveOut) {
+        query = leaveOutAboutJointMd(query);
+      }
 
-    if (status) {
-      query = query.eq('status', status);
-    }
+      if (status) {
+        query = query.eq('status', status);
+      }
 
-    if (priority) {
-      query = query.eq('priority', priority);
-    }
+      if (priority) {
+        query = query.eq('priority', priority);
+      }
 
-    if (emergencyFilter !== null) {
-      query = query.eq('is_emergency', emergencyFilter);
-    }
+      if (emergencyFilter !== null) {
+        query = query.eq('is_emergency', emergencyFilter);
+      }
 
-    query = query
-      .order('created_at', { ascending: false })
-      .range(offset, offset + limit - 1);
+      return query
+        .order('created_at', { ascending: false })
+        .range(offset, offset + limit - 1);
+    };
 
-    const { data, error, count } = await query;
+    // Leaves out complaints about the Joint MD; before migration 20271010020000
+    // reaches the database, reads as it did before (lib/grievance/about-joint-md-filter).
+    const { data, error, count } = await readLeavingOutAboutJointMd(supabase, buildQuery);
 
     if (error) {
       statusCode = 500;

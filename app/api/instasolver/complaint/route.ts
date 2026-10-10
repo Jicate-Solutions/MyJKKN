@@ -26,12 +26,24 @@
 //      afterwards, so the assignment notification is never reached — that is
 //      the gate, and it is why the assignment is an insert field rather than a
 //      follow-up call.
-//   2. No INSERT trigger on grievance_tickets sends anything. The only trigger
-//      is emit_grievance_evidence_on_resolve, AFTER UPDATE OF status.
+//   2. The INSERT triggers on grievance_tickets (routing on create, and its
+//      notice — migration 20271010020000) skip this ticket: they never touch
+//      a ticket marked metadata.about_superior (set below), nor one that
+//      already has an assignee. The SLA escalation run skips the HOD and
+//      Principal for it too and goes straight to level 3 (the Joint MD).
 //   3. The dashboard work-item generator (fn_generate_unresolved_*_items)
 //      targets COALESCE(assigned_to, the institution's Director) — never the
 //      filer's department head. Tickets from this route also carry no
 //      department_id, so there is no department path to walk to him either.
+//
+// ── "THIS COMPLAINT IS ABOUT THE JOINT MD" (Director, 9 Oct 2026) ───────────
+// One more tick. The I8 route above sends a complaint to the profile in
+// instasolver.complaint.superior_route_to — which IS the Joint MD — so when
+// this tick is set that route is never used, even if "about my HOD or
+// manager" is ticked too. The ticket is written with about_joint_md = true
+// and NO assignee; the database (fn_grievance_route_on_create, migration
+// 20271010020000) gives it to the Director, or holds it when no Director is
+// set, and hides it from the Joint MD.
 // ============================================================================
 
 export const dynamic = 'force-dynamic';
@@ -67,6 +79,7 @@ interface ComplaintBody {
   description?: unknown;
   anonymous?: unknown;
   about_superior?: unknown;
+  about_joint_md?: unknown;
 }
 
 export async function POST(request: NextRequest) {
@@ -113,6 +126,7 @@ export async function POST(request: NextRequest) {
   const description = typeof body.description === 'string' ? body.description.trim() : '';
   const wantsAnonymous = body.anonymous === true;
   const aboutSuperior = body.about_superior === true;
+  const aboutJointMd = body.about_joint_md === true;
 
   if (!categoryId) {
     return fail('Please choose what this complaint is about.', 400);
@@ -179,6 +193,14 @@ export async function POST(request: NextRequest) {
   const extraMetadata: Record<string, unknown> = {};
 
   if (aboutSuperior) {
+    // Read by the database (fn_grievance_sensitive_reason): routing on create
+    // and SLA escalation never send this ticket to a HOD or Principal.
+    extraMetadata.about_superior = true;
+  }
+
+  // About the Joint MD: the I8 target below IS the Joint MD, so it is skipped
+  // and the database routes the ticket to the Director (see the header).
+  if (aboutSuperior && !aboutJointMd) {
     const routeTo = await resolveSuperiorRouteProfileId(supabase);
 
     // A UUID-shaped policy value is not proof the profile still exists, and
@@ -208,7 +230,7 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  let ticket: { ticket_number?: string | null } | null = null;
+  let ticket: { ticket_number?: string | null; assigned_to?: string | null } | null = null;
   try {
     ticket = await LCIssueService.createLCIssue(
       {
@@ -227,6 +249,7 @@ export async function POST(request: NextRequest) {
         anonymousToken,
         assignedTo,
         extraMetadata,
+        aboutJointMd,
       }
     );
   } catch (err) {
@@ -249,6 +272,13 @@ export async function POST(request: NextRequest) {
   }
 
   const ticketNumber = ticket?.ticket_number ?? null;
+
+  // The database has already decided (Director, or held); say which.
+  if (aboutJointMd) {
+    notice = ticket?.assigned_to
+      ? 'Sent straight to the Director. The Joint MD cannot see this complaint.'
+      : 'Saved and held for the Director. The Joint MD cannot see this complaint.';
+  }
 
   return NextResponse.json({
     success: true,

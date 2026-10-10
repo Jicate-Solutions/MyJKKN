@@ -5,6 +5,7 @@
 import { createClientSupabaseClient, type TypedSupabaseClient } from '@/lib/supabase/client';
 import { LCNotificationService } from './notification-service';
 import { describeCheckConstraintViolation } from '@/lib/validations/grievance-ticket';
+import { ABOUT_JOINT_MD_COLUMN, isMissingGrievanceSchema } from '@/lib/grievance/schema-compat';
 import type { TablesInsert } from '@/types/supabase';
 import type {
   GrievanceTicket,
@@ -48,6 +49,12 @@ export interface CreateLCIssueOptions {
   assignedTo?: string | null;
   /** Merged into `metadata` alongside `source`. */
   extraMetadata?: Record<string, unknown>;
+  /**
+   * The filer ticked "This complaint is about the Joint MD" (Director ruling,
+   * 9 Oct 2026). The database routes such a ticket to the Director and hides
+   * it from the Joint MD (migration 20271010020000).
+   */
+  aboutJointMd?: boolean;
 }
 
 /** Kanban board data structure */
@@ -334,6 +341,7 @@ export class LCIssueService {
         ? { is_anonymous: true, raised_by_phone: null, anonymous_token: options.anonymousToken ?? null }
         : {}),
       ...(options.assignedTo ? { assigned_to: options.assignedTo, assigned_at: new Date().toISOString() } : {}),
+      ...(options.aboutJointMd ? { about_joint_md: true } : {}),
       sla_hours: 72, // Default 72h SLA for LC issues
       sla_deadline: new Date(Date.now() + 72 * 60 * 60 * 1000).toISOString(),
       sla_status: 'on_track',
@@ -341,15 +349,35 @@ export class LCIssueService {
       metadata: { source: options.source ?? 'learners_council', ...(options.extraMetadata ?? {}) }
     };
 
-    const { data: ticket, error } = await db
-      .from('grievance_tickets')
-      .insert(newTicket as TablesInsert<'grievance_tickets'>)
-      .select(`
-        *,
-        category:grievance_categories!category_id(id, name),
-        assignee:profiles!assigned_to(id, full_name, email, avatar_url)
-      `)
-      .single();
+    const insertTicket = (row: typeof newTicket) =>
+      db
+        .from('grievance_tickets')
+        .insert(row as TablesInsert<'grievance_tickets'>)
+        .select(`
+          *,
+          category:grievance_categories!category_id(id, name),
+          assignee:profiles!assigned_to(id, full_name, email, avatar_url)
+        `)
+        .single();
+
+    let { data: ticket, error } = await insertTicket(newTicket);
+
+    // Deploy order (deep review of #4079 round 2, M5): the app can reach
+    // production before migration 20271010020000 adds about_joint_md.
+    if (error && isMissingGrievanceSchema(error, ABOUT_JOINT_MD_COLUMN)) {
+      if (options.aboutJointMd) {
+        // Never file it without the tick: that would route a complaint about
+        // the Joint MD down the normal path, where she can see it. Fail loudly,
+        // in words the filer can act on (the route shows non-database errors).
+        throw new Error(
+          'The option "This complaint is about the Joint MD" is not switched on yet, so nothing was filed. ' +
+            'Please try again later, or take the complaint to the Director in person.'
+        );
+      }
+      // Without the tick the row is the shape it was before that migration.
+      const { about_joint_md: _unused, ...oldShape } = newTicket as typeof newTicket & { about_joint_md?: boolean };
+      ({ data: ticket, error } = await insertTicket(oldShape));
+    }
 
     if (error) {
       console.error('[lc/issues] Error creating issue:', error);

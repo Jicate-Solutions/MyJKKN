@@ -15,6 +15,8 @@
  *       state and silently ignored at submit time: they believed they had filed
  *       without a name and they had not. The retraction is now explicit.
  *   I8  "This is about my HOD or manager" — sends it past them.
+ * A third tick (Director, 9 Oct 2026): "This complaint is about the Joint MD"
+ * — it goes to the Director, and the Joint MD never sees it.
  *
  * The description rule is mirrored from the database through
  * validateGrievanceDescription, the same function the board uses (BUG-01), so
@@ -81,6 +83,7 @@ export function ComplaintClient({
   const [anonymous, setAnonymous] = useState(false);
   const [anonymousRetracted, setAnonymousRetracted] = useState(false);
   const [aboutSuperior, setAboutSuperior] = useState(false);
+  const [aboutJointMd, setAboutJointMd] = useState(false);
   const [touched, setTouched] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [filed, setFiled] = useState<Filed | null>(null);
@@ -126,6 +129,7 @@ export function ComplaintClient({
           description: description.trim(),
           anonymous: effectiveAnonymous,
           about_superior: aboutSuperior,
+          about_joint_md: aboutJointMd,
         }),
       });
 
@@ -369,6 +373,22 @@ export function ComplaintClient({
             </Label>
             <p className="text-sm text-muted-foreground">
               It skips them and goes straight to senior management.
+            </p>
+          </div>
+        </div>
+
+        <div className="flex items-start gap-3 rounded-md border p-3">
+          <Checkbox
+            id="complaint-joint-md"
+            checked={aboutJointMd}
+            onCheckedChange={(v) => setAboutJointMd(v === true)}
+          />
+          <div className="space-y-1">
+            <Label htmlFor="complaint-joint-md" className="font-medium">
+              This complaint is about the Joint MD (it goes straight to the Director)
+            </Label>
+            <p className="text-sm text-muted-foreground">
+              The Joint MD will not see it.
             </p>
           </div>
         </div>
