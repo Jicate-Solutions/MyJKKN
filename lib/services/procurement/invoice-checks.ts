@@ -77,15 +77,17 @@ export function normaliseInvoiceNumber(raw: string | null | undefined): string |
 // ── Invoice-number format, D2 + D3 (Director, 2026-10-10) ─────────────────────
 
 /**
- * D3: a saved invoice number holds only A-Z, a-z, 0-9, "-" and "/". The database's
- * procurement_grn_invoice_number_charset CHECK uses the same pattern; both match exactly
+ * D3: a saved invoice number holds only A-Z, a-z, 0-9, "-" and "/", and at least one
+ * letter or digit (decisions round, red team: "---" passed the charset but normalised to
+ * blank, so the receipt could never be verified). The database's
+ * procurement_grn_invoice_number_charset CHECK uses the same pattern; both allow exactly
  * these 64 characters (checked on Postgres 15.6 and 16, and in the tests here).
  * The normaliser above stays as defence in depth.
  */
-export const INVOICE_NUMBER_ALLOWED = /^[A-Za-z0-9/-]+$/;
+export const INVOICE_NUMBER_ALLOWED = /^[A-Za-z0-9/-]*[A-Za-z0-9][A-Za-z0-9/-]*$/;
 
 export const INVOICE_NUMBER_FORMAT_MESSAGE =
-  'An invoice number can only have letters (A–Z), digits (0–9), "-" and "/". Retype it as printed on the bill, without spaces or other symbols.';
+  'An invoice number can only have letters (A–Z), digits (0–9), "-" and "/", and must have at least one letter or digit. Retype it as printed on the bill, without spaces or other symbols.';
 
 /** D3: is this (already trimmed) invoice number allowed to be saved? */
 export function invoiceNumberFormatOk(value: string | null | undefined): boolean {
@@ -294,9 +296,12 @@ export function lateReasonMissing(
  * posted, or recorded earlier — see findDuplicateGrns) is SAVED, but held: it cannot be verified (added to stock) until a verifier confirms it
  * is a different invoice. The verifier must not be the person who received it.
  *
- *   held        — a duplicate exists and nobody has confirmed it yet
+ *   held        — a duplicate exists and nobody has confirmed it yet, or the
+ *                 confirmation does not count (confirmationVoid)
  *   canConfirm  — the viewer may press "this is a different invoice" now
  *   blocksVerify — verify must be refused (same as held)
+ *   confirmationVoid — D4: the confirmer received this delivery or another one with
+ *                 this number, so a third person must confirm again
  *
  * The database enforces the same rule (fn_procurement_guard_approval refuses the verify,
  * fn_procurement_grn_invoice_checks refuses a confirmer who is the receiver).
@@ -312,33 +317,61 @@ export function duplicateHold(input: {
    * delivery this one repeats? Then they may not confirm either.
    */
   viewerReceivedMatch?: boolean;
-}): { held: boolean; canConfirm: boolean; blocksVerify: boolean; viewerIsParty: boolean } {
-  const held = input.hasDuplicate && !input.confirmedBy;
+  /**
+   * D4 at verify time (decisions round, red team): did the person who CONFIRMED receive
+   * another delivery with this number (in any status)? Then the confirmation does not
+   * count, as in the database verify guard.
+   */
+  confirmerReceivedMatch?: boolean;
+}): {
+  held: boolean;
+  canConfirm: boolean;
+  blocksVerify: boolean;
+  viewerIsParty: boolean;
+  confirmationVoid: boolean;
+} {
+  const confirmationVoid =
+    input.hasDuplicate &&
+    !!input.confirmedBy &&
+    (input.confirmedBy === input.receivedBy || !!input.confirmerReceivedMatch);
+  const held = (input.hasDuplicate && !input.confirmedBy) || confirmationVoid;
   const viewerIsParty =
     !!input.viewerId && (input.viewerId === input.receivedBy || !!input.viewerReceivedMatch);
   const canConfirm = held && input.viewerCanVerify && !!input.viewerId && !viewerIsParty;
-  return { held, canConfirm, blocksVerify: held, viewerIsParty };
+  return { held, canConfirm, blocksVerify: held, viewerIsParty, confirmationVoid };
 }
 
 /**
- * D4: of the receipts the caller can see, does any one this receipt repeats (the
- * findDuplicateGrns set) have `userId` as its receiver? The fallback for a database
- * without fn_procurement_grn_has_duplicate's p_received_by; the database answer also
- * covers colleges the caller cannot see.
+ * D4: of the receipts the caller can see, did `userId` receive ANY other one from the
+ * same supplier with the same normalised invoice number — whatever its status (cancelled
+ * included) and whenever it was recorded? Not the findDuplicateGrns hold set (decisions
+ * round, red team: a later, unposted or cancelled receipt of the confirmer's can be
+ * posted or revived after the confirmation). Same question as
+ * fn_procurement_grn_has_duplicate with p_received_by; the database answer also covers
+ * colleges the caller cannot see.
  */
 export function receivedMatchingDelivery<T extends DuplicateCandidate>(
   candidates: readonly T[],
-  grn: { id: string; supplier_id: string; invoice_number: string | null; created_at: string },
+  grn: { id: string; supplier_id: string; invoice_number: string | null },
   userId: string | null | undefined,
 ): boolean {
   if (!userId) return false;
-  return findDuplicateGrns(candidates, grn.supplier_id, grn.invoice_number, grn.id, grn).some(
-    (g) => g.received_by === userId,
+  const key = normaliseInvoiceNumber(grn.invoice_number);
+  if (!key || !grn.supplier_id) return false;
+  return candidates.some(
+    (g) =>
+      g.supplier_id === grn.supplier_id &&
+      g.id !== grn.id &&
+      g.received_by === userId &&
+      normaliseInvoiceNumber(g.invoice_number) === key,
   );
 }
 
 export const THIRD_PERSON_MESSAGE =
   'You received the other delivery that carries this invoice number, so you cannot confirm it. A third person, who received neither delivery, must confirm.';
+
+export const CONFIRMATION_VOID_MESSAGE =
+  'The person who confirmed this repeated invoice number received one of the deliveries that carry it, so the confirmation does not count. A third person, who received neither delivery, must confirm it before stock is added.';
 
 // ── Reusing a finished read (review round 2, 2026-10-09) ─────────────────────
 

@@ -27,6 +27,7 @@ import {
   POSTED_GRN_STATUSES,
   receivedMatchingDelivery,
   THIRD_PERSON_MESSAGE,
+  CONFIRMATION_VOID_MESSAGE,
   type DuplicateCandidate,
 } from './invoice-checks';
 import {
@@ -497,6 +498,27 @@ export class ProcurementGrnService {
   }
 
   /**
+   * D4 at verify time (decisions round, red team): did whoever CONFIRMED this repeated
+   * invoice receive another delivery with the same number, in any status? The database
+   * answers only about the signed-in user, so when the confirmer is someone else this
+   * reads the caller's own view; the database verify guard is authoritative and also
+   * sees colleges the caller cannot.
+   */
+  static async confirmerReceivedMatch(
+    grn: Pick<
+      ProcurementGrn,
+      'id' | 'supplier_id' | 'invoice_number' | 'created_at' | 'duplicate_confirmed_by'
+    >,
+    viewerId: string
+  ): Promise<boolean> {
+    const confirmer = grn.duplicate_confirmed_by;
+    if (!confirmer) return false;
+    if (confirmer === viewerId) return this.receivedMatchingDelivery(grn, viewerId);
+    const visible = await this.getSupplierInvoiceGrns(grn.supplier_id);
+    return receivedMatchingDelivery(visible, grn, confirmer);
+  }
+
+  /**
    * I1 held save: the verifier confirms that a repeated invoice number is a different
    * invoice. The DB trigger fn_procurement_grn_invoice_checks stamps the time and refuses
    * anyone who is the receiver, received the other delivery (D4), lacks verify rights,
@@ -582,16 +604,21 @@ export class ProcurementGrnService {
       }
 
       // 1b) I1 held save — a repeated invoice number must be confirmed as a different
-      //     invoice before stock is added. The DB verify guard refuses it too.
-      if (
-        duplicateHold({
-          hasDuplicate: await this.hasDuplicateInvoice(grn),
-          confirmedBy: grn.duplicate_confirmed_by,
-          viewerId: userId,
-          receivedBy: grn.received_by,
-          viewerCanVerify: true,
-        }).blocksVerify
-      ) {
+      //     invoice before stock is added. D4 again at this moment (decisions round, red
+      //     team): a confirmation from someone who received this delivery or ANY other
+      //     with this number does not count. The DB verify guard refuses both too.
+      const hold = duplicateHold({
+        hasDuplicate: await this.hasDuplicateInvoice(grn),
+        confirmedBy: grn.duplicate_confirmed_by,
+        viewerId: userId,
+        receivedBy: grn.received_by,
+        viewerCanVerify: true,
+        confirmerReceivedMatch: await this.confirmerReceivedMatch(grn, userId),
+      });
+      if (hold.confirmationVoid) {
+        throw new Error(CONFIRMATION_VOID_MESSAGE);
+      }
+      if (hold.blocksVerify) {
         throw new Error(
           'This invoice number repeats another delivery from the same supplier (already in stock, or recorded earlier). A verifier other than the receiver must confirm it is a different invoice before it is added to stock.'
         );
@@ -970,23 +997,41 @@ export class ProcurementGrnService {
 
       // 4) Create the replacement GRN header (pre-inspected -> completed).
       const grnNumber = await this.generateGrnNumber(parentGrn.institution_id);
-      const { data: grn, error: grnErr } = await this.supabase
+      const replacementHeader = {
+        institution_id: parentGrn.institution_id,
+        store_id: parentGrn.store_id ?? null,
+        grn_number: grnNumber,
+        purchase_order_id: parentGrn.purchase_order_id,
+        supplier_id: parentGrn.supplier_id,
+        domain,
+        status: 'completed',
+        received_by: userId,
+        verified_by: userId,
+        verified_at: new Date().toISOString(),
+        notes: `Replacement for ${parentGrn.grn_number} — ${originItem.item_name}`,
+        // D2 (decisions round, red team): the database lets an invoice-less receipt
+        // into stock only when it names the claimed replacement it fulfils.
+        replacement_id: input.replacement_id,
+      };
+      let { data: grn, error: grnErr } = await this.supabase
         .from('procurement_grn')
-        .insert({
-          institution_id: parentGrn.institution_id,
-          store_id: parentGrn.store_id ?? null,
-          grn_number: grnNumber,
-          purchase_order_id: parentGrn.purchase_order_id,
-          supplier_id: parentGrn.supplier_id,
-          domain,
-          status: 'completed',
-          received_by: userId,
-          verified_by: userId,
-          verified_at: new Date().toISOString(),
-          notes: `Replacement for ${parentGrn.grn_number} — ${originItem.item_name}`,
-        })
+        .insert(replacementHeader)
         .select()
         .single();
+      // On a database where the decisions-round migration is not applied yet the column
+      // does not exist (PostgREST PGRST204) — and neither does the check that reads it.
+      if (
+        grnErr &&
+        grnErr.code === 'PGRST204' &&
+        /replacement_id/.test(String(grnErr.message ?? ''))
+      ) {
+        const { replacement_id: _omit, ...withoutMarker } = replacementHeader;
+        ({ data: grn, error: grnErr } = await this.supabase
+          .from('procurement_grn')
+          .insert(withoutMarker)
+          .select()
+          .single());
+      }
       if (grnErr) throw grnErr;
       createdGrnId = grn.id;
 

@@ -495,6 +495,104 @@ describe('D4 confirmDifferentInvoice — third-person rule', () => {
   });
 });
 
+describe('D4 verifyGrn — the confirmation is re-checked at verify time (decisions round, red team)', () => {
+  it('refuses a held receipt whose confirmer received another delivery with the number, before any write', async () => {
+    verifyWorld([item()], true, [
+      // the confirmer's own LATER, cancelled receipt — revivable, so it still counts
+      { id: 'g9', supplier_id: 'sup1', invoice_number: 'inv-5', status: 'cancelled', created_at: '2026-10-09T09:00:00+00:00', received_by: 'v3' },
+    ]);
+    const base = onTable;
+    onTable = (c) =>
+      c.table === 'procurement_grn' && c.op === 'select' && !c.filters.some(([, k]) => k === 'supplier_id')
+        ? { data: { ...GRN, duplicate_confirmed_by: 'v3' }, error: null }
+        : base(c);
+    await expect(ProcurementGrnService.verifyGrn('g2', 'verifier')).rejects.toThrow(
+      /confirmation does not count/
+    );
+    expect(writesTo('procurement_grn')).toHaveLength(0);
+    expect(adapter.postReceipt).not.toHaveBeenCalled();
+  });
+
+  it('asks the database (p_received_by) when the verifier is the confirmer', async () => {
+    verifyWorld([item()], true);
+    onRpc = (fn, args) =>
+      fn === 'fn_procurement_grn_has_duplicate'
+        ? { data: true, error: null }
+        : { data: null, error: null };
+    const base = onTable;
+    onTable = (c) =>
+      c.table === 'procurement_grn' && c.op === 'select' && !c.filters.some(([, k]) => k === 'supplier_id')
+        ? { data: { ...GRN, duplicate_confirmed_by: 'v3' }, error: null }
+        : base(c);
+    await expect(ProcurementGrnService.verifyGrn('g2', 'v3')).rejects.toThrow(/confirmation does not count/);
+    expect(rpcCalls.some((c) => c.args.p_received_by === 'v3')).toBe(true);
+  });
+
+  it('honours a third-person confirmation (reaches the status lock)', async () => {
+    verifyWorld([item()], true, [
+      { id: 'g1', supplier_id: 'sup1', invoice_number: 'INV-5', status: 'accepted', created_at: '2026-10-08T05:00:00+00:00', received_by: 'someone-else' },
+    ]);
+    const base = onTable;
+    onTable = (c) =>
+      c.table === 'procurement_grn' && c.op === 'select' && !c.filters.some(([, k]) => k === 'supplier_id')
+        ? { data: { ...GRN, duplicate_confirmed_by: 'v2' }, error: null }
+        : base(c);
+    await expect(ProcurementGrnService.verifyGrn('g2', 'verifier')).rejects.toMatchObject({
+      message: 'stop: write reached',
+    });
+  });
+});
+
+describe('D2 receiveReplacement — the header names the replacement it fulfils', () => {
+  function world(insertErr?: (n: number) => unknown) {
+    let n = 0;
+    onTable = (c) => {
+      if (c.table === 'procurement_grn_replacements' && c.op === 'select')
+        return {
+          data: {
+            id: 'rep1', status: 'pending', rejected_quantity: 5,
+            grn_item: { id: 'gi1', item_name: 'Acid', is_chemical: false, grn_id: 'g1', po_item_id: 'poi1', domain_item_id: 'item1', cost_price: 2 },
+          },
+          error: null,
+        };
+      if (c.table === 'procurement_grn' && c.op === 'select')
+        return { data: { id: 'g1', institution_id: 'inst1', domain: 'ims', grn_number: 'GRN-1', status: 'replacement_requested', purchase_order_id: 'po1' }, error: null };
+      if (c.table === 'procurement_grn_replacements' && c.op === 'update') return { data: { id: 'rep1' }, error: null };
+      if (c.table === 'procurement_grn' && c.op === 'insert') {
+        n++;
+        const err = insertErr?.(n);
+        return err ? { data: null, error: err } : { data: { id: 'g-rep' }, error: null };
+      }
+      if (c.table === 'procurement_grn_items' && c.op === 'insert') return { data: { id: 'gi-rep' }, error: null };
+      return { data: null, error: null };
+    };
+    onRpc = (fn) => (fn === 'procurement_next_number' ? { data: 3, error: null } : { data: null, error: null });
+  }
+  const input = { replacement_id: 'rep1', accepted_quantity: 5, expiry_date: '2027-12-31' } as any;
+
+  it('sends replacement_id on the completed header insert', async () => {
+    world();
+    await ProcurementGrnService.receiveReplacement(input, 'u1');
+    const ins = writesTo('procurement_grn').filter((c) => c.op === 'insert');
+    expect(ins).toHaveLength(1);
+    expect(ins[0].payload).toMatchObject({ status: 'completed', replacement_id: 'rep1' });
+  });
+
+  it('before the migration (no column): retries once without the marker', async () => {
+    world((n) => (n === 1 ? { code: 'PGRST204', message: "Could not find the 'replacement_id' column" } : null));
+    await ProcurementGrnService.receiveReplacement(input, 'u1');
+    const ins = writesTo('procurement_grn').filter((c) => c.op === 'insert');
+    expect(ins).toHaveLength(2);
+    expect(ins[1].payload).not.toHaveProperty('replacement_id');
+  });
+
+  it('does not retry on any other insert error', async () => {
+    world(() => ({ code: '23514', message: 'no invoice number' }));
+    await expect(ProcurementGrnService.receiveReplacement(input, 'u1')).rejects.toMatchObject({ code: '23514' });
+    expect(writesTo('procurement_grn').filter((c) => c.op === 'insert')).toHaveLength(1);
+  });
+});
+
 describe('D2 verifyGrn — no invoice number, no stock', () => {
   it('refuses a receipt with no invoice number, before any write', async () => {
     verifyWorld([item()], false);

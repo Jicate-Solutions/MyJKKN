@@ -2,7 +2,7 @@
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { ProcurementGrnService } from '@/lib/services/procurement/grn-service';
-import { findDuplicateGrns } from '@/lib/services/procurement/invoice-checks';
+import { findDuplicateGrns, receivedMatchingDelivery } from '@/lib/services/procurement/invoice-checks';
 import type { CreateGrnInput, GrnFilters, ReceiveReplacementInput } from '@/types/procurement';
 
 export function useGrns(filters: GrnFilters) {
@@ -43,13 +43,26 @@ export function useCreateGrn() {
  */
 export function useGrnDuplicateInvoice(
   grn:
-    | { id: string; supplier_id: string; invoice_number: string | null; created_at: string }
+    | {
+        id: string;
+        supplier_id: string;
+        invoice_number: string | null;
+        created_at: string;
+        duplicate_confirmed_by?: string | null;
+      }
     | null
     | undefined,
   viewerId?: string | null
 ) {
   return useQuery({
-    queryKey: ['procurement-grn-duplicate', grn?.id, grn?.supplier_id, grn?.invoice_number, viewerId],
+    queryKey: [
+      'procurement-grn-duplicate',
+      grn?.id,
+      grn?.supplier_id,
+      grn?.invoice_number,
+      grn?.duplicate_confirmed_by,
+      viewerId,
+    ],
     queryFn: async () => {
       const g = grn!;
       const [hasDuplicate, visible, viewerReceivedMatch] = await Promise.all([
@@ -58,9 +71,18 @@ export function useGrnDuplicateInvoice(
         // D4 third-person rule: did the viewer receive the other delivery?
         viewerId ? ProcurementGrnService.receivedMatchingDelivery(g, viewerId) : Promise.resolve(false),
       ]);
+      // D4 at verify time: did whoever confirmed receive another delivery with this
+      // number (any status)? The database decides; this only disables the button.
+      const confirmer = g.duplicate_confirmed_by ?? null;
+      const confirmerReceivedMatch = !confirmer
+        ? false
+        : confirmer === viewerId
+          ? viewerReceivedMatch
+          : receivedMatchingDelivery(visible, g, confirmer);
       return {
         hasDuplicate,
         viewerReceivedMatch,
+        confirmerReceivedMatch,
         // Receipts already in stock, or recorded BEFORE this one — the same rule as the
         // database: the original is never held by a later, not-yet-verified repeat.
         earlier: findDuplicateGrns(visible, g.supplier_id, g.invoice_number, g.id, g),

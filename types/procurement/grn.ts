@@ -41,6 +41,8 @@ export interface ProcurementGrn {
   duplicate_confirmed_at?: string | null;
   /** I4: why an invoice older than the receiver's limit was accepted. */
   late_invoice_reason?: string | null;
+  /** D2: the replacement this receipt fulfils (set by receiveReplacement; server-checked). */
+  replacement_id?: string | null;
   created_at: string;
   updated_at: string;
   supplier?: { id: string; name: string; code: string; gstin: string | null } | null;

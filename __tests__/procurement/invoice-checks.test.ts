@@ -252,6 +252,7 @@ describe('I1 duplicateHold (held save)', () => {
       canConfirm: true,
       blocksVerify: true,
       viewerIsParty: false,
+      confirmationVoid: false,
     });
   });
   it('releases the hold once confirmed', () => {
@@ -260,6 +261,7 @@ describe('I1 duplicateHold (held save)', () => {
       canConfirm: false,
       blocksVerify: false,
       viewerIsParty: false,
+      confirmationVoid: false,
     });
   });
   it('never holds a receipt with no duplicate', () => {
@@ -284,6 +286,22 @@ describe('I1 duplicateHold (held save)', () => {
   });
   it('D4: the receiver is a party too', () => {
     expect(duplicateHold({ ...base, viewerId: 'receiver' }).viewerIsParty).toBe(true);
+  });
+  it('D4 at verify time: a confirmation by someone who received another such delivery does not count', () => {
+    const r = duplicateHold({ ...base, confirmedBy: 'v3', confirmerReceivedMatch: true });
+    expect(r.confirmationVoid).toBe(true);
+    expect(r.held).toBe(true);
+    expect(r.blocksVerify).toBe(true);
+    // a third person may confirm again
+    expect(r.canConfirm).toBe(true);
+  });
+  it('D4 at verify time: a confirmation by the receiver (e.g. after an admin change) does not count', () => {
+    expect(duplicateHold({ ...base, confirmedBy: 'receiver' }).blocksVerify).toBe(true);
+  });
+  it('D4 at verify time: a stray confirmation on a receipt that is not held blocks nothing', () => {
+    const r = duplicateHold({ ...base, hasDuplicate: false, confirmedBy: 'v3', confirmerReceivedMatch: true });
+    expect(r.confirmationVoid).toBe(false);
+    expect(r.blocksVerify).toBe(false);
   });
 });
 
@@ -311,6 +329,14 @@ describe('D4 receivedMatchingDelivery (fallback when the database cannot answer)
   it('is false for an unknown user', () => {
     expect(receivedMatchingDelivery([earlier], grn, null)).toBe(false);
   });
+  it('counts a LATER, never-posted receipt of the user (decisions round, red team RT1)', () => {
+    const later = { ...earlier, status: 'pending_verification', created_at: '2026-10-10T05:00:00Z' };
+    expect(receivedMatchingDelivery([later], grn, 'v3')).toBe(true);
+  });
+  it('counts a CANCELLED receipt of the user — it can be revived (red team RT2)', () => {
+    const cancelled = { ...earlier, status: 'cancelled' };
+    expect(receivedMatchingDelivery([cancelled], grn, 'v3')).toBe(true);
+  });
 });
 
 describe('D3 invoiceNumberFormatOk (letters, digits, - and / only)', () => {
@@ -331,6 +357,10 @@ describe('D3 invoiceNumberFormatOk (letters, digits, - and / only)', () => {
       'INV‐1', // U+2010 hyphen
       'INV\u200b1',
       '',
+      '-',
+      '---',
+      '/',
+      '-/-',
     ]) {
       expect(invoiceNumberFormatOk(bad)).toBe(false);
     }
@@ -338,12 +368,17 @@ describe('D3 invoiceNumberFormatOk (letters, digits, - and / only)', () => {
     expect(invoiceNumberFormatOk(undefined)).toBe(false);
   });
   it('matches exactly the 64 allowed characters of U+0000-U+FFFF (same count as the DB CHECK)', () => {
+    // Each character is tried next to a letter, since a number must hold a letter or digit.
     let n = 0;
     for (let c = 0; c <= 0xffff; c++) {
       if (c >= 0xd800 && c <= 0xdfff) continue;
-      if (INVOICE_NUMBER_ALLOWED.test(String.fromCharCode(c))) n++;
+      if (INVOICE_NUMBER_ALLOWED.test('A' + String.fromCharCode(c))) n++;
     }
     expect(n).toBe(64);
+  });
+  it('needs at least one letter or digit (decisions round, red team: "---" normalised to blank)', () => {
+    for (const ok of ['-7-', '/A', 'A/', '1']) expect(invoiceNumberFormatOk(ok)).toBe(true);
+    for (const bad of ['-', '--', '---', '/', '//', '-/-']) expect(invoiceNumberFormatOk(bad)).toBe(false);
   });
 });
 

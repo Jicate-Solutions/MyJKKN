@@ -19,6 +19,7 @@ import {
   BLANK_INVOICE_MESSAGE,
   blankInvoiceBlocksStock,
   duplicateHold,
+  CONFIRMATION_VOID_MESSAGE,
   POSTED_GRN_STATUSES,
 } from '@/lib/services/procurement/invoice-checks';
 import { DuplicateInvoiceCompare } from '@/components/procurement/duplicate-invoice-compare';
@@ -172,6 +173,7 @@ export default function GrnDetailPage() {
     receivedBy: grn.received_by,
     viewerCanVerify: canVerify,
     viewerReceivedMatch: !!dup?.viewerReceivedMatch,
+    confirmerReceivedMatch: !!dup?.confirmerReceivedMatch,
   });
   // D2 (Director 2026-10-10): no invoice number, no stock. The service and the database
   // refuse it too.
@@ -257,6 +259,9 @@ export default function GrnDetailPage() {
                   another delivery. Stock cannot be added until a verifier who did not receive these
                   goods compares the two and confirms they are different invoices.
                 </p>
+                {hold.confirmationVoid && (
+                  <p className="text-muted-foreground">{CONFIRMATION_VOID_MESSAGE}</p>
+                )}
               </div>
             </div>
             <DuplicateInvoiceCompare
@@ -288,7 +293,7 @@ export default function GrnDetailPage() {
             )}
           </section>
         )}
-        {pending && grn.duplicate_confirmed_by && (
+        {pending && grn.duplicate_confirmed_by && !hold.confirmationVoid && (
           <p className="text-sm text-muted-foreground">
             Repeated invoice number confirmed as a different invoice
             {grn.duplicate_confirmed_by === profile?.id ? ' by you' : ''}
