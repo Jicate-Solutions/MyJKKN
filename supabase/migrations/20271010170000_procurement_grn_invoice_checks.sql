@@ -1167,6 +1167,45 @@ CREATE TRIGGER trg_pgrnr_replacement_checks
   BEFORE INSERT OR UPDATE ON public.procurement_grn_replacements
   FOR EACH ROW EXECUTE FUNCTION public.fn_procurement_grn_replacement_checks();
 
+-- H2 round 3 (skeptic): the total above counts the rows already raised, so deleting
+-- them must not be open. pgrnr_parent_scope is FOR ALL (institution only), so anyone at
+-- the college could delete a line's replacements — fulfilled ones included — and raise
+-- the full rejected quantity again. No app path deletes a replacement row; only an admin
+-- or the service role may. When the delivery line itself is already gone (a cascade
+-- from a line delete, which trg_pgrni_delete_guard judged) the row goes with it.
+CREATE OR REPLACE FUNCTION public.fn_procurement_grn_replacement_delete_guard()
+RETURNS trigger
+LANGUAGE plpgsql
+SET search_path = public
+AS $$
+BEGIN
+  IF coalesce(auth.role(), '') = 'service_role'
+     OR public.is_super_admin() OR public.is_admin() THEN
+    RETURN OLD;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM public.procurement_grn_items gi WHERE gi.id = OLD.grn_item_id) THEN
+    RETURN OLD;
+  END IF;
+  RAISE EXCEPTION 'a replacement request cannot be deleted — ask an admin'
+    USING ERRCODE = '42501';
+END;
+$$;
+
+REVOKE EXECUTE ON FUNCTION public.fn_procurement_grn_replacement_delete_guard() FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_procurement_grn_replacement_delete_guard() TO authenticated;
+
+DROP TRIGGER IF EXISTS trg_pgrnr_delete_guard ON public.procurement_grn_replacements;
+CREATE TRIGGER trg_pgrnr_delete_guard
+  BEFORE DELETE ON public.procurement_grn_replacements
+  FOR EACH ROW EXECUTE FUNCTION public.fn_procurement_grn_replacement_delete_guard();
+
+-- H2 round 3: TRUNCATE fires no row trigger, so it would skip every delete guard here.
+-- No app path truncates these tables (PostgREST cannot); app roles lose the privilege.
+REVOKE TRUNCATE ON public.procurement_grn, public.procurement_grn_items,
+                   public.procurement_grn_replacements,
+                   public.ims_goods_received_notes, public.ims_grn_items
+  FROM anon, authenticated;
+
 -- ----------------------------------------------------------------------------
 -- 7g. Lines of a checked delivery are frozen (E1 red team, Director 2026-10-10 afternoon)
 -- ----------------------------------------------------------------------------
