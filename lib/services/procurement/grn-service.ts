@@ -984,6 +984,41 @@ export class ProcurementGrnService {
   }
 
   /**
+   * After a stock post that threw: may the replacement's goods be in stock? Only a
+   * successful read that positively shows nothing landed answers false — any read
+   * failure, a missing row or an unknown domain answers true (keep everything).
+   * RM: the post RPC stamps the line's domain_posted_at in the same transaction as the
+   * stock. IMS: the adapter's first write is a stock batch carrying the receipt's id.
+   */
+  private static async replacementStockMayExist(
+    domain: ProcurementDomain,
+    lineId: string | null,
+    grnId: string | null
+  ): Promise<boolean> {
+    try {
+      if (domain === 'resource_mgmt' && lineId) {
+        const { data, error } = await this.supabase
+          .from('procurement_grn_items')
+          .select('domain_posted_at')
+          .eq('id', lineId)
+          .maybeSingle();
+        return Boolean(error || !data || data.domain_posted_at);
+      }
+      if (domain === 'ims' && grnId) {
+        const { data, error } = await this.supabase
+          .from('ims_stock_batches')
+          .select('id')
+          .eq('grn_id', grnId)
+          .limit(1);
+        return Boolean(error || !Array.isArray(data) || data.length > 0);
+      }
+    } catch {
+      // fall through — unknown means keep
+    }
+    return true;
+  }
+
+  /**
    * Edit a GRN line's batch/expiry/mfg before verification — lets a store admin supply the
    * chemical-mandatory batch + expiry at verify time (PRD verify.md §9) without recreating the GRN.
    */
@@ -1029,8 +1064,10 @@ export class ProcurementGrnService {
    * advances the PO, and links the fulfilment back to the pending replacement row.
    *
    * Concurrency: the pending->received claim is the mutex (taken BEFORE posting) so
-   * two receivers can't double-post stock. On any downstream failure the claim is
-   * rolled back to 'pending' — best-effort atomicity without a DB transaction.
+   * two receivers can't double-post stock. On a downstream failure the claim is rolled
+   * back to 'pending' only when the goods provably did NOT reach stock; whenever they
+   * did, or might have (the stock post threw — it may have committed before the error
+   * reached the browser), the claim, receipt and line stay so a retry is refused.
    */
   static async receiveReplacement(
     input: ReceiveReplacementInput,
@@ -1130,8 +1167,13 @@ export class ProcurementGrnService {
     let createdGrnId: string | null = null;
     let createdItemId: string | null = null;
     let posted = false;
+    // Set just BEFORE the stock post. A post that throws may still have committed (the RM
+    // RPC raises the stock and stamps domain_posted_at in one transaction, then the
+    // response is lost to a network drop or timeout), so a throw is not proof that
+    // nothing posted — the catch checks the evidence before it undoes anything.
+    let postAttempted = false;
+    const domain = (parentGrn.domain ?? 'ims') as ProcurementDomain;
     try {
-      const domain = (parentGrn.domain ?? 'ims') as ProcurementDomain;
       const ctx: DomainCtx = {
         institutionId: parentGrn.institution_id,
         storeId: parentGrn.store_id,
@@ -1259,6 +1301,7 @@ export class ProcurementGrnService {
 
       // 6b) Post to inventory.
       if (domainItemId) {
+        postAttempted = true;
         await adapter.postReceipt(
           {
             domainItemId,
@@ -1282,11 +1325,13 @@ export class ProcurementGrnService {
         // own transaction — claim + stock in one commit, so RM is exactly-once; this then
         // matches 0 rows). Deep-panel round 3 (S-M3): a failed mark is logged and the
         // follow-through goes on — the goods ARE in stock. Neither orphaned stock nor a
-        // double post can follow: the claim (status 'received') is never rolled back once
-        // posted, so a retry is refused as "already received", and the catch below never
-        // deletes the receipt or its line once posted. IMS's postReceipt is three
-        // client-side writes, not one transaction — making it exactly-once means moving it
-        // into one RPC like RM's (pre-existing follow-up, unchanged here).
+        // double post can follow: once the post was ATTEMPTED the catch below undoes
+        // nothing unless the evidence says no stock landed (round 4: a post that threw
+        // after committing used to take the "nothing posted" branch, and an admin — whom
+        // the delete guards let through — then lost the receipt of goods in stock and
+        // could receive them again). IMS's postReceipt is three client-side writes, not one
+        // transaction — making it exactly-once means moving it into one RPC like RM's
+        // (pre-existing follow-up, unchanged here).
         await this.markLinePosted(newItem.id, 'receiveReplacement');
       }
 
@@ -1308,13 +1353,26 @@ export class ProcurementGrnService {
 
       return grn as ProcurementGrn;
     } catch (error) {
-      if (!posted) {
+      let stockMayExist = posted;
+      if (!stockMayExist && postAttempted) {
+        stockMayExist = await this.replacementStockMayExist(domain, createdItemId, createdGrnId);
+      }
+      if (!stockMayExist && createdItemId) {
+        // Only a line NOT in stock is deleted. The condition is re-checked under the row
+        // lock, so a stock post still committing while this runs wins and the line stays;
+        // a line that is not deleted keeps the receipt and the claim too.
+        const { data: gone, error: delErr } = await this.supabase
+          .from('procurement_grn_items')
+          .delete()
+          .eq('id', createdItemId)
+          .is('domain_posted_at', null)
+          .select('id');
+        if (delErr || !Array.isArray(gone) || gone.length === 0) stockMayExist = true;
+      }
+      if (!stockMayExist) {
         // Inventory untouched — void the just-created paper trail (line before
         // header for the FK) so the PO recompute never sums an orphan, then
         // roll the claim back so the replacement can be retried cleanly.
-        if (createdItemId) {
-          await this.supabase.from('procurement_grn_items').delete().eq('id', createdItemId);
-        }
         if (createdGrnId) {
           await this.supabase.from('procurement_grn').delete().eq('id', createdGrnId);
         }
@@ -1323,11 +1381,11 @@ export class ProcurementGrnService {
           .update({ status: 'pending', replacement_grn_item_id: null })
           .eq('id', input.replacement_id);
       } else {
-        // Goods ARE in inventory — reopening the claim would let a retry create
-        // a second line and post again. Keep it 'received' and surface the
-        // incomplete follow-through (PO totals / fulfilment link) for repair.
+        // Goods ARE (or may be) in inventory — reopening the claim would let a retry
+        // create a second line and post again. Keep it 'received' with its receipt and
+        // line, and surface the incomplete follow-through for repair.
         console.error(
-          `[ProcurementGrnService] receiveReplacement: inventory posted but a later step failed — replacement ${input.replacement_id} stays received; check PO received_quantity and replacement_grn_item_id linkage`
+          `[ProcurementGrnService] receiveReplacement: inventory posted (or may have) but a later step failed — replacement ${input.replacement_id} stays received with receipt ${createdGrnId ?? '-'} and line ${createdItemId ?? '-'}; check the stock, the line's domain_posted_at, PO received_quantity and replacement_grn_item_id linkage`
         );
       }
       console.error('[ProcurementGrnService] receiveReplacement:', error);

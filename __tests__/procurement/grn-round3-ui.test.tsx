@@ -19,10 +19,11 @@ const svc = vi.hoisted(() => ({
   getSupplierInvoiceGrns: vi.fn(),
   receivedMatchingDelivery: vi.fn(),
   confirmerReceivedMatch: vi.fn(),
+  receiveReplacement: vi.fn(),
 }));
 vi.mock('@/lib/services/procurement/grn-service', () => ({ ProcurementGrnService: svc }));
 
-import { useGrnDuplicateInvoice } from '@/hooks/procurement/use-grns';
+import { useGrnDuplicateInvoice, useReceiveReplacement } from '@/hooks/procurement/use-grns';
 import { DuplicateInvoiceCompare } from '@/components/procurement/duplicate-invoice-compare';
 
 const grn = {
@@ -103,5 +104,22 @@ describe('grn-form.tsx — request timeouts and the save-time notice', () => {
   it('U-L3: a repeat check that could not run sets the flag and changes the save message', () => {
     expect(src).toMatch(/repeatCheckRan = false;/);
     expect(src).toMatch(/!repeatCheckRan\)[\s\S]{0,80}toast\.warning\([\s\S]{0,200}could not run/);
+  });
+});
+
+describe('R4 useReceiveReplacement — a failed receive is never re-run automatically', () => {
+  it('calls the service once even under the app default of one mutation retry', async () => {
+    svc.receiveReplacement.mockRejectedValue(new Error('TypeError: Failed to fetch'));
+    const appDefault = ({ children }: { children: React.ReactNode }) => (
+      <QueryClientProvider client={new QueryClient({ defaultOptions: { mutations: { retry: 1, retryDelay: 0 } } })}>
+        {children}
+      </QueryClientProvider>
+    );
+    const { result } = renderHook(() => useReceiveReplacement('g1'), { wrapper: appDefault });
+    await expect(
+      result.current.mutateAsync({ input: { replacement_id: 'rep1', accepted_quantity: 1 } as any, userId: 'u1' })
+    ).rejects.toThrow(/Failed to fetch/);
+    await new Promise((r) => setTimeout(r, 20));
+    expect(svc.receiveReplacement).toHaveBeenCalledTimes(1);
   });
 });

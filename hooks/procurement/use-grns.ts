@@ -156,6 +156,9 @@ export function useReceiveReplacement(grnId: string) {
   return useMutation({
     mutationFn: ({ input, userId }: { input: ReceiveReplacementInput; userId: string }) =>
       ProcurementGrnService.receiveReplacement(input, userId),
+    // Never re-run on failure (the app default retries a mutation once): receiving puts
+    // goods into stock, and a failed attempt may already have done so.
+    retry: false,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['procurement-grn-replacements', grnId] });
       queryClient.invalidateQueries({ queryKey: ['procurement-grns'] });

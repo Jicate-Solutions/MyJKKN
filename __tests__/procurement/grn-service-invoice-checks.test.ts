@@ -902,6 +902,120 @@ describe('S-M3 receiveReplacement — a failed mark after the post neither throw
   });
 });
 
+// Deep-panel round 4 (#4342 skeptic): a stock post that THROWS may still have committed
+// (the RM RPC raises stock + stamps domain_posted_at in one transaction; the response is
+// then lost). The catch undoes nothing unless the evidence proves no stock landed.
+describe('R4 receiveReplacement — a stock post that throws is not proof nothing posted', () => {
+  function world(opts: {
+    domain?: 'resource_mgmt' | 'ims';
+    readback?: Res; // procurement_grn_items select of domain_posted_at (RM evidence)
+    batches?: Res; // ims_stock_batches select (IMS evidence)
+    lineDelete?: Res;
+  }) {
+    onTable = (c) => {
+      if (c.table === 'procurement_grn_replacements' && c.op === 'select')
+        return {
+          data: {
+            id: 'rep1', status: 'pending', rejected_quantity: 5,
+            grn_item: { id: 'gi1', item_name: 'Acid', is_chemical: false, grn_id: 'g1', po_item_id: 'poi1', domain_item_id: 'item1', cost_price: 2 },
+          },
+          error: null,
+        };
+      if (c.table === 'procurement_grn' && c.op === 'select')
+        return { data: { id: 'g1', institution_id: 'inst1', domain: opts.domain ?? 'resource_mgmt', grn_number: 'GRN-1', status: 'replacement_requested', purchase_order_id: 'po1', received_by: 'r0' }, error: null };
+      if (c.table === 'procurement_grn_replacements' && c.op === 'update') return { data: { id: 'rep1' }, error: null };
+      if (c.table === 'procurement_grn' && c.op === 'insert') return { data: { id: 'g-rep' }, error: null };
+      if (c.table === 'procurement_grn_items' && c.op === 'insert') return { data: { id: 'gi-rep' }, error: null };
+      if (c.table === 'procurement_grn_items' && c.op === 'select') return opts.readback ?? { data: { domain_posted_at: null }, error: null };
+      if (c.table === 'ims_stock_batches' && c.op === 'select') return opts.batches ?? { data: [], error: null };
+      if (c.table === 'procurement_grn_items' && c.op === 'delete') return opts.lineDelete ?? { data: [{ id: 'gi-rep' }], error: null };
+      return { data: null, error: null };
+    };
+    onRpc = (fn) => (fn === 'procurement_next_number' ? { data: 3, error: null } : { data: null, error: null });
+  }
+  const input = { replacement_id: 'rep1', accepted_quantity: 5, expiry_date: '2027-12-31' } as any;
+  const lost = Object.assign(new Error('TypeError: Failed to fetch'), { code: '' });
+  const kept = () => {
+    expect(calls.filter((c) => c.op === 'delete')).toHaveLength(0);
+    const repWrites = writesTo('procurement_grn_replacements').map((c) => c.payload as any);
+    expect(repWrites.some((p) => p?.status === 'pending')).toBe(false);
+  };
+  const rolledBack = () => {
+    const del = calls.filter((c) => c.op === 'delete');
+    expect(del.map((c) => c.table)).toEqual(['procurement_grn_items', 'procurement_grn']);
+    expect(del[0].filters).toEqual(expect.arrayContaining([['eq', 'id', 'gi-rep'], ['is', 'domain_posted_at', null]]));
+    const repWrites = writesTo('procurement_grn_replacements').map((c) => c.payload as any);
+    expect(repWrites.some((p) => p?.status === 'pending')).toBe(true);
+  };
+
+  it('RM: the post threw but the line IS stamped posted — nothing deleted, the claim stays', async () => {
+    world({ readback: { data: { domain_posted_at: '2026-10-11T05:00:00Z' }, error: null } });
+    adapter.postReceipt.mockRejectedValueOnce(lost);
+    await expect(ProcurementGrnService.receiveReplacement(input, 'u1')).rejects.toBe(lost);
+    kept();
+  });
+
+  it('RM: the post threw and the evidence read fails too — keep everything (fail closed)', async () => {
+    world({ readback: { data: null, error: { message: 'offline' } } });
+    adapter.postReceipt.mockRejectedValueOnce(lost);
+    await expect(ProcurementGrnService.receiveReplacement(input, 'u1')).rejects.toBe(lost);
+    kept();
+  });
+
+  it('RM: the post was refused and the line is NOT posted — the receipt is voided and the claim reopened', async () => {
+    world({});
+    const refused = Object.assign(new Error('line not linked'), { code: 'P0001' });
+    adapter.postReceipt.mockRejectedValueOnce(refused);
+    await expect(ProcurementGrnService.receiveReplacement(input, 'u1')).rejects.toBe(refused);
+    rolledBack();
+  });
+
+  it('RM: the line delete matches nothing (a post committed meanwhile) — the receipt and claim stay', async () => {
+    world({ lineDelete: { data: [], error: null } });
+    adapter.postReceipt.mockRejectedValueOnce(lost);
+    await expect(ProcurementGrnService.receiveReplacement(input, 'u1')).rejects.toBe(lost);
+    expect(calls.filter((c) => c.op === 'delete').map((c) => c.table)).toEqual(['procurement_grn_items']);
+    const repWrites = writesTo('procurement_grn_replacements').map((c) => c.payload as any);
+    expect(repWrites.some((p) => p?.status === 'pending')).toBe(false);
+  });
+
+  it('IMS: the post threw after a stock batch for this receipt was written — keep everything', async () => {
+    world({ domain: 'ims', batches: { data: [{ id: 'b1' }], error: null } });
+    adapter.postReceipt.mockRejectedValueOnce(lost);
+    await expect(ProcurementGrnService.receiveReplacement(input, 'u1')).rejects.toBe(lost);
+    kept();
+    const ev = calls.find((c) => c.table === 'ims_stock_batches');
+    expect(ev?.filters).toEqual([['eq', 'grn_id', 'g-rep']]);
+  });
+
+  it('IMS: the post threw before any stock batch — rolled back', async () => {
+    world({ domain: 'ims' });
+    adapter.postReceipt.mockRejectedValueOnce(lost);
+    await expect(ProcurementGrnService.receiveReplacement(input, 'u1')).rejects.toBe(lost);
+    rolledBack();
+  });
+
+  it('a failure BEFORE the post still rolls back cleanly (the post was never attempted)', async () => {
+    world({});
+    const base = onTable;
+    onRpc = (fn) =>
+      fn === 'procurement_next_number'
+        ? { data: 3, error: null }
+        : fn === 'fn_procurement_recompute_po_line_received'
+          ? { data: null, error: null }
+          : { data: null, error: null };
+    onTable = (c) =>
+      c.table === 'procurement_grn_items' && c.op === 'insert'
+        ? { data: null, error: { message: 'line insert refused', code: '23514' } }
+        : base(c);
+    await expect(ProcurementGrnService.receiveReplacement(input, 'u1')).rejects.toMatchObject({ code: '23514' });
+    expect(adapter.postReceipt).not.toHaveBeenCalled();
+    expect(calls.filter((c) => c.op === 'delete').map((c) => c.table)).toEqual(['procurement_grn']);
+    const repWrites = writesTo('procurement_grn_replacements').map((c) => c.payload as any);
+    expect(repWrites.some((p) => p?.status === 'pending')).toBe(true);
+  });
+});
+
 describe('D2 receiveReplacement — the header names the replacement it fulfils', () => {
   function world(insertErr?: (n: number) => unknown) {
     let n = 0;
