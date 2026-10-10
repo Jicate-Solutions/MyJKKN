@@ -721,6 +721,53 @@ BEGIN
           END IF;
         END IF;
       END IF;
+      -- E1 (Director 2026-10-10 afternoon): self-check banned. Whoever received a delivery
+      -- never checks it into stock — whatever their rights; admins and super admins are
+      -- NOT exempt, only the service role (the early return at the top). Checked against
+      -- the stored receiver too (OLD), so rewriting received_by in the same statement
+      -- does not help; received_by itself is frozen for everyone (rule a, E1).
+      -- An INSERT is always by its receiver (rule a pins received_by := auth.uid()), so the
+      -- only INSERT that may enter stock is a replacement receipt naming a real, claimed,
+      -- unfulfilled replacement (same test as D2) — and only when the person inserting it
+      -- did not receive the original delivery (E1, replacement arm). Placed after D2 and
+      -- I1 so their messages still win where they apply.
+      IF NEW.status IN ('accepted', 'partially_accepted', 'replacement_requested', 'completed')
+         AND (TG_OP = 'INSERT'
+              OR OLD.status NOT IN ('accepted', 'partially_accepted', 'replacement_requested', 'completed'))
+         AND auth.uid() IS NOT NULL THEN
+        IF TG_OP = 'INSERT' THEN
+          IF NOT (NEW.status = 'completed'
+                  AND NEW.replacement_id IS NOT NULL
+                  AND EXISTS (
+                    SELECT 1
+                      FROM public.procurement_grn_replacements r
+                      JOIN public.procurement_grn_items gi ON gi.id = r.grn_item_id
+                      JOIN public.procurement_grn pg ON pg.id = gi.grn_id
+                     WHERE r.id = NEW.replacement_id
+                       AND r.status = 'received'
+                       AND r.replacement_grn_item_id IS NULL
+                       AND pg.id IS DISTINCT FROM NEW.id
+                       AND pg.purchase_order_id = NEW.purchase_order_id
+                       AND pg.status IN ('accepted', 'partially_accepted', 'replacement_requested', 'completed'))) THEN
+            RAISE EXCEPTION 'you received this delivery, so someone else must check it before it is added to stock — record it as pending and ask another verifier'
+              USING ERRCODE = '42501';
+          END IF;
+          IF EXISTS (
+               SELECT 1
+                 FROM public.procurement_grn_replacements r
+                 JOIN public.procurement_grn_items gi ON gi.id = r.grn_item_id
+                 JOIN public.procurement_grn pg ON pg.id = gi.grn_id
+                WHERE r.id = NEW.replacement_id
+                  AND pg.received_by IS NOT DISTINCT FROM auth.uid()) THEN
+            RAISE EXCEPTION 'you received the original delivery, so someone else must receive and check its replacement'
+              USING ERRCODE = '42501';
+          END IF;
+        ELSIF auth.uid() IS NOT DISTINCT FROM NEW.received_by
+              OR auth.uid() IS NOT DISTINCT FROM OLD.received_by THEN
+          RAISE EXCEPTION 'you received this delivery, so someone else must check it before it is added to stock'
+            USING ERRCODE = '42501';
+        END IF;
+      END IF;
   END CASE;
   IF v_key IS NULL OR v_chain THEN
     RETURN NEW;
