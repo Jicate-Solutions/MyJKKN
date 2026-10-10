@@ -16,11 +16,17 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 const sentEmails: Array<{ to: string; subject: string; key: string }> = [];
 /** Sending to these addresses throws (a provider error mid-loop). */
 const throwFor = new Set<string>();
+/** Sending to these addresses throws once, then works. */
+const throwOnceFor = new Set<string>();
 vi.mock('@/lib/resend', () => ({
   resend: {
     emails: {
       send: vi.fn(async (msg: { to: string; subject: string }, opts: { headers: Record<string, string> }) => {
         if (throwFor.has(msg.to)) throw new Error('provider down');
+        if (throwOnceFor.has(msg.to)) {
+          throwOnceFor.delete(msg.to);
+          throw new Error('provider blip');
+        }
         sentEmails.push({ to: msg.to, subject: msg.subject, key: opts.headers['Idempotency-Key'] });
         return { data: { id: `r${sentEmails.length}` }, error: null };
       }),
@@ -101,6 +107,8 @@ function makeDb(
     cancelAfterMove?: boolean;
     /** Status re-reads (after the move) fail. */
     statusReadFails?: boolean;
+    /** An update commits but its returned row is hidden (an RLS-limited client). */
+    hideReturning?: boolean;
   } = {}
 ) {
   const updates: Array<{ table: string; payload: Record<string, unknown>; where: Record<string, unknown> }> = [];
@@ -125,6 +133,7 @@ function makeDb(
             if (!matches) return { data: null, error: null };
             current = { ...(current as object), ...payload };
             const returned = { ...(current as object) }; // the row as this update left it
+            if (opts.hideReturning) return { data: null, error: null };
             if (opts.cancelAfterMove && !isRestore) current = { ...(current as object), status: 'cancelled' };
             return { data: returned, error: null };
           }
@@ -159,6 +168,7 @@ function makeDb(
 beforeEach(() => {
   sentEmails.length = 0;
   throwFor.clear();
+  throwOnceFor.clear();
   patchEventTime.mockReset();
   patchEventTime.mockResolvedValue(true);
   markEventCancelled.mockReset();
@@ -498,6 +508,43 @@ describe('the three-lens pass (10 Oct)', () => {
     expect(r).toEqual({ success: false, error: 'NOT_CONFIRMED' });
     expect(sentEmails).toHaveLength(0);
     expect(markEventCancelled).not.toHaveBeenCalled();
+  });
+});
+
+describe('round 6 (10 Oct 14:59): emails and the cancel return', () => {
+  it('cancel: a committed cancel whose returned row is hidden is still recognised as ours', async () => {
+    const { db } = makeDb(row(), { hideReturning: true });
+    const r = await NativeSchedulingService.cancelBooking(db, 'uid-1', { actorProfileId: HOST });
+    expect(r.success).toBe(true);
+    expect(sentEmails.map((e) => e.to)).toEqual(expect.arrayContaining(['parent@gmail.com', 'viswanathan.s@jkkn.ac.in']));
+  });
+
+  it('cancel: invitees whose email failed are named in the warning', async () => {
+    throwFor.add('viswanathan.s@jkkn.ac.in');
+    const { db } = makeDb(row());
+    const r = await NativeSchedulingService.cancelBooking(db, 'uid-1', { actorProfileId: HOST });
+    expect(r.success).toBe(true);
+    expect(r.warning).toMatch(/cancellation email could not be sent to: viswanathan\.s@jkkn\.ac\.in/);
+  });
+
+  it('move: a failed "moved" email is named in the warning and not counted as sent', async () => {
+    throwFor.add('viswanathan.s@jkkn.ac.in');
+    const { db } = makeDb(row());
+    const r = await HostSchedulingService.moveDirect(db, { uid: 'uid-1', hostProfileId: HOST, startIso: NEW_START, durationMin: 30 });
+    expect(r.ok).toBe(true);
+    expect(r.warning).toMatch(/"moved" email could not be sent to: viswanathan\.s@jkkn\.ac\.in/);
+  });
+
+  it('the host still gets their copy when the first send to them fails', async () => {
+    throwOnceFor.add('director@jkkn.ac.in');
+    const { db } = makeDb(row());
+    await NativeSchedulingService.cancelBooking(db, 'uid-1', { actorProfileId: HOST });
+    expect(sentEmails.filter((e) => e.to === 'director@jkkn.ac.in')).toHaveLength(1);
+    sentEmails.length = 0;
+    throwOnceFor.add('director@jkkn.ac.in');
+    const m = makeDb(row());
+    await HostSchedulingService.moveDirect(m.db, { uid: 'uid-1', hostProfileId: HOST, startIso: NEW_START, durationMin: 30 });
+    expect(sentEmails.filter((e) => e.to === 'director@jkkn.ac.in')).toHaveLength(1);
   });
 });
 

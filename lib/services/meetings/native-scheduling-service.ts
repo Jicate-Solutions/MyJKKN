@@ -1082,12 +1082,16 @@ export class NativeSchedulingService {
     const byHost = !!auth.actorProfileId && auth.actorProfileId === booking.host_profile_id;
     if (!byToken && !byHost) return { success: false, error: 'FORBIDDEN' };
 
-    const { data: cancelledRow, error: upErr } = await supabase
+    // This cancel's own timestamp: if the update's returned row is ever hidden
+    // from the caller's client, a re-read by id can still tell whether THIS
+    // cancel is the one that committed.
+    const cancelledAt = new Date().toISOString();
+    const { data: returnedRow, error: upErr } = await supabase
       .from('meeting_bookings')
       .update({
         status: 'cancelled',
         cancellation_reason: reason ?? null,
-        cancelled_at: new Date().toISOString(),
+        cancelled_at: cancelledAt,
         cancelled_by: byToken ? 'attendee' : 'host',
       })
       .eq('id', booking.id)
@@ -1100,9 +1104,26 @@ export class NativeSchedulingService {
       console.error(`${LOG_PREFIX} cancel failed:`, upErr.message);
       return { success: false, error: 'INTERNAL' };
     }
-    // Nothing matched: another request cancelled it first. That one owns the
-    // calendar and the emails; this one reports it was already closed.
-    if (!cancelledRow) return { success: false, error: 'NOT_CONFIRMED' };
+    let cancelledRow = returnedRow as { start_time: string; end_time: string } | null;
+    if (!cancelledRow) {
+      // Every caller today passes a service-role client (the meeting page, the
+      // public cancel link, the booking door), so RETURNING is never hidden;
+      // this re-read keeps it true for any future caller that does not.
+      const { data: again } = await supabase
+        .from('meeting_bookings')
+        .select('status, cancelled_at, start_time, end_time')
+        .eq('id', booking.id)
+        .maybeSingle();
+      const a = again as { status?: string; cancelled_at?: string; start_time: string; end_time: string } | null;
+      const ours =
+        a?.status === 'cancelled' &&
+        !!a.cancelled_at &&
+        new Date(a.cancelled_at).getTime() === new Date(cancelledAt).getTime();
+      // Nothing of ours matched: another request cancelled it first. That one
+      // owns the calendar and the emails; this one reports it was already closed.
+      if (!ours) return { success: false, error: 'NOT_CONFIRMED' };
+      cancelledRow = a;
+    }
     booking.start_time = (cancelledRow as { start_time: string }).start_time;
     booking.end_time = (cancelledRow as { end_time: string }).end_time;
     let warning: string | null = null;
@@ -1208,11 +1229,11 @@ export class NativeSchedulingService {
     // the others, and the host's copy goes once (its key names only the
     // meeting; a second send with a different payload would be a 409).
     let hostTold = false;
+    const notEmailed: string[] = [];
     for (const r of recipients) {
       const hostEmail = hostTold ? '' : ((host?.email as string | undefined) ?? '');
-      hostTold = true;
       try {
-        await MeetingBookingEmailService.sendBookingCancelledEmails({
+        const sent = await MeetingBookingEmailService.sendBookingCancelledEmails({
           uid,
           meetingTitle,
           durationMin,
@@ -1227,9 +1248,19 @@ export class NativeSchedulingService {
           cancelledBy: byToken ? 'attendee' : 'host',
           reason: reason ?? null,
         });
+        if (!sent?.attendee?.success && !sent?.attendee?.skipped) notEmailed.push(r.email);
+        // The host counts as told only once their copy really went (or there
+        // is no address to send to): a failed first send is retried next time.
+        if (hostEmail && (sent?.host?.success || sent?.host?.skipped)) hostTold = true;
       } catch (err) {
         console.error(`${LOG_PREFIX} cancellation email failed for ${r.email}:`, err);
+        notEmailed.push(r.email);
       }
+    }
+    if (notEmailed.length) {
+      warning = [warning, `The cancellation email could not be sent to: ${notEmailed.join(', ')}.`]
+        .filter(Boolean)
+        .join(' ');
     }
 
     return { success: true, warning };

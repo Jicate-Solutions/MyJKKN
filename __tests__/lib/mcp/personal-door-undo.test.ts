@@ -355,6 +355,12 @@ describe('cancel_meeting', () => {
     expect(body.attention).toMatch(/^Cancelled, but not complete: Its Google Calendar invite/);
   });
 
+  it('a cancel with failed invitee emails answers with attention naming them', async () => {
+    cancelBooking.mockResolvedValue({ success: true, warning: 'The cancellation email could not be sent to: a@x.in.' });
+    const body = JSON.parse(textOf(await readRpc(await call('cancel_meeting', { uid: MEETING_UID }))));
+    expect(body.attention).toBe('Cancelled, but not complete: The cancellation email could not be sent to: a@x.in. Tell the person who asked.');
+  });
+
   it('cancels a meeting this key booked, as the owner', async () => {
     const res = await readRpc(await call('cancel_meeting', { uid: MEETING_UID, reason: 'Parent is unwell' }));
     expect(res.result.isError).toBeFalsy();

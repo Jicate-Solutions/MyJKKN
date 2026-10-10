@@ -378,11 +378,11 @@ export class HostSchedulingService {
     // RESEND_API_KEY, so this can never fail the booking.
     let hostTold = false;
     for (const a of attendees) {
+      // The host's copy is sent once per meeting (see moveDirect), counted as
+      // sent only when it really went.
+      const hostEmailOnce = hostTold ? '' : (((hostProfile as any)?.email as string | undefined) ?? '');
       try {
-        // The host's copy is sent once per meeting (see moveDirect).
-        const hostEmailOnce = hostTold ? '' : (((hostProfile as any)?.email as string | undefined) ?? '');
-        hostTold = true;
-        await MeetingBookingEmailService.sendBookingConfirmedEmails({
+        const sent = await MeetingBookingEmailService.sendBookingConfirmedEmails({
           uid,
           meetingTitle: input.title.trim(),
           durationMin: input.durationMin,
@@ -400,6 +400,7 @@ export class HostSchedulingService {
             input.locationMode === 'in_person' ? input.locationText?.trim() || null : null,
           videoUrl,
         });
+        if (hostEmailOnce && (sent?.host?.success || sent?.host?.skipped)) hostTold = true;
       } catch (err) {
         console.error(`${LOG_PREFIX} confirmation email failed for ${a.email}:`, err);
       }
@@ -648,15 +649,16 @@ export class HostSchedulingService {
         ? [{ email: booking.attendee_email as string, name: (booking.attendee_name as string | null) ?? undefined }]
         : [];
     let hostTold = false;
+    const notEmailed: string[] = [];
     for (const p of recipients) {
       const c = await changedSince();
       if (c) return stopped(c);
+      // The host's copy is sent ONCE (its key names only the meeting and this
+      // move; a second send with a different payload would be a 409). It
+      // counts as sent only when it really went: a failed first try is retried.
+      const hostEmail = hostTold ? '' : (((host as any)?.email as string | undefined) ?? '');
       try {
-        // The host's copy is sent ONCE (its key names only the meeting and this
-        // move; a second send with a different payload would be a 409).
-        const hostEmail = hostTold ? '' : (((host as any)?.email as string | undefined) ?? '');
-        hostTold = true;
-        await MeetingBookingEmailService.sendBookingRescheduledEmails({
+        const sent = await MeetingBookingEmailService.sendBookingRescheduledEmails({
           uid: booking.uid as string,
           meetingTitle: answers.title?.trim() || 'Meeting',
           durationMin: input.durationMin,
@@ -674,10 +676,16 @@ export class HostSchedulingService {
           locationText: answers.location_text ?? null,
           videoUrl: (booking.video_url as string | null) ?? null,
         });
-        emailed += 1;
+        if (sent?.attendee?.success) emailed += 1;
+        else if (!sent?.attendee?.skipped) notEmailed.push(p.email as string);
+        if (hostEmail && (sent?.host?.success || sent?.host?.skipped)) hostTold = true;
       } catch (err) {
         console.error(`${LOG_PREFIX} moved email failed for ${p.email}:`, err);
+        notEmailed.push(p.email as string);
       }
+    }
+    if (notEmailed.length) {
+      warnings.push(`The "moved" email could not be sent to: ${notEmailed.join(', ')}.`);
     }
     // A change that landed during the last send still decides the reply.
     const cEnd = await changedSince();
