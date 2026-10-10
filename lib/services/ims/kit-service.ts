@@ -20,6 +20,16 @@ function orIlike(cols: string[], term: string): string {
   return cols.map((c) => `${c}.ilike."%${safe}%"`).join(',');
 }
 
+// supabase-js returns `error` as a plain object (PostgrestError is only
+// constructed on the throwOnError path), so `e instanceof Error` was false in
+// the page's catch and the user only ever saw "Add failed" (BUG-005858).
+// Rethrow as a real Error carrying the server's message.
+function toError(error: { message?: string } | null | undefined, fallback: string): Error {
+  return new Error(error?.message || fallback);
+}
+
+export type KitSource = 'central' | 'college';
+
 export interface KitRule {
   id: string;
   rule_name: string;
@@ -140,9 +150,37 @@ export class ImsKitService {
     return (data ?? []) as KitRuleItem[];
   }
 
-  static async addRuleItem(dto: { rule_id: string; item_id: string; quantity: number; cadence: string }) {
-    const { error } = await this.supabase.from('ims_kit_rule_items').insert(dto);
-    if (error) throw error;
+  // D32 (20260712220000_store_kit_hardening.sql): an item may only enter a
+  // kit rule once it is classified central/college — an attribute of the ITEM
+  // ("set at item setup"). Nothing in the app ever set it, so every add failed.
+  // When the store manager picks the source for an unclassified item here, we
+  // classify the item first (ims_items RLS: store admin / ims.inventory.edit),
+  // then add it to the rule. A 0-row update means RLS refused — say so plainly
+  // instead of letting the D32 trigger fire with a confusing message.
+  static async addRuleItem(dto: {
+    rule_id: string;
+    item_id: string;
+    quantity: number;
+    cadence: string;
+    kit_source?: KitSource;
+  }) {
+    const { kit_source, ...row } = dto;
+    if (kit_source) {
+      const { data, error } = await this.supabase
+        .from('ims_items')
+        .update({ kit_source })
+        .eq('id', row.item_id)
+        .select('id');
+      if (error) throw toError(error, 'Could not set the item\'s kit source');
+      if (!data || data.length === 0) {
+        throw new Error(
+          'You can manage kits but cannot edit this store item, so its kit source ' +
+          '(central / college) could not be set. Ask a store admin to set it.',
+        );
+      }
+    }
+    const { error } = await this.supabase.from('ims_kit_rule_items').insert(row);
+    if (error) throw toError(error, 'Add failed');
   }
 
   static async removeRuleItem(id: string) {
@@ -162,7 +200,7 @@ export class ImsKitService {
 
   static async addRuleMember(dto: { rule_id: string; learner_id?: string; staff_id?: string }) {
     const { error } = await this.supabase.from('ims_kit_rule_members').insert(dto);
-    if (error) throw error;
+    if (error) throw toError(error, 'Add failed');
   }
 
   static async removeRuleMember(id: string) {
@@ -360,7 +398,7 @@ export class ImsKitService {
     if (q.length < 2) return [];
     const { data, error } = await this.supabase
       .from('ims_items')
-      .select('id, name, code')
+      .select('id, name, code, kit_source')
       .eq('is_active', true)
       .or(orIlike(['name', 'code'], q))
       .limit(15);

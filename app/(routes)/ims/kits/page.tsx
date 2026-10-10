@@ -32,7 +32,7 @@ import {
   useResolveKitRule, useRevokeKitRuleEntitlements,
   useKitInstitutions, useKitPrograms, useKitDepartments,
 } from '@/hooks/ims/use-ims-kits';
-import { ImsKitService, type KitRule, type KitPerson } from '@/lib/services/ims/kit-service';
+import { ImsKitService, type KitRule, type KitPerson, type KitSource } from '@/lib/services/ims/kit-service';
 
 const ANY = '__any__'; // Radix Select forbids value="" (repo CI gate)
 
@@ -320,7 +320,11 @@ function RuleDetail({ rule }: { rule: KitRule }) {
   const revoke = useRevokeKitRuleEntitlements();
 
   const [itemTerm, setItemTerm] = useState('');
-  const [itemResults, setItemResults] = useState<Array<{ id: string; name: string; code: string | null }>>([]);
+  const [itemResults, setItemResults] = useState<
+    Array<{ id: string; name: string; code: string | null; kit_source: string | null }>
+  >([]);
+  // D32: source picked here for items not yet classified central/college.
+  const [pickedSource, setPickedSource] = useState<Record<string, KitSource>>({});
   const [qty, setQty] = useState('1');
   const [cadence, setCadence] = useState('yearly');
   const [memberTerm, setMemberTerm] = useState('');
@@ -372,7 +376,23 @@ function RuleDetail({ rule }: { rule: KitRule }) {
             {itemResults.map((r) => (
               <div key={r.id} className="flex flex-wrap items-center justify-between gap-2 text-sm">
                 <span>{r.name}{r.code ? ` (${r.code})` : ''}</span>
-                <span className="flex items-center gap-2">
+                <span className="flex flex-wrap items-center gap-2">
+                  {r.kit_source ? (
+                    <Badge variant="secondary">{r.kit_source === 'college' ? 'College store' : 'Central store'}</Badge>
+                  ) : (
+                    <Select
+                      value={pickedSource[r.id]}
+                      onValueChange={(v) => setPickedSource((m) => ({ ...m, [r.id]: v as KitSource }))}
+                    >
+                      <SelectTrigger className="w-36 h-8" aria-label="Kit source">
+                        <SelectValue placeholder="Source…" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="central">Central store</SelectItem>
+                        <SelectItem value="college">College store</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  )}
                   <Input className="w-16 h-8" type="number" min={1} value={qty} onChange={(e) => setQty(e.target.value)} />
                   <Select value={cadence} onValueChange={setCadence}>
                     <SelectTrigger className="w-28 h-8"><SelectValue /></SelectTrigger>
@@ -381,9 +401,12 @@ function RuleDetail({ rule }: { rule: KitRule }) {
                       <SelectItem value="once">Once</SelectItem>
                     </SelectContent>
                   </Select>
-                  <Button size="sm" onClick={async () => {
+                  <Button size="sm" disabled={!r.kit_source && !pickedSource[r.id]} onClick={async () => {
                     try {
-                      await addItem.mutateAsync({ rule_id: rule.id, item_id: r.id, quantity: Number(qty) || 1, cadence });
+                      await addItem.mutateAsync({
+                        rule_id: rule.id, item_id: r.id, quantity: Number(qty) || 1, cadence,
+                        ...(r.kit_source ? {} : { kit_source: pickedSource[r.id] }),
+                      });
                       setItemTerm(''); setItemResults([]);
                       toast.success('Item added');
                     } catch (e: unknown) {
