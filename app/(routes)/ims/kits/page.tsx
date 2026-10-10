@@ -32,7 +32,7 @@ import {
   useResolveKitRule, useRevokeKitRuleEntitlements,
   useKitInstitutions, useKitPrograms, useKitDepartments,
 } from '@/hooks/ims/use-ims-kits';
-import { ImsKitService, type KitRule, type KitPerson, type KitSource } from '@/lib/services/ims/kit-service';
+import { ImsKitService, KIT_SCREEN_SOURCE_OPTIONS, type KitRule, type KitPerson, type KitSource } from '@/lib/services/ims/kit-service';
 
 const ANY = '__any__'; // Radix Select forbids value="" (repo CI gate)
 
@@ -403,8 +403,9 @@ function RuleDetail({ rule }: { rule: KitRule }) {
                         <SelectValue placeholder="Source…" />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="central">Central store</SelectItem>
-                        <SelectItem value="college">College store</SelectItem>
+                        {KIT_SCREEN_SOURCE_OPTIONS.map((o) => (
+                          <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+                        ))}
                       </SelectContent>
                     </Select>
                   )}

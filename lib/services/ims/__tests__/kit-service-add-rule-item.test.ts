@@ -51,7 +51,7 @@ vi.mock('@/lib/utils/enhanced-logger', () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
 }));
 
-import { ImsKitService } from '../kit-service';
+import { ImsKitService, KIT_SCREEN_SOURCE_OPTIONS } from '../kit-service';
 
 const base = { rule_id: 'rule-1', item_id: 'item-1', quantity: 1, cadence: 'yearly' };
 
@@ -105,7 +105,7 @@ describe('ImsKitService.addRuleItem', () => {
   it('says it is a permission refusal when the item is still NULL after a 0-row update', async () => {
     updateResult = { data: [], error: null };
     readResult = { data: { kit_source: null, institution_id: 'inst-A' }, error: null };
-    await expect(ImsKitService.addRuleItem({ ...base, kit_source: 'central' })).rejects.toThrow(
+    await expect(ImsKitService.addRuleItem({ ...base, kit_source: 'college' })).rejects.toThrow(
       "You can't classify items — ask a store admin to set the item's kit source.",
     );
     expect(calls.some((c) => c.op === 'insert')).toBe(false);
@@ -121,6 +121,22 @@ describe('ImsKitService.addRuleItem', () => {
       { table: 'ims_kit_rule_items', op: 'insert', arg: base },
     ]);
     expect(calls.some((c) => c.table === 'ims_kit_rule_items' && c.op === 'select')).toBe(false);
+  });
+
+  it('refuses to mark an item Central store from the kit screen — no read, no write', async () => {
+    await expect(ImsKitService.addRuleItem({ ...base, kit_source: 'central' })).rejects.toThrow(
+      'Central store items are set up by a store admin in item setup',
+    );
+    expect(calls).toEqual([]);
+  });
+
+  it('the kit-screen source picker offers College store only', () => {
+    expect(KIT_SCREEN_SOURCE_OPTIONS.map((o) => o.value)).toEqual(['college']);
+  });
+
+  it('an already-Central item is still added as today (no source passed)', async () => {
+    await ImsKitService.addRuleItem(base);
+    expect(writes()).toEqual([{ table: 'ims_kit_rule_items', op: 'insert', arg: base }]);
   });
 
   it("scopes the classify update to the rule's institution", async () => {
@@ -143,7 +159,7 @@ describe('ImsKitService.addRuleItem', () => {
 
   it('never classifies for a rule spanning all colleges (no institution to scope to)', async () => {
     ruleResult = { data: { institution_id: null }, error: null };
-    await expect(ImsKitService.addRuleItem({ ...base, kit_source: 'central' })).rejects.toThrow(
+    await expect(ImsKitService.addRuleItem({ ...base, kit_source: 'college' })).rejects.toThrow(
       /spans all colleges/,
     );
     expect(writes()).toEqual([]);

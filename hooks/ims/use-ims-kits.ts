@@ -44,9 +44,12 @@ export function useAddKitRuleItem() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (v: Parameters<typeof ImsKitService.addRuleItem>[0]) => ImsKitService.addRuleItem(v),
-    onSuccess: (_d, v) => {
-      qc.invalidateQueries({ queryKey: ['ims-kit-rule-items', v.rule_id] });
-      // The item may have just been given a kit_source: refresh item lists.
+    onSuccess: (_d, v) => qc.invalidateQueries({ queryKey: ['ims-kit-rule-items', v.rule_id] }),
+    // The item may have been given a kit_source even when the rule-item insert
+    // then failed (classification is item setup, never reverted), so refresh
+    // item lists either way. Invalidation does not swallow the error: the
+    // page's mutateAsync still rejects and shows its toast.
+    onSettled: (_d, _e, v) => {
       if (v.kit_source) qc.invalidateQueries({ queryKey: ['ims-items'] });
     },
   });

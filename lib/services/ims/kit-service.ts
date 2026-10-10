@@ -35,6 +35,13 @@ const KIT_SOURCE_LABEL: Record<KitSource, string> = {
   college: 'College store',
 };
 
+// The kit screen may only classify an item as its own college's store.
+// Central store is an item-setup decision for a store admin (#4336 round 4);
+// already-Central items can still be added to rules.
+export const KIT_SCREEN_SOURCE_OPTIONS: ReadonlyArray<{ value: KitSource; label: string }> = [
+  { value: 'college', label: KIT_SOURCE_LABEL.college },
+];
+
 export interface KitRule {
   id: string;
   rule_name: string;
@@ -171,6 +178,9 @@ export class ImsKitService {
   }) {
     const { kit_source, ...row } = dto;
     if (kit_source) {
+      if (!KIT_SCREEN_SOURCE_OPTIONS.some((o) => o.value === kit_source)) {
+        throw new Error('Central store items are set up by a store admin in item setup');
+      }
       // Classification is an item-wide write and the ims_items UPDATE policy
       // lets a store_admin touch ANY college's item, so we scope it to the
       // rule's own institution here (#4336 re-panel). A rule spanning all
