@@ -446,7 +446,7 @@ async function callerIsBugAdmin(
  *  details the reporter's own page does show (userAgent, screenResolution,
  *  viewport, …). Prefix-matched on `ai_` so a future AI key is covered the day
  *  it is added rather than the day someone remembers this function. */
-function stripAiMetadata<T extends { metadata?: unknown }>(row: T): T {
+export function stripAiMetadata<T extends { metadata?: unknown }>(row: T): T {
   const meta = row?.metadata;
   if (!meta || typeof meta !== 'object' || Array.isArray(meta)) return row;
   const clean: Record<string, unknown> = {};
