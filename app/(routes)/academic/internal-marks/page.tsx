@@ -92,12 +92,16 @@ export default function InternalMarksPage() {
     programCode: filters.program_code,
   });
 
+  // The learner list belongs to the course IN THE SELECTED SEMESTER, never to the
+  // course code alone — a program can offer one code in two semesters of a session.
+  const semester = CiaMarksService.semesterNumberOf(filters.semester_code);
+
   const learners = useMemo(
     () =>
-      registrations && filters.course_code
-        ? CiaMarksService.getLearnersFromRegistrations(registrations, filters.course_code)
+      registrations && filters.course_code && semester != null
+        ? CiaMarksService.getLearnersFromRegistrations(registrations, filters.course_code, semester)
         : [],
-    [registrations, filters.course_code]
+    [registrations, filters.course_code, semester]
   );
 
   const { data: existingMarksData, isLoading: isLoadingMarks } = useCiaMarks({
@@ -106,6 +110,7 @@ export default function InternalMarksPage() {
     courseCode: filters.course_code,
     ciaRound: filters.cia_round,
     programCode: filters.program_code,
+    semester,
   });
 
   const submitMutation = useSubmitCiaMarks();
@@ -218,6 +223,7 @@ export default function InternalMarksPage() {
             round={selectedRound}
             courseCode={filters.course_code ?? ''}
             programCode={filters.program_code ?? ''}
+            semester={semester}
             learners={learners}
             maxInternalMarks={maxInternalMarks}
             canEnter={canEdit}
