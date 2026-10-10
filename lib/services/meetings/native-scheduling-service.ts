@@ -465,6 +465,19 @@ export class NativeSchedulingService {
   }
 
   /**
+   * The host's busy times (confirmed meetings + Google Calendar) between two
+   * instants. Fails CLOSED: anything it cannot verify comes back as busy.
+   */
+  static async hostBusy(
+    supabase: SupabaseClient,
+    hostProfileId: string,
+    fromIso: string,
+    toIso: string,
+  ): Promise<Array<{ start: string; end: string }>> {
+    return this.loadBusy(supabase, hostProfileId, fromIso, toIso);
+  }
+
+  /**
    * Host's busy ranges over a UTC range (engine conflict input):
    * confirmed native bookings UNIONED with the host's real Google Calendar
    * (U2, D12) when a connection exists. Google 'failed' = fail CLOSED (D19) —
@@ -1054,11 +1067,11 @@ export class NativeSchedulingService {
     uid: string,
     auth: { cancelToken?: string; actorProfileId?: string },
     reason?: string,
-  ): Promise<{ success: boolean; error?: string }> {
+  ): Promise<{ success: boolean; error?: string; warning?: string | null }> {
     const { data: booking, error } = await supabase
       .from('meeting_bookings')
       .select(
-        'id, host_profile_id, cancel_token, status, attendee_name, attendee_email, start_time, end_time, meeting_type_id, google_event_id, venue_reservation_id',
+        'id, host_profile_id, cancel_token, status, attendee_name, attendee_email, start_time, end_time, meeting_type_id, google_event_id, venue_reservation_id, answers, source',
       )
       .eq('uid', uid)
       .maybeSingle();
@@ -1069,20 +1082,51 @@ export class NativeSchedulingService {
     const byHost = !!auth.actorProfileId && auth.actorProfileId === booking.host_profile_id;
     if (!byToken && !byHost) return { success: false, error: 'FORBIDDEN' };
 
-    const { error: upErr } = await supabase
+    // This cancel's own timestamp: if the update's returned row is ever hidden
+    // from the caller's client, a re-read by id can still tell whether THIS
+    // cancel is the one that committed.
+    const cancelledAt = new Date().toISOString();
+    const { data: returnedRow, error: upErr } = await supabase
       .from('meeting_bookings')
       .update({
         status: 'cancelled',
         cancellation_reason: reason ?? null,
-        cancelled_at: new Date().toISOString(),
+        cancelled_at: cancelledAt,
         cancelled_by: byToken ? 'attendee' : 'host',
       })
       .eq('id', booking.id)
-      .eq('status', 'confirmed');
+      .eq('status', 'confirmed')
+      // the row as cancelled: its times decide the emails (a move may have
+      // landed between the read above and this update)
+      .select('start_time, end_time')
+      .maybeSingle();
     if (upErr) {
       console.error(`${LOG_PREFIX} cancel failed:`, upErr.message);
       return { success: false, error: 'INTERNAL' };
     }
+    let cancelledRow = returnedRow as { start_time: string; end_time: string } | null;
+    if (!cancelledRow) {
+      // Every caller today passes a service-role client (the meeting page, the
+      // public cancel link, the booking door), so RETURNING is never hidden;
+      // this re-read keeps it true for any future caller that does not.
+      const { data: again } = await supabase
+        .from('meeting_bookings')
+        .select('status, cancelled_at, start_time, end_time')
+        .eq('id', booking.id)
+        .maybeSingle();
+      const a = again as { status?: string; cancelled_at?: string; start_time: string; end_time: string } | null;
+      const ours =
+        a?.status === 'cancelled' &&
+        !!a.cancelled_at &&
+        new Date(a.cancelled_at).getTime() === new Date(cancelledAt).getTime();
+      // Nothing of ours matched: another request cancelled it first. That one
+      // owns the calendar and the emails; this one reports it was already closed.
+      if (!ours) return { success: false, error: 'NOT_CONFIRMED' };
+      cancelledRow = a;
+    }
+    booking.start_time = (cancelledRow as { start_time: string }).start_time;
+    booking.end_time = (cancelledRow as { end_time: string }).end_time;
+    let warning: string | null = null;
 
     // PR3: free the held room. The booking is now cancelled, so the venue-sync
     // trigger leaves its venue_status alone (its status='confirmed' guard); the
@@ -1136,34 +1180,99 @@ export class NativeSchedulingService {
     // and freed, for record-keeping (Director request) — mirrors Calendly,
     // instead of deleting it. sendUpdates=all still notifies the attendee; the
     // cancellation email is sent below as well.
+    // A meeting scheduled directly by its host has no type: its title and its
+    // full invitee list live in answers, written by the server
+    // (HostSchedulingService.scheduleDirect). On a TYPED booking, answers is
+    // whatever the visitor typed into the booking form, so it is never read
+    // here: a forged participants list or title must not steer these emails.
+    // Server-written provenance only: source 'host-direct' (scheduleDirect
+    // sets it; no public flow can) AND no meeting type.
+    const hostDirect =
+      booking.meeting_type_id === null && (booking as { source?: string }).source === 'host-direct';
+    const answers = (hostDirect ? (booking as { answers?: unknown }).answers ?? {} : {}) as {
+      title?: unknown;
+      participants?: { email?: unknown; name?: unknown }[];
+    };
+    const meetingTitle =
+      (mtRow?.title as string | undefined) ??
+      (typeof answers.title === 'string' && answers.title.trim() ? answers.title.trim() : 'Meeting');
+    // Every invitee is told, not only the first (Director, 9 Oct 2026).
+    const participants = (Array.isArray(answers.participants) ? answers.participants : [])
+      .map((p) => ({ email: typeof p?.email === 'string' ? p.email : '', name: typeof p?.name === 'string' ? p.name : '' }))
+      .filter((p) => p.email);
+    const listedRecipients = participants.length
+      ? participants
+      : [{ email: booking.attendee_email ?? '', name: booking.attendee_name ?? '' }];
+    // On an attendee's (token) cancel, that attendee goes first: the host's
+    // single copy rides the first send, so it names the person who cancelled
+    // and carries their reason.
+    const isCanceller = (e: string) => e.toLowerCase() === (booking.attendee_email ?? '').toLowerCase();
+    const recipients = byToken
+      ? [...listedRecipients.filter((r) => isCanceller(r.email)), ...listedRecipients.filter((r) => !isCanceller(r.email))]
+      : listedRecipients;
+
     if (booking.google_event_id) {
-      const originalSummary =
-        `${(mtRow?.title as string | undefined) ?? 'Meeting'} — ${booking.attendee_name ?? ''}`.trim();
-      await GoogleCalendarService.markEventCancelled(
-        supabase,
-        booking.host_profile_id,
-        booking.google_event_id as string,
-        `Cancelled: ${originalSummary}`,
-      );
+      const originalSummary = `${meetingTitle} — ${booking.attendee_name ?? ''}`.trim();
+      // Best effort, but never silent: the cancel is committed, so a calendar
+      // failure must not stop the emails below, and the caller is told.
+      let marked = false;
+      try {
+        marked = await GoogleCalendarService.markEventCancelled(
+          supabase,
+          booking.host_profile_id,
+          booking.google_event_id as string,
+          `Cancelled: ${originalSummary}`,
+        );
+      } catch (err) {
+        console.error(`${LOG_PREFIX} calendar cancel-mark threw:`, err);
+      }
+      if (!marked) {
+        warning =
+          "The meeting is cancelled in MyJKKN, but its Google Calendar invite could not be marked cancelled, so invitees' calendars may still show it.";
+      }
     }
 
-    await MeetingBookingEmailService.sendBookingCancelledEmails({
-      uid,
-      meetingTitle: (mtRow?.title as string | undefined) ?? 'Meeting',
-      durationMin,
-      timezone,
-      startTime: booking.start_time,
-      hostName:
-        (host?.full_name as string | undefined) ?? (host?.email as string | undefined) ?? '',
-      hostEmail: (host?.email as string | undefined) ?? '',
-      attendeeName: booking.attendee_name ?? '',
-      attendeeEmail: booking.attendee_email ?? '',
-      attendeePhone: null,
-      cancelledBy: byToken ? 'attendee' : 'host',
-      reason: reason ?? null,
-    });
+    // The cancel is already committed: one invitee's failed email never stops
+    // the others, and the host's copy goes once (its key names only the
+    // meeting; a second send with a different payload would be a 409).
+    let hostTold = false;
+    const notEmailed: string[] = [];
+    for (const r of recipients) {
+      const hostEmail = hostTold ? '' : ((host?.email as string | undefined) ?? '');
+      try {
+        const sent = await MeetingBookingEmailService.sendBookingCancelledEmails({
+          uid,
+          meetingTitle,
+          durationMin,
+          timezone,
+          startTime: booking.start_time,
+          hostName:
+            (host?.full_name as string | undefined) ?? (host?.email as string | undefined) ?? '',
+          hostEmail,
+          attendeeName: r.name || r.email,
+          attendeeEmail: r.email,
+          attendeePhone: null,
+          cancelledBy: byToken ? 'attendee' : 'host',
+          // An attendee's own words go back to that attendee and the host
+          // only, never to the other invitees.
+          reason: byToken && r.email.toLowerCase() !== (booking.attendee_email ?? '').toLowerCase() ? null : reason ?? null,
+        });
+        if (!sent?.attendee?.success && !sent?.attendee?.skipped) notEmailed.push(r.email);
+        // The host counts as told only once their copy really went (or there
+        // is no address to send to): a failed first send is retried next time.
+        if (hostEmail && (sent?.host?.success || sent?.host?.skipped)) hostTold = true;
+      } catch (err) {
+        console.error(`${LOG_PREFIX} cancellation email failed for ${r.email}:`, err);
+        notEmailed.push(r.email);
+      }
+    }
+    if (notEmailed.length) {
+      warning = [warning, `The cancellation email could not be sent to: ${notEmailed.join(', ')}.`]
+        .filter(Boolean)
+        .join(' ');
+    }
 
-    return { success: true };
+    return { success: true, warning };
   }
 
   /**

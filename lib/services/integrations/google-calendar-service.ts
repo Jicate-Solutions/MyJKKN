@@ -172,6 +172,10 @@ function extractMeetUrl(json: {
 
 // ── service ──────────────────────────────────────────────────────────────────
 
+/** patchEventTimeOutcome: how long the token step and the PATCH may take. */
+const PATCH_OUTCOME_TOKEN_MS = 5_000;
+const PATCH_OUTCOME_FETCH_MS = 10_000;
+
 export class GoogleCalendarService {
   /** OAuth consent URL for a host. Throws if the integration env is missing. */
   static buildAuthUrl(hostProfileId: string): string {
@@ -585,6 +589,69 @@ export class GoogleCalendarService {
     );
     if (!res.ok) console.error(`${LOG_PREFIX} event patch failed:`, res.status);
     return res.ok;
+  }
+
+  /**
+   * patchEventTime, but saying WHICH kind of "no" it was, for callers that must
+   * decide whether to undo their own change (HostSchedulingService.moveDirect):
+   *   'applied'  Google answered 2xx: the event moved and invitees were told.
+   *   'refused'  Google never got the change (no calendar access, or the token
+   *              step failed before the PATCH was sent) or answered 4xx: it did
+   *              NOT apply it, so the caller may safely put things back.
+   *   'unknown'  the PATCH was sent but the answer was a 5xx/408 or never came:
+   *              Google may have applied it (sendUpdates=all already notified
+   *              invitees), so the caller must not claim nothing changed.
+   * Never throws.
+   */
+  static async patchEventTimeOutcome(
+    supabase: SupabaseClient,
+    hostProfileId: string,
+    eventId: string,
+    startIso: string,
+    endIso: string,
+    timezone: string,
+  ): Promise<'applied' | 'refused' | 'unknown'> {
+    // Bounded well under the booking door's 25 s write deadline, so a hung
+    // Google call always gets a decided outcome.
+    let token: string | null;
+    let tokenTimer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      token = await Promise.race([
+        this.accessTokenForHost(supabase, hostProfileId),
+        new Promise<null>((_, reject) => {
+          tokenTimer = setTimeout(() => reject(new Error('token step timed out')), PATCH_OUTCOME_TOKEN_MS);
+        }),
+      ]);
+    } catch (err) {
+      // The PATCH was never sent, so Google cannot have applied it.
+      console.error(`${LOG_PREFIX} token step failed before the patch:`, err);
+      return 'refused';
+    } finally {
+      clearTimeout(tokenTimer);
+    }
+    if (!token) return 'refused';
+    let res: Response;
+    try {
+      res = await fetch(
+        `${CAL_BASE}/calendars/primary/events/${encodeURIComponent(eventId)}?sendUpdates=all`,
+        {
+          method: 'PATCH',
+          headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            start: { dateTime: startIso, timeZone: timezone },
+            end: { dateTime: endIso, timeZone: timezone },
+          }),
+          // aborting after the PATCH left counts as 'unknown' below
+          signal: AbortSignal.timeout(PATCH_OUTCOME_FETCH_MS),
+        },
+      );
+    } catch (err) {
+      console.error(`${LOG_PREFIX} event patch: no answer:`, err);
+      return 'unknown';
+    }
+    if (res.ok) return 'applied';
+    console.error(`${LOG_PREFIX} event patch failed:`, res.status);
+    return res.status === 408 || res.status >= 500 ? 'unknown' : 'refused';
   }
 
   /**
