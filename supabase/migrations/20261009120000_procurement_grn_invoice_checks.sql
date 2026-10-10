@@ -118,9 +118,16 @@
 --          the ORIGINAL delivery may neither claim its replacement
 --          (trg_pgrnr_replacement_checks, now BEFORE INSERT OR UPDATE) nor insert the
 --          replacement receipt.
---      E2. No schema change: fn_ims_grn_retired_guard already lets an app user cancel a
---          'verified' IMS receipt (status -> 'cancelled' + updated_at, what cancelGRN
---          writes). GRN-260822-00002 is cancelled through the app after go-live.
+--      E2. fn_ims_grn_retired_guard lets an app user cancel a 'verified' IMS receipt
+--          (status -> 'cancelled' + updated_at, what cancelGRN writes) — but only one
+--          holding ims.stock.grn.edit (or a super admin), the right the IMS page asks
+--          for, and never an 'approved' one (its stock is already on hand). The same
+--          right is needed to edit notes. GRN-260822-00002 is cancelled through the app
+--          after go-live by such a person.
+--      E1 red team. A replacement's line and quantity are frozen once raised
+--          (trg_pgrnr_replacement_checks); the lines of a checked delivery are frozen
+--          (trg_pgrni_00_posted_lock): no line added, no quantity changed, no posted
+--          line re-opened, so its receiver cannot add goods nobody else checked.
 --
 -- I1 is deliberately NOT a unique index: the Director chose "confirm and allow" for
 -- honest resends, which a unique constraint would forbid.
@@ -875,6 +882,16 @@ BEGIN
   -- rights and must not be done by whoever received the original delivery. Every other
   -- UPDATE (the fulfilment link, the rollback to pending) is unchanged.
   IF TG_OP = 'UPDATE' THEN
+    -- E1 red team (afternoon): a replacement stays on the line it was raised for, for
+    -- the quantity it was raised for. Otherwise the original receiver re-points it at
+    -- someone else's delivery line, claims it, receives it and points it back. No app
+    -- path changes either (verifyGrn inserts; receiveReplacement only flips status and
+    -- the fulfilment link). The receiver is read through OLD below for the same reason.
+    IF NEW.grn_item_id IS DISTINCT FROM OLD.grn_item_id
+       OR NEW.rejected_quantity IS DISTINCT FROM OLD.rejected_quantity THEN
+      RAISE EXCEPTION 'a replacement stays on the delivery line and quantity it was raised for — they cannot be changed'
+        USING ERRCODE = '42501';
+    END IF;
     IF OLD.status = 'pending' AND NEW.status = 'received' THEN
       IF NOT (public.is_super_admin() OR public.is_admin()
               OR public.user_has_permission('procurement.grn_verify')) THEN
@@ -884,7 +901,7 @@ BEGIN
       SELECT g.received_by INTO v_receiver
         FROM public.procurement_grn_items gi
         JOIN public.procurement_grn g ON g.id = gi.grn_id
-       WHERE gi.id = NEW.grn_item_id;
+       WHERE gi.id = OLD.grn_item_id;
       IF auth.uid() IS NOT NULL AND v_receiver IS NOT DISTINCT FROM auth.uid() THEN
         RAISE EXCEPTION 'you received the original delivery, so someone else must receive and check its replacement'
           USING ERRCODE = '42501';
@@ -925,6 +942,101 @@ DROP TRIGGER IF EXISTS trg_pgrnr_replacement_checks ON public.procurement_grn_re
 CREATE TRIGGER trg_pgrnr_replacement_checks
   BEFORE INSERT OR UPDATE ON public.procurement_grn_replacements
   FOR EACH ROW EXECUTE FUNCTION public.fn_procurement_grn_replacement_checks();
+
+-- ----------------------------------------------------------------------------
+-- 7g. Lines of a checked delivery are frozen (E1 red team, Director 2026-10-10 afternoon)
+-- ----------------------------------------------------------------------------
+-- E1 bans the receiver from checking their own delivery, but procurement_grn_items had
+-- no trigger and institution-only RLS: after someone else checked a delivery, its
+-- receiver could add a line to it, or re-open a checked line (clear domain_posted_at,
+-- raise its quantity), and post that to stock with fn_procurement_rm_post_receipt —
+-- goods no second person ever checked. Once the parent receipt is in a posted status,
+-- or was ever posted (first_posted_at), this refuses for every caller but the service
+-- role (admins included, as E1 says):
+--   * adding a line — except the single line receiveReplacement adds to the replacement
+--     receipt it just created ('completed', naming a claimed, unfulfilled replacement,
+--     received by the caller, no line yet, quantity within the replacement's);
+--   * changing accepted_quantity or rejected_quantity;
+--   * changing domain_item_id, except NULL -> a value on a line not yet posted (the
+--     links verifyGrn and receiveReplacement write while posting);
+--   * changing domain_posted_at once set (NULL -> now() stays possible: the RM RPC's own
+--     claim and the service's marker).
+-- A line can never move to another receipt (grn_id), posted or not. Deleting lines is
+-- unchanged (it adds no stock; the header's delete guard keeps the record).
+CREATE OR REPLACE FUNCTION public.fn_procurement_grn_item_checks()
+RETURNS trigger
+LANGUAGE plpgsql
+SET search_path = public
+AS $$
+DECLARE
+  v_status   text;
+  v_first    timestamptz;
+  v_rep      uuid;
+  v_receiver uuid;
+BEGIN
+  IF coalesce(auth.role(), '') = 'service_role' THEN
+    RETURN NEW;
+  END IF;
+  IF TG_OP = 'UPDATE' AND NEW.grn_id IS DISTINCT FROM OLD.grn_id THEN
+    RAISE EXCEPTION 'a delivery line cannot be moved to another delivery'
+      USING ERRCODE = '42501';
+  END IF;
+  SELECT g.status, g.first_posted_at, g.replacement_id, g.received_by
+    INTO v_status, v_first, v_rep, v_receiver
+    FROM public.procurement_grn g
+   WHERE g.id = NEW.grn_id;
+  IF NOT FOUND
+     OR NOT (v_status IN ('accepted', 'partially_accepted', 'replacement_requested', 'completed')
+             OR v_first IS NOT NULL) THEN
+    RETURN NEW;
+  END IF;
+  IF TG_OP = 'INSERT' THEN
+    -- Serialise line inserts on this receipt so "no line yet" holds under concurrency.
+    PERFORM 1 FROM public.procurement_grn g WHERE g.id = NEW.grn_id FOR UPDATE;
+    IF v_status = 'completed'
+       AND v_rep IS NOT NULL
+       AND auth.uid() IS NOT NULL
+       AND v_receiver IS NOT DISTINCT FROM auth.uid()
+       AND NEW.domain_posted_at IS NULL
+       AND coalesce(NEW.rejected_quantity, 0) = 0
+       AND NOT EXISTS (SELECT 1 FROM public.procurement_grn_items gi WHERE gi.grn_id = NEW.grn_id)
+       AND EXISTS (
+         SELECT 1 FROM public.procurement_grn_replacements r
+          WHERE r.id = v_rep
+            AND r.status = 'received'
+            AND r.replacement_grn_item_id IS NULL
+            AND NEW.accepted_quantity <= r.rejected_quantity) THEN
+      RETURN NEW;
+    END IF;
+    RAISE EXCEPTION 'this delivery has already been checked into stock — a line cannot be added to it. Record the extra goods as a new delivery'
+      USING ERRCODE = '42501';
+  END IF;
+  IF NEW.accepted_quantity IS DISTINCT FROM OLD.accepted_quantity
+     OR NEW.rejected_quantity IS DISTINCT FROM OLD.rejected_quantity THEN
+    RAISE EXCEPTION 'this delivery has already been checked into stock — its quantities cannot be changed'
+      USING ERRCODE = '42501';
+  END IF;
+  IF NEW.domain_item_id IS DISTINCT FROM OLD.domain_item_id
+     AND (OLD.domain_item_id IS NOT NULL OR OLD.domain_posted_at IS NOT NULL) THEN
+    RAISE EXCEPTION 'this delivery has already been checked into stock — the item a line is linked to cannot be changed'
+      USING ERRCODE = '42501';
+  END IF;
+  IF OLD.domain_posted_at IS NOT NULL
+     AND NEW.domain_posted_at IS DISTINCT FROM OLD.domain_posted_at THEN
+    RAISE EXCEPTION 'this delivery line is already in stock — it cannot be re-opened'
+      USING ERRCODE = '42501';
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+REVOKE EXECUTE ON FUNCTION public.fn_procurement_grn_item_checks() FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_procurement_grn_item_checks() TO authenticated;
+
+DROP TRIGGER IF EXISTS trg_pgrni_00_posted_lock ON public.procurement_grn_items;
+CREATE TRIGGER trg_pgrni_00_posted_lock
+  BEFORE INSERT OR UPDATE ON public.procurement_grn_items
+  FOR EACH ROW EXECUTE FUNCTION public.fn_procurement_grn_item_checks();
 
 -- ----------------------------------------------------------------------------
 -- 8/D1. The IMS goods-receipt flow is retired (Director 2026-10-10)
@@ -978,6 +1090,20 @@ BEGIN
      OR (to_jsonb(NEW) - 'status' - 'notes' - 'updated_at')
         IS DISTINCT FROM (to_jsonb(OLD) - 'status' - 'notes' - 'updated_at') THEN
     RAISE EXCEPTION 'IMS goods receipts are retired and kept as a record — only cancelling one or editing its notes is still possible'
+      USING ERRCODE = '42501';
+  END IF;
+  -- E2 red team (afternoon): the RLS update policy is institution-only, so the guard
+  -- itself gates who may still cancel or annotate an old receipt — the same right the
+  -- IMS page asks for (canAccess('ims.stock.grn','edit'), super admins always). An
+  -- 'approved' receipt already added its stock and cancelGRN reverses none, so it is
+  -- never cancelled (the page never offers that either).
+  IF NEW.status = 'cancelled' AND OLD.status = 'approved' THEN
+    RAISE EXCEPTION 'this IMS receipt was approved and its goods are already in stock — it cannot be cancelled'
+      USING ERRCODE = '42501';
+  END IF;
+  IF (NEW.status IS DISTINCT FROM OLD.status OR NEW.notes IS DISTINCT FROM OLD.notes)
+     AND NOT (public.is_super_admin() OR public.user_has_permission('ims.stock.grn.edit')) THEN
+    RAISE EXCEPTION 'not authorized to change an IMS goods receipt — this requires the ims.stock.grn.edit permission'
       USING ERRCODE = '42501';
   END IF;
   RETURN NEW;
