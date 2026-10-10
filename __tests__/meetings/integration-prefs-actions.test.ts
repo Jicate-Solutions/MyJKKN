@@ -242,6 +242,36 @@ describe('note in calendar title — opt-in, default off', () => {
     expect(res.data?.providerHostIdentity).toBe('host@jkkn.ac.in');
   });
 
+  it('names the RIGHT missing column: auto_record absent, note-in-title present', async () => {
+    // A single 42703 does not say which column is missing. The reader must
+    // narrow until a query succeeds, and report what THAT query proved.
+    maybeSingleMock
+      .mockResolvedValueOnce({ data: null, error: { code: '42703', message: 'no auto_record' } })
+      .mockResolvedValueOnce({ data: null, error: { code: '42703', message: 'no auto_record' } })
+      .mockResolvedValueOnce({
+        data: { video_provider: 'google', provider_host_identity: null, show_note_in_title: true },
+        error: null,
+      });
+
+    const res = await getIntegrationPrefs();
+    expect(res.success).toBe(true);
+    expect(res.data?.autoRecordSupported).toBe(false);
+    expect(res.data?.noteInTitleSupported).toBe(true);
+    expect(res.data?.showNoteInTitle).toBe(true);
+  });
+
+  it('reports a real read failure instead of retrying it away', async () => {
+    // Anything that is not 42703 must stop the walk — an outage must never be
+    // reported to the host as "your database is simply behind".
+    maybeSingleMock.mockResolvedValue({
+      data: null,
+      error: { code: '08006', message: 'connection failure' },
+    });
+    const res = await getIntegrationPrefs();
+    expect(res.success).toBe(false);
+    expect(maybeSingleMock).toHaveBeenCalledTimes(1);
+  });
+
   it('writes the opt-in on the host’s own row when the card sent it', async () => {
     const res = await saveIntegrationPref({
       videoProvider: 'google',
@@ -271,5 +301,60 @@ describe('note in calendar title — opt-in, default off', () => {
     });
     expect(res.success).toBe(false);
     expect(res.error).toMatch(/calendar title/i);
+  });
+});
+
+describe('record my Google Meet automatically — opt-in, default off', () => {
+  it('reads the stored opt-in when the column exists', async () => {
+    maybeSingleMock.mockResolvedValue({
+      data: {
+        video_provider: 'google',
+        provider_host_identity: null,
+        show_note_in_title: false,
+        auto_record: true,
+      },
+      error: null,
+    });
+    const res = await getIntegrationPrefs();
+    expect(res.success).toBe(true);
+    expect(res.data?.autoRecordSupported).toBe(true);
+    expect(res.data?.autoRecord).toBe(true);
+  });
+
+  it('defaults to OFF for a host with no prefs row — recording is never assumed', async () => {
+    maybeSingleMock.mockResolvedValue({ data: null, error: null });
+    const res = await getIntegrationPrefs();
+    expect(res.success).toBe(true);
+    expect(res.data?.autoRecord).toBe(false);
+  });
+
+  it('writes through its own RPC when the card sent the toggle', async () => {
+    rpcMock.mockResolvedValue({ error: null });
+    const res = await saveIntegrationPref({ videoProvider: 'google', autoRecord: true });
+    expect(res.success).toBe(true);
+    expect(rpcMock).toHaveBeenCalledWith('fn_set_meeting_auto_record', { p_auto_record: true });
+    expect(res.data?.autoRecord).toBe(true);
+  });
+
+  it('does not touch recording when the card omitted the toggle', async () => {
+    rpcMock.mockResolvedValue({ error: null });
+    const res = await saveIntegrationPref({ videoProvider: 'google' });
+    expect(res.success).toBe(true);
+    expect(rpcMock).not.toHaveBeenCalledWith(
+      'fn_set_meeting_auto_record',
+      expect.anything(),
+    );
+    expect(res.data?.autoRecordSupported).toBe(false);
+  });
+
+  it('reports a failed recording write instead of claiming it saved', async () => {
+    rpcMock.mockImplementation(async (fn: string) =>
+      fn === 'fn_set_meeting_auto_record'
+        ? { error: { message: 'function does not exist' } }
+        : { error: null },
+    );
+    const res = await saveIntegrationPref({ videoProvider: 'google', autoRecord: true });
+    expect(res.success).toBe(false);
+    expect(res.error).toMatch(/recording setting could not be/i);
   });
 });
