@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
-import { createClient as createSupabaseClient } from '@supabase/supabase-js';
 import { CoeRestClient, CoeApiError } from '@/lib/services/coe/coe-rest-client';
 import {
   resolveInternalMarksAccess,
   resolveEffectiveInstitutionId,
   resolveCoeInstitutionId,
+  fetchInstitutionRegisterNumbers,
 } from '@/lib/utils/internal-marks/internal-marks-access';
 
 // ── GET /api/internal-marks/registrations ───────────────────────────────────
@@ -26,6 +26,7 @@ export async function GET(request: NextRequest) {
     const examSessionId = searchParams.get('examSessionId');
     const programCode = searchParams.get('programCode');
     const courseCode = searchParams.get('courseCode');
+    const semester = searchParams.get('semester');
 
     if (!institutionId || !examSessionId) {
       return NextResponse.json(
@@ -48,11 +49,25 @@ export async function GET(request: NextRequest) {
     };
     if (programCode) params.program_code = programCode;
     if (courseCode) params.course_code = courseCode;
+    if (semester) params.semester = semester;
 
-    const result = await client.get<{ data: unknown[] } | unknown[]>(
+    const result = await client.get<{ data: unknown[]; has_more?: boolean } | unknown[]>(
       '/api/v1/registrations',
       params
     );
+
+    // A list cut by the limit drops learners from their courses with nothing on
+    // screen to show it — refuse it rather than hand back a partial class.
+    if (!Array.isArray(result) && result.has_more) {
+      return NextResponse.json(
+        {
+          error:
+            'COE holds more exam registrations for this selection than one request returns. ' +
+            'The learner list would be incomplete — contact the COE administrator.',
+        },
+        { status: 502 }
+      );
+    }
 
     const records = Array.isArray(result)
       ? result
@@ -62,21 +77,9 @@ export async function GET(request: NextRequest) {
     // COE returns Aided+SF combined — only show students belonging to user's institution
     // Approach: get ALL register numbers for user's institution, then filter registrations
     if (institutionId && records.length > 0) {
-      // Use service-role client to bypass RLS (user may not be in user_institution_access)
-      const serviceClient = createSupabaseClient(
-        process.env.NEXT_PUBLIC_SUPABASE_URL!,
-        process.env.SUPABASE_SERVICE_ROLE_KEY!,
-        { auth: { persistSession: false, autoRefreshToken: false } }
-      );
+      const myRegNos = await fetchInstitutionRegisterNumbers(institutionId);
 
-      const { data: myStudents } = await serviceClient
-        .from('learners_profiles')
-        .select('register_number')
-        .eq('institution_id', institutionId)
-        .not('register_number', 'is', null);
-
-      if (myStudents) {
-        const myRegNos = new Set(myStudents.map((s) => s.register_number));
+      if (myRegNos) {
         const filtered = (records as Array<{ stu_register_no: string }>).filter(
           (r) => myRegNos.has(r.stu_register_no)
         );

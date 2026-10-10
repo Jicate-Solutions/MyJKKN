@@ -91,10 +91,14 @@ export default function MarkEntryPage() {
 
   const learners = useMemo(
     () =>
-      registrations && filters.course_code
-        ? CiaMarksService.getLearnersFromRegistrations(registrations, filters.course_code)
+      registrations && filters.course_code && filters.semester != null
+        ? CiaMarksService.getLearnersFromRegistrations(
+            registrations,
+            filters.course_code,
+            filters.semester
+          )
         : [],
-    [registrations, filters.course_code]
+    [registrations, filters.course_code, filters.semester]
   );
 
   /** Round total — the ceiling a learner's components may sum to. */
@@ -143,6 +147,7 @@ export default function MarkEntryPage() {
     filters.cia_round != null &&
     !!filters.program_code &&
     !!filters.course_code &&
+    filters.semester != null &&
     !!selectedRound;
 
   return (
@@ -200,7 +205,8 @@ export default function MarkEntryPage() {
           <Card>
             <CardContent className='space-y-2 py-10 text-center text-sm'>
               <p className='font-medium'>
-                No exam registrations found for {filters.course_code} in this session.
+                No exam registrations found for {filters.course_code}, Semester {filters.semester},
+                in this session.
               </p>
               <p className='text-xs text-muted-foreground'>
                 Learners are drawn from COE exam registrations for {filters.program_code} — any
@@ -234,6 +240,7 @@ export default function MarkEntryPage() {
                 round={selectedRound}
                 courseCode={filters.course_code!}
                 programCode={filters.program_code!}
+                semester={filters.semester}
                 learners={learners}
                 maxInternalMarks={maxInternalMarks}
                 canEnter={canEnter}

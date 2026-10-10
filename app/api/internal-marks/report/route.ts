@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
-import { createClient as createSupabaseClient } from '@supabase/supabase-js';
 import { CoeRestClient, CoeApiError } from '@/lib/services/coe/coe-rest-client';
 import {
   resolveInternalMarksAccess,
   resolveEffectiveInstitutionId,
   resolveCoeInstitutionId,
+  fetchInstitutionRegisterNumbers,
 } from '@/lib/utils/internal-marks/internal-marks-access';
 import { flattenReportExtraMarks } from '@/lib/utils/internal-marks/flatten-extra-marks';
 import type { CiaReportResponse } from '@/types/internal-marks';
@@ -25,6 +25,7 @@ export async function GET(request: NextRequest) {
     const courseCode = searchParams.get('courseCode');
     const ciaRound = searchParams.get('ciaRound');
     const programCode = searchParams.get('programCode');
+    const semester = searchParams.get('semester');
 
     if (!institutionId || !examSessionId || !courseCode || !ciaRound) {
       return NextResponse.json({ error: 'institutionId, examSessionId, courseCode, ciaRound are required' }, { status: 400 });
@@ -42,25 +43,15 @@ export async function GET(request: NextRequest) {
       course_code: courseCode,
       cia_round: ciaRound,
       program_code: programCode ?? undefined,
+      semester: semester ?? undefined,
     });
     const data = flattenReportExtraMarks(raw);
 
     // Filter learners by user's MyJKKN institution (Aided/SF separation)
     if (institutionId && data?.learners?.length > 0) {
-      const serviceClient = createSupabaseClient(
-        process.env.NEXT_PUBLIC_SUPABASE_URL!,
-        process.env.SUPABASE_SERVICE_ROLE_KEY!,
-        { auth: { persistSession: false, autoRefreshToken: false } }
-      );
+      const myRegNos = await fetchInstitutionRegisterNumbers(institutionId);
 
-      const { data: myStudents } = await serviceClient
-        .from('learners_profiles')
-        .select('register_number')
-        .eq('institution_id', institutionId)
-        .not('register_number', 'is', null);
-
-      if (myStudents) {
-        const myRegNos = new Set(myStudents.map((s) => s.register_number));
+      if (myRegNos) {
         data.learners = data.learners.filter(
           (l) => myRegNos.has(l.register_number)
         );

@@ -19,7 +19,7 @@ export async function POST(request: NextRequest) {
     }
     await resolveInternalMarksAccess(user.id);
 
-    const { institutionId, examSessionId, courseCode, ciaRound, programCode, roundName } = await request.json();
+    const { institutionId, examSessionId, courseCode, ciaRound, programCode, semester, roundName } = await request.json();
     if (!institutionId || !examSessionId || !courseCode || !ciaRound) {
       return NextResponse.json({ error: 'Missing required parameters' }, { status: 400 });
     }
@@ -36,6 +36,7 @@ export async function POST(request: NextRequest) {
       course_code: courseCode,
       cia_round: String(ciaRound),
       program_code: programCode ?? undefined,
+      semester: semester != null ? String(semester) : undefined,
     });
     const reportData = flattenReportExtraMarks(rawReport);
 

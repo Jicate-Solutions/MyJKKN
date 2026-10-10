@@ -23,11 +23,19 @@ import { PageHeader } from '@/components/page-header';
 import { Card, CardContent } from '@/components/ui/card';
 import { createClient } from '@/lib/supabase/server';
 import { isCampusWalkReporter } from '@/lib/campus-walk/reporters';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { WalkClient } from './_components/walk-client';
+import { CctvForm } from './_components/cctv-form';
 
 export const dynamic = 'force-dynamic';
 
-export default async function CampusWalkPage() {
+export default async function CampusWalkPage({
+  searchParams
+}: {
+  searchParams: Promise<{ mode?: string }>;
+}) {
+  // ?mode=cctv opens the CCTV report form first — the operator's bookmark.
+  const { mode } = await searchParams;
   const supabase = await createClient();
   const {
     data: { user }
@@ -78,7 +86,18 @@ export default async function CampusWalkPage() {
           description="Photograph a condition. It routes itself — you just confirm where."
         />
       </div>
-      <WalkClient />
+      <Tabs defaultValue={mode === 'cctv' ? 'cctv' : 'walk'} className="mt-4">
+        <TabsList>
+          <TabsTrigger value="walk">Photo on a walk</TabsTrigger>
+          <TabsTrigger value="cctv">CCTV report</TabsTrigger>
+        </TabsList>
+        <TabsContent value="walk">
+          <WalkClient />
+        </TabsContent>
+        <TabsContent value="cctv">
+          <CctvForm />
+        </TabsContent>
+      </Tabs>
     </ContentLayout>
   );
 }
