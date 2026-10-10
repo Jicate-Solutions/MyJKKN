@@ -2,11 +2,19 @@
 /**
  * scripts/backfill-sibling-bugs-from-central.ts
  *
- * Copies the bug reports that five college apps (Mentor, TMS, COE, Library;
+ * Copies the OPEN bug reports that five college apps (Mentor, TMS, COE, Library;
  * Event Forms has none) already filed in the central bug reporter
  * (Supabase adakhqxgaoxaihtehfqw) into MyJKKN's own bug_reports, so that their
  * history sits next to the new reports the intake route
  * (app/api/v1/public/bug-reports, migration 20271010120000) files from now on.
+ *
+ * ── OPEN BUGS ONLY (Director, 10 Oct 2026 14:40) ───────────────────────────
+ *   Only bugs whose central status is new, seen or in_progress are copied,
+ *   with that status unchanged. Resolved, closed and wont_fix bugs stay in the
+ *   central reporter as history and are never copied. This is the only mode.
+ *   (It also means no copied row is 'resolved', so trg_bug_reports_resolved_by,
+ *   which refuses a resolved row without resolved_by, never comes into play.)
+ *   The COE TEST entry (central "jkkn-coe") is excluded too.
  *
  * ── ORDER ──────────────────────────────────────────────────────────────────
  *   1. Apply migration 20271010120000_sibling_app_bug_intake.sql (PR #4322).
@@ -24,20 +32,13 @@
  *   --apply              Inserts. Refused unless ALL of:
  *                          • BACKFILL_CONFIRM=copy-central-bugs-to-myjkkn
  *                          • sibling_apps exists with every target slug active
- *                          • every row passes the checks (no blocked rows),
- *                            which includes a resolver for resolved bugs
+ *                          • every open row passes the checks (no blocked
+ *                            rows)
  *
  * ── FLAGS ──────────────────────────────────────────────────────────────────
- *   --include-coe-test       Also copy central's "jkkn-coe" app, a TEST entry
- *                            (15 bugs). Excluded by default: the Director
- *                            decides whether test bugs belong in MyJKKN.
- *   --resolver-email=<addr>  MyJKKN profile credited as resolved_by on the
- *                            bugs that arrive resolved. Required for those
- *                            rows: trg_bug_reports_resolved_by refuses any
- *                            status = 'resolved' row without a resolver
- *                            (fn_bug_reports_enforce_resolved_by). The real
- *                            central resolver, when central knows it, stays in
- *                            metadata.central_history.
+ *   --include-coe-test       Also copy central's "jkkn-coe" app, a TEST entry.
+ *                            OFF by default, and the Director decided (10 Oct
+ *                            2026) to keep it off: do not pass it.
  *   --batch-size=<n>         Rows per batch on --apply (default 10). Rows are
  *                            still inserted one request each, so one
  *                            display_id race cannot fail a whole batch.
@@ -56,13 +57,12 @@
  *   BACKFILL_CONFIRM                  --apply only (see above)
  *
  *   npx tsx scripts/backfill-sibling-bugs-from-central.ts
- *   npx tsx scripts/backfill-sibling-bugs-from-central.ts --apply --resolver-email=you@jkkn.ac.in
+ *   BACKFILL_CONFIRM=copy-central-bugs-to-myjkkn npx tsx scripts/backfill-sibling-bugs-from-central.ts --apply
  *
  * ── HOW EACH FIELD IS CARRIED ──────────────────────────────────────────────
- *   status          closed → resolved; new, seen, in_progress, resolved,
- *                   wont_fix pass through. Anything else is BLOCKED (the
- *                   bug_reports_status_check list is new, seen, in_progress,
- *                   resolved, wont_fix, duplicate). The original is kept in
+ *   status          new, seen, in_progress carried unchanged (all allowed by
+ *                   bug_reports_status_check). Every other central status
+ *                   stays in central. The original is also kept in
  *                   metadata.central_status.
  *   reporter        reporter_email (or metadata.reporter_email) matched to
  *                   profiles.email case-insensitively, exactly as the intake
@@ -75,8 +75,8 @@
  *   attachments     attachments[].url → attachment_urls (MyJKKN keeps an
  *                   array of URL strings); the full objects (filename, size,
  *                   type) → metadata.central_attachments. Same public bucket.
- *   page_url, description, category, console_logs, created_at, resolved_at,
- *   reopened_at     carried over. reopen_count and reopen_reason have no
+ *   page_url, description, category, console_logs, created_at, resolved_at
+ *   (set only on a reopened bug), reopened_at     carried over. reopen_count and reopen_reason have no
  *                   MyJKKN column → metadata.
  *   display_id      never set: MyJKKN's set_bug_display_id trigger issues
  *                   BUG-xxxxxx. The central one is metadata.central_display_id.
@@ -136,12 +136,12 @@ export const BACKFILL_SOURCE = 'central-backfill';
 export const APPLY_CONFIRM_ENV = 'BACKFILL_CONFIRM';
 export const APPLY_CONFIRM_VALUE = 'copy-central-bugs-to-myjkkn';
 
-/** bug_reports_status_check on MyJKKN. */
-export const MYJKKN_STATUSES = ['new', 'seen', 'in_progress', 'resolved', 'wont_fix', 'duplicate'] as const;
 /** The categories the intake route accepts (no CHECK on the column itself). */
 export const KNOWN_CATEGORIES = ['bug', 'feature_request', 'ui_design', 'performance', 'security', 'other'] as const;
 
-const PASS_THROUGH_STATUSES = new Set(['new', 'seen', 'in_progress', 'resolved', 'wont_fix']);
+/** The only central statuses copied (Director, 10 Oct 2026). */
+export const OPEN_STATUSES = ['new', 'seen', 'in_progress'] as const;
+const OPEN = new Set<string>(OPEN_STATUSES);
 const MAX_NETWORK_TRACE = 50; // same cap as the intake route
 const MAX_CONSOLE_LOGS = 200; // same cap as the intake route
 
@@ -150,12 +150,14 @@ export function selectApps(opts: { includeCoeTest: boolean }) {
   return APP_MAP.filter((a) => opts.includeCoeTest || !a.testEntry);
 }
 
-/** central status → MyJKKN status, or null when MyJKKN's CHECK would refuse it. */
+/**
+ * central status → MyJKKN status for an OPEN bug (unchanged), or null when the
+ * bug is not open (resolved, closed, wont_fix, anything else): it stays in
+ * central and is not copied.
+ */
 export function mapStatus(central: string | null | undefined): string | null {
   const s = (central ?? '').trim().toLowerCase();
-  if (s === 'closed') return 'resolved';
-  if (PASS_THROUGH_STATUSES.has(s)) return s;
-  return null;
+  return OPEN.has(s) ? s : null;
 }
 
 /** Lower-cased address, or null when it is not one. */
@@ -235,14 +237,14 @@ export type PlannedRow = {
   centralDisplayId: string | null;
   centralStatus: string | null;
   status: string | null;
-  decision: 'insert' | 'skip-existing' | 'blocked';
+  /** stays-in-central = not open; never copied. */
+  decision: 'insert' | 'skip-existing' | 'blocked' | 'stays-in-central';
   /** Would fail a constraint or trigger even after #4322's migration. */
   blockers: string[];
   /** Would fail only because #4322's migration is not applied yet. */
   needsMigration: string[];
   reporter: 'matched' | 'unmatched' | 'ambiguous' | 'no-email';
   reporterEmail: string | null;
-  resolvedWithoutResolvedAt: boolean;
   attachmentCount: number;
   row: Record<string, unknown>;
 };
@@ -255,7 +257,6 @@ export type PlanInput = {
   reporterByEmail: Map<string, ReporterLookup>;
   /** null = the sibling_apps table does not exist yet (mapping simulated). */
   siblingApps: Map<string, SiblingApp> | null;
-  resolverId: string | null;
   /** Copy central's jkkn-coe TEST entry too (default false). */
   includeCoeTest: boolean;
   now: string;
@@ -339,9 +340,8 @@ export function planRow(
     }
   }
 
-  // Status
+  // Status: open bugs only
   const status = mapStatus(bug.status);
-  if (!status) blockers.push(`status '${bug.status}' not allowed by bug_reports_status_check`);
 
   // NOT NULL columns
   if (!str(bug.page_url)) blockers.push('page_url is empty (NOT NULL)');
@@ -367,25 +367,8 @@ export function planRow(
     needsMigration.push('reporter has no MyJKKN profile (participant trigger needs #4322 guard)');
   }
 
-  // Resolver (trg_bug_reports_resolved_by)
-  if (status === 'resolved' && !input.resolverId) {
-    blockers.push('resolved without resolved_by (pass --resolver-email)');
-  }
-
-  // resolved_at: central's own, else the moment central recorded the close.
   const events = input.eventsByBug.get(bug.id) ?? [];
   const messages = input.messagesByBug.get(bug.id) ?? [];
-  let resolvedAt = bug.resolved_at;
-  let resolvedAtFrom: string | null = resolvedAt ? 'central' : null;
-  if (!resolvedAt && status === 'resolved') {
-    const close = [...events]
-      .filter((e) => e.to_status === 'resolved' || e.to_status === 'closed')
-      .sort((a, b) => b.created_at.localeCompare(a.created_at))[0];
-    if (close) {
-      resolvedAt = close.created_at;
-      resolvedAtFrom = 'central-status-event';
-    }
-  }
 
   const attachments = attachmentsOf(bug.attachments);
   const extras = Object.fromEntries(Object.entries(md).filter(([k]) => !INTAKE_METADATA_KEYS.has(k)));
@@ -421,7 +404,6 @@ export function planRow(
   if (attachments.length) metadata.central_attachments = attachments;
   if (bug.reopen_count) metadata.central_reopen_count = bug.reopen_count;
   if (bug.reopen_reason) metadata.central_reopen_reason = bug.reopen_reason;
-  if (resolvedAtFrom === 'central-status-event') metadata.resolved_at_from = resolvedAtFrom;
   if (Object.keys(extras).length) metadata.central_metadata_extra = extras;
 
   // Never display_id, module_name, sub_module_name or priority.
@@ -438,13 +420,18 @@ export function planRow(
     screenshot_url: bug.screenshot_url,
     attachment_urls: attachments.map((a) => a.url as string),
     created_at: bug.created_at,
-    resolved_at: resolvedAt,
+    resolved_at: bug.resolved_at,
     reopened_at: bug.reopened_at,
     metadata,
   };
-  if (status === 'resolved' && input.resolverId) row.resolved_by = input.resolverId;
-
   const already = input.existingCentralIds.has(bug.id);
+  const decision: PlannedRow['decision'] = !status
+    ? 'stays-in-central'
+    : already
+      ? 'skip-existing'
+      : blockers.length
+        ? 'blocked'
+        : 'insert';
   return {
     centralApp,
     siblingSlug,
@@ -452,12 +439,11 @@ export function planRow(
     centralDisplayId: bug.display_id,
     centralStatus: bug.status,
     status,
-    decision: already ? 'skip-existing' : blockers.length ? 'blocked' : 'insert',
+    decision,
     blockers,
     needsMigration,
     reporter,
     reporterEmail,
-    resolvedWithoutResolvedAt: status === 'resolved' && !resolvedAt,
     attachmentCount: attachments.length,
     row,
   };
@@ -477,19 +463,17 @@ export function planBackfill(input: PlanInput): PlannedRow[] {
 type Args = {
   apply: boolean;
   includeCoeTest: boolean;
-  resolverEmail: string | null;
   batchSize: number;
   verbose: boolean;
 };
 
 export function parseArgs(args: string[]): Args {
-  const out: Args = { apply: false, includeCoeTest: false, resolverEmail: null, batchSize: 10, verbose: false };
+  const out: Args = { apply: false, includeCoeTest: false, batchSize: 10, verbose: false };
   for (const a of args) {
     if (a === '--apply') out.apply = true;
     else if (a === '--dry-run') out.apply = false;
     else if (a === '--include-coe-test') out.includeCoeTest = true;
     else if (a === '--verbose') out.verbose = true;
-    else if (a.startsWith('--resolver-email=')) out.resolverEmail = normEmail(a.slice('--resolver-email='.length));
     else if (a.startsWith('--batch-size=')) {
       const n = Number(a.slice('--batch-size='.length));
       if (!Number.isInteger(n) || n < 1 || n > 50) throw new Error('--batch-size must be 1..50');
@@ -580,26 +564,39 @@ function pad(s: string | number, n: number) {
   return String(s).padEnd(n);
 }
 
-function printPlan(plan: PlannedRow[], args: Args, simulated: boolean, resolverNote: string) {
+function printPlan(plan: PlannedRow[], args: Args, simulated: boolean) {
   const apps = [...new Set(plan.map((p) => p.centralApp))];
-  const statuses = [...MYJKKN_STATUSES, 'BLOCKED-STATUS'];
+  const statuses = [...OPEN_STATUSES];
 
-  console.log('\n── Per app × MyJKKN status (all rows read) ─────────────────────────');
-  console.log(pad('central app', 30) + pad('→', 9) + statuses.map((s) => pad(s, 16)).join('') + 'total');
+  console.log('\n── Per app: open bugs copied, the rest stays in central ────────────');
+  console.log(
+    pad('central app', 30) +
+      pad('→', 9) +
+      statuses.map((s) => pad(s, 13)).join('') +
+      pad('open total', 12) +
+      pad('stays in central', 18) +
+      'central total'
+  );
   for (const a of apps) {
     const rows = plan.filter((p) => p.centralApp === a);
-    const cells = statuses.map((s) =>
-      pad(rows.filter((r) => (s === 'BLOCKED-STATUS' ? r.status === null : r.status === s)).length, 16)
+    const cells = statuses.map((s) => pad(rows.filter((r) => r.status === s).length, 13));
+    console.log(
+      pad(a, 30) +
+        pad(rows[0]?.siblingSlug ?? '', 9) +
+        cells.join('') +
+        pad(rows.filter((r) => r.status).length, 12) +
+        pad(rows.filter((r) => r.decision === 'stays-in-central').length, 18) +
+        rows.length
     );
-    console.log(pad(a, 30) + pad(rows[0]?.siblingSlug ?? '', 9) + cells.join('') + rows.length);
   }
 
-  console.log('\n── Status transitions (central → MyJKKN) ───────────────────────────');
-  const trans = new Map<string, number>();
-  for (const p of plan) trans.set(`${p.centralStatus} → ${p.status ?? 'BLOCKED'}`, (trans.get(`${p.centralStatus} → ${p.status ?? 'BLOCKED'}`) ?? 0) + 1);
-  for (const [k, v] of [...trans].sort()) console.log(`  ${pad(k, 28)} ${v}`);
+  const stays = new Map<string, number>();
+  for (const p of plan.filter((x) => x.decision === 'stays-in-central'))
+    stays.set(String(p.centralStatus), (stays.get(String(p.centralStatus)) ?? 0) + 1);
+  console.log(`\nStays in central (not copied): ${[...stays].sort().map(([k, v]) => `${k} ${v}`).join(' · ') || 'none'}`);
 
-  console.log('\n── Per app: decision, reporters, extras ────────────────────────────');
+  const open = plan.filter((p) => p.decision !== 'stays-in-central');
+  console.log('\n── Open bugs: decision, reporters, extras ──────────────────────────');
   console.log(
     pad('central app', 30) +
       pad('insert', 8) +
@@ -613,7 +610,7 @@ function printPlan(plan: PlannedRow[], args: Args, simulated: boolean, resolverN
       'hist-events'
   );
   for (const a of apps) {
-    const rows = plan.filter((p) => p.centralApp === a);
+    const rows = open.filter((p) => p.centralApp === a);
     const n = (f: (p: PlannedRow) => boolean) => rows.filter(f).length;
     const events = rows.reduce(
       (s, r) => s + ((r.row.metadata as any).central_history.events.length as number),
@@ -634,22 +631,19 @@ function printPlan(plan: PlannedRow[], args: Args, simulated: boolean, resolverN
   }
 
   const unmatched = new Map<string, number>();
-  for (const p of plan)
+  for (const p of open)
     if ((p.reporter === 'unmatched' || p.reporter === 'ambiguous') && p.reporterEmail)
       unmatched.set(p.reporterEmail, (unmatched.get(p.reporterEmail) ?? 0) + 1);
   console.log(
-    `\nUnmatched reporters: ${plan.filter((p) => p.reporter !== 'matched').length} rows ` +
+    `\nUnmatched reporters (open bugs): ${open.filter((p) => p.reporter !== 'matched').length} rows ` +
       `(${unmatched.size} distinct emails with no single MyJKKN profile; ` +
-      `${plan.filter((p) => p.reporter === 'no-email').length} rows with no email) → reporter_user_id NULL`
+      `${open.filter((p) => p.reporter === 'no-email').length} rows with no email) → reporter_user_id NULL`
   );
   if (args.verbose) for (const [e, c] of [...unmatched].sort()) console.log(`    ${e}  ×${c}`);
 
-  console.log(`Resolved rows with no resolved_at anywhere in central: ${plan.filter((p) => p.resolvedWithoutResolvedAt).length}`);
-  console.log(`Resolver: ${resolverNote}`);
-
   const blockerCounts = new Map<string, number>();
-  for (const p of plan) if (p.decision !== 'skip-existing') for (const b of p.blockers) blockerCounts.set(b, (blockerCounts.get(b) ?? 0) + 1);
-  console.log('\n── Rows that would fail a constraint or trigger ────────────────────');
+  for (const p of open) if (p.decision !== 'skip-existing') for (const b of p.blockers) blockerCounts.set(b, (blockerCounts.get(b) ?? 0) + 1);
+  console.log('\n── Open rows that would fail a constraint or trigger ───────────────');
   if (!blockerCounts.size) console.log('  none');
   for (const [b, c] of blockerCounts) console.log(`  ${pad(c, 5)} ${b}`);
   if (args.verbose)
@@ -657,7 +651,7 @@ function printPlan(plan: PlannedRow[], args: Args, simulated: boolean, resolverN
       console.log(`    ${p.centralApp} ${p.centralDisplayId ?? p.centralId}: ${p.blockers.join('; ')}`);
 
   const migCounts = new Map<string, number>();
-  for (const p of plan) if (p.decision !== 'skip-existing') for (const b of p.needsMigration) migCounts.set(b, (migCounts.get(b) ?? 0) + 1);
+  for (const p of open) if (p.decision !== 'skip-existing') for (const b of p.needsMigration) migCounts.set(b, (migCounts.get(b) ?? 0) + 1);
   console.log('\n── Would fail only until #4322 migration is applied ────────────────');
   if (!simulated && !migCounts.size) console.log('  none (migration present)');
   for (const [b, c] of migCounts) console.log(`  ${pad(c, 5)} ${b}`);
@@ -759,21 +753,14 @@ async function main(): Promise<void> {
 
   const existingCentralIds = await readExistingCentralIds(target);
   const emails = [
-    ...new Set(bugs.map(({ bug }) => normEmail(bug.reporter_email) ?? normEmail(bug.metadata?.reporter_email)).filter((e): e is string => !!e)),
+    ...new Set(
+      bugs
+        .filter(({ bug }) => mapStatus(bug.status)) // only open bugs are copied
+        .map(({ bug }) => normEmail(bug.reporter_email) ?? normEmail(bug.metadata?.reporter_email))
+        .filter((e): e is string => !!e)
+    ),
   ];
   const reporterByEmail = await lookupProfiles(target, emails);
-
-  let resolverId: string | null = null;
-  let resolverNote = 'none given (resolved rows are blocked)';
-  if (args.resolverEmail) {
-    const hit = (await lookupProfiles(target, [args.resolverEmail])).get(args.resolverEmail);
-    if (hit && hit !== 'none' && hit !== 'ambiguous') {
-      resolverId = hit.id;
-      resolverNote = 'matched one MyJKKN profile';
-    } else {
-      resolverNote = `--resolver-email matched ${hit === 'ambiguous' ? 'several profiles' : 'no profile'} (resolved rows are blocked)`;
-    }
-  }
 
   const plan = planBackfill({
     bugs,
@@ -782,17 +769,17 @@ async function main(): Promise<void> {
     existingCentralIds,
     reporterByEmail,
     siblingApps,
-    resolverId,
     includeCoeTest: args.includeCoeTest,
     now: new Date().toISOString(),
   });
 
-  printPlan(plan, args, simulated, resolverNote);
+  printPlan(plan, args, simulated);
 
   const toInsert = plan.filter((p) => p.decision === 'insert');
   const blocked = plan.filter((p) => p.decision === 'blocked');
   console.log(
-    `\nSummary: ${plan.length} read · ${toInsert.length} would insert · ` +
+    `\nSummary: ${plan.length} read · ${plan.filter((p) => p.decision === 'stays-in-central').length} stay in central (not open) · ` +
+      `${toInsert.length} open would insert · ` +
       `${plan.filter((p) => p.decision === 'skip-existing').length} already copied · ${blocked.length} blocked`
   );
 

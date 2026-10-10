@@ -1,9 +1,8 @@
 // __tests__/scripts/backfill-sibling-bugs-from-central.test.ts
 //
-// The mapping rules of the central → MyJKKN bug backfill: status, the
-// idempotence key, the COE test-entry exclusion, and the two things that
-// would fail an insert (a resolved bug with no resolver; a NULL reporter
-// before #4322's participant-trigger guard).
+// The mapping rules of the central → MyJKKN bug backfill: open bugs only
+// (Director, 10 Oct 2026), the idempotence key, the COE test-entry
+// exclusion, and a NULL reporter before #4322's participant-trigger guard.
 
 import { describe, it, expect } from 'vitest';
 import {
@@ -11,6 +10,7 @@ import {
   BACKFILL_SOURCE,
   centralIdOf,
   mapStatus,
+  OPEN_STATUSES,
   parseArgs,
   planBackfill,
   selectApps,
@@ -57,26 +57,32 @@ function input(over: Partial<PlanInput> = {}): PlanInput {
     existingCentralIds: new Set(),
     reporterByEmail: new Map([['anitha@jkkn.ac.in', { id: 'p-1', institution_id: 'i-1', department_id: 'd-1' }]]),
     siblingApps: SIBLINGS,
-    resolverId: 'resolver-1',
     includeCoeTest: false,
     now: '2026-10-10T00:00:00Z',
     ...over,
   };
 }
 
-describe('mapStatus', () => {
-  it('turns closed into resolved', () => {
-    expect(mapStatus('closed')).toBe('resolved');
+describe('mapStatus (open bugs only)', () => {
+  it('carries new, seen and in_progress unchanged', () => {
+    expect([...OPEN_STATUSES]).toEqual(['new', 'seen', 'in_progress']);
+    for (const s of OPEN_STATUSES) expect(mapStatus(s)).toBe(s);
   });
 
-  it('passes the statuses MyJKKN also has straight through', () => {
-    for (const s of ['new', 'seen', 'in_progress', 'resolved', 'wont_fix']) expect(mapStatus(s)).toBe(s);
+  it('leaves resolved, closed, wont_fix and anything else in central', () => {
+    for (const s of ['resolved', 'closed', 'wont_fix', 'duplicate', 'archived', '', null]) expect(mapStatus(s)).toBeNull();
   });
 
-  it('returns null (blocked) for anything the MyJKKN CHECK would refuse', () => {
-    expect(mapStatus('archived')).toBeNull();
-    expect(mapStatus(null)).toBeNull();
-    expect(mapStatus('')).toBeNull();
+  it('never copies a non-open bug and never blocks on it', () => {
+    const bugs = ['resolved', 'closed', 'wont_fix', 'new'].map((status, i) => ({
+      centralApp: 'tms',
+      bug: bug({ id: `s${i}`, status, resolved_at: status === 'new' ? null : '2026-08-02T00:00:00Z' }),
+    }));
+    const plan = planBackfill(input({ bugs }));
+    expect(plan.map((p) => p.decision)).toEqual(['stays-in-central', 'stays-in-central', 'stays-in-central', 'insert']);
+    expect(plan.every((p) => p.blockers.length === 0)).toBe(true);
+    expect(plan[3].row.status).toBe('new');
+    expect(plan[3].row).not.toHaveProperty('resolved_by');
   });
 });
 
@@ -161,17 +167,7 @@ describe('idempotence', () => {
   });
 });
 
-describe('rows that would fail an insert', () => {
-  it('blocks a resolved (or closed) bug when no resolver is given', () => {
-    const bugs = [{ centralApp: 'tms', bug: bug({ id: 'r', status: 'closed', resolved_at: '2026-08-02T00:00:00Z' }) }];
-    const [blocked] = planBackfill(input({ bugs, resolverId: null }));
-    expect(blocked.decision).toBe('blocked');
-    const [ok] = planBackfill(input({ bugs }));
-    expect(ok.decision).toBe('insert');
-    expect(ok.row.status).toBe('resolved');
-    expect(ok.row.resolved_by).toBe('resolver-1');
-  });
-
+describe('open rows that would fail an insert', () => {
   it('flags a NULL reporter as needing #4322 when sibling_apps is missing, without blocking it', () => {
     const bugs = [{ centralApp: 'tms', bug: bug({ id: 'n', reporter_email: 'nobody@else.in', metadata: {} }) }];
     const [p] = planBackfill(input({ bugs, siblingApps: null }));
@@ -180,28 +176,5 @@ describe('rows that would fail an insert', () => {
     expect(p.needsMigration).toContain('sibling_apps missing');
     expect(p.needsMigration.some((m) => m.includes('participant trigger'))).toBe(true);
     expect(p.blockers).toEqual([]);
-  });
-
-  it('uses the central close event when a resolved bug has no resolved_at', () => {
-    const bugs = [{ centralApp: 'tms', bug: bug({ id: 'e', status: 'closed', resolved_at: null }) }];
-    const eventsByBug = new Map([
-      [
-        'e',
-        [
-          {
-            bug_report_id: 'e',
-            from_status: 'new',
-            to_status: 'closed',
-            note: null,
-            actor_kind: 'dashboard_user',
-            actor_label: 'someone@jkkn.ac.in',
-            created_at: '2026-08-05T00:00:00Z',
-          },
-        ],
-      ],
-    ]);
-    const [p] = planBackfill(input({ bugs, eventsByBug }));
-    expect(p.row.resolved_at).toBe('2026-08-05T00:00:00Z');
-    expect((p.row.metadata as any).central_history.events).toHaveLength(1);
   });
 });
