@@ -24,6 +24,7 @@ import {
   normaliseAccountNumber,
   normaliseIfsc,
 } from '@/lib/hr/payroll/bank-account-validation';
+import { firstOfNextMonthIST, todayIST } from '@/lib/hr/payroll/salary-start-date';
 
 export const SALARY_STRUCTURES = ['Monthly', 'Weekly', 'Daily', 'Hourly'] as const;
 export const OVERTIME_LEVELS = ['No overtime', 'Grade', 'Employee'] as const;
@@ -160,6 +161,78 @@ export function isBankEntered(b: Partial<OfficeBankValues> | undefined): boolean
 
 const num = (v: string) => (v.trim() === '' ? 0 : Number(v));
 
+const SALARY_FIELDS: Array<keyof OfficeSalaryValues> = [
+  'monthly_gross', 'salary_structure', 'effective_from', 'overtime_level',
+  'overtime_amount', 'eligible_for_pf', 'exempt_edli', 'eligible_for_insurance',
+  'eligible_for_gratuity', 'eligible_for_etf', 'eligible_for_esi', 'epf_amount',
+  'esi_amount', 'allowance_amount', 'allowance_label', 'notes',
+];
+
+/**
+ * Only the start date differs from what is on record (2026-10-08).
+ *
+ * Director's ruling: a new start date with the same figures is not a change,
+ * and is not saved. Employee Salaries already refuses it; this is the same
+ * rule for the team member form. Every salary field except the start date is
+ * a figure here, notes included, as on Employee Salaries. A change of payer is
+ * not a date-only change (the payer is written on the salary row too).
+ */
+export function isDateOnlySalaryChange(
+  current: OfficeSalaryValues,
+  initial: OfficeSalaryValues | null
+): boolean {
+  if (!initial) return false;
+  return (
+    current.effective_from.trim() !== initial.effective_from.trim() &&
+    SALARY_FIELDS.every((k) => k === 'effective_from' || current[k] === initial[k])
+  );
+}
+
+/**
+ * Whether to write the salary, and from which date (2026-09-30).
+ *
+ * The database refuses a salary change that starts before today in India, and
+ * a raise entered late starts from the 1st of next month (Director's ruling,
+ * 2026-09-30). The edit form pre-fills the row in force, whose start is usually
+ * in the past, so re-sending it made every salary edit on this screen fail,
+ * even a notes-only one or a change of payer.
+ *
+ *  - Edit, nothing in the salary changed and the payer did not change: no write
+ *    at all (the database would have answered "identical, nothing to do").
+ *  - Edit, only the start date changed and the payer did not change: no write
+ *    either (Director's ruling, see isDateOnlySalaryChange). The form says so.
+ *  - The start date was left as pre-filled (edit), or is blank, or was filled
+ *    from a date of joining that has already passed (new staff): if it is
+ *    before today, the change starts on the 1st of next month instead.
+ *  - On an edit, a start date the user changed is sent as typed; the date
+ *    input does not offer past dates, and the database refuses one anyway.
+ *    On a new staff member the form fills the date from the date of joining,
+ *    so any past or blank date there becomes the 1st of next month.
+ *
+ * `initial` is what the form was pre-filled with (edit), or null when there is
+ * no salary on record yet (a new staff member, or an edit with no salary).
+ */
+export function salaryWritePlan(
+  current: OfficeSalaryValues,
+  initial: OfficeSalaryValues | null,
+  payerChanged: boolean,
+  now: Date = new Date()
+): { send: boolean; effectiveFrom: string } {
+  if (initial && !payerChanged && SALARY_FIELDS.every((k) => current[k] === initial[k])) {
+    return { send: false, effectiveFrom: current.effective_from };
+  }
+  // 2026-10-08: only the start date changed. Not a change; nothing is sent.
+  if (!payerChanged && isDateOnlySalaryChange(current, initial)) {
+    return { send: false, effectiveFrom: current.effective_from };
+  }
+  const date = current.effective_from.trim();
+  const untouched = initial ? date === initial.effective_from.trim() : true;
+  if (untouched && (date === '' || date < todayIST(now))) {
+    return { send: true, effectiveFrom: firstOfNextMonthIST(now) };
+  }
+  return { send: true, effectiveFrom: date };
+}
+
 export interface OfficeSaveResult {
   /** One human-readable line per part that failed; empty = everything saved. */
   failures: string[];
@@ -176,7 +249,17 @@ export async function saveStaffOffice(
   supabase: SupabaseClient,
   staffId: string,
   office: OfficeValues,
-  initialPayerOrgId: string | null
+  initialPayerOrgId: string | null,
+  /** Edit: the salary values the form was pre-filled with; null = none on record. */
+  initialSalary: OfficeSalaryValues | null = null,
+  /**
+   * 2026-09-30: only the Director list may change a salary (Director ruling,
+   * 30 Sep 08:59). False = the salary part is never sent, whatever the form
+   * holds; payer and bank account are still saved. Defaults to false so a
+   * caller that does not ask can never write pay. The database refuses the
+   * write for anyone else anyway (20270603090000).
+   */
+  canWriteSalary = false
 ): Promise<OfficeSaveResult> {
   const failures: string[] = [];
   let savedAny = false;
@@ -191,14 +274,19 @@ export async function saveStaffOffice(
     }
   }
 
-  if (isSalaryEntered(office.salary)) {
+  const salaryPlan = salaryWritePlan(
+    office.salary,
+    initialSalary,
+    payer !== (initialPayerOrgId ?? '')
+  );
+  if (canWriteSalary && isSalaryEntered(office.salary) && salaryPlan.send) {
     const s = office.salary;
     try {
       await StaffSalaryService.setSalary(supabase, {
         staffId,
         hrOrganizationId: payer,
         monthlyGross: num(s.monthly_gross),
-        effectiveFrom: s.effective_from,
+        effectiveFrom: salaryPlan.effectiveFrom,
         salaryStructure: s.salary_structure,
         overtimeLevel: s.overtime_level,
         overtimeAmount: num(s.overtime_amount),

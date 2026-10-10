@@ -10,9 +10,11 @@
  * API route would only re-wrap it — the same reasoning use-staff-payroll.ts
  * records for the payer directory.
  *
- * THE IMPORT IS THE EXCEPTION and goes through a route instead: it needs the
- * full staff roster to resolve employee codes, which the caller cannot read, so
- * the match has to happen server-side under the service role.
+ * WHO MAY CHANGE A SALARY (2026-09-30, Director ruling of 08:59): only the
+ * Director list (director@ and isvarya@, fn_is_the_director(), Draft #4121).
+ * The HR head can only look. The salary Excel import was removed the same day;
+ * every salary is created or edited on the screen. useCanEditSalaries() asks
+ * the database, never a list shipped to the browser.
  *
  * Both mutations invalidate the directory AND that person's history — the two
  * read the same supersede chain through different lenses, and refreshing one
@@ -22,6 +24,8 @@
 import { useMemo } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
+import { useAuth } from '@/hooks/use-auth';
+import { getErrorMessage } from '@/lib/utils';
 import {
   StaffSalaryService,
   type StaffSalaryDirectoryRow,
@@ -30,6 +34,9 @@ import {
 
 export const STAFF_SALARY_KEYS = {
   all: ['hr', 'staff-salaries'] as const,
+  // Per signed-in person (panel round 1, 2026-10-09): one tab, two sign-ins,
+  // must never share the answer.
+  canEdit: (userId: string) => ['hr', 'staff-salaries', 'can-edit', userId] as const,
   current: ['hr', 'staff-salaries', 'current'] as const,
   directory: ['hr', 'staff-salaries', 'directory'] as const,
   history: (staffUuid: string) => ['hr', 'staff-salaries', 'history', staffUuid] as const,
@@ -122,4 +129,42 @@ export function useSetStaffSalary() {
       queryClient.invalidateQueries({ queryKey: STAFF_SALARY_KEYS.history(input.staffId) });
     },
   });
+}
+
+/**
+ * May the signed-in person create or edit a salary? (2026-09-30)
+ *
+ * Only the Director list may (fn_is_the_director(), migration 20270520090000,
+ * Draft #4121). The DATABASE answers, for the caller only: the list itself is
+ * never sent to the browser, and fn_hr_set_staff_salary plus the table guard
+ * (20270603090000) refuse everyone else whatever this screen shows.
+ *
+ * Fails CLOSED: while loading, on any error, or before #4121 is applied (the
+ * function does not exist yet), the answer is false and the screens are
+ * read-only.
+ *
+ * Cached PER SIGNED-IN PERSON (panel round 1, 2026-10-09): the key carries the
+ * profile id, so a sign-out and a different sign-in in the same tab asks
+ * again instead of showing the previous person's Edit buttons. An RPC error
+ * is THROWN, not cached as false for five minutes, so React Query retries it;
+ * the answer stays false meanwhile.
+ */
+export function useCanEditSalaries(): { canEdit: boolean; isLoading: boolean } {
+  const supabase = useMemo(() => createClientSupabaseClient(), []);
+  const { profile } = useAuth();
+  const userId = profile?.id ?? '';
+
+  const query = useQuery<boolean>({
+    queryKey: STAFF_SALARY_KEYS.canEdit(userId),
+    queryFn: async () => {
+      // fn_is_the_director is not in the generated types until #4121 lands.
+      const { data, error } = await (supabase as any).rpc('fn_is_the_director');
+      if (error) throw new Error(getErrorMessage(error));
+      return data === true;
+    },
+    enabled: userId !== '',
+    staleTime: 5 * 60 * 1000,
+  });
+
+  return { canEdit: query.data === true, isLoading: query.isLoading };
 }

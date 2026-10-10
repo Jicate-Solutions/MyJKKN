@@ -3088,3 +3088,20 @@ DROP TRIGGER IF EXISTS trg_ig_learner_post_claims_guard ON public.ig_learner_pos
 CREATE TRIGGER trg_ig_learner_post_claims_guard
   BEFORE INSERT OR UPDATE ON public.ig_learner_post_claims
   FOR EACH ROW EXECUTE FUNCTION public.fn_ig_learner_post_claim_guard();
+
+-- ============================================================================
+-- hr_staff_salaries: only the Director list writes pay; no past start (2026-09-30)
+-- Migration: 20270603090000_hr_salary_no_backdating.sql
+-- Function: public.hr_staff_salaries_guard_writes() in 02_functions.sql.
+-- API callers (anon, authenticated, service_role): anon is refused; a signed-in
+-- caller must be on the Director list (fn_is_the_director); nobody may insert a
+-- salary that starts before today (Asia/Kolkata) or has no start, edit one
+-- already started, change which row is in force (superseded_by) or delete a
+-- salary row. fn_hr_set_staff_salary is the only way to replace the row in
+-- force. The database owner (migrations, cascades, the approvals job running
+-- SECURITY DEFINER) is not an API caller.
+-- ============================================================================
+DROP TRIGGER IF EXISTS trg_hr_staff_salaries_guard_writes ON public.hr_staff_salaries;
+CREATE TRIGGER trg_hr_staff_salaries_guard_writes
+  BEFORE INSERT OR UPDATE OR DELETE ON public.hr_staff_salaries
+  FOR EACH ROW EXECUTE FUNCTION public.hr_staff_salaries_guard_writes();

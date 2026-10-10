@@ -211,6 +211,18 @@ export interface StaffSalaryDirectoryRow {
   allowance_label: string | null;
   effective_from: string | null;
   notes: string | null;
+  /**
+   * The pay in force TODAY (India time), added 2026-10-09. The fields above are
+   * the newest row, the one a save replaces; when it starts after today (a
+   * change saved for the 1st of next month), these are the row before it.
+   * All null when nothing has started yet: a new joiner whose first pay starts
+   * next month. A row with no start date counts as started. 20270603090000.
+   */
+  in_force_salary_id: string | null;
+  in_force_monthly_gross: number | null;
+  in_force_annual_gross: number | null;
+  in_force_allowance_amount: number | null;
+  in_force_effective_from: string | null;
 }
 
 export class StaffSalaryService {
@@ -234,15 +246,34 @@ export class StaffSalaryService {
 
     // numeric(12,2) arrives as a string over PostgREST; null stays null so the
     // UI can tell "earns nothing recorded" from "earns zero".
-    return ((data ?? []) as any[]).map((r) => ({
-      ...r,
-      monthly_gross: r.monthly_gross === null ? null : Number(r.monthly_gross),
-      annual_gross: r.annual_gross === null ? null : Number(r.annual_gross),
-      overtime_amount: r.overtime_amount === null ? null : Number(r.overtime_amount),
-      epf_amount: r.epf_amount === null ? null : Number(r.epf_amount),
-      esi_amount: r.esi_amount === null ? null : Number(r.esi_amount),
-      allowance_amount: r.allowance_amount === null ? null : Number(r.allowance_amount),
-    })) as StaffSalaryDirectoryRow[];
+    // A database still on the older function (before 20270603090000 is
+    // applied) returns no in_force_* columns: the newest row is then the only
+    // figure there is, so it stands in, as the screen showed before.
+    return ((data ?? []) as any[]).map((raw) => {
+      const r = 'in_force_salary_id' in raw ? raw : {
+        ...raw,
+        in_force_salary_id: raw.salary_id,
+        in_force_monthly_gross: raw.monthly_gross,
+        in_force_annual_gross: raw.annual_gross,
+        in_force_allowance_amount: raw.allowance_amount,
+        in_force_effective_from: raw.effective_from,
+      };
+      return {
+        ...r,
+        monthly_gross: r.monthly_gross === null ? null : Number(r.monthly_gross),
+        annual_gross: r.annual_gross === null ? null : Number(r.annual_gross),
+        overtime_amount: r.overtime_amount === null ? null : Number(r.overtime_amount),
+        epf_amount: r.epf_amount === null ? null : Number(r.epf_amount),
+        esi_amount: r.esi_amount === null ? null : Number(r.esi_amount),
+        allowance_amount: r.allowance_amount === null ? null : Number(r.allowance_amount),
+        in_force_monthly_gross:
+          r.in_force_monthly_gross == null ? null : Number(r.in_force_monthly_gross),
+        in_force_annual_gross:
+          r.in_force_annual_gross == null ? null : Number(r.in_force_annual_gross),
+        in_force_allowance_amount:
+          r.in_force_allowance_amount == null ? null : Number(r.in_force_allowance_amount),
+      };
+    }) as StaffSalaryDirectoryRow[];
   }
 
   /**
