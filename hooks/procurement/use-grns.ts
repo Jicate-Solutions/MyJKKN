@@ -65,12 +65,20 @@ export function useGrnDuplicateInvoice(
     ],
     queryFn: async () => {
       const g = grn!;
-      const [hasDuplicate, visible, viewerReceivedMatch] = await Promise.all([
+      // Deep-panel L5: allSettled, so one failed lookup still lets the page show what it
+      // could find — and says checkFailed, so the page fails closed instead of reading a
+      // missing answer as "no repeat".
+      const [dupR, visibleR, viewerR] = await Promise.allSettled([
         ProcurementGrnService.hasDuplicateInvoice(g),
         ProcurementGrnService.getSupplierInvoiceGrns(g.supplier_id),
         // D4 third-person rule: did the viewer receive the other delivery?
         viewerId ? ProcurementGrnService.receivedMatchingDelivery(g, viewerId) : Promise.resolve(false),
       ]);
+      const checkFailed = [dupR, visibleR, viewerR].some((r) => r.status === 'rejected');
+      if (checkFailed) console.error('[procurement grn] duplicate invoice lookup failed:', [dupR, visibleR, viewerR]);
+      const hasDuplicate = dupR.status === 'fulfilled' ? dupR.value : false;
+      const visible = visibleR.status === 'fulfilled' ? visibleR.value : [];
+      const viewerReceivedMatch = viewerR.status === 'fulfilled' ? viewerR.value : false;
       // D4 at verify time: did whoever confirmed receive another delivery with this
       // number (any status)? The database decides; this only disables the button.
       const confirmer = g.duplicate_confirmed_by ?? null;
@@ -80,6 +88,7 @@ export function useGrnDuplicateInvoice(
           ? viewerReceivedMatch
           : receivedMatchingDelivery(visible, g, confirmer);
       return {
+        checkFailed,
         hasDuplicate,
         viewerReceivedMatch,
         confirmerReceivedMatch,

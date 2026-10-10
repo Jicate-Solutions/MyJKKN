@@ -20,6 +20,8 @@ import {
   blankInvoiceBlocksStock,
   duplicateHold,
   CONFIRMATION_VOID_MESSAGE,
+  DUPLICATE_CHECK_FAILED_MESSAGE,
+  duplicateCheckUnknown,
   POSTED_GRN_STATUSES,
   REPLACEMENT_SELF_CHECK_MESSAGE,
   SELF_CHECK_MESSAGE,
@@ -82,7 +84,8 @@ export default function GrnDetailPage() {
   const receiveReplacement = useReceiveReplacement(id);
   const updateItem = useUpdateGrnItem(id);
   // I1 held save: a repeated invoice number must be confirmed before verify.
-  const { data: dup } = useGrnDuplicateInvoice(grn, profile?.id);
+  const dupQuery = useGrnDuplicateInvoice(grn, profile?.id);
+  const dup = dupQuery.data;
   const confirmDifferent = useConfirmDifferentInvoice();
   const [confirmDupOpen, setConfirmDupOpen] = useState(false);
 
@@ -181,6 +184,14 @@ export default function GrnDetailPage() {
   // D2 (Director 2026-10-10): no invoice number, no stock. The service and the database
   // refuse it too.
   const noInvoiceNumber = blankInvoiceBlocksStock(grn.invoice_number);
+  // Deep-panel L5: while the repeat check is loading or has failed, fail closed.
+  const dupFailed = dupQuery.isError || !!dup?.checkFailed;
+  const dupUnknown = duplicateCheckUnknown({
+    pending,
+    invoiceNumber: grn.invoice_number,
+    loading: !dup && !dupQuery.isError,
+    failed: dupFailed,
+  });
   const canVerifyNow = pending && canVerify;
   // E1 (Director 2026-10-10 afternoon): whoever received this delivery never checks it,
   // whatever their rights. The button stays visible but disabled, with a plain reason.
@@ -221,6 +232,7 @@ export default function GrnDetailPage() {
                   verifyGrn.isPending ||
                   chemicalBlocks.length > 0 ||
                   hold.blocksVerify ||
+                  dupUnknown ||
                   noInvoiceNumber ||
                   viewerIsReceiver
                 }
@@ -315,8 +327,33 @@ export default function GrnDetailPage() {
 
         {/* Verify warnings */}
         {pending &&
-          (hasMismatch || chemicalBlocks.length > 0 || noInvoiceNumber || (canVerify && viewerIsReceiver)) && (
+          (hasMismatch ||
+            chemicalBlocks.length > 0 ||
+            noInvoiceNumber ||
+            (canVerify && viewerIsReceiver) ||
+            (canVerify && dupUnknown)) && (
           <div className="space-y-2">
+            {canVerify && dupUnknown && (
+              <div role="status" className="flex flex-wrap items-center gap-1.5 text-sm text-foreground">
+                <AlertTriangle className="h-4 w-4 shrink-0" />
+                {dupFailed ? (
+                  <>
+                    <span>{DUPLICATE_CHECK_FAILED_MESSAGE}</span>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-9"
+                      disabled={dupQuery.isFetching}
+                      onClick={() => dupQuery.refetch()}
+                    >
+                      Try again
+                    </Button>
+                  </>
+                ) : (
+                  <span>Checking whether this invoice number repeats another delivery…</span>
+                )}
+              </div>
+            )}
             {canVerify && viewerIsReceiver && (
               <div role="status" className="flex items-start gap-1.5 text-sm text-foreground">
                 <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />

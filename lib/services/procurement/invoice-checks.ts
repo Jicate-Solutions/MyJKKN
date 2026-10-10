@@ -388,6 +388,24 @@ export function receivedMatchingDelivery<T extends DuplicateCandidate>(
   );
 }
 
+/**
+ * Deep-panel L5: the page cannot tell yet whether this receipt is held under I1 — the
+ * duplicate lookup is still loading, or one of its lookups failed. A pending receipt with
+ * an invoice number then fails CLOSED: "Check & add to stock" stays disabled (the service
+ * and the database refuse a held receipt anyway; this keeps the page from offering it).
+ */
+export function duplicateCheckUnknown(input: {
+  pending: boolean;
+  invoiceNumber: string | null | undefined;
+  loading: boolean;
+  failed: boolean;
+}): boolean {
+  return input.pending && !!input.invoiceNumber?.trim() && (input.loading || input.failed);
+}
+
+export const DUPLICATE_CHECK_FAILED_MESSAGE =
+  "Couldn't check whether this invoice number repeats another delivery, so it cannot be added to stock yet.";
+
 /** Deep-panel M4: a receipt with no recorded receiver cannot be confirmed (see grn-service). */
 export const NO_RECEIVER_MESSAGE =
   'This delivery has no recorded receiver, so the invoice cannot be confirmed here — ask a procurement admin to correct the record.';
