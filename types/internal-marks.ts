@@ -229,9 +229,15 @@ export interface ExamRegistration {
   course_code: string;
   course_name?: string;
   course_offering_id: string;
+  /** COE course master id of the offering — right where `course_code` has drifted. */
+  course_id?: string;
   program_code: string;
   program_name?: string;
+  /** Semester of the registration's course offering. A learner list is always course + semester. */
+  semester: number;
   semester_code?: string;
+  /** Regulation of the offering's course mapping. */
+  regulation_code?: string | null;
   registration_status: 'Approved' | 'Pending' | 'Rejected' | string;
   is_regular: boolean;
   examination_session_id?: string;

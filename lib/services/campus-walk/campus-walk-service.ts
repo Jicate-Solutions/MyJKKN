@@ -147,6 +147,13 @@ export interface CreateWalkTaskInput {
    * under a per-college daily cap, and he gets the in-app bell rather than a
    * phone call.
    */
+  /**
+   * Whole days until the job is due, overriding the kind/unsafe table in
+   * lib/campus-walk/due-dates.ts. Only the CCTV front door sets it (Director,
+   * 9 Oct 2026: the HOD replies within 1 day; exam copying the same day).
+   * Omitted by every other caller, so their due dates are unchanged.
+   */
+  dueInDays?: number;
   urgentPaging?: {
     /** false -> send no WhatsApp at all. In-app notifications still fire. */
     whatsApp: boolean;
@@ -443,6 +450,8 @@ export interface RouteAccountableParams {
    * lib/campus-walk/repeats.ts does — the behaviour is exactly as before.
    */
   institutionId?: string | null;
+  /** See CreateWalkTaskInput.dueInDays. Omitted -> the kind/unsafe table. */
+  dueInDays?: number;
 }
 
 export interface RouteAccountableResult {
@@ -510,7 +519,10 @@ export async function routeAccountable(
     }
   }
 
-  const dueDate = dueDateFor(params.kind, Boolean(params.isUnsafe));
+  const dueDate =
+    typeof params.dueInDays === 'number' && Number.isInteger(params.dueInDays) && params.dueInDays >= 0
+      ? new Date(Date.now() + params.dueInDays * 86_400_000).toISOString().slice(0, 10)
+      : dueDateFor(params.kind, Boolean(params.isUnsafe));
 
   // Whoever ends up Accountable — candidate or the EAO fallback above — must
   // not be penalised for being on sanctioned leave. Pause the clock and hand
@@ -645,7 +657,8 @@ export async function createWalkTask(
       kind: input.kind,
       isUnsafe: Boolean(input.isUnsafe),
       candidateProfileId: input.accountableProfileId ?? caretakerProfileId ?? null,
-      institutionId: input.institutionId ?? null
+      institutionId: input.institutionId ?? null,
+      dueInDays: input.dueInDays
     });
     const accountableProfileId = routing.accountableProfileId;
     const accountableStaffId = routing.accountableStaffId;
@@ -728,7 +741,9 @@ export async function createWalkTask(
       attribution:
         (input.extraMetadata?.front_door ?? null) === 'instasolver'
           ? 'Reported via InstaSolver'
-          : 'Management walk',
+          : (input.extraMetadata?.front_door ?? null) === 'cctv'
+            ? 'Reported from CCTV'
+            : 'Management walk',
       accountable_routed_to_eao_no_owner: routedToEaoNoOwner,
       owner_source: ownerSource,
       reassigned_from_profile_id: onApprovedLeave ? leaveOriginalProfileId : null

@@ -34,6 +34,12 @@ import {
   JOB_TYPE_LABELS,
   ROLE_CATEGORY_LABELS,
 } from '@/types/hr-recruitment';
+import {
+  JOB_DESIGNATION_LABELS,
+  JOB_DESIGNATION_OPTIONS,
+  designationOfJobTitle,
+  type JobDesignation,
+} from '@/lib/hr/recruitment/job-designation';
 
 // =====================================================================================
 // Filter shape
@@ -56,6 +62,8 @@ export type PipelineLens =
 export interface ApprovalsAdvancedFilters {
   status: JobStatus | null;
   role_category: RoleCategory | null;
+  /** Designation read from the job title (no designation column exists). */
+  designation: JobDesignation | null;
   institution_id: string | null;
   job_type: JobType | null;
   state: string | null;
@@ -68,6 +76,7 @@ export interface ApprovalsAdvancedFilters {
 export const EMPTY_APPROVALS_FILTERS: ApprovalsAdvancedFilters = {
   status: null,
   role_category: null,
+  designation: null,
   institution_id: null,
   job_type: null,
   state: null,
@@ -139,6 +148,9 @@ export function approvalRowMatchesFilters(
 
   if (f.status && job.status !== f.status) return false;
   if (f.role_category && job.role_category !== f.role_category) return false;
+  if (f.designation && designationOfJobTitle(job.title) !== f.designation) {
+    return false;
+  }
   if (f.institution_id && job.institution_id !== f.institution_id) return false;
   if (f.job_type && job.job_type !== f.job_type) return false;
   if (f.state && job.state !== f.state) return false;
@@ -178,6 +190,12 @@ export function describeActiveApprovalsFilters(
     chips.push({
       key: 'role_category',
       label: ROLE_CATEGORY_LABELS[f.role_category] ?? f.role_category,
+    });
+  }
+  if (f.designation) {
+    chips.push({
+      key: 'designation',
+      label: JOB_DESIGNATION_LABELS[f.designation] ?? f.designation,
     });
   }
   if (f.institution_id) {
@@ -299,6 +317,18 @@ export function ApprovalsFiltersPanel({
       ),
     [rows]
   );
+  // Fixed designation list, in its own order, limited to the designations the
+  // loaded titles actually read as — plus the ACTIVE value, so a designation
+  // left over from earlier rows (or chosen while rows are still loading) is
+  // always shown and can be changed here, not only from its chip.
+  const activeDesignation = value.designation;
+  const designationOptions = useMemo(() => {
+    const present = new Set(rows.map((r) => designationOfJobTitle(r.job.title)));
+    if (activeDesignation) present.add(activeDesignation);
+    return JOB_DESIGNATION_OPTIONS.filter((o) => present.has(o.value)).map(
+      (o) => ({ value: o.value, label: o.label })
+    );
+  }, [rows, activeDesignation]);
   const institutionOptions = useMemo(
     () =>
       distinct(
@@ -376,6 +406,14 @@ export function ApprovalsFiltersPanel({
             value={value.role_category}
             options={categoryOptions}
             onChange={(v) => set({ role_category: v as RoleCategory | null })}
+          />
+        )}
+        {designationOptions.length > 0 && (
+          <FilterCell
+            allLabel="All Designations"
+            value={value.designation}
+            options={designationOptions}
+            onChange={(v) => set({ designation: v as JobDesignation | null })}
           />
         )}
         {institutionOptions.length > 0 && (

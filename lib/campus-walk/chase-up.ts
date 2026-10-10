@@ -139,6 +139,7 @@
  * the same departure.
  */
 
+import { workingDaysPastDue } from '@/lib/campus-walk/cctv-categories';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { createServiceRoleClient } from '@/lib/supabase/server';
 import { createBellNotification } from '@/lib/services/meetings/meeting-trigger-service';
@@ -199,6 +200,23 @@ export const LADDER: ReadonlyArray<{ key: LadderRungKey; atDay: number }> = [
 ];
 
 /**
+ * A CCTV report (Director, 9 Oct 2026): the room's HOD has one day to reply;
+ * no reply goes STRAIGHT to the principal — no boss step — and on to the
+ * Director at day 7 like every other job.
+ */
+export const CCTV_LADDER: ReadonlyArray<{ key: LadderRungKey; atDay: number }> = [
+  { key: 'escalate_principal', atDay: 1 },
+  { key: 'reached_director', atDay: 7 }
+];
+
+/** The ladder a job climbs: CCTV reports have their own, everything else the standard one. */
+export function ladderFor(
+  metadata: Record<string, unknown> | null | undefined
+): ReadonlyArray<{ key: LadderRungKey; atDay: number }> {
+  return (metadata ?? {}).front_door === 'cctv' ? CCTV_LADDER : LADDER;
+}
+
+/**
  * A rung from the old D5 ladder that already told the same people, so the
  * new rung counts as done. The old day-3 `escalate_accountable` went to the
  * department head (or the CAMPUS-OPS owner) and the fixer — the day-1 boss
@@ -220,10 +238,11 @@ const LEGACY_EQUIVALENT: Partial<Record<LadderRungKey, string>> = {
  */
 export function rungsDue(
   daysOverdue: number,
-  rungsSent: Record<string, unknown> | null | undefined
+  rungsSent: Record<string, unknown> | null | undefined,
+  metadata?: Record<string, unknown> | null
 ): LadderRungKey[] {
   const sent = rungsSent ?? {};
-  return LADDER.filter((r) => {
+  return ladderFor(metadata).filter((r) => {
     if (daysOverdue < r.atDay) return false;
     if (sent[r.key]) return false;
     const legacy = LEGACY_EQUIVALENT[r.key];
@@ -391,8 +410,12 @@ const MAX_LISTED_IN_PRINCIPAL_LIST = 40;
  * daily run always fires it on day 3 itself, so a later one was missed —
  * above all, every job already 3+ days late on the ladder's first morning.
  */
-export function isCatchUpPrincipalStep(daysOverdue: number): boolean {
-  return daysOverdue > PRINCIPAL_DAY;
+export function isCatchUpPrincipalStep(
+  daysOverdue: number,
+  metadata?: Record<string, unknown> | null
+): boolean {
+  const day = ladderFor(metadata).find((r) => r.key === 'escalate_principal')?.atDay ?? PRINCIPAL_DAY;
+  return daysOverdue > day;
 }
 
 /** At most one catch-up list per college per run date — the database's unique index enforces it. */
@@ -1348,7 +1371,11 @@ export async function runCampusWalkChaseUp(
 
   for (const task of tasks) {
     try {
-      const daysOverdue = daysPastDue(task.due_date, todayISO);
+      // CCTV reports count WORKING days late (Sundays skipped, Director 9 Oct 2026).
+      const daysOverdue =
+        (task.metadata ?? {}).front_door === 'cctv'
+          ? workingDaysPastDue(task.due_date, todayISO)
+          : daysPastDue(task.due_date, todayISO);
       if (daysOverdue < 1) {
         // Defensive only — the query's `.lt('due_date', todayISO)` already
         // guarantees this, kept in case a caller passes a `now` override.
@@ -1457,7 +1484,7 @@ export async function runCampusWalkChaseUp(
         principalListKey: null
       };
 
-      for (const rungKey of rungsDue(daysOverdue, rungsSent)) {
+      for (const rungKey of rungsDue(daysOverdue, rungsSent, metadata)) {
         if (rungKey === 'reached_director') {
           // No message of its own: the Director hears about it ONCE, in the
           // 8 am summary (lib/campus-walk/director-digest.ts), which lists
@@ -1566,7 +1593,7 @@ export async function runCampusWalkChaseUp(
 
   for (const [institutionId, group] of byCollege) {
     try {
-      const fold = group.length > 1 && group.some((p) => isCatchUpPrincipalStep(p.pass.daysOverdue));
+      const fold = group.length > 1 && group.some((p) => isCatchUpPrincipalStep(p.pass.daysOverdue, p.pass.metadata));
       if (fold) {
         const recipients = group[0].principals.map((p) => p.id);
         const check = validateTargeting(recipients);
