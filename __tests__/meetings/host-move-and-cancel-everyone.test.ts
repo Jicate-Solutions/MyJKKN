@@ -390,7 +390,7 @@ describe('the three-lens pass (10 Oct)', () => {
     const h = makeDb(row());
     // cancel right after the first invitee email goes out
     const send = (await import('@/lib/resend')).resend.emails.send as unknown as ReturnType<typeof vi.fn>;
-    const orig = send.getMockImplementation()!;
+    const orig = send.getMockImplementation() as unknown as (msg: unknown, opts: unknown) => Promise<unknown>;
     send.mockImplementation(async (msg: any, opts: any) => {
       const out = await orig(msg, opts);
       if (msg.to === 'parent@gmail.com') h.cancelNow();
@@ -409,7 +409,7 @@ describe('the three-lens pass (10 Oct)', () => {
   it('a cancel landing during the LAST email still turns the reply into CANCELLED_MEANWHILE', async () => {
     const h = makeDb(row({ answers: { title: 'Fee review', participants: [{ email: 'parent@gmail.com', name: 'A Parent' }] } }));
     const send = (await import('@/lib/resend')).resend.emails.send as unknown as ReturnType<typeof vi.fn>;
-    const orig = send.getMockImplementation()!;
+    const orig = send.getMockImplementation() as unknown as (msg: unknown, opts: unknown) => Promise<unknown>;
     send.mockImplementation(async (msg: any, opts: any) => {
       const out = await orig(msg, opts);
       if (msg.to === 'parent@gmail.com') h.cancelNow();
