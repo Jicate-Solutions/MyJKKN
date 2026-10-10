@@ -50,7 +50,11 @@ export async function GET(request: Request) {
     // key, which the key's owner can compute — so the row is refused by kind.
     // Before that migration is applied the column is absent (undefined) and
     // every row is an administrator key, so nothing changes for them.
-    if (apiKey.key_kind === 'personal') {
+    // A college app's bug-intake key (key_kind 'bug_intake', migration
+    // 20271010120000) is refused the same way, and more so: its plaintext
+    // ships to every browser, so ANYONE can compute its stored hash. Any kind
+    // other than 'admin' is refused; an absent kind (pre-migration) still works.
+    if (apiKey.key_kind !== undefined && apiKey.key_kind !== null && apiKey.key_kind !== 'admin') {
       return NextResponse.json(
         { error: 'Invalid or inactive API key' },
         { status: 401 }

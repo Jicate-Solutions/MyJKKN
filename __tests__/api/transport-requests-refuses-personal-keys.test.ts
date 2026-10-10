@@ -69,6 +69,21 @@ describe('GET /api/v1/transport-requests', () => {
     expect(res.status).toBe(401);
   });
 
+  it('refuses a college app bug-intake key presented as its stored hash (its plaintext is public)', async () => {
+    const intakePlain = 'jkkn_bi_' + 'cd'.repeat(24);
+    const intakeHash = createHash('sha256').update(intakePlain).digest('hex');
+    keyRow = { id: 'k4', key_value: intakeHash, is_active: true, key_kind: 'bug_intake' };
+    const res = await call(intakeHash);
+    expect(lookedUpWith).toEqual([intakeHash]);
+    expect(res.status).toBe(401);
+  });
+
+  it('refuses a key of any unknown kind', async () => {
+    keyRow = { id: 'k5', key_value: 'odd-key', is_active: true, key_kind: 'something_new' };
+    const res = await call('odd-key');
+    expect(res.status).toBe(401);
+  });
+
   it('still serves an administrator key', async () => {
     keyRow = { id: 'k2', key_value: 'admin-key', is_active: true, key_kind: 'admin' };
     const res = await call('admin-key');

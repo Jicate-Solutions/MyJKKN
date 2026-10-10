@@ -71,7 +71,7 @@ describe('authenticateApiKey', () => {
   it('returns 401 when key is expired', async () => {
     mockCreateServiceRoleClient.mockReturnValue(
       makeSupabaseMock({
-        id: 'key-1', name: 'Test', key_value: 'hash', is_active: true,
+        id: 'key-1', name: 'Test', key_value: 'hash', is_active: true, key_kind: 'admin',
         expires_at: '2020-01-01T00:00:00Z',
         permissions: { read: true, write: false },
         institution_id: null,
@@ -85,7 +85,7 @@ describe('authenticateApiKey', () => {
   it('returns context for valid key with legacy {read:true} permissions', async () => {
     mockCreateServiceRoleClient.mockReturnValue(
       makeSupabaseMock({
-        id: 'key-1', name: 'Test Key', key_value: 'hash', is_active: true,
+        id: 'key-1', name: 'Test Key', key_value: 'hash', is_active: true, key_kind: 'admin',
         expires_at: null,
         permissions: { read: true, write: false },
         institution_id: 'inst-uuid',
@@ -104,7 +104,7 @@ describe('authenticateApiKey', () => {
   it('returns 403 when key lacks required module permission', async () => {
     mockCreateServiceRoleClient.mockReturnValue(
       makeSupabaseMock({
-        id: 'key-1', name: 'Test', key_value: 'hash', is_active: true,
+        id: 'key-1', name: 'Test', key_value: 'hash', is_active: true, key_kind: 'admin',
         expires_at: null,
         permissions: { read: ['admission'], write: [] },
         institution_id: null,
@@ -125,7 +125,7 @@ describe('authenticateApiKey', () => {
   it('grants access when key has required module in array', async () => {
     mockCreateServiceRoleClient.mockReturnValue(
       makeSupabaseMock({
-        id: 'key-1', name: 'Test', key_value: 'hash', is_active: true,
+        id: 'key-1', name: 'Test', key_value: 'hash', is_active: true, key_kind: 'admin',
         expires_at: null,
         permissions: { read: ['admission', 'billing'], write: [] },
         institution_id: null,
