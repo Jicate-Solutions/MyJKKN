@@ -54,10 +54,13 @@ interface World {
 
 function world(): World {
   return {
-    roles: { hod: ['hod-a', 'hod-b'], cao: ['cao-1'], coe: ['coe-x', 'coe-1'], hr_head: ['hr-1'] },
+    roles: { hod: ['hod-a', 'hod-b', 'hod-c'], cao: ['cao-1'], coe: ['coe-x', 'coe-1'], hr_head: ['hr-1'] },
     staff: {
       'hod-a': { institution_id: 'inst-1', department_id: 'dept-pharm' },
       'hod-b': { institution_id: 'inst-1', department_id: 'dept-ip' },
+      // An Assistant Professor who carries the 'hod' role inside a department
+      // that has a recorded head (the first live report, 10 Oct 2026).
+      'hod-c': { institution_id: 'inst-1', department_id: 'dept-pharm' },
       'cao-1': { institution_id: 'inst-0', department_id: null },
       'coe-1': { institution_id: 'inst-1', department_id: null },
       'coe-x': { institution_id: 'inst-2', department_id: null }
@@ -128,9 +131,10 @@ beforeEach(() => {
 });
 
 describe('who a CCTV report goes to', () => {
-  it('the recorded HOD of the room’s department', async () => {
+  it('the recorded HOD of the room’s department — and only them', async () => {
     const r = await routeCctvReport(dbFor(world()), room({ departmentId: 'dept-pharm' }), 'learner_conduct');
-    expect(r).toMatchObject({ accountableProfileId: 'hod-a', ownerSource: 'hod' });
+    expect(r).toMatchObject({ accountableProfileId: 'hod-a', ownerSource: 'hod', consultedProfileIds: [] });
+    expect(r.hodProfileIds).toEqual(['hod-a']);
   });
 
   it('an HOD-role holder in that department when no head is recorded', async () => {
