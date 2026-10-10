@@ -28,7 +28,46 @@ import { Button } from '@/components/ui/button';
 import { createClient } from '@/lib/supabase/server';
 
 interface InboxPageProps {
-  searchParams: Promise<{ status?: string }>;
+  searchParams: Promise<{ status?: string; type?: string }>;
+}
+
+// ?type= narrows the list to one meeting type (meeting_bookings.meeting_type_id),
+// or to meetings with no type ('none': meetings a host scheduled directly).
+// Anything that is neither a uuid nor 'none' is ignored rather than erroring.
+const NO_TYPE = 'none';
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+/** The type chips give up after this; the list still renders, with a short note. */
+const TYPE_COUNTS_TIMEOUT_MS = 3_000;
+/** Everything the type chips do, the failure-path name lookup included, ends within this. */
+const TYPE_READS_TOTAL_MS = 4_500;
+/** The failure-path name lookup always gets at least this long of its own. */
+const TYPE_NAMES_MIN_MS = 1_000;
+/**
+ * Before fn_meeting_inbox_type_counts is applied (the app can deploy first),
+ * the chips are counted from rows instead, as #4283 did: pages of
+ * TYPE_FALLBACK_PAGE (PostgREST's max_rows), at most TYPE_FALLBACK_MAX_PAGES.
+ */
+const TYPE_FALLBACK_PAGE = 1000;
+const TYPE_FALLBACK_MAX_PAGES = 10;
+
+/** PostgREST / Postgres saying the count function does not exist (yet). */
+function countFunctionMissing(err: unknown): boolean {
+  const code = (err as { code?: string } | null)?.code;
+  return code === 'PGRST202' || code === '42883';
+}
+
+/** A type's name, or a short distinguishable stand-in when its row cannot be read. */
+function typeLabel(id: string, title: string | null | undefined): string {
+  return title || `Meeting type ${id.slice(0, 4)}`;
+}
+
+/** The inbox link for a status tab and type, dropping the defaults. */
+function inboxHref(status: string, type: string | null): string {
+  const params = new URLSearchParams();
+  if (status !== 'upcoming') params.set('status', status);
+  if (type) params.set('type', type);
+  const qs = params.toString();
+  return qs ? `/meetings/inbox?${qs}` : '/meetings/inbox';
 }
 
 // Upcoming/Past are TIME questions, not status questions. A booking becomes
@@ -77,7 +116,10 @@ function formatBookingTime(iso: string, tz?: string | null): string {
 }
 
 export default async function MeetingsInboxPage({ searchParams }: InboxPageProps) {
-  const { status: statusParam } = await searchParams;
+  const { status: statusParam, type: typeParam } = await searchParams;
+  // Ids are stored lower-case; an upper-case link must still select its chip.
+  let typeFilter =
+    typeParam === NO_TYPE ? NO_TYPE : typeParam && UUID_RE.test(typeParam) ? typeParam.toLowerCase() : null;
   const filterKey = (STATUS_FILTERS.find((f) => f.key === statusParam)?.key ?? 'upcoming') as
     | 'awaiting'
     | 'upcoming'
@@ -92,24 +134,184 @@ export default async function MeetingsInboxPage({ searchParams }: InboxPageProps
   // The table isn't in generated types yet → untyped client (TS2589 class).
   const supabase = (await createClient()) as unknown as import('@supabase/supabase-js').SupabaseClient;
 
-  let query = supabase
-    .from('meeting_bookings')
-    .select('*')
-    .order('start_time', { ascending: filterKey === 'upcoming' });
+  // The status tab's own predicate, shared by the list and the type counts so a
+  // chip's number is exactly what clicking it shows under the current tab.
+  const nowIso = new Date().toISOString();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const withStatus = (q: any) => {
+    let out = q;
+    if (filter.match) out = out.in('status', filter.match as unknown as string[]);
+    if (filter.when) out = filter.when === 'future' ? out.gte('start_time', nowIso) : out.lt('start_time', nowIso);
+    return out;
+  };
 
-  if (filter.match) {
-    query = query.in('status', filter.match as unknown as string[]);
+  // Everything below runs in parallel, and the count and the id checks share
+  // ONE deadline that starts here. Only if the count fails does the row-name
+  // lookup run, on its own short deadline, so the type chips never add more
+  // than TYPE_READS_TOTAL_MS to the page.
+  const typeReadsStarted = Date.now();
+  const typeDeadline = AbortSignal.timeout(TYPE_COUNTS_TIMEOUT_MS);
+  const timeout = () => typeDeadline;
+  type Res<T> = { data: T | null; error: unknown };
+  const settle = async <T,>(run: () => PromiseLike<{ data: unknown; error: unknown }>): Promise<Res<T>> => {
+    try {
+      const r = await run();
+      return { data: r.data as T, error: r.error };
+    } catch (err) {
+      return { data: null, error: err };
+    }
+  };
+  const listFor = (typeId: string | null) => {
+    let q = withStatus(
+      supabase.from('meeting_bookings').select('*').order('start_time', { ascending: filterKey === 'upcoming' })
+    );
+    if (typeId === NO_TYPE) q = q.is('meeting_type_id', null);
+    else if (typeId) q = q.eq('meeting_type_id', typeId);
+    return q.limit(50);
+  };
+  const askedType = typeFilter && typeFilter !== NO_TYPE ? typeFilter : null;
+
+  const [listRes, countRes, typeRowRes, typeUsedRes] = await Promise.all([
+    listFor(typeFilter) as PromiseLike<{ data: unknown; error: { message: string } | null }>,
+    // Type chips: bookings per meeting type under the current tab, counted in
+    // the database in one grouped query (fn_meeting_inbox_type_counts,
+    // SECURITY INVOKER, so the same RLS as this list applies).
+    settle<{ meeting_type_id: string | null; title: string | null; bookings: number }[]>(() =>
+      supabase
+        .rpc('fn_meeting_inbox_type_counts', {
+          p_statuses: filter.match ?? null,
+          p_from: filter.when === 'future' ? nowIso : null,
+          p_before: filter.when === 'past' ? nowIso : null,
+        })
+        .abortSignal(timeout())
+    ),
+    // Is the asked-for id a type this person knows? Its row (when readable)…
+    askedType
+      ? settle<{ id: string; title: string } | null>(() =>
+          supabase.from('meeting_types').select('id, title').eq('id', askedType).abortSignal(timeout()).maybeSingle()
+        )
+      : Promise.resolve({ data: null, error: null } as Res<{ id: string; title: string } | null>),
+    // …or any booking of it they can see (a type owned by another host whose
+    // row they cannot read, on their own calendar).
+    askedType
+      ? settle<{ id: string }[]>(() =>
+          supabase.from('meeting_bookings').select('id').eq('meeting_type_id', askedType).limit(1).abortSignal(timeout())
+        )
+      : Promise.resolve({ data: null, error: null } as Res<{ id: string }[]>),
+  ]);
+  // Untyped client (see above): rows are read the same way the list always has.
+  let { data: rows, error } = listRes as { data: any[] | null; error: { message: string } | null };
+  let { data: typeCountRows, error: typeFilterError } = countRes;
+  // The app deployed before the count function was applied: count from rows
+  // (#4283's way), inside the same deadline, and say so if it is partial.
+  let typeCountsPartial: { counted: number; total: number } | null = null;
+  if (typeFilterError && countFunctionMissing(typeFilterError)) {
+    try {
+      const { count: total, error: totalErr } = await withStatus(
+        supabase.from('meeting_bookings').select('id', { count: 'exact', head: true })
+      ).abortSignal(timeout());
+      if (totalErr) throw totalErr;
+      const pageCount = Math.min(Math.ceil((total ?? 0) / TYPE_FALLBACK_PAGE), TYPE_FALLBACK_MAX_PAGES);
+      const pages = await Promise.all(
+        Array.from({ length: pageCount }, (_, i) =>
+          withStatus(supabase.from('meeting_bookings').select('id, meeting_type_id'))
+            .order('id', { ascending: true })
+            .range(i * TYPE_FALLBACK_PAGE, (i + 1) * TYPE_FALLBACK_PAGE - 1)
+            .abortSignal(timeout())
+        )
+      );
+      const byType = new Map<string | null, number>();
+      let counted = 0;
+      for (const page of pages as { data: { meeting_type_id: string | null }[] | null; error: unknown }[]) {
+        if (page.error) throw page.error;
+        for (const r of page.data ?? []) {
+          counted += 1;
+          byType.set(r.meeting_type_id, (byType.get(r.meeting_type_id) ?? 0) + 1);
+        }
+      }
+      const ids = [...byType.keys()].filter((id): id is string => Boolean(id));
+      const { data: names } = ids.length
+        ? await supabase.from('meeting_types').select('id, title').in('id', ids).abortSignal(timeout())
+        : { data: [] as { id: string; title: string }[] };
+      const titleOf = new Map(((names ?? []) as { id: string; title: string }[]).map((t) => [t.id, t.title]));
+      typeCountRows = [...byType].map(([id, n]) => ({
+        meeting_type_id: id,
+        title: id ? titleOf.get(id) ?? null : null,
+        bookings: n,
+      }));
+      typeFilterError = null;
+      if (counted < (total ?? 0)) typeCountsPartial = { counted, total: total ?? 0 };
+      console.warn('[meetings/inbox] fn_meeting_inbox_type_counts is not applied yet; counted from rows');
+    } catch (err) {
+      typeFilterError = err;
+    }
   }
-
-  if (filter.when) {
-    const nowIso = new Date().toISOString();
-    query =
-      filter.when === 'future'
-        ? query.gte('start_time', nowIso)
-        : query.lt('start_time', nowIso);
+  if (typeFilterError) {
+    console.error(
+      '[meetings/inbox] type counts failed:',
+      (typeFilterError as { message?: string }).message ?? typeFilterError
+    );
   }
-
-  const { data: rows, error } = await query.limit(50);
+  // A well-formed id that no source knows is ignored, as anything else that is
+  // not a type id is. Any failed read keeps the filter (it may be real) rather
+  // than silently widening the list.
+  const filterTypeTitle = typeRowRes.data?.title ?? null;
+  if (askedType) {
+    const known =
+      Boolean(typeRowRes.data) ||
+      Boolean(typeUsedRes.data?.length) ||
+      Boolean(typeCountRows?.some((r) => r.meeting_type_id === askedType));
+    const allRead = !typeRowRes.error && !typeUsedRes.error && !typeFilterError;
+    if (!known && allRead) {
+      typeFilter = null;
+      ({ data: rows, error } = (await listFor(null)) as { data: any[] | null; error: { message: string } | null });
+    }
+  }
+  const typeTitle = new Map<string, string>();
+  const typeChips: { key: string; label: string; count: number }[] = [];
+  let noTypeCount = 0;
+  // On a failed count, no numbers are shown at all: a short count would read as a real one.
+  for (const r of typeFilterError ? [] : typeCountRows ?? []) {
+    const n = Number(r.bookings);
+    if (!r.meeting_type_id) {
+      noTypeCount += n;
+      continue;
+    }
+    typeTitle.set(r.meeting_type_id, typeLabel(r.meeting_type_id, r.title));
+    if (n > 0) typeChips.push({ key: r.meeting_type_id, label: typeLabel(r.meeting_type_id, r.title), count: n });
+  }
+  typeChips.sort((a, b) => b.count - a.count || a.label.localeCompare(b.label));
+  if (noTypeCount > 0) typeChips.push({ key: NO_TYPE, label: 'Scheduled directly (no type)', count: noTypeCount });
+  if (typeFilter && typeFilter !== NO_TYPE && !typeTitle.has(typeFilter)) {
+    typeTitle.set(typeFilter, typeLabel(typeFilter, filterTypeTitle));
+  }
+  // Without the count, the listed rows still get their type names (one small
+  // lookup over at most 50 ids, only on this failure path).
+  if (typeFilterError) {
+    const ids = [
+      ...new Set(
+        ((rows ?? []) as { meeting_type_id: string | null }[])
+          .map((r) => r.meeting_type_id)
+          .filter((id): id is string => Boolean(id) && !typeTitle.has(id as string))
+      ),
+    ];
+    if (ids.length) {
+      const names = await settle<{ id: string; title: string }[]>(() =>
+        supabase
+          .from('meeting_types')
+          .select('id, title')
+          .in('id', ids)
+          .abortSignal(
+            AbortSignal.timeout(
+              Math.max(TYPE_NAMES_MIN_MS, TYPE_READS_TOTAL_MS - (Date.now() - typeReadsStarted))
+            )
+          )
+      );
+      for (const t of names.data ?? []) typeTitle.set(t.id, typeLabel(t.id, t.title));
+    }
+  }
+  const activeTypeLabel =
+    typeFilter === NO_TYPE ? 'Scheduled directly (no type)' : typeFilter ? typeTitle.get(typeFilter) ?? 'this type' : null;
 
   // Counted on every tab, not just its own: a host who never opens "Awaiting
   // you" would otherwise never learn the pile exists — which is the exact
@@ -150,7 +352,7 @@ export default async function MeetingsInboxPage({ searchParams }: InboxPageProps
         {STATUS_FILTERS.map((f) => (
           <Link
             key={f.key}
-            href={f.key === 'upcoming' ? '/meetings/inbox' : `/meetings/inbox?status=${f.key}`}
+            href={inboxHref(f.key, typeFilter)}
             className="inline-flex"
           >
             <Button variant={filterKey === f.key ? 'default' : 'outline'} size="sm">
@@ -168,6 +370,44 @@ export default async function MeetingsInboxPage({ searchParams }: InboxPageProps
         ))}
       </div>
 
+      {typeChips.length > 0 || typeFilter ? (
+        <div className="space-y-1.5">
+          <p className="text-xs font-medium text-muted-foreground">Meeting type</p>
+          <div className="flex flex-wrap gap-2" role="group" aria-label="Filter by meeting type">
+            <Link href={inboxHref(filterKey, null)} className="inline-flex">
+              <Button variant={typeFilter ? 'outline' : 'secondary'} size="sm" aria-pressed={!typeFilter}>
+                All types
+              </Button>
+            </Link>
+            {typeChips.map((t) => (
+              <Link key={t.key} href={inboxHref(filterKey, t.key)} className="inline-flex max-w-full">
+                <Button
+                  variant={typeFilter === t.key ? 'secondary' : 'outline'}
+                  size="sm"
+                  aria-pressed={typeFilter === t.key}
+                  className="max-w-full"
+                >
+                  <span className="truncate">{t.label}</span>
+                  <span className="ml-1.5 tabular-nums text-muted-foreground">{t.count}</span>
+                </Button>
+              </Link>
+            ))}
+          </div>
+          {typeCountsPartial ? (
+            <p className="text-xs text-muted-foreground">
+              Counts cover the first {typeCountsPartial.counted.toLocaleString('en-IN')} of{' '}
+              {typeCountsPartial.total.toLocaleString('en-IN')} meetings in this tab.
+            </p>
+          ) : null}
+        </div>
+      ) : null}
+
+      {typeFilterError ? (
+        <p className="text-xs text-muted-foreground" role="status">
+          The meeting type filter could not load just now. The list below is not affected.
+        </p>
+      ) : null}
+
       {error ? (
         <Card>
           <CardContent className="py-10 text-center text-sm text-muted-foreground">
@@ -180,9 +420,12 @@ export default async function MeetingsInboxPage({ searchParams }: InboxPageProps
             <Calendar className="mx-auto h-10 w-10 text-muted-foreground/40" aria-hidden />
             <h3 className="mt-3 text-sm font-medium">
               {filterKey === 'awaiting' ? 'Nothing awaiting you' : `No ${filter.label.toLowerCase()} meetings`}
+              {activeTypeLabel ? ` of type "${activeTypeLabel}"` : ''}
             </h3>
             <p className="mt-1 text-xs text-muted-foreground">
-              {filterKey === 'upcoming'
+              {activeTypeLabel
+                ? 'Choose "All types" to see every meeting under this tab.'
+                : filterKey === 'upcoming'
                 ? "You don't have any upcoming bookings yet. They'll appear here once someone books a slot."
                 : filterKey === 'awaiting'
                   ? 'Nothing is waiting on you. Meetings that have ended without you saying what happened show up here.'
@@ -227,6 +470,11 @@ export default async function MeetingsInboxPage({ searchParams }: InboxPageProps
                       <span className="inline-flex items-center gap-1">
                         <User className="h-3 w-3" aria-hidden />
                         {row.attendee_email}
+                      </span>
+                      <span className="truncate">
+                        {row.meeting_type_id
+                          ? typeTitle.get(row.meeting_type_id) ?? 'Meeting type'
+                          : 'Scheduled directly'}
                       </span>
                     </div>
                   </div>

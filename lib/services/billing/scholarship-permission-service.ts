@@ -127,20 +127,20 @@ export class ScholarshipPermissionService {
           role_name: role.role_name,
           role_key: role.role_key,
           can_view:
-            role.permissions?.['billing.discounts.view'] === true ||
-            role.permissions?.['billing.discounts.view'] === 'true',
+            role.permissions?.['billing.scholarships.view'] === true ||
+            role.permissions?.['billing.scholarships.view'] === 'true',
           can_create:
-            role.permissions?.['billing.discounts.create'] === true ||
-            role.permissions?.['billing.discounts.create'] === 'true',
+            role.permissions?.['billing.scholarships.create'] === true ||
+            role.permissions?.['billing.scholarships.create'] === 'true',
           can_edit:
-            role.permissions?.['billing.discounts.edit'] === true ||
-            role.permissions?.['billing.discounts.edit'] === 'true',
+            role.permissions?.['billing.scholarships.edit'] === true ||
+            role.permissions?.['billing.scholarships.edit'] === 'true',
           can_delete:
-            role.permissions?.['billing.discounts.delete'] === true ||
-            role.permissions?.['billing.discounts.delete'] === 'true',
+            role.permissions?.['billing.scholarships.delete'] === true ||
+            role.permissions?.['billing.scholarships.delete'] === 'true',
           can_approve:
-            role.permissions?.['billing.discounts.approve'] === true ||
-            role.permissions?.['billing.discounts.approve'] === 'true',
+            role.permissions?.['billing.scholarships.approve'] === true ||
+            role.permissions?.['billing.scholarships.approve'] === 'true',
           user_count: roleUserCounts[role.role_key] || 0
         })
       );

@@ -26,8 +26,11 @@ let ownerRoles: unknown[] = [];
 let people: { id: string; email: string; institution_id: string }[] = [];
 let reserveAnswer: { data: unknown; error: unknown } = { data: { ok: true, id: 'res-1' }, error: null };
 let afterReserve: (() => void) | null = null;
+let keyLookupHangsAfterReserve = false;
+let reserved = false;
 const serviceRpc = vi.fn(async (fn: string, _args?: Record<string, unknown>) => {
   if (fn === 'fn_ai_booking_reserve') {
+    reserved = true;
     afterReserve?.();
     return reserveAnswer;
   }
@@ -50,7 +53,9 @@ function makeServiceClient() {
       b.gte = vi.fn((col: string, val: unknown) => ((f[`gte:${col}`] = val), b));
       b.ilike = vi.fn((col: string, val: unknown) => ((f[`ilike:${col}`] = val), b));
       b.update = vi.fn(() => ({ eq: vi.fn(async () => ({ error: null })) }));
-      b.maybeSingle = vi.fn(async () => ({
+      b.maybeSingle = vi.fn(async () => {
+        if (table === 'api_keys' && reserved && keyLookupHangsAfterReserve) return new Promise(() => {});
+        return {
         data:
           table === 'api_keys'
             ? keyRow
@@ -60,7 +65,8 @@ function makeServiceClient() {
                 ? ownerProfile
                 : null,
         error: null,
-      }));
+        };
+      });
       const resolve = () => {
         if (table === 'user_roles') return { data: ownerRoles, error: null };
         if (table === 'profiles') {
@@ -162,6 +168,17 @@ beforeEach(() => {
   people = [{ id: KNOWN_PERSON, email: 'Viswanathan.S@jkkn.ac.in', institution_id: 'inst-1' }];
   reserveAnswer = { data: { ok: true, id: 'res-1' }, error: null };
   afterReserve = null;
+  reserved = false;
+  keyLookupHangsAfterReserve = false;
+  serviceRpc.mockImplementation(async (fn: string) => {
+    if (fn === 'fn_ai_booking_reserve') {
+      reserved = true;
+      afterReserve?.();
+      return reserveAnswer;
+    }
+    if (fn === 'fn_ai_booking_release') return { data: true, error: null };
+    return { data: null, error: null };
+  });
   resetRateLimiter();
   keyRow = {
     id: KEY_ID,
@@ -443,6 +460,45 @@ describe('deep review fixes (8 Oct)', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it('a slow slot release never holds up the answer after a stuck step', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      // the re-check before booking never returns (key lookup hangs) …
+      keyLookupHangsAfterReserve = true;
+      // … and giving the slot back hangs too
+      serviceRpc.mockImplementation(async (fn: string) => {
+        if (fn === 'fn_ai_booking_reserve') {
+          reserved = true;
+          return reserveAnswer;
+        }
+        if (fn === 'fn_ai_booking_release') return new Promise(() => {});
+        return { data: null, error: null };
+      });
+      const pending = book(GOOD_ARGS).then(readRpc);
+      await vi.advanceTimersByTimeAsync(15_001); // the step deadline
+      await vi.advanceTimersByTimeAsync(3_001); // the release deadline
+      const res = await pending;
+      expect(res.result.content[0].text).toMatch(/too slow to start the booking, so nothing was booked/);
+      expect(logApiUsage.mock.calls.at(-1)![0]).toMatchObject({ statusCode: 504 });
+      expect(scheduleDirect).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+      keyLookupHangsAfterReserve = false;
+    }
+  });
+
+  it('a name cut between the two halves of a character is never left half-cut', async () => {
+    // The raw window is 120 x 16 = 1920 UTF-16 units. 91 letters of 21 units
+    // (1911) + one of 8 units (1919) put an emoji's first half at unit 1920,
+    // while only 92 letters have been used, so the half would be kept.
+    const filler = 'a' + '\u0301'.repeat(20); // one letter, 21 units
+    const name = filler.repeat(91) + 'x' + '\u0301'.repeat(7) + '😀' + 'tail';
+    expect(name.charCodeAt(1919)).toBeGreaterThanOrEqual(0xd800);
+    await readRpc(await book({ ...GOOD_ARGS, attendees: [{ email: 'a@jkkn.ac.in', name }] }));
+    const cut = scheduleDirect.mock.calls[0][1].attendees[0].name as string;
+    expect(/[\ud800-\udbff](?![\udc00-\udfff])/.test(cut)).toBe(false);
   });
 
   it('cuts a very long attendee name rather than refusing', async () => {

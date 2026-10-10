@@ -49,6 +49,12 @@ export interface ProcurementQuotationItem {
   awarded: boolean;
   /** Price before the vendor's last revised quotation (null = never revised / unchanged). */
   previous_unit_price?: number | null;
+  /** What the vendor printed: their own name for the item, its qty and pack. null on older quotes. */
+  quoted_name?: string | null;
+  quoted_qty?: number | null;
+  quoted_pack?: string | null;
+  match_source?: 'ai' | 'memory' | 'person' | 'typed' | null;
+  match_note?: string | null;
   created_at: string;
 }
 
@@ -69,6 +75,13 @@ export interface CreateQuotationItemDto {
   other_specs?: string | null;
   gst_percent?: number | null;
   hsn?: string | null;
+  /** The vendor's own line name, printed qty and pack — kept so Compare shows what was quoted. */
+  quoted_name?: string | null;
+  quoted_qty?: number | null;
+  quoted_pack?: string | null;
+  match_source?: 'ai' | 'memory' | 'person' | 'typed' | null;
+  /** Audit: why this line was taken for the item ("Two AI readings agreed · AI: NaOH is sodium hydroxide"). */
+  match_note?: string | null;
 }
 
 export interface CreateQuotationDto {
@@ -105,6 +118,11 @@ export interface ComparisonQuote {
   awarded: boolean;
   /** Price before the vendor's revised quotation — shown struck through next to the new one. */
   previous_unit_price?: number | null;
+  /** What the vendor printed for this item: their name, qty and pack. null on older quotes. */
+  quoted_name?: string | null;
+  quoted_qty?: number | null;
+  quoted_pack?: string | null;
+  match_note?: string | null;
 }
 
 /** One row (per RFQ item) of the item-wise comparison. */

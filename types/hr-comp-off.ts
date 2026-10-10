@@ -266,15 +266,15 @@ export const MAX_CLAIM_DAYS = 31;
 
 /**
  * Why a picked worked day cannot be claimed, or null when it can. The same
- * refusals the database raises per row (future date, expired on arrival,
- * closed month, day already occupied) — named here so the claimant sees which
- * day to remove before the all-or-nothing insert refuses the lot.
+ * refusals the database raises per row (future date, expired on arrival, day
+ * already occupied) — named here so the claimant sees which day to remove
+ * before the all-or-nothing insert refuses the lot. A closed attendance month
+ * is NOT a refusal: a claim is entitlement, not an edit of the frozen month.
  */
 export function claimDayProblem(
   workedDate: string,
   today: string,
   opts: {
-    closedMonth: boolean;
     clash: string | null;
     /** Status of an earlier claim for this day, if any (see priorClaimStatus). */
     priorClaim?: CompOffCreditStatus | null;
@@ -287,7 +287,6 @@ export function claimDayProblem(
   if (addOneMonth(workedDate) < today) {
     return `Too late — a credit for this day expired on ${formatIsoDate(addOneMonth(workedDate))}.`;
   }
-  if (opts.closedMonth) return 'Attendance for this month is closed. Ask HR to reopen it.';
   if (opts.clash) return `Already booked: ${opts.clash}.`;
   return null;
 }

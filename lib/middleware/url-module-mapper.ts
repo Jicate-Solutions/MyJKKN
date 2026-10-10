@@ -78,7 +78,7 @@ const URL_MODULE_MAP: Array<{
   { pattern: /\/api\/billing\/schedule/, module: MODULE_NAMES.BILLING_BILLS },
   { pattern: /\/billing\/schedule/, module: MODULE_NAMES.BILLING_BILLS },
   { pattern: /\/api\/billing\/categories/, module: MODULE_NAMES.BILLING_BILLS, feature: 'categories' },
-  { pattern: /\/api\/billing\/discounts/, module: MODULE_NAMES.BILLING_BILLS, feature: 'discounts' },
+  { pattern: /\/api\/billing\/scholarships/, module: MODULE_NAMES.BILLING_BILLS, feature: 'scholarships' },
 
   // Students / Learners
   { pattern: /\/api\/learners\/analytics/, module: MODULE_NAMES.STUDENTS, feature: 'analytics' },

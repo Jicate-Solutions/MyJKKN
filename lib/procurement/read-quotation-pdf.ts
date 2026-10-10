@@ -13,6 +13,12 @@ export interface ExtractedLine {
   /** The pack the price is for, as printed ("100 ml"). Absent from older reads. */
   pack?: string | null;
   uncertain?: boolean;
+  /** item / part of a set / one of several options. Absent from older reads. */
+  role?: 'item' | 'part' | 'option';
+  /** A second look agreed with this match; `reason` says why in a few words. */
+  checked?: boolean;
+  reason?: string | null;
+  catalog_code?: string | null;
   manufacturer?: string | null;
   quality_grade?: string | null;
   concentration?: string | null;
@@ -46,6 +52,7 @@ export interface ExtractResult {
   warranty?: string | null;
   /** The grand total printed on the quotation, and whether it includes GST. */
   stated_total?: number | null;
+  last_serial_no?: number | null;
   /** Corrections the reader made, in words — show them with the other warnings. */
   read_notes?: string[];
   total_includes_gst?: boolean | null;

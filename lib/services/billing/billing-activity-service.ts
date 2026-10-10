@@ -6,7 +6,7 @@ import type {
   BillingActivityLog
 } from '@/types/billing-activity';
 
-const BILLING_RESOURCES_NO_CATEGORY = ['bill', 'receipt', 'invoice', 'discount', 'refund'];
+const BILLING_RESOURCES_NO_CATEGORY = ['bill', 'receipt', 'invoice', 'scholarship', 'refund'];
 
 const BILLING_RESOURCE_FILTER =
   `resource_type.in.(${BILLING_RESOURCES_NO_CATEGORY.join(',')}),` +

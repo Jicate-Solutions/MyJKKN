@@ -302,15 +302,20 @@ export function useCancelApplication() {
   return useMutation({
     mutationFn: async (applicationId: string) => {
       const res = await fetch(`${BASE}/applications/${applicationId}/cancel`, { method: 'POST' });
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        throw new Error(err.error || 'Cancel failed');
-      }
-      return (await res.json()).data as HRLeaveApplication;
+      const payload = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(payload.error || 'Cancel failed');
+      // The warning rides along with a SUCCESSFUL cancel: the status stuck, but one
+      // or more attendance days could not be re-judged. The caller shows it.
+      return payload as { data: HRLeaveApplication; warning?: string };
     },
-    onSuccess: (data) => {
+    onSuccess: ({ data }) => {
       qc.invalidateQueries({ queryKey: ['hr-leave-applications'] });
+      qc.invalidateQueries({ queryKey: ['hr-leave-application', data.id] });
       qc.invalidateQueries({ queryKey: ['hr-leave-balance', data.employee_id] });
+      // The cancelled row leaves the Approvals tab's "approved" history.
+      qc.invalidateQueries({ queryKey: ['hr-leave-approval-flows'] });
+      // The approved stamp is reversed, so My Attendance and the log re-read.
+      invalidateAttendanceViews(qc);
       qc.invalidateQueries({ queryKey: ['hr-leave-calendar'] });
       // ATTENDANCE TOO. The attendance log and calendar now show undecided
       // requests beside the day's status, so a request that moves and does not

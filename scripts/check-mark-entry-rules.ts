@@ -126,9 +126,12 @@ const papers: any = [
 ];
 const ranked = rankPapers(papers);
 check('drafts excluded', !ranked.some(p => p.id === 'd'));
-check('locked > approved > submitted', ranked.map(p => p.id).join(',') === 'l,a,s', ranked.map(p => p.id).join(','));
-check('all-draft -> empty (drives the draft_only message)',
+check('submitted excluded — only an approved paper opens entry', !ranked.some(p => p.id === 's'));
+check('locked > approved', ranked.map(p => p.id).join(',') === 'l,a', ranked.map(p => p.id).join(','));
+check('all-draft -> empty (drives the pending_papers notice)',
   rankPapers([{ id: 'd', status: 'draft', set_number: 1 }] as any).length === 0);
+check('all-submitted -> empty',
+  rankPapers([{ id: 's', status: 'submitted', set_number: 1 }] as any).length === 0);
 check('foreign cia_setting_id dropped',
   rankPapers([{ id: 'x', status: 'approved', set_number: 1, cia_setting_id: 'OTHER' }] as any, 'MINE').length === 0);
 check('null cia_setting_id kept (the normal case)',
@@ -142,6 +145,56 @@ const comps: any = [
 ];
 check('never picks attendance even on an exact max match', guessTargetComponent(comps, 30)!.code === 'test_1');
 check('falls back to first non-attendance', guessTargetComponent(comps, 999)!.code === 'assignment');
+
+console.log('\n8. split questions (sub-divisions i / ii)');
+// Q12a is split into i (8) + ii (7); Q12b is its unsplit OR alternative.
+// Q13 is split too, with no alternative.
+const splitQuestions: any = [
+  {
+    id: 'q12a', part_label: 'B', question_number: 12, sub_label: 'a', marks: 15, display_order: 1, is_choice_alternative: false,
+    question_text: 'Stem',
+    sub_questions: [
+      { id: 's12a2', label: 'ii', marks: 7, co_code: 'CO2', k_level: 'K3', display_order: 2 },
+      { id: 's12a1', label: 'i', marks: 8, co_code: 'CO1', k_level: 'K2', display_order: 1 },
+    ],
+  },
+  { id: 'q12b', part_label: 'B', question_number: 12, sub_label: 'b', marks: 15, co_code: 'CO1', k_level: 'K2', display_order: 2, is_choice_alternative: true },
+  {
+    id: 'q13', part_label: 'B', question_number: 13, marks: 10, display_order: 3, is_choice_alternative: false,
+    sub_questions: [
+      { id: 's13a', label: 'i', marks: 5, co_code: 'CO3', k_level: 'K4', display_order: 1 },
+      { id: 's13b', label: 'ii', marks: 5, co_code: 'CO3', k_level: 'K4', display_order: 2 },
+    ],
+  },
+];
+const split = buildEntryPaper(splitQuestions, [{ part_label: 'B', num_questions: 2, num_to_answer: 2 }] as any);
+const sq = split.questions;
+const byKey = (id: string) => sq.find(q => q.id === id)!;
+check('one column per sub-division, parent dropped',
+  sq.map(q => q.id).join(',') === 's12a1,s12a2,q12b,s13a,s13b', sq.map(q => q.id).join(','));
+check('sub labels read "12a i" / "12a ii"', byKey('s12a1').label === '12a i' && byKey('s12a2').label === '12a ii');
+check('sub carries its own marks / CO / K', byKey('s12a1').marks === 8 && byKey('s12a2').co_code === 'CO2' && byKey('s12a2').k_level === 'K3');
+check('subs share the parent branch + group', byKey('s12a1').branch_id === 'q12a' && byKey('s12a2').branch_id === 'q12a'
+  && byKey('s12a1').choice_group === byKey('q12b').choice_group && byKey('s12a1').parent_id === 'q12a');
+check('questionsTotal counts subs, not parent twice', split.questionsTotal === 40, 'got ' + split.questionsTotal);
+check('a split question is still ONE group', split.parts[0].group_count === 2, 'got ' + split.parts[0].group_count);
+marks = { s12a1: 6 };
+check('answering 12a-i leaves 12a-ii open', lockReasonFor(byKey('s12a2'), sq, split.parts, marks) === null);
+check('...and locks the OR branch 12b', lockReasonFor(byKey('q12b'), sq, split.parts, marks) === 'or-sibling');
+marks = { q12b: 10 };
+check('answering 12b locks both sub-divisions of 12a',
+  lockReasonFor(byKey('s12a1'), sq, split.parts, marks) === 'or-sibling'
+  && lockReasonFor(byKey('s12a2'), sq, split.parts, marks) === 'or-sibling');
+check('both sub-divisions of one branch validate clean',
+  validateLearnerMarks({ s12a1: 8, s12a2: 7, s13a: 5, s13b: 5 }, sq, split.parts, 30).length === 0);
+check('sub-division over its own max rejected',
+  validateLearnerMarks({ s12a1: 9 }, sq, split.parts, 30).some(e => /Q12a i mark \(9\) exceeds question max \(8\)/.test(e)));
+check('sub-division + other branch rejected, named once per branch',
+  validateLearnerMarks({ s12a1: 8, s12a2: 7, q12b: 5 }, sq, split.parts, 60).some(e => e === 'only one of Q12a i / Q12b may be answered (OR choice)'));
+check('mark filed under the split PARENT id is rejected as unknown',
+  validateLearnerMarks({ q12a: 15 }, sq, split.parts, 30).some(e => /Unknown question/.test(e)));
+const splitAtt = computeAttainment([{ student_id: 's1', marks: { s12a1: 4, s12a2: 7 } }] as any, sq);
+check('attainment buckets by the SUB CO', splitAtt.co.find(b => b.key === 'CO1')!.max === 8 && splitAtt.co.find(b => b.key === 'CO2')!.obtained === 7);
 
 console.log('\n' + pass + ' passed, ' + fail + ' failed');
 process.exit(fail > 0 ? 1 : 0);

@@ -137,7 +137,7 @@ export class ProcurementPurchaseOrderService {
         .from('procurement_purchase_orders')
         .select(
           `*,
-           supplier:ims_suppliers(id,name,code,email,gstin,address,phone),
+           supplier:ims_suppliers(id,name,code,email,gstin,address,phone,payment_terms,lead_time_days),
            created_by_profile:profiles!created_by(full_name),
            approved_by_profile:profiles!approved_by(full_name),
            po_format:procurement_po_formats(*),
@@ -153,7 +153,7 @@ export class ProcurementPurchaseOrderService {
           `*,
            source_quote:procurement_quotation_items(
              gst_percent, hsn,
-             quotation:procurement_quotations(vendor_quote_number, quote_date, delivery_time_days, payment_terms, warranty)
+             quotation:procurement_quotations(vendor_quote_number, quote_date, delivery_time_days, payment_terms, warranty, created_at)
            )`
         )
         .eq('po_id', id)

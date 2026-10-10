@@ -67,6 +67,7 @@ import { effectiveFee, type EventRegistrationFormSummary } from '@/types/tournam
 import { RegistrationFormEditor } from '@/app/(routes)/events/tournament/[id]/registration-form/_components/registration-form-editor';
 import { RegistrationFeeCard } from './registration-fee-card';
 import { RegistrationContactCard } from './registration-contact-card';
+import { isContactBlockMode } from '@/lib/services/events/registration/form-prefill';
 import { RegistrationBannerCard } from './registration-banner-card';
 import { FormStateBadge, RegistrationScheduleCard } from './registration-schedule-card';
 import { RegistrationFormShareDialog } from './registration-form-share-dialog';
@@ -358,6 +359,7 @@ export function RegistrationFormsPanel({
           formId={selected.id}
           variant={variant}
           backHref={backHref}
+          contactBlock={isContactBlockMode(selected.contact_block) ? selected.contact_block : 'top'}
         />
       )}
 

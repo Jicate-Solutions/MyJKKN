@@ -12,6 +12,8 @@ import {
   DAYWISE_EXPORT_HEADER,
   projectRowsByCategory,
   isTransportMaintenanceFee,
+  categoriesPresent,
+  buildCategoryKeep,
 } from '@/lib/services/billing/reports/collection-daywise';
 import type { CollectionDaywiseRow } from '@/types/billing-schedule';
 
@@ -229,5 +231,67 @@ describe('projectRowsByCategory', () => {
       ['RCP-M', 500],
       ['RCP-T', 5500],
     ]);
+  });
+});
+
+describe('categoriesPresent / buildCategoryKeep', () => {
+  const tuition = row({
+    receipt_number: 'RCP-A',
+    payment_amount: 10000,
+    category_breakdown: [{ category: '1 Year Tuition Fee', amount: 10000 }],
+  });
+  const mixed = row({
+    receipt_number: 'RCP-M',
+    payment_amount: 10500,
+    total_refunds: 1050,
+    net_amount: 9450,
+    category_breakdown: [
+      { category: '1 Year Tuition Fee', amount: 10000 },
+      { category: 'Transport Maintenance Fee', amount: 500 },
+    ],
+  });
+  const tmfOnly = row({
+    receipt_number: 'RCP-T',
+    payment_amount: 5500,
+    category_breakdown: [{ category: 'Transport Maintenance Fee', amount: 5500 }],
+  });
+  const bare = row({ receipt_number: 'RCP-B', payment_amount: 200, category_breakdown: null });
+  const all = [tuition, mixed, tmfOnly, bare];
+
+  it('counts receipts per category, Uncategorised last', () => {
+    expect(categoriesPresent(all)).toEqual([
+      { category: '1 Year Tuition Fee', receipts: 2 },
+      { category: 'Transport Maintenance Fee', receipts: 2 },
+      { category: '', receipts: 1 },
+    ]);
+  });
+
+  it('nothing picked and transport off hides only Transport Maintenance Fee', () => {
+    const out = projectRowsByCategory(all, buildCategoryKeep([], false));
+    expect(out.map((r) => r.receipt_number)).toEqual(['RCP-A', 'RCP-M', 'RCP-B']);
+    expect(out.find((r) => r.receipt_number === 'RCP-M')?.payment_amount).toBe(10000);
+  });
+
+  it('nothing picked and transport on keeps everything untouched', () => {
+    expect(projectRowsByCategory(all, buildCategoryKeep([], true))).toEqual(all);
+  });
+
+  it('a pick keeps only that category, apportioning refunds on mixed receipts', () => {
+    const out = projectRowsByCategory(all, buildCategoryKeep(['Transport Maintenance Fee'], true));
+    expect(out.map((r) => [r.receipt_number, r.payment_amount])).toEqual([
+      ['RCP-M', 500],
+      ['RCP-T', 5500],
+    ]);
+    expect(out[0].total_refunds).toBe(50);
+  });
+
+  it('transport off wins over a pick that names it', () => {
+    const out = projectRowsByCategory(all, buildCategoryKeep(['Transport Maintenance Fee'], false));
+    expect(out).toEqual([]);
+  });
+
+  it('several picks and the Uncategorised bucket', () => {
+    const out = projectRowsByCategory(all, buildCategoryKeep(['1 Year Tuition Fee', ''], false));
+    expect(out.map((r) => r.receipt_number)).toEqual(['RCP-A', 'RCP-M', 'RCP-B']);
   });
 });

@@ -105,8 +105,14 @@ const OWNER_DECISIONS: ImprovementIdeaStatus[] = [
   'rejected'
 ];
 
-/** Stages at which a department owner may assign people. */
-const OWNER_ASSIGN_STATUSES: ImprovementIdeaStatus[] = ['approved', 'applied'];
+/** Stages at which a department owner may edit who the idea is assigned to —
+ *  the same list fn_improvement_set_assignees accepts from an owner. Under
+ *  review is included so an owner who is not needed can be taken off by hand. */
+const OWNER_ASSIGN_STATUSES: ImprovementIdeaStatus[] = [
+  'under_review',
+  'approved',
+  'applied'
+];
 
 /** "6 Aug 2026, 2:47 pm" — one readable format for every timestamp here. */
 function formatWhen(iso: string): string {
@@ -513,7 +519,7 @@ export function IdeaDetailDialog({
             )}
           </div>
 
-          {/* Who carries it out — a manager at any stage, the owner once approved. */}
+          {/* Who it is with — a manager at any stage, the owner from Under Review on. */}
           {canAssign && (
             <IdeaAssigneesEditor
               ideaId={idea.id}

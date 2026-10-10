@@ -82,6 +82,7 @@ function notificationStateOf(row: {
 
 export interface AssignedFilters {
   institution_id?: string | null;
+  program_id?: string | null;
   semester_order?: number | null;
   bucket?: CdcAssignedWillingnessBucket | null;
   responded?: boolean | null;
@@ -97,6 +98,7 @@ export function applyAssignedFilters(rows: CdcDriveAssignedRow[], f: AssignedFil
   const q = (f.q ?? '').trim().toLowerCase();
   return rows.filter((r) => {
     if (f.institution_id && r.institution_id !== f.institution_id) return false;
+    if (f.program_id && r.program_id !== f.program_id) return false;
     if (f.semester_order != null && r.semester_order !== f.semester_order) return false;
     if (f.bucket && r.bucket !== f.bucket) return false;
     if (f.responded != null && r.responded !== f.responded) return false;
@@ -188,7 +190,7 @@ export async function buildAssignedLearners(
   const semIds = pick('semester_id');
   const programIds = pick('program_id');
   const [programRes, instRes, deptRes, semRes] = await Promise.all([
-    programIds.length ? service.from('programs').select('id, program_name').in('id', programIds) : Promise.resolve({ data: [], error: null }),
+    programIds.length ? service.from('programs').select('id, program_name, program_type, degrees(degree_type)').in('id', programIds) : Promise.resolve({ data: [], error: null }),
     instIds.length ? service.from('institutions').select('id, name').in('id', instIds) : Promise.resolve({ data: [], error: null }),
     deptIds.length ? service.from('departments').select('id, department_name').in('id', deptIds) : Promise.resolve({ data: [], error: null }),
     semIds.length ? service.from('semesters').select('id, semester_name, semester_order').in('id', semIds) : Promise.resolve({ data: [], error: null }),
@@ -199,6 +201,12 @@ export async function buildAssignedLearners(
   // Program names are display-only: a lookup failure must not take the roster down.
   if (programRes.error) console.warn('[cdc/drive-assigned] program lookup failed:', programRes.error.message);
   const programName = new Map((programRes.data ?? []).map((r: any) => [r.id as string, r.program_name as string]));
+  // UG / PG: programs.program_type, else the degree's type (29 live programs carry only the latter).
+  const programLevel = new Map<string, string>();
+  for (const r of (programRes.data ?? []) as any[]) {
+    const level = String(r.program_type ?? r.degrees?.degree_type ?? '').trim().toUpperCase();
+    if (level) programLevel.set(r.id as string, level);
+  }
   const instName = new Map((instRes.data ?? []).map((r: any) => [r.id as string, r.name as string]));
   const deptName = new Map((deptRes.data ?? []).map((r: any) => [r.id as string, r.department_name as string]));
   const semInfo = new Map(
@@ -245,6 +253,7 @@ export async function buildAssignedLearners(
       department_name: l?.department_id ? deptName.get(l.department_id as string) ?? null : null,
       program_id: (l?.program_id as string | null) ?? null,
       program_name: l?.program_id ? programName.get(l.program_id as string) ?? null : null,
+      degree_level: l?.program_id ? programLevel.get(l.program_id as string) ?? null : null,
       semester_order: sem?.order ?? null,
       semester_label: sem ? (sem.order != null ? `Semester ${sem.order}` : sem.name) : null,
       email,

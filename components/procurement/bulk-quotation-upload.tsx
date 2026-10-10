@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Dialog,
   DialogContent,
@@ -27,8 +27,10 @@ import { ProcurementQuotationService } from '@/lib/services/procurement/quotatio
 import { readQuotationPdf, type ExtractResult } from '@/lib/procurement/read-quotation-pdf';
 import { checkQuotationMath } from '@/lib/procurement/quotation-math';
 import { matchVendor, normalizeGstin } from '@/lib/procurement/vendor-match';
-import { namesShareAWord } from '@/lib/procurement/item-name-match';
-import { comparePacks, isMeasuredUnit, parsePack, qtyWithPack, requestedPack, type PackCheck } from '@/lib/procurement/pack-size';
+import { namesAgree } from '@/lib/procurement/item-name-match';
+import { comparePacks, isMeasuredUnit, parsePack, perPieceFactor, qtyWithPack, requestedPack, type PackCheck } from '@/lib/procurement/pack-size';
+import { specConflict } from '@/lib/procurement/spec-check';
+import { bestNameGuess, codeKey, itemKeyOf, quotedKey, recall, recallKey, type ItemAlias } from '@/lib/procurement/item-aliases';
 import { errorMessage } from '@/lib/utils/supabase-error';
 import { cn } from '@/lib/utils';
 import type { RfqWithDetails } from '@/types/procurement';
@@ -42,8 +44,13 @@ import type { RfqWithDetails } from '@/types/procurement';
  * picking the line(s) the AI read from the PDF (pre-picked where the AI matched
  * them), typing a price, or "not in this quote". A set asked for as one item
  * ("Computer × 5") is often quoted as its parts — CPU, RAM, monitor… — so one item
- * may take several lines, and its unit price is their sum. Lines the vendor quoted
- * that nobody asked for are simply ignored. Nothing is saved until Save.
+ * may take several lines, and its unit price is their sum. When a vendor offers two
+ * brands for one item, the cheaper one is taken and the other kept as an option.
+ * Lines the vendor quoted that nobody asked for are listed at the end. Nothing is
+ * saved until Save.
+ *
+ * Memory: every "Yes, that is the item" / "No" is kept per vendor name
+ * (procurement_item_aliases), so the vendor's own name for an item is asked once.
  */
 
 type RowStatus = 'reading' | 'ready' | 'failed' | 'saving' | 'saved';
@@ -62,14 +69,33 @@ interface ReadLine {
   /** GST rate / HSN printed on this line — carried to the PO so nobody types them. */
   gst_percent: number | null;
   hsn: string;
+  /** Quantity printed on the vendor's line; null = not printed. */
+  qty: number | null;
+  role: 'item' | 'part' | 'option';
+  /** Two readings agreed this line is its item. */
+  checked: boolean;
+  /** Why the AI paired it ("NaOH is sodium hydroxide") — shown with the question. */
+  reason: string;
+  /** The vendor's catalogue / part code, '' = not printed. */
+  code: string;
 }
+
+/** How a line came to answer an item — saved with the price. */
+type MatchSource = 'ai' | 'memory' | 'person';
 
 /**
  * The answer for one requested item. undefined = not answered yet.
  * `idxs` holds one line for a plain item, or every part of a set (never empty).
  */
 type Choice =
-  | { kind: 'line'; idxs: number[]; confirmed: boolean }
+  | {
+      kind: 'line';
+      idxs: number[];
+      confirmed: boolean;
+      source: MatchSource;
+      /** Other options the vendor offered for this item (dearer than the one taken). */
+      alts?: number[];
+    }
   | { kind: 'custom'; price: string }
   | { kind: 'none' };
 
@@ -91,6 +117,8 @@ interface Row {
   choices: Record<string, Choice | undefined>;
   /** Where the reading disagrees with the quotation's own printed numbers. */
   readIssues: string[];
+  /** Vendor lines a person said are NOT a given item — remembered on save. */
+  rejected: Array<{ itemId: string; idx: number }>;
 }
 
 type RfqItem = RfqWithDetails['items'][number];
@@ -100,6 +128,50 @@ const packCheckOf = (it: RfqItem, l: ReadLine | undefined): PackCheck =>
   comparePacks(requestedPack(it), l ? parsePack(l.pack) : null, {
     soldByMeasure: !!it.is_chemical || isMeasuredUnit(it.unit_label),
   });
+
+/**
+ * The vendor printed a different quantity from what was asked — "10" against 25.
+ * A smaller pack bought in proportion (5 × 100 ml for 1 × 500 ml) is the same amount.
+ */
+const qtyDiffers = (it: RfqItem, l: ReadLine | undefined): boolean => {
+  if (!l || l.qty == null || !(Number(it.quantity) > 0)) return false;
+  const asked = Number(it.quantity);
+  if (Math.abs(l.qty - asked) < 1e-9) return false;
+  const want = requestedPack(it);
+  const got = parsePack(l.pack);
+  if (want && got && want.dim === got.dim) return Math.abs(l.qty * got.base - asked * want.base) > 1e-6;
+  // 5 boxes of 100 for 500 Nos is the quantity asked.
+  const n = piecesPerPack(it, l);
+  if (n) return Math.abs(l.qty * n - asked) > 1e-9;
+  return true;
+};
+
+/**
+ * Pieces in the vendor's pack when the item is counted singly ("500 Nos") and the
+ * vendor priced a pack ("Box of 100"). null when the price is already per piece —
+ * the vendor's own qty is then the pieces asked for.
+ */
+const piecesPerPack = (it: RfqItem, l: ReadLine | undefined): number | null => {
+  if (!l) return null;
+  const f = perPieceFactor(it, `${l.pack} ${l.name} ${l.other_specs}`);
+  if (!f) return null;
+  if (l.qty != null && Math.abs(l.qty - Number(it.quantity)) < 1e-9) return null;
+  return Math.round(1 / f);
+};
+
+/** The vendor's price on the footing of what was asked: per requested pack, or per piece. */
+const askedPrice = (it: RfqItem, l: ReadLine): number => {
+  const chk = packCheckOf(it, l);
+  if (chk.kind === 'scaled') return round2(l.price * chk.factor);
+  const n = piecesPerPack(it, l);
+  return n ? round2(l.price / n) : l.price;
+};
+
+/** A grade / strength the vendor offers that is not the one specified (chemicals only). */
+const specOf = (it: RfqItem, l: ReadLine | undefined): string | null =>
+  l && (it.is_chemical || isMeasuredUnit(it.unit_label))
+    ? specConflict(`${it.item_name} ${it.item_spec ?? ''}`, [l.name, l.quality_grade, l.concentration, l.other_specs].join(' '))
+    : null;
 
 /** "1 × 500 ml" when the pack is known, else "20 Nos". */
 const askedLabel = (it: RfqItem) => {
@@ -114,15 +186,20 @@ const sameOf = <T,>(xs: (T | null)[]): T | null =>
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
 
-const READ_CONCURRENCY = 3;
+// Each read is one short API call; six side by side keeps a stack of quotes quick.
+const READ_CONCURRENCY = 6;
+/** What the reader takes: PDFs, phone photos of a printed quote, Excel/CSV sheets. */
+export const QUOTE_FILE_ACCEPT = 'application/pdf,.pdf,image/jpeg,image/png,image/webp,.xlsx,.xls,.csv';
+const isQuoteFile = (f: File) =>
+  /\.(pdf|jpe?g|png|webp|xlsx|xls|csv)$/i.test(f.name) || /^(application\/pdf|image\/(jpeg|png|webp))$/.test(f.type);
 const NEW_VENDOR = '__new__';
 const rupees = (n: number) => `₹${n.toLocaleString('en-IN', { maximumFractionDigits: 2 })}`;
 const emptyVendor = () => ({ name: '', gstin: '', phone: '', email: '', address: '', contact: '' });
 const linesOf = (r: Row, c: Choice | undefined): ReadLine[] =>
   c?.kind === 'line' ? r.lines.filter((l) => c.idxs.includes(l.idx)) : [];
-/** Lines already given to some requested item. */
+/** Lines already given to some requested item (as its price or as one of its options). */
 const usedIdxs = (choices: Row['choices']) =>
-  new Set(Object.values(choices).flatMap((c) => (c?.kind === 'line' ? c.idxs : [])));
+  new Set(Object.values(choices).flatMap((c) => (c?.kind === 'line' ? [...c.idxs, ...(c.alts ?? [])] : [])));
 
 export function BulkQuotationUpload({
   rfq,
@@ -156,6 +233,18 @@ export function BulkQuotationUpload({
   useEffect(() => {
     vendorsRef.current = allVendors;
   }, [allVendors]);
+  // What staff said before about vendor names for these items.
+  const itemKeys = useMemo(() => [...new Set(rfq.items.map(itemKeyOf))], [rfq.items]);
+  const { data: aliases = [] } = useQuery({
+    queryKey: ['procurement-item-aliases', rfq.institution_id, itemKeys],
+    queryFn: () => ProcurementQuotationService.getItemAliases(rfq.institution_id, itemKeys),
+    enabled: open && itemKeys.length > 0,
+    staleTime: 5 * 60 * 1000,
+  });
+  const aliasesRef = useRef<ItemAlias[]>(aliases);
+  useEffect(() => {
+    aliasesRef.current = aliases;
+  }, [aliases]);
 
   const patch = (key: string, p: Partial<Row> | ((r: Row) => Partial<Row>)) =>
     setRows((prev) => prev.map((r) => (r.key === key ? { ...r, ...(typeof p === 'function' ? p(r) : p) } : r)));
@@ -165,7 +254,6 @@ export function BulkQuotationUpload({
 
   const applyResult = (key: string, result: ExtractResult) => {
     const lines: ReadLine[] = [];
-    const choices: Row['choices'] = {};
     for (const [idx, line] of (result.lines ?? []).entries()) {
       const price = typeof line.unit_price === 'number' ? line.unit_price : NaN;
       if (!Number.isFinite(price) || price <= 0) continue;
@@ -182,43 +270,16 @@ export function BulkQuotationUpload({
         other_specs: line.other_specs ?? '',
         gst_percent: typeof line.gst_percent === 'number' ? line.gst_percent : null,
         hsn: line.hsn ?? '',
+        qty: typeof line.quantity === 'number' && line.quantity > 0 ? line.quantity : null,
+        role: line.role ?? 'item',
+        checked: !!line.checked,
+        reason: line.reason ?? '',
+        code: line.catalog_code ?? '',
       });
-      // The AI's own match pre-picks the line; an unsure match still needs a look.
-      if (line.rfq_item_id) {
-        // Shown as a match only when the AI was sure AND the names share a word —
-        // "Keyboard" ← "POE INJECTOR 48V" stays an AI guess for a person to check,
-        // whichever reader (office runner, direct, cached) produced it.
-        const askedItem = rfq.items.find((it) => it.id === line.rfq_item_id);
-        // A pack that can't be put on the requested footing (500 ml solution for
-        // 500 g of the solid) is never accepted silently, however sure the AI was.
-        const sure =
-          !line.uncertain &&
-          namesShareAWord(askedItem?.item_name ?? '', line.item_name || '') &&
-          !!askedItem &&
-          packCheckOf(askedItem, lines[lines.length - 1]).kind !== 'mismatch';
-        const prev = choices[line.rfq_item_id];
-        // Several lines for one item = the parts of a set. Their sum becomes the
-        // price, so a person always looks once — the AI may equally have tagged
-        // two alternative offers for the same item, which must not be added up.
-        choices[line.rfq_item_id] =
-          prev?.kind === 'line'
-            ? { kind: 'line', idxs: [...prev.idxs, idx], confirmed: false }
-            : { kind: 'line', idxs: [idx], confirmed: sure };
-      }
     }
+    const byIdx = new Map(lines.map((l) => [l.idx, l]));
 
-    // Items the AI left unmatched: suggest the first quote line that shares a word
-    // with the item's name — as a guess to confirm, never as a match.
-    const usedIdx = usedIdxs(choices);
-    for (const it of rfq.items) {
-      if (choices[it.id]) continue;
-      const hit = lines.find((l) => !usedIdx.has(l.idx) && namesShareAWord(it.item_name, l.name));
-      if (hit) {
-        choices[it.id] = { kind: 'line', idxs: [hit.idx], confirmed: false };
-        usedIdx.add(hit.idx);
-      }
-    }
-
+    // The vendor first: the memory is kept per vendor.
     let vendorId = '';
     let vendorNote: string | undefined;
     const newVendor = emptyVendor();
@@ -238,6 +299,70 @@ export function BulkQuotationUpload({
         vendorNote = 'new vendor — will be added';
       }
     }
+    const memory = aliasesRef.current;
+    const said = (it: RfqItem, l: ReadLine) => {
+      const byName = recall(memory, vendorId || null, l.name, itemKeyOf(it));
+      return byName ?? recallKey(memory, vendorId || null, codeKey(l.code), itemKeyOf(it));
+    };
+
+    // A line is taken without asking when a person confirmed this name before, when
+    // two separate AI readings agree (a vendor's own name, "Whatman No.1"), or when the
+    // AI was sure AND the names share a word — in every case only if the pack and the
+    // quantity fit. Anything else is asked once: "Is this the item?"
+    const settle = (it: RfqItem, l: ReadLine, aiSure: boolean): { confirmed: boolean; source: MatchSource } => {
+      const fits = packCheckOf(it, l).kind !== 'mismatch' && !qtyDiffers(it, l) && !specOf(it, l);
+      if (said(it, l) === true) return { confirmed: fits, source: 'memory' };
+      return { confirmed: fits && (l.checked || (aiSure && namesAgree(it.item_name, l.name))), source: 'ai' };
+    };
+
+    // The AI's matches, grouped per requested item — minus any pairing a person already said "no" to.
+    const grouped = new Map<string, Array<{ l: ReadLine; sure: boolean }>>();
+    for (const [idx, line] of (result.lines ?? []).entries()) {
+      const l = byIdx.get(idx);
+      const it = line.rfq_item_id ? rfq.items.find((x) => x.id === line.rfq_item_id) : undefined;
+      if (!l || !it || said(it, l) === false) continue;
+      grouped.set(it.id, [...(grouped.get(it.id) ?? []), { l, sure: !line.uncertain || l.checked }]);
+    }
+
+    const choices: Row['choices'] = {};
+    for (const [itemId, group] of grouped) {
+      const it = rfq.items.find((x) => x.id === itemId)!;
+      if (group.length === 1) {
+        choices[itemId] = { kind: 'line', idxs: [group[0].l.idx], ...settle(it, group[0].l, group[0].sure) };
+        continue;
+      }
+      if (group.some((g) => g.l.role === 'part') && !group.some((g) => g.l.role === 'option')) {
+        // The parts of a set: their sum is the price. A person looks once.
+        choices[itemId] = { kind: 'line', idxs: group.map((g) => g.l.idx), confirmed: false, source: 'ai' };
+        continue;
+      }
+      // Two or more offers for one item: the cheapest (on the requested pack) is taken,
+      // the rest stay as options a person can switch to.
+      const sorted = [...group].sort((a, b) => askedPrice(it, a.l) - askedPrice(it, b.l));
+      choices[itemId] = {
+        kind: 'line',
+        idxs: [sorted[0].l.idx],
+        alts: sorted.slice(1).map((g) => g.l.idx),
+        ...settle(it, sorted[0].l, sorted[0].sure),
+      };
+    }
+
+    // Items the AI left unmatched: a name a person confirmed before for this item,
+    // else the line whose name fits best — as a guess to confirm, never as a match.
+    const usedIdx = usedIdxs(choices);
+    for (const it of rfq.items) {
+      if (choices[it.id]) continue;
+      const free = lines.filter((l) => !usedIdx.has(l.idx) && said(it, l) !== false);
+      const known = free.find((l) => said(it, l) === true);
+      const hit = known ?? bestNameGuess(it.item_name, free);
+      if (hit) {
+        choices[it.id] = known
+          ? { kind: 'line', idxs: [hit.idx], ...settle(it, hit, true) }
+          : { kind: 'line', idxs: [hit.idx], confirmed: false, source: 'ai' };
+        usedIdx.add(hit.idx);
+      }
+    }
+
     patch(key, {
       status: 'ready',
       lines,
@@ -252,13 +377,14 @@ export function BulkQuotationUpload({
       paymentTerms: result.payment_terms ?? '',
       warranty: result.warranty ?? '',
       readIssues: [...(result.read_notes ?? []), ...checkQuotationMath(result).issues],
+      rejected: [],
     });
   };
 
   const addFiles = (files: FileList | File[] | null) => {
     if (!files?.length) return;
-    const pdfs = [...files].filter((f) => f.type === 'application/pdf' || f.name.toLowerCase().endsWith('.pdf'));
-    if (pdfs.length < files.length) toast.warning('Only PDF files can be read — other files were skipped.');
+    const pdfs = [...files].filter(isQuoteFile);
+    if (pdfs.length < files.length) toast.warning('Only PDFs, photos (JPG/PNG) and Excel/CSV files can be read — others were skipped.');
     if (!pdfs.length) return;
     const fresh: Row[] = pdfs.map((file, i) => ({
       key: `${Date.now()}-${i}-${file.name}`,
@@ -275,6 +401,7 @@ export function BulkQuotationUpload({
       lines: [],
       choices: {},
       readIssues: [],
+      rejected: [],
     }));
     setRows((prev) => [...prev, ...fresh]);
     setSelectedKey((k) => k ?? fresh[0].key);
@@ -315,8 +442,7 @@ export function BulkQuotationUpload({
     // One line: put its price on the requested pack — ₹135 for 100 ml of a 500 ml
     // requirement is ₹675, not ₹135.
     const it = rfq.items.find((x) => x.id === itemId);
-    const chk = it ? packCheckOf(it, parts[0]) : null;
-    return chk?.kind === 'scaled' ? round2(parts[0].price * chk.factor) : parts[0].price;
+    return it ? askedPrice(it, parts[0]) : parts[0].price;
   };
 
   /**
@@ -327,9 +453,35 @@ export function BulkQuotationUpload({
     if (c?.kind !== 'line' || !line) return '';
     const chk = packCheckOf(it, line);
     const asked = requestedPack(it)?.label;
-    if (chk.kind === 'scaled') return `Quoted ${line.pack} @ ${rupees(line.price)} — ×${chk.factor} for ${asked}`;
-    if (chk.kind === 'mismatch') return `Quoted ${line.pack}, asked ${asked} — accepted by reviewer`;
-    return '';
+    const n = piecesPerPack(it, line);
+    const spec = specOf(it, line);
+    return [
+      chk.kind === 'scaled' ? `Quoted ${line.pack} @ ${rupees(line.price)} — ×${chk.factor} for ${asked}` : '',
+      chk.kind === 'mismatch' ? `Quoted ${line.pack}, asked ${asked} — accepted by reviewer` : '',
+      n ? `Pack of ${n} @ ${rupees(line.price)} — ${rupees(askedPrice(it, line))} each` : '',
+      spec ? `${spec} — accepted by reviewer` : '',
+    ]
+      .filter(Boolean)
+      .join(' · ');
+  };
+
+  /** Audit: how the line came to be this item, saved with the price. */
+  const matchNoteFor = (r: Row, it: RfqItem): string | null => {
+    const c = r.choices[it.id];
+    if (c?.kind === 'custom') return 'Price typed in';
+    if (c?.kind !== 'line') return null;
+    const parts = linesOf(r, c);
+    const how =
+      c.source === 'memory'
+        ? 'Known vendor name (confirmed before)'
+        : c.source === 'person'
+          ? 'Checked by the person saving'
+          : parts.some((p) => p.checked)
+            ? 'Two AI readings agreed'
+            : 'AI match';
+    const why = parts.find((p) => p.reason)?.reason;
+    const one = parts.length === 1 ? packNote(it, c, parts[0]) : '';
+    return [how, why ? `AI: ${why}` : '', parts[0]?.code ? `Cat. ${parts[0].code}` : '', one].filter(Boolean).join(' · ');
   };
 
   /** Items still waiting for an answer: unanswered, an unconfirmed AI guess, or a blank typed price. */
@@ -420,12 +572,20 @@ export function BulkQuotationUpload({
             document_url: null,
             document_file_id: null,
             items: rfq.items.map((it) => {
-              const parts = linesOf(r, r.choices[it.id]);
+              const c = r.choices[it.id];
+              const parts = linesOf(r, c);
               const line = parts.length === 1 ? parts[0] : undefined;
+              const price = priceOf(r, it.id);
               return {
                 rfq_item_id: it.id,
-                unit_price: priceOf(r, it.id), // null = not quoted
+                unit_price: price, // null = not quoted
                 quantity: it.quantity,
+                // What the vendor printed, so Compare & award shows their own name and qty.
+                quoted_name: price == null ? null : line?.name ?? (parts.length > 1 ? `Set of ${parts.length} parts` : null),
+                quoted_qty: line?.qty ?? null,
+                quoted_pack: line?.pack || null,
+                match_note: price == null ? null : matchNoteFor(r, it),
+                match_source: price == null ? null : c?.kind === 'custom' ? 'typed' : c?.kind === 'line' ? c.source : null,
                 manufacturer: line?.manufacturer || null,
                 quality_grade: line?.quality_grade || null,
                 concentration: line?.concentration || null,
@@ -442,6 +602,8 @@ export function BulkQuotationUpload({
           },
           userId: profile.id,
         });
+        // Remember every answer for next time — best-effort, the quote is already saved.
+        void rememberAnswers(r, supplierId);
         patch(r.key, { status: 'saved' });
         savedKeys.add(r.key);
         ok++;
@@ -465,6 +627,43 @@ export function BulkQuotationUpload({
       onOpenChange(false);
     } else {
       setSelectedKey(left[0].key);
+    }
+  };
+
+  /**
+   * "This vendor's name is this item" for every line taken, "is not" for every No.
+   * A line taken on the AI's word alone is remembered too: the person saw it and saved.
+   */
+  const rememberAnswers = async (r: Row, supplierId: string) => {
+    const rows: ItemAlias[] = [];
+    const add = (it: RfqItem, l: ReadLine | undefined, same: boolean) => {
+      if (!l) return;
+      const key = quotedKey(l.name);
+      const base = { supplier_id: supplierId, item_key: itemKeyOf(it), item_name: it.item_name, same };
+      if (key) rows.push({ ...base, quoted_name: l.name, quoted_key: key });
+      // The catalogue code too: the next quote may spell the name differently, never the code.
+      const code = codeKey(l.code);
+      if (code) rows.push({ ...base, quoted_name: `Cat. ${l.code}`, quoted_key: code });
+    };
+    for (const it of rfq.items) {
+      const c = r.choices[it.id];
+      if (c?.kind !== 'line' || !c.confirmed) continue;
+      for (const l of linesOf(r, c)) add(it, l, true);
+    }
+    for (const no of r.rejected) {
+      const now = r.choices[no.itemId];
+      // Said "No", then picked that very line again: the later answer stands.
+      if (now?.kind === 'line' && now.idxs.includes(no.idx)) continue;
+      const it = rfq.items.find((x) => x.id === no.itemId);
+      if (it) add(it, r.lines.find((l) => l.idx === no.idx), false);
+    }
+    // One row per (name, item): the last answer wins.
+    const unique = [...new Map(rows.map((x) => [`${x.quoted_key}|${x.item_key}`, x])).values()];
+    try {
+      await ProcurementQuotationService.rememberItemNames(rfq.institution_id, unique);
+      void queryClient.invalidateQueries({ queryKey: ['procurement-item-aliases', rfq.institution_id] });
+    } catch {
+      /* the quote is saved; the next upload simply asks again */
     }
   };
 
@@ -510,7 +709,7 @@ export function BulkQuotationUpload({
     <input
       ref={inputRef}
       type="file"
-      accept="application/pdf,.pdf"
+      accept={QUOTE_FILE_ACCEPT}
       multiple
       className="hidden"
       onChange={(e) => {
@@ -570,7 +769,7 @@ export function BulkQuotationUpload({
                         ? 'Price typed in'
                         : parts.length > 1
                           ? `Set of ${parts.length} parts`
-                          : `${one?.pack || 'pack not printed'} @ ${rupees(one?.price ?? 0)}`;
+                          : `${one?.name ?? ''} · ${one?.qty != null ? `qty ${one.qty} · ` : ''}${one?.pack || 'pack not printed'} @ ${rupees(one?.price ?? 0)}`;
                   const tone =
                     chk?.kind === 'mismatch'
                       ? 'bg-secondary/20'
@@ -593,6 +792,14 @@ export function BulkQuotationUpload({
                         )}
                         {chk?.kind === 'mismatch' && (
                           <span className="block text-xs font-medium text-foreground">⚠ {chk.reason}</span>
+                        )}
+                        {one && piecesPerPack(it, one) && (
+                          <span className="block text-xs text-primary">
+                            Pack of {piecesPerPack(it, one)} → {rupees(askedPrice(it, one))} each
+                          </span>
+                        )}
+                        {one && specOf(it, one) && (
+                          <span className="block text-xs font-medium text-foreground">⚠ {specOf(it, one)}</span>
                         )}
                       </td>
                       <td className="whitespace-nowrap px-2 py-2 text-right tabular-nums">{price != null ? rupees(price) : '—'}</td>
@@ -623,7 +830,7 @@ export function BulkQuotationUpload({
           <>
             <DialogHeader className="px-6 pb-2 pt-5">
               <DialogTitle className="text-lg">Add quotes</DialogTitle>
-              <DialogDescription>Choose the vendors&apos; quotation PDFs — the AI reads each one.</DialogDescription>
+              <DialogDescription>Choose the vendors&apos; quotations — PDF, photo or Excel. The AI reads each one.</DialogDescription>
             </DialogHeader>
             <div className="p-6 pt-3">
               <button
@@ -637,7 +844,7 @@ export function BulkQuotationUpload({
                 className="flex w-full flex-col items-center gap-2 rounded-xl border-2 border-dashed px-4 py-8 text-center transition-colors hover:border-primary"
               >
                 <Upload className="h-6 w-6 text-muted-foreground" />
-                <span className="font-medium">Choose PDFs</span>
+                <span className="font-medium">Choose quotation files</span>
                 <span className="text-xs text-muted-foreground">or drop them here · several at once</span>
               </button>
             </div>
@@ -664,7 +871,7 @@ export function BulkQuotationUpload({
                     )}
                     {pdfUrl && (
                       <a href={pdfUrl} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">
-                        · View PDF
+                        · View file
                       </a>
                     )}
                   </>
@@ -719,6 +926,7 @@ export function BulkQuotationUpload({
                   <div className="flex min-h-[220px] flex-col items-center justify-center gap-2 text-sm text-muted-foreground">
                     <Loader2 className="h-6 w-6 animate-spin" />
                     Reading {selected.file.name}…
+                    <span className="text-xs">A one-page quote takes a few seconds; a long one up to a minute.</span>
                   </div>
                 ) : (
                   <>
@@ -744,7 +952,7 @@ export function BulkQuotationUpload({
                             <>
                               {' · '}
                               <a href={pdfUrl} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">
-                                View PDF
+                                View file
                               </a>
                             </>
                           )}
@@ -845,10 +1053,29 @@ export function BulkQuotationUpload({
                         const onPick = (v: string) => {
                           if (v === 'none') setChoice(selected.key, it.id, { kind: 'none' });
                           else if (v === 'custom') setChoice(selected.key, it.id, { kind: 'custom', price: price != null ? String(price) : '' });
-                          else setChoice(selected.key, it.id, { kind: 'line', idxs: [Number(v.slice(5))], confirmed: true });
+                          else {
+                            const n = Number(v.slice(5));
+                            // Switching between a vendor's options keeps the others listed.
+                            const offers = c?.kind === 'line' && c.idxs.length === 1 && c.alts?.length ? [...c.idxs, ...c.alts] : [];
+                            setChoice(selected.key, it.id, {
+                              kind: 'line',
+                              idxs: [n],
+                              confirmed: true,
+                              source: 'person',
+                              alts: offers.includes(n) ? offers.filter((x) => x !== n) : undefined,
+                            });
+                          }
                         };
                         const setParts = (idxs: number[]) =>
-                          setChoice(selected.key, it.id, idxs.length ? { kind: 'line', idxs, confirmed: true } : { kind: 'none' });
+                          setChoice(selected.key, it.id, idxs.length ? { kind: 'line', idxs, confirmed: true, source: 'person' } : { kind: 'none' });
+                        // "No, that is not the item": nothing is priced, and the answer is remembered.
+                        const sayNo = () =>
+                          patch(selected.key, (row) => ({
+                            choices: { ...row.choices, [it.id]: { kind: 'none' } },
+                            rejected: [...row.rejected, ...parts.map((p) => ({ itemId: it.id, idx: p.idx }))],
+                          }));
+                        const qtyOff = !isSet && qtyDiffers(it, parts[0]);
+                        const alts = c?.kind === 'line' ? (c.alts ?? []).map((i) => selected.lines.find((l) => l.idx === i)).filter((l): l is ReadLine => !!l) : [];
                         const taken = usedIdxs(selected.choices);
                         const addable = c?.kind === 'line' ? selected.lines.filter((l) => !taken.has(l.idx)) : [];
                         // Typing in the price box always wins over what the AI read.
@@ -864,6 +1091,7 @@ export function BulkQuotationUpload({
                               <MoreHorizontal className="h-4 w-4" />
                             </SelectTrigger>
                             <SelectContent align="end" className="max-w-[520px]">
+                              <SelectItem value="none">Not quoted by this vendor</SelectItem>
                               {selected.lines.length > 0 && (
                                 <div className="px-2 py-1 text-xs text-muted-foreground">Use a line from the PDF</div>
                               )}
@@ -901,25 +1129,68 @@ export function BulkQuotationUpload({
                               {pack?.kind === 'mismatch' && (
                                 <p className="truncate text-xs font-medium text-foreground">⚠ {pack.reason}</p>
                               )}
+                              {!isSet && piecesPerPack(it, parts[0]) && (
+                                <p className="truncate text-xs text-primary">
+                                  Pack of {piecesPerPack(it, parts[0])} @ {rupees(parts[0].price)} → {rupees(askedPrice(it, parts[0]))} each
+                                </p>
+                              )}
+                              {!isSet && specOf(it, parts[0]) && (
+                                <p className="truncate text-xs font-medium text-foreground">⚠ {specOf(it, parts[0])}</p>
+                              )}
                               {/* one short status — actions live in the row's ⋯ menu */}
-                              <p className="truncate text-xs">
-                                {unsure ? (
-                                  <span className="text-foreground">
-                                    {isSet ? `${parts.length} parts = one set?` : `“${parts[0]?.name}”?`}{' '}
+                              {unsure ? (
+                                <div className="mt-0.5 text-xs text-foreground">
+                                  <p className="whitespace-normal">
+                                    {isSet ? (
+                                      <>Do these {parts.length} parts make one {it.item_name}?</>
+                                    ) : (
+                                      <>
+                                        Vendor wrote <b>“{parts[0]?.name}”</b> — is this the item
+                                        {qtyOff ? ' and quantity' : ''}?
+                                        {parts[0]?.reason && (
+                                          <span className="block text-muted-foreground">AI: {parts[0].reason}</span>
+                                        )}
+                                      </>
+                                    )}
+                                  </p>
+                                  {qtyOff && (
+                                    <p className="font-medium">
+                                      Vendor qty {parts[0]?.qty} · asked {Number(it.quantity)}
+                                    </p>
+                                  )}
+                                  <span className="mt-1 flex gap-1.5">
                                     <button
                                       type="button"
-                                      className="ml-1 rounded bg-primary px-1.5 py-px font-semibold text-primary-foreground hover:bg-primary/90"
-                                      onClick={() => c?.kind === 'line' && setChoice(selected.key, it.id, { ...c, confirmed: true })}
+                                      className="rounded bg-primary px-2 py-0.5 font-semibold text-primary-foreground hover:bg-primary/90"
+                                      onClick={() => c?.kind === 'line' && setChoice(selected.key, it.id, { ...c, confirmed: true, source: 'person' })}
                                     >
                                       Yes
                                     </button>
+                                    <button
+                                      type="button"
+                                      className="rounded border px-2 py-0.5 font-semibold hover:bg-muted"
+                                      onClick={sayNo}
+                                    >
+                                      No
+                                    </button>
                                   </span>
-                                ) : unanswered || notQuoted || c?.kind === 'custom' ? null : (
-                                  <span className="text-primary" title={parts.map((p) => p.name).join(', ')}>
-                                    ✓ {isSet ? `Set of ${parts.length} parts` : parts[0]?.name}
-                                  </span>
-                                )}
-                              </p>
+                                </div>
+                              ) : unanswered || notQuoted || c?.kind === 'custom' ? null : (
+                                <p className="truncate text-xs text-primary" title={parts.map((p) => p.name).join(', ')}>
+                                  ✓ {isSet ? `Set of ${parts.length} parts` : parts[0]?.name}
+                                  {c?.kind === 'line' && c.source === 'memory' && (
+                                    <span className="text-muted-foreground"> · known name</span>
+                                  )}
+                                  {parts[0]?.qty != null && !isSet && (
+                                    <span className="text-muted-foreground"> · qty {parts[0].qty}</span>
+                                  )}
+                                </p>
+                              )}
+                              {alts.length > 0 && (
+                                <p className="truncate text-xs text-muted-foreground">
+                                  Cheapest of {alts.length + 1} offers · also {alts.map((a) => `${a.name} ${rupees(a.price)}`).join(', ')}
+                                </p>
+                              )}
                               {isSet && (
                                 <details className="mt-1 text-xs text-muted-foreground">
                                   <summary className="cursor-pointer text-primary">See the {parts.length} parts</summary>
@@ -987,6 +1258,29 @@ export function BulkQuotationUpload({
                         );
                       })}
                     </div>
+                    {(() => {
+                      const used = usedIdxs(selected.choices);
+                      const spare = selected.lines.filter((l) => !used.has(l.idx));
+                      return spare.length ? (
+                        <details className="border-t px-5 py-3 text-xs text-muted-foreground">
+                          <summary className="cursor-pointer">
+                            {spare.length} line{spare.length === 1 ? '' : 's'} in this quote not used — not asked for
+                          </summary>
+                          <ul className="mt-1 space-y-0.5">
+                            {spare.map((l) => (
+                              <li key={l.idx} className="flex justify-between gap-3">
+                                <span className="truncate">
+                                  {l.name}
+                                  {l.pack && ` · ${l.pack}`}
+                                </span>
+                                <span className="shrink-0 tabular-nums">{rupees(l.price)}</span>
+                              </li>
+                            ))}
+                          </ul>
+                          <p className="mt-1">If one of these is a requested item, pick it from that item’s ⋯ menu.</p>
+                        </details>
+                      ) : null;
+                    })()}
                   </>
                 )}
               </div>
