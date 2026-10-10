@@ -465,12 +465,6 @@ export class NativeSchedulingService {
   }
 
   /**
-   * Host's busy ranges over a UTC range (engine conflict input):
-   * confirmed native bookings UNIONED with the host's real Google Calendar
-   * (U2, D12) when a connection exists. Google 'failed' = fail CLOSED (D19) —
-   * a host whose protection broke must not look free.
-   */
-  /**
    * The host's busy times (confirmed meetings + Google Calendar) between two
    * instants. Fails CLOSED: anything it cannot verify comes back as busy.
    */
@@ -483,6 +477,12 @@ export class NativeSchedulingService {
     return this.loadBusy(supabase, hostProfileId, fromIso, toIso);
   }
 
+  /**
+   * Host's busy ranges over a UTC range (engine conflict input):
+   * confirmed native bookings UNIONED with the host's real Google Calendar
+   * (U2, D12) when a connection exists. Google 'failed' = fail CLOSED (D19) —
+   * a host whose protection broke must not look free.
+   */
   private static async loadBusy(
     supabase: SupabaseClient,
     hostProfileId: string,
@@ -1071,7 +1071,7 @@ export class NativeSchedulingService {
     const { data: booking, error } = await supabase
       .from('meeting_bookings')
       .select(
-        'id, host_profile_id, cancel_token, status, attendee_name, attendee_email, start_time, end_time, meeting_type_id, google_event_id, venue_reservation_id, answers',
+        'id, host_profile_id, cancel_token, status, attendee_name, attendee_email, start_time, end_time, meeting_type_id, google_event_id, venue_reservation_id, answers, source',
       )
       .eq('uid', uid)
       .maybeSingle();
@@ -1154,7 +1154,10 @@ export class NativeSchedulingService {
     // (HostSchedulingService.scheduleDirect). On a TYPED booking, answers is
     // whatever the visitor typed into the booking form, so it is never read
     // here: a forged participants list or title must not steer these emails.
-    const hostDirect = booking.meeting_type_id === null;
+    // Server-written provenance only: source 'host-direct' (scheduleDirect
+    // sets it; no public flow can) AND no meeting type.
+    const hostDirect =
+      booking.meeting_type_id === null && (booking as { source?: string }).source === 'host-direct';
     const answers = (hostDirect ? (booking as { answers?: unknown }).answers ?? {} : {}) as {
       title?: unknown;
       participants?: { email?: unknown; name?: unknown }[];
@@ -1180,22 +1183,32 @@ export class NativeSchedulingService {
       );
     }
 
+    // The cancel is already committed: one invitee's failed email never stops
+    // the others, and the host's copy goes once (its key names only the
+    // meeting; a second send with a different payload would be a 409).
+    let hostTold = false;
     for (const r of recipients) {
-      await MeetingBookingEmailService.sendBookingCancelledEmails({
-        uid,
-        meetingTitle,
-        durationMin,
-        timezone,
-        startTime: booking.start_time,
-        hostName:
-          (host?.full_name as string | undefined) ?? (host?.email as string | undefined) ?? '',
-        hostEmail: (host?.email as string | undefined) ?? '',
-        attendeeName: r.name || r.email,
-        attendeeEmail: r.email,
-        attendeePhone: null,
-        cancelledBy: byToken ? 'attendee' : 'host',
-        reason: reason ?? null,
-      });
+      const hostEmail = hostTold ? '' : ((host?.email as string | undefined) ?? '');
+      hostTold = true;
+      try {
+        await MeetingBookingEmailService.sendBookingCancelledEmails({
+          uid,
+          meetingTitle,
+          durationMin,
+          timezone,
+          startTime: booking.start_time,
+          hostName:
+            (host?.full_name as string | undefined) ?? (host?.email as string | undefined) ?? '',
+          hostEmail,
+          attendeeName: r.name || r.email,
+          attendeeEmail: r.email,
+          attendeePhone: null,
+          cancelledBy: byToken ? 'attendee' : 'host',
+          reason: reason ?? null,
+        });
+      } catch (err) {
+        console.error(`${LOG_PREFIX} cancellation email failed for ${r.email}:`, err);
+      }
     }
 
     return { success: true };

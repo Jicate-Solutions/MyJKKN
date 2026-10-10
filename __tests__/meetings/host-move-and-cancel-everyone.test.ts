@@ -14,10 +14,13 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 const sentEmails: Array<{ to: string; subject: string; key: string }> = [];
+/** Sending to these addresses throws (a provider error mid-loop). */
+const throwFor = new Set<string>();
 vi.mock('@/lib/resend', () => ({
   resend: {
     emails: {
       send: vi.fn(async (msg: { to: string; subject: string }, opts: { headers: Record<string, string> }) => {
+        if (throwFor.has(msg.to)) throw new Error('provider down');
         sentEmails.push({ to: msg.to, subject: msg.subject, key: opts.headers['Idempotency-Key'] });
         return { data: { id: `r${sentEmails.length}` }, error: null };
       }),
@@ -78,7 +81,10 @@ function row(over: Record<string, unknown> = {}) {
 }
 
 /** A tiny meeting_bookings / profiles / meeting_types double. */
-function makeDb(booking: Record<string, unknown> | null, opts: { updateError?: { code: string; message: string }; restoreFails?: boolean } = {}) {
+function makeDb(
+  booking: Record<string, unknown> | null,
+  opts: { updateError?: { code: string; message: string }; restoreFails?: boolean; roomError?: boolean } = {}
+) {
   const updates: Array<{ table: string; payload: Record<string, unknown>; where: Record<string, unknown> }> = [];
   let current = booking ? { ...booking } : null;
   const db = {
@@ -108,7 +114,8 @@ function makeDb(booking: Record<string, unknown> | null, opts: { updateError?: {
         },
         then: (ok: (v: unknown) => unknown) => {
           if (payload) updates.push({ table, payload, where: { ...where } });
-          return Promise.resolve({ data: null, error: null }).then(ok);
+          const err = table === 'resource_reservations' && opts.roomError ? { message: 'room clash' } : null;
+          return Promise.resolve({ data: null, error: err }).then(ok);
         },
       };
       return b;
@@ -119,6 +126,7 @@ function makeDb(booking: Record<string, unknown> | null, opts: { updateError?: {
 
 beforeEach(() => {
   sentEmails.length = 0;
+  throwFor.clear();
   patchEventTime.mockReset();
   patchEventTime.mockResolvedValue(true);
   markEventCancelled.mockReset();
@@ -207,6 +215,46 @@ describe('moveDirect: same meeting, same link, new time', () => {
   });
 });
 
+describe('moveDirect: the review round of 10 Oct', () => {
+  it('Google not answering keeps the move (it may have applied) and warns', async () => {
+    patchEventTime.mockRejectedValue(new Error('socket hang up'));
+    const { db, now } = makeDb(row());
+    const r = await HostSchedulingService.moveDirect(db, { uid: 'uid-1', hostProfileId: HOST, startIso: NEW_START, durationMin: 30 });
+    expect(r.ok).toBe(true);
+    expect(r.warning).toMatch(/did not confirm the new time/);
+    expect(now()).toMatchObject({ start_time: NEW_START });
+  });
+
+  it('a room that cannot follow the meeting is reported, not hidden', async () => {
+    const { db } = makeDb(row({ venue_reservation_id: 'room-1' }), { roomError: true });
+    const r = await HostSchedulingService.moveDirect(db, { uid: 'uid-1', hostProfileId: HOST, startIso: NEW_START, durationMin: 30 });
+    expect(r.ok).toBe(true);
+    expect(r.warning).toMatch(/room booked for this meeting is still held at the old time/);
+  });
+
+  it('only a meeting the server marked host-direct can be moved', async () => {
+    const { db, updates } = makeDb(row({ source: 'routing-form' }));
+    const r = await HostSchedulingService.moveDirect(db, { uid: 'uid-1', hostProfileId: HOST, startIso: NEW_START, durationMin: 30 });
+    expect(r).toMatchObject({ ok: false, error: { code: 'NOT_FOUND' } });
+    expect(updates).toHaveLength(0);
+  });
+
+  it('moves only from the start the caller checked', async () => {
+    const { db, updates } = makeDb(row());
+    const r = await HostSchedulingService.moveDirect(db, {
+      uid: 'uid-1', hostProfileId: HOST, startIso: NEW_START, durationMin: 30, expectedStartIso: '2099-01-09T05:00:00.000Z',
+    });
+    expect(r).toMatchObject({ ok: false, error: { code: 'NOT_FOUND' } });
+    expect(updates).toHaveLength(0);
+  });
+
+  it('the host gets ONE moved email however many are invited', async () => {
+    const { db } = makeDb(row());
+    await HostSchedulingService.moveDirect(db, { uid: 'uid-1', hostProfileId: HOST, startIso: NEW_START, durationMin: 30 });
+    expect(sentEmails.filter((e) => e.to === 'director@jkkn.ac.in')).toHaveLength(1);
+  });
+});
+
 describe('cancelling a directly scheduled meeting tells everyone', () => {
   it('emails every invitee with the meeting\'s own title', async () => {
     const { db } = makeDb(row());
@@ -218,6 +266,21 @@ describe('cancelling a directly scheduled meeting tells everyone', () => {
     // each invitee has their own key, so Resend sends both
     expect(new Set(invitees.map((e) => e.key)).size).toBe(2);
     expect(markEventCancelled.mock.calls[0][3]).toBe('Cancelled: Fee review — A Parent');
+  });
+
+  it('the host gets ONE cancel email, and one invitee failing does not stop the rest', async () => {
+    throwFor.add('parent@gmail.com');
+    const { db } = makeDb(row());
+    const r = await NativeSchedulingService.cancelBooking(db, 'uid-1', { actorProfileId: HOST });
+    expect(r.success).toBe(true);
+    expect(sentEmails.filter((e) => e.to === 'director@jkkn.ac.in')).toHaveLength(1);
+    expect(sentEmails.map((e) => e.to)).toContain('viswanathan.s@jkkn.ac.in');
+  });
+
+  it('a booking with no type that the server did NOT mark host-direct does not use its answers', async () => {
+    const { db } = makeDb(row({ source: 'routing-form', answers: { title: 'Forged', participants: [{ email: 'victim@example.com' }] } }));
+    await NativeSchedulingService.cancelBooking(db, 'uid-1', { actorProfileId: HOST });
+    expect(sentEmails.filter((e) => e.to !== 'director@jkkn.ac.in').map((e) => e.to)).toEqual(['parent@gmail.com']);
   });
 
   it('a TYPED booking whose form answers carry a forged invitee list and title emails only its real attendee', async () => {

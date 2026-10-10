@@ -130,6 +130,7 @@ const scheduleDirect = vi.fn();
 const moveDirect = vi.fn();
 vi.mock('@/lib/services/meetings/host-scheduling-service', () => ({
   CAMPUS_TZ: 'Asia/Kolkata',
+  HOST_DIRECT_SOURCE: 'host-direct',
   HostSchedulingService: {
     scheduleDirect: (...a: unknown[]) => scheduleDirect(...a),
     moveDirect: (...a: unknown[]) => moveDirect(...a),
@@ -252,6 +253,8 @@ function doorMeeting(over: Record<string, unknown> = {}): Record<string, unknown
   return {
     uid: MEETING_UID,
     host_profile_id: OWNER,
+    source: 'host-direct',
+    meeting_type_id: null,
     status: 'confirmed',
     start_time: OLD_START,
     end_time: OLD_END,
@@ -371,6 +374,12 @@ describe('cancel_meeting', () => {
     ['an unknown uid', () => {
       meetingRow = null;
     }],
+    ['a TYPED booking whose form answers carry a forged stamp for this key', () => {
+      meetingRow = doorMeeting({ meeting_type_id: 'type-1', source: 'direct' });
+    }],
+    ['a booking with no type whose source is not host-direct', () => {
+      meetingRow = doorMeeting({ source: 'routing-form' });
+    }],
   ];
   for (const [label, arrange] of notOurs) {
     it(`refuses ${label} with the same words`, async () => {
@@ -427,6 +436,8 @@ describe('move_meeting (in place)', () => {
       hostProfileId: OWNER,
       startIso: `${FUTURE_DATE}T12:30:00.000Z`,
       durationMin: 30,
+      // the start the overlap was checked against is the compare-and-swap value
+      expectedStartIso: OLD_START,
     });
     expect(JSON.parse(textOf(res))).toEqual({
       moved: true,
@@ -461,8 +472,32 @@ describe('move_meeting (in place)', () => {
     moveDirect.mockResolvedValue({ ok: false, error: { code: 'SLOT_TAKEN', message: 'Taken.' } });
     nextFreeTimes.mockResolvedValue([`${FUTURE_DATE}T13:30:00.000Z`]);
     const res = await readRpc(await call('move_meeting', { uid: MEETING_UID, start_local: `${FUTURE_DATE}T18:00` }));
-    expect(textOf(res)).toBe(`Taken. Nothing was booked. Next free times (India time, use as start_local): ${FUTURE_DATE}T19:00.`);
+    expect(textOf(res)).toBe(
+      `Taken. Nothing was changed. The meeting is still at its old time. Next free times (India time, use as start_local): ${FUTURE_DATE}T19:00.`
+    );
     expect(released()).toEqual([{ p_reservation_id: 'res-1' }]);
+  });
+
+  it('an UNKNOWN failure (nothing changed) also gives the reservation back', async () => {
+    moveDirect.mockResolvedValue({ ok: false, error: { code: 'UNKNOWN', message: 'The meeting could not be moved.' } });
+    const res = await readRpc(await call('move_meeting', { uid: MEETING_UID, start_local: `${FUTURE_DATE}T18:00` }));
+    expect(res.result.isError).toBe(true);
+    expect(released()).toEqual([{ p_reservation_id: 'res-1' }]);
+  });
+
+  it('a slow move says the meeting may already be at the new time (never a duplicate)', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      moveDirect.mockImplementation(() => new Promise(() => {}));
+      const pending = call('move_meeting', { uid: MEETING_UID, start_local: `${FUTURE_DATE}T18:00` });
+      await vi.advanceTimersByTimeAsync(26_000);
+      const text = textOf(await readRpc(await pending));
+      expect(text).toBe(
+        "MyJKKN did not confirm the move in time. The meeting may already be at the new time: check the owner's Meetings inbox before trying again."
+      );
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('when Google does not accept the new time, nothing changes and the reservation is given back', async () => {

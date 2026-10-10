@@ -167,6 +167,11 @@ export interface MoveDirectInput {
   hostProfileId: string;
   startIso: string;
   durationMin: number;
+  /**
+   * The start the caller validated against. When given, the move happens only
+   * if the meeting still starts then, so two concurrent moves cannot both pass.
+   */
+  expectedStartIso?: string;
 }
 
 export type MoveFailureCode = 'NOT_FOUND' | 'SLOT_TAKEN' | 'CALENDAR_FAILED' | 'UNKNOWN';
@@ -356,8 +361,12 @@ export class HostSchedulingService {
 
     // Confirmation email per attendee. Non-throwing, and a no-op without
     // RESEND_API_KEY, so this can never fail the booking.
+    let hostTold = false;
     for (const a of attendees) {
       try {
+        // The host's copy is sent once per meeting (see moveDirect).
+        const hostEmailOnce = hostTold ? '' : (((hostProfile as any)?.email as string | undefined) ?? '');
+        hostTold = true;
         await MeetingBookingEmailService.sendBookingConfirmedEmails({
           uid,
           meetingTitle: input.title.trim(),
@@ -368,7 +377,7 @@ export class HostSchedulingService {
             ((hostProfile as any)?.full_name as string | undefined) ??
             ((hostProfile as any)?.email as string | undefined) ??
             '',
-          hostEmail: ((hostProfile as any)?.email as string | undefined) ?? '',
+          hostEmail: hostEmailOnce,
           attendeeName: a.name,
           attendeeEmail: a.email,
           locationMode: input.locationMode,
@@ -417,7 +426,8 @@ export class HostSchedulingService {
       !booking ||
       booking.host_profile_id !== input.hostProfileId ||
       booking.status !== 'confirmed' ||
-      booking.meeting_type_id !== null
+      booking.meeting_type_id !== null ||
+      booking.source !== HOST_DIRECT_SOURCE
     ) {
       return { ok: false, error: { code: 'NOT_FOUND', message: 'No meeting of yours with that reference can be moved here.' } };
     }
@@ -426,6 +436,12 @@ export class HostSchedulingService {
     const endIso = new Date(new Date(startIso).getTime() + input.durationMin * 60_000).toISOString();
     const oldStart = booking.start_time as string;
     const oldEnd = booking.end_time as string;
+    if (
+      input.expectedStartIso &&
+      new Date(input.expectedStartIso).getTime() !== new Date(oldStart).getTime()
+    ) {
+      return { ok: false, error: { code: 'NOT_FOUND', message: 'That meeting was changed or cancelled meanwhile.' } };
+    }
 
     const { data: moved, error: upErr } = await (supabase as any)
       .from('meeting_bookings')
@@ -455,17 +471,32 @@ export class HostSchedulingService {
       return { ok: false, error: { code: 'NOT_FOUND', message: 'That meeting was changed or cancelled meanwhile.' } };
     }
 
-    let warning: string | null = null;
+    const warnings: string[] = [];
     if (booking.google_event_id) {
-      const patched = await GoogleCalendarService.patchEventTime(
-        supabase,
-        input.hostProfileId,
-        booking.google_event_id as string,
-        startIso,
-        endIso,
-        CAMPUS_TZ,
-      );
-      if (!patched) {
+      // false = Google answered and did not apply it (or no calendar access):
+      // a definite refusal, so the row is put back. A thrown error = the
+      // answer never arrived, and Google may already have moved the invite
+      // (sendUpdates=all), so the move is KEPT and reported with a warning
+      // rather than "nothing changed".
+      let patched: boolean | 'unknown';
+      try {
+        patched = await GoogleCalendarService.patchEventTime(
+          supabase,
+          input.hostProfileId,
+          booking.google_event_id as string,
+          startIso,
+          endIso,
+          CAMPUS_TZ,
+        );
+      } catch (err) {
+        console.error(`${LOG_PREFIX} move: calendar patch outcome unknown for ${input.uid}:`, err);
+        patched = 'unknown';
+      }
+      if (patched === 'unknown') {
+        warnings.push(
+          'Google Calendar did not confirm the new time, so the invite may still show the old time. Check it.',
+        );
+      } else if (!patched) {
         const { data: back, error: backErr } = await (supabase as any)
           .from('meeting_bookings')
           .update({
@@ -488,20 +519,29 @@ export class HostSchedulingService {
             },
           };
         }
-        console.error(`${LOG_PREFIX} move: calendar patch AND restore failed for ${input.uid}`);
-        warning =
-          'The meeting moved in MyJKKN, but its Google Calendar invite still shows the old time and could not be updated.';
+        // 23P01 here = another booking took the freed old time meanwhile.
+        console.error(
+          `${LOG_PREFIX} move: calendar patch AND restore failed for ${input.uid}:`,
+          (backErr as { code?: string } | null)?.code ?? 'no row',
+        );
+        warnings.push(
+          'The meeting moved in MyJKKN, but its Google Calendar invite still shows the old time and could not be updated.',
+        );
       }
     }
 
-    // A held room follows the meeting (same rule as rescheduleBooking).
+    // A held room follows the meeting (same rule as rescheduleBooking). If it
+    // cannot (a clash or an error), the move is reported half-done.
     if (booking.venue_reservation_id) {
       const { error: rErr } = await (supabase as any)
         .from('resource_reservations')
         .update({ start_time: startIso, end_time: endIso, updated_at: new Date().toISOString() })
         .eq('id', booking.venue_reservation_id)
         .neq('status', 'cancelled');
-      if (rErr) console.error(`${LOG_PREFIX} venue reservation move failed:`, rErr.message);
+      if (rErr) {
+        console.error(`${LOG_PREFIX} venue reservation move failed:`, rErr.message);
+        warnings.push('The room booked for this meeting is still held at the old time; it could not be moved.');
+      }
     }
 
     // One "moved" email to every invitee (and one to the host), naming the
@@ -517,8 +557,13 @@ export class HostSchedulingService {
       .select('full_name, email')
       .eq('id', input.hostProfileId)
       .maybeSingle();
+    let hostTold = false;
     for (const p of (answers.participants ?? []).filter((x) => x?.email)) {
       try {
+        // The host's copy is sent ONCE (its key names only the meeting; a
+        // second send with a different payload would be a duplicate-key 409).
+        const hostEmail = hostTold ? '' : (((host as any)?.email as string | undefined) ?? '');
+        hostTold = true;
         await MeetingBookingEmailService.sendBookingRescheduledEmails({
           uid: booking.uid as string,
           meetingTitle: answers.title?.trim() || 'Meeting',
@@ -528,7 +573,7 @@ export class HostSchedulingService {
           previousStartTime: oldStart,
           rescheduledBy: 'host',
           hostName: ((host as any)?.full_name as string | undefined) ?? ((host as any)?.email as string | undefined) ?? '',
-          hostEmail: ((host as any)?.email as string | undefined) ?? '',
+          hostEmail,
           attendeeName: p.name || (p.email as string),
           attendeeEmail: p.email as string,
           locationMode: answers.location_mode ?? null,
@@ -549,7 +594,7 @@ export class HostSchedulingService {
         previousStartIso: oldStart,
         videoUrl: (booking.video_url as string | null) ?? null,
       },
-      warning,
+      warning: warnings.length ? warnings.join(' ') : null,
     };
   }
 }

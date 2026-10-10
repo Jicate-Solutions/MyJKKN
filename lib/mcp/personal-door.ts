@@ -41,6 +41,7 @@ import {
 import { mcpError, mcpSuccess, type McpToolResult } from '@/lib/mcp/tool-helpers';
 import {
   CAMPUS_TZ,
+  HOST_DIRECT_SOURCE,
   HostSchedulingService,
   type HostMeetingLocationMode,
   type ScheduleAttendee,
@@ -674,7 +675,8 @@ async function withFreeTimes(
   db: SupabaseClient,
   ownerId: string,
   args: Pick<ScheduleArgs, 'startIso' | 'durationMin'>,
-  message: string
+  message: string,
+  nothingDone = 'Nothing was booked.'
 ): Promise<string> {
   let times: string[] = [];
   try {
@@ -687,8 +689,8 @@ async function withFreeTimes(
   } catch {
     times = [];
   }
-  if (!times.length) return `${message} Nothing was booked.`;
-  return `${message} Nothing was booked. Next free times (India time, use as start_local): ${times
+  if (!times.length) return `${message} ${nothingDone}`;
+  return `${message} ${nothingDone} Next free times (India time, use as start_local): ${times
     .map(isoToIndiaLocal)
     .join(', ')}.`;
 }
@@ -781,13 +783,20 @@ async function loadThisKeysMeeting(
   }
   const { data, error } = await db
     .from('meeting_bookings')
-    .select('uid, host_profile_id, status, start_time, end_time, answers')
+    .select('uid, host_profile_id, status, start_time, end_time, answers, source, meeting_type_id')
     .eq('uid', uid.trim())
     .maybeSingle();
   if (error) throw new Error('meeting lookup failed');
-  const row = data as (DoorBooking & { host_profile_id?: string }) | null;
+  const row = data as (DoorBooking & { host_profile_id?: string; source?: string; meeting_type_id?: string | null }) | null;
   const stamp = (row?.answers as { booked_via_key_id?: unknown } | null)?.booked_via_key_id;
-  if (!row || row.host_profile_id !== ownerId || stamp !== keyId) throw new DoorRefusal(NOT_THIS_KEYS);
+  // The stamp counts only on a meeting the SERVER marked as scheduled by its
+  // host: source 'host-direct' with no meeting type. On a typed booking,
+  // answers is what a visitor typed into the booking form, so a forged stamp
+  // there is ignored.
+  const serverMadeDirect = row?.source === HOST_DIRECT_SOURCE && row?.meeting_type_id === null;
+  if (!row || !serverMadeDirect || row.host_profile_id !== ownerId || stamp !== keyId) {
+    throw new DoorRefusal(NOT_THIS_KEYS);
+  }
   if (row.status !== 'confirmed') throw new DoorRefusal('That meeting is already cancelled or closed.');
   if (new Date(row.start_time).getTime() <= Date.now()) {
     throw new DoorRefusal('That meeting has already started. Change it in MyJKKN Meetings.');
@@ -898,7 +907,15 @@ async function runMoveTool(
 
   // In place: same meeting, same uid, same Meet link (Director, 9 Oct 2026:
   // "Keep the same link"). All or nothing — see HostSchedulingService.moveDirect.
-  const work = HostSchedulingService.moveDirect(db, { uid: old.uid, hostProfileId: ownerId, startIso, durationMin });
+  // The compare-and-swap uses the start this call validated the overlap
+  // against, so a second, concurrent move cannot slip past that check.
+  const work = HostSchedulingService.moveDirect(db, {
+    uid: old.uid,
+    hostProfileId: ownerId,
+    startIso,
+    durationMin,
+    expectedStartIso: old.start_time,
+  });
   let outcome: Awaited<typeof work>;
   try {
     outcome = await withDeadline(work, BOOKING_LIMITS.BOOKING_TIMEOUT_MS);
@@ -912,10 +929,20 @@ async function runMoveTool(
       // All three are decided with nothing changed.
       await releaseBookingSlot(db, reservationId);
       if (code === 'SLOT_TAKEN') {
-        throw new DoorRefusal(await withFreeTimes(db, ownerId, { startIso, durationMin }, outcome.error.message));
+        throw new DoorRefusal(
+          await withFreeTimes(
+            db,
+            ownerId,
+            { startIso, durationMin },
+            outcome.error.message,
+            'Nothing was changed. The meeting is still at its old time.'
+          )
+        );
       }
       throw new DoorRefusal(`${outcome.error.message} The meeting is still at its old time.`);
     }
+    // UNKNOWN is also decided before anything changed (a failed read or update).
+    await releaseBookingSlot(db, reservationId);
     throw new Error(outcome.error?.message ?? 'not moved');
   }
   const warning = outcome.warning ?? null;
@@ -1130,7 +1157,7 @@ export async function handlePersonalKeyRequest(req: Request, token: string): Pro
             name === CANCEL_TOOL_NAME
               ? "MyJKKN did not confirm the cancellation in time. It may still go through: check the owner's Meetings inbox before trying again."
               : name === MOVE_TOOL_NAME
-                ? "MyJKKN did not confirm the move in time. The new meeting may have been made and the old one may still be on: check the owner's Meetings inbox before trying again."
+                ? "MyJKKN did not confirm the move in time. The meeting may already be at the new time: check the owner's Meetings inbox before trying again."
                 : "MyJKKN did not confirm the booking in time. It may still have been made: check the owner's Meetings inbox before trying again."
           );
         }
