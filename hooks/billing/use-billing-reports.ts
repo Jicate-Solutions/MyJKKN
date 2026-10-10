@@ -15,7 +15,7 @@ import type {
   OutstandingReport,
   CollectionReport,
   CollectionDaywiseRow,
-  DiscountReport,
+  ScholarshipReport,
   RefundReport,
   InvoiceReport,
   ReportExportOptions,
@@ -215,8 +215,8 @@ export const useCollectionReport = (f: BillingReportFilters = {}) =>
 export const useInvoiceReport = (f: BillingReportFilters = {}) =>
   useReportList<InvoiceReport>(f, (ff, p) => BillingReportService.getInvoiceReport(ff, p), 'invoice report');
 
-export const useDiscountReport = (f: BillingReportFilters = {}) =>
-  useReportList<DiscountReport>(f, (ff, p) => BillingReportService.getDiscountReport(ff, p), 'discount report');
+export const useScholarshipReport = (f: BillingReportFilters = {}) =>
+  useReportList<ScholarshipReport>(f, (ff, p) => BillingReportService.getScholarshipReport(ff, p), 'scholarship report');
 
 export const useRefundReport = (f: BillingReportFilters = {}) =>
   useReportList<RefundReport>(f, (ff, p) => BillingReportService.getRefundReport(ff, p), 'refund report');

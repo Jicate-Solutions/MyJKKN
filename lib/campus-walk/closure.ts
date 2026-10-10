@@ -327,10 +327,13 @@ export async function closeCampusWalkTask(
       await createBellNotification(admin, {
         recipientIds: [reporterId],
         createdBy: reporterId,
-        title: 'Your report was fixed',
-        body:
-          `“${shortTitle}” has been marked fixed, with a photo of the finished work. ` +
-          `Not fixed? Open My reports within ${NOT_FIXED_WINDOW_DAYS} days and tap “Not fixed”.`,
+        title: metadata.fix?.reply ? 'Your report has a reply' : 'Your report was fixed',
+        // A CCTV report is answered in words, not with a photo (fix route `reply`).
+        body: metadata.fix?.reply
+          ? `“${shortTitle}” was answered: “${String(metadata.fix.reply).slice(0, 300)}”. ` +
+            `Not dealt with? Open My reports within ${NOT_FIXED_WINDOW_DAYS} days and tap “Not fixed”.`
+          : `“${shortTitle}” has been marked fixed, with a photo of the finished work. ` +
+            `Not fixed? Open My reports within ${NOT_FIXED_WINDOW_DAYS} days and tap “Not fixed”.`,
         url: MY_REPORTS_URL,
         category: 'instasolver:reported-fixed',
         metadata: {

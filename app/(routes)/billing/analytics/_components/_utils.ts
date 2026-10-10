@@ -72,7 +72,7 @@ function withParams(
  *  - /billing/receipts          institution_id, receipt_date_from/to,
  *                               payment_mode, collection_type
  *  - /billing/refunds           institution_id, date_from/to
- *  - /billing/discounts         (filters live in client state — no params)
+ *  - /billing/scholarships         (filters live in client state — no params)
  */
 export const drilldown = {
   bills: (
@@ -112,7 +112,7 @@ export const drilldown = {
       date_from: s.date_from,
       date_to: s.date_to,
     }),
-  discounts: () => '/billing/discounts',
+  scholarships: () => '/billing/scholarships',
   /** Audit trail page — its filters live in client state, so no params. */
   activities: () => '/billing/activities',
 };

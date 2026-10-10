@@ -21,11 +21,14 @@
  */
 
 import { AlertCircle, RotateCcw } from 'lucide-react';
+import { toast } from 'sonner';
 
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useApplication, useWithdrawApplication, useCancelApplication } from '@/hooks/hr/use-leave';
+import { useTimeOffContext } from '@/hooks/hr/use-time-off-context';
+import { getErrorMessage } from '@/lib/utils';
 import { LEAVE_DURATION_LABELS } from '@/types/hr';
 
 import { ApprovalChainTimeline } from './approval-chain-timeline';
@@ -59,6 +62,7 @@ export function LeaveRequestDetail({
   const { data: app, isLoading } = useApplication(applicationId);
   const withdraw = useWithdrawApplication();
   const cancel = useCancelApplication();
+  const ctx = useTimeOffContext();
 
   if (isLoading || !app) {
     return (
@@ -79,6 +83,10 @@ export function LeaveRequestDetail({
   // Almost always the same person. Saying it twice is noise; saying it when it
   // differs is the whole point of the field.
   const filedBySomeoneElse = appliedByName !== applicantName;
+  // Taking back an APPROVED leave is the owner's alone; anyone else uses Revoke.
+  // LeaveService.cancelApplication enforces the same rule — this only hides a
+  // button that would be refused.
+  const isOwn = Boolean(ctx.employeeId) && ctx.employeeId === app.employee_id;
 
   return (
     <div className="space-y-5">
@@ -163,7 +171,7 @@ export function LeaveRequestDetail({
         <ApprovalChainTimeline app={app} />
       </div>
 
-      {(app.status === 'pending' || (app.status === 'approved' && !app.superseded_by)) && (
+      {(app.status === 'pending' || (app.status === 'approved' && isOwn)) && (
         <>
           <Separator />
           <div className="flex flex-wrap gap-2">
@@ -173,21 +181,32 @@ export function LeaveRequestDetail({
                 size="sm"
                 disabled={withdraw.isPending}
                 onClick={async () => {
-                  await withdraw.mutateAsync(app.id);
-                  onDone?.();
+                  try {
+                    await withdraw.mutateAsync(app.id);
+                    onDone?.();
+                  } catch (err) {
+                    toast.error(getErrorMessage(err));
+                  }
                 }}
               >
                 Withdraw
               </Button>
             )}
-            {app.status === 'approved' && !app.superseded_by && (
+            {app.status === 'approved' && isOwn && (
               <Button
                 variant="outline"
                 size="sm"
                 disabled={cancel.isPending}
                 onClick={async () => {
-                  await cancel.mutateAsync(app.id);
-                  onDone?.();
+                  // A failure used to vanish here: the click did nothing visible,
+                  // so the same leave was cancelled six times in three minutes.
+                  try {
+                    const { warning } = await cancel.mutateAsync(app.id);
+                    if (warning) toast.warning(warning);
+                    onDone?.();
+                  } catch (err) {
+                    toast.error(getErrorMessage(err));
+                  }
                 }}
               >
                 Cancel (restores the balance)

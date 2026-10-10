@@ -331,7 +331,7 @@ const PAGE_ENRICHMENTS: Record<string, { keywords: string[]; description: string
     keywords: ['payments', 'paid', 'collection', 'fee receipt', 'transaction'],
     description: 'Record and view fee payment receipts'
   },
-  '/billing/discounts': {
+  '/billing/scholarships': {
     keywords: ['scholarship', 'discount', 'fee waiver', 'concession', 'fee reduction'],
     description: 'Manage scholarships and fee discounts'
   },

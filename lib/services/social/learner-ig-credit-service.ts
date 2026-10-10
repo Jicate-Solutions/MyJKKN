@@ -84,6 +84,12 @@ export interface LearnerCreditRow {
    * zero — which would quietly corrupt ruling 2.
    */
   posts_without_signal: number;
+  /**
+   * Confirmed posts on a readable account that the poller has not measured yet
+   * (no metric snapshot at all). Their engagement is UNKNOWN, not zero, and is
+   * left out of every total for the same reason as posts_without_signal.
+   */
+  posts_not_yet_measured: number;
   pending_claims: number;
 }
 
@@ -140,6 +146,7 @@ export function buildCreditRow(
   let likes = 0;
   let real_signal = 0;
   let posts_without_signal = 0;
+  let posts_not_yet_measured = 0;
   let pending_claims = 0;
 
   for (const c of claims) {
@@ -158,10 +165,15 @@ export function buildCreditRow(
     }
 
     const m = latestByPost.get(c.ig_post_id);
-    saves += m?.saves ?? 0;
-    shares += m?.shares ?? 0;
-    comments += m?.comments ?? 0;
-    likes += m?.likes ?? 0;
+    if (!m) {
+      // No snapshot yet: unknown, not zero. Counted as a post, no engagement.
+      posts_not_yet_measured += 1;
+      continue;
+    }
+    saves += m.saves ?? 0;
+    shares += m.shares ?? 0;
+    comments += m.comments ?? 0;
+    likes += m.likes ?? 0;
     real_signal += realSignal(m);
   }
 
@@ -177,6 +189,7 @@ export function buildCreditRow(
     real_signal,
     engagement: real_signal + likes,
     posts_without_signal,
+    posts_not_yet_measured,
     pending_claims,
   };
 }
@@ -193,6 +206,13 @@ export function boardCaveats(rows: LearnerCreditRow[]): string[] {
   if (unreadable > 0) {
     out.push(
       `${unreadable} confirmed ${unreadable === 1 ? 'post sits' : 'posts sit'} on an account we can only read through Instagram's public window, which returns comments and likes but never saves or shares. A partial reading is not added to a complete one, so those posts are left out of every engagement total — so a learner with such posts may look quieter than they were.`
+    );
+  }
+
+  const unmeasured = rows.reduce((n, r) => n + r.posts_not_yet_measured, 0);
+  if (unmeasured > 0) {
+    out.push(
+      `${unmeasured} confirmed ${unmeasured === 1 ? 'post has' : 'posts have'} no engagement reading yet. ${unmeasured === 1 ? 'It counts' : 'They count'} as a post, but ${unmeasured === 1 ? 'its' : 'their'} engagement is unknown, not zero, so ${unmeasured === 1 ? 'it is' : 'they are'} left out of every engagement total.`
     );
   }
 

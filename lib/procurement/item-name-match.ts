@@ -28,6 +28,19 @@ export function namesShareAWord(requested: string, quoted: string): boolean {
 }
 
 /**
+ * Stricter than namesShareAWord: every meaningful word of the requested name is in
+ * the quoted one (as a prefix either way). "Molisch Reagent" ← "MOLISCH'S REAGENT
+ * 500ML" agrees; "Magnesium sulphate" ← "CUPRIC SULPHATE" does not, nor does
+ * "Copper sulphate" ← "Cupric sulphate" (a synonym — the AI's second look settles those).
+ */
+export function namesAgree(requested: string, quoted: string): boolean {
+  const a = words(requested);
+  const b = words(quoted);
+  if (!a.length || !b.length) return false;
+  return a.every((x) => b.some((y) => y.startsWith(x) || x.startsWith(y)));
+}
+
+/**
  * How well a catalog name covers a name read from a file, 0..1: the share of the
  * catalog name's meaningful words found in the file's name (prefixes count, so
  * "glove" matches "gloves"). "Nitrile Gloves" vs "Gloves nitrile medium" → 1.

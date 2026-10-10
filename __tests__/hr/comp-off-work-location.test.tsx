@@ -39,9 +39,6 @@ vi.mock('@/components/ui/calendar', () => ({
     </button>
   ),
 }));
-vi.mock('@/hooks/hr/use-attendance-records', () => ({
-  useClosedAttendanceMonths: () => new Set<string>(),
-}));
 vi.mock('@/hooks/hr/use-time-off-context', () => ({
   useTimeOffContext: () => ({
     employeeId: 'emp-1', hrOrgId: 'org-1', institutionId: 'inst-1',

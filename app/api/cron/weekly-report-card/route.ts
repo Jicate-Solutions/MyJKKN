@@ -30,6 +30,7 @@ import { createServiceRoleClient } from '@/lib/supabase/server';
 import { istWeekInfo } from '@/lib/services/academic/intake-readiness-alarm';
 import { parseWeekParam } from '@/lib/campus-walk/report-card';
 import { runWeeklyReportCard } from '@/lib/campus-walk/report-card-run';
+import { sendRepeatRoomsList } from '@/lib/campus-walk/cctv';
 import { logger } from '@/lib/utils/enhanced-logger';
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
@@ -78,9 +79,24 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       now,
       dryRun
     });
+    // CCTV repeat rooms (Director, 9 Oct 2026): rooms with 3+ CCTV reports in
+    // 30 days, one Monday bell to the Director. Its own try: a failure here
+    // must never mark the report cards, which already went out, as failed.
+    let cctvRepeatRooms: { rooms: number; sent: boolean; skippedReason: string | null } | { error: string };
+    try {
+      const r = await sendRepeatRoomsList(createServiceRoleClient(), {
+        weekStart: parsed.week.weekStart,
+        now,
+        dryRun
+      });
+      cctvRepeatRooms = { rooms: r.rooms.length, sent: r.sent, skippedReason: r.skippedReason };
+    } catch (e: any) {
+      logger.error('campus-walk/report-card', 'CCTV repeat-rooms list failed', e);
+      cctvRepeatRooms = { error: e?.message ?? 'failed' };
+    }
     const ok = result.collegeBellsFailed === 0 && result.directorBell !== 'failed';
     return NextResponse.json(
-      { ok, ...result, elapsed_ms: Date.now() - started },
+      { ok, ...result, cctvRepeatRooms, elapsed_ms: Date.now() - started },
       { status: ok ? 200 : 500 }
     );
   } catch (error: any) {
