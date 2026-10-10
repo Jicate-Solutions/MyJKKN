@@ -3,14 +3,7 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { format } from 'date-fns';
-import {
-  Plus,
-  Eye,
-  CheckCircle,
-  ShieldCheck,
-  XCircle,
-  Search,
-} from 'lucide-react';
+import { Eye, XCircle, Search } from 'lucide-react';
 import { BeatLoader } from 'react-spinners';
 import { toast } from 'sonner';
 import { ContentLayout } from '@/components/layout/content-layout';
@@ -44,19 +37,14 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from '@/components/ui/alert-dialog';
-import {
-  useImsGRNs,
-  useVerifyImsGRN,
-  useApproveImsGRN,
-  useCancelImsGRN,
-} from '@/hooks/ims/use-ims-stock';
+import { useImsGRNs, useCancelImsGRN } from '@/hooks/ims/use-ims-stock';
 import { useImsSuppliersForSelect } from '@/hooks/ims/use-ims-settings';
-import { useAuth } from '@/hooks/use-auth';
 import { useImsStoreContext } from '@/hooks/ims/use-ims-store-context';
 import { GRN_STATUS_CONFIG } from '@/types/ims/grn';
 import type { ImsGoodsReceivedNote, ImsGRNStatus } from '@/types/ims';
 import { ImsPageGuard } from '@/components/ims/ims-page-guard';
 import { usePermissions } from '@/hooks/use-permissions';
+import { ImsGrnRetiredNotice } from '@/components/ims/ims-grn-retired-notice';
 
 const GRN_STATUSES: ImsGRNStatus[] = [
   'draft',
@@ -75,12 +63,11 @@ export default function GRNListPage() {
 }
 
 function GRNListPageInner() {
-  const { profile } = useAuth();
   const { storeId, institutionId } = useImsStoreContext();
-  const userId = profile?.id ?? '';
   const { canAccess, isSuperAdmin } = usePermissions();
-  const canCreate = isSuperAdmin || canAccess('ims.stock.grn', 'create');
-  const canReceive = isSuperAdmin || canAccess('ims.stock.grn', 'receive');
+  // Creating, verifying and approving IMS receipts is retired (Director decision D1,
+  // 2026-10-10) — deliveries are recorded in Procurement. Cancelling an old one adds no
+  // stock and stays available.
   const canEditGRN = isSuperAdmin || canAccess('ims.stock.grn', 'edit');
 
   const [search, setSearch] = useState('');
@@ -97,8 +84,6 @@ function GRNListPageInner() {
 
   const { data: suppliers } = useImsSuppliersForSelect(storeId || '', institutionId);
 
-  const verifyMutation = useVerifyImsGRN();
-  const approveMutation = useApproveImsGRN();
   const cancelMutation = useCancelImsGRN();
 
   // getGRNs returns { data, metadata } (paginated wrapper). Unwrap defensively.
@@ -107,24 +92,6 @@ function GRNListPageInner() {
     : Array.isArray(grnData)
       ? grnData
       : [];
-
-  const handleVerify = async (id: string) => {
-    try {
-      await verifyMutation.mutateAsync({ id, userId });
-      toast.success('GRN verified successfully');
-    } catch {
-      toast.error('Failed to verify GRN');
-    }
-  };
-
-  const handleApprove = async (id: string) => {
-    try {
-      await approveMutation.mutateAsync({ id, userId });
-      toast.success('GRN approved successfully');
-    } catch {
-      toast.error('Failed to approve GRN');
-    }
-  };
 
   const handleCancel = async (id: string) => {
     try {
@@ -143,18 +110,12 @@ function GRNListPageInner() {
           <div>
             <h1 className="text-2xl font-bold">Goods Received Notes</h1>
             <p className="text-sm text-muted-foreground">
-              Track and manage goods received from suppliers
+              Older goods receipts recorded in IMS, kept to view
             </p>
           </div>
-          {canCreate && (
-            <Button asChild>
-              <Link href="/ims/stock/grn/new">
-                <Plus className="mr-2 h-4 w-4" />
-                New GRN
-              </Link>
-            </Button>
-          )}
         </div>
+
+        <ImsGrnRetiredNotice />
 
         {/* Filters */}
         <Card>
@@ -263,31 +224,6 @@ function GRNListPageInner() {
                                 <Eye className="h-4 w-4" />
                               </Link>
                             </Button>
-
-                            {(grn.status === 'draft' ||
-                              grn.status === 'pending_verification') && canReceive && (
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                onClick={() => handleVerify(grn.id)}
-                                disabled={verifyMutation.isPending}
-                                title="Verify"
-                              >
-                                <CheckCircle className="h-4 w-4 text-blue-600" />
-                              </Button>
-                            )}
-
-                            {grn.status === 'verified' && canReceive && (
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                onClick={() => handleApprove(grn.id)}
-                                disabled={approveMutation.isPending}
-                                title="Approve"
-                              >
-                                <ShieldCheck className="h-4 w-4 text-green-600" />
-                              </Button>
-                            )}
 
                             {grn.status !== 'approved' &&
                               grn.status !== 'cancelled' && canEditGRN && (
