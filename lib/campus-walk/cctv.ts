@@ -82,6 +82,7 @@ export type CctvOwnerSource =
   | 'principal_no_hod'
   | 'cao_no_hod'
   | 'principal_hod_involved'
+  | 'cao_camera_fault'
   | 'unresolved';
 
 export interface CctvRoom {
@@ -157,9 +158,12 @@ async function activeStaffByProfile(
 }
 
 /**
- * The HOD(s) of a department: its recorded head first, then every HOD-role
- * holder whose staff row sits in that department. Only 7 of 90 departments
- * record a head; the role holders take it to 37 (live, 9 Oct 2026).
+ * The HOD(s) of a department. A department with a recorded head gets ONLY
+ * that head (Director, 10 Oct 2026, after the first live report copied four
+ * Assistant Professors who carry the 'hod' role). Only when no head is
+ * recorded do the HOD-role holders whose staff row sits in that department
+ * stand in. Only 7 of 90 departments record a head; the role holders take
+ * it to 37 (live, 9 Oct 2026).
  */
 export async function resolveDepartmentHods(db: SupabaseClient, departmentId: string | null): Promise<string[]> {
   if (!departmentId) return [];
@@ -173,7 +177,7 @@ export async function resolveDepartmentHods(db: SupabaseClient, departmentId: st
     const recorded = (dept as any)?.head_of_department_id ?? null;
     const hodRole = await profileIdsWithRole(db, 'hod');
     const staff = await activeStaffByProfile(db, [...new Set([recorded, ...hodRole].filter(Boolean))]);
-    if (recorded && staff.has(recorded)) out.push(recorded);
+    if (recorded && staff.has(recorded)) return [recorded];
     for (const id of hodRole) {
       if (!out.includes(id) && staff.get(id)?.departmentId === departmentId) out.push(id);
     }
@@ -239,6 +243,22 @@ export async function routeCctvReport(
   category: CctvCategory,
   opts: { involvesHod?: boolean } = {}
 ): Promise<CctvRouting> {
+  // A camera that is blocked or not working is the CAO's, wherever it is
+  // (Director, 10 Oct 2026) — it is campus equipment, not the room's conduct.
+  // The new category and owner_source values are safe to add: verified live
+  // 10 Oct: values land in project_tasks.metadata JSONB; only CHECK is
+  // project_tasks_task_type_check (on task_type, which createWalkTask
+  // hardcodes to 'task').
+  if (category === 'camera_fault') {
+    const cao = await profileIdsWithRole(db, 'cao');
+    return {
+      accountableProfileId: cao[0] ?? null,
+      consultedProfileIds: cao.slice(1),
+      ownerSource: cao.length > 0 ? 'cao_camera_fault' : 'unresolved',
+      hodProfileIds: []
+    };
+  }
+
   const hods = await resolveDepartmentHods(db, room.departmentId);
 
   // Edge case (Director, 9 Oct 2026): the video shows the HOD themself. It goes
@@ -432,7 +452,9 @@ export function cctvTitle(category: CctvCategory, room: string, observedAt: stri
         ? 'Exam copying'
         : category === 'staff_conduct'
           ? 'Team member conduct'
-          : 'Learner conduct';
+          : category === 'camera_fault'
+            ? 'Camera blocked or not working'
+            : 'Learner conduct';
   return `CCTV: ${what} — ${room}, ${istStamp(observedAt)}`;
 }
 

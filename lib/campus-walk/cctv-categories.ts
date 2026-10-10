@@ -12,7 +12,10 @@ export const CCTV_CATEGORIES = [
   { key: 'learner_conduct', label: 'Learners — conduct in class or library' },
   { key: 'power_left_on', label: 'Fans or lights left on in an empty room' },
   { key: 'staff_conduct', label: 'Team members — conduct on duty' },
-  { key: 'exam_copying', label: 'Exam copying' }
+  { key: 'exam_copying', label: 'Exam copying' },
+  // Director, 10 Oct 2026: the operator also reports the cameras themselves
+  // ("something is blocking the main gate camera"). Always the CAO.
+  { key: 'camera_fault', label: 'Camera blocked or not working' }
 ] as const;
 
 export type CctvCategory = (typeof CCTV_CATEGORIES)[number]['key'];

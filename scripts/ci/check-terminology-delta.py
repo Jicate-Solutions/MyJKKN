@@ -106,6 +106,54 @@ def main():
     # recommends learning-assessment phrasing in fresh learner-facing prose.
     DOMAIN_EXEMPT = {"mark", "marks", "grade", "grades", "grading"}
 
+    # Official HR designations keep their exact wording (Director ruling,
+    # 2026-10-09, BUG-006259): a recruitment filter must say "Associate
+    # Professor" or "Lab Assistant" because that is the job title on the post.
+    # FILE-LEVEL OPT-IN, NARROWED THREE WAYS (deep review of #4312):
+    #   1. PATH: the marker counts only in a file on DESIGNATION_PATHS below.
+    #      A marker anywhere else is ignored, so it cannot switch the gate off
+    #      for learner-facing pages. Widening this list is a reviewed change.
+    #   2. COMMENT LINE: the marker counts only on a line that IS a comment
+    #      (`//`, `#` or `/* … */` at the start of the trimmed line) — never
+    #      inside a string literal or a data blob.
+    #   3. FULL PHRASES: only a whole designation phrase is exempt. A bare
+    #      "lab" or "teacher" outside one is still flagged.
+    # Every other term in a marked file is still flagged.
+    DESIGNATION_PATHS = {
+        "lib/hr/recruitment/job-designation.ts",
+        "__tests__/hr/recruitment-job-designation.test.ts",
+        "__tests__/hr/recruitment-approvals-designation-filter.test.tsx",
+    }
+    DESIGNATION_MARKER = re.compile(
+        r"^[ \t]*(?://|#|/\*)[ \t]*jkkn-terminology: official-hr-designations"
+        r"[ \t]*(?:\*/)?[ \t]*$",
+        re.MULTILINE)
+    # Longest phrases first so the alternation takes the whole title.
+    DESIGNATION_PHRASES = re.compile(
+        r"\b(?:pg\s+assistant\s+teacher|associate\s+professor"
+        r"|assistant\s+professor|nursing\s+tutor|laboratory\s+assistant"
+        r"|lab\s+assiss?tant|professor|tutor)\b",  # assisstant: a real live job title is misspelt this way
+        re.IGNORECASE)
+    marked_cache = {}
+
+    def has_designation_marker(path):
+        """True when an allowlisted file, as it stands at HEAD, carries the
+        opt-in marker on a comment line."""
+        if path not in DESIGNATION_PATHS:
+            return False
+        if path not in marked_cache:
+            body = subprocess.run(
+                ["git", "show", f"{head}:{path}"],
+                capture_output=True, text=True, check=False).stdout
+            marked_cache[path] = bool(DESIGNATION_MARKER.search(body))
+        return marked_cache[path]
+
+    def in_designation_phrase(text, m):
+        """True when match m lies wholly inside a full designation phrase."""
+        return any(
+            p.start() <= m.start() and m.end() <= p.end()
+            for p in DESIGNATION_PHRASES.finditer(text))
+
     hits = []
     for f, ln, text, in_comment in added_lines(base, head):
         if SKIP_LINE.search(text):
@@ -118,6 +166,11 @@ def main():
         for rx, repl in compiled:
             for m in rx.finditer(text):
                 if m.group().lower() in DOMAIN_EXEMPT:
+                    continue
+                if (
+                    has_designation_marker(f)
+                    and in_designation_phrase(text, m)
+                ):
                     continue
                 # {children} etc. — a brace-wrapped match is a code expression
                 # (React children prop), not copy.
