@@ -3,6 +3,7 @@ export const dynamic = 'force-dynamic';
 import { NextResponse, connection } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { logger } from '@/lib/utils/enhanced-logger';
+import { stripAiMetadata } from '@/lib/api/bug-reports/handlers/report';
 
 
 export async function GET() {
@@ -44,7 +45,19 @@ export async function GET() {
       throw error;
     }
 
-    return NextResponse.json(myReports || []);
+    // ── AI text is for admins and bug fixers ONLY (Director decision #4,
+    // 2026-10-10). This route is entirely reporter-scoped — it is filtered to
+    // `reporter_user_id = user.id` and backs the reporter's own "My bug reports"
+    // list — and it selects `*`, so every AI key on every one of their rows was
+    // travelling to the browser. Their screen has never rendered those keys, but
+    // the raw briefing (severity, root cause, fix steps) and the duplicate
+    // verdict were in the page data. That was 8 reports' worth across the whole
+    // table; the automatic producer makes it every open report.
+    //
+    // Stripped UNCONDITIONALLY here, with no role check: there is no admin view
+    // of this endpoint to preserve. An admin looking at a bug through the ADMIN
+    // page goes via /api/bug-reports/[id], which keeps the AI text for them.
+    return NextResponse.json((myReports || []).map(stripAiMetadata));
   } catch (error) {
     logger.error('bug-reports/api', 'Failed to fetch user bug reports', error);
     return NextResponse.json(

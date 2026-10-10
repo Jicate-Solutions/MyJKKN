@@ -426,7 +426,7 @@ export async function DELETE(
  * because the bug_reports SELECT policy already grants that role the full row —
  * so this never takes away a read somebody already has.
  */
-async function callerIsBugAdmin(
+export async function callerIsBugAdmin(
   supabase: Awaited<ReturnType<typeof createServerSupabaseClient>>,
   userId: string
 ): Promise<boolean> {

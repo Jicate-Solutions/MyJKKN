@@ -15,6 +15,7 @@ import {
   OTHERS_RESOLVER_LABEL
 } from '@/lib/utils/bug-reports/status-tabs';
 import { isMissingResolvedByColumn } from '@/lib/api/bug-reports/resolved-by';
+import { callerIsBugAdmin, stripAiMetadata } from '@/lib/api/bug-reports/handlers/report';
 import { REPORT_CATEGORIES } from '@/lib/bug-reports/report-categories';
 
 /** Ceiling on ids pulled for a resolved_by filter — see its use below. */
@@ -637,8 +638,22 @@ export const GET = withAuth(async (request) => {
     // not carry resolved_by) and hydrated with the resolver's name.
     const withResolver = await attachResolvers(supabase, processedBugs);
 
+    // ── AI text is for admins and bug fixers ONLY (Director decision #4,
+    // 2026-10-10). This listing is withAuth, not admin-gated, and it selects
+    // `*` from bug_reports_with_details — so RLS narrows a reporter to their own
+    // rows but hands them the full metadata, AI keys included. Their screen has
+    // never rendered those keys; the raw briefing and duplicate verdict were in
+    // the page data regardless. The automatic producer turns that from 8 rows
+    // into every open report, so it is stripped here for non-admins. Admins get
+    // the listing untouched, which is what the admin bug page reads.
+    const {
+      data: { user: viewer }
+    } = await supabase.auth.getUser();
+    const listIsForAdmin = viewer ? await callerIsBugAdmin(supabase, viewer.id) : false;
+    const safeList = listIsForAdmin ? withResolver : withResolver.map(stripAiMetadata);
+
     return NextResponse.json({
-      data: withResolver,
+      data: safeList,
       metadata: {
         total: count || 0,
         page,
