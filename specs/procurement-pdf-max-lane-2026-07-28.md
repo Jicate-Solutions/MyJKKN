@@ -2,7 +2,23 @@
 
 **Date:** 2026-07-28 · **Decided by:** Director interview (this session) · **Status:** spec locked, build starting
 
-> **Updated 2026-10-09.** The "Job result contract" section below was written against
+> **Updated 2026-10-09 (v12).** #4306 (merged 16:05 IST, 9 Oct) moved
+> `EXTRACT_RESULT_VERSION` to **12**, and the "Job result contract" section below is now
+> rewritten to match it. This note supersedes the field list in the v9 note that follows.
+> What changed since v9:
+> - **v10:** each line carries `role` (`item` | `part` | `option`), so two brands offered
+>   for one item are no longer added up as if they were a set.
+> - **v11:** a second, text-only look at what the first read left open can mark a line
+>   `checked` and give a `reason`.
+> - **v12:** each line carries `catalog_code`; the second look can also place the parts of
+>   a set. Requested items now go to the model as short refs (`I1`, `I2`…) instead of
+>   uuids; the stored result still holds the real `rfq_item_id`.
+> - Also new in #4306, not named in the version comments: a top-level `last_serial_no`,
+>   and a stricter rule for `uncertain`.
+> The route now reuses an earlier read only when `version >= 12`. "Current state" and the
+> storage path in "Architecture" were also corrected.
+>
+> **Updated 2026-10-09 (v9).** The "Job result contract" section below was written against
 > the July format and is now rewritten to match result **version 9**
 > (`EXTRACT_RESULT_VERSION = 9` in `lib/procurement/quotation-extract-core.ts`). What changed:
 > the result now carries a `version` number, a quotation header (vendor, quote number,
@@ -18,31 +34,55 @@
 > the file wins. Other sections of this spec are unchanged from July and were not
 > re-checked in this update.
 
-## Current state (2026-10-09)
+## Current state (2026-10-09, revised for v12)
 
-Facts checked against the live database and the code on 2026-10-09:
+Facts checked against the live database and the code on 2026-10-09 (database figures are
+a snapshot taken when this note was written):
 
-- The `ai_job_types` row `procurement.quotation_extract` exists with `lane = 'max-pdf'`,
-  `enabled = false`, `interactive = true`, `tool_set = 'all'` and an empty
-  `prompt_template`. The empty prompt is by design. (UNVERIFIED: the reason. The paid
-  path builds its prompt in code with `buildExtractPrompt()`; no runner exists to show
-  what the row's template would be used for.)
-- Only one `max-pdf` job has ever run: requested 16 Sep 2026, status `done`. Its
-  `claimed_by` is `api-direct`, which is the paid takeover in
-  `/api/procurement/quotations/extract-pdf/direct`, not a Max-lane runner. Its result
-  has no `version` field, so the route will not reuse it.
-  No Max-lane runner has ever produced a quotation result.
-- The Windows `max-pdf` runner (`procurement-pdf-extract.mjs` in the Architecture
-  section) was never built.
-- The paid fallback is `procurement.quotation_extract_api`: an `ai_model_config` row
-  (Anthropic, `claude-haiku-4-5`, active), called from `lib/procurement/quotation-pdf-direct.ts`.
-  It is used in two places: (1) `POST /api/procurement/quotations/extract-pdf` reads the
-  PDF directly in the request whenever `procurement.quotation_extract` is disabled (as it
-  is today) and an API key is configured; (2) `/extract-pdf/direct` takes over a queued job that no runner claimed within
-  10 s. Both produce the same v9 result, but only (2) stores it, in `ai_jobs.result`.
-  Path (1) returns `{ direct: true, result }` to the page and saves nothing: no storage
-  upload, no `ai_jobs` row. So the same-PDF reuse [dec 8] never fires for today's
-  in-request reads, and uploading the same PDF again reads and pays again.
+- The `ai_job_types` row `procurement.quotation_extract` now has `enabled = true`, with
+  `lane = 'max-pdf'` and `interactive = true`. The row's `updated_at` reads 03:06 UTC,
+  9 Oct. UNVERIFIED: the exact minute it was switched on. The first `windows-pdf` job was
+  requested at 03:04 UTC, two minutes before that `updated_at`, and `fn_ai_enqueue`
+  refuses a disabled job type, so the switch-on was at or before 03:04 and the 03:06
+  timestamp may be a later save of the row. The empty `prompt_template` is unchanged;
+  UNVERIFIED: why.
+- **The Windows `max-pdf` runner went live on 9 Oct.** It is `procurement-pdf-extract.mjs`
+  (out of repo), and its jobs show `claimed_by = 'windows-pdf'`. Four such jobs ran on
+  9 Oct (requested from 03:04 UTC, last finished 08:51 UTC), all `status = 'done'`.
+- **That runner still writes version 9.** All four results carry `"version": 9` and no
+  `role` key. What follows:
+  - The bulk upload (`components/procurement/bulk-quotation-upload.tsx`) shows such a
+    line with `role` defaulting to `'item'` (`line.role ?? 'item'`), and without
+    `checked`, `reason` or `catalog_code`. The single "Add quotation" page does not read
+    `role` at all.
+  - These reads are never reused: the route reuses a stored read only when
+    `version >= 12` (`EXTRACT_RESULT_VERSION`). The same PDF uploaded again for the same
+    RFQ is queued and read again by the free lane.
+  - A re-port of the runner to v12 has been requested. UNVERIFIED: the request is not
+    in the code or the database.
+- **The paid fallback** is still `procurement.quotation_extract_api` (an `ai_model_config`
+  row) called from `lib/procurement/quotation-pdf-direct.ts`, now with
+  `claude-haiku-4-5` as the "steady" model for multi-page PDFs and for re-reading a
+  one-page read that does not add up. It is used in two places:
+  1. `POST /api/procurement/quotations/extract-pdf` reads in the request when
+     `procurement.quotation_extract` is disabled, **or** when the file is a photo or a
+     spreadsheet (those are never queued, even with the lane on), and an API key is
+     configured. Since #4306 this path **does** store its result: it inserts a finished
+     `ai_jobs` row (`status = 'done'`, `claimed_by = 'api-direct'`, payload
+     `{ sha256, rfq_id, file_name, direct: true }`), so same-file reuse [dec 8] now covers
+     it. It still uploads nothing to storage. With the lane on, a PDF does not take this
+     path.
+  2. `/extract-pdf/direct` takes over a queued job that no runner has claimed in time.
+     The single "Add quotation" page (`app/(routes)/procurement/rfqs/[id]/quotations/new/page.tsx`)
+     now waits **30 s** before calling it (`EXTRACT_DIRECT_AFTER_MS = 30_000`, #4293).
+     The bulk upload and the renegotiate sheet go through
+     `lib/procurement/read-quotation-pdf.ts`, which still waits **10 s**
+     (`DIRECT_AFTER_MS = 10_000`).
+- **The direct takeover is exactly-once.** `/extract-pdf/direct` moves the job from
+  `pending` to `running` with a conditional update (`.eq('status', 'pending')`). If no row
+  comes back, a runner got there first and the route answers `{ status: 'claimed' }`
+  without reading, so the page keeps polling. A job that is already `claimed`/`running`
+  is never read again, and one that is `done` hands back its stored result.
 
 ## Why
 
@@ -83,7 +123,7 @@ UI upload
         2. sha256(bytes) -> dedupe key
         3. if a completed job exists for (sha256, rfq_id) -> RETURN that result  [dec 8]
         4. upload to private bucket procurement-quotation-pdfs
-             path: {institution_id}/{rfq_id}/{sha256}.pdf
+             path: {rfq_id}/{sha256}.pdf
         5. fn_ai_enqueue('procurement.quotation_extract',
              {storage_path, sha256, rfq_id, rfq_items})
            NOTE: rfq_id is EXPLICIT in the payload and is contract, not optional —
@@ -111,19 +151,23 @@ UI (polling / notification)
                   outlier prices flagged                                         [dec 7]
 ```
 
-### Job result contract — version 9 (updated 2026-10-09)
+### Job result contract — version 12 (updated 2026-10-09)
 
 This is the shape every reading path produces (and the shape stored in
-`ai_jobs.result` when the reading belongs to a queued job). It
-mirrors `DirectExtractResult` / `DirectExtractedLine` / `DirectExtractedVendor` in
-`lib/procurement/quotation-extract-core.ts`, as produced by `normalizeExtraction()`.
+`ai_jobs.result` when the reading belongs to a job). It mirrors `DirectExtractResult` /
+`DirectExtractedLine` / `DirectExtractedVendor` in
+`lib/procurement/quotation-extract-core.ts`, as produced by `normalizeExtraction()` and
+then, on the paid path, `applySecondLook()` (both called from
+`lib/procurement/quotation-pdf-direct.ts`).
 
 ```json
 {
-  "version": 9,
+  "version": 12,
   "lines": [
     { "rfq_item_id": "<uuid|null>", "item_name": "<vendor's text>",
       "unit_price": 134.55, "pack": "500 ml", "uncertain": false,
+      "role": "item", "checked": true, "reason": "NaOH is sodium hydroxide",
+      "catalog_code": "1.06498.0500",
       "manufacturer": null, "quality_grade": null,
       "concentration": null, "other_specs": null,
       "gst_percent": 18, "hsn": "2815",
@@ -140,21 +184,23 @@ mirrors `DirectExtractResult` / `DirectExtractedLine` / `DirectExtractedVendor` 
   "payment_terms": null,
   "warranty": null,
   "stated_total": 317.54,
+  "last_serial_no": 1,
   "total_includes_gst": true,
   "read_notes": []
 }
 ```
 
-Every key below is always present in a v9 result. "or null" means the key is there
-with value `null` when the quotation does not print it.
+Every key below is always present in a v12 result, **except `checked` and `reason`**,
+which appear only on lines the second look touched (see "Second look" below). "or null"
+means the key is there with value `null` when the quotation does not print it.
 
 **Top level**
 
 | Field | Type | Notes |
 |---|---|---|
-| `version` | number, always `9` | The extract route reuses an earlier read of the same PDF + RFQ only when `version >= 9`; anything lower (or missing) is read again. |
+| `version` | number, always `12` | The extract route reuses an earlier read of the same PDF + RFQ only when `version >= 12`; anything lower (or missing) is read again. |
 | `lines` | array of line objects | Can be empty. |
-| `unmatched_note` | string or null | `"Not matched to any requested item: <names>"`, or null when every line matched. |
+| `unmatched_note` | string or null | `"Not matched to any requested item: <names>"`, or null when every line matched. Worked out from the first read only: a line the second look places later is still named here. |
 | `vendor` | object or null | The SELLER, never the buying institution. null when none of its six fields was read. |
 | `quote_number` | string or null | |
 | `quote_date` | string or null | `YYYY-MM-DD`. Anything that is not a real calendar date becomes null. |
@@ -163,6 +209,7 @@ with value `null` when the quotation does not print it.
 | `payment_terms` | string or null | As written. |
 | `warranty` | string or null | As written ("1 year"). |
 | `stated_total` | number or null | The grand total printed on the quotation; positive only. `lib/procurement/quotation-math.ts` uses it to check the lines add up. |
+| `last_serial_no` | integer or null | **New since v9.** The S.No of the last item line, when lines are numbered; positive whole number only. `quotation-math.ts` compares it with the number of lines read and warns when lines may be missing (the one check left when no grand total is printed). Optional in the TypeScript type, but `normalizeExtraction()` always sets it. |
 | `total_includes_gst` | boolean or null | null = not clear. |
 | `read_notes` | array of strings | What the app changed after the model answered, in words; shown to the person. Empty = nothing changed. |
 
@@ -173,11 +220,15 @@ with value `null` when the quotation does not print it.
 
 | Field | Type | Notes |
 |---|---|---|
-| `rfq_item_id` | string (uuid) or null | Only an id that was sent in the request is kept; null when the model graded the match `none` or returned an unknown id. [dec 5] |
+| `rfq_item_id` | string (uuid) or null | The real id of the requested item. The model answers with a short ref (`I1`, `I2`…) in a field called `item`; `idFromRef()` maps it back by position in the item list sent. A real uuid that was sent is still accepted (older reads, an office runner), and `rfq_item_id` is read if `item` is missing. null when the model graded the match `none` or gave a ref/id that was not sent. [dec 5] |
 | `item_name` | string | The line name as printed by the vendor. |
 | `unit_price` | number, > 0 | The NET rate for one printed pack: after the line discount, before GST. Lines with no positive price are dropped. |
 | `pack` | string or null | The pack/size the price is for, as printed ("100 ml"). |
-| `uncertain` | boolean | Set by the app, not trusted from the model: true when the line is matched but the model's grade was not `same`, or the vendor's name shares no word with the requested item's name. Always false when `rfq_item_id` is null. [dec 5] |
+| `uncertain` | boolean | Set by the app, not trusted from the model. After the first read: true when the line is matched and either the model's grade was not `same` or `namesAgree()` fails (every meaningful word of the requested name must appear in the vendor's name, as a prefix either way; stricter than v9's "shares a word"). Always false when `rfq_item_id` is null. The second look can set it to true (see below). [dec 5] |
+| `role` | `"item"`, `"part"` or `"option"` | **New in v10.** `item` = the line is the requested item; `part` = one part of a requested set quoted in pieces (parts add up); `option` = one of several alternatives offered for the same item (only one counts, never the sum). Anything else from the model becomes `item`. |
+| `checked` | boolean, only when present | **New in v11.** `true` when the second look agreed with the first read's match (two independent readings agree). Absent otherwise; it is never written as `false`. |
+| `reason` | string or null, only when present | **New in v11.** Why the second look paired the line, in a few words ("NaOH is sodium hydroxide"), cut to 120 characters; shown to the person. Can be present without `checked` (when the second look moved the line or placed it as a part). |
+| `catalog_code` | string or null | **New in v12.** The vendor's catalogue / product / part / model number for the line ("1.06498.0500"), not the HSN code; cut to 60 characters. Optional in the TypeScript type (older reads lack it), but `normalizeExtraction()` always sets it. |
 | `manufacturer` | string or null | |
 | `quality_grade` | string or null | |
 | `concentration` | string or null | |
@@ -189,6 +240,14 @@ with value `null` when the quotation does not print it.
 | `list_price` | number or null | Rate before the line discount, when one is printed. |
 | `discount_percent` | number or null | Between 0 and 100 (exclusive). |
 
+**What the model is sent (v12).** `buildExtractPrompt()` lists each requested item as
+`I<n> — name — specification — qty — also called: …`. The refs are positional: `I1` is
+the first item in the list sent (for a queued job, the payload's `rfq_items` order).
+"Also called" names come from `procurement_item_aliases` (names staff already confirmed
+for that item); the route adds them as `aka` before reading or queueing, so a queued
+job's `rfq_items` carries `aka` too. The stored result is unchanged by this: it holds
+real ids, never refs.
+
 Rules that live in code, not in the model:
 - Placeholder text such as "N/A", "none", "not stated" or "-" is turned into null.
 - `correctDiscountedPrices()`: when a line's printed amount ÷ quantity shows the model
@@ -199,16 +258,36 @@ Rules that live in code, not in the model:
 - Outlier flagging is computed APP-SIDE from `lines` (`detectPriceOutliers` in the
   new-quotation page), not trusted to the model. [dec 7]
 
-**`from_scan`** [dec 6]: not part of v9. `normalizeExtraction()` never sets it, so no
+**Second look** (v11/v12: `openForSecondLook()`, `buildSecondLookPrompt()`,
+`applySecondLook()`). After the first read, one short text-only call (no PDF) is made
+when something is still open: requested items with no sure line, and lines that are
+unmatched or uncertain. A matched line already tagged `part` is not reopened, and the
+call is skipped unless there is at least one open item and one open line. It answers per
+line with a verdict and a reason, and it only ever adds:
+- `same` for the item the first read chose → `checked = true`, `reason` set.
+- `same` for a different item, or for a line the first read left unmatched →
+  `rfq_item_id` set to that item, `uncertain = true`, `reason` set (a person confirms).
+- `part` of a requested set → `rfq_item_id` set, `role = 'part'`, `uncertain = true`,
+  `reason` set.
+- `not`, or a ref/line number that was not sent → nothing changes; the first read's
+  guess stays for a person.
+
+It runs only on the paid path (`quotation-pdf-direct.ts`, best-effort: no API key,
+nothing open, or a failed call leaves the first read as it is). A Max-lane runner's
+result has `checked` / `reason` only if the runner does its own second look.
+
+**`from_scan`** [dec 6]: not part of v12. `normalizeExtraction()` never sets it, so no
 result the app writes today carries it. The page and `lib/procurement/read-quotation-pdf.ts`
 still accept an optional `from_scan` boolean and show the scan warning when it is true,
-so a future Max-lane runner may add it on top of the v9 fields.
+so a Max-lane runner may add it on top of the v12 fields.
 
-**For the runner, when it is built:** its result must carry every v9 field above,
-including `version: 9`, or the page will show an empty header and the route will
-never reuse the read. UNVERIFIED: how an out-of-repo `.mjs` runner would reproduce
-`normalizeExtraction()` (it is TypeScript, and the runner cannot import TS). Nothing
-in the repo decides this yet.
+**For the runner:** its result must carry every v12 field above, including
+`version: 12`, or the page will show an empty header and the route will never reuse the
+read. The runner went live on 9 Oct writing v9 (see "Current state"). If it sends items
+to the model as refs, the refs must follow the payload's `rfq_items` order; if it keeps
+sending real uuids, `idFromRef()` still accepts them. UNVERIFIED: how the out-of-repo
+`.mjs` runner reproduces `normalizeExtraction()` and the second look (they are
+TypeScript, and the runner cannot import TS). Nothing in the repo decides this.
 
 ### Notification (runner-side, on SUCCESS only) [dec 9]
 
