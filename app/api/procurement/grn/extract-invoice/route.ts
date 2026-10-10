@@ -1,45 +1,98 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { createHash } from 'node:crypto';
 import { requireProcurement, PROC_GRN_CREATE } from '@/lib/utils/procurement-auth';
+import { createClient, createServiceRoleClient } from '@/lib/supabase/server';
+import { isReusableInvoiceRead } from '@/lib/services/procurement/invoice-checks';
 
 export const runtime = 'nodejs';
-export const maxDuration = 15;
+// Deep-panel L6: a 15 MB form is parsed, hashed, uploaded and (when already stored)
+// downloaded and re-hashed, plus 4–5 database round-trips. 15 s was too tight for a
+// large PDF; 60 s covers it (45 routes here already ship 300 s on this plan).
+export const maxDuration = 60;
 
 const MAX_BYTES = 15 * 1024 * 1024; // 15 MB
+const JOB_TYPE = 'procurement.invoice_extract';
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * Where the PDF is parked for the Windows runner: invoices have their own private
+ * bucket (20261009120000_procurement_grn_invoice_checks.sql), readable only by people
+ * with GRN rights — quotation-only managers cannot see supplier bills. The bucket name
+ * rides in the payload so the runner never has to guess it. It is never taken from the
+ * caller: this route sets it, and for a job enqueued any other way the database pins it
+ * (trg_ai_jobs_00_invoice_extract_guard forces storage_bucket to this value and refuses
+ * any storage_path other than <po_id>/<sha256>.pdf of a stored object — deep-panel M3).
+ */
+const BUCKET = 'procurement-invoice-pdfs';
+
+/** fn_ai_enqueue reports the job type is unknown or disabled: shipped dark. */
+const SWITCHED_OFF =
+  'AI invoice reading is switched off for now — please type the invoice details in.';
+/** The bucket is absent on this environment. Retrying will never help. */
+const NOT_SET_UP =
+  'AI invoice reading is not set up on this environment — please type the invoice details in.';
+/** The queue refused the job for some other reason; retrying may work. */
+const COULD_NOT_START =
+  'AI invoice reading could not be started just now — please type the invoice details in.';
+
+/**
+ * Every "can't read it" outcome answers 200 with { unavailable: true, error }. It is not
+ * a failure of the form: the person types the invoice in, and the form shows it as a
+ * plain notice, never as an error toast.
+ */
+const manual = (message: string) => NextResponse.json({ unavailable: true, error: message });
+
+export type InvoiceExtractItem = {
+  id: string;
+  item_name: string;
+  item_spec: string | null;
+  ordered_quantity: number | null;
+  unit_label: string | null;
+};
+
+const str = (v: unknown) => (typeof v === 'string' && v.trim() ? v.trim().slice(0, 200) : null);
 
 /**
  * POST /api/procurement/grn/extract-invoice  (multipart/form-data)
  *
- * AI invoice reading is OFF pending its ₹0 Max-lane arm.
+ * Parks the supplier invoice PDF in private storage and ENQUEUES a ₹0 Max-lane job
+ * (procurement.invoice_extract, lane max-pdf) that the Windows runner reads. Returns at
+ * once with { job_id }; the form polls ./status, and the uploader is notified by the
+ * runner when the read finishes. There is NO paid route for invoices (spec decision 4).
  *
- * This route previously called the PAID Anthropic API directly. That path is
- * removed: procurement PDF reading now runs only on the ₹0 Max lane
- * (Director decision, 2026-07-28 — "delete the paid code"). The quotation side
- * is already migrated; the GRN/invoice side needs its own result contract
- * (invoice header + per-line batch/expiry, richer than the quotation shape) and
- * a matching runner arm — see specs/procurement-pdf-max-lane-2026-07-28.md.
+ * Other answers:
+ *   { reused: true, job_id, result }  this person already had this exact PDF read for this order (decision 8)
+ *   { unavailable: true, error }      the lane cannot take it (switched off, not set up,
+ *                                     no permission, too many in flight) — type it in (decision 2)
  *
- * Until that lands this returns the same honest outcome the UI already handles:
- * enter the invoice details manually. This removes NO working capability —
- * ai_model_usage shows procurement.invoice_extract was never once invoked in
- * production.
- *
- * The request is still validated so the client keeps its existing error
- * messages for an oversized or non-PDF file.
- *
- * REQUEST CONTRACT (multipart) — what the client already sends today:
+ * REQUEST (multipart):
  *   file          File    the invoice PDF, ≤ 15 MB
- *   items         JSON    Array<{ id, item_name }> — the PO lines to match against
- *   expectations  JSON    the receiver's declared expectations for THIS invoice:
- *                           { tolerance_pct, require_batch_expiry,
- *                             max_invoice_age_days, watch_for }
+ *   po_id         uuid    the purchase order being received
+ *   grn_id        uuid?   the receipt, when one already exists (the form has none yet)
+ *   items         JSON    Array<{ id, item_name, item_spec?, ordered_quantity?, unit_label? }> — the PO lines
+ *   expectations  JSON    { tolerance_pct, require_batch_expiry, max_invoice_age_days, watch_for }
+ *   read_again    '1'?    E3 (Director 2026-10-10 afternoon): the person pressed "Read again".
+ *                         Skips ONLY the stored-result reuse below, for this request. The
+ *                         in-flight dedupe (same person, same PDF + order, still queued)
+ *                         still answers, so pressing it twice never queues two reads; the
+ *                         lane switch (enabled=false) and fn_ai_enqueue's caps still apply;
+ *                         the job type and lane are unchanged (the ₹0 Max lane — never a paid
+ *                         read). The fresh result becomes the newest completed_at match, so
+ *                         a later ordinary read of the same PDF reuses it.
  *
- * `expectations` is parsed and normalised here so the shape is fixed now rather than
- * invented later. When the Max-lane arm lands it should reach the model as reviewer
- * intent — `watch_for` verbatim in the prompt ("the receiver asks you to watch for: …"),
- * `require_batch_expiry` as an instruction to hunt harder for per-line batch/expiry, and
- * `tolerance_pct` / `max_invoice_age_days` as the bar for anything it reports back as
- * suspect. The deterministic comparison against these values already runs app-side in
- * lib/services/procurement/three-way-match.ts, so the model is never the enforcer.
+ * JOB PAYLOAD (what the runner receives):
+ *   { storage_bucket, storage_path, sha256, po_id, grn_id, po_items, notify_url,
+ *     expectations: { watch_for, require_batch_expiry } }
+ * grn_id is always null today (the form reads the invoice before the receipt exists).
+ * The runner's "invoice read" notification uses notify_url as its link
+ * (`/procurement/grn/new?po=<po_id>` — never `/procurement/grn/<grn_id>`), with
+ * idempotency_key `procurement.invoice_extract:<job_id>` and category
+ * `procurement:invoice`. The runner should also check the downloaded bytes against
+ * payload.sha256 before reading them. Every result MUST carry
+ * `version: INVOICE_READ_RESULT_VERSION` (invoice-checks.ts): a stored read without it,
+ * or of the wrong shape, is never reused — it is read again.
+ * tolerance_pct / max_invoice_age_days are deliberately NOT sent: the app enforces them
+ * (three-way-match.ts, invoice-checks.ts). The model only reads; it never decides.
  */
 
 const MAX_WATCH_FOR = 1000;
@@ -81,6 +134,7 @@ function parseExpectations(raw: FormDataEntryValue | null): Expectations {
         : null,
   };
 }
+
 export async function POST(req: NextRequest) {
   const user = await requireProcurement(PROC_GRN_CREATE);
   if (!user) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
@@ -96,18 +150,185 @@ export async function POST(req: NextRequest) {
   if (file.type !== 'application/pdf')
     return NextResponse.json({ error: 'Invoice reading supports PDF files only.' }, { status: 400 });
 
-  // Parsed (not yet consumed) so a malformed `expectations` fails here rather than inside a
-  // future runner, and so the normalisation lives with the contract it documents.
-  void parseExpectations(form.get('expectations'));
+  const poId = String(form.get('po_id') ?? '');
+  if (!UUID_RE.test(poId))
+    return NextResponse.json({ error: 'Missing or invalid po_id.' }, { status: 400 });
+  const grnIdRaw = String(form.get('grn_id') ?? '');
+  const grnId = UUID_RE.test(grnIdRaw) ? grnIdRaw : null;
 
-  // 503 deliberately: the existing client already throws on a non-OK response
-  // and toasts `error`, so this needs no UI change to degrade cleanly.
-  return NextResponse.json(
-    {
-      error:
-        'AI invoice reading is not built yet — please enter the invoice details manually.',
-      unavailable: true,
+  let items: InvoiceExtractItem[];
+  try {
+    const parsed = JSON.parse(String(form.get('items') ?? '[]'));
+    items = Array.isArray(parsed)
+      ? parsed
+          .filter((i) => i && typeof i.id === 'string' && typeof i.item_name === 'string')
+          .map((i) => ({
+            id: i.id,
+            item_name: i.item_name,
+            item_spec: str(i.item_spec),
+            ordered_quantity: Number(i.ordered_quantity) > 0 ? Number(i.ordered_quantity) : null,
+            unit_label: str(i.unit_label),
+          }))
+      : [];
+  } catch {
+    return NextResponse.json({ error: 'Invalid items payload.' }, { status: 400 });
+  }
+  if (items.length === 0)
+    return NextResponse.json({ error: 'No order lines to match against.' }, { status: 400 });
+
+  const expectations = parseExpectations(form.get('expectations'));
+  // E3: "Read again" bypasses the stored-result reuse for this request only.
+  const readAgain = form.get('read_again') === '1';
+
+  // The caller must be able to see this order (RLS) before anything is stored for it,
+  // queued for it, or reused from it (deep-panel M3: this runs before every lookup).
+  const supabase = await createClient();
+  const { data: po } = await supabase
+    .from('procurement_purchase_orders')
+    .select('id')
+    .eq('id', poId)
+    .maybeSingle();
+  if (!po) return NextResponse.json({ error: 'Purchase order not found.' }, { status: 404 });
+
+  const bytes = Buffer.from(await file.arrayBuffer());
+  const sha256 = createHash('sha256').update(bytes).digest('hex');
+  const admin = createServiceRoleClient();
+
+  // ── Reuse an identical read (decision 8) ───────────────────────────────────
+  // Same file + same order + same person = same answer. This is how a late result is
+  // used: the person comes back from the "invoice read" notification, picks the same
+  // PDF, and the form fills from the finished job instead of reading it again. Only a
+  // result of the current contract version and shape is reused (isReusableInvoiceRead);
+  // a malformed or older one falls through to a fresh read, which then becomes the
+  // newest match.
+  //
+  // Deep-panel M3: ONLY the caller's own jobs (requested_by = user.id). fn_ai_enqueue
+  // stores whatever payload its caller sends, and anyone with grn_create can call it
+  // directly, so no payload field (sha256, po_id, a "written by the route" marker…)
+  // proves who wrote the job or what was read. requested_by is the one field the caller
+  // cannot choose — fn_ai_enqueue sets it from auth.uid(). The po_items and watch_for
+  // in a payload come from the requester's own form too. So a reused result is always
+  // one the same person's own request produced; nobody can plant a read for someone
+  // else. The cost: a colleague who uploads the same PDF gets a fresh (₹0) read instead
+  // of a replay. The order-visibility check above runs before this lookup.
+  try {
+    if (!readAgain) {
+      const { data: prior } = await admin
+        .from('ai_jobs')
+        .select('id, result')
+        .eq('job_type', JOB_TYPE)
+        .eq('status', 'done')
+        .eq('requested_by', user.id)
+        .contains('payload', { sha256, po_id: poId })
+        .order('completed_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (prior && isReusableInvoiceRead(prior.result)) {
+        return NextResponse.json({ reused: true, job_id: prior.id, result: prior.result });
+      }
+    }
+
+    // The same person pressing the button again while their read is still queued.
+    const { data: inFlight } = await admin
+      .from('ai_jobs')
+      .select('id')
+      .eq('job_type', JOB_TYPE)
+      .eq('requested_by', user.id)
+      .in('status', ['pending', 'claimed', 'running'])
+      .contains('payload', { sha256, po_id: poId })
+      .order('requested_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (inFlight?.id) return NextResponse.json({ job_id: inFlight.id });
+  } catch {
+    // A dedupe miss must never block a fresh read — fall through.
+  }
+
+  // ── Lane switched off: say so before parking a PDF nobody will read ───────
+  // procurement.invoice_extract stays disabled until the Windows invoice arm lands.
+  // fn_ai_enqueue would refuse it anyway (handled below); checking first avoids
+  // uploading for nothing.
+  try {
+    const { data: type } = await admin
+      .from('ai_job_types')
+      .select('enabled')
+      .eq('job_type', JOB_TYPE)
+      .maybeSingle();
+    if (type?.enabled !== true) return manual(SWITCHED_OFF);
+  } catch {
+    // Can't tell — let fn_ai_enqueue decide.
+  }
+
+  // ── Park the PDF (content-addressed) ────────────────────────────────────────
+  // Uploaded as the signed-in user, so the bucket's own policy (GRN rights + a folder
+  // of an order they can see) applies. Never upsert: an overwrite needs UPDATE on
+  // storage.objects, which is not granted.
+  const storagePath = `${poId}/${sha256}.pdf`;
+  const { error: uploadError } = await supabase.storage
+    .from(BUCKET)
+    .upload(storagePath, bytes, { contentType: 'application/pdf', upsert: false });
+  const uploadStatus = String((uploadError as { statusCode?: unknown } | null)?.statusCode ?? '');
+  const alreadyStored =
+    !!uploadError && (uploadStatus === '409' || /already exists/i.test(uploadError.message));
+  if (uploadError && !alreadyStored) {
+    console.error('[procurement grn extract-invoice] upload failed:', uploadError);
+    return manual(
+      /bucket not found/i.test(uploadError.message)
+        ? NOT_SET_UP
+        : uploadStatus === '403'
+          ? 'You do not have permission to upload supplier invoices for AI reading — please type the invoice details in.'
+          : COULD_NOT_START,
+    );
+  }
+  // "Already exists" is trusted only after re-hashing what is stored: the key names a
+  // hash, but nothing else guarantees the object at it still has those bytes.
+  if (alreadyStored) {
+    const { data: stored, error: dlError } = await admin.storage.from(BUCKET).download(storagePath);
+    const storedSha = stored
+      ? createHash('sha256').update(Buffer.from(await stored.arrayBuffer())).digest('hex')
+      : null;
+    if (dlError || storedSha !== sha256) {
+      console.error('[procurement grn extract-invoice] stored PDF does not match its hash:', {
+        storagePath,
+        dlError,
+      });
+      return manual(COULD_NOT_START);
+    }
+  }
+
+  // ── Enqueue on the ₹0 Max lane, as the signed-in user ──────────────────────
+  const { data: enq, error: enqError } = await supabase.rpc('fn_ai_enqueue', {
+    p_job_type: JOB_TYPE,
+    p_payload: {
+      storage_bucket: BUCKET,
+      storage_path: storagePath,
+      sha256,
+      po_id: poId,
+      grn_id: grnId,
+      po_items: items,
+      notify_url: `/procurement/grn/new?po=${poId}`,
+      expectations: {
+        watch_for: expectations.watch_for,
+        require_batch_expiry: expectations.require_batch_expiry,
+      },
     },
-    { status: 503 },
-  );
+  });
+
+  if (enqError || !enq?.ok || typeof enq?.job_id !== 'string') {
+    const errText = typeof enq?.error === 'string' ? enq.error : '';
+    if (enqError) console.error('[procurement grn extract-invoice] enqueue failed:', enqError);
+    return manual(
+      errText === 'unknown or disabled job_type'
+        ? SWITCHED_OFF
+        : errText === 'not allowed for this job_type'
+          ? 'You do not have permission to use AI invoice reading — please type the invoice details in.'
+          : errText === 'daily limit reached'
+            ? "You have reached today's limit for AI invoice reading — please type the invoice details in."
+            : errText === 'too many in-flight jobs of this type'
+              ? 'You already have invoices being read — wait for those, or type this one in.'
+              : COULD_NOT_START,
+    );
+  }
+
+  return NextResponse.json({ job_id: enq.job_id });
 }
