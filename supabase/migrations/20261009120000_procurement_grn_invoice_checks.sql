@@ -701,22 +701,23 @@ BEGIN
           -- supplier + number, so two at once cannot both pass unseen. Held to commit.
           PERFORM pg_advisory_xact_lock(
             hashtextextended('procurement_grn_i1:' || NEW.supplier_id::text || ':' || v_inv, 0));
-          IF NEW.duplicate_confirmed_by IS NULL THEN
-            IF public.fn_procurement_grn_has_duplicate(NEW.id, NEW.supplier_id, NEW.invoice_number, NEW.created_at) THEN
+          IF public.fn_procurement_grn_has_duplicate(NEW.id, NEW.supplier_id, NEW.invoice_number, NEW.created_at) THEN
+            IF NEW.duplicate_confirmed_by IS NULL THEN
               RAISE EXCEPTION 'this delivery''s invoice number repeats another delivery from the same supplier (already in stock, or recorded earlier) — a verifier other than the receiver must confirm it is a different invoice before it is added to stock'
                 USING ERRCODE = '42501';
             END IF;
-          -- 9d. D4 again at the moment of entry into stock (decisions round, red team):
-          -- the confirmation is honoured only while its confirmer received neither this
-          -- delivery nor ANY other receipt from this supplier with this number — so a
-          -- confirmer cannot pre-confirm, then record / revive / post a matching receipt
-          -- of their own.
-          ELSIF NEW.duplicate_confirmed_by IS NOT DISTINCT FROM NEW.received_by
-                OR public.fn_procurement_grn_has_duplicate(
-                     NEW.id, NEW.supplier_id, NEW.invoice_number, NEW.created_at,
-                     NEW.duplicate_confirmed_by) THEN
-            RAISE EXCEPTION 'the person who confirmed this repeated invoice received one of the deliveries that carry it — a third person, who received neither, must confirm it before it is added to stock'
-              USING ERRCODE = '42501';
+            -- 9d. D4 again at the moment of entry into stock (decisions round, red
+            -- team): while the receipt is held, its confirmation counts only if the
+            -- confirmer received neither this delivery nor ANY other receipt from this
+            -- supplier with this number. Otherwise a confirmer could confirm first,
+            -- then record / revive / post a matching receipt of their own.
+            IF NEW.duplicate_confirmed_by IS NOT DISTINCT FROM NEW.received_by
+               OR public.fn_procurement_grn_has_duplicate(
+                    NEW.id, NEW.supplier_id, NEW.invoice_number, NEW.created_at,
+                    NEW.duplicate_confirmed_by) THEN
+              RAISE EXCEPTION 'the person who confirmed this repeated invoice received one of the deliveries that carry it — a third person, who received neither, must confirm it before it is added to stock'
+                USING ERRCODE = '42501';
+            END IF;
           END IF;
         END IF;
       END IF;
@@ -845,31 +846,52 @@ CREATE TRIGGER trg_pgrnr_replacement_checks
 -- ims_goods_received_notes / ims_grn_items had no triggers and institution-only RLS, so
 -- a direct API call could still create or approve an IMS receipt (and approveGRN then
 -- wrote stock). For app users (authenticated / anon) this refuses: a new IMS receipt or
--- receipt line, and moving an IMS receipt into 'verified' or 'approved'. Reading,
--- cancelling and other edits of the existing receipts (6 on production, latest
--- 2026-08-22; GRN-260822-00002 is 'verified' and can now never be approved) are
--- unchanged. Migrations and the service role are not app users and are not affected.
+-- receipt line, and moving an IMS receipt into 'verified' or 'approved'; and (9a)
+-- deleting a receipt or a line, editing a line, or editing any header column other
+-- than a cancel and the notes. Reading and cancelling the existing receipts (6 on
+-- production, latest 2026-08-22; GRN-260822-00002 is 'verified' and can now never be
+-- approved) still work. Migrations and the service role are not app users and are
+-- not affected.
 CREATE OR REPLACE FUNCTION public.fn_ims_grn_retired_guard()
 RETURNS trigger
 LANGUAGE plpgsql
 SET search_path = public
 AS $$
 BEGIN
+  -- A BEFORE DELETE trigger that returns NULL silently skips the delete, so every
+  -- pass-through returns OLD on DELETE and NEW otherwise.
   IF current_user NOT IN ('authenticated', 'anon')
      OR coalesce(auth.role(), '') = 'service_role' THEN
-    RETURN NEW;
+    RETURN CASE WHEN TG_OP = 'DELETE' THEN OLD ELSE NEW END;
   END IF;
   IF TG_OP = 'INSERT' THEN
     RAISE EXCEPTION 'IMS goods receipts are retired — record the delivery in Procurement → Deliveries (/procurement/grn). Older IMS receipts can still be viewed.'
       USING ERRCODE = '42501';
   END IF;
-  -- UPDATE fires only on ims_goods_received_notes (ims_grn_items has no status column;
-  -- its trigger is INSERT-only), so NEW.status is read only here.
-  IF TG_TABLE_NAME = 'ims_goods_received_notes' THEN
-    IF NEW.status IS DISTINCT FROM OLD.status AND NEW.status IN ('verified', 'approved') THEN
-      RAISE EXCEPTION 'IMS goods receipts are retired — they can no longer be verified or approved. Record the delivery in Procurement → Deliveries (/procurement/grn).'
-        USING ERRCODE = '42501';
-    END IF;
+  -- 9a (decisions round, red team): the old receipts are a kept record. The RLS
+  -- policies on both tables are institution-only, so without this any signed-in user
+  -- of the college (students included) could delete a receipt — its lines cascade —
+  -- or rewrite a line's quantity / cost. The app never deletes either, nor edits lines.
+  IF TG_OP = 'DELETE' THEN
+    RAISE EXCEPTION 'IMS goods receipts are retired and kept as a record — they cannot be deleted'
+      USING ERRCODE = '42501';
+  END IF;
+  IF TG_TABLE_NAME = 'ims_grn_items' THEN
+    RAISE EXCEPTION 'IMS goods receipts are retired and kept as a record — their lines cannot be changed'
+      USING ERRCODE = '42501';
+  END IF;
+  -- Header UPDATE: only what the app still does — cancel (status -> 'cancelled') and
+  -- notes (updated_at moves with them). Every other column, and any other status
+  -- move ('verified' / 'approved' above all, or reviving a cancelled one), is refused.
+  IF NEW.status IS DISTINCT FROM OLD.status AND NEW.status IN ('verified', 'approved') THEN
+    RAISE EXCEPTION 'IMS goods receipts are retired — they can no longer be verified or approved. Record the delivery in Procurement → Deliveries (/procurement/grn).'
+      USING ERRCODE = '42501';
+  END IF;
+  IF (NEW.status IS DISTINCT FROM OLD.status AND NEW.status IS DISTINCT FROM 'cancelled')
+     OR (to_jsonb(NEW) - 'status' - 'notes' - 'updated_at')
+        IS DISTINCT FROM (to_jsonb(OLD) - 'status' - 'notes' - 'updated_at') THEN
+    RAISE EXCEPTION 'IMS goods receipts are retired and kept as a record — only cancelling one or editing its notes is still possible'
+      USING ERRCODE = '42501';
   END IF;
   RETURN NEW;
 END;
@@ -880,12 +902,12 @@ GRANT  EXECUTE ON FUNCTION public.fn_ims_grn_retired_guard() TO authenticated;
 
 DROP TRIGGER IF EXISTS trg_ims_grn_00_retired ON public.ims_goods_received_notes;
 CREATE TRIGGER trg_ims_grn_00_retired
-  BEFORE INSERT OR UPDATE ON public.ims_goods_received_notes
+  BEFORE INSERT OR UPDATE OR DELETE ON public.ims_goods_received_notes
   FOR EACH ROW EXECUTE FUNCTION public.fn_ims_grn_retired_guard();
 
 DROP TRIGGER IF EXISTS trg_ims_grn_items_00_retired ON public.ims_grn_items;
 CREATE TRIGGER trg_ims_grn_items_00_retired
-  BEFORE INSERT ON public.ims_grn_items
+  BEFORE INSERT OR UPDATE OR DELETE ON public.ims_grn_items
   FOR EACH ROW EXECUTE FUNCTION public.fn_ims_grn_retired_guard();
 
 -- ----------------------------------------------------------------------------
