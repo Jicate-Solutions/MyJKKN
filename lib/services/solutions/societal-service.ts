@@ -154,6 +154,15 @@ export interface RecordEngagementInput {
   title: string;
   description?: string | null;
   engagement_date: string;
+  /**
+   * Where the work happened. REQUIRED, and required by the database too:
+   * `venue` is NOT NULL with a `btrim(venue) <> ''` check and no default
+   * (migration 20261123100000, Director decision 8 of 2026-09-09). Until this
+   * field existed here, every call to `record()` failed with a bare
+   * `23502 null value in column "venue"` and the register could not hold a
+   * single row — which is why it held none from 2026-09-13 to 2026-10-05.
+   */
+  venue: string;
   hours_spent: number;
   beneficiaries_count: number;
   sdg_goals: string[];
@@ -763,6 +772,13 @@ export class SocietalService extends BaseService {
     if (input.engagement_date > todayLocalISO()) {
       throw new Error(FUTURE_ENGAGEMENT_DATE_MESSAGE);
     }
+    // Blank-but-present is how a NOT NULL text column gets defeated, so the
+    // database checks `btrim(venue) <> ''` rather than mere presence. Trim and
+    // refuse here so a coordinator reads a sentence instead of a 23514.
+    const venue = input.venue.trim();
+    if (!venue) {
+      throw new Error('Give the engagement a venue — where the work happened.');
+    }
     if (!Number.isFinite(input.hours_spent) || input.hours_spent < 0) {
       throw new Error('Hours spent cannot be negative.');
     }
@@ -793,6 +809,7 @@ export class SocietalService extends BaseService {
         title,
         description: input.description?.trim() || null,
         engagement_date: input.engagement_date,
+        venue,
         hours_spent: input.hours_spent,
         beneficiaries_count: input.beneficiaries_count,
         sdg_goals: Array.from(new Set(input.sdg_goals)).sort(),

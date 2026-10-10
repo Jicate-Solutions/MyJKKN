@@ -78,6 +78,7 @@ export function RecordEngagementDialog({
   // across midnight would otherwise cap the input at yesterday.
   const maxEngagementDate = todayLocalISO();
   const [engagementDate, setEngagementDate] = useState(todayLocalISO);
+  const [venue, setVenue] = useState('');
   const [hours, setHours] = useState('');
   const [beneficiaries, setBeneficiaries] = useState('');
   const [goals, setGoals] = useState<string[]>([]);
@@ -104,6 +105,7 @@ export function RecordEngagementDialog({
     setTitle('');
     setDescription('');
     setEngagementDate(todayLocalISO());
+    setVenue('');
     setHours('');
     setBeneficiaries('');
     setGoals([]);
@@ -145,6 +147,14 @@ export function RecordEngagementDialog({
       setFormError(FUTURE_ENGAGEMENT_DATE_MESSAGE);
       return;
     }
+    // Mirrors the guard in SocietalService.record(), which in turn mirrors the
+    // database: `venue` is NOT NULL with a non-blank check and no default. A
+    // form that did not ask for it is why every save failed with a bare
+    // `23502` and the register stayed empty for three weeks.
+    if (!venue.trim()) {
+      setFormError('Say where the work happened.');
+      return;
+    }
     if (!Number.isFinite(hoursValue) || hoursValue < 0) {
       setFormError('Hours spent must be a number and cannot be negative.');
       return;
@@ -162,6 +172,7 @@ export function RecordEngagementDialog({
         title,
         description,
         engagement_date: engagementDate,
+        venue,
         hours_spent: hoursValue,
         beneficiaries_count: beneficiariesValue,
         sdg_goals: goals,
@@ -280,6 +291,15 @@ export function RecordEngagementDialog({
                 max={maxEngagementDate}
                 value={engagementDate}
                 onChange={(e) => setEngagementDate(e.target.value)}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="engagement-venue">Where it happened</Label>
+              <Input
+                id="engagement-venue"
+                value={venue}
+                onChange={(e) => setVenue(e.target.value)}
+                placeholder="Village, school, ward or address"
               />
             </div>
             <div className="space-y-2">
