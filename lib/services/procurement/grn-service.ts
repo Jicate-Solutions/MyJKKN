@@ -33,6 +33,8 @@ import {
   CONFIRMATION_VOID_MESSAGE,
   DUPLICATE_CHECKS_MISSING_MESSAGE,
   NO_RECEIVER_MESSAGE,
+  LINES_CHANGED_MESSAGE,
+  linesChangedSinceCheck,
   type DuplicateCandidate,
 } from './invoice-checks';
 import {
@@ -675,6 +677,36 @@ export class ProcurementGrnService {
         .single();
       if (lockErr) throw lockErr;
       if (!locked) throw new Error('Delivery record was already verified by someone else; refresh.');
+
+      // 2a) Skeptic re-check (M4): the checks above judged the lines read at the start, in
+      //     separate requests. From the header post on, the database freezes the lines
+      //     (and makes a line write that was in flight finish first), so read them again
+      //     now: if any line was added, removed or changed in between, reopen the receipt
+      //     before anything posts and ask for a fresh check.
+      const { data: currentItems, error: currentErr } = await this.supabase
+        .from('procurement_grn_items')
+        .select('*')
+        .eq('grn_id', id)
+        .order('created_at', { ascending: true });
+      if (currentErr || linesChangedSinceCheck(grn.items, (currentItems ?? []) as typeof grn.items)) {
+        const { error: reopenErr } = await this.supabase
+          .from('procurement_grn')
+          .update({
+            status: 'pending_verification',
+            verified_by: null,
+            verified_at: null,
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', id)
+          .eq('status', 'accepted');
+        if (reopenErr) {
+          console.error(
+            '[ProcurementGrnService] verifyGrn: lines changed during the check AND the GRN could not be reopened — needs manual status reset',
+            reopenErr
+          );
+        }
+        throw currentErr ?? new Error(LINES_CHANGED_MESSAGE);
+      }
 
       const domain = (grn.domain ?? 'ims') as ProcurementDomain;
       const ctx: DomainCtx = { institutionId: grn.institution_id, storeId: grn.store_id, userId };

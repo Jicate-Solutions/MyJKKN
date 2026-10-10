@@ -19,6 +19,7 @@ import {
   INVOICE_READ_RESULT_VERSION,
   POSTED_GRN_STATUSES,
   selfCheckBlocks,
+  linesChangedSinceCheck,
 } from '@/lib/services/procurement/invoice-checks';
 
 // Invoice checks I1–I4 (spec from Draft PR #4289). The model only reads the PDF; these
@@ -618,5 +619,56 @@ describe('E1 selfCheckBlocks (Director 2026-10-10 afternoon: self-check banned)'
     expect(selfCheckBlocks('u1', undefined)).toBe(false);
     expect(selfCheckBlocks(null, 'u1')).toBe(false);
     expect(selfCheckBlocks(undefined, undefined)).toBe(false);
+  });
+});
+
+describe('M4 linesChangedSinceCheck (skeptic re-check: the lines checked are the lines that post)', () => {
+  const line = (over: Record<string, unknown> = {}) => ({
+    id: 'gi1',
+    accepted_quantity: 4,
+    rejected_quantity: 1,
+    replacement_required: true,
+    is_chemical: false,
+    batch_number: 'B1',
+    expiry_date: '2027-01-01',
+    cost_price: '12.50',
+    po_item_id: 'poi1',
+    domain_item_id: null,
+    domain_posted_at: null,
+    item_name: 'Acid',
+    ...over,
+  });
+  it('the same lines, re-read in another order and with numeric strings, have not changed', () => {
+    const a = [line(), line({ id: 'gi2' })];
+    const b = [line({ id: 'gi2' }), line({ accepted_quantity: '4', cost_price: 12.5 })];
+    expect(linesChangedSinceCheck(a, b)).toBe(false);
+  });
+  it('a line added after the check is a change', () => {
+    expect(linesChangedSinceCheck([line()], [line(), line({ id: 'gi9' })])).toBe(true);
+  });
+  it('a line removed after the check is a change', () => {
+    expect(linesChangedSinceCheck([line(), line({ id: 'gi2' })], [line()])).toBe(true);
+  });
+  it('a line swapped for another of the same count is a change', () => {
+    expect(linesChangedSinceCheck([line()], [line({ id: 'gi9' })])).toBe(true);
+  });
+  it.each([
+    ['accepted_quantity', 40],
+    ['rejected_quantity', 0],
+    ['replacement_required', false],
+    ['is_chemical', true],
+    ['batch_number', 'B2'],
+    ['expiry_date', '2026-10-01'],
+    ['cost_price', '99'],
+    ['domain_posted_at', '2026-10-09T10:00:00Z'],
+  ])('a changed %s is a change', (field, value) => {
+    expect(linesChangedSinceCheck([line()], [line({ [field]: value })])).toBe(true);
+  });
+  it('a field the check does not judge (the item name) is not a change', () => {
+    expect(linesChangedSinceCheck([line()], [line({ item_name: 'Acid (500 ml)' })])).toBe(false);
+  });
+  it('null, undefined and empty are the same blank', () => {
+    expect(linesChangedSinceCheck([line({ batch_number: null })], [line({ batch_number: '' })])).toBe(false);
+    expect(linesChangedSinceCheck([line({ batch_number: null })], [line({ batch_number: 'B1' })])).toBe(true);
   });
 });

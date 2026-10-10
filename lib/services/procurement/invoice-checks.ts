@@ -420,6 +420,52 @@ export const THIRD_PERSON_MESSAGE =
 export const CONFIRMATION_VOID_MESSAGE =
   'The person who confirmed this repeated invoice number received one of the deliveries that carry it, so the confirmation does not count. A third person, who received neither delivery, must confirm it before stock is added.';
 
+// ── The lines a verifier checked are the lines that post (skeptic re-check, M4) ─
+
+/** The line fields verifyGrn judges (quantities, chemical gate, expiry) or posts. */
+const CHECKED_LINE_FIELDS = [
+  'accepted_quantity',
+  'rejected_quantity',
+  'replacement_required',
+  'is_chemical',
+  'batch_number',
+  'expiry_date',
+  'manufacturing_date',
+  'cost_price',
+  'po_item_id',
+  'domain_item_id',
+  'domain_posted_at',
+] as const;
+
+export type CheckedLine = { id: string } & Partial<Record<(typeof CHECKED_LINE_FIELDS)[number], unknown>>;
+
+function sameValue(a: unknown, b: unknown): boolean {
+  const blank = (v: unknown) => v === null || v === undefined || v === '';
+  if (blank(a) || blank(b)) return blank(a) && blank(b);
+  if (typeof a === 'number' || typeof b === 'number') return Number(a) === Number(b);
+  return String(a) === String(b);
+}
+
+/**
+ * verifyGrn reads the lines, runs its checks, and only then posts the header — separate
+ * requests, not one transaction. A line added or changed in between (the header was
+ * still pending, so the database allowed it) would sit in a posted receipt that nobody
+ * checked. Once the header is posted the lines are frozen (trg_pgrni_00_posted_lock), so
+ * verifyGrn reads them again then and compares with what it checked: any added, removed
+ * or changed line means the check no longer holds.
+ */
+export function linesChangedSinceCheck(checked: CheckedLine[], current: CheckedLine[]): boolean {
+  if (checked.length !== current.length) return true;
+  const byId = new Map(current.map((l) => [l.id, l]));
+  return checked.some((line) => {
+    const now = byId.get(line.id);
+    return !now || CHECKED_LINE_FIELDS.some((f) => !sameValue(line[f], now[f]));
+  });
+}
+
+export const LINES_CHANGED_MESSAGE =
+  'The lines of this delivery changed while you were checking it, so nothing was added to stock. Reload the delivery and check it again.';
+
 // ── Reusing a finished read (review round 2, 2026-10-09) ─────────────────────
 
 /**

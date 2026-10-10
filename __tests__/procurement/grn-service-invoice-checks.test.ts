@@ -306,6 +306,75 @@ describe('verifyGrn — nothing reaches stock that the rules refuse', () => {
   });
 });
 
+// Skeptic re-check (M4): verifyGrn's checks and its header post are separate requests,
+// so a line added or changed in between was posted unchecked. It re-reads the lines once
+// the header is posted (the database freezes them from then on) and reopens on a change.
+describe('verifyGrn — the lines checked are the lines that post (skeptic M4)', () => {
+  function raceWorld(first: unknown[], second: unknown[]) {
+    let itemReads = 0;
+    onTable = (c) => {
+      if (c.table === 'procurement_grn' && c.op === 'select') return { data: GRN, error: null };
+      if (c.table === 'procurement_grn_items' && c.op === 'select') {
+        itemReads += 1;
+        return { data: itemReads === 1 ? first : second, error: null };
+      }
+      if (c.table === 'procurement_grn' && c.op === 'update')
+        return { data: { ...GRN, status: 'accepted' }, error: null };
+      if (c.table === 'procurement_grn_items' && c.op === 'update') return { data: null, error: null };
+      return { data: null, error: { message: 'stop: write reached' } };
+    };
+    onRpc = (fn) =>
+      fn === 'fn_procurement_grn_has_duplicate' ? { data: false, error: null } : { data: null, error: null };
+  }
+  const reopens = () =>
+    writesTo('procurement_grn').filter(
+      (c) =>
+        (c.payload as Record<string, unknown>)?.status === 'pending_verification' &&
+        c.filters.some(([op, k, v]) => op === 'eq' && k === 'status' && v === 'accepted')
+    );
+
+  it.each([
+    ['a line added', [item()], [item(), item({ id: 'gi2', accepted_quantity: 7 })]],
+    ['a raised quantity', [item()], [item({ accepted_quantity: 100 })]],
+    ['a removed line', [item(), item({ id: 'gi2' })], [item()]],
+  ])('%s between the check and the post: reopens the receipt, posts nothing', async (_label, first, second) => {
+    raceWorld(first, second);
+    await expect(ProcurementGrnService.verifyGrn('g2', 'verifier')).rejects.toThrow(
+      /lines of this delivery changed while you were checking/
+    );
+    expect(reopens()).toHaveLength(1);
+    expect(adapter.postReceipt).not.toHaveBeenCalled();
+    expect(writesTo('procurement_grn_replacements')).toHaveLength(0);
+    expect(writesTo('procurement_grn_items')).toHaveLength(0);
+  });
+
+  it('a failed re-read also reopens and posts nothing', async () => {
+    raceWorld([item()], [item()]);
+    const base = onTable;
+    let reads = 0;
+    onTable = (c) => {
+      if (c.table === 'procurement_grn_items' && c.op === 'select' && ++reads === 2)
+        return { data: null, error: { message: 're-read failed' } };
+      return base(c);
+    };
+    await expect(ProcurementGrnService.verifyGrn('g2', 'verifier')).rejects.toMatchObject({
+      message: 're-read failed',
+    });
+    expect(reopens()).toHaveLength(1);
+    expect(adapter.postReceipt).not.toHaveBeenCalled();
+  });
+
+  it('unchanged lines go on to post as before (no reopen)', async () => {
+    raceWorld(
+      [item({ domain_item_id: 'd1' })],
+      [item({ domain_item_id: 'd1', accepted_quantity: '4' })]
+    );
+    await expect(ProcurementGrnService.verifyGrn('g2', 'verifier')).resolves.toBeTruthy();
+    expect(reopens()).toHaveLength(0);
+    expect(adapter.postReceipt).toHaveBeenCalledTimes(1);
+  });
+});
+
 // Deep-panel L7: without the database check, a repeat recorded at a college the
 // verifier cannot see would quietly pass. The verify path refuses instead.
 describe('verifyGrn — duplicate check missing in the database', () => {
