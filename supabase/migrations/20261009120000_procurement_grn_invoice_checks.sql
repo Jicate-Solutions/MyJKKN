@@ -460,9 +460,10 @@ GRANT  EXECUTE ON FUNCTION public.fn_procurement_normalise_invoice_number(text) 
 -- from inside a trigger (pg_trigger_depth() > 0 — the verify guard) it always answers:
 -- the gate is for the RPC, and must never switch the guard's own check off (review round
 -- 2, red team: a caller without procurement rights got "no duplicate" from the guard).
--- D4 (Director 2026-10-10): p_received_by, when given, narrows the answer to matching
--- receipts THAT PERSON received — "did the would-be confirmer receive the other
--- delivery?". Called directly, it may only be asked about the caller themself.
+-- D4 (Director 2026-10-10): p_received_by, when given, asks a different question —
+-- "did that person receive ANY other receipt from this supplier with this number?",
+-- whatever its status or recording time (9d). Called directly, it may only be asked
+-- about the caller themself.
 -- The 4-argument form is dropped first: with a defaulted 5th argument both would match
 -- the 4-named-argument call and PostgREST would refuse it as ambiguous.
 DROP FUNCTION IF EXISTS public.fn_procurement_grn_has_duplicate(uuid, uuid, text, timestamptz);
