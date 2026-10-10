@@ -333,7 +333,7 @@ function RuleDetail({ rule }: { rule: KitRule }) {
 
   const searchItems = async (t: string) => {
     setItemTerm(t);
-    setItemResults(t.trim().length >= 2 ? await ImsKitService.searchItems(t) : []);
+    setItemResults(t.trim().length >= 2 ? await ImsKitService.searchItems(t, { institutionId: rule.institution_id }) : []);
   };
   const searchMembers = async (t: string) => {
     setMemberTerm(t);
@@ -373,6 +373,11 @@ function RuleDetail({ rule }: { rule: KitRule }) {
 
           <div className="space-y-2 border-t pt-3">
             <Input placeholder="Search store items…" value={itemTerm} onChange={(e) => searchItems(e.target.value)} />
+            {!rule.institution_id && (
+              <p className="text-xs text-muted-foreground">
+                This rule spans all colleges, so only items set to Central store are listed.
+              </p>
+            )}
             {itemResults.map((r) => (
               <div key={r.id} className="flex flex-wrap items-center justify-between gap-2 text-sm">
                 <span>{r.name}{r.code ? ` (${r.code})` : ''}</span>

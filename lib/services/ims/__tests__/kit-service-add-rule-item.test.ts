@@ -11,8 +11,11 @@ const calls: Call[] = [];
 let updateResult: { data: unknown; error: unknown } = { data: [{ id: 'item-1' }], error: null };
 let revertResult: { error: unknown } = { error: null };
 let revertThrows = false;
-let readResult: { data: unknown; error: unknown } = { data: { kit_source: null }, error: null };
+let readResult: { data: unknown; error: unknown } = { data: { kit_source: null, institution_id: 'inst-A' }, error: null };
 let insertResult: { error: unknown } = { error: null };
+let ruleResult: { data: unknown; error: unknown } = { data: { institution_id: 'inst-A' }, error: null };
+let ruleItemsResult: { data: unknown; error: unknown } = { data: [], error: null };
+let searchResult: { data: unknown; error: unknown } = { data: [], error: null };
 
 function from(table: string) {
   return {
@@ -33,10 +36,14 @@ function from(table: string) {
       return chain;
     },
     select(arg: unknown) {
-      calls.push({ table, op: 'select', arg });
+      const call: Call = { table, op: 'select', arg, filters: [] };
+      calls.push(call);
       const chain = {
-        eq: () => chain,
-        maybeSingle: () => Promise.resolve(readResult),
+        eq: (c: string, v: unknown) => (call.filters!.push(['eq', c, v]), chain),
+        or: (v: string) => (call.filters!.push(['or', v, null]), chain),
+        maybeSingle: () => Promise.resolve(table === 'ims_kit_rules' ? ruleResult : readResult),
+        limit: () =>
+          Promise.resolve(table === 'ims_kit_rule_items' ? ruleItemsResult : searchResult),
       };
       return chain;
     },
@@ -63,16 +70,20 @@ beforeEach(() => {
   updateResult = { data: [{ id: 'item-1' }], error: null };
   revertResult = { error: null };
   revertThrows = false;
-  readResult = { data: { kit_source: null }, error: null };
+  readResult = { data: { kit_source: null, institution_id: 'inst-A' }, error: null };
   insertResult = { error: null };
+  ruleResult = { data: { institution_id: 'inst-A' }, error: null };
+  ruleItemsResult = { data: [], error: null };
+  searchResult = { data: [], error: null };
 });
 
 const ops = () => calls.map(({ table, op, arg }) => ({ table, op, arg }));
+const writes = () => ops().filter((c) => c.op !== 'select');
 
 describe('ImsKitService.addRuleItem', () => {
   it('classifies an unclassified item (kit_source) BEFORE inserting the rule item', async () => {
     await ImsKitService.addRuleItem({ ...base, kit_source: 'college' });
-    expect(ops()).toEqual([
+    expect(writes()).toEqual([
       { table: 'ims_items', op: 'update', arg: { kit_source: 'college' } },
       { table: 'ims_kit_rule_items', op: 'insert', arg: base },
     ]);
@@ -85,7 +96,7 @@ describe('ImsKitService.addRuleItem', () => {
 
   it('only classifies an item whose kit_source is still NULL (stale result cannot overwrite)', async () => {
     await ImsKitService.addRuleItem({ ...base, kit_source: 'college' });
-    expect(calls[0].filters).toContainEqual(['is', 'kit_source', null]);
+    expect(calls.find((c) => c.op === 'update')!.filters).toContainEqual(['is', 'kit_source', null]);
   });
 
   it('blocks a stale overwrite: item now classified differently → names it, no insert', async () => {
@@ -106,7 +117,7 @@ describe('ImsKitService.addRuleItem', () => {
 
   it('says it is a permission refusal when the item is still NULL after a 0-row update', async () => {
     updateResult = { data: [], error: null };
-    readResult = { data: { kit_source: null }, error: null };
+    readResult = { data: { kit_source: null, institution_id: 'inst-A' }, error: null };
     await expect(ImsKitService.addRuleItem({ ...base, kit_source: 'central' })).rejects.toThrow(
       "You can't classify items — ask a store admin to set the item's kit source.",
     );
@@ -119,6 +130,9 @@ describe('ImsKitService.addRuleItem', () => {
       /duplicate key/,
     );
     const revert = calls.at(-1)!;
+    expect(calls.at(-2)).toMatchObject({
+      table: 'ims_kit_rule_items', op: 'select', filters: [['eq', 'item_id', 'item-1']],
+    });
     expect(revert).toMatchObject({ table: 'ims_items', op: 'update', arg: { kit_source: null } });
     expect(revert.filters).toEqual([
       ['eq', 'id', 'item-1'],
@@ -150,6 +164,65 @@ describe('ImsKitService.addRuleItem', () => {
       'insert boom',
     );
     expect(calls.filter((c) => c.op === 'update')).toHaveLength(1);
+  });
+
+  it("skips the revert when another admin's rule item already uses the item", async () => {
+    insertResult = { error: { message: 'insert boom' } };
+    ruleItemsResult = { data: [{ id: 'peer-rule-item' }], error: null };
+    await expect(ImsKitService.addRuleItem({ ...base, kit_source: 'college' })).rejects.toThrow(
+      'insert boom',
+    );
+    expect(calls.filter((c) => c.op === 'update')).toHaveLength(1);
+  });
+
+  it('skips the revert (fail safe) when the rule-item check errors, still surfacing the insert error', async () => {
+    insertResult = { error: { message: 'insert boom' } };
+    ruleItemsResult = { data: null, error: { message: 'check boom' } };
+    await expect(ImsKitService.addRuleItem({ ...base, kit_source: 'college' })).rejects.toThrow(
+      'insert boom',
+    );
+    expect(calls.filter((c) => c.op === 'update')).toHaveLength(1);
+  });
+
+  it("scopes the classify update to the rule's institution", async () => {
+    await ImsKitService.addRuleItem({ ...base, kit_source: 'college' });
+    expect(calls[0]).toMatchObject({
+      table: 'ims_kit_rules', op: 'select', filters: [['eq', 'id', 'rule-1']],
+    });
+    const upd = calls.find((c) => c.op === 'update')!;
+    expect(upd.filters).toContainEqual(['eq', 'institution_id', 'inst-A']);
+  });
+
+  it("names another college's item instead of blaming permissions (0 rows, other institution)", async () => {
+    updateResult = { data: [], error: null };
+    readResult = { data: { kit_source: null, institution_id: 'inst-B' }, error: null };
+    await expect(ImsKitService.addRuleItem({ ...base, kit_source: 'college' })).rejects.toThrow(
+      /belongs to another college/,
+    );
+    expect(calls.some((c) => c.op === 'insert')).toBe(false);
+  });
+
+  it('never classifies for a rule spanning all colleges (no institution to scope to)', async () => {
+    ruleResult = { data: { institution_id: null }, error: null };
+    await expect(ImsKitService.addRuleItem({ ...base, kit_source: 'central' })).rejects.toThrow(
+      /spans all colleges/,
+    );
+    expect(writes()).toEqual([]);
+  });
+});
+
+describe('ImsKitService.searchItems (kit rule panel scope)', () => {
+  const searchFilters = () => calls.find((c) => c.table === 'ims_items' && c.op === 'select')!.filters;
+
+  it("college rule: its own college's items plus Central store items", async () => {
+    await ImsKitService.searchItems('pen', { institutionId: 'inst-A' });
+    expect(searchFilters()).toContainEqual(['or', 'institution_id.eq.inst-A,kit_source.eq.central', null]);
+  });
+
+  it('all-colleges rule: Central store items only', async () => {
+    await ImsKitService.searchItems('pen', { institutionId: null });
+    expect(searchFilters()).toContainEqual(['eq', 'kit_source', 'central']);
+    expect(searchFilters()!.filter((f) => f[0] === 'or')).toHaveLength(1);
   });
 
   it('does not revert when no source was passed (already-classified search result)', async () => {
