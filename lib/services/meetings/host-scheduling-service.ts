@@ -174,7 +174,7 @@ export interface MoveDirectInput {
   expectedStartIso?: string;
 }
 
-export type MoveFailureCode = 'NOT_FOUND' | 'SLOT_TAKEN' | 'CALENDAR_FAILED' | 'UNKNOWN';
+export type MoveFailureCode = 'NOT_FOUND' | 'SLOT_TAKEN' | 'CALENDAR_FAILED' | 'CANCELLED_MEANWHILE' | 'UNKNOWN';
 
 /** Flat shape for the same strictNullChecks reason as ScheduleDirectOutcome. */
 export interface MoveDirectOutcome {
@@ -471,24 +471,34 @@ export class HostSchedulingService {
       return { ok: false, error: { code: 'NOT_FOUND', message: 'That meeting was changed or cancelled meanwhile.' } };
     }
 
-    // A cancel can commit after the move and before the calendar patch or the
-    // emails. Re-checked at both points: a meeting cancelled meanwhile is
-    // never re-timed in Google and never gets a "rescheduled" email.
-    const stillConfirmed = async (): Promise<boolean> => {
-      const { data: now } = await (supabase as any)
+    // From here the row HAS moved (the conditional update above returned it),
+    // so no reply below may say "nothing changed".
+    //
+    // A cancel can still commit after that update. The cancel's own path then
+    // owns the calendar (marks the event cancelled) and the emails, so this
+    // move stops its own side effects. Only a status READ AS something other
+    // than 'confirmed' counts as a cancel: a failed or empty read is not
+    // evidence of one, and the move carries on.
+    const cancelledSince = async (): Promise<boolean> => {
+      const { data: now, error: readErr } = await (supabase as any)
         .from('meeting_bookings')
         .select('status')
         .eq('id', booking.id)
         .maybeSingle();
-      return (now as { status?: string } | null)?.status === 'confirmed';
+      const status = (now as { status?: string } | null)?.status;
+      return !readErr && typeof status === 'string' && status !== 'confirmed';
     };
-    const cancelledMeanwhile = {
+    const cancelledMeanwhile: MoveDirectOutcome = {
       ok: false,
-      error: { code: 'NOT_FOUND' as const, message: 'That meeting was cancelled meanwhile, so it was not moved.' },
+      error: {
+        code: 'CANCELLED_MEANWHILE',
+        message:
+          'The meeting was cancelled while it was being moved. The cancellation stands; nobody was sent the new time.',
+      },
     };
 
     const warnings: string[] = [];
-    if (booking.google_event_id && !(await stillConfirmed())) return cancelledMeanwhile;
+    if (booking.google_event_id && (await cancelledSince())) return cancelledMeanwhile;
     if (booking.google_event_id) {
       // false = Google answered and did not apply it (or no calendar access):
       // a definite refusal, so the row is put back. A thrown error = the
@@ -537,6 +547,9 @@ export class HostSchedulingService {
             },
           };
         }
+        // No row back and no error: the row is no longer 'confirmed' at the new
+        // time, i.e. it was cancelled meanwhile; nothing else here to do.
+        if (!backErr && (await cancelledSince())) return cancelledMeanwhile;
         // 23P01 here = another booking took the freed old time meanwhile.
         console.error(
           `${LOG_PREFIX} move: calendar patch AND restore failed for ${input.uid}:`,
@@ -549,7 +562,9 @@ export class HostSchedulingService {
     }
 
     // A held room follows the meeting (same rule as rescheduleBooking). If it
-    // cannot (a clash or an error), the move is reported half-done.
+    // cannot (a clash or an error), the move is reported half-done. A meeting
+    // cancelled meanwhile keeps its room released by the cancel.
+    if (booking.venue_reservation_id && (await cancelledSince())) return cancelledMeanwhile;
     if (booking.venue_reservation_id) {
       const { error: rErr } = await (supabase as any)
         .from('resource_reservations')
@@ -575,7 +590,7 @@ export class HostSchedulingService {
       .select('full_name, email')
       .eq('id', input.hostProfileId)
       .maybeSingle();
-    if (!(await stillConfirmed())) return cancelledMeanwhile;
+    if (await cancelledSince()) return cancelledMeanwhile;
 
     // Every invitee; when the list is empty, the one attendee on the row (as
     // cancelBooking does), so the host's copy always goes once.

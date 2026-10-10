@@ -535,6 +535,21 @@ describe('move_meeting (in place)', () => {
     expect(released()).toEqual([{ p_reservation_id: 'res-1' }]);
   });
 
+  it('a cancel that won mid-move is reported as such, and the reservation stays counted', async () => {
+    moveDirect.mockResolvedValue({
+      ok: false,
+      error: {
+        code: 'CANCELLED_MEANWHILE',
+        message: 'The meeting was cancelled while it was being moved. The cancellation stands; nobody was sent the new time.',
+      },
+    });
+    const res = await readRpc(await call('move_meeting', { uid: MEETING_UID, start_local: `${FUTURE_DATE}T18:00` }));
+    expect(textOf(res)).toBe(
+      'The meeting was cancelled while it was being moved. The cancellation stands; nobody was sent the new time.'
+    );
+    expect(released()).toEqual([]);
+  });
+
   it('refuses a new start in the past, even by a minute (no grace for moves)', async () => {
     const past = new Date(Date.now() - 60_000);
     const local = new Intl.DateTimeFormat('en-CA', {

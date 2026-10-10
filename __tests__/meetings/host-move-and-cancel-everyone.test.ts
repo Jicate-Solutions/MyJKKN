@@ -89,6 +89,8 @@ function makeDb(
     roomError?: boolean;
     /** A cancel commits right after the move's row update (the race). */
     cancelAfterMove?: boolean;
+    /** Status re-reads (after the move) fail. */
+    statusReadFails?: boolean;
   } = {}
 ) {
   const updates: Array<{ table: string; payload: Record<string, unknown>; where: Record<string, unknown> }> = [];
@@ -115,7 +117,11 @@ function makeDb(
             if (opts.cancelAfterMove && !isRestore) current = { ...(current as object), status: 'cancelled' };
             return { data: { id: (current as any).id }, error: null };
           }
-          if (table === 'meeting_bookings') return { data: current, error: null };
+          if (table === 'meeting_bookings') {
+            const statusOnlyRead = (current as any)?.start_time === NEW_START || updates.length > 0;
+            if (opts.statusReadFails && statusOnlyRead) return { data: null, error: { code: 'XX', message: 'read failed' } };
+            return { data: current, error: null };
+          }
           if (table === 'profiles') return { data: { full_name: 'The Director', email: 'director@jkkn.ac.in' }, error: null };
           return { data: null, error: null };
         },
@@ -274,8 +280,12 @@ describe('moveDirect: a cancel that lands mid-move (review 12:52 IST)', () => {
   it('a cancel after the row moved stops the calendar patch and every "moved" email', async () => {
     const { db } = makeDb(row(), { cancelAfterMove: true });
     const r = await HostSchedulingService.moveDirect(db, { uid: 'uid-1', hostProfileId: HOST, startIso: NEW_START, durationMin: 30 });
-    expect(r).toMatchObject({ ok: false, error: { code: 'NOT_FOUND' } });
-    expect(r.error?.message).toMatch(/cancelled meanwhile/);
+    // the row DID move; the reply says the cancel won, never "nothing changed"
+    expect(r).toMatchObject({ ok: false, error: { code: 'CANCELLED_MEANWHILE' } });
+    expect(r.error?.message).toBe(
+      'The meeting was cancelled while it was being moved. The cancellation stands; nobody was sent the new time.'
+    );
+    expect(r.error?.message).not.toMatch(/nothing was changed/i);
     expect(patchEventTime).not.toHaveBeenCalled();
     expect(sentEmails).toHaveLength(0);
   });
@@ -288,6 +298,26 @@ describe('moveDirect: a cancel that lands mid-move (review 12:52 IST)', () => {
     });
     await HostSchedulingService.moveDirect(h.db, { uid: 'uid-1', hostProfileId: HOST, startIso: NEW_START, durationMin: 30 });
     expect(h.now()).toMatchObject({ status: 'cancelled', start_time: NEW_START });
+    expect(sentEmails).toHaveLength(0);
+  });
+
+  it('a failed status read is NOT a cancel: the move goes on', async () => {
+    const { db, now } = makeDb(row(), { statusReadFails: true });
+    const r = await HostSchedulingService.moveDirect(db, { uid: 'uid-1', hostProfileId: HOST, startIso: NEW_START, durationMin: 30 });
+    expect(r.ok).toBe(true);
+    expect(patchEventTime).toHaveBeenCalled();
+    expect(now()).toMatchObject({ start_time: NEW_START, status: 'confirmed' });
+  });
+
+  it('a calendar refusal on a meeting cancelled meanwhile: no room move, no email, the cancel stands', async () => {
+    const h = makeDb(row({ venue_reservation_id: 'room-1' }));
+    patchEventTime.mockImplementation(async () => {
+      h.cancelNow();
+      return false;
+    });
+    const r = await HostSchedulingService.moveDirect(h.db, { uid: 'uid-1', hostProfileId: HOST, startIso: NEW_START, durationMin: 30 });
+    expect(r).toMatchObject({ ok: false, error: { code: 'CANCELLED_MEANWHILE' } });
+    expect(h.updates.filter((u) => u.table === 'resource_reservations')).toHaveLength(0);
     expect(sentEmails).toHaveLength(0);
   });
 

@@ -927,6 +927,11 @@ async function runMoveTool(
   }
   if (!outcome.ok) {
     const code = outcome.error?.code;
+    if (code === 'CANCELLED_MEANWHILE') {
+      // The row did move before the cancel landed: the reservation stays
+      // counted, and the reply says exactly what happened.
+      throw new DoorRefusal(outcome.error.message);
+    }
     if (code === 'SLOT_TAKEN' || code === 'CALENDAR_FAILED' || code === 'NOT_FOUND') {
       // All three are decided with nothing changed.
       await releaseBookingSlot(db, reservationId);
