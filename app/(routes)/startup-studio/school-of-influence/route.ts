@@ -3,6 +3,7 @@ import type { NextRequest } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { SOI_EVENT_TYPE } from '@/lib/services/school-of-influence/constants';
 import { logger } from '@/lib/utils/enhanced-logger';
+import { classifyAuthResult, type AuthVerdict } from '@/lib/auth/auth-retry';
 
 /**
  * /startup-studio/school-of-influence — answers with a REAL HTTP 307 (to settings
@@ -110,8 +111,16 @@ async function canConfigureProgramme(supabase: Supabase): Promise<boolean> {
 }
 
 function intakeOpenAt(row: ProgrammeRow, at: number): boolean {
-  if (row.registration_open_date && at < new Date(row.registration_open_date).getTime()) return false;
-  if (row.registration_close_date && at > new Date(row.registration_close_date).getTime()) return false;
+  // An unparseable date (NaN) is not "open": every comparison with NaN is
+  // false, which used to let a broken date through as an open window.
+  if (row.registration_open_date) {
+    const open = new Date(row.registration_open_date).getTime();
+    if (Number.isNaN(open) || at < open) return false;
+  }
+  if (row.registration_close_date) {
+    const close = new Date(row.registration_close_date).getTime();
+    if (Number.isNaN(close) || at > close) return false;
+  }
   return true;
 }
 
@@ -152,6 +161,7 @@ async function findProgrammeEventId(
       .select('id, status, institution_id, registration_open_date, registration_close_date')
       .eq('event_type', SOI_EVENT_TYPE)
       .eq('is_active', true)
+      .not('status', 'in', `(${SOI_NOT_OPEN_STATUSES.join(',')})`)
       .order('created_at', { ascending: false })
       .limit(MAX_CANDIDATES);
     if (error) {
@@ -183,13 +193,21 @@ async function findProgrammeEventId(
 export async function GET(request: NextRequest) {
   const supabase = await createClient();
   let userId: string | null = null;
+  let verdict: AuthVerdict;
   try {
-    const { data } = await supabase.auth.getUser();
+    const { data, error } = await supabase.auth.getUser();
     userId = data?.user?.id ?? null;
-  } catch {
-    userId = null;
+    verdict = classifyAuthResult(data?.user, error);
+  } catch (e) {
+    verdict = classifyAuthResult(null, e);
   }
-  if (!userId) {
+  // An Auth outage or a refresh race is NOT "signed out": sending that person
+  // to /auth/login can loop. Only a definite signed-out answer goes to sign-in.
+  if (verdict === 'retry') {
+    logger.warn('school-of-influence', '[soi-landing] could not tell who is signed in; showing unavailable');
+    return NextResponse.redirect(new URL(SOI_UNAVAILABLE_PATH, request.url), 307);
+  }
+  if (verdict === 'signed-out' || !userId) {
     // Same shape as the proxy's own sign-in redirect: /auth/login carrying the
     // destination in ?redirectedFrom= so the person comes straight back here.
     const login = new URL('/auth/login', request.url);
