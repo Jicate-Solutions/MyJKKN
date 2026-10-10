@@ -1,4 +1,4 @@
-// BUG-006273 review round 3: /api/events/[eventId]/winners answers a tie with
+// BUG-006273 review round 3: /api/events/winners answers a tie with
 // 409 (not a generic 500), refuses malformed ids with 400 before reaching the
 // database, and reads registrations in pages past PostgREST's 1000-row cap.
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -39,15 +39,14 @@ vi.mock('@/lib/supabase/server', () => ({
 const EV = '11111111-1111-4111-8111-111111111111';
 const REG = '22222222-2222-4222-8222-222222222222';
 
-import { GET, POST } from '@/app/api/events/[eventId]/winners/route';
+import { GET, POST } from '@/app/api/events/winners/route';
 
 const post = (eventId: string, changes: unknown) =>
   POST(
-    new Request(`http://x/api/events/${eventId}/winners`, {
+    new Request(`http://x/api/events/winners?eventId=${eventId}`, {
       method: 'POST',
       body: JSON.stringify({ changes }),
     }) as any,
-    { params: Promise.resolve({ eventId }) },
   );
 
 beforeEach(() => {
@@ -57,7 +56,7 @@ beforeEach(() => {
   svcPages.maxRows = Infinity;
 });
 
-describe('POST /api/events/[eventId]/winners', () => {
+describe('POST /api/events/winners', () => {
   it('a tie (23505) is a 409 with a message the organiser can act on', async () => {
     rpc.mockResolvedValue({ data: null, error: { code: '23505', message: 'duplicate key' } });
     const res = await post(EV, [{ registrationId: REG, final_rank: 1 }]);
@@ -105,11 +104,11 @@ describe('POST /api/events/[eventId]/winners', () => {
   });
 });
 
-describe('GET /api/events/[eventId]/winners', () => {
+describe('GET /api/events/winners', () => {
   it('reads every registration in pages, past the 1000-row cap', async () => {
     rpc.mockResolvedValue({ data: true, error: null });
     svcPages.rows = Array.from({ length: 2345 }, (_, i) => ({ id: `r${i}`, final_rank: null }));
-    const res = await GET(new Request('http://x') as any, { params: Promise.resolve({ eventId: EV }) });
+    const res = await GET(new Request(`http://x/api/events/winners?eventId=${EV}`) as any);
     const body = await res.json();
     expect(body.canManage).toBe(true);
     expect(body.registrations).toHaveLength(2345);
@@ -126,8 +125,7 @@ describe('GET /api/events/[eventId]/winners', () => {
 describe('round 6', () => {
   it('a literal null body is a 400, not a 500', async () => {
     const res = await POST(
-      new Request(`http://x/api/events/${EV}/winners`, { method: 'POST', body: 'null' }) as any,
-      { params: Promise.resolve({ eventId: EV }) },
+      new Request(`http://x/api/events/winners?eventId=${EV}`, { method: 'POST', body: 'null' }) as any,
     );
     expect(res.status).toBe(400);
     expect(rpc).not.toHaveBeenCalled();
@@ -137,7 +135,7 @@ describe('round 6', () => {
     rpc.mockResolvedValue({ data: true, error: null });
     svcPages.maxRows = 500;
     svcPages.rows = Array.from({ length: 1200 }, (_, i) => ({ id: `r${i}`, final_rank: null }));
-    const res = await GET(new Request('http://x') as any, { params: Promise.resolve({ eventId: EV }) });
+    const res = await GET(new Request(`http://x/api/events/winners?eventId=${EV}`) as any);
     expect((await res.json()).registrations).toHaveLength(1200);
   });
 });

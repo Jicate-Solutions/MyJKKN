@@ -1,7 +1,7 @@
 // hooks/events/use-event-winners.ts
 // Winner / runner-up / third place for a CULTURAL event (BUG-006273) — the
 // counterpart of useRecordPlacings for tournaments. Reads and writes go through
-// /api/events/[eventId]/winners; the database decides who may write.
+// /api/events/winners?eventId=; the database decides who may write.
 
 'use client';
 
@@ -52,7 +52,7 @@ export function useEventWinners(eventId: string, enabled = true) {
     queryKey: eventWinnersKey(eventId),
     queryFn: async ({ signal }): Promise<EventWinnersPayload> =>
       readJson(
-        await fetch(`/api/events/${eventId}/winners`, { cache: 'no-store', signal: requestSignal(signal) }),
+        await fetch(`/api/events/winners?eventId=${encodeURIComponent(eventId)}`, { cache: 'no-store', signal: requestSignal(signal) }),
       ),
     enabled: !!eventId && enabled,
   });
@@ -64,7 +64,7 @@ export function useRecordEventWinners(eventId: string) {
   return useMutation({
     mutationFn: async (changes: WinnerChange[]) =>
       readJson(
-        await fetch(`/api/events/${eventId}/winners`, {
+        await fetch(`/api/events/winners?eventId=${encodeURIComponent(eventId)}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ changes }),

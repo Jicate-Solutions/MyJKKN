@@ -39,7 +39,7 @@ describe('useRecordEventWinners', () => {
     await act(() => result.current.mutateAsync(changes));
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const [url, init] = fetchMock.mock.calls[0];
-    expect(url).toBe('/api/events/ev-1/winners');
+    expect(url).toBe('/api/events/winners?eventId=ev-1');
     expect(init.method).toBe('POST');
     expect(JSON.parse(init.body)).toEqual({ changes });
     // A hung server cannot leave Save disabled for ever.

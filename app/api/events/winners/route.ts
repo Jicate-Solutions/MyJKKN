@@ -1,7 +1,7 @@
 export const dynamic = 'force-dynamic';
 
 // ============================================================================
-// /api/events/[eventId]/winners — 1st / 2nd / 3rd place for a CULTURAL event
+// /api/events/winners?eventId=<id> — 1st / 2nd / 3rd place for a CULTURAL event
 // (BUG-006273). The cultural counterpart of the tournament "Record winners"
 // (#4222): a cultural event's participants are events_registrations rows, so
 // the place is events_registrations.final_rank.
@@ -33,14 +33,17 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 /** One save changes at most three places per competition; 100 is generous. */
 const MAX_CHANGES = 100;
 
+// A fixed path with ?eventId= (not /api/events/[eventId]/winners): a dynamic segment
+// costs 2 of Vercel's 2048-route budget, and main sits at the 2000 gate.
+function eventIdOf(request: Request): string {
+  return new URL(request.url).searchParams.get('eventId') ?? '';
+}
+
 /** PostgREST returns at most 1000 rows a request; read the list in pages. */
 const PAGE = 1000;
 
-export async function GET(
-  _request: NextRequest,
-  { params }: { params: Promise<{ eventId: string }> }
-) {
-  const { eventId } = await params;
+export async function GET(request: NextRequest) {
+  const eventId = eventIdOf(request);
   if (!UUID.test(eventId)) return NextResponse.json({ error: 'Event not found' }, { status: 400 });
   const { user } = await getAuthUser();
   if (!user) {
@@ -99,11 +102,8 @@ export async function GET(
   return NextResponse.json(payload);
 }
 
-export async function POST(
-  request: NextRequest,
-  { params }: { params: Promise<{ eventId: string }> }
-) {
-  const { eventId } = await params;
+export async function POST(request: NextRequest) {
+  const eventId = eventIdOf(request);
   const invalid = () =>
     NextResponse.json(
       { error: 'Each change needs a registration and a place of 1, 2, 3 or none.' },
