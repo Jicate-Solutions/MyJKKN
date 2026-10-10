@@ -22,7 +22,7 @@ import { CreateRoleDialog } from './_components/create-role-dialog';
 import { PageBreadcrumb } from '@/components/navigation';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { ScholarshipPermissionManager } from '@/app/(routes)/billing/discounts/_components/scholarship-permission-manager';
+import { ScholarshipPermissionManager } from '@/app/(routes)/billing/scholarships/_components/scholarship-permission-manager';
 import { UserInstitutionAccessManager } from './_components/user-institution-access-manager';
 import { useAuth } from '@/hooks/use-auth-provider';
 import { useTabParam } from '@/hooks/use-tab-param';

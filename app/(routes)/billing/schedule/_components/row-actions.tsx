@@ -182,7 +182,7 @@ export function DataTableRowActions<TData>({
                 bill.student?.last_name || ''
               }`.trim()}
               ? This action cannot be undone. All related payments, receipts,
-              discounts, and refunds will also be permanently removed.
+              scholarships, and refunds will also be permanently removed.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

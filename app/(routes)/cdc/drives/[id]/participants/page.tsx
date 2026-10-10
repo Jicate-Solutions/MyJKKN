@@ -23,14 +23,28 @@ import {
   BreadcrumbSeparator,
 } from '@/components/ui/breadcrumb';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Checkbox } from '@/components/ui/checkbox';
+import { cn } from '@/lib/utils';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { ClipboardCheck, Loader2, Lock, Search, UserCheck, Users } from 'lucide-react';
+import {
+  ArrowLeft,
+  ClipboardCheck,
+  FilterX,
+  Loader2,
+  Lock,
+  Plus,
+  Search,
+  ThumbsUp,
+  UserCheck,
+  UserMinus,
+  UserPlus,
+  Users,
+  X,
+} from 'lucide-react';
 import { useCdcDrive } from '@/hooks/cdc/use-cdc-drives';
 import {
   useCdcDriveParticipants,
@@ -39,9 +53,19 @@ import {
 } from '@/hooks/cdc/use-cdc-drive-day';
 import { DriveStatusBadge } from '../../_components/drive-status-badge';
 import { TablePager, usePager } from '../../_components/table-pager';
+import { Pill, TONE, initials, type Tone } from '../../_components/status-pill';
 
 const BUCKET_LABEL = { willing: 'Willing', not_willing: 'Not willing', pending: 'Pending' } as const;
-const BUCKET_VARIANT = { willing: 'default', not_willing: 'outline', pending: 'secondary' } as const;
+
+const BUCKET_TONE: Record<keyof typeof BUCKET_LABEL, Tone> = { willing: 'emerald', not_willing: 'slate', pending: 'amber' };
+
+const BUCKET_TABS = [
+  { key: 'all', label: 'All' },
+  { key: 'selected', label: 'Ticked' },
+  { key: 'willing', label: 'Willing' },
+  { key: 'not_willing', label: 'Not willing' },
+  { key: 'pending', label: 'Pending' },
+] as const;
 
 export default function CdcDriveParticipantsPage(props: { params: Promise<{ id: string }> }) {
   return (
@@ -163,6 +187,24 @@ function Content({ params }: { params: Promise<{ id: string }> }) {
   const allVisibleOn = visible.length > 0 && visible.every((r) => selected.has(r.learner_id));
   const pager = usePager(visible, 50);
 
+  const tickedVisible = visible.filter((r) => selected.has(r.learner_id)).length;
+  const editable = canManage && editableStage;
+  const stats: Array<{ label: string; value: number; icon: typeof Users; tone: Tone; filter?: typeof bucket }> = data
+    ? [
+        { label: 'Eligible', value: data.counts.audience, icon: Users, tone: 'slate', filter: 'all' },
+        { label: 'Willing', value: data.counts.willing, icon: ThumbsUp, tone: 'emerald', filter: 'willing' },
+        {
+          label: finalized ? 'Participants' : 'Ticked',
+          value: finalized && !dirty ? data.counts.participants : selected.size,
+          icon: UserCheck,
+          tone: 'violet',
+          filter: 'selected',
+        },
+        { label: 'Added by CDC', value: data.counts.added, icon: UserPlus, tone: 'amber' },
+        { label: 'Removed', value: data.counts.removed, icon: UserMinus, tone: 'rose' },
+      ]
+    : [];
+
   return (
     <ContentLayout title="Participants">
       <Breadcrumb>
@@ -175,34 +217,40 @@ function Content({ params }: { params: Promise<{ id: string }> }) {
         </BreadcrumbList>
       </Breadcrumb>
 
-      <div className="mt-6 space-y-4">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-          <div className="min-w-0">
-            <h1 className="text-2xl font-semibold flex items-center gap-2">
-              <UserCheck className="h-5 w-5 text-muted-foreground" />
-              {drive?.title ?? 'Drive'}
-            </h1>
-            <div className="text-sm text-muted-foreground mt-1 flex flex-wrap items-center gap-2">
-              {drive ? <DriveStatusBadge status={drive.status} /> : null}
-              {finalized ? (
-                <span className="inline-flex items-center gap-1">
-                  <Lock className="h-3.5 w-3.5" /> Finalized {new Date(data!.finalized_at!).toLocaleString()}
-                </span>
-              ) : (
-                <span>Not finalized yet</span>
-              )}
+      <div className="mt-6 space-y-5">
+        {/* ── Page header ── */}
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+          <div className="flex min-w-0 items-start gap-3">
+            <Button asChild variant="outline" size="icon" className="mt-0.5 h-9 w-9 shrink-0 rounded-full shadow-sm" title="Back to Drive">
+              <Link href={`/cdc/drives/${id}`} aria-label="Back to Drive">
+                <ArrowLeft className="h-4 w-4" />
+              </Link>
+            </Button>
+            <div className="min-w-0">
+              <h1 className="truncate text-2xl font-semibold tracking-tight">{drive?.title ?? 'Drive'}</h1>
+              <div className="mt-1.5 flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
+                {drive ? <DriveStatusBadge status={drive.status} /> : null}
+                {finalized ? (
+                  <span className="inline-flex items-center gap-1">
+                    <Lock className="h-3.5 w-3.5" /> Finalized {new Date(data!.finalized_at!).toLocaleString()}
+                  </span>
+                ) : (
+                  <span>Not finalized yet</span>
+                )}
+                {dirty ? <Pill tone="amber">Unsaved changes</Pill> : null}
+              </div>
             </div>
           </div>
           <div className="flex flex-wrap gap-2">
             {finalized ? (
-              <Button asChild variant="outline">
+              <Button asChild variant="outline" className="shadow-sm">
                 <Link href={`/cdc/drives/${id}/attendance`}>
                   <ClipboardCheck className="h-4 w-4 mr-2" /> Attendance
                 </Link>
               </Button>
             ) : null}
-            {canManage && editableStage ? (
-              <Button onClick={handleFinalize} disabled={finalize.isPending || selected.size === 0 || (finalized && !dirty)}>
+            {editable ? (
+              <Button className="shadow-sm" onClick={handleFinalize} disabled={finalize.isPending || selected.size === 0 || (finalized && !dirty)}>
                 {finalize.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Lock className="h-4 w-4 mr-2" />}
                 {finalized ? 'Save participant list' : `Finalize ${selected.size} participant${selected.size === 1 ? '' : 's'}`}
               </Button>
@@ -210,20 +258,38 @@ function Content({ params }: { params: Promise<{ id: string }> }) {
           </div>
         </div>
 
+        {/* ── Score cards. The first three also filter the list. ── */}
         {data ? (
-          <div className="grid gap-2 grid-cols-2 md:grid-cols-5">
-            {[
-              ['Eligible', data.counts.audience],
-              ['Willing', data.counts.willing],
-              [finalized ? 'Participants' : 'Ticked', finalized && !dirty ? data.counts.participants : selected.size],
-              ['Added by CDC', data.counts.added],
-              ['Removed', data.counts.removed],
-            ].map(([label, n]) => (
-              <div key={String(label)} className="rounded-md border p-3">
-                <p className="text-2xl font-semibold leading-none">{n}</p>
-                <p className="text-xs text-muted-foreground mt-1">{label}</p>
-              </div>
-            ))}
+          <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-5">
+            {stats.map((st) => {
+              const Icon = st.icon;
+              const active = !!st.filter && bucket === st.filter;
+              const body = (
+                <>
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-medium text-muted-foreground">{st.label}</span>
+                    <span className={cn('flex h-8 w-8 items-center justify-center rounded-lg ring-1 ring-inset', TONE[st.tone])}>
+                      <Icon className="h-4 w-4" />
+                    </span>
+                  </div>
+                  <p className="mt-2 text-3xl font-semibold leading-none tracking-tight tabular-nums">{st.value}</p>
+                </>
+              );
+              const base = 'rounded-xl border bg-card p-4 text-left shadow-sm transition';
+              return st.filter ? (
+                <button
+                  key={st.label}
+                  type="button"
+                  onClick={() => setBucket(st.filter!)}
+                  aria-pressed={active}
+                  className={cn(base, 'hover:border-primary/40 hover:shadow', active && 'border-primary ring-1 ring-primary')}
+                >
+                  {body}
+                </button>
+              ) : (
+                <div key={st.label} className={base}>{body}</div>
+              );
+            })}
           </div>
         ) : null}
 
@@ -239,110 +305,133 @@ function Content({ params }: { params: Promise<{ id: string }> }) {
           </Alert>
         ) : null}
 
-        <Card>
-          <CardHeader className="pb-3">
-            <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+        <Card className="overflow-hidden rounded-xl shadow-sm">
+          <CardHeader className="space-y-4 border-b bg-muted/20 pb-4">
+            <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
               <div>
-                <CardTitle className="text-base">Eligible learners</CardTitle>
+                <CardTitle className="flex items-center gap-2 text-base">
+                  Eligible learners
+                  <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground tabular-nums">
+                    {visible.length === rows.length ? rows.length : `${visible.length} of ${rows.length}`}
+                  </span>
+                  {tickedVisible > 0 ? <Pill tone="violet">{tickedVisible} ticked</Pill> : null}
+                </CardTitle>
                 <CardDescription>From the drive&apos;s institutions, programs and semesters. Nothing is entered by hand.</CardDescription>
               </div>
-              <div className="flex flex-wrap gap-2">
-                <Select value={bucket} onValueChange={(v) => setBucket(v as typeof bucket)}>
-                  <SelectTrigger className="w-44"><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All learners</SelectItem>
-                    <SelectItem value="selected">Ticked / participants</SelectItem>
-                    <SelectItem value="willing">Willing</SelectItem>
-                    <SelectItem value="not_willing">Not willing</SelectItem>
-                    <SelectItem value="pending">Pending</SelectItem>
-                  </SelectContent>
-                </Select>
-                <div className="relative">
-                  <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-                  <Input className="pl-8 w-60" placeholder="Search name / register no" value={search} onChange={(e) => setSearch(e.target.value)} />
-                </div>
+              <div className="relative w-full lg:w-72">
+                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <Input className="bg-background pl-9" placeholder="Search name / register no" value={search} onChange={(e) => setSearch(e.target.value)} />
               </div>
             </div>
 
-            <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
-              <Select
-                value={institution}
-                onValueChange={(v) => {
-                  setInstitution(v);
+            <div className="flex flex-col gap-3 xl:flex-row xl:items-center">
+              {/* Willingness / ticked — segmented control */}
+              <div className="inline-flex w-full shrink-0 overflow-x-auto rounded-lg bg-muted p-1 xl:w-auto" role="tablist" aria-label="Show">
+                {BUCKET_TABS.map((t) => {
+                  const active = bucket === t.key;
+                  return (
+                    <button
+                      key={t.key}
+                      type="button"
+                      role="tab"
+                      aria-selected={active}
+                      onClick={() => setBucket(t.key)}
+                      className={cn(
+                        'whitespace-nowrap rounded-md px-3 py-1.5 text-sm font-medium transition',
+                        active ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
+                      )}
+                    >
+                      {t.label}
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* Institution -> Program -> Semester */}
+              <div className="grid flex-1 gap-2 sm:grid-cols-3">
+                <Select
+                  value={institution}
+                  onValueChange={(v) => {
+                    setInstitution(v);
+                    setProgram('all');
+                    setSemester('all');
+                  }}
+                >
+                  <SelectTrigger className={cn('bg-background', institution !== 'all' && 'border-primary/60')}><SelectValue placeholder="Institution" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All institutions</SelectItem>
+                    {institutionOptions.map(([value, label]) => (
+                      <SelectItem key={value} value={value}>{label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Select
+                  value={program}
+                  onValueChange={(v) => {
+                    setProgram(v);
+                    setSemester('all');
+                  }}
+                >
+                  <SelectTrigger className={cn('bg-background', program !== 'all' && 'border-primary/60')}><SelectValue placeholder="Program" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All programs</SelectItem>
+                    {programOptions.map(([value, label]) => (
+                      <SelectItem key={value} value={value}>{label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Select value={semester} onValueChange={setSemester}>
+                  <SelectTrigger className={cn('bg-background', semester !== 'all' && 'border-primary/60')}><SelectValue placeholder="Semester" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All semesters</SelectItem>
+                    {semesterOptions.map((o) => (
+                      <SelectItem key={o} value={String(o)}>Semester {o}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <Button
+                variant="ghost"
+                size="sm"
+                className="shrink-0"
+                disabled={!filtersActive}
+                onClick={() => {
+                  setInstitution('all');
                   setProgram('all');
                   setSemester('all');
+                  setBucket('all');
+                  setSearch('');
                 }}
               >
-                <SelectTrigger><SelectValue placeholder="Institution" /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All institutions</SelectItem>
-                  {institutionOptions.map(([value, label]) => (
-                    <SelectItem key={value} value={value}>{label}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <Select
-                value={program}
-                onValueChange={(v) => {
-                  setProgram(v);
-                  setSemester('all');
-                }}
-              >
-                <SelectTrigger><SelectValue placeholder="Program" /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All programs</SelectItem>
-                  {programOptions.map(([value, label]) => (
-                    <SelectItem key={value} value={value}>{label}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <Select value={semester} onValueChange={setSemester}>
-                <SelectTrigger><SelectValue placeholder="Semester" /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All semesters</SelectItem>
-                  {semesterOptions.map((o) => (
-                    <SelectItem key={o} value={String(o)}>Semester {o}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
-                <span>
-                  Showing {visible.length} of {rows.length}
-                  {visible.length > 0 ? ` · ${visible.filter((r) => selected.has(r.learner_id)).length} ticked` : ''}
-                </span>
-                {filtersActive ? (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-7"
-                    onClick={() => {
-                      setInstitution('all');
-                      setProgram('all');
-                      setSemester('all');
-                      setBucket('all');
-                      setSearch('');
-                    }}
-                  >
-                    Clear filters
-                  </Button>
-                ) : null}
-              </div>
+                <FilterX className="mr-1.5 h-4 w-4" /> Clear
+              </Button>
             </div>
           </CardHeader>
           <CardContent className="p-0">
             {isLoading ? (
-              <p className="p-6 text-sm text-muted-foreground">Loading learners…</p>
+              <div className="flex items-center justify-center gap-2 p-12 text-sm text-muted-foreground">
+                <Loader2 className="h-4 w-4 animate-spin" /> Loading learners…
+              </div>
             ) : error ? (
               <p className="p-6 text-sm text-destructive">{error instanceof Error ? error.message : 'Failed to load'}</p>
             ) : visible.length === 0 ? (
-              <p className="p-6 text-sm text-muted-foreground">No learners match.</p>
+              <div className="flex flex-col items-center gap-2 p-12 text-center">
+                <span className="flex h-10 w-10 items-center justify-center rounded-full bg-muted">
+                  <Users className="h-5 w-5 text-muted-foreground" />
+                </span>
+                <p className="text-sm font-medium">No learners match</p>
+                <p className="text-xs text-muted-foreground">
+                  {filtersActive ? 'Try clearing the search or filters.' : 'This drive has no eligible learners yet.'}
+                </p>
+              </div>
             ) : (
               <div className="overflow-x-auto">
                 <Table>
                   <TableHeader>
-                    <TableRow>
+                    <TableRow className="bg-muted/40 hover:bg-muted/40 [&>th]:h-10 [&>th]:text-xs [&>th]:font-semibold [&>th]:uppercase [&>th]:tracking-wide">
                       <TableHead className="w-10">
-                        {canManage && editableStage ? (
+                        {editable ? (
                           <Checkbox checked={allVisibleOn} onCheckedChange={(v) => setAllVisible(v === true)} aria-label="Select all shown" />
                         ) : null}
                       </TableHead>
@@ -356,63 +445,101 @@ function Content({ params }: { params: Promise<{ id: string }> }) {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {pager.pageRows.map((r) => (
-                      <TableRow key={r.learner_id} className={selected.has(r.learner_id) ? 'bg-primary/5' : undefined}>
-                        <TableCell>
-                          {canManage && editableStage ? (
-                            <Checkbox checked={selected.has(r.learner_id)} onCheckedChange={() => toggle(r.learner_id)} />
-                          ) : null}
-                        </TableCell>
-                        <TableCell>
-                          <div className="font-medium">{r.learner_name ?? '—'}</div>
-                          <div className="text-xs text-muted-foreground">{r.register_number ?? ''}</div>
-                        </TableCell>
-                        <TableCell>
-                          <div className="text-sm">{r.institution_name ?? '—'}</div>
-                          <div className="text-xs text-muted-foreground">
-                            {[r.program_name, r.department_name].filter(Boolean).join(' · ')}
-                          </div>
-                        </TableCell>
-                        <TableCell>{r.semester_label ?? '—'}</TableCell>
-                        <TableCell><Badge variant={BUCKET_VARIANT[r.bucket]}>{BUCKET_LABEL[r.bucket]}</Badge></TableCell>
-                        <TableCell className="text-right">{r.cgpa != null ? Number(r.cgpa).toFixed(2) : '—'}</TableCell>
-                        <TableCell className="text-right">{r.arrears_count ?? '—'}</TableCell>
-                        <TableCell>
-                          {r.is_participant ? (
-                            <div className="flex items-center gap-2">
-                              <Badge>{r.participant_source === 'added' ? 'Added by CDC' : 'Participant'}</Badge>
-                              {canManage && finalized && editableStage ? (
-                                <Button variant="ghost" size="sm" className="h-7 text-destructive hover:text-destructive" disabled={change.isPending} onClick={() => handleSingle('remove', r.learner_id)}>
-                                  Remove
-                                </Button>
-                              ) : null}
+                    {pager.pageRows.map((r) => {
+                      const on = selected.has(r.learner_id);
+                      return (
+                        <TableRow
+                          key={r.learner_id}
+                          // Clicking anywhere on the row ticks its checkbox.
+                          className={cn('transition-colors', on && 'bg-primary/5 hover:bg-primary/10', editable && 'cursor-pointer')}
+                          onClick={editable ? () => toggle(r.learner_id) : undefined}
+                        >
+                          <TableCell onClick={(e) => e.stopPropagation()}>
+                            {editable ? <Checkbox checked={on} onCheckedChange={() => toggle(r.learner_id)} aria-label={`Select ${r.learner_name ?? 'learner'}`} /> : null}
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex items-center gap-3">
+                              <span
+                                className={cn(
+                                  'flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-xs font-semibold',
+                                  on ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground'
+                                )}
+                              >
+                                {initials(r.learner_name)}
+                              </span>
+                              <div className="min-w-0">
+                                <div className="truncate font-medium">{r.learner_name ?? '—'}</div>
+                                <div className="font-mono text-xs text-muted-foreground">{r.register_number ?? ''}</div>
+                              </div>
                             </div>
-                          ) : finalized ? (
-                            <div className="flex items-center gap-2">
-                              <span className="text-xs text-muted-foreground">{r.participant_status === 'removed' ? 'Removed' : 'Not included'}</span>
-                              {canManage && editableStage ? (
-                                <Button variant="ghost" size="sm" className="h-7" disabled={change.isPending} onClick={() => handleSingle('add', r.learner_id)}>
-                                  Add
-                                </Button>
-                              ) : null}
+                          </TableCell>
+                          <TableCell>
+                            <div className="text-sm">{r.institution_name ?? '—'}</div>
+                            <div className="text-xs text-muted-foreground">
+                              {[r.program_name, r.department_name].filter(Boolean).join(' · ')}
                             </div>
-                          ) : (
-                            <span className="text-xs text-muted-foreground">—</span>
-                          )}
-                        </TableCell>
-                      </TableRow>
-                    ))}
+                          </TableCell>
+                          <TableCell>
+                            {r.semester_label ? (
+                              <span className="whitespace-nowrap rounded-md bg-muted px-2 py-0.5 text-xs font-medium">{r.semester_label}</span>
+                            ) : (
+                              '—'
+                            )}
+                          </TableCell>
+                          <TableCell><Pill tone={BUCKET_TONE[r.bucket]}>{BUCKET_LABEL[r.bucket]}</Pill></TableCell>
+                          <TableCell className="text-right tabular-nums">{r.cgpa != null ? Number(r.cgpa).toFixed(2) : <span className="text-muted-foreground">—</span>}</TableCell>
+                          <TableCell className="text-right tabular-nums">{r.arrears_count ?? <span className="text-muted-foreground">—</span>}</TableCell>
+                          <TableCell onClick={(e) => e.stopPropagation()}>
+                            {r.is_participant ? (
+                              <div className="flex items-center gap-2">
+                                <Pill tone={r.participant_source === 'added' ? 'violet' : 'emerald'}>
+                                  {r.participant_source === 'added' ? 'Added by CDC' : 'Participant'}
+                                </Pill>
+                                {canManage && finalized && editableStage ? (
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="h-7 px-2 text-destructive hover:bg-destructive/10 hover:text-destructive"
+                                    disabled={change.isPending}
+                                    onClick={() => handleSingle('remove', r.learner_id)}
+                                  >
+                                    <X className="mr-1 h-3.5 w-3.5" /> Remove
+                                  </Button>
+                                ) : null}
+                              </div>
+                            ) : finalized ? (
+                              <div className="flex items-center gap-2">
+                                {r.participant_status === 'removed' ? (
+                                  <Pill tone="rose">Removed</Pill>
+                                ) : (
+                                  <span className="text-xs text-muted-foreground">Not included</span>
+                                )}
+                                {editable ? (
+                                  <Button variant="outline" size="sm" className="h-7 px-2" disabled={change.isPending} onClick={() => handleSingle('add', r.learner_id)}>
+                                    <Plus className="mr-1 h-3.5 w-3.5" /> Add
+                                  </Button>
+                                ) : null}
+                              </div>
+                            ) : (
+                              <span className="text-xs text-muted-foreground">—</span>
+                            )}
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
                   </TableBody>
                 </Table>
               </div>
             )}
             {visible.length > 0 ? (
-              <>
+              <div className="border-t bg-muted/20">
                 <TablePager pager={pager} />
-                <p className="px-4 pb-3 text-xs text-muted-foreground">
-                  The header checkbox ticks everything the filters show, on every page. Ticks on other pages are kept.
-                </p>
-              </>
+                {editable ? (
+                  <p className="px-4 pb-3 text-xs text-muted-foreground">
+                    Click a row to tick it. The header checkbox ticks everything the filters show, on every page. Ticks on other pages are kept.
+                  </p>
+                ) : null}
+              </div>
             ) : null}
           </CardContent>
         </Card>

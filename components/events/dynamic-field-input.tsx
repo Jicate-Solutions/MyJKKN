@@ -12,7 +12,8 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Button } from '@/components/ui/button';
-import { asFormUpload } from '@/types/tournament';
+import { asFormUpload, isValidHttpUrl } from '@/types/tournament';
+import { RichTextDisplay, richTextHasContent } from '@/components/events/registration/rich-text-display';
 import {
   Select,
   SelectContent,
@@ -70,7 +71,7 @@ function UploadField({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // Rendered from the picked File, so the thumbnail appears instantly instead
-  // of waiting on a signed URL round-trip for a private-bucket object.
+  // of waiting on a round-trip for a file that has no public URL.
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
 
   const accept = isImage
@@ -104,9 +105,9 @@ function UploadField({
   }
 
   function clear() {
-    // Clears the ANSWER only. The stored object is deliberately left in place:
-    // deleting it would need another privileged endpoint, and an orphan in a
-    // private bucket is cheaper than an endpoint that can delete by path.
+    // Clears the ANSWER only. The stored file is deliberately left in place:
+    // deleting it would need another privileged endpoint, and an orphan in an
+    // unshared Drive folder is cheaper than an endpoint that can delete by id.
     setPreviewUrl(null);
     onChange(null);
     if (inputRef.current) inputRef.current.value = '';
@@ -177,6 +178,49 @@ function UploadField({
   );
 }
 
+/**
+ * A link the registrant shares. Its own component because it holds state: the
+ * "not a link" message appears only once they leave the field, not on every
+ * keystroke of a half-typed address.
+ */
+function UrlField({ field, value, onChange, label }: Props & { label: React.ReactNode }) {
+  const [touched, setTouched] = useState(false);
+  const text = typeof value === 'string' ? value : '';
+  const invalid = touched && text.trim() !== '' && !isValidHttpUrl(text);
+
+  return (
+    <div className="space-y-1.5">
+      {label}
+      <Input
+        id={field.id}
+        type="url"
+        inputMode="url"
+        autoCapitalize="none"
+        autoCorrect="off"
+        spellCheck={false}
+        value={text}
+        onChange={(e) => onChange(e.target.value)}
+        onBlur={() => {
+          setTouched(true);
+          const trimmed = text.trim();
+          // People paste "www.youtube.com/…" — complete it rather than reject it.
+          const completed =
+            trimmed && !/^[a-z][a-z0-9+.-]*:/i.test(trimmed) ? `https://${trimmed}` : trimmed;
+          if (completed !== text) onChange(completed);
+        }}
+        placeholder={field.placeholder ?? 'https://'}
+        aria-invalid={invalid}
+      />
+      {invalid && (
+        <p className="text-xs text-destructive">
+          Enter a full link, for example https://drive.google.com/…
+        </p>
+      )}
+      {field.help_text && <p className="text-xs text-muted-foreground">{field.help_text}</p>}
+    </div>
+  );
+}
+
 export function DynamicFieldInput({ field, value, onChange, uploadContext }: Props) {
   const label = (
     <Label htmlFor={field.id}>
@@ -215,6 +259,23 @@ export function DynamicFieldInput({ field, value, onChange, uploadContext }: Pro
           {field.help_text && <p className="text-xs text-muted-foreground">{field.help_text}</p>}
         </div>
       );
+
+    // Display only, like the image above — text the organizer wrote. The
+    // registrant reads it and cannot edit it; it never writes to `value`. The
+    // field label is the builder's own name for the block and is not shown.
+    case 'rich_text':
+      return richTextHasContent(field.rich_content) ? (
+        <RichTextDisplay doc={field.rich_content} />
+      ) : (
+        // A block the organizer added but never wrote in — say so, as the
+        // display image does.
+        <div className="rounded-md border border-dashed p-4 text-sm text-muted-foreground">
+          No text written yet.
+        </div>
+      );
+
+    case 'url':
+      return <UrlField field={field} value={value} onChange={onChange} label={label} />;
 
     case 'textarea':
       return (

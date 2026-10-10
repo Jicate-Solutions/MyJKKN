@@ -5,6 +5,7 @@ import type {
 	BosCourseLearnOutcome,
 	BosUnit,
 	BosPracticalTopic,
+	BosProjectUnit,
 	BosTextbook,
 	BosWebResource,
 	BosPoMapping,
@@ -636,6 +637,12 @@ export interface CourseSyllabusPDFData {
 	 * syllabi are unchanged; `false` drops the prefix (S.No column still numbers).
 	 */
 	number_practical_topics?: boolean
+	/**
+	 * Project-paper content (`course_content.project_units`) — set instead of
+	 * `units` when the Content tab is in Project mode. Each unit is a title plus
+	 * titled guideline paragraphs ("rules") and optional remarks.
+	 */
+	project_units?: BosProjectUnit[]
 	/** Instructions displayed after all course content (units/topics) */
 	instruction?: string
 	textbooks?: BosTextbook[]
@@ -1034,10 +1041,76 @@ export function renderCourseSyllabusPDF(
 	}
 	}
 
+	// Project papers — the Content tab's Project mode stores project_units[]
+	// (title + guideline "rules" + remarks) instead of units[]/topics[]. The
+	// approved printed syllabus sets a project paper as plain justified
+	// paragraphs under the header table — no "Unit | Course content" grid, no
+	// unit numerals — so each paragraph is one full-width borderless row here.
+	// A line break typed in a rule/remarks box starts a new paragraph.
+	const renderProjectUnits = () => {
+	if (data.project_units && data.project_units.length > 0) {
+		const maxTextW = TABLE_W - 4 // cellPadding (2) on each side
+
+		const rows: AnyCell[][] = []
+		const pushRow = (lines: BosMixedLine[]) => {
+			if (lines.length === 0) return
+			rows.push([
+				{
+					content: lines.map(l => l.text).join('\n'),
+					_bosMixed: { lines },
+					styles: { lineWidth: 0 },
+				},
+			])
+		}
+		const paragraphsOf = (raw: string | undefined | null) =>
+			(raw ?? '').split(/\r?\n+/).map(s => sanitize(s)).filter(Boolean)
+		const pushPlain = (text: string) => {
+			doc.setFont('times', 'normal')
+			doc.setFontSize(FONT_SIZE)
+			const wrapped = doc.splitTextToSize(text, maxTextW) as string[]
+			pushRow(wrapped.map((l, idx) => ({ text: l, prefixEnd: 0, justify: idx < wrapped.length - 1 })))
+		}
+		const pushHeading = (text: string) => pushRow(wrapBoldPrefixRest(doc, text, '', maxTextW))
+
+		for (const unit of data.project_units) {
+			const unitTitle = sanitize(unit.unit_title || '')
+			const rules = (unit.rules ?? [])
+				.map(r => ({
+					title: sanitize(r.unit_of_experiment || '').replace(/[:\s]+$/, ''),
+					paragraphs: paragraphsOf(r.content),
+				}))
+				.filter(r => r.title || r.paragraphs.length > 0)
+
+			if (unitTitle) {
+				// A unit with no rules carries its whole guideline in the title box
+				// (authors paste the paragraph there) — print it as body text. With
+				// rules beneath it, the title is a heading and stays bold.
+				if (rules.length === 0) pushPlain(unitTitle)
+				else pushHeading(unitTitle)
+			}
+
+			for (const r of rules) {
+				const [first, ...rest] = r.paragraphs
+				if (r.title && first) pushRow(wrapBoldPrefixRest(doc, `${r.title}: `, first, maxTextW))
+				else if (r.title) pushHeading(r.title)
+				else if (first) pushPlain(first)
+				rest.forEach(pushPlain)
+			}
+
+			paragraphsOf(unit.remarks).forEach(pushPlain)
+		}
+
+		if (rows.length > 0) {
+			y = table(doc, y + 3, rows, { 0: { cellWidth: TABLE_W } })
+		}
+	}
+	}
+
 	// Theory first, then practical — combined "Theory + Practical" courses print
 	// the units section above the "List of Experiments" section.
 	renderTheoryUnits()
 	renderPracticalTopics()
+	renderProjectUnits()
 
 	// ── SECTION 5.5: Instructions (after units/topics) ──────────────────────────
 	if (data.instruction && data.instruction.trim()) {

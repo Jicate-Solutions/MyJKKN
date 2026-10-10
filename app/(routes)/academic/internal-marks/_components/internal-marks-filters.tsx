@@ -84,24 +84,34 @@ export function InternalMarksFiltersComponent({ institutionId, filters, onFilter
     programCode: filters.program_code,
   });
 
-  // Build a set of course codes that have at least one regular registration
+  // Build a set of course + semester pairs that have at least one regular registration
   // Server already filters is_regular=true, but we guard here for safety
   const registeredCourseCodes = useMemo(() => {
     const set = new Set<string>();
     if (registrations) {
       for (const r of registrations) {
-        if (r.is_regular && r.course_code) set.add(r.course_code);
+        if (r.is_regular && r.course_code) {
+          set.add(CiaMarksService.courseSemesterKey(r.course_code, r.semester));
+        }
       }
     }
     return set;
   }, [registrations]);
 
-  // Filter course-mapping: only entries whose course_code has a regular registration
+  // Filter course-mapping: a course is offered under a semester only when a regular
+  // registration exists for that course IN THAT SEMESTER
   const filteredMapping = useMemo(
     () =>
       courseMapping
         ? courseMapping.filter(
-            (m) => m.is_active && registeredCourseCodes.has(m.course_code)
+            (m) =>
+              m.is_active &&
+              registeredCourseCodes.has(
+                CiaMarksService.courseSemesterKey(
+                  m.course_code,
+                  CiaMarksService.semesterNumberOf(m.semester_code)
+                )
+              )
           )
         : [],
     [courseMapping, registeredCourseCodes]

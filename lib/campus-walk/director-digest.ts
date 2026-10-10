@@ -47,6 +47,7 @@ import {
 } from '@/lib/services/director-desk/handover-chase-service';
 import { friendlyDate, jobLabel, placeOf, PRINCIPAL_LIST_CATEGORY } from '@/lib/campus-walk/chase-up';
 import { logger } from '@/lib/utils/enhanced-logger';
+import { listRepeatRooms, repeatRoomLine } from '@/lib/campus-walk/cctv';
 
 const MODULE = 'campus-walk/director-digest';
 const CAMPUS_OPS_PROJECT_CODE = 'CAMPUS-OPS';
@@ -103,7 +104,17 @@ export function catchUpLine(c: CatchUpCount | null | undefined): string | null {
 
 export function buildDirectorDigest(
   jobs: DigestJob[],
-  opts: { earlierStillOpen: number; maxListed?: number; catchUp?: CatchUpCount | null }
+  opts: {
+    earlierStillOpen: number;
+    maxListed?: number;
+    catchUp?: CatchUpCount | null;
+    /**
+     * CCTV repeat rooms with a NEW report since the previous summary
+     * (Director, 9 Oct 2026: on the daily summary as well as the Monday
+     * list). Lines from repeatRoomLine — rooms and counts, never names.
+     */
+    cctvRepeatRooms?: string[];
+  }
 ): { title: string; body: string } {
   const maxListed = opts.maxListed ?? MAX_LISTED_JOBS;
   const byCollege = new Map<string, DigestJob[]>();
@@ -152,6 +163,12 @@ export function buildDirectorDigest(
   if (catchUp) {
     lines.push('', catchUp);
   }
+  const cctvRooms = opts.cctvRepeatRooms ?? [];
+  if (cctvRooms.length > 0) {
+    lines.push('', `CCTV repeat rooms with a new report since the last summary (${cctvRooms.length}):`);
+    for (const r of cctvRooms.slice(0, 20)) lines.push(`• ${r}`);
+    if (cctvRooms.length > 20) lines.push(`…and ${cctvRooms.length - 20} more on Monday's list.`);
+  }
   if (opts.earlierStillOpen > 0) {
     lines.push(
       '',
@@ -161,6 +178,12 @@ export function buildDirectorDigest(
   }
 
   const collegeCount = colleges.length;
+  if (n === 0 && !catchUp && cctvRooms.length > 0) {
+    return {
+      title: `Morning summary: ${cctvRooms.length} CCTV repeat ${cctvRooms.length === 1 ? 'room' : 'rooms'} with a new report`,
+      body: lines.join('\n')
+    };
+  }
   if (n === 0 && opts.catchUp && catchUp) {
     const j = opts.catchUp.jobs;
     return {
@@ -326,7 +349,19 @@ export async function runCampusWalkDirectorDigest(
     }
   }
 
-  if (fresh.length === 0 && result.catch_up.colleges === 0) return done('nothing_new');
+  // CCTV repeat rooms whose latest report landed since the previous summary.
+  // Not fatal: a failed read only drops this section.
+  let cctvRepeatRooms: string[] = [];
+  try {
+    const sinceMs = previousCutoffMs ?? nowMs - 24 * 60 * 60 * 1000;
+    cctvRepeatRooms = (await listRepeatRooms(db, new Date(nowMs)))
+      .filter((r) => Date.parse(r.lastAt) > sinceMs)
+      .map(repeatRoomLine);
+  } catch (e: any) {
+    result.errors.push(`CCTV repeat rooms could not be read: ${e?.message ?? e}`);
+  }
+
+  if (fresh.length === 0 && result.catch_up.colleges === 0 && cctvRepeatRooms.length === 0) return done('nothing_new');
 
   const collegeName = new Map<string, string>();
   const institutionIds = [...new Set(fresh.map((f) => f.institutionId).filter((v): v is string => Boolean(v)))];
@@ -356,7 +391,8 @@ export async function runCampusWalkDirectorDigest(
 
   const copy = buildDirectorDigest(jobs, {
     earlierStillOpen: result.earlier_still_open,
-    catchUp: result.catch_up
+    catchUp: result.catch_up,
+    cctvRepeatRooms
   });
   const notificationId = await createBellNotification(db, {
     recipientIds: check.userIds,

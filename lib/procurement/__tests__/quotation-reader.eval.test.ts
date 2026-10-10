@@ -14,12 +14,17 @@ import Anthropic from '@anthropic-ai/sdk';
 import { describe, expect, it } from 'vitest';
 import {
   RECORD_TOOL,
+  SECOND_LOOK_TOOL,
+  applySecondLook,
   buildExtractPrompt,
+  buildSecondLookPrompt,
   normalizeExtraction,
+  openForSecondLook,
   type DirectExtractItem,
   type DirectExtractResult,
 } from '../quotation-extract-core';
-import { checkQuotationMath } from '../quotation-math';
+import { checkQuotationMath, needsReread, pdfPageCount, readingTrouble } from '../quotation-math';
+import { BIOCHEM_LAB_REQUEST } from './fixtures/biochem-lab-request';
 
 interface Case {
   file: string;
@@ -30,6 +35,12 @@ interface Case {
     statedTotal?: number;
     minLines?: number;
     setParts?: number;
+    /** Every line read is for a requested item (a parts list for one set). */
+    allMatched?: boolean;
+    /** The quote is for something else entirely: no line may be put on a requested item. */
+    noneMatched?: boolean;
+    /** A line whose name matches must be put on this requested item (null = on none). */
+    matchedTo?: Array<{ name: RegExp; item: string | null }>;
     /** A line whose name matches must carry this NET unit price (after discount, before GST). */
     unitPrices?: Array<{ name: RegExp; price: number }>;
   };
@@ -39,21 +50,23 @@ const COMPUTER: DirectExtractItem[] = [{ id: 'computer', item_name: 'Computer', 
 
 const CASES: Case[] = [
   { file: 'JKKN REVISED.pdf', items: COMPUTER, expect: { statedTotal: 21800, minLines: 9, setParts: 9 } },
-  { file: 'Jothi i5 6th.pdf', items: COMPUTER },
-  { file: 'Jothi.pdf', items: COMPUTER },
-  { file: 'MGS i5 6th.pdf', items: COMPUTER },
-  { file: 'Deep I5 6TH.pdf', items: COMPUTER },
-  { file: 'Infinity Solution.pdf', items: COMPUTER },
+  { file: 'Jothi i5 6th.pdf', items: COMPUTER, expect: { allMatched: true } },
+  // Routers and media converters, not computer parts: nothing may be put on "Computer".
+  { file: 'Jothi.pdf', items: COMPUTER, expect: { noneMatched: true } },
+  { file: 'MGS i5 6th.pdf', items: COMPUTER, expect: { allMatched: true } },
+  { file: 'Deep I5 6TH.pdf', items: COMPUTER, expect: { allMatched: true } },
+  // CCTV (NVR, cameras, PoE switches): an incompatible quote, nothing matches "Computer".
+  { file: 'Infinity Solution.pdf', items: COMPUTER, expect: { noneMatched: true } },
   { file: 'Airpath.pdf' },
   { file: 'Amman IT Park.pdf' },
   { file: 'Estimate-EST-433.pdf' },
   { file: 'Estimate-EST-434.pdf' },
   // Prints rate and amount only, GST added per line.
-  { file: 'clt chemico.pdf', expect: { minLines: 55, unitPrices: [{ name: /molish/i, price: 135 }] } },
+  { file: 'clt chemico.pdf', items: BIOCHEM_LAB_REQUEST, expect: { minLines: 55, matchedTo: [{ name: /^molish/i, item: 'molisch' }, { name: /million/i, item: 'millon' }, { name: /wire guaze/i, item: 'wire-gauze' }], unitPrices: [{ name: /molish/i, price: 135 }] } },
   // Prints MRP 299, discount 55%, net 134.55 — the list price must not be taken.
-  { file: 'global clt.pdf', expect: { minLines: 55, unitPrices: [{ name: /molisch/i, price: 134.55 }, { name: /sulphuric acid 98/i, price: 211.5 }] } },
+  { file: 'global clt.pdf', items: BIOCHEM_LAB_REQUEST, expect: { minLines: 55, matchedTo: [{ name: /1-naphthol/i, item: 'alpha-naphthol' }, { name: /potassium sodium/i, item: 'rochelle-salt' }, { name: /diethyl ether/i, item: 'ether' }], unitPrices: [{ name: /molisch/i, price: 134.55 }, { name: /sulphuric acid 98/i, price: 211.5 }] } },
   // Prints MRP 299 × 5 less 38% = 926.90, so the net rate is 185.38.
-  { file: 'precision clt.pdf', expect: { minLines: 55, unitPrices: [{ name: /molisch/i, price: 185.38 }] } },
+  { file: 'precision clt.pdf', items: BIOCHEM_LAB_REQUEST, expect: { minLines: 55, matchedTo: [{ name: /dichloromethane/i, item: null }, { name: /^molisch/i, item: 'molisch' }, { name: /cupric|copper/i, item: 'copper-sulphate' }], unitPrices: [{ name: /molisch/i, price: 185.38 }] } },
 ];
 
 /** vitest does not load .env.local into process.env, so read the key from it. */
@@ -83,7 +96,11 @@ async function createWithRetry(client: Anthropic, params: Anthropic.MessageCreat
   throw last;
 }
 
+/** Output tokens and seconds spent on the current case — reading time is almost all output. */
+const spent = { out: 0, ms: 0 };
+
 async function read(client: Anthropic, model: string, pdf: Buffer, items: DirectExtractItem[]): Promise<DirectExtractResult> {
+  const t0 = Date.now();
   const message = await createWithRetry(client, {
     model,
     max_tokens: 16384,
@@ -99,9 +116,29 @@ async function read(client: Anthropic, model: string, pdf: Buffer, items: Direct
       },
     ],
   });
+  spent.out += message.usage.output_tokens;
+  spent.ms += Date.now() - t0;
   if (message.stop_reason === 'max_tokens') throw new Error('reply cut off at max_tokens');
   const block = message.content.find((b): b is Anthropic.ToolUseBlock => b.type === 'tool_use' && b.name === 'record_quotation');
   return normalizeExtraction(block?.input, items);
+}
+
+/** Mirrors quotation-pdf-direct.ts secondLook: one text-only call over what is still open. */
+async function secondLook(client: Anthropic, model: string, result: DirectExtractResult, items: DirectExtractItem[]): Promise<void> {
+  const { openItems, openLines } = openForSecondLook(result, items);
+  if (!openItems.length || !openLines.length) return;
+  const t0 = Date.now();
+  const message = await createWithRetry(client, {
+    model,
+    max_tokens: 4096,
+    tools: [SECOND_LOOK_TOOL],
+    tool_choice: { type: 'tool', name: 'pair_lines' },
+    messages: [{ role: 'user', content: buildSecondLookPrompt(openItems, openLines) }],
+  });
+  spent.out += message.usage.output_tokens;
+  spent.ms += Date.now() - t0;
+  const block = message.content.find((b): b is Anthropic.ToolUseBlock => b.type === 'tool_use' && b.name === 'pair_lines');
+  applySecondLook(result, items, openLines, block?.input);
 }
 
 describe.skipIf(!process.env.RUN_READER_EVAL)('quotation reader eval', () => {
@@ -111,7 +148,8 @@ describe.skipIf(!process.env.RUN_READER_EVAL)('quotation reader eval', () => {
       const key = apiKey();
       expect(key, 'CLAUDE_API_KEY not found').toBeTruthy();
       const client = new Anthropic({ apiKey: key as string });
-      const model = process.env.EVAL_MODEL || 'claude-haiku-4-5-20251001';
+      const model = process.env.EVAL_MODEL || 'claude-haiku-5-5';
+      const steady = process.env.EVAL_STEADY_MODEL || 'claude-haiku-4-5';
       const dir = process.env.EVAL_PDF_DIR || path.join(os.homedir(), 'Downloads');
 
       const report: Array<Record<string, unknown>> = [];
@@ -126,11 +164,21 @@ describe.skipIf(!process.env.RUN_READER_EVAL)('quotation reader eval', () => {
           continue;
         }
         let result: DirectExtractResult;
+        let reread = false;
+        spent.out = 0;
+        spent.ms = 0;
         try {
           const pdf = fs.readFileSync(file);
-          result = await read(client, model, pdf, c.items ?? []);
-          // Mirrors extractQuotationDirect: one more read when the first comes back empty.
-          if (!result.lines.length) result = await read(client, model, pdf, c.items ?? []);
+          // Mirrors extractQuotationDirect: a multi-page PDF goes to the steady model; a
+          // one-page reading that fails its own arithmetic is read again by it.
+          const pages = pdfPageCount(pdf);
+          result = await read(client, pages >= 2 ? steady : model, pdf, c.items ?? []);
+          if (pages < 2 && needsReread(result, pages) && steady !== model) {
+            const again = await read(client, steady, pdf, c.items ?? []);
+            reread = true;
+            if (readingTrouble(again, pages) < readingTrouble(result, pages)) result = again;
+          }
+          await secondLook(client, model, result, c.items ?? []);
         } catch (e) {
           report.push({ file: c.file, status: 'error', error: e instanceof Error ? e.message : String(e) });
           failures.push(`${c.file}: could not be read`);
@@ -144,11 +192,16 @@ describe.skipIf(!process.env.RUN_READER_EVAL)('quotation reader eval', () => {
           vendor: result.vendor?.name ?? null,
           lines: result.lines.length,
           matched_lines: forItem.length,
+          output_tokens: spent.out,
+          reread_by_steady_model: reread,
+          seconds: Math.round(spent.ms / 100) / 10,
+          settled_by_second_look: result.lines.filter((l) => l.reason).length,
           lines_sum: math.lines_sum,
           stated_total: result.stated_total,
           total_agrees: math.total_agrees,
           no_total_printed: result.stated_total == null,
           issues: math.issues,
+          matches: (c.items ?? []).length > 1 ? result.lines.map((l) => `${l.item_name} -> ${l.rfq_item_id ?? '-'}${l.checked ? ' (2x)' : l.uncertain ? ' (?)' : ''}${l.reason ? ` [${l.reason}]` : ''}`) : undefined,
           lines_preview: result.lines.slice(0, 12).map((l) => `${l.item_name} | rate ${l.unit_price} | qty ${l.quantity ?? '-'} | amt ${l.line_total ?? '-'} | ${l.rfq_item_id ? 'matched' : 'unmatched'}`),
         });
 
@@ -158,6 +211,17 @@ describe.skipIf(!process.env.RUN_READER_EVAL)('quotation reader eval', () => {
         }
         if (want?.minLines != null && result.lines.length < want.minLines) {
           failures.push(`${c.file}: ${result.lines.length} lines read, expected at least ${want.minLines}`);
+        }
+        if (want?.allMatched && (!result.lines.length || forItem.length !== result.lines.length)) {
+          failures.push(`${c.file}: ${forItem.length} of ${result.lines.length} lines tagged to the requested item`);
+        }
+        for (const m of want?.matchedTo ?? []) {
+          const hit = result.lines.find((l) => m.name.test(l.item_name));
+          if (!hit) failures.push(`${c.file}: no line matching ${m.name}`);
+          else if (hit.rfq_item_id !== m.item) failures.push(`${c.file}: ${hit.item_name} put on ${hit.rfq_item_id ?? 'nothing'}, expected ${m.item ?? 'nothing'}`);
+        }
+        if (want?.noneMatched && forItem.length) {
+          failures.push(`${c.file}: ${forItem.length} unrelated lines put on a requested item`);
         }
         if (want?.setParts != null && forItem.length !== want.setParts) {
           failures.push(`${c.file}: ${forItem.length} parts tagged to the set, expected ${want.setParts}`);

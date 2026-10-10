@@ -858,11 +858,15 @@ export const PERMISSION_CATEGORIES = [
       // delegated approver will NOT hold it, which is why that page guards on
       // "requester OR configured approver" rather than on this key.
       { key: 'billing.receipts.cancel.request', label: 'Request Receipt Cancellation' },
-      { key: 'billing.discounts.view', label: 'View Discounts' },
-      { key: 'billing.discounts.create', label: 'Create Discounts' },
-      { key: 'billing.discounts.edit', label: 'Edit Discounts' },
-      { key: 'billing.discounts.delete', label: 'Delete Discounts' },
-      { key: 'billing.discounts.approve', label: 'Approve Discounts' },
+      { key: 'billing.scholarships.view', label: 'View Scholarships' },
+      { key: 'billing.scholarships.create', label: 'Create Scholarships' },
+      { key: 'billing.scholarships.edit', label: 'Edit Scholarships' },
+      { key: 'billing.scholarships.delete', label: 'Delete Scholarships' },
+      { key: 'billing.scholarships.approve', label: 'Approve Scholarships' },
+      { key: 'billing.scholarship_setup.view', label: 'View Scholarship Categories & Types' },
+      { key: 'billing.scholarship_setup.create', label: 'Create Scholarship Categories & Types' },
+      { key: 'billing.scholarship_setup.edit', label: 'Edit Scholarship Categories & Types' },
+      { key: 'billing.scholarship_setup.delete', label: 'Delete Scholarship Categories & Types' },
       { key: 'billing.refunds.view', label: 'View Refunds' },
       { key: 'billing.refunds.create', label: 'Create Refunds' },
       { key: 'billing.refunds.edit', label: 'Edit Refunds' },
@@ -3112,6 +3116,9 @@ export const PERMISSION_CATEGORIES = [
     permissions: [
       // Gateway — required for any access to /procurement/*
       { key: 'procurement.view', label: 'Access Procurement Module' },
+      // Without this, requests / quotations / POs are limited to the viewer's own
+      // department (plus what they raised or must approve). Principal, Procurement Manager.
+      { key: 'procurement.view_all_departments', label: 'View All Departments (whole college)' },
 
       // Purchase Requests / Requisitions (raise vs approve are separate)
       { key: 'procurement.request_create', label: 'Create Purchase Requests' },

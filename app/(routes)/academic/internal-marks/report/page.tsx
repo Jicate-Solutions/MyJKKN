@@ -1,6 +1,7 @@
 'use client';
 
 import { Suspense, useState, useMemo, useCallback } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { useTabParam } from '@/hooks/use-tab-param';
 import { ContentLayout } from '@/components/layout/content-layout';
 import {
@@ -64,24 +65,38 @@ interface ReportFilterState {
   cia_round: number | undefined;
   program_code: string;
   semester_codes: string[]; // multi-select
-  course_codes: string[]; // multi-select (Course Wise tab only)
+  course_codes: string[]; // multi-select (Course Wise tab only) — courseKey() values
 }
 
 const REPORT_TABS = ['course-wise', 'consolidated'] as const;
+
+/**
+ * A course under one semester. The same course code selected under two semesters
+ * is two reports with two learner lists, never one merged list.
+ */
+const courseKey = (semesterCode: string, courseCode: string) =>
+  CiaMarksService.courseSemesterKey(courseCode, CiaMarksService.semesterNumberOf(semesterCode));
 
 function InternalMarksReportPageInner() {
   const { isSuperAdmin, canAccess, isLoading: isLoadingPermissions } = usePermissions();
   const { profile } = useAuth();
   const canView = isLoadingPermissions || isSuperAdmin || canAccess('academic.internal-marks', 'view');
 
-  const [filters, setFilters] = useState<ReportFilterState>({
-    institution_id: '',
-    exam_session_id: '',
-    setting_id: '',
-    cia_round: undefined,
-    program_code: '',
-    semester_codes: [],
-    course_codes: [],
+  // Mark Entry's "Consolidated Report" button links here with the filters it
+  // already had (?session=&setting=&round=&program=), so the report opens on the
+  // same scope. Read once, as the initial state — the URL is not kept in sync.
+  const searchParams = useSearchParams();
+  const [filters, setFilters] = useState<ReportFilterState>(() => {
+    const round = Number(searchParams.get('round'));
+    return {
+      institution_id: searchParams.get('institution') ?? '',
+      exam_session_id: searchParams.get('session') ?? '',
+      setting_id: searchParams.get('setting') ?? '',
+      cia_round: searchParams.get('round') && Number.isFinite(round) ? round : undefined,
+      program_code: searchParams.get('program') ?? '',
+      semester_codes: [],
+      course_codes: [],
+    };
   });
 
   // Institution ID resolution mirrors /academic/internal-marks:
@@ -142,11 +157,15 @@ function InternalMarksReportPageInner() {
   });
   const isLoadingFilters = isLoadingMapping || isLoadingReg;
 
+  // Course + semester pairs with a regular registration: a course is listed under a
+  // semester only when learners are registered for it IN THAT SEMESTER.
   const registeredCourseCodes = useMemo(() => {
     const set = new Set<string>();
     if (registrations) {
       for (const r of registrations) {
-        if (r.is_regular && r.course_code) set.add(r.course_code);
+        if (r.is_regular && r.course_code) {
+          set.add(CiaMarksService.courseSemesterKey(r.course_code, r.semester));
+        }
       }
     }
     return set;
@@ -156,7 +175,7 @@ function InternalMarksReportPageInner() {
     () =>
       courseMapping
         ? courseMapping.filter(
-            (m) => m.is_active && registeredCourseCodes.has(m.course_code)
+            (m) => m.is_active && registeredCourseCodes.has(courseKey(m.semester_code, m.course_code))
           )
         : [],
     [courseMapping, registeredCourseCodes]
@@ -206,20 +225,24 @@ function InternalMarksReportPageInner() {
   // Courses to fetch reports for:
   //  - Course Wise tab → only the selected course_codes
   //  - Consolidated tab → all courses in the selected semesters
-  const courseCodesForFetch = useMemo(() => {
-    if (activeTab === 'course-wise') {
-      return filters.course_codes;
-    }
-    return Object.values(coursesBySemester).flatMap((arr) =>
-      arr.map((c) => c.course_code)
+  const coursesForFetch = useMemo(() => {
+    const all = Object.entries(coursesBySemester).flatMap(([sem, arr]) =>
+      arr.map((c) => ({
+        key: courseKey(sem, c.course_code),
+        courseCode: c.course_code,
+        semester: CiaMarksService.semesterNumberOf(sem),
+      }))
     );
+    if (activeTab !== 'course-wise') return all;
+    const byKey = new Map(all.map((c) => [c.key, c]));
+    return filters.course_codes.flatMap((key) => byKey.get(key) ?? []);
   }, [activeTab, filters.course_codes, coursesBySemester]);
 
   // Batch-fetch reports for all courses needed
   const { data: multiReports, isFetching: isFetchingReports } = useMultiCiaReport({
     institutionId,
     examSessionId: filters.exam_session_id,
-    courseCodes: courseCodesForFetch,
+    courses: coursesForFetch,
     ciaRound: filters.cia_round,
     programCode: filters.program_code,
   });
@@ -264,22 +287,22 @@ function InternalMarksReportPageInner() {
   };
 
   // ── Course selection toggles (Course Wise tab) ────────────────────────────
-  const toggleCourse = (code: string) => {
+  const toggleCourse = (key: string) => {
     setFilters((prev) => ({
       ...prev,
-      course_codes: prev.course_codes.includes(code)
-        ? prev.course_codes.filter((c) => c !== code)
-        : [...prev.course_codes, code],
+      course_codes: prev.course_codes.includes(key)
+        ? prev.course_codes.filter((c) => c !== key)
+        : [...prev.course_codes, key],
     }));
   };
   const selectAllCourses = () => {
-    const all = Object.values(coursesBySemester).flatMap((arr) =>
-      arr.map((c) => c.course_code)
+    const all = Object.entries(coursesBySemester).flatMap(([sem, arr]) =>
+      arr.map((c) => courseKey(sem, c.course_code))
     );
     setFilters((prev) => ({ ...prev, course_codes: all }));
   };
   const selectSemesterCourses = (sem: string) => {
-    const semCourses = coursesBySemester[sem]?.map((c) => c.course_code) ?? [];
+    const semCourses = coursesBySemester[sem]?.map((c) => courseKey(sem, c.course_code)) ?? [];
     setFilters((prev) => {
       const without = prev.course_codes.filter((c) => !semCourses.includes(c));
       return { ...prev, course_codes: [...without, ...semCourses] };
@@ -336,14 +359,6 @@ function InternalMarksReportPageInner() {
       const { logoImage, rightLogoImage } = await loadLogos();
       const examSession = examSessions?.find((s) => s.id === filters.exam_session_id);
 
-      // Build a lookup: course_code → semester label (for the per-course PDF header)
-      const courseSemesterMap = new Map<string, string>();
-      for (const [sem, courses] of Object.entries(coursesBySemester)) {
-        for (const c of courses) {
-          courseSemesterMap.set(c.course_code, semesterLabel(sem));
-        }
-      }
-
       // Generate one PDF per course, then append them into a single multi-page document
       // by generating separately — user downloads N PDFs? No, we want ONE PDF with N pages.
       // For simplicity, we'll generate individual entries but call the shared function
@@ -352,7 +367,9 @@ function InternalMarksReportPageInner() {
       // → Workaround: use jsPDF multi-course via generateCourseWiseBatchPDF (created below).
       await generateCourseWiseBatchPDF({
         reports: multiReports.filter((r) =>
-          filters.course_codes.includes(r.courseCode)
+          filters.course_codes.includes(
+            CiaMarksService.courseSemesterKey(r.courseCode, r.semester)
+          )
         ),
         program: {
           program_code: filters.program_code,
@@ -364,7 +381,6 @@ function InternalMarksReportPageInner() {
         components: selectedRound.components,
         useCourseMax: selectedSetting?.use_course_max ?? false,
         courseInfoMap,
-        courseSemesterMap,
         institutionName: institutionHeader.institution_name,
         institutionAddress: institutionHeader.institution_address,
         institutionAccreditation: institutionHeader.institution_accreditation,
@@ -384,7 +400,6 @@ function InternalMarksReportPageInner() {
     filters,
     isFetchingReports,
     examSessions,
-    coursesBySemester,
     selectedProgram,
     selectedSetting,
     courseInfoMap,
@@ -408,9 +423,12 @@ function InternalMarksReportPageInner() {
       const { logoImage, rightLogoImage } = await loadLogos();
       const examSession = examSessions?.find((s) => s.id === filters.exam_session_id);
 
-      // Build a lookup from course_code → report data
+      // Build a lookup from course + semester → report data
       const reportByCourse = new Map(
-        multiReports.map((r) => [r.courseCode, r.data])
+        multiReports.map((r) => [
+          CiaMarksService.courseSemesterKey(r.courseCode, r.semester),
+          r.data,
+        ])
       );
 
       // Group courses into semesters (preserve the course_order ASC)
@@ -425,7 +443,7 @@ function InternalMarksReportPageInner() {
           const semCourses = coursesBySemester[semCode] ?? [];
           const courses = semCourses.map((c) => {
             const info = courseInfoMap.get(c.course_code);
-            const report = reportByCourse.get(c.course_code);
+            const report = reportByCourse.get(courseKey(semCode, c.course_code));
             return {
               course_code: c.course_code,
               course_name: info?.course_name ?? c.course_name ?? '',
@@ -442,7 +460,7 @@ function InternalMarksReportPageInner() {
           >();
 
           for (const c of semCourses) {
-            const report = reportByCourse.get(c.course_code);
+            const report = reportByCourse.get(courseKey(semCode, c.course_code));
             if (!report) continue;
             for (const learner of report.learners) {
               const key = learner.register_number;
@@ -784,7 +802,8 @@ function InternalMarksReportPageInner() {
                             </div>
                             <div className='grid grid-cols-1 md:grid-cols-2 gap-2'>
                               {semCourses.map((c) => {
-                                const checked = filters.course_codes.includes(c.course_code);
+                                const key = courseKey(semCode, c.course_code);
+                                const checked = filters.course_codes.includes(key);
                                 return (
                                   <Label
                                     key={c.course_code}
@@ -796,7 +815,7 @@ function InternalMarksReportPageInner() {
                                   >
                                     <Checkbox
                                       checked={checked}
-                                      onCheckedChange={() => toggleCourse(c.course_code)}
+                                      onCheckedChange={() => toggleCourse(key)}
                                     />
                                     <span className='font-mono text-xs font-medium'>
                                       {c.course_code}
@@ -927,7 +946,12 @@ export default function InternalMarksReportPage() {
 // ────────────────────────────────────────────────────────────────────────────
 
 async function generateCourseWiseBatchPDF(params: {
-  reports: Array<{ courseCode: string; data: import('@/types/internal-marks').CiaReportResponse }>;
+  reports: Array<{
+    courseCode: string;
+    /** Semester the report's learner list belongs to — printed in the page header. */
+    semester?: number;
+    data: import('@/types/internal-marks').CiaReportResponse;
+  }>;
   program: { program_code: string; program_name: string };
   examSession: string;
   assessmentName: string;
@@ -935,7 +959,6 @@ async function generateCourseWiseBatchPDF(params: {
   components: import('@/types/internal-marks').CiaComponent[];
   useCourseMax: boolean;
   courseInfoMap: Map<string, { course_name: string; internal_max_mark: number }>;
-  courseSemesterMap: Map<string, string>;
   /** Per-institution header strings (COE spec §7.1) */
   institutionName: string;
   institutionAddress?: string;
@@ -1028,7 +1051,7 @@ async function generateCourseWiseBatchPDF(params: {
     currentY += 6;
 
     // Program + Semester
-    const semesterLabel = params.courseSemesterMap.get(report.courseCode) ?? '';
+    const semesterLabel = report.semester != null ? String(report.semester) : '';
     doc.setFont('times', 'bold');
     doc.setFontSize(9);
     doc.text(`Program: ${params.program.program_code} - ${params.program.program_name}`, MARGIN, currentY);

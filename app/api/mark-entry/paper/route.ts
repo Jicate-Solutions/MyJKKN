@@ -104,15 +104,25 @@ export async function GET(request: NextRequest) {
       authored: p.authored !== false,
     }));
 
-    // rankPapers drops drafts (COE refuses marks against them). Capture what it
-    // dropped BEFORE filtering, so the UI can distinguish "no paper exists" from
-    // "the paper is written but nobody has submitted it".
-    const drafts = candidates.filter(
-      (p) => !isEntryEligible(p.status) && (!p.cia_setting_id || !ciaSettingId || p.cia_setting_id === ciaSettingId)
-    );
+    // rankPapers drops papers that are not approved yet. Capture what it dropped
+    // BEFORE filtering, so the UI can distinguish "no paper exists" from "the
+    // paper is a draft" from "the paper is submitted and awaiting approval".
     const ranked = rankPapers(candidates, ciaSettingId);
-    const draftOnly = ranked.length === 0 && drafts.length > 0;
-    const draftSetLabels = drafts.map((p) => p.set_label ?? String(p.set_number));
+    const pendingPapers = candidates
+      .filter(
+        (p) =>
+          !isEntryEligible(p.status) &&
+          (!p.cia_setting_id || !ciaSettingId || p.cia_setting_id === ciaSettingId)
+      )
+      // One paper is generated PER OFFERING, so a course shared by several
+      // programs can have several "Set 1 · draft" rows — id keeps them distinct
+      // and program_code tells the reader which is which.
+      .map((p) => ({
+        id: p.id,
+        set_label: p.set_label ?? String(p.set_number),
+        status: p.status,
+        program_code: p.program_code,
+      }));
 
     const options: MarkEntryPaperOption[] = ranked.map((p) => ({
       id: p.id,
@@ -133,8 +143,7 @@ export async function GET(request: NextRequest) {
           options,
           paper: null,
           access: guard.access,
-          draft_only: draftOnly,
-          draft_set_labels: draftOnly ? draftSetLabels : undefined,
+          pending_papers: pendingPapers,
         } as MarkEntryPaperResponse,
       });
     }
@@ -158,7 +167,7 @@ export async function GET(request: NextRequest) {
     const payload: MarkEntryPaperResponse = {
       options,
       access: guard.access,
-      draft_only: false,
+      pending_papers: pendingPapers,
       paper: {
         id: detail.id,
         course_code: detail.course_code ?? courseCode,

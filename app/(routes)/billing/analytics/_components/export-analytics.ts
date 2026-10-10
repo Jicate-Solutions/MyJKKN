@@ -60,7 +60,7 @@ export async function exportAnalyticsWorkbook(d: AnalyticsExportData): Promise<v
       { Metric: 'Bills Paid', Value: num(o.bills_paid) },
       { Metric: 'Bills Unpaid', Value: num(o.bills_unpaid) },
       { Metric: 'Bills Partially Paid', Value: num(o.bills_partially_paid) },
-      { Metric: 'Total Discounts', Value: num(o.total_discounts) },
+      { Metric: 'Total Scholarships', Value: num(o.total_scholarships) },
       { Metric: 'Total Refunds', Value: num(o.total_refunds) },
     ];
     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows.map(sanitizeRow)), 'Overview');
@@ -152,7 +152,7 @@ export async function exportAnalyticsWorkbook(d: AnalyticsExportData): Promise<v
       Actions: num(r.actions_count),
       Receipts: num(r.receipts_count),
       'Amount Collected': num(r.amount_collected),
-      Discounts: num(r.discounts_count),
+      Scholarships: num(r.scholarships_count),
       Refunds: num(r.refunds_count),
       'Last Active': r.last_active ?? '',
     }));

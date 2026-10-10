@@ -33,15 +33,25 @@ import {
   isFieldVisible,
   isSectionVisible,
 } from '@/components/events/dynamic-field-input';
+import { RichTextFieldEditor } from '@/components/events/registration/rich-text-field-editor';
 import { StandardFieldsCard, StandardFieldsPreview } from './standard-fields-card';
-import { FORM_FIELD_TYPES } from '@/types/tournament';
-import { REGISTRATION_PREFILL_SOURCES } from '@/lib/services/events/registration/form-prefill';
+import { FORM_FIELD_TYPES, isAnswerableField } from '@/types/tournament';
+import {
+  REGISTRATION_PREFILL_SOURCES,
+  type ContactBlockMode,
+} from '@/lib/services/events/registration/form-prefill';
+import {
+  ContactBlockBuilderRow,
+  ContactBlockPreview,
+  resolveContactBlock,
+} from '@/components/events/registration/contact-block-preview';
 import { parseConditionList, SPORT_CONDITION_KEY } from '@/lib/services/events/registration/form-visibility';
 import type {
   EventRegistrationFormField,
   FormFieldType,
   FormFieldOption,
   FormFieldCondition,
+  RichTextDoc,
 } from '@/types/tournament';
 
 // ── Editable shapes (client-only) ────────────────────────────────────────────
@@ -68,6 +78,8 @@ interface EditableField {
   condition: FormFieldCondition | null;
   /** Public image URL for an 'image_display' field; null for every other type. */
   media_url: string | null;
+  /** The text a 'rich_text' field shows; null for every other type. */
+  rich_content: RichTextDoc | null;
   /** Profile attribute to seed the answer from for a signed-in registrant. */
   prefill_source: string | null;
 }
@@ -114,6 +126,7 @@ function toEditableField(f: EventRegistrationFormField): EditableField {
     pattern: f.pattern,
     condition: f.condition,
     media_url: f.media_url ?? null,
+    rich_content: f.rich_content ?? null,
     prefill_source: f.prefill_source ?? null,
   };
 }
@@ -135,6 +148,7 @@ function newField(): EditableField {
     pattern: null,
     condition: null,
     media_url: null,
+    rich_content: null,
     prefill_source: null,
   };
 }
@@ -166,7 +180,8 @@ function serialize(sections: EditableSection[]): SaveFormSectionPayload[] {
       field_key: f.field_key ?? uniquify(slugifyKey(f.field_label)),
       field_label: f.field_label.trim() || 'Field',
       field_type: f.field_type,
-      is_required: f.is_required,
+      // A display-only field asks nothing, so it can never be required.
+      is_required: isAnswerableField(f.field_type) && f.is_required,
       display_order: fi,
       placeholder: f.placeholder,
       help_text: f.help_text?.trim() ? f.help_text.trim() : null,
@@ -180,6 +195,9 @@ function serialize(sections: EditableSection[]): SaveFormSectionPayload[] {
       // Without this the save RPC (which DELETEs and reinserts every field)
       // would wipe the organizer's image on any unrelated edit.
       media_url: f.media_url,
+      // Same rule as media_url. Dropped when the type was switched away from
+      // rich text, so a "Text" field does not carry a hidden block around.
+      rich_content: f.field_type === 'rich_text' ? f.rich_content : null,
       prefill_source: f.prefill_source,
     })),
   }));
@@ -207,6 +225,7 @@ function toPreviewField(f: EditableField, index: number): EventRegistrationFormF
     options: f.options,
     condition: f.condition,
     media_url: f.media_url,
+    rich_content: f.rich_content,
     prefill_source: f.prefill_source,
     created_at: '',
     updated_at: '',
@@ -405,8 +424,8 @@ function ConditionEditor({
 /**
  * Uploads the image an 'image_display' field shows and hands back its PUBLIC
  * URL. Organizer-side only: this posts to the authenticated /form-media route
- * and the public `event-form-media` bucket — never the private bucket that
- * holds registrants' documents.
+ * (a publicly shared Drive file) — never the unshared Drive folder that holds
+ * registrants' documents.
  */
 function FormMediaPicker({
   eventId,
@@ -505,19 +524,21 @@ function FieldRow({
   const needsOptions =
     field.field_type === 'select' || field.field_type === 'multi_select' || field.field_type === 'radio';
   const optionsText = (field.options ?? []).map((o) => o.label).join('\n');
-  // Display-only: it publishes an image instead of asking a question, so the
-  // answer-shaped settings (Required, validation) are meaningless for it.
+  // Display-only: it publishes an image or a block of text instead of asking a
+  // question, so the answer-shaped settings (Required, prefill) are meaningless.
   const isDisplayImage = field.field_type === 'image_display';
+  const isRichText = field.field_type === 'rich_text';
+  const isDisplayOnly = !isAnswerableField(field.field_type);
 
   return (
     <div className="space-y-3 rounded-lg border bg-background p-3">
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <div className="space-y-1.5">
-          <Label>Field label</Label>
+          <Label>{isRichText ? 'Name (not shown to registrants)' : 'Field label'}</Label>
           <Input
             value={field.field_label}
             onChange={(e) => onUpdate({ field_label: e.target.value })}
-            placeholder="e.g. T-shirt size"
+            placeholder={isRichText ? 'e.g. Rules' : 'e.g. T-shirt size'}
           />
         </div>
         <div className="space-y-1.5">
@@ -573,14 +594,27 @@ function FieldRow({
         />
       )}
 
-      <div className="space-y-1.5">
-        <Label>Help text (optional)</Label>
-        <Input
-          value={field.help_text ?? ''}
-          onChange={(e) => onUpdate({ help_text: e.target.value || null })}
-          placeholder="Shown under the field"
-        />
-      </div>
+      {isRichText && (
+        <div className="space-y-1.5">
+          <Label>Text shown to registrants</Label>
+          <RichTextFieldEditor
+            value={field.rich_content}
+            onChange={(doc) => onUpdate({ rich_content: doc })}
+          />
+        </div>
+      )}
+
+      {/* The rich text IS the text; a second, plain line under it adds nothing. */}
+      {!isRichText && (
+        <div className="space-y-1.5">
+          <Label>Help text (optional)</Label>
+          <Input
+            value={field.help_text ?? ''}
+            onChange={(e) => onUpdate({ help_text: e.target.value || null })}
+            placeholder="Shown under the field"
+          />
+        </div>
+      )}
 
       <ConditionEditor
         condition={field.condition}
@@ -589,7 +623,7 @@ function FieldRow({
         onPickSource={onPickConditionSource}
       />
 
-      {!isDisplayImage && (
+      {!isDisplayOnly && (
         <div className="space-y-1.5">
           <Label>Prefill from profile (signed-in MyJKKN users)</Label>
           <Select
@@ -618,7 +652,7 @@ function FieldRow({
 
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
-          {isDisplayImage ? (
+          {isDisplayOnly ? (
             <p className="text-xs text-muted-foreground">
               Shown to everyone — collects no answer.
             </p>
@@ -655,6 +689,7 @@ export function RegistrationFormEditor({
   formId,
   variant = 'tournament',
   backHref,
+  contactBlock = 'top',
 }: {
   eventId: string;
   /**
@@ -674,11 +709,17 @@ export function RegistrationFormEditor({
   variant?: 'tournament' | 'general';
   /** Where "Back" returns to. Defaults to the tournament detail page. */
   backHref?: string;
+  /**
+   * General events only: where the public form puts its built-in name / phone /
+   * email block (event_registration_forms.contact_block). Drawn greyed in the
+   * builder and preview so organizers know registrants are asked for it.
+   */
+  contactBlock?: ContactBlockMode;
 }) {
   const router = useRouter();
   const isTournament = variant === 'tournament';
   const backTo = backHref ?? `/events/tournament/${eventId}`;
-  const { data: form, isLoading } = useRegistrationForm(formId);
+  const { data: form, isLoading, isError, refetch } = useRegistrationForm(formId);
   const save = useSaveRegistrationForm(eventId);
   // Tournament only: the built-in Sport dropdown can drive a show/hide rule too
   // (e.g. "Jersey size" only when Sport is Volleyball). Not a custom field, so
@@ -761,7 +802,7 @@ export function RegistrationFormEditor({
     const custom = sections
       .filter((s) => s.uid !== sectionUid)
       .flatMap((s) => s.fields)
-      .filter((f) => f.field_type !== 'image_display')
+      .filter((f) => isAnswerableField(f.field_type))
       .map((f) => ({
         uid: f.uid,
         key: f.field_key,
@@ -838,7 +879,7 @@ export function RegistrationFormEditor({
   function conditionSourcesFor(fieldUid: string): ConditionSourceField[] {
     const custom = sections
       .flatMap((s) => s.fields)
-      .filter((f) => f.uid !== fieldUid && f.field_type !== 'image_display')
+      .filter((f) => f.uid !== fieldUid && isAnswerableField(f.field_type))
       .map((f) => ({
         uid: f.uid,
         key: f.field_key,
@@ -912,7 +953,36 @@ export function RegistrationFormEditor({
     [sections]
   );
 
-  if (isLoading) {
+  // Mirrors the public form's blockMode: 'hidden' with no field able to supply
+  // a name falls back to 'top', so the builder never shows less than the page.
+  // null = not a general event, or the block is genuinely switched off.
+  const { mode: contactMode, fellBack: contactFellBack } = useMemo(
+    () =>
+      isTournament
+        ? { mode: null, fellBack: false }
+        : resolveContactBlock(contactBlock, sections.flatMap((s) => s.fields)),
+    [isTournament, contactBlock, sections]
+  );
+
+  // Never offer an editable builder before it is seeded from the server.
+  // BUG-006271: when the first load failed, the builder used to render empty
+  // and editable; the organizer added questions, a later refetch (any settings
+  // change invalidates this query) then seeded the server's empty form OVER her
+  // edits, and Save — still enabled — sent zero sections.
+  if (!seeded && isError && !form) {
+    return (
+      <Card>
+        <CardContent className="space-y-3 py-8 text-center text-sm text-muted-foreground">
+          <p>This form&apos;s questions could not be loaded, so it cannot be edited yet.</p>
+          <Button type="button" variant="outline" size="sm" onClick={() => refetch()}>
+            Try again
+          </Button>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (isLoading || !seeded) {
     return (
       <div className="flex h-64 items-center justify-center">
         <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
@@ -971,8 +1041,9 @@ export function RegistrationFormEditor({
         </>
       ) : (
         <p className="text-sm text-muted-foreground">
-          Build the questions attendees answer when they register for this event. Unlike a
-          tournament, nothing is collected automatically — every question here is one you add.
+          Build the questions attendees answer when they register for this event. Apart from the
+          built-in name, phone &amp; email block (shown greyed below), every question here is one
+          you add.
         </p>
       )}
 
@@ -983,6 +1054,7 @@ export function RegistrationFormEditor({
               organizer does not re-create a built-in field as a custom one.
               Tournament-only — a general event collects nothing by default. */}
           {isTournament && <StandardFieldsCard />}
+          {contactMode === 'top' && <ContactBlockBuilderRow mode="top" fellBack={contactFellBack} />}
 
           {sections.length === 0 && (
             <Card>
@@ -1049,6 +1121,8 @@ export function RegistrationFormEditor({
           <Button type="button" variant="outline" onClick={addSection}>
             <Plus className="mr-1 h-3.5 w-3.5" /> Add section
           </Button>
+
+          {contactMode === 'bottom' && <ContactBlockBuilderRow mode="bottom" />}
         </div>
 
         {/* ── Live preview ── */}
@@ -1060,11 +1134,14 @@ export function RegistrationFormEditor({
               whether or not custom fields are enabled, so this heading would
               otherwise lie. A general event has no standard fields to show. */}
           {isTournament && <StandardFieldsPreview />}
+          {contactMode === 'top' && <ContactBlockPreview />}
           {!isEnabled && (
             <p className="rounded-md bg-muted px-3 py-2 text-sm text-muted-foreground">
               {isTournament
                 ? 'Custom fields are turned off — learners will only see the standard fields.'
-                : 'Custom fields are turned off — this form collects nothing.'}
+                : contactMode
+                  ? 'Custom fields are turned off — this form collects only the name, phone & email block.'
+                  : 'Custom fields are turned off — this form collects nothing.'}
             </p>
           )}
           {isEnabled && previewSections.length === 0 && (
@@ -1088,6 +1165,7 @@ export function RegistrationFormEditor({
                   ))}
               </div>
             ))}
+          {contactMode === 'bottom' && <ContactBlockPreview />}
         </div>
       </div>
     </div>

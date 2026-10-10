@@ -56,6 +56,9 @@ export interface ProcurementPurchaseOrder {
     gstin: string | null;
     address?: string | null;
     phone?: string | null;
+    /** The vendor master's usual terms — the order's last fallback. */
+    payment_terms?: string | null;
+    lead_time_days?: number | null;
   } | null;
   created_by_profile?: { full_name: string | null } | null;
   approved_by_profile?: { full_name: string | null } | null;
@@ -108,6 +111,8 @@ export interface PoWithItems extends ProcurementPurchaseOrder {
     delivery_time_days: number | null;
     payment_terms: string | null;
     warranty?: string | null;
+    /** When the quotation was entered — stands in for an undated quotation. */
+    created_at?: string | null;
   } | null;
 }
 

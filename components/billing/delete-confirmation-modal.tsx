@@ -207,7 +207,7 @@ export function DeleteConfirmationModal({
                 </div>
                 <p className="text-sm text-amber-700 mt-1">
                   This will automatically delete all related records including payments,
-                  discounts, receipts, and refunds. The billing summary will be updated.
+                  scholarships, receipts, and refunds. The billing summary will be updated.
                 </p>
               </div>
             )}

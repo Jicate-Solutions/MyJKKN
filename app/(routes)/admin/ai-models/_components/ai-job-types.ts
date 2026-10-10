@@ -150,3 +150,93 @@ export function extractAnswer(result: unknown): string {
   }
   return String(result);
 }
+
+// ── "Will the free Max lane run this?" (2026-10-09) ─────────────────────────
+// The rules below are what the live system does, verified 2026-10-09:
+//   • fn_ai_claim serves a job only when ai_jobs.lane = the runner's lane
+//     EXACTLY (the generic Windows runner asks for 'max') and the type is not
+//     interactive. ai_jobs.lane is copied from the type by fn_ai_enqueue.
+//   • ai-jobs-drain.mjs (Windows) then fails a job whose output_target is
+//     table:*, whose prompt is empty after filling, or that misses a required
+//     input. tool_set 'none' = no tools; anything else = curl as the requester.
+//   • fn_ai_enqueue lets 'seat_owner' types be run only by the Max seat list.
+// Without this, a developer can save a job the free lane will never pick up
+// and get no hint why — the job just sits pending.
+
+export type MaxLaneCheckKind = 'pass' | 'fail' | 'info';
+
+export interface MaxLaneCheck {
+  kind: MaxLaneCheckKind;
+  text: string;
+}
+
+type ReadinessInput = Pick<
+  AiJobTypeDef,
+  'lane' | 'interactive' | 'prompt_template' | 'output_target' | 'input_schema' | 'tool_set' | 'allow_rule'
+>;
+
+export function maxLaneReadiness(def: ReadinessInput): MaxLaneCheck[] {
+  const checks: MaxLaneCheck[] = [];
+  const lane = def.lane.trim();
+  const prompt = (def.prompt_template ?? '').trim();
+  const output = def.output_target.trim();
+  const toolSet = def.tool_set.trim() || 'none';
+
+  if (lane === 'max') {
+    checks.push({ kind: 'pass', text: 'Lane is Max, so the free background runner picks it up.' });
+  } else if (lane === 'api') {
+    checks.push({ kind: 'fail', text: 'Lane is API, the paid lane. The free Max runner never picks it up.' });
+  } else {
+    checks.push({
+      kind: 'fail',
+      text: `Lane is "${lane}". The free runner only serves lane "max". Any other lane needs its own runner on the Windows box.`,
+    });
+  }
+
+  checks.push(
+    def.interactive
+      ? { kind: 'fail', text: 'Interactive is on. The free background runner only takes jobs nobody is waiting on.' }
+      : { kind: 'pass', text: 'Not interactive.' },
+  );
+
+  checks.push(
+    prompt
+      ? { kind: 'pass', text: 'Prompt is filled in.' }
+      : { kind: 'fail', text: 'Prompt is empty. The runner fails a job with an empty prompt.' },
+  );
+
+  checks.push(
+    output.startsWith('table:')
+      ? { kind: 'fail', text: 'Output writes into a table. The free runner refuses that. Use job.result or inbox.' }
+      : { kind: 'pass', text: `Output goes to ${output || 'job.result'}.` },
+  );
+
+  const fieldKeys = new Set(def.input_schema.map((f) => f.key.trim()));
+  const missing = [...new Set([...prompt.matchAll(/\{\{\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*\}\}/g)].map((m) => m[1]))].filter(
+    (k) => !fieldKeys.has(k),
+  );
+  if (missing.length > 0) {
+    checks.push({
+      kind: 'fail',
+      text: `${missing.map((k) => `{{${k}}}`).join(', ')} ${missing.length === 1 ? 'has' : 'have'} no run-form field, so nothing fills ${missing.length === 1 ? 'it' : 'them'}. Add a field with that key.`,
+    });
+  }
+
+  checks.push(
+    toolSet === 'none'
+      ? { kind: 'info', text: 'Tool set "none": text in, text out. The AI reads no data.' }
+      : {
+          kind: 'info',
+          text: `Tool set "${toolSet}": the AI reads data as the person who ran the job, with their permissions. A list of tools is guidance to the AI, not a hard limit.`,
+        },
+  );
+
+  if (def.allow_rule.trim() === 'seat_owner') {
+    checks.push({
+      kind: 'info',
+      text: 'Only people on the Max seat list can run it. To open it to the team, set "Who can run it" to authenticated or permission:<key>.',
+    });
+  }
+
+  return checks;
+}

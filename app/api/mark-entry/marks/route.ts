@@ -109,13 +109,13 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Question paper not found' }, { status: 404 });
     }
 
-    // COE refuses marks against a draft paper, because a draft can still be
-    // regenerated from its template and mint new question ids. Reject here too,
-    // with a message that says what to do rather than echoing a 400 from COE.
+    // Marks are entered against an APPROVED paper only. A draft can still be
+    // regenerated from its template and mint new question ids, and a submitted
+    // paper can still be edited — either would orphan marks keyed against it.
     if (!isEntryEligible(paper.status)) {
       return NextResponse.json(
         {
-          error: `This question paper is still ${paper.status}. Submit or approve it before entering marks — a draft can be rebuilt from its template, which would orphan any marks keyed against it.`,
+          error: `This question paper is still ${paper.status}. It must be approved before marks can be entered.`,
         },
         { status: 409 }
       );

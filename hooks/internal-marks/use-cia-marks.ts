@@ -64,14 +64,16 @@ export function useCiaMarks(params: {
   courseCode: string | undefined;
   ciaRound: number | undefined;
   programCode?: string;
+  /** Semester of the course — scopes the read-back to the same learner list. */
+  semester?: number;
 }) {
-  const { institutionId, examSessionId, courseCode, ciaRound, programCode } = params;
+  const { institutionId, examSessionId, courseCode, ciaRound, programCode, semester } = params;
 
   return useQuery({
-    queryKey: academicKeys.internalMarks.marks.list({ institutionId, examSessionId, courseCode, ciaRound, programCode }),
+    queryKey: academicKeys.internalMarks.marks.list({ institutionId, examSessionId, courseCode, ciaRound, programCode, semester }),
     queryFn: () => CiaMarksService.getMarks({
       institutionId: institutionId!, examSessionId: examSessionId!,
-      courseCode: courseCode!, ciaRound: ciaRound!, programCode,
+      courseCode: courseCode!, ciaRound: ciaRound!, programCode, semester,
     }),
     enabled: !!institutionId && !!examSessionId && !!courseCode && ciaRound != null,
     placeholderData: (prev) => prev,

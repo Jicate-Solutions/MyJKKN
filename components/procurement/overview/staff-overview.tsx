@@ -39,7 +39,7 @@ const GATES: ReadonlyArray<{
 }> = [
   { gate: 1, name: 'Item approval', who: 'Approver checks the items', permissions: ['request_approve'], action: 'Review items', listHref: '/procurement/requests?stage=submitted' },
   { gate: 2, name: 'Quotes', who: 'Store collects vendor quotes', permissions: ['rfq_manage', 'quotation_manage'], action: 'Add quotes', listHref: '/procurement/requests?stage=getting_quotes' },
-  { gate: 3, name: 'Final approval', who: 'Super Admin approves vendor & price', permissions: null, action: 'Review & approve', listHref: '/procurement/requests?stage=with_super_admin' },
+  { gate: 3, name: 'Final approval', who: 'Super Admin approves vendor & price', permissions: null, action: 'Approve quotation', listHref: '/procurement/rfqs?status=pending_award_approval' },
   { gate: 4, name: 'Ordered', who: 'Waiting for the goods', permissions: ['grn_create'], action: 'Record delivery', listHref: '/procurement/requests?stage=ordered' },
   { gate: 5, name: 'Delivered', who: 'Store checks goods into stock', permissions: ['grn_verify'], action: 'Check delivery', listHref: '/procurement/grn?status=pending_verification' },
 ];
@@ -145,6 +145,8 @@ export function StaffOverview({ toolbarRight }: { toolbarRight?: ReactNode }) {
     ? waitRows.filter((r) => r.gate === step).sort((x, y) => daysSince(y.waiting_since) - daysSince(x.waiting_since))
     : null;
   const list = stepRows ?? (mode === 'mine' ? needsYou : mode === 'held' ? heldUp : null);
+  // The Super Admin's own queue is only final approvals, which are quotations, not requests.
+  const superAdminQueue = isSuperAdmin && !stepRows && mode === 'mine';
   const stepName = step ? GATE_NAME[step] : null;
 
   const columns = [
@@ -385,10 +387,16 @@ export function StaffOverview({ toolbarRight }: { toolbarRight?: ReactNode }) {
         {list !== null && list.length > 0 && (
           <div className="flex justify-end border-t px-4 py-2">
             <Link
-              href={step ? `${GATES.find((g) => g.gate === step)?.listHref}&institution=${college}` : '/procurement/requests'}
+              href={
+                step
+                  ? `${GATES.find((g) => g.gate === step)?.listHref}&institution=${college}`
+                  : superAdminQueue
+                    ? '/procurement/rfqs'
+                    : '/procurement/requests'
+              }
               className="inline-flex items-center text-sm font-medium text-primary hover:underline"
             >
-              {step ? 'Open all in this step' : 'All requests'} <ChevronRight className="ml-0.5 h-4 w-4" aria-hidden />
+              {step ? 'Open all in this step' : superAdminQueue ? 'All quotations' : 'All requests'} <ChevronRight className="ml-0.5 h-4 w-4" aria-hidden />
             </Link>
           </div>
         )}

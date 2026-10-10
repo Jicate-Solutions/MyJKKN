@@ -28,8 +28,10 @@
  * applied by hand in the Supabase SQL editor. Until it is, every write fails with
  * `column "question_marks" does not exist`.
  *
- * Entry is only permitted against `submitted` / `approved` / `locked` papers —
- * see ENTRY_ELIGIBLE_STATUSES in lib/utils/mark-entry/entry-rules.ts.
+ * Entry is only permitted against `approved` / `locked` papers — see
+ * ENTRY_ELIGIBLE_STATUSES in lib/utils/mark-entry/entry-rules.ts. A question-wise
+ * round with no approved paper shows the paper's status and stays closed; it does
+ * NOT fall back to direct entry.
  *
  * ── Still open ───────────────────────────────────────────────────────────────
  *  - No v1 endpoint returns the mark-entry paper shape (`choice_group`,
@@ -65,17 +67,26 @@ export type LockReason = 'or-sibling' | 'answer-limit' | null;
  * number, both of which move when a paper is renumbered.
  */
 export interface EntryQuestion {
+  /** The question's id — or, for a split question, the SUB-DIVISION's id. */
   id: string;
-  /** Display label: question_number + sub_label, e.g. "6a". */
+  /** Display label: question_number + sub_label, e.g. "6a" — "12a i" for a sub-division. */
   label: string;
   part_label: string;
   question_number: number;
   sub_label?: string;
   /**
    * `${part_label}|${question_number}` — questions sharing this are OR
-   * alternatives and at most ONE of them may hold a mark.
+   * alternatives and at most ONE BRANCH of them may hold a mark.
    */
   choice_group: string;
+  /**
+   * The OR branch this column belongs to: the parent question's id. The
+   * sub-divisions of one split question share it, so they can all be answered
+   * together while the other branch of the pair stays locked.
+   */
+  branch_id: string;
+  /** Set on sub-division columns only: the question they were split from. */
+  parent_id?: string;
   /** Per-question max. */
   marks: number;
   is_choice_alternative: boolean;
@@ -154,17 +165,21 @@ export interface MarkEntryPaperResponse {
   paper: MarkEntryPaper | null;
   access: MarkEntryAccess;
   /**
-   * True when papers DO exist for this course + round but every one of them is
-   * still a draft, so none is entry-eligible.
+   * Papers that DO exist for this course + round but are not approved yet
+   * (draft / submitted), so none of them opens entry. Empty when nothing has
+   * been generated at all.
    *
-   * "Nobody has authored a paper" and "the paper is written but not submitted"
-   * look identical from an empty grid, yet they need opposite actions from the
-   * user — write one, versus go and chase the setter to submit it. Worth the
-   * extra field to tell them apart.
+   * "Nobody has authored a paper", "the paper is still a draft" and "the paper
+   * is submitted and waiting for approval" look identical from an empty grid,
+   * yet each needs a different person to act — so the notice names the status.
    */
-  draft_only: boolean;
-  /** Set labels of those drafts, so the message can name what is waiting. */
-  draft_set_labels?: string[];
+  pending_papers: Array<{
+    id: string;
+    set_label: string;
+    status: PaperStatus;
+    /** Program the paper was generated under — a shared course has one per program. */
+    program_code?: string;
+  }>;
 }
 
 // ── Marks ───────────────────────────────────────────────────────────────────

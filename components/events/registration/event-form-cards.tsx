@@ -67,10 +67,11 @@ import {
   useDeleteRegistrationForm,
   useUpdateRegistrationForm,
 } from '@/hooks/events/use-tournament-registration-form';
-import { effectiveFee, type EventRegistrationFormSummary } from '@/types/tournament';
+import { effectiveFee, isValidHttpUrl, type EventRegistrationFormSummary } from '@/types/tournament';
 import { FormStateBadge } from './registration-schedule-card';
 import { RegistrationFormShareDialog } from './registration-form-share-dialog';
 import { publicFormUrl, type EventFormVariant } from './public-form-url';
+import { ContactBlockPreview, resolveContactBlock } from './contact-block-preview';
 
 const dateTime = (iso: string) =>
   new Date(iso).toLocaleString('en-IN', {
@@ -89,10 +90,12 @@ const dateTime = (iso: string) =>
    them in a disabled fieldset would hide the real appearance of the controls. */
 function PreviewDialog({
   form,
+  variant,
   open,
   onClose,
 }: {
   form: EventRegistrationFormSummary;
+  variant: EventFormVariant;
   open: boolean;
   onClose: () => void;
 }) {
@@ -100,7 +103,14 @@ function PreviewDialog({
   const [values, setValues] = useState<Record<string, unknown>>({});
 
   const sections = data?.sections ?? [];
-  const isEmpty = !isLoading && sections.every((s) => !(s.fields ?? []).length);
+  // A general event's public form adds its own name / phone / email block;
+  // shown greyed so the organizer knows registrants are asked for it.
+  const contactMode =
+    variant === 'general'
+      ? resolveContactBlock(form.contact_block, sections.flatMap((s) => s.fields ?? [])).mode
+      : null;
+  const isEmpty =
+    !isLoading && !contactMode && sections.every((s) => !(s.fields ?? []).length);
 
   return (
     <Dialog open={open} onOpenChange={(next) => !next && onClose()}>
@@ -124,6 +134,7 @@ function PreviewDialog({
           </p>
         ) : (
           <div className="space-y-6">
+            {contactMode === 'top' && <ContactBlockPreview />}
             {sections.map((section) => (
               <div key={section.id} className="space-y-3">
                 <h3 className="text-sm font-semibold">{section.title}</h3>
@@ -140,6 +151,7 @@ function PreviewDialog({
                 ))}
               </div>
             ))}
+            {contactMode === 'bottom' && <ContactBlockPreview />}
           </div>
         )}
 
@@ -207,7 +219,21 @@ function ResponsesDialog({
                     {r.answers.map((a, i) => (
                       <div key={i} className="text-sm">
                         <dt className="text-xs text-muted-foreground">{a.label}</dt>
-                        <dd className="break-words">{a.value}</dd>
+                        <dd className="break-words">
+                          {/* A 'url' answer: organizers open it, not copy it. */}
+                          {isValidHttpUrl(a.value) ? (
+                            <a
+                              href={a.value}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-primary underline underline-offset-2"
+                            >
+                              {a.value}
+                            </a>
+                          ) : (
+                            a.value
+                          )}
+                        </dd>
                       </div>
                     ))}
                   </dl>
@@ -537,7 +563,12 @@ export function EventFormCards({
       />
 
       {previewing && (
-        <PreviewDialog form={previewing} open onClose={() => setPreviewing(null)} />
+        <PreviewDialog
+          form={previewing}
+          variant={variant}
+          open
+          onClose={() => setPreviewing(null)}
+        />
       )}
       {viewingResponses && (
         <ResponsesDialog

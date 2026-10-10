@@ -27,7 +27,7 @@ export const CACHE_TAG_PREFIXES = {
   RECEIPTS: 'receipts',
   REFUNDS: 'refunds',
   BILLS: 'bills',
-  DISCOUNTS: 'discounts',
+  SCHOLARSHIPS: 'scholarships',
   BILLING_CATEGORIES: 'billing-categories',
   BILLING_SCHEDULE: 'billing-schedule',
 

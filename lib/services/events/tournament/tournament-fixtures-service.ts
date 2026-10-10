@@ -11,7 +11,22 @@ import type {
   ManualMatchDto,
   GenerateFixturesResult,
   RecordResultDto,
+  TournamentHeat,
 } from '@/types/tournament';
+
+export interface UpdateHeatDto {
+  scheduled_at?: string | null;
+  venue_text?: string | null;
+  add_entry_ids?: string[];
+  remove_entry_ids?: string[];
+  results?: Array<{
+    heat_entry_id: string;
+    position?: number | null;
+    mark?: string | null;
+    mark_value?: number | null;
+    result_status?: 'ok' | 'dns' | 'dnf' | 'dq';
+  }>;
+}
 
 async function asJson<T>(res: Response): Promise<T> {
   const body = await res.json().catch(() => ({}));
@@ -157,5 +172,59 @@ export class TournamentFixturesService {
       body: JSON.stringify({ division_id: divisionId }),
     });
     return asJson<{ achievements_written: number }>(res);
+  }
+
+  // ── Heats (athletics-style group rounds) ────────────────────────────────
+
+  static async listHeats(eventId: string): Promise<TournamentHeat[]> {
+    const res = await fetch(`/api/events/tournament/${eventId}/heats`, { cache: 'no-store' });
+    const data = await asJson<{ heats: TournamentHeat[] }>(res);
+    return data.heats ?? [];
+  }
+
+  private static async postHeats<T>(eventId: string, body: object): Promise<T> {
+    const res = await fetch(`/api/events/tournament/${eventId}/heats`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    return asJson<T>(res);
+  }
+
+  /** Split the division's active entries into heats of `heatSize` athletes. */
+  static generateHeats(eventId: string, divisionId: string, heatSize: number, regenerate = false) {
+    return this.postHeats<{ heats_created: number }>(eventId, {
+      action: 'generate',
+      division_id: divisionId,
+      heat_size: heatSize,
+      regenerate,
+    });
+  }
+
+  /** Add an empty heat (fully manual building). */
+  static addHeat(eventId: string, divisionId: string) {
+    return this.postHeats<{ heats_created: number }>(eventId, { action: 'add_heat', division_id: divisionId });
+  }
+
+  /** Rank the division, stamp final ranks and award the top 3. */
+  static finalizeHeats(eventId: string, divisionId: string) {
+    return this.postHeats<{ achievements_written: number }>(eventId, {
+      action: 'finalize',
+      division_id: divisionId,
+    });
+  }
+
+  static async updateHeat(eventId: string, heatId: string, dto: UpdateHeatDto): Promise<void> {
+    const res = await fetch(`/api/events/tournament/${eventId}/heats/${heatId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(dto),
+    });
+    await asJson<{ ok: boolean }>(res);
+  }
+
+  static async deleteHeat(eventId: string, heatId: string): Promise<void> {
+    const res = await fetch(`/api/events/tournament/${eventId}/heats/${heatId}`, { method: 'DELETE' });
+    await asJson<{ ok: boolean }>(res);
   }
 }
