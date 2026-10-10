@@ -290,7 +290,8 @@ export default function GrnDetailPage() {
             </div>
             <DuplicateInvoiceCompare
               earlier={dup?.earlier ?? []}
-              hiddenElsewhere={!!dup?.hasDuplicate}
+              hiddenElsewhere={!!dup?.hasDuplicate && !dup?.listFailed}
+              checkFailed={!!dup?.listFailed}
               current={{
                 invoice_number: grn.invoice_number,
                 invoice_date: grn.invoice_date,

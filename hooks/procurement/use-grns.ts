@@ -2,7 +2,7 @@
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { ProcurementGrnService } from '@/lib/services/procurement/grn-service';
-import { findDuplicateGrns, receivedMatchingDelivery } from '@/lib/services/procurement/invoice-checks';
+import { findDuplicateGrns } from '@/lib/services/procurement/invoice-checks';
 import type { CreateGrnInput, GrnFilters, ReceiveReplacementInput } from '@/types/procurement';
 
 export function useGrns(filters: GrnFilters) {
@@ -68,27 +68,38 @@ export function useGrnDuplicateInvoice(
       // Deep-panel L5: allSettled, so one failed lookup still lets the page show what it
       // could find — and says checkFailed, so the page fails closed instead of reading a
       // missing answer as "no repeat".
-      const [dupR, visibleR, viewerR] = await Promise.allSettled([
+      // D4 at verify time: did whoever confirmed receive another delivery with this
+      // number (any status)? Deep-panel round 3 (U-L5 / S-M2): asked of the database, which
+      // sees every college, the same way hasDuplicate is — no longer worked out from the
+      // receipts this viewer can see. The verify guard decides; this only disables the button.
+      const confirmer = g.duplicate_confirmed_by ?? null;
+      const [dupR, visibleR, viewerR, confirmerR] = await Promise.allSettled([
         ProcurementGrnService.hasDuplicateInvoice(g),
         ProcurementGrnService.getSupplierInvoiceGrns(g.supplier_id),
         // D4 third-person rule: did the viewer receive the other delivery?
         viewerId ? ProcurementGrnService.receivedMatchingDelivery(g, viewerId) : Promise.resolve(false),
+        confirmer && confirmer !== viewerId && viewerId
+          ? ProcurementGrnService.confirmerReceivedMatch(g, viewerId)
+          : Promise.resolve(false),
       ]);
-      const checkFailed = [dupR, visibleR, viewerR].some((r) => r.status === 'rejected');
-      if (checkFailed) console.error('[procurement grn] duplicate invoice lookup failed:', [dupR, visibleR, viewerR]);
+      const checkFailed = [dupR, visibleR, viewerR, confirmerR].some((r) => r.status === 'rejected');
+      if (checkFailed)
+        console.error('[procurement grn] duplicate invoice lookup failed:', [dupR, visibleR, viewerR, confirmerR]);
       const hasDuplicate = dupR.status === 'fulfilled' ? dupR.value : false;
       const visible = visibleR.status === 'fulfilled' ? visibleR.value : [];
       const viewerReceivedMatch = viewerR.status === 'fulfilled' ? viewerR.value : false;
-      // D4 at verify time: did whoever confirmed receive another delivery with this
-      // number (any status)? The database decides; this only disables the button.
-      const confirmer = g.duplicate_confirmed_by ?? null;
       const confirmerReceivedMatch = !confirmer
         ? false
         : confirmer === viewerId
           ? viewerReceivedMatch
-          : receivedMatchingDelivery(visible, g, confirmer);
+          : confirmerR.status === 'fulfilled'
+            ? confirmerR.value
+            : false;
       return {
         checkFailed,
+        // Deep-panel round 3 (U-L4): the earlier-receipts list itself could not be read, so
+        // an empty list means "unknown", not "recorded at a college you cannot open".
+        listFailed: visibleR.status === 'rejected',
         hasDuplicate,
         viewerReceivedMatch,
         confirmerReceivedMatch,
@@ -145,6 +156,9 @@ export function useReceiveReplacement(grnId: string) {
   return useMutation({
     mutationFn: ({ input, userId }: { input: ReceiveReplacementInput; userId: string }) =>
       ProcurementGrnService.receiveReplacement(input, userId),
+    // Never re-run on failure (the app default retries a mutation once): receiving puts
+    // goods into stock, and a failed attempt may already have done so.
+    retry: false,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['procurement-grn-replacements', grnId] });
       queryClient.invalidateQueries({ queryKey: ['procurement-grns'] });
