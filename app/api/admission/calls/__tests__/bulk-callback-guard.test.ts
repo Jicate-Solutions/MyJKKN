@@ -184,6 +184,7 @@ vi.mock('@/lib/utils/enhanced-logger', () => ({
 }));
 
 import { GET, POST } from '../bulk-callback/route';
+import { logger } from '@/lib/utils/enhanced-logger';
 
 const rowA = { id: CB_A, institution_id: INST_A, caller_number: '9000000001', lead_id: null, status: 'pending' };
 const rowB = { id: CB_B, institution_id: INST_B, caller_number: '9000000002', lead_id: null, status: 'pending' };
@@ -212,6 +213,7 @@ beforeEach(() => {
   queueFilters.length = 0;
   permissionChecks.length = 0;
   initiateCall.mockReset();
+  vi.mocked(logger.error).mockClear();
   initiateCall.mockResolvedValue({ success: true, call_log_id: 'log-1' });
 });
 
@@ -365,6 +367,36 @@ describe('POST /api/admission/calls/bulk-callback', () => {
       counselor_id: USER.id,
     });
     expect(queueUpdates[0]).toEqual({ status: 'in_progress' });
+  });
+
+  it('a non-JSON body gets 400: queue never read, no call placed', async () => {
+    state.grantedPermissions = ALL_KEYS;
+    const req = new NextRequest('http://localhost/api/admission/calls/bulk-callback', {
+      method: 'POST',
+      body: 'not json {',
+      headers: { 'content-type': 'application/json' },
+    });
+    const res = await POST(req);
+    expect(res.status).toBe(400);
+    expect((await res.json()).success).toBe(false);
+    expect(queueFromCalls).toHaveLength(0);
+    expect(initiateCall).not.toHaveBeenCalled();
+  });
+
+  it('never echoes a failed call\'s provider error to the client; logs it server-side', async () => {
+    state.grantedPermissions = ['admission.leads.edit'];
+    initiateCall.mockResolvedValue({
+      success: false,
+      error: 'Exotel 401: api_token=sk_live_SECRET123 rejected',
+    });
+    const res = await POST(postReq({ callbackIds: [CB_A] }));
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(JSON.stringify(body)).not.toContain('SECRET123');
+    expect(JSON.stringify(body)).not.toContain('Exotel');
+    expect(body.results).toEqual([{ id: CB_A, success: false, error: 'Call could not be placed' }]);
+    expect(body.initiated).toBe(0);
+    expect(JSON.stringify((logger.error as any).mock.calls)).toContain('SECRET123');
   });
 
   it('the admission-global role can call any institution', async () => {

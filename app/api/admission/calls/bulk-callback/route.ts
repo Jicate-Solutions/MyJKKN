@@ -221,7 +221,17 @@ export const POST = withAuth(async (request: NextRequest, auth) => {
             .eq('id', entry.id);
         }
 
-        results.push({ id: entry.id, success: callResult.success, error: callResult.error });
+        if (callResult.success) {
+          results.push({ id: entry.id, success: true });
+        } else {
+          // The provider's error can carry config or provider detail: log it,
+          // send the client only the generic message.
+          logger.error('admission/calls', 'Bulk callback initiateCall failed', {
+            id: entry.id,
+            error: callResult.error,
+          });
+          results.push({ id: entry.id, success: false, error: 'Call could not be placed' });
+        }
       } catch (error) {
         logger.error('admission/calls', 'Bulk callback call error', { id: entry.id, error });
         results.push({ id: entry.id, success: false, error: 'Call could not be placed' });
