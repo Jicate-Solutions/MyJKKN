@@ -394,10 +394,12 @@ BEGIN
         USING ERRCODE = '42501';
     END IF;
 
-    -- 9b. The replacement marker is set at INSERT only (clearing it is harmless: it is
-    --     read only at INSERT, and ON DELETE SET NULL clears it).
-    IF NEW.replacement_id IS NOT NULL
-       AND NEW.replacement_id IS DISTINCT FROM OLD.replacement_id
+    -- 9b. The replacement marker is set at INSERT only. H2 round 3 (skeptic): clearing
+    --     it is refused too — trg_pgrnr_replacement_checks lets a claimed replacement be
+    --     reopened only while no receipt names it, so a cleared marker would let the
+    --     same rejected goods be received twice. (ON DELETE SET NULL still clears it when
+    --     an admin deletes the replacement row.)
+    IF NEW.replacement_id IS DISTINCT FROM OLD.replacement_id
        AND NOT (public.is_super_admin() OR public.is_admin()) THEN
       RAISE EXCEPTION 'which replacement a delivery fulfils cannot be changed after it is recorded'
         USING ERRCODE = '42501';
