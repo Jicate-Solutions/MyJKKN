@@ -43,11 +43,15 @@ function internalError() {
 
 /**
  * True only when the filter EXPLICITLY grants every institution: super admin,
- * or the admission-global role (the filter returns [] for both). An empty list
- * for anyone else means no institutions, never all of them.
+ * or the admission-global role with an empty list (the filter's bypass answer).
+ * An empty list for anyone else means no institutions, never all of them.
+ * Same rule as institutionInScope() in calls/initiate/route.ts (#4321).
  */
 function hasAllInstitutions(scope: ApiInstitutionFilterResult): boolean {
-  return scope.isAllowed && (scope.isSuperAdmin || scope.userRole === 'admission');
+  return (
+    scope.isAllowed &&
+    (scope.isSuperAdmin || (scope.userRole === 'admission' && scope.institutionIds.length === 0))
+  );
 }
 
 function institutionInScope(scope: ApiInstitutionFilterResult, institutionId: string): boolean {
