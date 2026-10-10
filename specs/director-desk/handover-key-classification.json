@@ -1329,6 +1329,7 @@
     "procurement.rfq_manage",
     "procurement.vendor_manage",
     "procurement.view",
+    "procurement.view_all_departments",
     "projects.view",
     "rcltp.assessment.manage",
     "rcltp.assessment.take",
