@@ -18,6 +18,7 @@ import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions
 import { useExamSessions, useCiaSettings } from '@/hooks/internal-marks/use-cia-settings';
 import { useRegistrations } from '@/hooks/internal-marks/use-cia-marks';
 import { usePlannedScopes } from '@/hooks/question-papers/use-question-papers';
+import { CiaMarksService } from '@/lib/services/internal-marks/cia-marks-service';
 import { getEntryWindowStatus, resolveMarkEntryType, resolveRoundDates } from '@/types/internal-marks';
 
 export interface MarkEntryFilterState {
@@ -27,6 +28,8 @@ export interface MarkEntryFilterState {
   cia_round?: number;
   program_code: string;
   course_code: string;
+  /** Semester of the selected course — always set together with `course_code`. */
+  semester?: number;
 }
 
 interface Props {
@@ -43,6 +46,11 @@ interface Props {
  * session's REGISTRATIONS rather than the course-mapping curriculum, which has
  * two advantages: every listed course provably has learners to mark, and the list
  * needs no semester_code join (registrations already carry the semester).
+ * That last part depends on COE's /api/v1/registrations returning `semester`,
+ * `semester_code`, `course_name` and `regulation_code` on every row.
+ *
+ * A course is listed once per SEMESTER it is registered in: a program can offer
+ * one course code in two semesters of a session, and those are two learner lists.
  */
 export function MarkEntryFilters({ institutionId, filters, onFiltersChange }: Props) {
   const { isSuperAdmin } = usePermissions();
@@ -73,28 +81,28 @@ export function MarkEntryFilters({ institutionId, filters, onFiltersChange }: Pr
     return [...map.entries()].map(([code, name]) => ({ code, name }));
   }, [plannedScopes]);
 
-  /** Distinct courses with at least one regular registration, grouped by semester. */
-  const courses = useMemo(() => {
-    const map = new Map<string, { code: string; name: string; semester?: string }>();
-    for (const r of registrations ?? []) {
-      if (!r.is_regular || !r.course_code) continue;
-      if (!map.has(r.course_code)) {
-        map.set(r.course_code, {
-          code: r.course_code,
-          name: r.course_name ?? '',
-          semester: r.semester_code,
-        });
-      }
-    }
-    return [...map.values()].sort(
-      (a, b) => (a.semester ?? '').localeCompare(b.semester ?? '') || a.code.localeCompare(b.code)
-    );
-  }, [registrations]);
+  /** Course + semester pairs with at least one regular registration, grouped by semester. */
+  const courses = useMemo(
+    () =>
+      CiaMarksService.getCoursesFromRegistrations(registrations ?? [])
+        .filter((c) => c.course_code && c.semester != null)
+        .map((c) => ({
+          key: CiaMarksService.courseSemesterKey(c.course_code, c.semester),
+          code: c.course_code,
+          name: c.course_name ?? '',
+          semester: c.semester,
+          // e.g. "Sem 5 · R-2021"
+          tag: [`Sem ${c.semester}`, c.regulation_code].filter(Boolean).join(' · '),
+        })),
+    [registrations]
+  );
 
   const [programOpen, setProgramOpen] = useState(false);
   const [courseOpen, setCourseOpen] = useState(false);
   const selectedProgram = programs.find((p) => p.code === filters.program_code);
-  const selectedCourse = courses.find((c) => c.code === filters.course_code);
+  const selectedCourse = courses.find(
+    (c) => c.code === filters.course_code && c.semester === filters.semester
+  );
 
   const handleSession = (id: string) => {
     const session = examSessions?.find((s) => s.id === id);
@@ -117,6 +125,7 @@ export function MarkEntryFilters({ institutionId, filters, onFiltersChange }: Pr
       cia_round: Number(roundStr),
       program_code: '',
       course_code: '',
+      semester: undefined,
     });
   };
 
@@ -267,7 +276,12 @@ export function MarkEntryFilters({ institutionId, filters, onFiltersChange }: Pr
                         key={p.code}
                         value={`${p.name} ${p.code}`}
                         onSelect={() => {
-                          onFiltersChange({ ...filters, program_code: p.code, course_code: '' });
+                          onFiltersChange({
+                            ...filters,
+                            program_code: p.code,
+                            course_code: '',
+                            semester: undefined,
+                          });
                           setProgramOpen(false);
                         }}
                       >
@@ -302,7 +316,7 @@ export function MarkEntryFilters({ institutionId, filters, onFiltersChange }: Pr
               >
                 <span className='truncate text-left'>
                   {selectedCourse
-                    ? `${selectedCourse.code}${selectedCourse.name ? ` - ${selectedCourse.name}` : ''}`
+                    ? `${selectedCourse.code} · ${selectedCourse.tag}${selectedCourse.name ? ` - ${selectedCourse.name}` : ''}`
                     : isLoadingReg ? 'Loading…'
                     : courses.length === 0 ? 'No registered courses'
                     : 'Search course…'}
@@ -321,10 +335,12 @@ export function MarkEntryFilters({ institutionId, filters, onFiltersChange }: Pr
                   <CommandGroup>
                     {courses.map((c) => (
                       <CommandItem
-                        key={c.code}
-                        value={`${c.code} ${c.name}`}
+                        key={c.key}
+                        // The tag keeps the two semesters of one course code distinct
+                        // to cmdk, which identifies items by this value.
+                        value={`${c.code} ${c.tag} ${c.name}`}
                         onSelect={() => {
-                          onFiltersChange({ ...filters, course_code: c.code });
+                          onFiltersChange({ ...filters, course_code: c.code, semester: c.semester });
                           setCourseOpen(false);
                         }}
                         className='flex items-start gap-2'
@@ -332,16 +348,12 @@ export function MarkEntryFilters({ institutionId, filters, onFiltersChange }: Pr
                         <Check
                           className={cn(
                             'mt-0.5 h-4 w-4 shrink-0',
-                            filters.course_code === c.code ? 'opacity-100' : 'opacity-0'
+                            selectedCourse?.key === c.key ? 'opacity-100' : 'opacity-0'
                           )}
                         />
                         <div className='min-w-0'>
                           <span className='font-mono text-xs font-medium'>{c.code}</span>
-                          {c.semester && (
-                            <span className='ml-2 text-[10px] text-muted-foreground'>
-                              {c.semester}
-                            </span>
-                          )}
+                          <span className='ml-2 text-[10px] text-muted-foreground'>· {c.tag}</span>
                           {c.name && (
                             <span className='block whitespace-normal text-xs text-muted-foreground'>
                               {c.name}

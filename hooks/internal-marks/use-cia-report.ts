@@ -10,14 +10,15 @@ export function useCiaReport(params: {
   courseCode: string | undefined;
   ciaRound: number | undefined;
   programCode?: string;
+  semester?: number;
 }) {
-  const { institutionId, examSessionId, courseCode, ciaRound, programCode } = params;
+  const { institutionId, examSessionId, courseCode, ciaRound, programCode, semester } = params;
 
   return useQuery({
-    queryKey: academicKeys.internalMarks.report.detail({ institutionId, examSessionId, courseCode, ciaRound, programCode }),
+    queryKey: academicKeys.internalMarks.report.detail({ institutionId, examSessionId, courseCode, ciaRound, programCode, semester }),
     queryFn: () => CiaReportService.getReport({
       institutionId: institutionId!, examSessionId: examSessionId!,
-      courseCode: courseCode!, ciaRound: ciaRound!, programCode,
+      courseCode: courseCode!, ciaRound: ciaRound!, programCode, semester,
     }),
     enabled: !!institutionId && !!examSessionId && !!courseCode && ciaRound != null,
     placeholderData: (prev) => prev,
@@ -28,25 +29,29 @@ export function useCiaReport(params: {
 /**
  * Fetches CIA report data for MULTIPLE courses in parallel.
  * Used by the consolidated report and course-wise PDF export.
+ *
+ * Each entry is a course in ONE semester: the same course code under two
+ * semesters is two reports, never one merged list.
  */
 export function useMultiCiaReport(params: {
   institutionId: string | undefined;
   examSessionId: string | undefined;
-  courseCodes: string[];
+  courses: Array<{ courseCode: string; semester?: number }>;
   ciaRound: number | undefined;
   programCode?: string;
 }) {
-  const { institutionId, examSessionId, courseCodes, ciaRound, programCode } = params;
+  const { institutionId, examSessionId, courses, ciaRound, programCode } = params;
   const enabled = !!institutionId && !!examSessionId && ciaRound != null;
 
   const queries = useQueries({
-    queries: courseCodes.map((courseCode) => ({
+    queries: courses.map(({ courseCode, semester }) => ({
       queryKey: academicKeys.internalMarks.report.detail({
         institutionId,
         examSessionId,
         courseCode,
         ciaRound,
         programCode,
+        semester,
       }),
       queryFn: () =>
         CiaReportService.getReport({
@@ -55,6 +60,7 @@ export function useMultiCiaReport(params: {
           courseCode,
           ciaRound: ciaRound!,
           programCode,
+          semester,
         }),
       enabled,
       ...QUERY_CONFIG.DYNAMIC_DATA,
@@ -62,8 +68,11 @@ export function useMultiCiaReport(params: {
   });
 
   const data = queries
-    .map((q, i) => ({ courseCode: courseCodes[i], data: q.data }))
-    .filter((x): x is { courseCode: string; data: CiaReportResponse } => !!x.data);
+    .map((q, i) => ({ ...courses[i], data: q.data }))
+    .filter(
+      (x): x is { courseCode: string; semester: number | undefined; data: CiaReportResponse } =>
+        !!x.data
+    );
   const isLoading = queries.some((q) => q.isLoading);
   const isFetching = queries.some((q) => q.isFetching);
   const isError = queries.some((q) => q.isError);
