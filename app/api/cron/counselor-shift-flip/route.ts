@@ -16,6 +16,10 @@
 //  Task C — MIDNIGHT CLEAR: at 00:00 IST (any 15-min window that includes
 //   midnight), clear emergency_off_today flags per decision #17.
 //
+//  Task D — MISSED-CALL CALLBACKS (2026-10-10): call fn_assign_pending_callbacks()
+//   which gives each unassigned missed-call callback to the on-duty counsellor of
+//   that college with the fewest open callbacks (setting telephony.callback_queue.rota).
+//
 // Both sub-tasks are independent — failure of one does NOT skip the other.
 // Safe to fire arbitrarily often: idempotent, worst-case 14-min lag on cascade.
 //
@@ -152,6 +156,20 @@ export async function GET(request: NextRequest) {
   }
 
   // ----------------------------------------------------------------
+  // Task D: Give unassigned missed-call callbacks to on-duty counsellors.
+  // ----------------------------------------------------------------
+  const callbackResult: { assigned: number; error: string | null } = { assigned: 0, error: null };
+  try {
+    const { data, error } = await supabase.rpc('fn_assign_pending_callbacks');
+    if (error) throw new Error(error.message);
+    callbackResult.assigned = typeof data === 'number' ? data : 0;
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error('[cron/counselor-shift-flip] Task D (callbacks) failed:', msg);
+    callbackResult.error = msg;
+  }
+
+  // ----------------------------------------------------------------
   // Success marker (per memory: feedback_routine_must_always_post_marker.md)
   // Every run — even zero-row no-ops — logs a structured payload so any
   // freshness-gate or monitoring tool can see the cron is alive.
@@ -159,7 +177,7 @@ export async function GET(request: NextRequest) {
   // shared cron_health_log table exists — confirmed by reading peer crons).
   // ----------------------------------------------------------------
   const durationMs = Date.now() - started;
-  const anyError = !!(cascadeResult.error || flushResult.error || midnightClearResult.error);
+  const anyError = !!(cascadeResult.error || flushResult.error || midnightClearResult.error || callbackResult.error);
 
   console.warn('[cron/counselor-shift-flip] run-complete', JSON.stringify({
     ok: true,
@@ -176,6 +194,7 @@ export async function GET(request: NextRequest) {
       error: flushResult.error,
     },
     midnight_clear: midnightClearResult,
+    callbacks: callbackResult,
     has_errors: anyError,
   }));
 
@@ -194,5 +213,6 @@ export async function GET(request: NextRequest) {
       error: flushResult.error,
     },
     midnight_clear: midnightClearResult,
+    callbacks: callbackResult,
   });
 }
