@@ -1,0 +1,82 @@
+/*
+ * Font faces that go with the self-hosted fonts in app/fonts/.
+ *
+ * 1. Metric-matched fallback faces. These are the exact values the Google font
+ * loader generated for each family (next/dist/server/font-utils
+ * calculateSizeAdjustValues), so text drawn in
+ * the fallback — during font swap, and for any character a font does not
+ * contain (e.g. Greek letters in Poppins) — renders exactly as it did before
+ * the fonts were self-hosted. Referenced by name via the `fallback` option in
+ * app/layout.tsx and app/(routes)/notifications/layout.tsx.
+ */
+@font-face {
+  font-family: 'Poppins Fallback';
+  src: local('Arial');
+  ascent-override: 93.62%;
+  descent-override: 31.21%;
+  line-gap-override: 8.92%;
+  size-adjust: 112.16%;
+}
+
+@font-face {
+  font-family: 'Noto Sans Tamil Fallback';
+  src: local('Arial');
+  ascent-override: 81.82%;
+  descent-override: 34.8%;
+  line-gap-override: 0%;
+  size-adjust: 106.33%;
+}
+
+@font-face {
+  font-family: 'DM Serif Display Fallback';
+  src: local('Times New Roman');
+  ascent-override: 94.37%;
+  descent-override: 30.51%;
+  line-gap-override: 0%;
+  size-adjust: 109.78%;
+}
+
+@font-face {
+  font-family: 'IBM Plex Sans Fallback';
+  src: local('Arial');
+  ascent-override: 101.32%;
+  descent-override: 27.18%;
+  line-gap-override: 0%;
+  size-adjust: 101.17%;
+}
+
+@font-face {
+  font-family: 'IBM Plex Mono Fallback';
+  src: local('Arial');
+  ascent-override: 76.16%;
+  descent-override: 20.43%;
+  line-gap-override: 0%;
+  size-adjust: 134.59%;
+}
+
+@font-face {
+  font-family: 'Newsreader Fallback';
+  src: local('Times New Roman');
+  ascent-override: 69.68%;
+  descent-override: 25.12%;
+  line-gap-override: 0%;
+  size-adjust: 105.48%;
+}
+
+/*
+ * 2. 'Noto Sans Tamil' by its real name. Before self-hosting, production served
+ * the Google faces under this exact family name, and several screens name it
+ * directly (question-paper editor, enquiry form, SOP ribbon). This face keeps
+ * them on the same font file and weights. It must load after globals.css's own
+ * 'Noto Sans Tamil' face (it does: this file is imported after globals.css), so
+ * it wins for the characters both cover, exactly as the Google faces did.
+ * unicode-range = Google's tamil + latin + latin-ext subsets.
+ */
+@font-face {
+  font-family: 'Noto Sans Tamil';
+  src: url('./noto-sans-tamil/NotoSansTamil-Variable.woff2') format('woff2');
+  font-weight: 400 700;
+  font-style: normal;
+  font-display: swap;
+  unicode-range: U+0000-02CC, U+02CE-02D7, U+02DA, U+02DC-02FF, U+0304, U+0308, U+0329, U+0964-0965, U+0B82-0BFA, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2000-206F, U+20A0-20C4, U+2113, U+2122, U+2191, U+2193, U+2212, U+2215, U+25CC, U+2C60-2C7F, U+A720-A7FF, U+FEFF, U+FFFD;
+}

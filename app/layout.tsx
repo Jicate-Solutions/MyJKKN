@@ -1,7 +1,8 @@
 import { Suspense } from 'react';
 import type { Metadata, Viewport } from 'next';
-import { Poppins, Noto_Sans_Tamil, DM_Serif_Display, IBM_Plex_Sans, IBM_Plex_Mono } from 'next/font/google';
+import localFont from 'next/font/local';
 import './globals.css';
+import './fonts/fonts.css';
 import { PushNotificationProvider } from '@/components/notifications/push-notification-provider';
 import { AppBadgeSync } from '@/components/notifications/app-badge-sync';
 import { InstallPromptBanner } from '@/components/pwa/install-prompt-banner';
@@ -14,46 +15,72 @@ import { SpeedInsights } from '@vercel/speed-insights/next';
 import { PreviewBanner } from '@/components/layout/preview-banner';
 import { PlatformGuideFabMount } from '@/components/guide/platform-guide-fab-mount';
 
-const poppins = Poppins({
-  weight: ['100', '200', '300', '400', '500', '600', '700', '800', '900'],
-  subsets: ['latin'],
+// Fonts are self-hosted from app/fonts/ (OFL, built from github.com/google/fonts)
+// so `next build` never fetches fonts.googleapis.com — a flaky fetch there failed
+// two production deploys on 2026-10-07. Each file covers the same Google subsets
+// (latin + latin-ext, plus tamil / greek where Google served them) and variable
+// files keep the axes Google served, so the rendered page is unchanged. The
+// metric-matched fallback faces the Google font loader used to generate live in
+// app/fonts/fonts.css, hence `adjustFontFallback: false` + `fallback` below.
+const poppins = localFont({
+  src: [
+    { path: './fonts/poppins/Poppins-Thin.woff2', weight: '100', style: 'normal' },
+    { path: './fonts/poppins/Poppins-ExtraLight.woff2', weight: '200', style: 'normal' },
+    { path: './fonts/poppins/Poppins-Light.woff2', weight: '300', style: 'normal' },
+    { path: './fonts/poppins/Poppins-Regular.woff2', weight: '400', style: 'normal' },
+    { path: './fonts/poppins/Poppins-Medium.woff2', weight: '500', style: 'normal' },
+    { path: './fonts/poppins/Poppins-SemiBold.woff2', weight: '600', style: 'normal' },
+    { path: './fonts/poppins/Poppins-Bold.woff2', weight: '700', style: 'normal' },
+    { path: './fonts/poppins/Poppins-ExtraBold.woff2', weight: '800', style: 'normal' },
+    { path: './fonts/poppins/Poppins-Black.woff2', weight: '900', style: 'normal' },
+  ],
   display: 'swap',
+  adjustFontFallback: false,
+  fallback: ['Poppins Fallback'],
   variable: '--font-poppins'
 });
 
-const notoSansTamil = Noto_Sans_Tamil({
-  weight: ['400', '500', '600', '700'],
-  subsets: ['tamil'],
+const notoSansTamil = localFont({
+  src: [{ path: './fonts/noto-sans-tamil/NotoSansTamil-Variable.woff2', weight: '400 700', style: 'normal' }],
   display: 'swap',
+  adjustFontFallback: false,
+  fallback: ['Noto Sans Tamil Fallback'],
   variable: '--font-noto-tamil'
 });
 
 // Editorial display serif — used for the YoY chart's verdict headline
 // ("Behind 2025-26 by 14%"). Distinctive against the generic sans-defaults
 // most dashboards use.
-const dmSerifDisplay = DM_Serif_Display({
-  weight: ['400'],
-  subsets: ['latin'],
+const dmSerifDisplay = localFont({
+  src: [{ path: './fonts/dm-serif-display/DMSerifDisplay-Regular.woff2', weight: '400', style: 'normal' }],
   display: 'swap',
+  adjustFontFallback: false,
+  fallback: ['DM Serif Display Fallback'],
   variable: '--font-dm-serif-display',
 });
 
 // Refined body sans — used for descriptions, labels, tooltips in the YoY
 // chart. Pairs with DM Serif Display for the editorial/financial-terminal
 // aesthetic Director-locked 2026-06-02.
-const ibmPlexSans = IBM_Plex_Sans({
-  weight: ['300', '400', '500', '600'],
-  subsets: ['latin'],
+const ibmPlexSans = localFont({
+  src: [{ path: './fonts/ibm-plex-sans/IBMPlexSans-Variable.woff2', weight: '300 600', style: 'normal' }],
   display: 'swap',
+  adjustFontFallback: false,
+  fallback: ['IBM Plex Sans Fallback'],
   variable: '--font-ibm-plex-sans',
 });
 
 // Tabular-figures monospace — used for trajectory values, axis labels,
 // drill-down counts. Fixed-width = trustworthy/numerical.
-const ibmPlexMono = IBM_Plex_Mono({
-  weight: ['400', '500', '600'],
-  subsets: ['latin'],
+const ibmPlexMono = localFont({
+  src: [
+    { path: './fonts/ibm-plex-mono/IBMPlexMono-Regular.woff2', weight: '400', style: 'normal' },
+    { path: './fonts/ibm-plex-mono/IBMPlexMono-Medium.woff2', weight: '500', style: 'normal' },
+    { path: './fonts/ibm-plex-mono/IBMPlexMono-SemiBold.woff2', weight: '600', style: 'normal' },
+  ],
   display: 'swap',
+  adjustFontFallback: false,
+  fallback: ['IBM Plex Mono Fallback'],
   variable: '--font-ibm-plex-mono',
 });
 
