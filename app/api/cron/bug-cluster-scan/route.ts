@@ -19,6 +19,7 @@ import {
   cascadeStatusToDuplicates,
   recordClusterOutcome
 } from '@/lib/bug-reports/resolve-cascade';
+import { readCount } from '@/lib/bug-reports/read-count';
 
 export async function GET(req: NextRequest) {
   const authHeader = req.headers.get('authorization') || '';
@@ -149,10 +150,11 @@ export async function GET(req: NextRequest) {
   try {
     // ?fixability=N caps this run only — so the pass can be exercised by hand
     // without occupying the single fixability slot for the full nightly batch.
-    const capOverride = Number(req.nextUrl.searchParams.get('fixability'));
-    fixability.cap = Number.isFinite(capOverride) && capOverride >= 0
-      ? Math.floor(capOverride)
-      : await readFixabilityCap(supabase);
+    // Precedence: query override → policy row → code default. See readCount for
+    // why absence must never be read as an explicit 0.
+    fixability.cap =
+      readCount(req.nextUrl.searchParams.get('fixability')) ??
+      (await readFixabilityCap(supabase));
 
     const { data: proposals, error: propErr } = await (supabase as any)
       .from('bug_clusters')
@@ -232,9 +234,7 @@ async function readFixabilityCap(
       p_scope_id: null
     });
     if (error) return FIXABILITY_PER_RUN_DEFAULT;
-    const n = typeof data === 'number' ? data : Number(data);
-    if (!Number.isFinite(n) || n < 0) return FIXABILITY_PER_RUN_DEFAULT;
-    return Math.floor(n);
+    return readCount(data) ?? FIXABILITY_PER_RUN_DEFAULT;
   } catch {
     return FIXABILITY_PER_RUN_DEFAULT;
   }

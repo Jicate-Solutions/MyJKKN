@@ -60,6 +60,7 @@ import {
   CANDIDATE_DESC_CHARS,
   type CandidateRow
 } from '@/lib/api/bug-reports/handlers/duplicate-check';
+import { readCount } from '@/lib/bug-reports/read-count';
 
 type Admin = ReturnType<typeof createServiceRoleClient>;
 
@@ -124,7 +125,7 @@ export async function GET(req: NextRequest) {
 
   const mode = req.nextUrl.searchParams.get('mode') ?? 'both';
   const dry = req.nextUrl.searchParams.get('dry') === '1';
-  const batchOverride = Number(req.nextUrl.searchParams.get('batch'));
+  const batchOverride = readCount(req.nextUrl.searchParams.get('batch'));
 
   const admin = createServiceRoleClient();
   const startedAt = Date.now();
@@ -408,13 +409,12 @@ async function submit(
   const batchRaw = await readPolicy(admin, POLICY.batchPerTick);
   const sinceRaw = await readPolicy(admin, POLICY.backlogSince);
 
+  // Precedence: query override → policy row → code default. readCount returns
+  // null for "absent or unusable" at every layer, so a missing policy row can
+  // never masquerade as an explicit 0. An explicit ?batch=0 or a seeded 0 DOES
+  // pause the drip — that is the point of distinguishing them.
   const enabled = typeof enabledRaw === 'boolean' ? enabledRaw : DEFAULT_ENABLED;
-  const policyBatch = Number(batchRaw);
-  const batch = Number.isFinite(batchOverride) && batchOverride > 0
-    ? Math.floor(batchOverride)
-    : Number.isFinite(policyBatch) && policyBatch >= 0
-      ? Math.floor(policyBatch)
-      : DEFAULT_BATCH_PER_TICK;
+  const batch = batchOverride ?? readCount(batchRaw) ?? DEFAULT_BATCH_PER_TICK;
   const since =
     typeof sinceRaw === 'string' && /^\d{4}-\d{2}-\d{2}/.test(sinceRaw)
       ? sinceRaw
