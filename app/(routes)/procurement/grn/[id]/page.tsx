@@ -21,6 +21,9 @@ import {
   duplicateHold,
   CONFIRMATION_VOID_MESSAGE,
   POSTED_GRN_STATUSES,
+  REPLACEMENT_SELF_CHECK_MESSAGE,
+  SELF_CHECK_MESSAGE,
+  selfCheckBlocks,
 } from '@/lib/services/procurement/invoice-checks';
 import { DuplicateInvoiceCompare } from '@/components/procurement/duplicate-invoice-compare';
 import { validateLineForVerify } from '@/lib/services/procurement/three-way-match';
@@ -179,6 +182,10 @@ export default function GrnDetailPage() {
   // refuse it too.
   const noInvoiceNumber = blankInvoiceBlocksStock(grn.invoice_number);
   const canVerifyNow = pending && canVerify;
+  // E1 (Director 2026-10-10 afternoon): whoever received this delivery never checks it,
+  // whatever their rights. The button stays visible but disabled, with a plain reason.
+  // The service and the database refuse it too.
+  const viewerIsReceiver = selfCheckBlocks(grn.received_by, profile?.id);
   // Replacement goods are received only against a delivery already checked into stock —
   // never one that is pending (and possibly held under I1). The service and the database
   // refuse it too (review round 2, red team).
@@ -211,8 +218,13 @@ export default function GrnDetailPage() {
               <Button
                 className="h-11 px-5 sm:h-9"
                 disabled={
-                  verifyGrn.isPending || chemicalBlocks.length > 0 || hold.blocksVerify || noInvoiceNumber
+                  verifyGrn.isPending ||
+                  chemicalBlocks.length > 0 ||
+                  hold.blocksVerify ||
+                  noInvoiceNumber ||
+                  viewerIsReceiver
                 }
+                title={viewerIsReceiver ? SELF_CHECK_MESSAGE : undefined}
                 onClick={verify}
               >
                 <CheckCircle2 className="mr-1.5 h-4 w-4" />
@@ -302,8 +314,15 @@ export default function GrnDetailPage() {
         )}
 
         {/* Verify warnings */}
-        {pending && (hasMismatch || chemicalBlocks.length > 0 || noInvoiceNumber) && (
+        {pending &&
+          (hasMismatch || chemicalBlocks.length > 0 || noInvoiceNumber || (canVerify && viewerIsReceiver)) && (
           <div className="space-y-2">
+            {canVerify && viewerIsReceiver && (
+              <div role="status" className="flex items-start gap-1.5 text-sm text-foreground">
+                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                <span>{SELF_CHECK_MESSAGE}</span>
+              </div>
+            )}
             {noInvoiceNumber && (
               <div className="flex items-start gap-1.5 text-sm text-destructive">
                 <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
@@ -459,12 +478,23 @@ export default function GrnDetailPage() {
         {replacements.length > 0 && (
           <section className="overflow-hidden rounded-xl border bg-background shadow">
             <h2 className="border-b px-5 py-3 text-base font-semibold">Replacements</h2>
+            {canReceiveReplacement && viewerIsReceiver && replacements.some((r) => r.status === 'pending') && (
+              <p role="status" className="border-b px-5 py-2 text-sm text-muted-foreground">
+                {REPLACEMENT_SELF_CHECK_MESSAGE}
+              </p>
+            )}
               <ResponsiveList
                 rows={replacements}
                 getRowKey={(r) => r.id}
                 mobileFooter={(r) =>
                   r.status === 'pending' && canReceiveReplacement ? (
-                    <Button variant="outline" className="h-10 sm:h-9" onClick={() => openReceive(r)}>
+                    <Button
+                      variant="outline"
+                      className="h-10 sm:h-9"
+                      disabled={viewerIsReceiver}
+                      title={viewerIsReceiver ? REPLACEMENT_SELF_CHECK_MESSAGE : undefined}
+                      onClick={() => openReceive(r)}
+                    >
                       <PackagePlus className="mr-2 h-4 w-4" />
                       Receive
                     </Button>
@@ -511,7 +541,13 @@ export default function GrnDetailPage() {
                     className: 'text-right',
                     cell: (r) =>
                       r.status === 'pending' && canReceiveReplacement && (
-                        <Button variant="outline" className="h-10 sm:h-9" onClick={() => openReceive(r)}>
+                        <Button
+                          variant="outline"
+                          className="h-10 sm:h-9"
+                          disabled={viewerIsReceiver}
+                          title={viewerIsReceiver ? REPLACEMENT_SELF_CHECK_MESSAGE : undefined}
+                          onClick={() => openReceive(r)}
+                        >
                           <PackagePlus className="mr-2 h-4 w-4" />
                           Receive
                         </Button>

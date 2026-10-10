@@ -107,6 +107,27 @@ export function blankInvoiceBlocksStock(invoiceNumber: string | null | undefined
   return normaliseInvoiceNumber(invoiceNumber) === null;
 }
 
+/**
+ * E1 (Director 2026-10-10 afternoon): self-check banned. Whoever received a delivery
+ * (procurement_grn.received_by) never checks it into stock, whatever their rights —
+ * admins and super admins included. The database verify guard refuses it too
+ * (fn_procurement_guard_approval, migration 20261009120000).
+ */
+export const SELF_CHECK_MESSAGE =
+  'You received this delivery, so someone else must check this delivery before it is added to stock.';
+
+/** E1, replacement arm: the original delivery's receiver neither claims nor receives its replacement. */
+export const REPLACEMENT_SELF_CHECK_MESSAGE =
+  'You received the original delivery, so someone else must receive and check its replacement.';
+
+/** E1: is `viewerId` the person who received this delivery? Then they may not check it. */
+export function selfCheckBlocks(
+  receivedBy: string | null | undefined,
+  viewerId: string | null | undefined,
+): boolean {
+  return !!viewerId && !!receivedBy && receivedBy === viewerId;
+}
+
 /** The fields of an existing GRN the duplicate check (and the side-by-side) needs. */
 export interface DuplicateCandidate {
   id: string;

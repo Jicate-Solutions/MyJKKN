@@ -18,6 +18,7 @@ import {
   isReusableInvoiceRead,
   INVOICE_READ_RESULT_VERSION,
   POSTED_GRN_STATUSES,
+  selfCheckBlocks,
 } from '@/lib/services/procurement/invoice-checks';
 
 // Invoice checks I1–I4 (spec from Draft PR #4289). The model only reads the PDF; these
@@ -602,5 +603,20 @@ describe('mergeInvoiceRead — what the person typed always wins (review round)'
     expect(m.duplicates).toEqual([{ po_item_id: 'p1', invoice_quantity: 5, batch_number: 'B2' }]);
     expect(m.marks['line:p1']).toBe('uncertain');
     expect(m.matched).toBe(1);
+  });
+});
+
+describe('E1 selfCheckBlocks (Director 2026-10-10 afternoon: self-check banned)', () => {
+  it('blocks the person who received the delivery', () => {
+    expect(selfCheckBlocks('u1', 'u1')).toBe(true);
+  });
+  it('lets anyone else check it', () => {
+    expect(selfCheckBlocks('u1', 'u2')).toBe(false);
+  });
+  it('blocks nothing while the viewer or the receiver is unknown', () => {
+    expect(selfCheckBlocks('u1', null)).toBe(false);
+    expect(selfCheckBlocks('u1', undefined)).toBe(false);
+    expect(selfCheckBlocks(null, 'u1')).toBe(false);
+    expect(selfCheckBlocks(undefined, undefined)).toBe(false);
   });
 });

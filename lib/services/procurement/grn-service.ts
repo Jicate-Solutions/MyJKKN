@@ -16,6 +16,9 @@ import { matchLine, validateLineForVerify } from './three-way-match';
 import {
   BLANK_INVOICE_MESSAGE,
   blankInvoiceBlocksStock,
+  REPLACEMENT_SELF_CHECK_MESSAGE,
+  SELF_CHECK_MESSAGE,
+  selfCheckBlocks,
   duplicateHold,
   expiredLineBlocks,
   findDuplicateGrns,
@@ -570,6 +573,13 @@ export class ProcurementGrnService {
         throw new Error(`Delivery record ${grn.grn_number} is "${grn.status}" — only pending delivery records can be verified.`);
       }
 
+      // 0) E1 (Director 2026-10-10 afternoon): the person who received the delivery never
+      //    checks it, whatever their rights (admins included). The DB verify guard refuses
+      //    it too.
+      if (selfCheckBlocks(grn.received_by, userId)) {
+        throw new Error(SELF_CHECK_MESSAGE);
+      }
+
       // 1) Chemical validation — block the whole verify if any accepted chemical line
       //    is missing batch/expiry (fail loudly, post nothing).
       const errors = grn.items.flatMap((i) =>
@@ -927,10 +937,16 @@ export class ProcurementGrnService {
 
     const { data: parentGrn, error: pgErr } = await this.supabase
       .from('procurement_grn')
-      .select('id,institution_id,store_id,domain,purchase_order_id,supplier_id,grn_number,status')
+      .select('id,institution_id,store_id,domain,purchase_order_id,supplier_id,grn_number,status,received_by')
       .eq('id', originItem.grn_id)
       .single();
     if (pgErr) throw pgErr;
+    // 1a) E1, replacement arm (Director 2026-10-10 afternoon): whoever received the original
+    //     delivery neither claims nor receives its replacement — checked before the claim.
+    //     The database refuses both (trg_pgrnr_replacement_checks, the verify guard).
+    if (selfCheckBlocks(parentGrn.received_by, userId)) {
+      throw new Error(REPLACEMENT_SELF_CHECK_MESSAGE);
+    }
     // 1b) I1 (review round 2, red team): a replacement exists only for a line of a delivery
     //     that was checked into stock. A pending (possibly HELD) receipt cannot reach stock
     //     through its replacements. The database refuses such a replacement row too

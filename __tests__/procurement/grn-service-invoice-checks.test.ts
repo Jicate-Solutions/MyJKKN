@@ -627,3 +627,63 @@ describe('D3 createGrnAgainstPO — invoice-number characters', () => {
     expect((writesTo('procurement_grn')[0].payload as any).invoice_number).toBe('INV/24-25/5');
   });
 });
+
+// ── E1 (Director 2026-10-10 afternoon): self-check banned ─────────────────────
+describe('E1 verifyGrn — the receiver never checks their own delivery', () => {
+  it('refuses the receiver, before any write or any other check', async () => {
+    verifyWorld([item()], false);
+    await expect(ProcurementGrnService.verifyGrn('g2', 'receiver')).rejects.toThrow(
+      /someone else must check this delivery/
+    );
+    expect(writesTo('procurement_grn')).toHaveLength(0);
+    expect(rpcCalls).toHaveLength(0);
+    expect(adapter.postReceipt).not.toHaveBeenCalled();
+  });
+
+  it('lets someone else check it (reaches the status lock)', async () => {
+    verifyWorld([item()], false);
+    await expect(ProcurementGrnService.verifyGrn('g2', 'verifier')).rejects.toMatchObject({
+      message: 'stop: write reached',
+    });
+  });
+});
+
+describe('E1 receiveReplacement — the original receiver neither claims nor receives it', () => {
+  function world(parentReceiver: string) {
+    onTable = (c) => {
+      if (c.table === 'procurement_grn_replacements' && c.op === 'select')
+        return {
+          data: {
+            id: 'rep1', status: 'pending', rejected_quantity: 5,
+            grn_item: { id: 'gi1', item_name: 'Acid', is_chemical: false, grn_id: 'g1', po_item_id: 'poi1' },
+          },
+          error: null,
+        };
+      if (c.table === 'procurement_grn' && c.op === 'select')
+        return {
+          data: { id: 'g1', institution_id: 'inst1', domain: 'ims', grn_number: 'GRN-1', status: 'replacement_requested', received_by: parentReceiver },
+          error: null,
+        };
+      return { data: null, error: { message: 'stop: write reached' } };
+    };
+  }
+  const input = { replacement_id: 'rep1', accepted_quantity: 5, expiry_date: '2027-12-31' } as any;
+
+  it('refuses the original receiver before the claim', async () => {
+    world('u1');
+    await expect(ProcurementGrnService.receiveReplacement(input, 'u1')).rejects.toThrow(
+      /received the original delivery/
+    );
+    expect(calls.filter((c) => c.op !== 'select')).toHaveLength(0);
+    const parentRead = calls.find((c) => c.table === 'procurement_grn' && c.op === 'select');
+    expect(parentRead).toBeDefined();
+  });
+
+  it('lets someone else receive it (reaches the claim)', async () => {
+    world('original-receiver');
+    await expect(ProcurementGrnService.receiveReplacement(input, 'u1')).rejects.toMatchObject({
+      message: 'stop: write reached',
+    });
+    expect(writesTo('procurement_grn_replacements')).toHaveLength(1);
+  });
+});
