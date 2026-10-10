@@ -29,10 +29,24 @@ let tableResults: Record<string, Result | ((ops: Call[]) => Result)>;
 let calls: Call[];
 const MERGE_FN = 'fn_adoption_power_user_weeks_merge_jobs';
 const SUPERSEDE_FN = 'fn_adoption_agenda_supersede_stale';
+const EXCLUSIONS_FN = 'fn_adoption_power_users_exclusions';
+const PRUNE_FN = 'fn_adoption_power_user_weeks_prune_jobs';
 let mergeResult: Result;
 let supersedeResult: Result;
+let exclusionsResult: Result;
+let pruneResult: Result;
 const defaultRpc = (name: string, _args?: Record<string, unknown>) =>
-  Promise.resolve(name === MERGE_FN ? mergeResult : name === SUPERSEDE_FN ? supersedeResult : rpcResult);
+  Promise.resolve(
+    name === MERGE_FN
+      ? mergeResult
+      : name === SUPERSEDE_FN
+        ? supersedeResult
+        : name === EXCLUSIONS_FN
+          ? exclusionsResult
+          : name === PRUNE_FN
+            ? pruneResult
+            : rpcResult
+  );
 const rpc = vi.fn(defaultRpc);
 /** The job ids the run merged into agenda_jobs (only the ones it changed). */
 const merged = (): Record<string, string> | undefined =>
@@ -137,6 +151,8 @@ beforeEach(() => {
   rpcResult = { data: payload(10), error: null };
   mergeResult = { data: null, error: null };
   supersedeResult = { data: true, error: null };
+  exclusionsResult = { data: [], error: null };
+  pruneResult = { data: null, error: null };
   tableResults = {
     bug_reports: {
       data: [
@@ -729,5 +745,202 @@ describe('a real run', () => {
     expect(line).toContain('HTTP 200');
     expect(line).toContain('enqueued 10');
     expect(line).toContain('top 10');
+  });
+});
+
+describe("#4298 panel follow-ups (five LOW findings)", () => {
+  const agenda = JSON.stringify({ questions: ['q1', 'q2', 'q3'], topics: ['t1', 't2'] });
+  const old = () => new Date(Date.now() - 30 * 3600_000).toISOString();
+  const usersQueued = () =>
+    enqueueJobsLane.mock.calls.map((c) => (c[1] as { context: { user_id: string } }).context.user_id);
+  const stuckU01 = () => ({
+    id: 'stuck-1',
+    status: 'pending',
+    result: null,
+    requested_at: old(),
+    dedupe: `adoption-agenda:${WEEK}:u-01`,
+  });
+  /** ai_jobs: the dedupe lookup sees u-01's stuck job; each re-read (.limit(1)) gets the next answer. */
+  function rereadsAnswer(answers: Result[]) {
+    let reads = 0;
+    tableResults.ai_jobs = (ops) => {
+      if (!ops.some((o) => o.op === 'limit')) return { data: [stuckU01()], error: null };
+      const a = answers[Math.min(reads, answers.length - 1)];
+      reads++;
+      return a;
+    };
+    return () => reads;
+  }
+
+  // LOW 1 — a re-run of a stored week still checks the exclusion list, fail-closed
+  describe('LOW 1: the stored path checks the exclusion list', () => {
+    const storeWeek = (p = payload(10)) => {
+      tableResults.adoption_power_user_weeks = { data: { payload: p, agenda_jobs: {} }, error: null };
+    };
+
+    it('runs the exclusion check on a stored week, and a broken list is a 500 before anything is queued or written', async () => {
+      storeWeek();
+      exclusionsResult = { data: null, error: { message: 'policy adoption.power_users.exclude_institution_ids is missing, off, a draft or not a list' } };
+      const res = await GET(request({ bearer: SECRET, query: `?week=${WEEK}` }));
+      expect(res.status).toBe(500);
+      expect((await res.json()).error).toContain('exclusion list check failed');
+      expect(rpc).toHaveBeenCalledWith(EXCLUSIONS_FN);
+      expect(rpc).not.toHaveBeenCalledWith('fn_adoption_power_users', expect.anything());
+      expect(enqueueJobsLane).not.toHaveBeenCalled();
+      expect(writes()).toEqual([]);
+      expect(calls.some((c) => c.table === 'bug_reports')).toBe(false);
+    });
+
+    it('a dry run of a stored week fails closed the same way', async () => {
+      storeWeek();
+      exclusionsResult = { data: null, error: { message: 'off' } };
+      const res = await GET(request({ bearer: SECRET, query: `?week=${WEEK}&dry_run=1` }));
+      expect(res.status).toBe(500);
+    });
+
+    it('an answer that is not a list of college ids is a 500 too', async () => {
+      storeWeek();
+      exclusionsResult = { data: { nope: true }, error: null };
+      const res = await GET(request({ bearer: SECRET, query: `?week=${WEEK}` }));
+      expect(res.status).toBe(500);
+      expect(enqueueJobsLane).not.toHaveBeenCalled();
+    });
+
+    it('a college added to the list after the week was stored: its people get no agenda', async () => {
+      const p = payload(10);
+      p.top[1] = { ...p.top[1], institution_id: 'c-excluded-now' };
+      storeWeek(p);
+      exclusionsResult = { data: ['c-excluded-now'], error: null };
+      const res = await GET(request({ bearer: SECRET, query: `?week=${WEEK}` }));
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      expect(body.report_source).toBe('stored');
+      expect(body.top).toBe(9);
+      expect(usersQueued()).not.toContain('u-02');
+      expect(usersQueued()).toHaveLength(9);
+      expect(merged()).not.toHaveProperty('u-02');
+    });
+
+    it('a computed week does not need the separate check (the report function applies it)', async () => {
+      await GET(request({ bearer: SECRET, query: `?week=${WEEK}` }));
+      expect(rpc).not.toHaveBeenCalledWith(EXCLUSIONS_FN);
+    });
+  });
+
+  // LOW 2 — a claimed/running job never stamped with claimed_at/started_at
+  it('LOW 2: a claimed job with no claim or start time, requested over a day ago, is replaced (not kept for ever)', async () => {
+    tableResults.ai_jobs = {
+      data: [{ ...stuckU01(), status: 'claimed', claimed_at: null, started_at: null }],
+      error: null,
+    };
+    const res = await GET(request({ bearer: SECRET, query: `?week=${WEEK}` }));
+    const body = await res.json();
+    expect(rpc).toHaveBeenCalledWith(SUPERSEDE_FN, { p_job_id: 'stuck-1' });
+    expect(body.stale_replaced).toBe(1);
+    expect(body.kept).toBe(0);
+    expect(usersQueued()).toContain('u-01');
+  });
+
+  // LOW 3 — ?recompute=1 stops tracking people who left the top 10
+  describe('LOW 3: ?recompute=1 prunes agenda ids of people who left the top 10', () => {
+    it('keeps only the new top 10 in agenda_jobs, and cancels nobody', async () => {
+      tableResults.adoption_power_user_weeks = {
+        data: { payload: payload(10), agenda_jobs: { 'u-01': 'job-a', 'u-02': 'job-b' } },
+        error: null,
+      };
+      const fresh = payload(10);
+      fresh.top[1] = { ...fresh.top[1], user_id: 'u-newcomer' }; // u-02 dropped out
+      rpcResult = { data: fresh, error: null };
+      const res = await GET(request({ bearer: SECRET, query: `?week=${WEEK}&recompute=1` }));
+      expect(res.status).toBe(200);
+      const prune = rpc.mock.calls.find((c) => c[0] === PRUNE_FN)?.[1] as
+        | { p_week_start: string; p_keep_user_ids: string[] }
+        | undefined;
+      expect(prune?.p_week_start).toBe(WEEK);
+      expect(prune?.p_keep_user_ids).toEqual(fresh.top.map((p) => p.user_id));
+      expect(prune?.p_keep_user_ids).not.toContain('u-02');
+      expect(rpc).not.toHaveBeenCalledWith(SUPERSEDE_FN, expect.anything()); // their jobs are not cancelled
+      expect(merged()).not.toHaveProperty('u-02'); // and never written back
+      expect(usersQueued()).toContain('u-newcomer');
+    });
+
+    it('a failed prune is a 500', async () => {
+      tableResults.adoption_power_user_weeks = { data: { payload: payload(10), agenda_jobs: {} }, error: null };
+      pruneResult = { data: null, error: { message: 'boom' } };
+      const res = await GET(request({ bearer: SECRET, query: `?week=${WEEK}&recompute=1` }));
+      expect(res.status).toBe(500);
+      expect(enqueueJobsLane).not.toHaveBeenCalled();
+    });
+
+    it('prunes nothing on a first run or a plain re-run', async () => {
+      await GET(request({ bearer: SECRET, query: `?week=${WEEK}` }));
+      expect(rpc).not.toHaveBeenCalledWith(PRUNE_FN, expect.anything());
+      rpc.mockClear();
+      tableResults.adoption_power_user_weeks = { data: { payload: payload(10), agenda_jobs: {} }, error: null };
+      await GET(request({ bearer: SECRET, query: `?week=${WEEK}` }));
+      expect(rpc).not.toHaveBeenCalledWith(PRUNE_FN, expect.anything());
+    });
+  });
+
+  // LOW 4 — the losing run read before the winner queued the fresh job
+  describe('LOW 4: a refused cancel reads the newest job once more before calling it a failure', () => {
+    beforeEach(() => {
+      supersedeResult = { data: false, error: null }; // the other run cancelled it first
+    });
+
+    it('nothing usable on the first read, the fresh job on the second: recorded as in flight, not failed', async () => {
+      const reads = rereadsAnswer([
+        { data: [], error: null }, // old job canceled, the winner has not queued yet
+        { data: [{ id: 'fresh-1', status: 'pending', result: null, requested_at: new Date().toISOString() }], error: null },
+      ]);
+      const res = await GET(request({ bearer: SECRET, query: `?week=${WEEK}` }));
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      expect(reads()).toBe(2);
+      expect(body.failed).toBe(0);
+      expect(body.in_flight).toBe(1);
+      expect(merged()?.['u-01']).toBe('fresh-1');
+      expect(usersQueued()).not.toContain('u-01');
+    });
+
+    it('still nothing usable on the second read: failed (500)', async () => {
+      const reads = rereadsAnswer([{ data: [], error: null }]);
+      const res = await GET(request({ bearer: SECRET, query: `?week=${WEEK}` }));
+      expect(res.status).toBe(500);
+      const body = await res.json();
+      expect(reads()).toBe(2);
+      expect(body.failed).toBe(1);
+      expect(merged()).not.toHaveProperty('u-01');
+    });
+  });
+
+  // LOW 5 — the re-read finds a job that has already finished
+  describe('LOW 5: a refused cancel whose re-read finds a finished job', () => {
+    beforeEach(() => {
+      supersedeResult = { data: false, error: null };
+    });
+
+    it('done with a readable agenda counts as kept, not in flight', async () => {
+      const reads = rereadsAnswer([{ data: [{ id: 'done-1', status: 'done', result: { answer: agenda } }], error: null }]);
+      const res = await GET(request({ bearer: SECRET, query: `?week=${WEEK}` }));
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      expect(reads()).toBe(1);
+      expect(body.kept).toBe(1);
+      expect(body.in_flight).toBe(0);
+      expect(body.failed).toBe(0);
+      expect(merged()?.['u-01']).toBe('done-1');
+    });
+
+    it('done with an unreadable answer counts as failed', async () => {
+      rereadsAnswer([{ data: [{ id: 'bad-1', status: 'done', result: { answer: 'not an agenda' } }], error: null }]);
+      const res = await GET(request({ bearer: SECRET, query: `?week=${WEEK}` }));
+      expect(res.status).toBe(500);
+      const body = await res.json();
+      expect(body.failed).toBe(1);
+      expect(body.kept).toBe(0);
+      expect(body.in_flight).toBe(0);
+      expect(merged()).not.toHaveProperty('u-01');
+    });
   });
 });

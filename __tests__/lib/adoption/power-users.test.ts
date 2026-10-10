@@ -170,8 +170,27 @@ describe('stale agenda jobs', () => {
     expect(isStaleAgendaJob(takenLongAgo, now)).toBe(true);
     // the later of claimed_at and started_at counts
     expect(isStaleAgendaJob({ ...takenLongAgo, started_at: '2026-10-10T11:00:00Z' }, now)).toBe(false);
-    // neither time recorded: not judged stuck (the SQL refuses to cancel it too)
-    expect(isStaleAgendaJob({ status: 'running', requested_at: '2020-01-01T00:00:00Z' }, now)).toBe(false);
+  });
+  it('a claimed/running job with NEITHER time recorded falls back to its request time (#4298 panel LOW 2)', () => {
+    for (const status of ['claimed', 'running']) {
+      const noTimesOld = { status, result: null, requested_at: '2026-10-09T10:00:00Z', claimed_at: null, started_at: null };
+      const noTimesFresh = { ...noTimesOld, requested_at: '2026-10-10T10:00:00Z' };
+      // requested 26 h ago, never stamped: stuck, so no longer counted as usable
+      expect(isStaleAgendaJob(noTimesOld, now)).toBe(true);
+      expect(isUsableAgendaJob(noTimesOld, now)).toBe(false);
+      // requested 2 h ago, never stamped: still in flight
+      expect(isStaleAgendaJob(noTimesFresh, now)).toBe(false);
+      expect(isUsableAgendaJob(noTimesFresh, now)).toBe(true);
+    }
+    // no time at all: cannot tell, not judged stuck
+    expect(isStaleAgendaJob({ status: 'running', requested_at: null }, now)).toBe(false);
+  });
+  it('the SQL cancel rule falls back to requested_at the same way (migration 20271010120000)', () => {
+    const sql = readFileSync(
+      join(process.cwd(), 'supabase/migrations/20271010120000_adoption_power_users_lows.sql'),
+      'utf8'
+    );
+    expect(sql).toMatch(/COALESCE\(GREATEST\(claimed_at, started_at\), requested_at\) < now\(\) - interval '24 hours'/);
   });
 });
 

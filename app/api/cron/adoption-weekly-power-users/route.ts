@@ -20,10 +20,16 @@
 //      report (ranking, lists, counts): a re-run of week W only re-queues
 //      agendas that are missing or unusable for W's stored top 10, so earlier
 //      agendas are never orphaned and W+1's NEW badge stays right even if W's
-//      usage_events were pruned or backfilled since. Only ?recompute=1
-//      rebuilds it with the RPC. A week with no row yet (the scheduled weekly
-//      run) is computed by the RPC as before. Then each top person's own
-//      bug_reports from the last 30 days.
+//      usage_events were pruned or backfilled since. The exclusion list is
+//      still checked on that path (fn_adoption_power_users_exclusions, the
+//      same fail-closed check as the report function): a broken list is a
+//      500, and anyone whose college was added to it since gets no agenda.
+//      Only ?recompute=1 rebuilds it with the RPC, and then stops tracking
+//      the agenda jobs of people who left the top 10
+//      (fn_adoption_power_user_weeks_prune_jobs; their jobs are not
+//      cancelled). A week with no row yet (the scheduled weekly run) is
+//      computed by the RPC as before. Then each top person's own bug_reports
+//      from the last 30 days.
 //   3. ?dry_run=1 stops here: the report + the prompts it WOULD queue. No write,
 //      no job.
 //   4. upsert the week's row in adoption_power_user_weeks — only when the
@@ -86,6 +92,8 @@ import {
 } from '@/lib/adoption/power-users';
 
 const LOG_MODULE = 'adoption/weekly-power-users';
+/** After a refused cancel, how long to wait before reading the newest job a second time. */
+const REREAD_WAIT_MS = 1000;
 function fail(message: string, started: number, status = 500) {
   logger.error(LOG_MODULE, message);
   return NextResponse.json({ ok: false, error: message, elapsed_ms: Date.now() - started }, { status });
@@ -137,12 +145,23 @@ export async function GET(request: NextRequest) {
     !!p && Array.isArray((p as PowerUsersPayload).top) && Array.isArray((p as PowerUsersPayload).one_day_staff);
   let payload: PowerUsersPayload;
   let reportSource: 'stored' | 'computed';
+  // Colleges left out NOW — checked on the stored path only (the RPC applies it itself).
+  let excludedNow: Set<string> | null = null;
   if (stored && !recompute) {
     if (!isReport(stored.payload)) {
       return fail(`stored report for ${weekStart} is unreadable — re-run with ?week=${weekStart}&recompute=1 to rebuild it`, started);
     }
     payload = stored.payload;
     reportSource = 'stored';
+    // The stored path skips fn_adoption_power_users, so run its fail-closed
+    // exclusion check here: a missing, off, draft or malformed list stops the
+    // run before anything is read or queued.
+    const { data: excl, error: exclErr } = await admin.rpc('fn_adoption_power_users_exclusions');
+    if (exclErr) return fail(`exclusion list check failed: ${exclErr.message}`, started);
+    if (!Array.isArray(excl) || !excl.every((x) => typeof x === 'string')) {
+      return fail('exclusion list check returned no list', started);
+    }
+    excludedNow = new Set(excl as string[]);
   } else {
     // every rule is in the database function
     const { data, error } = await admin.rpc('fn_adoption_power_users', { p_week_start: weekStart });
@@ -151,7 +170,11 @@ export async function GET(request: NextRequest) {
     payload = data;
     reportSource = 'computed';
   }
-  const top = payload.top.slice(0, MAX_AGENDAS);
+  // A college added to the exclusion list after the week was stored: its
+  // people get no agenda (the stored report itself is left as it was).
+  const top = payload.top
+    .filter((p) => !(excludedNow && p.institution_id && excludedNow.has(p.institution_id)))
+    .slice(0, MAX_AGENDAS);
 
   // 2) each top person's OWN problem reports, last 30 days, newest first
   const bugsByUser = new Map<string, OwnBugReport[]>();
@@ -247,6 +270,20 @@ export async function GET(request: NextRequest) {
     if (upsertErr) return fail(`week row write failed: ${upsertErr.message}`, started);
   }
 
+  // ?recompute=1 on a stored week: stop tracking agenda jobs of people who
+  // left the top 10 (their jobs are not cancelled, only no longer recorded).
+  if (reportSource === 'computed' && stored) {
+    const keep = top.map((p) => p.user_id);
+    const { error: pruneErr } = await admin.rpc('fn_adoption_power_user_weeks_prune_jobs', {
+      p_week_start: weekStart,
+      p_keep_user_ids: keep,
+    });
+    if (pruneErr) return fail(`agenda job ids of people who left the top 10 not pruned: ${pruneErr.message}`, started);
+    for (const userId of Object.keys(agendaJobs)) {
+      if (!keep.includes(userId)) delete agendaJobs[userId];
+    }
+  }
+
   // 5a) what each person already has this week. Looked up by the dedupe key,
   // not only by the stored id: if an earlier run queued a job but failed to
   // save its id, the job is still found here — a finished one too — so nobody
@@ -313,22 +350,36 @@ export async function GET(request: NextRequest) {
         // Not cancelled: it changed meanwhile — another run replaced it, or the
         // drain took it. Re-read the newest job by dedupe key (as the in_flight
         // branch does) and record THAT one, never the stale id.
-        const { data: now, error: nowErr } = await admin
-          .from('ai_jobs')
-          .select('id, status, result, requested_at, claimed_at, started_at')
-          .eq('job_type', AGENDA_JOB_TYPE)
-          .eq('payload->>_dedupe', dedupeKey)
-          .in('status', ['pending', 'claimed', 'running', 'done'])
-          .order('requested_at', { ascending: false })
-          .limit(1);
-        const current = (now as ExistingAgendaJob[] | null)?.[0];
+        const readNewest = async () => {
+          const { data: now, error: nowErr } = await admin
+            .from('ai_jobs')
+            .select('id, status, result, requested_at, claimed_at, started_at')
+            .eq('job_type', AGENDA_JOB_TYPE)
+            .eq('payload->>_dedupe', dedupeKey)
+            .in('status', ['pending', 'claimed', 'running', 'done'])
+            .order('requested_at', { ascending: false })
+            .limit(1);
+          return { current: (now as ExistingAgendaJob[] | null)?.[0], nowErr };
+        };
+        let { current, nowErr } = await readNewest();
+        if (nowErr || !current || !isUsableAgendaJob(current)) {
+          // The other run may have cancelled the old job but not yet queued
+          // the fresh one: wait a moment and read once more before calling it
+          // a failure.
+          await new Promise((resolve) => setTimeout(resolve, REREAD_WAIT_MS));
+          ({ current, nowErr } = await readNewest());
+        }
         if (!nowErr && current && isUsableAgendaJob(current)) {
           agendaJobs[userId] = current.id;
-          inFlight++;
+          // Already finished with a readable agenda = kept; still queued = in flight.
+          if (current.status === 'done') kept++;
+          else inFlight++;
         } else {
           failed++;
           failures.push(
-            `stuck agenda job changed meanwhile and its replacement could not be read${nowErr ? `: ${nowErr.message}` : ''}`
+            nowErr || !current
+              ? `stuck agenda job changed meanwhile and its replacement could not be read${nowErr ? `: ${nowErr.message}` : ''}`
+              : `stuck agenda job changed meanwhile and its replacement is stuck or its answer cannot be read (${current.status})`
           );
         }
         continue;
