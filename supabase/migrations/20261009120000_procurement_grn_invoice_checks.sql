@@ -497,11 +497,23 @@ BEGIN
      AND NOT (coalesce(auth.role(), '') = 'service_role' OR pg_trigger_depth() > 0) THEN
     RETURN false;
   END IF;
+  -- 9d. D4 asks "did this person receive ANY other delivery with this number?": every
+  -- status, any recording time — a later, never-posted or cancelled one counts too,
+  -- because it can be posted or revived after the confirmation (decisions round, red
+  -- team). The hold filter below is for the hold question only.
+  IF p_received_by IS NOT NULL THEN
+    RETURN EXISTS (
+      SELECT 1 FROM public.procurement_grn g
+       WHERE g.supplier_id = p_supplier_id
+         AND g.id IS DISTINCT FROM p_grn_id
+         AND g.received_by = p_received_by
+         AND public.fn_procurement_normalise_invoice_number(g.invoice_number) = v_key
+    );
+  END IF;
   RETURN EXISTS (
     SELECT 1 FROM public.procurement_grn g
      WHERE g.supplier_id = p_supplier_id
        AND g.id IS DISTINCT FROM p_grn_id
-       AND (p_received_by IS NULL OR g.received_by = p_received_by)
        AND public.fn_procurement_normalise_invoice_number(g.invoice_number) = v_key
        AND (g.first_posted_at IS NOT NULL
             OR g.status IN ('accepted', 'partially_accepted', 'replacement_requested', 'completed')
