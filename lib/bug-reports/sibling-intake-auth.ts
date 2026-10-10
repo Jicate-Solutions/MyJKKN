@@ -4,7 +4,7 @@
  *
  * The key is PUBLIC — it sits in the browser of every visitor of the college
  * app — so it establishes WHICH APP is calling and nothing else. Only a live
- * key of kind 'bug_intake' (migration 20271010120000) linked to an active
+ * key of kind 'bug_intake' (migration 20271010151437) linked to an active
  * sibling app is accepted. Admin keys (jkkn_…), personal keys (jkkn_pk_…) and
  * anything else without the jkkn_bi_ prefix are refused before any lookup.
  *

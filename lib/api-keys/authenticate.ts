@@ -137,7 +137,7 @@ export async function authenticateApiKey(
   }
 
   // A college app's bug-intake key (jkkn_bi_…, key_kind 'bug_intake', migration
-  // 20271010120000) ships to every browser, so it may only file bug reports at
+  // 20271010151437) ships to every browser, so it may only file bug reports at
   // /api/v1/public/bug-reports. Refused here before any lookup; the key_kind
   // check below refuses it again whatever its prefix.
   if (apiKey.startsWith('jkkn_bi_')) {

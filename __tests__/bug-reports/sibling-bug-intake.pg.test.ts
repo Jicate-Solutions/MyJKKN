@@ -1,5 +1,5 @@
 /**
- * supabase/migrations/20271010120000_sibling_app_bug_intake.sql, applied
+ * supabase/migrations/20271010151437_sibling_app_bug_intake.sql, applied
  * VERBATIM to a throwaway PostgreSQL on top of 20270301090000 (which created
  * api_keys.key_kind), then exercised as the roles PostgREST uses.
  *
@@ -32,7 +32,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 
 const REPO = path.resolve(__dirname, '..', '..');
 const PRIOR = path.join(REPO, 'supabase/migrations/20270301090000_ai_tool_catalog.sql');
-const MIGRATION = path.join(REPO, 'supabase/migrations/20271010120000_sibling_app_bug_intake.sql');
+const MIGRATION = path.join(REPO, 'supabase/migrations/20271010151437_sibling_app_bug_intake.sql');
 
 const PGHOST = process.env.AI_DOOR_TEST_PGHOST ?? 'localhost';
 const PGPORT = Number(process.env.AI_DOOR_TEST_PGPORT ?? 5432);

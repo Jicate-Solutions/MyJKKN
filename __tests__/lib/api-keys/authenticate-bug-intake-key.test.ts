@@ -1,6 +1,6 @@
 /**
  * A college app's bug-intake key (jkkn_bi_…, key_kind 'bug_intake', migration
- * 20271010120000) ships to every browser. It must never open a B2A route,
+ * 20271010151437) ships to every browser. It must never open a B2A route,
  * all of which query with the service role. authenticateApiKey refuses:
  *   - the jkkn_bi_ prefix, before any lookup
  *   - any row whose key_kind is not 'admin', whatever the key looks like —

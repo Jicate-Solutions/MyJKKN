@@ -15,7 +15,7 @@
  *
  * THE KEY IS PUBLIC. The SDK reads it from a NEXT_PUBLIC_ variable, so it is
  * in every visitor's browser. This route therefore accepts ONLY a key of kind
- * 'bug_intake' (migration 20271010120000), which can do nothing else anywhere:
+ * 'bug_intake' (migration 20271010151437), which can do nothing else anywhere:
  * authenticateApiKey (b2a) and the older key routes refuse it. An admin key —
  * including the apps' MYJKKN_API_KEY values, which read learner data — is
  * refused here, so it never needs to sit in a browser.
