@@ -146,7 +146,26 @@ UPDATE public.procurement_grn
  WHERE first_posted_at IS NULL
    AND status IN ('accepted', 'partially_accepted', 'replacement_requested', 'completed');
 
--- 8/D3. Invoice numbers hold only letters, digits, '-' and '/' (Director 2026-10-10).
+-- 9b. Replacement marker (decisions round, red team). receiveReplacement writes the
+-- replacement it fulfils into the header it INSERTs; the verify guard exempts a
+-- no-invoice receipt from D2 only when this names a real, claimed, unfulfilled
+-- replacement (fn_procurement_guard_approval). One receipt per replacement (unique
+-- index). ON DELETE SET NULL: removing a replacement row never blocks on its receipt;
+-- the marker is only read at INSERT.
+ALTER TABLE public.procurement_grn
+  ADD COLUMN IF NOT EXISTS replacement_id uuid
+    REFERENCES public.procurement_grn_replacements(id) ON DELETE SET NULL;
+
+COMMENT ON COLUMN public.procurement_grn.replacement_id IS
+  'D2: the procurement_grn_replacements row this receipt fulfils (set by receiveReplacement at INSERT, frozen after). Only a receipt carrying a valid one may enter stock with no invoice number.';
+
+CREATE UNIQUE INDEX IF NOT EXISTS procurement_grn_replacement_id_key
+  ON public.procurement_grn (replacement_id)
+  WHERE replacement_id IS NOT NULL;
+
+-- 8/D3. Invoice numbers hold only letters, digits, '-' and '/' (Director 2026-10-10),
+-- with at least one letter or digit (decisions round, red team: '---' or '/' passed
+-- the charset but normalised to blank, so the receipt could never be verified).
 -- NULL passes (replacement receipts carry none); '' does not. The range classes are
 -- exact here: on production (15.6, en_US.UTF-8) and the local check database (16) the
 -- pattern matches exactly 64 code points of U+0001-U+FFFF, the 26 + 26 + 10 + 2
