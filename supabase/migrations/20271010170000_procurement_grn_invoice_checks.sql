@@ -194,6 +194,41 @@
 --          lines are frozen) and reopens the receipt if they differ from what was checked
 --          (lib/services/procurement/grn-service.ts).
 --
+--  14. Deep-panel round 3 (2026-10-11, PR #4333 comment 6098066712, #4342 6101285504):
+--      D-M1. trg_pgrni_00_posted_lock freezes EVERY column of a line of a checked delivery
+--          (unit price, batch, expiry, manufacturing date, serials ... not only the
+--          quantities), apart from the two posting marks. domain_item_id may still go
+--          NULL -> a value on a line not yet in stock, but only by a verifier (or admin)
+--          who did not receive the delivery — never by its receiver.
+--      D-M3. The charset CHECK is added NOT VALID after the stored numbers are tidied the
+--          way the trigger tidies new ones, and validated only when no row breaks it (a
+--          WARNING names the count otherwise), so the apply cannot fail on old data.
+--      D-L5. A line INSERT locks its receipt FOR UPDATE at once (no FOR SHARE -> FOR UPDATE
+--          upgrade, which deadlocked two line inserts on one receipt with 40P01).
+--      D-L6. trg_ai_jobs_00_invoice_extract_guard refuses a read for a purchase order of a
+--          college the requester cannot open (super admin / admin excepted), before it
+--          says whether the PDF is stored.
+--      D-L7. A DO block refuses to replace fn_procurement_guard_approval unless the live
+--          body is the 20271006130000 one (md5 of prosrc) or this file's own (its
+--          "guard-version" marker): a hotfix to any other branch is never silently undone.
+--      D-L9. The column comments name trg_pgrn_00_invoice_checks.
+--      D-L10. The invoice-number tidy-up also drops invisible format characters anywhere
+--          (zero-width, soft hyphen, BOM, bidi marks) and trims Unicode spaces (no-break
+--          space ...); a number that still breaks the charset gets a plain message.
+--      S-M2. fn_procurement_grn_has_duplicate, called directly with p_received_by, also
+--          answers about the receipt's stored CONFIRMER — only for a caller who may confirm
+--          it (admin, or a verifier who did not receive it) — so verify-time D4 no longer
+--          reads the caller's RLS-capped view.
+--      S-M5. I2 in the database: entering a posted status is refused while the receipt has
+--          a line accepting goods whose expiry date is before today in IST (verify guard,
+--          G8), and a replacement line is refused on the same test (line trigger). I4 is
+--          NOT enforced here: the age limit is declared by the receiver on the form and is
+--          kept only in the notes text, so a receiver writing straight to the API could
+--          simply declare no limit. I4 stays an app-side check; the reason is recorded.
+--      S-L9. The AI-job guard writes payload._dedupe = <requested_by>:<po_id>:<sha256>, so
+--          the existing ai_jobs_inflight_dedupe_idx refuses a second in-flight read of the
+--          same PDF by the same person (two clicks at once used to queue two reads).
+--
 -- I1 is deliberately NOT a unique index: the Director chose "confirm and allow" for
 -- honest resends, which a unique constraint would forbid.
 --
@@ -209,9 +244,9 @@ ALTER TABLE public.procurement_grn
   ADD COLUMN IF NOT EXISTS late_invoice_reason text;
 
 COMMENT ON COLUMN public.procurement_grn.duplicate_confirmed_by IS
-  'I1: verifier (never received_by) who confirmed a same-supplier, same-number invoice is a different invoice. Validated by trg_pgrn_invoice_checks.';
+  'I1: verifier (never received_by) who confirmed a same-supplier, same-number invoice is a different invoice. Validated by trg_pgrn_00_invoice_checks.';
 COMMENT ON COLUMN public.procurement_grn.duplicate_confirmed_at IS
-  'I1: when duplicate_confirmed_by confirmed. Stamped by trg_pgrn_invoice_checks.';
+  'I1: when duplicate_confirmed_by confirmed. Stamped by trg_pgrn_00_invoice_checks.';
 COMMENT ON COLUMN public.procurement_grn.late_invoice_reason IS
   'I4: typed reason for accepting an invoice older than the receiver''s max_invoice_age_days.';
 
@@ -255,19 +290,79 @@ CREATE UNIQUE INDEX IF NOT EXISTS procurement_grn_replacement_id_key
 -- NULL passes (replacement receipts carry none); '' does not. The range classes are
 -- exact here: on production (15.6, en_US.UTF-8) and the local check database (16) the
 -- pattern matches exactly 64 code points of U+0001-U+FFFF, the 26 + 26 + 10 + 2
--- expected. Production had 0 procurement_grn rows when this was written; if rows exist
--- when it is applied, run
---   SELECT id, invoice_number FROM procurement_grn
---    WHERE invoice_number IS NOT NULL
---      AND invoice_number !~ '^[A-Za-z0-9/-]*[A-Za-z0-9][A-Za-z0-9/-]*$';
--- first — the ADD CONSTRAINT fails loudly on any such row. Dropped and re-added so a
--- database that took an earlier draft of this check (charset only) gets this one.
+-- expected. Dropped and re-added so a database that took an earlier draft of this check
+-- (charset only) gets this one.
+--
+-- D-M3 (deep-panel round 3): safe on any existing data. Production had 0 procurement_grn
+-- rows on 2026-10-11 (checked), but a row saved before go-live with '' or a padded
+-- number would have failed the ADD CONSTRAINT and with it the whole apply. So:
+--   1. stored numbers are tidied exactly as fn_procurement_grn_invoice_checks tidies new
+--      ones (invisible characters dropped, spaces trimmed, blank -> NULL). On a first
+--      apply that trigger does not exist yet; on a re-apply it has tidied every write
+--      already, so this matches no row;
+--   2. the CHECK is added NOT VALID — it binds every new INSERT / UPDATE at once;
+--   3. it is VALIDATEd only when no stored row breaks it. Otherwise a WARNING gives the
+--      count and the CHECK stays NOT VALID; list the rows with
+--        SELECT id, invoice_number FROM procurement_grn
+--         WHERE invoice_number IS NOT NULL
+--           AND invoice_number !~ '^[A-Za-z0-9/-]*[A-Za-z0-9][A-Za-z0-9/-]*$';
+--      correct them, then run ALTER TABLE public.procurement_grn VALIDATE CONSTRAINT
+--      procurement_grn_invoice_number_charset.
+-- The tidy-up expression is fn_procurement_tidy_invoice_number, shared with the trigger.
+CREATE OR REPLACE FUNCTION public.fn_procurement_tidy_invoice_number(p_raw text)
+RETURNS text
+LANGUAGE sql
+IMMUTABLE
+SET search_path = public
+AS $$
+  -- D-L10: invisible format characters are dropped anywhere (soft hyphen, combining
+  -- grapheme joiner, Arabic letter mark, Mongolian vowel separator, zero-width space /
+  -- non-joiner / joiner, LRM / RLM, bidi embeddings and isolates, word joiner, invisible
+  -- operators, BOM) — they cannot be seen, so dropping them changes nothing a person
+  -- typed. Then spaces of every kind (ASCII whitespace, no-break space, ogham space,
+  -- U+2000-200A, line / paragraph separators, narrow no-break space, medium mathematical
+  -- space, ideographic space) are trimmed from both ends. Blank -> NULL. A space INSIDE a
+  -- number is kept, so the charset still refuses it, with the trigger's plain message.
+  SELECT nullif(
+    regexp_replace(
+      regexp_replace(
+        coalesce(p_raw, ''),
+        '[\u00ad\u034f\u061c\u180e\u200b-\u200f\u202a-\u202e\u2060-\u2064\u2066-\u206f\ufeff]+',
+        '', 'g'),
+      '^[\u0009-\u000d\u0020\u0085\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000]+|[\u0009-\u000d\u0020\u0085\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000]+$',
+      '', 'g'),
+    '');
+$$;
+
+REVOKE EXECUTE ON FUNCTION public.fn_procurement_tidy_invoice_number(text) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_procurement_tidy_invoice_number(text) TO authenticated;
+
+UPDATE public.procurement_grn
+   SET invoice_number = public.fn_procurement_tidy_invoice_number(invoice_number)
+ WHERE invoice_number IS DISTINCT FROM public.fn_procurement_tidy_invoice_number(invoice_number);
+
 ALTER TABLE public.procurement_grn
   DROP CONSTRAINT IF EXISTS procurement_grn_invoice_number_charset;
 ALTER TABLE public.procurement_grn
   ADD CONSTRAINT procurement_grn_invoice_number_charset
   CHECK (invoice_number IS NULL
-         OR invoice_number ~ '^[A-Za-z0-9/-]*[A-Za-z0-9][A-Za-z0-9/-]*$');
+         OR invoice_number ~ '^[A-Za-z0-9/-]*[A-Za-z0-9][A-Za-z0-9/-]*$')
+  NOT VALID;
+
+DO $$
+DECLARE
+  v_bad bigint;
+BEGIN
+  SELECT count(*) INTO v_bad
+    FROM public.procurement_grn
+   WHERE invoice_number IS NOT NULL
+     AND invoice_number !~ '^[A-Za-z0-9/-]*[A-Za-z0-9][A-Za-z0-9/-]*$';
+  IF v_bad = 0 THEN
+    ALTER TABLE public.procurement_grn VALIDATE CONSTRAINT procurement_grn_invoice_number_charset;
+  ELSE
+    RAISE WARNING 'procurement_grn_invoice_number_charset added NOT VALID: % stored invoice number(s) hold characters other than letters, digits, ''-'' and ''/''. New writes are checked; correct those rows, then VALIDATE CONSTRAINT.', v_bad;
+  END IF;
+END $$;
 
 -- ----------------------------------------------------------------------------
 -- 3. Near-expiry window (I2) - substrate shape of 20260429000002 / ...000011
@@ -348,7 +443,17 @@ BEGIN
   -- receipt with no number, which D2 still keeps out of stock) and surrounding spaces,
   -- tabs and line breaks are dropped. Rule (b) below therefore sees ' INV-1 ' and
   -- 'INV-1' as the same number.
-  NEW.invoice_number := nullif(btrim(NEW.invoice_number, E' \t\r\n'), '');
+  -- D-L10 (deep-panel round 3): the same tidy-up also drops invisible characters (a
+  -- zero-width space or BOM pasted from a PDF) and trims every kind of space (a no-break
+  -- space), via fn_procurement_tidy_invoice_number; what is still outside the charset is
+  -- refused here in plain words instead of a raw constraint error.
+  NEW.invoice_number := public.fn_procurement_tidy_invoice_number(NEW.invoice_number);
+  IF NEW.invoice_number IS NOT NULL
+     AND NEW.invoice_number !~ '^[A-Za-z0-9/-]*[A-Za-z0-9][A-Za-z0-9/-]*$'
+     AND (TG_OP = 'INSERT' OR NEW.invoice_number IS DISTINCT FROM OLD.invoice_number) THEN
+    RAISE EXCEPTION 'an invoice number may hold only letters, digits, ''-'' and ''/'' (with at least one letter or digit) — check it against the bill and type it again'
+      USING ERRCODE = '23514';
+  END IF;
 
   -- d. Ever posted: server-owned for everyone, decided first (no early return above it).
   IF TG_OP = 'INSERT' THEN
@@ -584,8 +689,11 @@ GRANT  EXECUTE ON FUNCTION public.fn_procurement_normalise_invoice_number(text) 
 -- 2, red team: a caller without procurement rights got "no duplicate" from the guard).
 -- D4 (Director 2026-10-10): p_received_by, when given, asks a different question —
 -- "did that person receive ANY other receipt from this supplier with this number?",
--- whatever its status or recording time (9d). Called directly, it may only be asked
--- about the caller themself.
+-- whatever its status or recording time (9d). Called directly, it may be asked about the
+-- caller themself, or (S-M2, deep-panel round 3) about the receipt's STORED confirmer
+-- (duplicate_confirmed_by) by a caller who may confirm it — an admin, or a verifier who did
+-- not receive it, the same people who get the global hold answer. verifyGrn asks it
+-- before posting, so verify-time D4 no longer rests on the caller's RLS-capped view.
 -- The 4-argument form is dropped first: with a defaulted 5th argument both would match
 -- the 4-named-argument call and PostgREST would refuse it as ambiguous.
 DROP FUNCTION IF EXISTS public.fn_procurement_grn_has_duplicate(uuid, uuid, text, timestamptz);
@@ -608,6 +716,7 @@ DECLARE
   v_created  timestamptz := p_created_at;
   v_inst     uuid;
   v_receiver uuid;
+  v_confirmer uuid;
   v_key      text;
   v_scoped   boolean := false;
 BEGIN
@@ -618,15 +727,13 @@ BEGIN
             OR public.user_has_permission('procurement.grn_verify')) THEN
       RETURN false;
     END IF;
-    IF p_received_by IS NOT NULL AND p_received_by IS DISTINCT FROM auth.uid() THEN
-      RETURN false;
-    END IF;
     -- M5: a saved receipt of a college the caller can access, judged on its stored values.
     IF p_grn_id IS NULL THEN
       RETURN false;
     END IF;
-    SELECT g.supplier_id, g.invoice_number, g.created_at, g.institution_id, g.received_by
-      INTO v_supplier, v_number, v_created, v_inst, v_receiver
+    SELECT g.supplier_id, g.invoice_number, g.created_at, g.institution_id, g.received_by,
+           g.duplicate_confirmed_by
+      INTO v_supplier, v_number, v_created, v_inst, v_receiver, v_confirmer
       FROM public.procurement_grn g
      WHERE g.id = p_grn_id;
     IF NOT FOUND
@@ -643,6 +750,12 @@ BEGIN
                      OR (public.user_has_permission('procurement.grn_verify')
                          AND auth.uid() IS NOT NULL
                          AND v_receiver IS DISTINCT FROM auth.uid()));
+    -- D4 asked about someone else: only about this receipt's stored confirmer, and only by
+    -- a caller who may confirm it (S-M2). Anything else answers false, as before.
+    IF p_received_by IS NOT NULL AND p_received_by IS DISTINCT FROM auth.uid()
+       AND (v_scoped OR v_confirmer IS NULL OR p_received_by IS DISTINCT FROM v_confirmer) THEN
+      RETURN false;
+    END IF;
   END IF;
   v_key := public.fn_procurement_normalise_invoice_number(v_number);
   IF v_key IS NULL OR v_supplier IS NULL THEN
@@ -705,7 +818,9 @@ GRANT  EXECUTE ON FUNCTION public.fn_procurement_grn_has_duplicate(uuid, uuid, t
 --   G7. E1: self-check ban (INSERT replacement arm, UPDATE receiver arm). It sits
 --       right after G4, BEFORE G5 and G6 (skeptic re-check, 2026-10-11), and its INSERT
 --       arm also requires a blank invoice number.
---   plus the closing line: pg_get_functiondef prints `$function$` and this file has
+--   G8. I2: no accepted line already expired (IST) on entry into a posted status
+--       (deep-panel round 3, S-M5). It sits after G5, before G6.
+--   plus the marker comment line "guard-version: 20271010170000" (D-L7) and the closing line: pg_get_functiondef prints `$function$` and this file has
 --   `$function$;` (the statement terminator) — expected, not a change.
 -- The other branches, the RFQ early arm and the tail after END CASE are unchanged.
 -- What each GRN hunk does:
@@ -731,13 +846,38 @@ GRANT  EXECUTE ON FUNCTION public.fn_procurement_grn_has_duplicate(uuid, uuid, t
 --     lock on supplier + normalised number (review round 2, red team): two receipts
 --     entering stock at the same moment are serialised, and the second one's check
 --     (a new statement under READ COMMITTED) sees the first once it commits.
+--   * I2 (deep-panel round 3, S-M5, hunk G8): entering a posted status is refused while a
+--     line accepts goods whose expiry date is before today in IST.
 -- Re-check the live definition before applying: if another migration has moved it
 -- since, merge these blocks into that version instead of applying this copy.
+--
+-- D-L7 (deep-panel round 3): the re-check is also enforced. The DO block below refuses
+-- the replace unless the live body (prosrc) is exactly the 20271006130000 one (md5
+-- f529b60b38c55fa451a1c50270057e00, the live value on 2026-10-11) or a version of this
+-- file (it carries the "guard-version: 20271010170000" marker line). Any other body means
+-- someone changed the guard since — a hotfix to the requisition, RFQ or PO branches would
+-- otherwise be silently undone — and the apply stops here, before anything is replaced.
+DO $$
+DECLARE
+  v_src text;
+BEGIN
+  SELECT p.prosrc INTO v_src
+    FROM pg_proc p
+   WHERE p.oid = to_regprocedure('public.fn_procurement_guard_approval()');
+  IF v_src IS NULL
+     OR md5(v_src) = 'f529b60b38c55fa451a1c50270057e00'
+     OR position('guard-version: 20271010170000' in v_src) > 0 THEN
+    RETURN;
+  END IF;
+  RAISE EXCEPTION 'fn_procurement_guard_approval is not the version this migration was written against (md5 of its body is %). Another change moved it — merge hunks G1-G8 of 20271010170000 into the live version instead of applying this copy.', md5(v_src);
+END $$;
+
 CREATE OR REPLACE FUNCTION public.fn_procurement_guard_approval()
  RETURNS trigger
  LANGUAGE plpgsql
  SET search_path TO 'public'
 AS $function$
+-- guard-version: 20271010170000 (procurement_grn_invoice_checks) — read by its D-L7 check.
 DECLARE
   v_key   text;
   v_what  text;
@@ -921,6 +1061,24 @@ BEGIN
                        AND pg.purchase_order_id = NEW.purchase_order_id
                        AND pg.status IN ('accepted', 'partially_accepted', 'replacement_requested', 'completed'))) THEN
         RAISE EXCEPTION 'this delivery has no invoice number, so it cannot be added to stock — cancel it and record the delivery again with the invoice number from the bill'
+          USING ERRCODE = '23514';
+      END IF;
+      -- I2 (deep-panel round 3, S-M5): expired goods never go into stock. A line that
+      -- accepts goods whose expiry date is before today — today in IST, the business day,
+      -- never the server's UTC date — blocks the move into a posted status. The same rule as
+      -- expiredLineBlocks() in lib/services/procurement/invoice-checks.ts (expiring TODAY is
+      -- still usable; an all-rejected expired line is how refused goods are recorded). The
+      -- lines are frozen from this moment on (trg_pgrni_00_posted_lock). A replacement
+      -- receipt is INSERTed before its line exists; its line is judged by that trigger.
+      IF TG_OP = 'UPDATE'
+         AND NEW.status IN ('accepted', 'partially_accepted', 'replacement_requested', 'completed')
+         AND OLD.status NOT IN ('accepted', 'partially_accepted', 'replacement_requested', 'completed')
+         AND EXISTS (
+           SELECT 1 FROM public.procurement_grn_items gi
+            WHERE gi.grn_id = NEW.id
+              AND coalesce(gi.accepted_quantity, 0) > 0
+              AND gi.expiry_date < (now() AT TIME ZONE 'Asia/Kolkata')::date) THEN
+        RAISE EXCEPTION 'this delivery accepts goods that have already expired, so it cannot be added to stock — reject that line or correct its expiry date'
           USING ERRCODE = '23514';
       END IF;
       IF NEW.status IN ('accepted', 'partially_accepted', 'replacement_requested', 'completed')
@@ -1273,17 +1431,26 @@ REVOKE TRUNCATE ON public.procurement_grn, public.procurement_grn_items,
 --   * adding a line — except the single line receiveReplacement adds to the replacement
 --     receipt it just created ('completed', naming a claimed, unfulfilled replacement,
 --     received by the caller, no line yet, quantity within the replacement's);
---   * changing accepted_quantity or rejected_quantity;
+--   * changing accepted_quantity or rejected_quantity — or, since deep-panel round 3
+--     (D-M1), ANY other column of the line (unit price, cost, batch, expiry, manufacturing
+--     date, serial numbers, item name ...): what a second person checked is what stays;
 --   * changing domain_item_id, except NULL -> a value on a line not yet posted (the
---     links verifyGrn and receiveReplacement write while posting);
+--     links verifyGrn and receiveReplacement write while posting) — and that only by a
+--     verifier or admin who did not receive the delivery (D-M1: its receiver could link
+--     an unposted line to any item and post it with fn_procurement_rm_post_receipt);
 --   * changing domain_posted_at once set (NULL -> now() stays possible: the RM RPC's own
 --     claim and the service's marker).
+--   * I2 (round 3, S-M5): the replacement line the carve-out lets in may not accept goods
+--     whose expiry date is before today in IST.
 -- A line can never move to another receipt (grn_id), posted or not. Deleting a line is
 -- judged by trg_pgrni_delete_guard (section 7b, deep-panel round 2 M3).
--- M4 (deep-panel round 2): the parent receipt is read FOR SHARE on INSERT and UPDATE,
--- before the status test. A verifier posting the header holds its row lock until commit,
--- so the line write waits and then sees the posted status (a locking read returns the
--- newest committed row), instead of passing on a 'pending' snapshot.
+-- M4 (deep-panel round 2): the parent receipt is read with a row lock on INSERT and
+-- UPDATE, before the status test. A verifier posting the header holds its row lock until
+-- commit, so the line write waits and then sees the posted status (a locking read returns
+-- the newest committed row), instead of passing on a 'pending' snapshot. D-L5 (round 3):
+-- an INSERT takes FOR UPDATE at once — it used to take FOR SHARE and then upgrade, and two
+-- line inserts on one receipt then both held the share lock, both waited for the upgrade,
+-- and one was killed as a deadlock (40P01). An UPDATE keeps FOR SHARE.
 CREATE OR REPLACE FUNCTION public.fn_procurement_grn_item_checks()
 RETURNS trigger
 LANGUAGE plpgsql
@@ -1294,6 +1461,7 @@ DECLARE
   v_first    timestamptz;
   v_rep      uuid;
   v_receiver uuid;
+  v_found    boolean;
 BEGIN
   IF coalesce(auth.role(), '') = 'service_role' THEN
     RETURN NEW;
@@ -1302,19 +1470,29 @@ BEGIN
     RAISE EXCEPTION 'a delivery line cannot be moved to another delivery'
       USING ERRCODE = '42501';
   END IF;
-  SELECT g.status, g.first_posted_at, g.replacement_id, g.received_by
-    INTO v_status, v_first, v_rep, v_receiver
-    FROM public.procurement_grn g
-   WHERE g.id = NEW.grn_id
-     FOR SHARE;
-  IF NOT FOUND
+  IF TG_OP = 'INSERT' THEN
+    -- D-L5: FOR UPDATE from the start — it also serialises line inserts on this receipt,
+    -- so "no line yet" below holds under concurrency.
+    SELECT g.status, g.first_posted_at, g.replacement_id, g.received_by
+      INTO v_status, v_first, v_rep, v_receiver
+      FROM public.procurement_grn g
+     WHERE g.id = NEW.grn_id
+       FOR UPDATE;
+    v_found := FOUND;
+  ELSE
+    SELECT g.status, g.first_posted_at, g.replacement_id, g.received_by
+      INTO v_status, v_first, v_rep, v_receiver
+      FROM public.procurement_grn g
+     WHERE g.id = NEW.grn_id
+       FOR SHARE;
+    v_found := FOUND;
+  END IF;
+  IF NOT v_found
      OR NOT (v_status IN ('accepted', 'partially_accepted', 'replacement_requested', 'completed')
              OR v_first IS NOT NULL) THEN
     RETURN NEW;
   END IF;
   IF TG_OP = 'INSERT' THEN
-    -- Serialise line inserts on this receipt so "no line yet" holds under concurrency.
-    PERFORM 1 FROM public.procurement_grn g WHERE g.id = NEW.grn_id FOR UPDATE;
     IF v_status = 'completed'
        AND v_rep IS NOT NULL
        AND auth.uid() IS NOT NULL
@@ -1328,6 +1506,12 @@ BEGIN
             AND r.status = 'received'
             AND r.replacement_grn_item_id IS NULL
             AND NEW.accepted_quantity <= r.rejected_quantity) THEN
+      -- I2 (round 3, S-M5): an expired replacement never goes into stock either.
+      IF coalesce(NEW.accepted_quantity, 0) > 0
+         AND NEW.expiry_date < (now() AT TIME ZONE 'Asia/Kolkata')::date THEN
+        RAISE EXCEPTION 'these replacement goods have already expired, so they cannot be added to stock — correct the expiry date or do not receive them'
+          USING ERRCODE = '23514';
+      END IF;
       RETURN NEW;
     END IF;
     RAISE EXCEPTION 'this delivery has already been checked into stock — a line cannot be added to it. Record the extra goods as a new delivery'
@@ -1338,10 +1522,26 @@ BEGIN
     RAISE EXCEPTION 'this delivery has already been checked into stock — its quantities cannot be changed'
       USING ERRCODE = '42501';
   END IF;
-  IF NEW.domain_item_id IS DISTINCT FROM OLD.domain_item_id
-     AND (OLD.domain_item_id IS NOT NULL OR OLD.domain_posted_at IS NOT NULL) THEN
-    RAISE EXCEPTION 'this delivery has already been checked into stock — the item a line is linked to cannot be changed'
+  -- D-M1 (round 3): every other column is frozen too — price, batch, expiry, dates.
+  IF (to_jsonb(NEW) - 'domain_item_id' - 'domain_posted_at')
+     IS DISTINCT FROM (to_jsonb(OLD) - 'domain_item_id' - 'domain_posted_at') THEN
+    RAISE EXCEPTION 'this delivery has already been checked into stock — its lines (price, batch, expiry and dates included) cannot be changed'
       USING ERRCODE = '42501';
+  END IF;
+  IF NEW.domain_item_id IS DISTINCT FROM OLD.domain_item_id THEN
+    IF OLD.domain_item_id IS NOT NULL OR OLD.domain_posted_at IS NOT NULL THEN
+      RAISE EXCEPTION 'this delivery has already been checked into stock — the item a line is linked to cannot be changed'
+        USING ERRCODE = '42501';
+    END IF;
+    -- D-M1: the NULL -> item link is the poster's (verifyGrn, receiveReplacement relinking
+    -- the original line) — a verifier or admin who did not receive this delivery.
+    IF auth.uid() IS NULL
+       OR v_receiver IS NOT DISTINCT FROM auth.uid()
+       OR NOT (public.is_super_admin() OR public.is_admin()
+               OR public.user_has_permission('procurement.grn_verify')) THEN
+      RAISE EXCEPTION 'only a verifier who did not receive this delivery can link its line to an item'
+        USING ERRCODE = '42501';
+    END IF;
   END IF;
   IF OLD.domain_posted_at IS NOT NULL
      AND NEW.domain_posted_at IS DISTINCT FROM OLD.domain_posted_at THEN
@@ -1546,7 +1746,17 @@ USING (
 -- does NOT test order visibility with RLS — that would be vacuous here. Visibility is
 -- enforced by the route (it reads the order as the caller first) and by the bucket's
 -- upload policy (section 6), which is why the stored object must exist.
+-- D-L6 (deep-panel round 3): and, for an app user, the order's college must be one the
+-- requester can open (role_has_institution_access, which reads the JWT user — the same
+-- person fn_ai_enqueue writes into requested_by — or super admin / admin). Checked before
+-- the stored-object test, so nobody learns whether another college's bill is stored.
+-- S-L9 (round 3): payload._dedupe is written here as <requested_by>:<po_id>:<sha256>, so
+-- the existing unique index ai_jobs_inflight_dedupe_idx (job_type, payload->>'_dedupe',
+-- in-flight statuses only) refuses a second in-flight read of the same PDF by the same
+-- person with 23505; the route answers that with the job already queued. Forced, never
+-- taken from the caller: a chosen key could block someone else's read.
 -- Updated: 2026-10-10 - deep-panel round 1, PR #4296.
+-- Updated: 2026-10-11 - deep-panel round 3 (D-L6, S-L9).
 CREATE OR REPLACE FUNCTION public.fn_ai_jobs_invoice_extract_guard()
 RETURNS trigger
 LANGUAGE plpgsql
@@ -1557,6 +1767,7 @@ DECLARE
   v_po   text := NEW.payload->>'po_id';
   v_sha  text := NEW.payload->>'sha256';
   v_path text := NEW.payload->>'storage_path';
+  v_inst uuid;
 BEGIN
   -- M6 (deep-panel round 2): on UPDATE the job's target is frozen for app users.
   -- Production has no UPDATE path for them today (checked 2026-10-10: ai_jobs has RLS
@@ -1588,6 +1799,21 @@ BEGIN
     RAISE EXCEPTION 'invoice read job payload must name <po_id>/<sha256>.pdf for its own po_id and sha256'
       USING ERRCODE = '22023';
   END IF;
+  -- D-L6: the order must exist and, for an app user, belong to a college they can open.
+  SELECT po.institution_id INTO v_inst
+    FROM public.procurement_purchase_orders po
+   WHERE po.id = v_po::uuid;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'invoice read job names a purchase order that does not exist'
+      USING ERRCODE = '22023';
+  END IF;
+  IF coalesce(auth.role(), '') <> 'service_role' AND auth.uid() IS NOT NULL
+     AND (NEW.requested_by IS DISTINCT FROM auth.uid()
+          OR NOT (public.is_super_admin() OR public.is_admin()
+                  OR public.role_has_institution_access(v_inst))) THEN
+    RAISE EXCEPTION 'you cannot have an invoice read for a purchase order of a college you cannot open'
+      USING ERRCODE = '42501';
+  END IF;
   IF NOT EXISTS (
        SELECT 1 FROM storage.objects o
         WHERE o.bucket_id = 'procurement-invoice-pdfs'
@@ -1597,6 +1823,9 @@ BEGIN
   END IF;
   -- Whatever the caller sent, the runner only ever reads this bucket.
   NEW.payload := jsonb_set(NEW.payload, '{storage_bucket}', to_jsonb('procurement-invoice-pdfs'::text), true);
+  -- S-L9: one in-flight read per person + order + PDF (ai_jobs_inflight_dedupe_idx).
+  NEW.payload := jsonb_set(NEW.payload, '{_dedupe}',
+    to_jsonb(coalesce(NEW.requested_by::text, '') || ':' || lower(v_po) || ':' || v_sha), true);
   RETURN NEW;
 END;
 $$;
