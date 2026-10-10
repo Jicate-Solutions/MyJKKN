@@ -43,6 +43,8 @@ interface HoDCandidate {
   full_name: string | null;
   institution_id: string;
   institution_name: string;
+  department_id: string | null;
+  designation: string | null;
 }
 
 export default function DepartmentsHoDPage() {
@@ -68,7 +70,7 @@ export default function DepartmentsHoDPage() {
       const { data, error } = await sb
         .from('staff')
         .select(
-          'profile_id, first_name, last_name, institution_id, institutions!staff_institution_id_fkey!inner(name), role_key, is_active',
+          'profile_id, first_name, last_name, institution_id, department_id, designation, institutions!staff_institution_id_fkey!inner(name), role_key, is_active',
         )
         .eq('role_key', 'hod')
         .eq('is_active', true);
@@ -89,6 +91,8 @@ export default function DepartmentsHoDPage() {
             full_name: fullName || '(unnamed)',
             institution_id: row.institution_id,
             institution_name: row.institutions?.name ?? '—',
+            department_id: row.department_id ?? null,
+            designation: row.designation ?? null,
           };
         });
       setHodOptions(candidates);
@@ -99,18 +103,38 @@ export default function DepartmentsHoDPage() {
   }, [supabase]);
 
   // Build form schema dynamically — enum options scoped to the editing row's
-  // institution so the dropdown only shows HoD candidates from that college.
+  // DEPARTMENT when that department has its own HoD-role staff, falling back to
+  // the whole college only when it has none.
+  //
+  // Why the narrowing (2026-09-23): the original scope was institution-only, so
+  // an HR officer editing one department saw every HoD-role staff member in the
+  // college — 68 active hod-role staff across 8 colleges, up to 12 offered for a
+  // single department. That is a pick-the-right-one-from-twelve task with no
+  // signal to pick on, and 74 of 81 active departments were still unassigned.
+  // Scoping to the department reduces most of them to a single obvious choice.
+  // The designation is appended to each label because "Assistant Professor &
+  // Head" vs "Tutor" is the officer's only way to tell a real HoD from a staff
+  // row that merely carries role_key='hod'.
   const buildFormSchema = (
     editing: DepartmentRow | null,
   ): ReadonlyArray<FieldSchema> => {
-    const scopedOptions: EnumOption[] = editing
-      ? hodOptions
-          .filter((h) => h.institution_id === editing.institution_id)
-          .map((h) => ({
-            value: h.profile_id,
-            label: h.full_name ?? '(unnamed)',
-          }))
+    const inCollege = editing
+      ? hodOptions.filter((h) => h.institution_id === editing.institution_id)
       : [];
+    const inDepartment = editing
+      ? inCollege.filter((h) => h.department_id === editing.id)
+      : [];
+    // Fall back to the college only when this department has nobody of its own;
+    // a genuine HoD is occasionally attached to a different department row.
+    const scoped = inDepartment.length > 0 ? inDepartment : inCollege;
+    const widened = inDepartment.length === 0 && inCollege.length > 0;
+
+    const scopedOptions: EnumOption[] = scoped.map((h) => ({
+      value: h.profile_id,
+      label: h.designation
+        ? `${h.full_name ?? '(unnamed)'} — ${h.designation}`
+        : (h.full_name ?? '(unnamed)'),
+    }));
 
     return [
       {
@@ -120,7 +144,9 @@ export default function DepartmentsHoDPage() {
         englishHint:
           scopedOptions.length === 0
             ? 'No staff with role_key=hod found in this institution. Assign role_key=hod to a staff member first.'
-            : 'Pick the staff member who acts as HoD. Used by SAMS appraisal routing.',
+            : widened
+              ? 'Nobody in this department is marked as HoD, so every HoD-role staff member in the college is listed. Check the designation before picking.'
+              : 'Pick the staff member who acts as HoD. Used by SAMS appraisal routing.',
         // NOTE: Radix Select forbids `value=""` (it reserves empty string for
         // the placeholder-clear behavior and crashes the Select.Item with the
         // error: "<Select.Item /> must have a value prop that is not an empty
