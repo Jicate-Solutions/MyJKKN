@@ -74,7 +74,11 @@ CREATE TABLE public.events_registrations (
   department text,
   bib_number text,
   registration_number text,
-  status text NOT NULL DEFAULT 'registered',
+  -- events_registrations_status_check, as documented in
+  -- 20260808146000_soi_review_accept_queue.sql ("STATUS VOCABULARY").
+  status text NOT NULL DEFAULT 'registered'
+    CONSTRAINT events_registrations_status_check
+    CHECK (status IN ('pending', 'registered', 'confirmed', 'checked_in', 'cancelled', 'disqualified', 'no_show', 'waitlisted')),
   checked_in boolean DEFAULT false,
   checked_in_at timestamptz,
   checked_in_by uuid,
@@ -845,9 +849,9 @@ describe('review round 6 (#4311)', () => {
     await drop(row);
   });
 
-  it('#2 a cancelled or disqualified row cannot be given a place', async () => {
+  it('#2 a row outside the ACTIVE set cannot be given a place', async () => {
     await asOwner();
-    for (const status of ['cancelled', 'disqualified']) {
+    for (const status of ['cancelled', 'disqualified', 'no_show', 'waitlisted']) {
       const row = (
         await q(`INSERT INTO public.events_registrations (event_id, status) VALUES ($1, $2) RETURNING id`, [ids.event, status])
       )[0].id;
@@ -1070,3 +1074,99 @@ describe('review round 7 (#4311): an allowlist on a winner\'s row', () => {
   });
 });
 
+describe('review round 8 (#4311): one ACTIVE set of statuses', () => {
+  const ACTIVE = ['registered', 'confirmed', 'checked_in', 'pending'];
+  async function placedRow(profile: string | null = null) {
+    await reset();
+    await admin.query(`DELETE FROM public.event_winner_rank_changes`);
+    const row = (
+      await admin.query(`INSERT INTO public.events_registrations (event_id, profile_id) VALUES ($1, $2) RETURNING id`, [
+        ids.event,
+        profile,
+      ])
+    ).rows[0].id;
+    await admin.query(`UPDATE public.events_registrations SET final_rank = 2 WHERE id = $1`, [row]);
+    await admin.query(`DELETE FROM public.event_winner_rank_changes`);
+    return row;
+  }
+  const state = async (row: string) =>
+    (await admin.query(`SELECT status, final_rank FROM public.events_registrations WHERE id = $1`, [row])).rows[0];
+  const log = async (row: string) =>
+    (
+      await admin.query(
+        `SELECT old_rank, new_rank, changed_by FROM public.event_winner_rank_changes WHERE registration_id = $1 ORDER BY changed_at, ctid`,
+        [row]
+      )
+    ).rows;
+  const drop = (row: string) => admin.query(`DELETE FROM public.events_registrations WHERE id = $1`, [row]);
+
+  it('a manager marks a winner no_show: the place is cleared and logged', async () => {
+    const row = await placedRow();
+    await actAs(ids.outsider, { 'test.incharge_event': ids.event });
+    expect(await sqlstate(`UPDATE public.events_registrations SET status = 'no_show' WHERE id = $1`, [row])).toBeNull();
+    expect(await state(row)).toEqual({ status: 'no_show', final_rank: null });
+    expect(await log(row)).toEqual([{ old_rank: 2, new_rank: null, changed_by: ids.outsider }]);
+    await asOwner();
+    await drop(row);
+  });
+
+  it('a service-role move to waitlisted also clears the place', async () => {
+    const row = await placedRow();
+    await asOwner();
+    await q(`UPDATE public.events_registrations SET status = 'waitlisted' WHERE id = $1`, [row]);
+    expect(await state(row)).toEqual({ status: 'waitlisted', final_rank: null });
+    expect(await log(row)).toEqual([{ old_rank: 2, new_rank: null, changed_by: null }]);
+    await drop(row);
+  });
+
+  it('an ops writer without winner authority cannot move a winner out of the set', async () => {
+    const row = await placedRow(randomUUID());
+    await actAs(ids.outsider);
+    for (const status of ['withdrawn', 'no_show', 'waitlisted', 'cancelled', 'disqualified']) {
+      expect(await sqlstate(`UPDATE public.events_registrations SET status = '${status}' WHERE id = $1`, [row])).toBe('42501');
+    }
+    expect(await state(row)).toEqual({ status: 'registered', final_rank: 2 });
+    await asOwner();
+    await drop(row);
+  });
+
+  it('moves within the set (registered / checked_in / confirmed / pending) stay free for an ops writer', async () => {
+    const row = await placedRow(randomUUID());
+    await actAs(ids.outsider);
+    for (const status of ['checked_in', 'confirmed', 'pending', 'registered', 'checked_in']) {
+      expect(await sqlstate(`UPDATE public.events_registrations SET status = '${status}' WHERE id = $1`, [row])).toBeNull();
+    }
+    expect(await state(row)).toEqual({ status: 'checked_in', final_rank: 2 });
+    expect(await log(row)).toEqual([]);
+    void ACTIVE;
+    await asOwner();
+    await drop(row);
+  });
+
+  it('the registrant may still cancel their own winning row, but not mark it no_show', async () => {
+    const learner = randomUUID();
+    const row = await placedRow(learner);
+    await actAs(learner);
+    expect(await sqlstate(`UPDATE public.events_registrations SET status = 'no_show' WHERE id = $1`, [row])).toBe('42501');
+    expect(await sqlstate(`UPDATE public.events_registrations SET status = 'cancelled' WHERE id = $1`, [row])).toBeNull();
+    expect(await state(row)).toEqual({ status: 'cancelled', final_rank: null });
+    await asOwner();
+    await drop(row);
+  });
+
+  it('a no_show row cannot be given a place, even by a manager', async () => {
+    await asOwner();
+    const row = (
+      await admin.query(`INSERT INTO public.events_registrations (event_id, status) VALUES ($1, 'no_show') RETURNING id`, [ids.event])
+    ).rows[0].id;
+    await actAs(ids.creator);
+    expect(
+      await sqlstate(`SELECT public.fn_set_event_registration_ranks($1, $2::jsonb)`, [
+        ids.event,
+        JSON.stringify([{ registration_id: row, final_rank: 1 }]),
+      ])
+    ).toBe('22023');
+    await asOwner();
+    await drop(row);
+  });
+});

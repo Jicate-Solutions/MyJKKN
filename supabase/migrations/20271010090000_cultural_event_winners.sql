@@ -103,6 +103,12 @@ DECLARE
     'payment_status', 'payment_amount', 'payment_method', 'payment_reference',
     'updated_at'
   ];
+  -- ACTIVE: the only statuses a placed (winning) row may have. KEEP IN STEP
+  -- with WINNER_ACTIVE_STATUSES in hooks/events/use-event-winners.ts (used by
+  -- components/events/shared/event-winners-card.tsx to decide who is offered).
+  -- Any other status (cancelled, disqualified, no_show, waitlisted, anything
+  -- added later) is "out": it cannot hold a place.
+  c_active CONSTANT text[] := ARRAY['registered', 'confirmed', 'checked_in', 'pending'];
   v_rank_changed boolean := false;
   v_moved boolean := false;
   v_withdrawn boolean := false;
@@ -151,13 +157,12 @@ BEGIN
       RETURN NEW;
     END IF;
 
-    -- A winner who withdraws or is disqualified loses the place (desk ruling
-    -- 10 Oct): moving a placed row INTO 'cancelled' or 'disqualified' clears
-    -- final_rank for every caller, and the history trigger logs the clear.
-    -- A cancelled or disqualified row therefore never holds a place.
+    -- A winner who leaves the ACTIVE set (cancelled, disqualified, no_show,
+    -- anything else) loses the place (desk ruling 10 Oct): final_rank is
+    -- cleared for every caller, and the history trigger logs the clear. A row
+    -- outside ACTIVE therefore never holds a place.
     IF OLD.final_rank IS NOT NULL
-       AND NEW.status IN ('cancelled', 'disqualified')
-       AND NEW.status IS DISTINCT FROM OLD.status THEN
+       AND NOT (NEW.status = ANY (c_active)) THEN
       NEW.final_rank := NULL;
       v_withdrawn := true;
     END IF;
@@ -174,8 +179,9 @@ BEGIN
     IF v_type IS DISTINCT FROM 'cultural' THEN
       RAISE EXCEPTION 'Winners can be recorded only for cultural events.' USING ERRCODE = '22023';
     END IF;
-    IF NEW.status IN ('cancelled', 'disqualified') THEN
-      RAISE EXCEPTION 'A cancelled or disqualified registration cannot hold a place.' USING ERRCODE = '22023';
+    IF NOT (NEW.status = ANY (c_active)) THEN
+      RAISE EXCEPTION 'Only an active registration (registered, confirmed, checked in or pending) can hold a place.'
+        USING ERRCODE = '22023';
     END IF;
   END IF;
 
@@ -218,11 +224,12 @@ BEGIN
       RAISE EXCEPTION 'Only the event''s creator, its in-charge or an administrator can record or change winners.'
         USING ERRCODE = '42501';
     END IF;
-    -- Status: check-in and the like are free. Into or out of cancelled /
-    -- disqualified needs winner authority (profile_id is frozen above, so an
-    -- updater cannot re-point the row to themselves and "self-cancel").
+    -- Status: moves WITHIN the ACTIVE set (check-in and the like) are free.
+    -- Any move out of (or into) it needs winner authority (profile_id is
+    -- frozen above, so an updater cannot re-point the row to themselves and
+    -- "self-cancel").
     IF NEW.status IS DISTINCT FROM OLD.status
-       AND (OLD.status IN ('cancelled', 'disqualified') OR NEW.status IN ('cancelled', 'disqualified')) THEN
+       AND (NOT (OLD.status = ANY (c_active)) OR NOT (NEW.status = ANY (c_active))) THEN
       RAISE EXCEPTION 'Only the registrant (to cancel), or the event''s creator, its in-charge or an administrator, can change this winner''s status.'
         USING ERRCODE = '42501';
     END IF;

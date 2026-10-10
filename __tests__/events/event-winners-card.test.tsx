@@ -7,7 +7,9 @@ import { render, screen, cleanup, fireEvent, waitFor } from '@testing-library/re
 
 const mutateAsync = vi.hoisted(() => vi.fn(async () => undefined));
 const winners = vi.hoisted(() => ({ data: undefined as any, isError: false, refetch: vi.fn() }));
-vi.mock('@/hooks/events/use-event-winners', () => ({
+vi.mock('@/hooks/events/use-event-winners', async (importOriginal) => ({
+  // the real WINNER_ACTIVE_STATUSES; only the data hooks are stubbed
+  ...(await importOriginal<typeof import('@/hooks/events/use-event-winners')>()),
   useEventWinners: () => ({ data: winners.data, isError: winners.isError, refetch: winners.refetch, isFetching: false }),
   useRecordEventWinners: () => ({ mutateAsync, isPending: false }),
 }));
@@ -174,5 +176,26 @@ describe('EventWinnersCard — load failure', () => {
     fireEvent.click(screen.getByRole('button', { name: /Record winners/ }));
     const sel = screen.getByLabelText(/Winner/) as HTMLSelectElement;
     expect(Array.from(sel.options).map((o) => o.value)).toEqual(['', 'a']);
+  });
+});
+
+describe('EventWinnersCard — the ACTIVE set', () => {
+  it('offers only registered / confirmed / checked_in / pending registrations (hides no_show, waitlisted)', () => {
+    winners.data = {
+      canManage: true,
+      forms: [],
+      registrations: [
+        reg('a', 'Reg'),
+        reg('b', 'Conf', null, { status: 'confirmed' }),
+        reg('c', 'In', null, { status: 'checked_in' }),
+        reg('d', 'Pend', null, { status: 'pending' }),
+        reg('e', 'NoShow', null, { status: 'no_show' }),
+        reg('f', 'Wait', null, { status: 'waitlisted' }),
+      ],
+    };
+    render(<EventWinnersCard eventId="ev-1" />);
+    fireEvent.click(screen.getByRole('button', { name: /Record winners/ }));
+    const sel = screen.getByLabelText(/Winner/) as HTMLSelectElement;
+    expect(Array.from(sel.options).map((o) => o.value)).toEqual(['', 'a', 'b', 'c', 'd']);
   });
 });

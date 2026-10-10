@@ -20,6 +20,7 @@ import {
 } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
 import {
+  WINNER_ACTIVE_STATUSES,
   useEventWinners,
   useRecordEventWinners,
   type WinnerChange,
@@ -34,9 +35,9 @@ export const PLACES = [
 
 type Picks = Record<number, string>;
 
-// A cancelled or disqualified registration never holds a place (the database
-// clears it), so it is not offered either.
-const isOut = (r: WinnerRegistration) => r.status === 'cancelled' || r.status === 'disqualified';
+// Only an ACTIVE registration can hold a place (the database clears any
+// other), so only those are offered.
+const isOut = (r: WinnerRegistration) => !WINNER_ACTIVE_STATUSES.includes(r.status);
 
 function regLabel(r: WinnerRegistration) {
   const where = r.institution_name || r.department;

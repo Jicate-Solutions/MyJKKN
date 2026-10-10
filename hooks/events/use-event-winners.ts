@@ -8,6 +8,15 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import toast from 'react-hot-toast';
 
+/**
+ * The only statuses a registration may have while it holds a place. Anything
+ * else (cancelled, disqualified, no_show, waitlisted, ...) loses the place and
+ * is not offered as a winner. KEEP IN STEP with c_active in
+ * fn_events_registrations_final_rank_guard
+ * (supabase/migrations/20271010090000_cultural_event_winners.sql).
+ */
+export const WINNER_ACTIVE_STATUSES: readonly string[] = ['registered', 'confirmed', 'checked_in', 'pending'];
+
 export interface WinnerRegistration {
   id: string;
   form_id: string | null;
