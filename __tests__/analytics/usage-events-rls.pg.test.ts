@@ -44,6 +44,9 @@ DO $$ BEGIN
   BEGIN CREATE ROLE authenticated NOLOGIN; EXCEPTION WHEN duplicate_object OR unique_violation THEN NULL; END;
   BEGIN CREATE ROLE service_role NOLOGIN BYPASSRLS; EXCEPTION WHEN duplicate_object OR unique_violation THEN NULL; END;
 END $$;
+-- Roles are cluster-wide: another *.pg.test.ts in the same CI server may have
+-- created service_role first without BYPASSRLS, so set it explicitly.
+ALTER ROLE service_role BYPASSRLS;
 
 CREATE SCHEMA IF NOT EXISTS auth;
 CREATE FUNCTION auth.uid() RETURNS uuid LANGUAGE sql STABLE AS $$
