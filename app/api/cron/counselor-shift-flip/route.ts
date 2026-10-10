@@ -18,7 +18,8 @@
 //
 //  Task D — MISSED-CALL CALLBACKS (2026-10-10): call fn_assign_pending_callbacks()
 //   which gives each unassigned missed-call callback to the on-duty counsellor of
-//   that college with the fewest open callbacks (setting telephony.callback_queue.rota).
+//   that college with the fewest open callbacks (setting telephony.callback_queue.rota),
+//   then fn_expire_stale_callbacks() so overdue bells go out every 15 minutes.
 //
 // Both sub-tasks are independent — failure of one does NOT skip the other.
 // Safe to fire arbitrarily often: idempotent, worst-case 14-min lag on cascade.
@@ -158,11 +159,16 @@ export async function GET(request: NextRequest) {
   // ----------------------------------------------------------------
   // Task D: Give unassigned missed-call callbacks to on-duty counsellors.
   // ----------------------------------------------------------------
-  const callbackResult: { assigned: number; error: string | null } = { assigned: 0, error: null };
+  // Then run the escalation sweep here too, so the 60-minute overdue bell lands within
+  // 60-75 min instead of waiting for the hourly callback-queue-expire cron.
+  const callbackResult: { assigned: number; escalation: unknown; error: string | null } = { assigned: 0, escalation: null, error: null };
   try {
-    const { data, error } = await supabase.rpc('fn_assign_pending_callbacks');
+    const { data, error } = await (supabase as any).rpc('fn_assign_pending_callbacks');
     if (error) throw new Error(error.message);
     callbackResult.assigned = typeof data === 'number' ? data : 0;
+    const { data: esc, error: escError } = await supabase.rpc('fn_expire_stale_callbacks');
+    if (escError) throw new Error(escError.message);
+    callbackResult.escalation = esc;
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     console.error('[cron/counselor-shift-flip] Task D (callbacks) failed:', msg);
