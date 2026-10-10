@@ -4,24 +4,48 @@ export const dynamic = 'force-dynamic';
 // POST /api/admission/calls/initiate — Initiate a click-to-call via Exotel
 //
 // Guard: this bridges two phones through JKKN's billed Exotel account with
-// JKKN's caller ID. It therefore requires 'admission.counselors.view' (the key
-// that gates the Call Logs page) through withAuth, an institution_id inside
-// the caller's institutions, and a lead (when given) from that institution.
+// JKKN's caller ID. Placing a billed call is a write on a lead, so it requires
+// 'admission.leads.edit' through withAuth, an institution_id inside the
+// caller's institutions, and a lead (when given) from that institution.
 // The counsellor leg always rings the caller's OWN profile phone; the body's
-// counselor_phone and caller_id are accepted for compatibility but ignored
-// (TelephonyService resolves the displayed number from the configured agent
-// map / EXOTEL_CALLER_ID). Refusals are explicit { success:false } responses.
+// counselor_phone and caller_id are accepted for compatibility but ignored.
+// The route no longer passes caller_id, so TelephonyService.initiateCall falls
+// back to its existing getCounselorExoPhone() resolution (agent map, then
+// EXOTEL_CALLER_ID, then the hardcoded admission IVR number).
+// Refusals are explicit { success:false } responses.
 
 import { NextRequest, NextResponse } from 'next/server';
 import { isValidIndianMobile, maskPhone, normalizeIndianPhone } from '@/lib/utils/phone-number';
 import { createServiceRoleClient } from '@/lib/supabase/server';
 import { withAuth } from '@/lib/auth/with-auth';
 import { errorResponse } from '@/lib/api/response';
-import { createApiInstitutionFilter } from '@/lib/auth/api-institution-filter';
+import {
+  createApiInstitutionFilter,
+  type ApiInstitutionFilterResult,
+} from '@/lib/auth/api-institution-filter';
 import { TelephonyService } from '@/lib/services/telephony/telephony-service';
 import { logger } from '@/lib/utils/enhanced-logger';
 
-const CALLS_PERMISSION = 'admission.counselors.view';
+const CALLS_PERMISSION = 'admission.leads.edit';
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function isUuid(value: unknown): value is string {
+  return typeof value === 'string' && UUID_RE.test(value);
+}
+
+/**
+ * True only when the filter explicitly grants this institution. An empty list
+ * means "every institution" ONLY for an explicit all-institutions answer
+ * (super admin, or the admission-global scope); for anyone else an empty
+ * list means no access.
+ */
+function institutionInScope(scope: ApiInstitutionFilterResult, institutionId: string): boolean {
+  if (!scope.isAllowed) return false;
+  const allInstitutions =
+    scope.isSuperAdmin || (scope.userRole === 'admission' && scope.institutionIds.length === 0);
+  return allInstitutions || scope.institutionIds.includes(institutionId);
+}
 
 export const POST = withAuth(async (request: NextRequest, auth) => {
   try {
@@ -41,13 +65,13 @@ export const POST = withAuth(async (request: NextRequest, auth) => {
     const { institution_id, prospect_phone, lead_id } = body;
 
     // Validate required fields
-    if (!institution_id) {
-      return NextResponse.json(
-        { error: 'VALIDATION_ERROR', message: 'institution_id is required' },
-        { status: 400 }
-      );
+    if (!isUuid(institution_id)) {
+      return errorResponse('institution_id is required and must be a valid id', 400);
     }
-    if (!prospect_phone) {
+    if (lead_id !== undefined && lead_id !== null && lead_id !== '' && !isUuid(lead_id)) {
+      return errorResponse('lead_id must be a valid id', 400);
+    }
+    if (!prospect_phone || typeof prospect_phone !== 'string') {
       return NextResponse.json(
         { error: 'VALIDATION_ERROR', message: 'prospect_phone is required' },
         { status: 400 }
@@ -66,7 +90,7 @@ export const POST = withAuth(async (request: NextRequest, auth) => {
     const scope = await createApiInstitutionFilter(request, {
       allowSpecificInstitution: institution_id,
     });
-    if (!scope.isAllowed) {
+    if (!institutionInScope(scope, institution_id)) {
       return errorResponse('You do not have access to place calls for this institution', 403);
     }
 
@@ -89,11 +113,15 @@ export const POST = withAuth(async (request: NextRequest, auth) => {
     }
 
     // The counsellor leg always rings the caller's own profile phone.
-    const { data: profile } = await supabase
+    const { data: profile, error: profileError } = await supabase
       .from('profiles')
       .select('id, phone')
       .eq('id', user.id)
-      .single();
+      .maybeSingle();
+    if (profileError) {
+      logger.error('admission/calls', 'Initiate call profile lookup error', profileError);
+      return errorResponse('Could not read your profile to place the call', 500);
+    }
     const profilePhone: string = profile?.phone || '';
     if (!profilePhone || !isValidIndianMobile(profilePhone)) {
       return errorResponse('Add your mobile number to your profile to place calls', 400);
