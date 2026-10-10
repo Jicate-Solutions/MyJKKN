@@ -383,6 +383,10 @@ interface SubmitReport {
   enabled: boolean;
   batch_per_tick: number;
   backlog_since: string;
+  /** Rows the filter returned — reports missing at least one answer. Compare
+   *  against the batch: if it is persistently 0 while open reports exist, the
+   *  drip has finished its reach, not stalled. */
+  fetched: number;
   considered: number;
   triage_queued: number;
   dupcheck_queued: number;
@@ -420,6 +424,7 @@ async function submit(
     enabled,
     batch_per_tick: batch,
     backlog_since: since,
+    fetched: 0,
     considered: 0,
     triage_queued: 0,
     dupcheck_queued: 0,
@@ -432,10 +437,22 @@ async function submit(
 
   if (!enabled || batch === 0) return out;
 
-  // Newest first: today's report is helped on the next tick, and the backlog
-  // fills whatever room is left. Oversampled because rows that already carry
-  // both answers are filtered out below, and a tick that found only such rows
-  // would otherwise do nothing.
+  // ASK THE DATABASE FOR WORK, NOT FOR ROWS.
+  //
+  // An earlier version fetched the newest batch*6 open reports and skipped the
+  // ones that already had both answers. That stalls: after six good ticks the
+  // whole fetched window is done, every row skips, and nothing is ever queued
+  // again — while the oldest reports in the backlog are never reached. It also
+  // hides, because the bug-lane-watch alarm only asks "were any bug jobs queued
+  // in 24h", and brand-new reports sort to the top and keep getting queued, so
+  // the alarm stays quiet while the band beneath them is starved.
+  //
+  // So the filter now says what we actually want: a report MISSING at least one
+  // of the two answers. The set shrinks as the backlog drains instead of the
+  // window going stale, which makes the drip structurally unable to stall.
+  // Newest first, so today's report is helped on the next tick and the backlog
+  // fills whatever room is left. A little headroom over `batch` absorbs the two
+  // skips below (no description, or a job tried within the last 24 hours).
   const { data: rows, error } = await (admin as any)
     .from('bug_reports')
     .select(
@@ -444,8 +461,9 @@ async function submit(
     .in('status', OPEN_STATUSES)
     .is('application_id', null) // MyJKKN's own code only — see the header
     .gte('created_at', since)
+    .or('metadata->ai_triage.is.null,metadata->ai_duplicate_check.is.null')
     .order('created_at', { ascending: false })
-    .limit(Math.max(batch * 6, 30));
+    .limit(Math.max(batch * 4, 20));
 
   if (error) {
     out.errors.push(`candidate read: ${error.message}`);
@@ -453,50 +471,58 @@ async function submit(
   }
 
   const candidates = Array.isArray(rows) ? rows : [];
+  out.fetched = candidates.length;
 
   for (const bug of candidates) {
-    if (out.triage_queued + out.dupcheck_no_candidates + out.dupcheck_queued >= batch * 2) break;
     if (out.considered >= batch) break;
 
     const meta = (bug.metadata ?? {}) as Record<string, unknown>;
     const needsTriage = !meta.ai_triage;
     const needsDupcheck = !meta.ai_duplicate_check;
-    if (!needsTriage && !needsDupcheck) continue;
+    if (!needsTriage && !needsDupcheck) continue; // belt-and-braces; filtered above
 
     if (!bug.description || String(bug.description).trim().length === 0) {
       out.skipped_no_description += 1;
       continue;
     }
 
+    // DECIDE BEFORE SPENDING A SLOT. The 24-hour guard is checked first, and a
+    // report with nothing actionable does NOT count against this tick's batch.
+    // Counting it first was the second half of the same stall: an ERRORED report
+    // has no metadata, so it is re-fetched every tick, and fifteen of them in
+    // one bad lane hour would consume all fifteen slots every tick for a day
+    // while nothing was queued at all.
+    const triageDedupe = `bug-triage:${bug.id}`;
+    const dupDedupe = `bug-dupcheck:${bug.id}`;
+    const triageRecent = needsTriage ? await hasRecentJob(admin, TRIAGE, triageDedupe) : false;
+    const dupRecent = needsDupcheck ? await hasRecentJob(admin, DUPCHECK, dupDedupe) : false;
+
+    const doTriage = needsTriage && !triageRecent;
+    const doDupcheck = needsDupcheck && !dupRecent;
+    if (!doTriage && !doDupcheck) {
+      out.skipped_recent_job += 1;
+      continue; // no slot spent
+    }
+
     out.considered += 1;
 
-    if (needsTriage) {
-      const dedupe = `bug-triage:${bug.id}`;
-      const recent = await hasRecentJob(admin, TRIAGE, dedupe);
-      if (recent) {
-        out.skipped_recent_job += 1;
-      } else if (!dry) {
-        const r = await enqueueTriage(admin, bug, dedupe);
+    if (doTriage) {
+      if (dry) {
+        out.triage_queued += 1;
+      } else {
+        const r = await enqueueTriage(admin, bug, triageDedupe);
         if (r === 'queued') out.triage_queued += 1;
         else if (r === 'in_flight') out.skipped_in_flight += 1;
         else out.errors.push(`triage ${bug.display_id ?? bug.id}: ${r}`);
-      } else {
-        out.triage_queued += 1;
       }
     }
 
-    if (needsDupcheck) {
-      const dedupe = `bug-dupcheck:${bug.id}`;
-      const recent = await hasRecentJob(admin, DUPCHECK, dedupe);
-      if (recent) {
-        out.skipped_recent_job += 1;
-      } else {
-        const r = await enqueueDupcheck(admin, bug, dedupe, dry);
-        if (r === 'queued') out.dupcheck_queued += 1;
-        else if (r === 'no_candidates') out.dupcheck_no_candidates += 1;
-        else if (r === 'in_flight') out.skipped_in_flight += 1;
-        else out.errors.push(`dupcheck ${bug.display_id ?? bug.id}: ${r}`);
-      }
+    if (doDupcheck) {
+      const r = await enqueueDupcheck(admin, bug, dupDedupe, dry);
+      if (r === 'queued') out.dupcheck_queued += 1;
+      else if (r === 'no_candidates') out.dupcheck_no_candidates += 1;
+      else if (r === 'in_flight') out.skipped_in_flight += 1;
+      else out.errors.push(`dupcheck ${bug.display_id ?? bug.id}: ${r}`);
     }
   }
 
