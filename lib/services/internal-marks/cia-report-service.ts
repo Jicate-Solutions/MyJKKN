@@ -9,6 +9,7 @@ export class CiaReportService {
     courseCode: string;
     ciaRound: number;
     programCode?: string;
+    semester?: number;
   }): Promise<CiaReportResponse> {
     const sp = new URLSearchParams({
       institutionId: params.institutionId,
@@ -17,6 +18,7 @@ export class CiaReportService {
       ciaRound: String(params.ciaRound),
     });
     if (params.programCode) sp.set('programCode', params.programCode);
+    if (params.semester != null) sp.set('semester', String(params.semester));
 
     const res = await fetch(`${this.baseUrl}?${sp.toString()}`);
     if (!res.ok) {
@@ -32,6 +34,7 @@ export class CiaReportService {
     courseCode: string;
     ciaRound: number;
     programCode?: string;
+    semester?: number;
     roundName?: string;
   }): Promise<Blob> {
     const res = await fetch(`${this.baseUrl}/export-pdf`, {

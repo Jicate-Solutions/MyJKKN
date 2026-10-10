@@ -28,29 +28,50 @@ const TYPES = [
 /** Extra bookings for the paging tests, and a table whose reads fail. */
 let extraBookings: typeof BOOKINGS = [];
 let failingTable: string | null = null;
-/** Reads that returned rows, with the range each asked for (PostgREST would cap an unranged read). */
-let rangeReads: Array<[number, number]> = [];
+/** Raw booking-row reads (the chips must never need them) and type-count calls. */
+let bookingRowReads = 0;
+let countCalls: Array<Record<string, unknown>> = [];
+/** Makes the type-count call never answer (until its abort signal fires). */
+let countHangs = false;
+/** Makes the meeting_types name lookup (.in) never answer until its abort signal fires. */
+let namesHang = false;
+/** Hides these types' rows, as RLS would. */
+let hiddenTypes: string[] = [];
 
 function makeQuery(table: string) {
   const preds: Array<(r: any) => boolean> = [];
   let head = false;
   let range: [number, number] | null = null;
   let cap: number | null = null;
+  let signal: AbortSignal | undefined;
+  let usedIn = false;
   const q: any = {
     select: (_c: string, opts?: { head?: boolean }) => ((head = Boolean(opts?.head)), q),
     order: () => q,
     limit: (n: number) => ((cap = n), q),
-    range: (from: number, to: number) => ((range = [from, to]), rangeReads.push([from, to]), q),
-    in: (col: string, vals: unknown[]) => (preds.push((r) => vals.includes(r[col])), q),
+    range: (from: number, to: number) => ((range = [from, to]), q),
+    abortSignal: (sg: AbortSignal) => ((signal = sg), q),
+    maybeSingle: () => ({
+      then: (ok: (v: unknown) => unknown) =>
+        q.then((r: { data: unknown[] | null; error: unknown }) => ok({ data: r.data?.[0] ?? null, error: r.error })),
+    }),
+    in: (col: string, vals: unknown[]) => ((usedIn = true), preds.push((r) => vals.includes(r[col])), q),
     eq: (col: string, v: unknown) => (preds.push((r) => r[col] === v), q),
     is: (col: string, v: unknown) => (preds.push((r) => r[col] === v), q),
     gte: (col: string, v: string) => (preds.push((r) => r[col] >= v), q),
     lt: (col: string, v: string) => (preds.push((r) => r[col] < v), q),
-    then: (ok: (v: unknown) => unknown) => {
+    then: (ok: (v: unknown) => unknown, bad?: (e: unknown) => unknown) => {
+      if (namesHang && table === 'meeting_types' && usedIn) {
+        return new Promise((_, reject) => {
+          if (signal?.aborted) return reject(new Error('aborted'));
+          signal?.addEventListener('abort', () => reject(new Error('aborted')));
+        }).then(ok, bad);
+      }
       if (failingTable === table) {
         return Promise.resolve({ data: null, count: null, error: { message: 'timeout' } }).then(ok);
       }
-      const src = table === 'meeting_types' ? TYPES : [...BOOKINGS, ...extraBookings];
+      if (table === 'meeting_bookings' && !head) bookingRowReads += 1;
+      const src = table === 'meeting_types' ? TYPES.filter((t) => !hiddenTypes.includes(t.id)) : [...BOOKINGS, ...extraBookings];
       const all = src.filter((r) => preds.every((p) => p(r)));
       const data = range ? all.slice(range[0], range[1] + 1) : cap !== null ? all.slice(0, cap) : all;
       return Promise.resolve(head ? { count: all.length, error: null } : { data, error: null }).then(ok);
@@ -58,8 +79,44 @@ function makeQuery(table: string) {
   };
   return q;
 }
+/** fn_meeting_inbox_type_counts, evaluated on the fixtures with the same filters the SQL applies. */
+function countRpc(args: { p_statuses: string[] | null; p_from: string | null; p_before: string | null }) {
+  countCalls.push(args);
+  let signal: AbortSignal | undefined;
+  const run = () => {
+    if (failingTable === 'rpc') return { data: null, error: { message: 'timeout' } };
+    // The migration is not applied yet: PostgREST answers PGRST202.
+    if (failingTable === 'rpc-missing') {
+      return {
+        data: null,
+        error: { code: 'PGRST202', message: 'Could not find the function public.fn_meeting_inbox_type_counts' },
+      };
+    }
+    const by = new Map<string | null, number>();
+    for (const b of [...BOOKINGS, ...extraBookings]) {
+      if (args.p_statuses && !args.p_statuses.includes(b.status)) continue;
+      if (args.p_from && !(b.start_time >= args.p_from)) continue;
+      if (args.p_before && !(b.start_time < args.p_before)) continue;
+      by.set(b.meeting_type_id, (by.get(b.meeting_type_id) ?? 0) + 1);
+    }
+    const data = [...by].map(([id, n]) => ({
+      meeting_type_id: id,
+      title: id && !hiddenTypes.includes(id) ? TYPES.find((t) => t.id === id)?.title ?? null : null,
+      bookings: n,
+    }));
+    return { data, error: null };
+  };
+  const b: any = {
+    abortSignal: (sg: AbortSignal) => ((signal = sg), b),
+    then: (ok: (v: unknown) => unknown, bad: (e: unknown) => unknown) => {
+      if (!countHangs) return Promise.resolve(run()).then(ok, bad);
+      return new Promise((_, reject) => signal?.addEventListener('abort', () => reject(new Error('aborted')))).then(ok, bad);
+    },
+  };
+  return b;
+}
 vi.mock('@/lib/supabase/server', () => ({
-  createClient: async () => ({ from: (t: string) => makeQuery(t) }),
+  createClient: async () => ({ from: (t: string) => makeQuery(t), rpc: (_fn: string, a: any) => countRpc(a) }),
 }));
 vi.mock('next/link', () => ({ default: (p: any) => <a href={p.href} className={p.className}>{p.children}</a> }));
 vi.mock('@/components/layout/content-layout', () => ({ ContentLayout: (p: any) => <main>{p.children}</main> }));
@@ -75,7 +132,11 @@ afterEach(() => {
   cleanup();
   extraBookings = [];
   failingTable = null;
-  rangeReads = [];
+  bookingRowReads = 0;
+  countCalls = [];
+  countHangs = false;
+  namesHang = false;
+  hiddenTypes = [];
 });
 
 const manyInterviews = (n: number) =>
@@ -152,31 +213,118 @@ describe('meeting type filter', () => {
   });
 });
 
-describe('type counts are exact, or say they are not', () => {
-  it('counts past one 1,000-row page', async () => {
-    extraBookings = manyInterviews(2_300);
+describe('type counts come from one grouped database count', () => {
+  it('counts exactly, with no raw row reads, however many meetings there are', async () => {
+    extraBookings = manyInterviews(12_000);
     await renderInbox({});
-    expect(within(typeGroup()).getByRole('link', { name: /Job Interview/ })).toHaveTextContent('2302');
-    // three pages of at most 1,000 rows each, none overlapping
-    expect(rangeReads).toEqual([[0, 999], [1000, 1999], [2000, 2999]]);
-    expect(screen.queryByText(/Counts cover the first/)).not.toBeInTheDocument();
+    expect(within(typeGroup()).getByRole('link', { name: /Job Interview/ })).toHaveTextContent('12002');
+    // only the 50-row list reads booking rows
+    expect(bookingRowReads).toBe(1);
+    expect(countCalls).toHaveLength(1);
   });
 
-  it('beyond 10,000 meetings the page says the counts are partial', async () => {
-    extraBookings = manyInterviews(10_050);
-    await renderInbox({});
-    expect(rangeReads).toHaveLength(10);
-    expect(screen.getByText(/Counts cover the first 10,000 of 10,054 meetings in this tab/)).toBeInTheDocument();
+  it('sends the tab\'s own filters', async () => {
+    await renderInbox({ status: 'past' });
+    expect(countCalls[0]).toMatchObject({ p_statuses: ['confirmed', 'completed', 'no_show'], p_from: null });
+    expect(typeof countCalls[0].p_before).toBe('string');
+    countCalls = [];
+    cleanup();
+    await renderInbox({ status: 'cancelled' });
+    expect(countCalls[0]).toEqual({ p_statuses: ['cancelled'], p_from: null, p_before: null });
   });
 
-  it('a failed type lookup says so and leaves the list alone', async () => {
-    failingTable = 'meeting_types';
+  it('a failed count shows no numbers and a note, and leaves the list alone', async () => {
+    failingTable = 'rpc';
     const err = vi.spyOn(console, 'error').mockImplementation(() => undefined);
     await renderInbox({});
     expect(screen.getByRole('status')).toHaveTextContent('The meeting type filter could not load just now');
+    expect(screen.queryByRole('group', { name: 'Filter by meeting type' })).not.toBeInTheDocument();
     expect(listedPeople()).toHaveLength(4);
+    // rows still carry their type names, from a small lookup over the listed rows
+    expect(screen.getByRole('link', { name: /Candidate One/ })).toHaveTextContent('Job Interview Meeting with Director Inperson');
     expect(err).toHaveBeenCalled();
     err.mockRestore();
+  });
+
+  it('when the count times out, the rows still get their type names', async () => {
+    countHangs = true;
+    const err = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    await renderInbox({});
+    expect(screen.getByRole('status')).toHaveTextContent('could not load just now');
+    expect(screen.getByRole('link', { name: /Candidate One/ })).toHaveTextContent('Job Interview Meeting with Director Inperson');
+    err.mockRestore();
+  }, 15_000);
+
+  it('a hanging count AND a hanging name lookup end within about 4.5 s (never 6 s)', async () => {
+    countHangs = true;
+    namesHang = true;
+    const err = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const started = Date.now();
+    await renderInbox({});
+    const took = Date.now() - started;
+    expect(took).toBeGreaterThanOrEqual(4_300);
+    expect(took).toBeLessThan(5_200);
+    expect(listedPeople()).toHaveLength(4);
+    err.mockRestore();
+  }, 15_000);
+
+  it('before the count function is applied, the chips are counted from rows instead', async () => {
+    failingTable = 'rpc-missing';
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    await renderInbox({});
+    expect(screen.queryByText(/could not load just now/)).not.toBeInTheDocument();
+    const chips = within(typeGroup()).getAllByRole('link').map((a) => a.textContent);
+    expect(chips).toEqual([
+      'All types',
+      'Job Interview Meeting with Director Inperson2',
+      'Weekly Review1',
+      'Scheduled directly (no type)1',
+    ]);
+    // the selected type still filters
+    cleanup();
+    await renderInbox({ type: T_INTERVIEW });
+    expect(listedPeople()).toHaveLength(2);
+    expect(warn).toHaveBeenCalled();
+    warn.mockRestore();
+  });
+
+  it('the row-count fallback says when it is partial (over 10,000 meetings)', async () => {
+    failingTable = 'rpc-missing';
+    extraBookings = manyInterviews(10_050);
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    await renderInbox({});
+    expect(screen.getByText(/Counts cover the first 10,000 of 10,054 meetings in this tab/)).toBeInTheDocument();
+    warn.mockRestore();
+  });
+
+  it('a count that never answers gives up after 3 s and the list still renders', async () => {
+    countHangs = true;
+    const err = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const started = Date.now();
+    await renderInbox({});
+    expect(Date.now() - started).toBeLessThan(6_000);
+    expect(screen.getByRole('status')).toHaveTextContent('could not load just now');
+    expect(listedPeople()).toHaveLength(4);
+    err.mockRestore();
+  }, 10_000);
+
+  it('a type whose name cannot be read gets a short distinguishable label', async () => {
+    hiddenTypes = [T_REVIEW];
+    await renderInbox({});
+    expect(within(typeGroup()).getByRole('link', { name: /Meeting type 2222/ })).toHaveTextContent('1');
+  });
+
+  it('clicking the chip of a type whose name cannot be read filters to that type', async () => {
+    hiddenTypes = [T_REVIEW];
+    await renderInbox({ type: T_REVIEW });
+    expect(listedPeople()).toEqual([expect.stringContaining('Reviewer')]);
+    expect(within(typeGroup()).getByRole('button', { pressed: true })).toHaveTextContent('Meeting type 2222');
+  });
+
+  it('a well-formed id that is not a meeting type is ignored', async () => {
+    await renderInbox({ type: '99999999-9999-4999-8999-999999999999' });
+    expect(listedPeople()).toHaveLength(4);
+    expect(within(typeGroup()).getByRole('button', { pressed: true })).toHaveTextContent('All types');
   });
 
   it('an upper-case type id in the link still selects its chip', async () => {

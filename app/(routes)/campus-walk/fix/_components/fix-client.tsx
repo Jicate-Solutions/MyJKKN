@@ -47,6 +47,7 @@ import { compressImage } from '@/lib/utils/compress-image';
 import { stripImageMetadata } from '@/lib/services/pde/strip-image-metadata';
 import { JoinedReportsList, type JoinedReportItem } from '@/components/campus-walk/joined-reports-list';
 import { PHOTO_UNREADABLE } from '@/lib/instasolver/to-jpeg';
+import { thinReplyReason } from '@/lib/campus-walk/cctv-categories';
 
 // ── Types shared with the server component ──────────────────────────────────
 
@@ -99,6 +100,12 @@ export interface FixTicket {
   slaPausedDays: number;
   /** True when a supervisor is closing out on behalf of their staff member. */
   actingAsDepartmentHead: boolean;
+  /**
+   * A CCTV report (Director, 9 Oct 2026): closed by a written reply saying
+   * what action was taken — there is nothing to photograph. Optional so
+   * every other caller's ticket shape is unchanged.
+   */
+  answerInWords?: boolean;
 }
 
 // D8 — the reasons a fix genuinely stalls through no fault of the fixer.
@@ -303,6 +310,43 @@ export function FixClient({ ticket }: FixClientProps) {
       setSending(false);
     }
   }, [photo, sending, ticket.taskId, note, toast, router]);
+
+  // ── Reply in words (CCTV reports) ─────────────────────────────────────────
+
+  const sendReply = useCallback(async () => {
+    if (sending) return;
+    const thin = thinReplyReason(note);
+    if (thin) {
+      setSendError(thin);
+      return;
+    }
+    setSending(true);
+    setSendError(null);
+    const body = new FormData();
+    body.set('task_id', ticket.taskId);
+    body.set('action', 'reply');
+    body.set('note', note.trim());
+    try {
+      const res = await fetch('/api/campus-walk/fix', { method: 'POST', body });
+      const json = await res.json().catch(() => ({}) as any);
+      if (res.ok && json?.ok) {
+        setSubmittedNow(true);
+        setClosedNow(json.closed === true);
+        setBlockedNow(false);
+        toast({
+          title: json.closed === true ? 'Done — the report is closed' : 'Reply saved',
+          description: json.message ?? 'Thank you.',
+        });
+        router.refresh();
+        return;
+      }
+      setSendError(json?.error ?? 'That did not go through. Your reply is still here — please tap Send again.');
+    } catch {
+      setSendError('No connection. Your reply is still here — try again when you have signal.');
+    } finally {
+      setSending(false);
+    }
+  }, [sending, note, ticket.taskId, toast, router]);
 
   // ── Block / unblock (D8) ──────────────────────────────────────────────────
 
@@ -577,8 +621,48 @@ export function FixClient({ ticket }: FixClientProps) {
         </Card>
       )}
 
+      {/* ── Reply in words (CCTV reports) ──────────────────────────────────── */}
+      {showUploadForm && ticket.answerInWords && (
+        <Card>
+          <CardContent className="space-y-4 pt-6">
+            <div>
+              <h3 className="font-semibold">What did you do about it?</h3>
+              <p className="text-sm text-muted-foreground">
+                This came from CCTV. Write the action you took, not just &ldquo;noted&rdquo;. Your reply closes the
+                report; the person who reported it can still mark it &ldquo;not dealt with&rdquo;.
+              </p>
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="reply-note">Your reply</Label>
+              <Textarea
+                id="reply-note"
+                value={note}
+                onChange={(e) => setNote(e.target.value)}
+                placeholder="e.g. Spoke to the class in charge; phones are now collected at the start of the hour."
+                rows={4}
+                maxLength={1000}
+              />
+            </div>
+            {sendError && (
+              <div className="flex items-start gap-2 rounded-md bg-red-50 px-3 py-2 text-sm text-red-800">
+                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                <span>{sendError}</span>
+              </div>
+            )}
+            <Button
+              className="h-14 w-full text-base"
+              onClick={() => void sendReply()}
+              disabled={sending || note.trim().length < 20}
+            >
+              {sending ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : <Send className="mr-2 h-5 w-5" />}
+              {sending ? 'Sending…' : 'Send reply and close'}
+            </Button>
+          </CardContent>
+        </Card>
+      )}
+
       {/* ── Upload ─────────────────────────────────────────────────────────── */}
-      {showUploadForm && (
+      {showUploadForm && !ticket.answerInWords && (
         <Card>
           <CardContent className="space-y-4 pt-6">
             <div>

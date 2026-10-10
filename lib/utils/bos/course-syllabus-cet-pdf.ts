@@ -461,31 +461,39 @@ export function renderEngineeringSyllabusPDF(
 	// instead of units[]/topics[]; neither block above reads it.
 	if (data.project_units && data.project_units.length > 0) {
 		doc.setFontSize(FS)
+		// A line break typed in a rule/remarks box starts a new paragraph.
+		const paragraphsOf = (raw: string | undefined | null) =>
+			(raw ?? '').split(/\r?\n+/).map(s => sanitize(s)).filter(Boolean)
+		const PARA_GAP = 2.5
+		const body = (text: string) => { ensure(LH); paragraph(text, LEFT, CONTENT_W, { justify: true }); y += PARA_GAP }
+		const heading = (text: string) => {
+			ensure(LH * 2)
+			doc.setFont(FONT, 'bold'); paragraph(text, LEFT, CONTENT_W); doc.setFont(FONT, 'normal')
+			y += 1
+		}
 		for (const unit of data.project_units) {
 			const unitTitle = sanitize(unit.unit_title || '')
 			const rules = (unit.rules ?? [])
 				.map(r => ({
 					title: sanitize(r.unit_of_experiment || '').replace(/[:\s]+$/, ''),
-					content: sanitize(r.content || ''),
+					paragraphs: paragraphsOf(r.content),
 				}))
-				.filter(r => r.title || r.content)
-			const remarks = sanitize(unit.remarks || '')
-			if (!unitTitle && rules.length === 0 && !remarks) continue
+				.filter(r => r.title || r.paragraphs.length > 0)
 
-			ensure(LH + 2)
+			doc.setFont(FONT, 'normal')
 			if (unitTitle) {
 				// No rules → the title box holds the whole guideline paragraph.
-				doc.setFont(FONT, rules.length === 0 ? 'normal' : 'bold')
-				paragraph(unitTitle, LEFT, CONTENT_W, { justify: rules.length === 0 })
+				if (rules.length === 0) body(unitTitle)
+				else heading(unitTitle)
 			}
-			doc.setFont(FONT, 'normal')
 			for (const r of rules) {
-				if (r.title && r.content) paragraphBoldLabel(`${r.title}:`, r.content, ' ', LEFT, CONTENT_W)
-				else if (r.title) { doc.setFont(FONT, 'bold'); paragraph(r.title, LEFT, CONTENT_W); doc.setFont(FONT, 'normal') }
-				else paragraph(r.content, LEFT, CONTENT_W, { justify: true })
+				const [first, ...rest] = r.paragraphs
+				if (r.title && first) { ensure(LH); paragraphBoldLabel(`${r.title}:`, first, ' ', LEFT, CONTENT_W); y += PARA_GAP }
+				else if (r.title) heading(r.title)
+				else if (first) body(first)
+				rest.forEach(body)
 			}
-			if (remarks) paragraph(remarks, LEFT, CONTENT_W, { justify: true })
-			y += 2
+			paragraphsOf(unit.remarks).forEach(body)
 		}
 		y += 3
 	}
