@@ -135,26 +135,28 @@ export async function GET(
       // maybeSingle is safe: verified live 10 Oct 2026 — UNIQUE index
       // induction_programs_event_id_key ON (event_id), 0 duplicate event_ids.
       if (programError) return feedbackFailed('induction_programs lookup', programError);
-      // Session path ONLY when the program row exists and has day feedback
-      // switched off. No row keeps the original day-feedback behaviour.
+      // Day feedback rows are ALWAYS read: a coordinator can switch day
+      // feedback off mid-induction, and learners who already submitted day
+      // feedback for this day still gave feedback that day.
+      const dayRes = await collectLearnerIds(() => admin.from('event_day_feedback')
+        .select('id, learner_id').eq('event_id', eventId).eq('day_number', day)
+        .in('learner_id', ids));
+      if (dayRes.error) return feedbackFailed('day feedback read', dayRes.error);
+      submitted = dayRes.ids;
+      // With the program row present and day feedback switched off, UNION in
+      // everyone who rated one of that day's sessions. No row keeps the
+      // original day-feedback-only behaviour.
       if (program && (program as any).feedback_day_enabled === false) {
         const { data: daySessions, error: sessionsError } = await admin.from('event_sessions')
           .select('id').eq('event_id', eventId).eq('day_number', day);
         if (sessionsError) return feedbackFailed('event_sessions read', sessionsError);
         const sessionIds = ((daySessions as any[]) ?? []).map((s) => s.id);
-        submitted = new Set<string>();
         if (sessionIds.length > 0) {
           const res = await collectLearnerIds(() => admin.from('event_session_feedback')
             .select('id, learner_id').in('session_id', sessionIds).in('learner_id', ids));
           if (res.error) return feedbackFailed('day session feedback read', res.error);
-          submitted = res.ids;
+          for (const id of res.ids) submitted.add(id);
         }
-      } else {
-        const res = await collectLearnerIds(() => admin.from('event_day_feedback')
-          .select('id, learner_id').eq('event_id', eventId).eq('day_number', day)
-          .in('learner_id', ids));
-        if (res.error) return feedbackFailed('day feedback read', res.error);
-        submitted = res.ids;
       }
     }
 

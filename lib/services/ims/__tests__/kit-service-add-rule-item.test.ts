@@ -171,7 +171,11 @@ describe('ImsKitService.searchItems (kit rule panel scope)', () => {
 
   it("college rule: its own college's items plus Central store items", async () => {
     await ImsKitService.searchItems('pen', { institutionId: 'inst-A' });
-    expect(searchFilters()).toContainEqual(['or', 'institution_id.eq.inst-A,kit_source.eq.central', null]);
+    // One or= param carrying the AND, never two .or() calls (two `or=` params).
+    const ors = searchFilters()!.filter((f) => f[0] === 'or');
+    expect(ors).toEqual([
+      ['or', 'and(or(name.ilike."%pen%",code.ilike."%pen%"),or(institution_id.eq.inst-A,kit_source.eq.central))', null],
+    ]);
   });
 
   it('search errors arrive as a real Error with the server message', async () => {
@@ -184,7 +188,17 @@ describe('ImsKitService.searchItems (kit rule panel scope)', () => {
   it('all-colleges rule: Central store items only', async () => {
     await ImsKitService.searchItems('pen', { institutionId: null });
     expect(searchFilters()).toContainEqual(['eq', 'kit_source', 'central']);
-    expect(searchFilters()!.filter((f) => f[0] === 'or')).toHaveLength(1);
+    expect(searchFilters()!.filter((f) => f[0] === 'or')).toEqual([
+      ['or', 'name.ilike."%pen%",code.ilike."%pen%"', null],
+    ]);
+  });
+
+  it('no scope: name/code match only, no source filter', async () => {
+    await ImsKitService.searchItems('pen');
+    expect(searchFilters()).toEqual([
+      ['eq', 'is_active', true],
+      ['or', 'name.ilike."%pen%",code.ilike."%pen%"', null],
+    ]);
   });
 
   it('writes nothing to the item when no source was passed and the insert fails', async () => {

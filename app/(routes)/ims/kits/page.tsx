@@ -342,7 +342,7 @@ function RuleDetail({ rule }: { rule: KitRule }) {
         : [];
       if (seq === itemSearchSeq.current) setItemResults(res);
     } catch (e: unknown) {
-      if (seq === itemSearchSeq.current) toast.error(e instanceof Error ? e.message : 'Search failed');
+      if (seq === itemSearchSeq.current) toast.error(e instanceof Error ? e.message : 'Search failed', { id: 'kit-item-search-error' });
     }
   };
   const searchMembers = async (t: string) => {
@@ -423,6 +423,9 @@ function RuleDetail({ rule }: { rule: KitRule }) {
                         rule_id: rule.id, item_id: r.id, quantity: Number(qty) || 1, cadence,
                         ...(r.kit_source ? {} : { kit_source: pickedSource[r.id] }),
                       });
+                      // Bump the sequence so a search still in flight cannot
+                      // repopulate the results we just cleared.
+                      itemSearchSeq.current += 1;
                       setItemTerm(''); setItemResults([]);
                       toast.success('Item added');
                     } catch (e: unknown) {

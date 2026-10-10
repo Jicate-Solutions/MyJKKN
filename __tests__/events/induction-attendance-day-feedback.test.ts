@@ -104,6 +104,25 @@ describe('induction attendance report — day-scope feedback', () => {
     expect(await dayReport(2)).toEqual({ L1: false, L2: false, L3: true });
   });
 
+  it('day feedback OFF but day-feedback rows exist (setting flipped mid-induction): UNION both', async () => {
+    tables.induction_programs = [{ event_id: 'E1', feedback_day_enabled: false }];
+    // L3 rated no day-1 session but submitted day-1 day feedback before the
+    // coordinator switched day feedback off.
+    tables.event_day_feedback = [
+      { id: 'd1', event_id: 'E1', day_number: 1, learner_id: 'L3' },
+      { id: 'd2', event_id: 'E1', day_number: 2, learner_id: 'L2' }, // other day — not day 1
+    ];
+    expect(await dayReport(1)).toEqual({ L1: true, L2: true, L3: true });
+    expect(await dayReport(2)).toEqual({ L1: false, L2: true, L3: true });
+  });
+
+  it('day feedback OFF: a failed day-feedback read is a 500, not silent No', async () => {
+    tables.induction_programs = [{ event_id: 'E1', feedback_day_enabled: false }];
+    failing.add('event_day_feedback');
+    const res = await rawDay(1);
+    expect(res.status).toBe(500);
+  });
+
   it('keeps reading day feedback when day feedback is ON', async () => {
     tables.induction_programs = [{ event_id: 'E1', feedback_day_enabled: true }];
     tables.event_day_feedback = [{ id: 'd1', event_id: 'E1', day_number: 1, learner_id: 'L3' }];

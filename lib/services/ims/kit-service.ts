@@ -465,15 +465,21 @@ export class ImsKitService {
   static async searchItems(term: string, scope?: { institutionId: string | null }) {
     const q = term.trim();
     if (q.length < 2) return [];
+    const nameOrCode = orIlike(['name', 'code'], q);
     let query = this.supabase
       .from('ims_items')
       .select('id, name, code, kit_source')
-      .eq('is_active', true)
-      .or(orIlike(['name', 'code'], q));
-    if (scope) {
-      query = scope.institutionId
-        ? query.or(`institution_id.eq.${scope.institutionId},kit_source.eq.central`)
-        : query.eq('kit_source', 'central');
+      .eq('is_active', true);
+    // ONE or= parameter, with the AND written out. Two .or() calls append two
+    // `or=` query params (postgrest-js uses searchParams.append); PostgREST
+    // ANDs them today, but that is not documented, so do not rely on it.
+    if (scope?.institutionId) {
+      query = query.or(
+        `and(or(${nameOrCode}),or(institution_id.eq.${scope.institutionId},kit_source.eq.central))`
+      );
+    } else {
+      query = query.or(nameOrCode);
+      if (scope) query = query.eq('kit_source', 'central');
     }
     const { data, error } = await query.limit(15);
     if (error) throw toError(error, 'Search failed');

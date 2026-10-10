@@ -194,17 +194,26 @@ export async function GET(request: NextRequest) {
   const supabase = await createClient();
   let userId: string | null = null;
   let verdict: AuthVerdict;
+  let authError: unknown = null;
   try {
     const { data, error } = await supabase.auth.getUser();
     userId = data?.user?.id ?? null;
+    authError = error;
     verdict = classifyAuthResult(data?.user, error);
   } catch (e) {
+    authError = e;
     verdict = classifyAuthResult(null, e);
   }
   // An Auth outage or a refresh race is NOT "signed out": sending that person
   // to /auth/login can loop. Only a definite signed-out answer goes to sign-in.
   if (verdict === 'retry') {
-    logger.warn('school-of-influence', '[soi-landing] could not tell who is signed in; showing unavailable');
+    // Name, status and message only: never the session, tokens or the user.
+    const err = (authError ?? {}) as { name?: unknown; status?: unknown; message?: unknown };
+    logger.warn('school-of-influence', '[soi-landing] could not tell who is signed in; showing unavailable', {
+      name: typeof err.name === 'string' ? err.name : undefined,
+      status: typeof err.status === 'number' ? err.status : undefined,
+      message: typeof err.message === 'string' ? err.message : undefined,
+    });
     return NextResponse.redirect(new URL(SOI_UNAVAILABLE_PATH, request.url), 307);
   }
   if (verdict === 'signed-out' || !userId) {
