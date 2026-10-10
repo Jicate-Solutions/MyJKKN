@@ -381,7 +381,7 @@ function RuleDetail({ rule }: { rule: KitRule }) {
                     <Badge variant="secondary">{r.kit_source === 'college' ? 'College store' : 'Central store'}</Badge>
                   ) : (
                     <Select
-                      value={pickedSource[r.id]}
+                      value={pickedSource[r.id] ?? ''}
                       onValueChange={(v) => setPickedSource((m) => ({ ...m, [r.id]: v as KitSource }))}
                     >
                       <SelectTrigger className="w-36 h-8" aria-label="Kit source">
@@ -401,7 +401,7 @@ function RuleDetail({ rule }: { rule: KitRule }) {
                       <SelectItem value="once">Once</SelectItem>
                     </SelectContent>
                   </Select>
-                  <Button size="sm" disabled={!r.kit_source && !pickedSource[r.id]} onClick={async () => {
+                  <Button size="sm" disabled={addItem.isPending || (!r.kit_source && !pickedSource[r.id])} onClick={async () => {
                     try {
                       await addItem.mutateAsync({
                         rule_id: rule.id, item_id: r.id, quantity: Number(qty) || 1, cadence,

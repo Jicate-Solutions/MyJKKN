@@ -30,6 +30,11 @@ function toError(error: { message?: string } | null | undefined, fallback: strin
 
 export type KitSource = 'central' | 'college';
 
+const KIT_SOURCE_LABEL: Record<KitSource, string> = {
+  central: 'Central store',
+  college: 'College store',
+};
+
 export interface KitRule {
   id: string;
   rule_name: string;
@@ -165,22 +170,60 @@ export class ImsKitService {
     kit_source?: KitSource;
   }) {
     const { kit_source, ...row } = dto;
+    // True only when THIS call moved the item from NULL to kit_source, so a
+    // failed insert below may undo exactly that (and nothing someone else set).
+    let classifiedHere = false;
     if (kit_source) {
+      // Guard on NULL: a stale search result must never overwrite another
+      // admin's classification item-wide (#4336 review M1).
       const { data, error } = await this.supabase
         .from('ims_items')
         .update({ kit_source })
         .eq('id', row.item_id)
+        .is('kit_source', null)
         .select('id');
       if (error) throw toError(error, 'Could not set the item\'s kit source');
-      if (!data || data.length === 0) {
-        throw new Error(
-          'You can manage kits but cannot edit this store item, so its kit source ' +
-          '(central / college) could not be set. Ask a store admin to set it.',
-        );
+      if (data && data.length > 0) {
+        classifiedHere = true;
+      } else {
+        // 0 rows: either someone classified it meanwhile, or RLS refused.
+        const { data: current, error: readError } = await this.supabase
+          .from('ims_items')
+          .select('kit_source')
+          .eq('id', row.item_id)
+          .maybeSingle();
+        if (readError) throw toError(readError, 'Could not read the item\'s kit source');
+        const now = (current as { kit_source: KitSource | null } | null)?.kit_source ?? null;
+        if (now && now !== kit_source) {
+          throw new Error(`This item is already classified as ${KIT_SOURCE_LABEL[now] ?? now}`);
+        }
+        if (!now) {
+          throw new Error(
+            "You can't classify items — ask a store admin to set the item's kit source.",
+          );
+        }
+        // now === kit_source: someone set the same value meanwhile — carry on.
       }
     }
     const { error } = await this.supabase.from('ims_kit_rule_items').insert(row);
-    if (error) throw toError(error, 'Add failed');
+    if (error) {
+      if (classifiedHere) {
+        // Two writes, no transaction: undo our classification so a failed add
+        // does not leave the item reclassified (#4336 review M2). Guarded on
+        // our value so a later change by someone else is left alone.
+        try {
+          const { error: revertError } = await this.supabase
+            .from('ims_items')
+            .update({ kit_source: null })
+            .eq('id', row.item_id)
+            .eq('kit_source', kit_source as KitSource);
+          if (revertError) logger.error(MOD, 'kit_source revert failed', revertError);
+        } catch (e) {
+          logger.error(MOD, 'kit_source revert failed', e);
+        }
+      }
+      throw toError(error, 'Add failed');
+    }
   }
 
   static async removeRuleItem(id: string) {
