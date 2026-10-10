@@ -58,6 +58,8 @@ interface Props {
   round: CiaRound;
   courseCode: string;
   programCode: string;
+  /** Semester of the course — scopes the saved-marks read-back to these learners. */
+  semester?: number;
   learners: LearnerForMarkEntry[];
   maxInternalMarks: number;
   canEnter: boolean;
@@ -74,6 +76,7 @@ export function QuestionWiseTab({
   round,
   courseCode,
   programCode,
+  semester,
   learners,
   maxInternalMarks,
   canEnter,
@@ -128,6 +131,7 @@ export function QuestionWiseTab({
     courseCode,
     ciaRound: round.round,
     programCode,
+    semester,
   });
   const savedByRegister = useMemo(() => {
     const map = new Map<string, Record<string, number | null>>();

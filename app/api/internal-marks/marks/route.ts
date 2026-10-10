@@ -33,6 +33,7 @@ export async function GET(request: NextRequest) {
     const courseCode = searchParams.get('courseCode');
     const ciaRound = searchParams.get('ciaRound');
     const programCode = searchParams.get('programCode');
+    const semester = searchParams.get('semester');
 
     if (!institutionId || !examSessionId || !courseCode || !ciaRound) {
       return NextResponse.json({ error: 'institutionId, examSessionId, courseCode, ciaRound are required' }, { status: 400 });
@@ -50,6 +51,7 @@ export async function GET(request: NextRequest) {
       course_code: courseCode,
       cia_round: ciaRound,
       program_code: programCode ?? undefined,
+      semester: semester ?? undefined,
     });
     const data = flattenReportExtraMarks(raw);
 

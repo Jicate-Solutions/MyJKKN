@@ -28,9 +28,11 @@ import {
   Bus,
   CalendarDays,
   Download,
+  FileCode,
   FileText,
   ReceiptIndianRupee,
   Search,
+  Settings,
   TrendingUp,
   Wallet,
   X
@@ -48,6 +50,15 @@ import {
   summarise,
   transactionDetail
 } from '@/lib/services/billing/reports/collection-daywise';
+import {
+  TALLY_BOOK_LABELS,
+  buildTallyExport,
+  buildTallyXml,
+  tallyFileSlug,
+  type TallyBook
+} from '@/lib/services/billing/reports/collection-tally';
+import { TallySetupService } from '@/lib/services/billing/reports/tally-setup-service';
+import { TallySetupDialog } from './tally-setup-dialog';
 import type { BillingReportFilters } from '@/types/billing-schedule';
 
 interface CollectionReportTabProps {
@@ -95,6 +106,8 @@ export function CollectionReportTab({ filters, canExport }: CollectionReportTabP
   // ticking also enables the separate Transport Maintenance Fee PDF.
   const [includeTransport, setIncludeTransport] = useState(false);
   const [exportingTransportPdf, setExportingTransportPdf] = useState(false);
+  const [exportingTally, setExportingTally] = useState<TallyBook | null>(null);
+  const [tallySetupOpen, setTallySetupOpen] = useState(false);
 
   const visible = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -225,6 +238,74 @@ export function CollectionReportTab({ filters, canExport }: CollectionReportTabP
       toast.error('PDF export failed');
     } finally {
       setExportingTransportPdf(false);
+    }
+  };
+
+  // Tally keeps one company per institution, and ledger names are set up per
+  // institution, so a Tally file is only ever for the one selected in the
+  // filters.
+  const tallyInstitutionId = filters.institution_id || '';
+  const tallyInstitutionName = rows[0]?.institution_name || 'Selected institution';
+
+  const requireTallyInstitution = () => {
+    if (tallyInstitutionId) return true;
+    toast.error('Select one institution in the filters for Tally.');
+    return false;
+  };
+
+  // One Receipt voucher per receipt for TallyPrime's Import > Transactions.
+  // Transport Maintenance Fee is a separate Tally company, so each book takes
+  // only its own fee categories whatever the Include Transport Fee box says.
+  // Receipts that cannot be posted (learner not mapped, combined payment, mode
+  // without a ledger) come out in a second file instead of being guessed at.
+  const handleExportTally = async (book: TallyBook) => {
+    if (!requireTallyInstitution()) return;
+    if (truncated) {
+      toast.error('This range is cut off at 10,000 receipts. Narrow the dates before exporting to Tally.');
+      return;
+    }
+    const source = projectRowsByCategory(
+      visible,
+      book === 'transport' ? isTransportMaintenanceFee : (c) => !isTransportMaintenanceFee(c)
+    );
+    if (source.length === 0) {
+      toast.error(`No ${TALLY_BOOK_LABELS[book]} receipts to export for this range.`);
+      return;
+    }
+    try {
+      setExportingTally(book);
+      const [modeLedgers, ledgerByJkknId] = await Promise.all([
+        TallySetupService.getModeLedgers(tallyInstitutionId, book),
+        TallySetupService.getLedgerMap(tallyInstitutionId, book)
+      ]);
+      if (Object.keys(modeLedgers).length === 0) {
+        toast.error('Set the Tally cash / bank ledgers first.');
+        setTallySetupOpen(true);
+        return;
+      }
+      const exp = buildTallyExport(source, { book, ledgerByJkknId, modeLedgers });
+      const { from, to } = exportRange();
+      const stem = `tally-${book}-${tallyFileSlug(tallyInstitutionName)}-${from}_to_${to}`;
+      const { downloadTallyXml, downloadTallyNotExported } = await import(
+        '@/lib/services/billing/reports/collection-tally-files'
+      );
+      if (exp.vouchers.length > 0) downloadTallyXml(buildTallyXml(exp.vouchers), `${stem}.xml`);
+      if (exp.skipped.length > 0 || exp.refunded.length > 0) {
+        await downloadTallyNotExported(exp, `${stem}-not-exported.xlsx`);
+      }
+      const done = `${exp.vouchers.length} of ${source.length} receipts exported (${formatCurrency(exp.total)})`;
+      if (exp.skipped.length > 0) {
+        toast.error(`${done}. ${exp.skipped.length} left out — see the not-exported file.`, { duration: 8000 });
+      } else if (exp.refunded.length > 0) {
+        toast.success(`${done}. ${exp.refunded.length} with refunds — see the not-exported file.`, { duration: 8000 });
+      } else {
+        toast.success(done);
+      }
+    } catch (err) {
+      console.error('Tally export failed:', err);
+      toast.error((err as { message?: string })?.message || 'Tally export failed');
+    } finally {
+      setExportingTally(null);
     }
   };
 
@@ -403,6 +484,50 @@ export function CollectionReportTab({ filters, canExport }: CollectionReportTabP
                   </>
                 )}
               </Button>
+            </div>
+          )}
+
+          {canExport && (
+            <div className='mt-3 flex flex-col gap-3 rounded-lg border bg-muted/40 px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between'>
+              <span className='space-y-0.5'>
+                <span className='flex items-center gap-1.5 text-sm font-medium'>
+                  <FileCode className='h-4 w-4 text-muted-foreground' />
+                  Tally
+                </span>
+                <span className='block text-xs text-muted-foreground'>
+                  Receipt vouchers for TallyPrime (Import &gt; Transactions), one institution at a
+                  time. Transport Maintenance Fee is always its own file.
+                </span>
+              </span>
+              <div className='flex flex-wrap items-center gap-2'>
+                {(['fees', 'transport'] as const).map((book) => (
+                  <Button
+                    key={book}
+                    variant='outline'
+                    size='sm'
+                    onClick={() => handleExportTally(book)}
+                    disabled={exportingTally !== null}
+                    className='min-w-[150px]'
+                  >
+                    {exportingTally === book ? (
+                      <BeatLoader size={8} color='currentColor' />
+                    ) : (
+                      <>
+                        <Download className='h-4 w-4 mr-2' />
+                        {book === 'fees' ? 'Tally XML' : 'Transport Tally XML'}
+                      </>
+                    )}
+                  </Button>
+                ))}
+                <Button
+                  variant='ghost'
+                  size='sm'
+                  onClick={() => requireTallyInstitution() && setTallySetupOpen(true)}
+                >
+                  <Settings className='h-4 w-4 mr-2' />
+                  Tally Setup
+                </Button>
+              </div>
             </div>
           )}
 
@@ -609,6 +734,15 @@ export function CollectionReportTab({ filters, canExport }: CollectionReportTabP
           )}
         </CardContent>
       </Card>
+
+      {canExport && tallyInstitutionId && (
+        <TallySetupDialog
+          open={tallySetupOpen}
+          onOpenChange={setTallySetupOpen}
+          institutionId={tallyInstitutionId}
+          institutionName={tallyInstitutionName}
+        />
+      )}
     </div>
   );
 }

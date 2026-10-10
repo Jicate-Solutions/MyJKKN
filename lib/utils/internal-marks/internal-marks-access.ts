@@ -10,6 +10,7 @@
  */
 
 import { createClient } from '@/lib/supabase/server';
+import { createClient as createSupabaseClient } from '@supabase/supabase-js';
 
 export interface InternalMarksAccessScope {
   /** True when user bypasses all institution filters */
@@ -171,6 +172,43 @@ export async function resolveCoeInstitutionById(
     institution_code: match.institution_code,
     myjkkn_institution_ids: match.myjkkn_institution_ids ?? [],
   };
+}
+
+/**
+ * Register numbers of every learner in a MyJKKN institution, or null if the read failed.
+ *
+ * COE returns Aided + SF learners combined; the internal-marks routes keep only the
+ * caller's institution by matching registrations against this set. Read in pages: the
+ * database returns at most 1,000 rows per request, and a cut-short set would silently
+ * filter every learner past it out of the lists (CAS has about 2,400).
+ *
+ * Service-role client — the caller may not be in user_institution_access.
+ */
+export async function fetchInstitutionRegisterNumbers(
+  institutionId: string
+): Promise<Set<string> | null> {
+  const serviceClient = createSupabaseClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!,
+    { auth: { persistSession: false, autoRefreshToken: false } }
+  );
+
+  const PAGE_SIZE = 1000;
+  const registerNumbers = new Set<string>();
+  for (let from = 0; ; from += PAGE_SIZE) {
+    const { data, error } = await serviceClient
+      .from('learners_profiles')
+      .select('register_number')
+      .eq('institution_id', institutionId)
+      .not('register_number', 'is', null)
+      .order('id')
+      .range(from, from + PAGE_SIZE - 1);
+
+    if (error || !data) return null;
+    for (const s of data) registerNumbers.add(s.register_number);
+    if (data.length < PAGE_SIZE) break;
+  }
+  return registerNumbers;
 }
 
 /**
