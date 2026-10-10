@@ -406,6 +406,38 @@ describe('the three-lens pass (10 Oct)', () => {
     }
   });
 
+  it('a cancel landing during the LAST email still turns the reply into CANCELLED_MEANWHILE', async () => {
+    const h = makeDb(row({ answers: { title: 'Fee review', participants: [{ email: 'parent@gmail.com', name: 'A Parent' }] } }));
+    const send = (await import('@/lib/resend')).resend.emails.send as unknown as ReturnType<typeof vi.fn>;
+    const orig = send.getMockImplementation()!;
+    send.mockImplementation(async (msg: any, opts: any) => {
+      const out = await orig(msg, opts);
+      if (msg.to === 'parent@gmail.com') h.cancelNow();
+      return out;
+    });
+    try {
+      const r = await HostSchedulingService.moveDirect(h.db, { uid: 'uid-1', hostProfileId: HOST, startIso: NEW_START, durationMin: 30 });
+      expect(r).toMatchObject({ ok: false, error: { code: 'CANCELLED_MEANWHILE' } });
+      expect(r.error?.message).toMatch(/1 invitee\(s\) had already been emailed/);
+    } finally {
+      send.mockImplementation(orig);
+    }
+  });
+
+  it('an end that changes between the read and the update stops the move (CAS covers end_time)', async () => {
+    const h = makeDb(row());
+    const realFrom = h.db.from.bind(h.db);
+    let reads = 0;
+    h.db.from = (t: string) => {
+      if (t === 'meeting_bookings' && ++reads === 2) (h.now() as any).end_time = '2099-01-10T06:00:00.000Z'; // dragged in Google
+      return realFrom(t);
+    };
+    const r = await HostSchedulingService.moveDirect(h.db, { uid: 'uid-1', hostProfileId: HOST, startIso: NEW_START, durationMin: 30 });
+    expect(r).toMatchObject({ ok: false, error: { code: 'NOT_FOUND' } });
+    expect(h.now()).toMatchObject({ start_time: OLD_START });
+    expect(patchEventTime).not.toHaveBeenCalled();
+  });
+
   it('another move landing mid-move is reported as CHANGED_MEANWHILE', async () => {
     const h = makeDb(row());
     patchEventTime.mockImplementation(async () => {
