@@ -173,6 +173,26 @@
 --          a SECURITY DEFINER function (auth.role() authenticated / anon).
 --      L10. invoice_number is trimmed, and a blank one stored as NULL, before the
 --          charset check runs (a form sending '' got a raw 23514).
+
+--  13. Deep-panel round 2, skeptic re-check (2026-10-11):
+--      H2. A replacement row cannot be deleted except by an admin / the service role
+--          (trg_pgrnr_delete_guard), so the "all replacements on a line <= its rejected
+--          quantity" total cannot be emptied and raised again. A fulfilled replacement
+--          stays fulfilled: its link (replacement_grn_item_id) is written once, to a line
+--          of the receipt naming it, and received -> pending (receiveReplacement's
+--          rollback) needs grn_verify and is refused while any receipt names it. The
+--          receipt's replacement_id can no longer be cleared (rule 9b, admins excepted).
+--          App roles lose TRUNCATE on the GRN and IMS receipt tables (no row trigger).
+--      M5. fn_procurement_grn_has_duplicate, called directly, answers about every college
+--          only for an admin or a verifier who did not receive the receipt; anyone else
+--          (its receiver above all) about the colleges they can open. Only the receiver
+--          (or an admin) may change a saved receipt's invoice number (rule b). In the
+--          verify guard the E1 self-check now runs BEFORE D2 / I1, and an INSERT into
+--          stock must carry no invoice number, so a refused INSERT no longer tells a
+--          verifier whether a guessed number is held.
+--      M4. verifyGrn re-reads the lines after the header is posted (from then on the
+--          lines are frozen) and reopens the receipt if they differ from what was checked
+--          (lib/services/procurement/grn-service.ts).
 --
 -- I1 is deliberately NOT a unique index: the Director chose "confirm and allow" for
 -- honest resends, which a unique constraint would forbid.
@@ -587,7 +607,9 @@ DECLARE
   v_number   text        := p_invoice_number;
   v_created  timestamptz := p_created_at;
   v_inst     uuid;
+  v_receiver uuid;
   v_key      text;
+  v_scoped   boolean := false;
 BEGIN
   IF NOT (coalesce(auth.role(), '') = 'service_role' OR pg_trigger_depth() > 0) THEN
     -- The page's direct call.
@@ -603,8 +625,8 @@ BEGIN
     IF p_grn_id IS NULL THEN
       RETURN false;
     END IF;
-    SELECT g.supplier_id, g.invoice_number, g.created_at, g.institution_id
-      INTO v_supplier, v_number, v_created, v_inst
+    SELECT g.supplier_id, g.invoice_number, g.created_at, g.institution_id, g.received_by
+      INTO v_supplier, v_number, v_created, v_inst, v_receiver
       FROM public.procurement_grn g
      WHERE g.id = p_grn_id;
     IF NOT FOUND
@@ -612,6 +634,15 @@ BEGIN
                OR public.role_has_institution_access(v_inst)) THEN
       RETURN false;
     END IF;
+    -- M5 round 3 (skeptic): the answer covers every college only for someone who may
+    -- confirm this receipt — an admin, or a verifier who did not receive it. Anyone
+    -- else (its receiver above all, who may change its number) is answered only about
+    -- the colleges they can open, which RLS already shows them. Before, the receiver
+    -- re-numbered one pending receipt per guess and asked here each time.
+    v_scoped := NOT (public.is_super_admin() OR public.is_admin()
+                     OR (public.user_has_permission('procurement.grn_verify')
+                         AND auth.uid() IS NOT NULL
+                         AND v_receiver IS DISTINCT FROM auth.uid()));
   END IF;
   v_key := public.fn_procurement_normalise_invoice_number(v_number);
   IF v_key IS NULL OR v_supplier IS NULL THEN
@@ -635,6 +666,7 @@ BEGIN
      WHERE g.supplier_id = v_supplier
        AND g.id IS DISTINCT FROM p_grn_id
        AND public.fn_procurement_normalise_invoice_number(g.invoice_number) = v_key
+       AND (NOT v_scoped OR public.role_has_institution_access(g.institution_id))
        AND (g.first_posted_at IS NOT NULL
             OR g.status IN ('accepted', 'partially_accepted', 'replacement_requested', 'completed')
             OR (g.status <> 'cancelled'
@@ -670,7 +702,9 @@ GRANT  EXECUTE ON FUNCTION public.fn_procurement_grn_has_duplicate(uuid, uuid, t
 --       coalesce(v_chain, false).
 --   G5. D2: no invoice number, no stock (replacement-receipt exemption).
 --   G6. I1: advisory lock + held-duplicate check + D4 re-check at entry into stock.
---   G7. E1: self-check ban (INSERT replacement arm, UPDATE receiver arm).
+--   G7. E1: self-check ban (INSERT replacement arm, UPDATE receiver arm). It sits
+--       right after G4, BEFORE G5 and G6 (skeptic re-check, 2026-10-11), and its INSERT
+--       arm also requires a blank invoice number.
 --   plus the closing line: pg_get_functiondef prints `$function$` and this file has
 --   `$function$;` (the statement terminator) — expected, not a change.
 -- The other branches, the RFQ early arm and the tail after END CASE are unchanged.
@@ -805,6 +839,60 @@ BEGIN
         RAISE EXCEPTION 'not authorized to % — this requires the % permission', v_what, v_key
           USING ERRCODE = '42501';
       END IF;
+      -- E1 (Director 2026-10-10 afternoon): self-check banned. Whoever received a delivery
+      -- never checks it into stock — whatever their rights; admins and super admins are
+      -- NOT exempt, only the service role (the early return at the top). Checked against
+      -- the stored receiver too (OLD), so rewriting received_by in the same statement
+      -- does not help; received_by itself is frozen for everyone (rule a, E1).
+      -- An INSERT is always by its receiver (rule a pins received_by := auth.uid()), so the
+      -- only INSERT that may enter stock is a replacement receipt naming a real, claimed,
+      -- unfulfilled replacement (same test as D2) — and only when the person inserting it
+      -- did not receive the original delivery (E1, replacement arm).
+      -- M5 round 3 (skeptic): placed BEFORE D2 and I1. It used to come after them, so a
+      -- verifier inserting their own receipt straight into stock with a guessed number
+      -- was told "repeats another delivery" (held) or "you received this delivery" (not
+      -- held) — one refused INSERT per guess, no row left behind, about every college.
+      -- An INSERT into stock now also has to carry no invoice number (the replacement
+      -- receipt never does), so a guessed number on a claimed replacement's receipt is
+      -- refused here too, before I1 can answer.
+      IF NEW.status IN ('accepted', 'partially_accepted', 'replacement_requested', 'completed')
+         AND (TG_OP = 'INSERT'
+              OR OLD.status NOT IN ('accepted', 'partially_accepted', 'replacement_requested', 'completed'))
+         AND auth.uid() IS NOT NULL THEN
+        IF TG_OP = 'INSERT' THEN
+          IF NOT (NEW.status = 'completed'
+                  AND public.fn_procurement_normalise_invoice_number(NEW.invoice_number) IS NULL
+                  AND NEW.replacement_id IS NOT NULL
+                  AND EXISTS (
+                    SELECT 1
+                      FROM public.procurement_grn_replacements r
+                      JOIN public.procurement_grn_items gi ON gi.id = r.grn_item_id
+                      JOIN public.procurement_grn pg ON pg.id = gi.grn_id
+                     WHERE r.id = NEW.replacement_id
+                       AND r.status = 'received'
+                       AND r.replacement_grn_item_id IS NULL
+                       AND pg.id IS DISTINCT FROM NEW.id
+                       AND pg.purchase_order_id = NEW.purchase_order_id
+                       AND pg.status IN ('accepted', 'partially_accepted', 'replacement_requested', 'completed'))) THEN
+            RAISE EXCEPTION 'you received this delivery, so someone else must check it before it is added to stock — record it as pending and ask another verifier'
+              USING ERRCODE = '42501';
+          END IF;
+          IF EXISTS (
+               SELECT 1
+                 FROM public.procurement_grn_replacements r
+                 JOIN public.procurement_grn_items gi ON gi.id = r.grn_item_id
+                 JOIN public.procurement_grn pg ON pg.id = gi.grn_id
+                WHERE r.id = NEW.replacement_id
+                  AND pg.received_by IS NOT DISTINCT FROM auth.uid()) THEN
+            RAISE EXCEPTION 'you received the original delivery, so someone else must receive and check its replacement'
+              USING ERRCODE = '42501';
+          END IF;
+        ELSIF auth.uid() IS NOT DISTINCT FROM NEW.received_by
+              OR auth.uid() IS NOT DISTINCT FROM OLD.received_by THEN
+          RAISE EXCEPTION 'you received this delivery, so someone else must check it before it is added to stock'
+            USING ERRCODE = '42501';
+        END IF;
+      END IF;
       -- D2 (Director 2026-10-10): a receipt with no invoice number never goes into stock.
       -- Replacement receipts are exempt — but only one that names, in replacement_id, a
       -- replacement the server can check (decisions round, red team: the exemption used
@@ -862,53 +950,6 @@ BEGIN
                 USING ERRCODE = '42501';
             END IF;
           END IF;
-        END IF;
-      END IF;
-      -- E1 (Director 2026-10-10 afternoon): self-check banned. Whoever received a delivery
-      -- never checks it into stock — whatever their rights; admins and super admins are
-      -- NOT exempt, only the service role (the early return at the top). Checked against
-      -- the stored receiver too (OLD), so rewriting received_by in the same statement
-      -- does not help; received_by itself is frozen for everyone (rule a, E1).
-      -- An INSERT is always by its receiver (rule a pins received_by := auth.uid()), so the
-      -- only INSERT that may enter stock is a replacement receipt naming a real, claimed,
-      -- unfulfilled replacement (same test as D2) — and only when the person inserting it
-      -- did not receive the original delivery (E1, replacement arm). Placed after D2 and
-      -- I1 so their messages still win where they apply.
-      IF NEW.status IN ('accepted', 'partially_accepted', 'replacement_requested', 'completed')
-         AND (TG_OP = 'INSERT'
-              OR OLD.status NOT IN ('accepted', 'partially_accepted', 'replacement_requested', 'completed'))
-         AND auth.uid() IS NOT NULL THEN
-        IF TG_OP = 'INSERT' THEN
-          IF NOT (NEW.status = 'completed'
-                  AND NEW.replacement_id IS NOT NULL
-                  AND EXISTS (
-                    SELECT 1
-                      FROM public.procurement_grn_replacements r
-                      JOIN public.procurement_grn_items gi ON gi.id = r.grn_item_id
-                      JOIN public.procurement_grn pg ON pg.id = gi.grn_id
-                     WHERE r.id = NEW.replacement_id
-                       AND r.status = 'received'
-                       AND r.replacement_grn_item_id IS NULL
-                       AND pg.id IS DISTINCT FROM NEW.id
-                       AND pg.purchase_order_id = NEW.purchase_order_id
-                       AND pg.status IN ('accepted', 'partially_accepted', 'replacement_requested', 'completed'))) THEN
-            RAISE EXCEPTION 'you received this delivery, so someone else must check it before it is added to stock — record it as pending and ask another verifier'
-              USING ERRCODE = '42501';
-          END IF;
-          IF EXISTS (
-               SELECT 1
-                 FROM public.procurement_grn_replacements r
-                 JOIN public.procurement_grn_items gi ON gi.id = r.grn_item_id
-                 JOIN public.procurement_grn pg ON pg.id = gi.grn_id
-                WHERE r.id = NEW.replacement_id
-                  AND pg.received_by IS NOT DISTINCT FROM auth.uid()) THEN
-            RAISE EXCEPTION 'you received the original delivery, so someone else must receive and check its replacement'
-              USING ERRCODE = '42501';
-          END IF;
-        ELSIF auth.uid() IS NOT DISTINCT FROM NEW.received_by
-              OR auth.uid() IS NOT DISTINCT FROM OLD.received_by THEN
-          RAISE EXCEPTION 'you received this delivery, so someone else must check it before it is added to stock'
-            USING ERRCODE = '42501';
         END IF;
       END IF;
   END CASE;
