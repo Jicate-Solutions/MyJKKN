@@ -21,7 +21,7 @@
 --      fn_procurement_guard_approval applies to verifying), and that user is NOT
 --      the GRN's received_by. The time is stamped here, never trusted from the
 --      client. received_by is pinned to the signed-in user at INSERT and frozen
---      after (admins excepted); created_at is pinned to now() at INSERT and frozen
+--      after (admins included since E1; service role only); created_at is pinned to now() at INSERT and frozen
 --      after; supplier_id is always the purchase order's supplier and, with
 --      purchase_order_id, frozen after INSERT (admins excepted); invoice_number is
 --      frozen once the receipt leaves pending, and changing it while pending voids
@@ -219,8 +219,8 @@ WHERE NOT EXISTS (
 -- own; the permission helpers it calls are SECURITY DEFINER already.
 --
 -- Column rules only (status-transition rules live in fn_procurement_guard_approval):
---   a. received_by is the signed-in user, set at INSERT; only an admin may change it
---      later. The "confirmer is not the receiver" rule below therefore compares
+--   a. received_by is the signed-in user, set at INSERT; nobody but the service role
+--      may change it later (E1, 2026-10-10 afternoon: admins included). The "confirmer is not the receiver" rule below therefore compares
 --      against a value the client cannot choose (review round, 2026-10-09).
 --   a2. Every column the I1 hold rule reads is server-owned (review round 2):
 --      created_at = now() at INSERT and never changes after (it orders "earlier");
@@ -311,8 +311,11 @@ BEGIN
       NEW.received_by := auth.uid();
     END IF;
   ELSE
-    IF NEW.received_by IS DISTINCT FROM OLD.received_by
-       AND NOT (public.is_super_admin() OR public.is_admin()) THEN
+    -- E1 (Director 2026-10-10 afternoon): frozen for admins too. The self-check ban
+    -- compares the checker with received_by, so nobody but the service role may move it
+    -- (an admin who received a delivery could otherwise rename the receiver, then check
+    -- it). No app path changes it after INSERT.
+    IF NEW.received_by IS DISTINCT FROM OLD.received_by THEN
       RAISE EXCEPTION 'the person who received the goods cannot be changed after the delivery is recorded'
         USING ERRCODE = '42501';
     END IF;
