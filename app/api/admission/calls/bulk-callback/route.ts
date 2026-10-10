@@ -3,26 +3,56 @@ export const dynamic = 'force-dynamic';
 // app/api/admission/calls/bulk-callback/route.ts
 // GET  /api/admission/calls/bulk-callback?institution_id=&status=pending — List callback queue entries
 // POST /api/admission/calls/bulk-callback — Initiate calls for queued callbacks
+//
+// Guard: the queue holds caller phone numbers of parents and prospective
+// learners, and POST places billed outbound calls. Both methods require
+// 'admission.counselors.view' (the key that gates the Call Logs page,
+// /admission/counselors/calls) through the withAuth triad (super admin /
+// is_admin / user_has_permission), and every row read or called must belong
+// to an institution the caller can access (createApiInstitutionFilter).
+// Refusals are explicit { success:false } 403s, never silent.
 
 import { NextRequest, NextResponse } from 'next/server';
-import { getAuthUser, createServiceRoleClient } from '@/lib/supabase/server';
+import { createServiceRoleClient } from '@/lib/supabase/server';
+import { withAuth } from '@/lib/auth/with-auth';
+import { errorResponse } from '@/lib/api/response';
+import {
+  createApiInstitutionFilter,
+  applyInstitutionFilterToQuery,
+  type ApiInstitutionFilterResult,
+} from '@/lib/auth/api-institution-filter';
 import { TelephonyService } from '@/lib/services/telephony/telephony-service';
 import { logger } from '@/lib/utils/enhanced-logger';
 
-export async function GET(request: NextRequest) {
-  try {
-    // Authenticate
-    const { user, error: authError } = await getAuthUser();
-    if (authError || !user) {
-      return NextResponse.json(
-        { error: 'UNAUTHORIZED', message: 'Authentication required' },
-        { status: 401 }
-      );
-    }
+const CALLS_PERMISSION = 'admission.counselors.view';
 
+/** True when the filter grants every institution (super admin / admission-global). */
+function hasAllInstitutions(scope: ApiInstitutionFilterResult): boolean {
+  return scope.isAllowed && (scope.isSuperAdmin || scope.institutionIds.length === 0);
+}
+
+function institutionInScope(scope: ApiInstitutionFilterResult, institutionId: string): boolean {
+  return hasAllInstitutions(scope) || scope.institutionIds.includes(institutionId);
+}
+
+export const GET = withAuth(async (request: NextRequest) => {
+  try {
     const { searchParams } = request.nextUrl;
     const institutionId = searchParams.get('institution_id') || undefined;
     const status = searchParams.get('status') || 'pending';
+
+    const scope = await createApiInstitutionFilter(
+      request,
+      institutionId ? { allowSpecificInstitution: institutionId } : {}
+    );
+    if (!scope.isAllowed) {
+      return errorResponse(
+        institutionId
+          ? 'You do not have access to this institution\'s callback queue'
+          : 'You do not have access to any institution\'s callback queue',
+        403
+      );
+    }
 
     const supabase = createServiceRoleClient();
 
@@ -35,6 +65,8 @@ export async function GET(request: NextRequest) {
 
     if (institutionId) {
       query = query.eq('institution_id', institutionId);
+    } else {
+      query = applyInstitutionFilterToQuery(query, scope);
     }
 
     const { data, error } = await query;
@@ -55,19 +87,11 @@ export async function GET(request: NextRequest) {
       { status: 500 }
     );
   }
-}
+}, { allowApiKey: false, requirePermission: CALLS_PERMISSION });
 
-export async function POST(request: NextRequest) {
+export const POST = withAuth(async (request: NextRequest, auth) => {
   try {
-    // Authenticate
-    const { user, error: authError } = await getAuthUser();
-    if (authError || !user) {
-      return NextResponse.json(
-        { error: 'UNAUTHORIZED', message: 'Authentication required' },
-        { status: 401 }
-      );
-    }
-
+    const user = auth.user;
     const supabase = createServiceRoleClient();
     const { callbackIds } = await request.json();
 
@@ -77,6 +101,34 @@ export async function POST(request: NextRequest) {
 
     if (callbackIds.length > 20) {
       return NextResponse.json({ error: 'Max 20 callbacks at once' }, { status: 400 });
+    }
+
+    // Every requested callback must sit inside the caller's institutions.
+    // Checked across ALL requested ids (any status) before anything is
+    // updated or any call is placed.
+    const scope = await createApiInstitutionFilter(request);
+    if (!scope.isAllowed) {
+      return errorResponse('You do not have access to any institution\'s callback queue', 403);
+    }
+
+    const { data: requested, error: requestedError } = await supabase
+      .from('admission_callback_queue')
+      .select('id, institution_id')
+      .in('id', callbackIds);
+
+    if (requestedError) {
+      logger.error('admission/calls', 'Bulk callback scope lookup error', requestedError);
+      return NextResponse.json(
+        { error: 'INTERNAL_ERROR', message: requestedError.message },
+        { status: 500 }
+      );
+    }
+
+    const outOfScope = (requested || []).some(
+      (row: { institution_id: string }) => !institutionInScope(scope, row.institution_id)
+    );
+    if (outOfScope) {
+      return errorResponse('One or more callbacks belong to an institution you cannot access', 403);
     }
 
     // Get authenticated user's profile for counselor_phone
@@ -148,4 +200,4 @@ export async function POST(request: NextRequest) {
       { status: 500 }
     );
   }
-}
+}, { allowApiKey: false, requirePermission: CALLS_PERMISSION });
