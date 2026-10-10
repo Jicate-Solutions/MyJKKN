@@ -663,29 +663,59 @@ BEGIN
           USING ERRCODE = '42501';
       END IF;
       -- D2 (Director 2026-10-10): a receipt with no invoice number never goes into stock.
-      -- Replacement receipts are exempt — the one kind INSERTed straight into 'completed'
-      -- (receiveReplacement, verifier-only). Every other entry into a posted status, the
-      -- verify UPDATE above all, needs a number.
+      -- Replacement receipts are exempt — but only one that names, in replacement_id, a
+      -- replacement the server can check (decisions round, red team: the exemption used
+      -- to be the INSERT-into-'completed' shape alone, so a verifier could insert any
+      -- invoice-less receipt straight into stock). The replacement must be claimed
+      -- ('received' — receiveReplacement flips it before inserting the header), not yet
+      -- fulfilled, and on a line of a posted receipt of the same purchase order; the
+      -- unique index allows one receipt per replacement and rule 9b freezes the marker.
+      -- Every other entry into a posted status, the verify UPDATE above all, needs a
+      -- number.
       IF NEW.status IN ('accepted', 'partially_accepted', 'replacement_requested', 'completed')
          AND (TG_OP = 'INSERT'
               OR OLD.status NOT IN ('accepted', 'partially_accepted', 'replacement_requested', 'completed'))
          AND public.fn_procurement_normalise_invoice_number(NEW.invoice_number) IS NULL
-         AND NOT (TG_OP = 'INSERT' AND NEW.status = 'completed') THEN
+         AND NOT (TG_OP = 'INSERT' AND NEW.status = 'completed'
+                  AND NEW.replacement_id IS NOT NULL
+                  AND EXISTS (
+                    SELECT 1
+                      FROM public.procurement_grn_replacements r
+                      JOIN public.procurement_grn_items gi ON gi.id = r.grn_item_id
+                      JOIN public.procurement_grn pg ON pg.id = gi.grn_id
+                     WHERE r.id = NEW.replacement_id
+                       AND r.status = 'received'
+                       AND r.replacement_grn_item_id IS NULL
+                       AND pg.id IS DISTINCT FROM NEW.id
+                       AND pg.purchase_order_id = NEW.purchase_order_id
+                       AND pg.status IN ('accepted', 'partially_accepted', 'replacement_requested', 'completed'))) THEN
         RAISE EXCEPTION 'this delivery has no invoice number, so it cannot be added to stock — cancel it and record the delivery again with the invoice number from the bill'
           USING ERRCODE = '23514';
       END IF;
       IF NEW.status IN ('accepted', 'partially_accepted', 'replacement_requested', 'completed')
          AND (TG_OP = 'INSERT'
-              OR OLD.status NOT IN ('accepted', 'partially_accepted', 'replacement_requested', 'completed'))
-         AND NEW.duplicate_confirmed_by IS NULL THEN
+              OR OLD.status NOT IN ('accepted', 'partially_accepted', 'replacement_requested', 'completed')) THEN
         v_inv := public.fn_procurement_normalise_invoice_number(NEW.invoice_number);
         IF v_inv IS NOT NULL AND NEW.supplier_id IS NOT NULL THEN
           -- Review round 2 (red team): serialise every entry into stock for this
           -- supplier + number, so two at once cannot both pass unseen. Held to commit.
           PERFORM pg_advisory_xact_lock(
             hashtextextended('procurement_grn_i1:' || NEW.supplier_id::text || ':' || v_inv, 0));
-          IF public.fn_procurement_grn_has_duplicate(NEW.id, NEW.supplier_id, NEW.invoice_number, NEW.created_at) THEN
-            RAISE EXCEPTION 'this delivery''s invoice number repeats another delivery from the same supplier (already in stock, or recorded earlier) — a verifier other than the receiver must confirm it is a different invoice before it is added to stock'
+          IF NEW.duplicate_confirmed_by IS NULL THEN
+            IF public.fn_procurement_grn_has_duplicate(NEW.id, NEW.supplier_id, NEW.invoice_number, NEW.created_at) THEN
+              RAISE EXCEPTION 'this delivery''s invoice number repeats another delivery from the same supplier (already in stock, or recorded earlier) — a verifier other than the receiver must confirm it is a different invoice before it is added to stock'
+                USING ERRCODE = '42501';
+            END IF;
+          -- 9d. D4 again at the moment of entry into stock (decisions round, red team):
+          -- the confirmation is honoured only while its confirmer received neither this
+          -- delivery nor ANY other receipt from this supplier with this number — so a
+          -- confirmer cannot pre-confirm, then record / revive / post a matching receipt
+          -- of their own.
+          ELSIF NEW.duplicate_confirmed_by IS NOT DISTINCT FROM NEW.received_by
+                OR public.fn_procurement_grn_has_duplicate(
+                     NEW.id, NEW.supplier_id, NEW.invoice_number, NEW.created_at,
+                     NEW.duplicate_confirmed_by) THEN
+            RAISE EXCEPTION 'the person who confirmed this repeated invoice received one of the deliveries that carry it — a third person, who received neither, must confirm it before it is added to stock'
               USING ERRCODE = '42501';
           END IF;
         END IF;
