@@ -105,13 +105,39 @@ export async function GET(
     // and no chance of the two tabs describing different rosters.
     // Feedback rows exist ONLY for learners who submitted, so membership of
     // this set IS the Yes/No.
-    const feedbackQuery = sessionId
-      ? admin.from('event_session_feedback').select('learner_id').eq('session_id', sessionId)
-      : admin.from('event_day_feedback').select('learner_id')
-          .eq('event_id', eventId).eq('day_number', Number(dayParam));
-    const { data: feedbackRows } = await feedbackQuery.in('learner_id', ids);
+    //
+    // DAY scope: an induction asks for day feedback only when its
+    // feedback_day_enabled switch is on. With it off (BUG-005859 — JKKNCET ran
+    // with day feedback off and 2,500+ session ratings), event_day_feedback is
+    // empty by design and the column read 0 for every learner. There, "gave
+    // feedback that day" means rated at least one of that day's sessions.
+    // Inductions that DO use day feedback keep reading event_day_feedback.
+    let feedbackRows: any[] = [];
+    if (sessionId) {
+      const { data } = await admin.from('event_session_feedback').select('learner_id')
+        .eq('session_id', sessionId).in('learner_id', ids);
+      feedbackRows = (data as any[]) ?? [];
+    } else {
+      const day = Number(dayParam);
+      const { data: program } = await admin.from('induction_programs')
+        .select('feedback_day_enabled').eq('event_id', eventId).maybeSingle();
+      if ((program as any)?.feedback_day_enabled) {
+        const { data } = await admin.from('event_day_feedback').select('learner_id')
+          .eq('event_id', eventId).eq('day_number', day).in('learner_id', ids);
+        feedbackRows = (data as any[]) ?? [];
+      } else {
+        const { data: daySessions } = await admin.from('event_sessions').select('id')
+          .eq('event_id', eventId).eq('day_number', day);
+        const sessionIds = ((daySessions as any[]) ?? []).map((s) => s.id);
+        if (sessionIds.length > 0) {
+          const { data } = await admin.from('event_session_feedback').select('learner_id')
+            .in('session_id', sessionIds).in('learner_id', ids);
+          feedbackRows = (data as any[]) ?? [];
+        }
+      }
+    }
     const submitted = new Set<string>(
-      ((feedbackRows as any[]) ?? []).map((f) => f.learner_id),
+      feedbackRows.map((f) => f.learner_id),
     );
 
     const out: InductionAttendanceApiRow[] = rows.map((r) => {
