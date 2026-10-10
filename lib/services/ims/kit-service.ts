@@ -20,6 +20,28 @@ function orIlike(cols: string[], term: string): string {
   return cols.map((c) => `${c}.ilike."%${safe}%"`).join(',');
 }
 
+// supabase-js returns `error` as a plain object (PostgrestError is only
+// constructed on the throwOnError path), so `e instanceof Error` was false in
+// the page's catch and the user only ever saw "Add failed" (BUG-005858).
+// Rethrow as a real Error carrying the server's message.
+function toError(error: { message?: string } | null | undefined, fallback: string): Error {
+  return new Error(error?.message || fallback);
+}
+
+export type KitSource = 'central' | 'college';
+
+const KIT_SOURCE_LABEL: Record<KitSource, string> = {
+  central: 'Central store',
+  college: 'College store',
+};
+
+// The kit screen may only classify an item as its own college's store.
+// Central store is an item-setup decision for a store admin (#4336 round 4);
+// already-Central items can still be added to rules.
+export const KIT_SCREEN_SOURCE_OPTIONS: ReadonlyArray<{ value: KitSource; label: string }> = [
+  { value: 'college', label: KIT_SOURCE_LABEL.college },
+];
+
 export interface KitRule {
   id: string;
   rule_name: string;
@@ -140,9 +162,89 @@ export class ImsKitService {
     return (data ?? []) as KitRuleItem[];
   }
 
-  static async addRuleItem(dto: { rule_id: string; item_id: string; quantity: number; cadence: string }) {
-    const { error } = await this.supabase.from('ims_kit_rule_items').insert(dto);
-    if (error) throw error;
+  // D32 (20260712220000_store_kit_hardening.sql): an item may only enter a
+  // kit rule once it is classified central/college — an attribute of the ITEM
+  // ("set at item setup"). Nothing in the app ever set it, so every add failed.
+  // When the store manager picks the source for an unclassified item here, we
+  // classify the item first (ims_items RLS: store admin / ims.inventory.edit),
+  // then add it to the rule. A 0-row update means RLS refused — say so plainly
+  // instead of letting the D32 trigger fire with a confusing message.
+  static async addRuleItem(dto: {
+    rule_id: string;
+    item_id: string;
+    quantity: number;
+    cadence: string;
+    kit_source?: KitSource;
+  }) {
+    const { kit_source, ...row } = dto;
+    if (kit_source) {
+      if (!KIT_SCREEN_SOURCE_OPTIONS.some((o) => o.value === kit_source)) {
+        throw new Error('Central store items are set up by a store admin in item setup');
+      }
+      // Classification is an item-wide write and the ims_items UPDATE policy
+      // lets a store_admin touch ANY college's item, so we scope it to the
+      // rule's own institution here (#4336 re-panel). A rule spanning all
+      // colleges has no institution to scope to: it may only take items that
+      // are already Central store (exactly what fn_kit_guard_rule_item / D40
+      // accepts for such a rule), so it never classifies.
+      const { data: rule, error: ruleError } = await this.supabase
+        .from('ims_kit_rules')
+        .select('institution_id')
+        .eq('id', row.rule_id)
+        .maybeSingle();
+      if (ruleError) throw toError(ruleError, 'Could not read the kit rule');
+      if (!rule) throw new Error('Kit rule not found');
+      const ruleInstitution = (rule as { institution_id: string | null }).institution_id;
+      if (!ruleInstitution) {
+        throw new Error(
+          'This rule spans all colleges, so it can only take items already set to Central store. ' +
+            "Set the item's kit source from a rule for its own college first.",
+        );
+      }
+      // Guard on NULL: a stale search result must never overwrite another
+      // admin's classification item-wide (#4336 review M1).
+      // No revert if the rule-item insert below fails (#4336 round 3): the
+      // hardening migration (20260712220000) defines kit_source as a property
+      // of the ITEM, "Set at item setup". The admin chose it explicitly, so an
+      // item left classified after a failed add is valid item setup, not a
+      // leak — and a client-side revert could never be race-free (a peer's
+      // rule item can commit between requests, or be hidden by RLS).
+      const { data, error } = await this.supabase
+        .from('ims_items')
+        .update({ kit_source })
+        .eq('id', row.item_id)
+        .eq('institution_id', ruleInstitution)
+        .is('kit_source', null)
+        .select('id');
+      if (error) throw toError(error, 'Could not set the item\'s kit source');
+      if (!data || data.length === 0) {
+        // 0 rows: either someone classified it meanwhile, or RLS refused.
+        const { data: current, error: readError } = await this.supabase
+          .from('ims_items')
+          .select('kit_source, institution_id')
+          .eq('id', row.item_id)
+          .maybeSingle();
+        if (readError) throw toError(readError, 'Could not read the item\'s kit source');
+        const cur = current as { kit_source: KitSource | null; institution_id: string | null } | null;
+        const now = cur?.kit_source ?? null;
+        if (now && now !== kit_source) {
+          throw new Error(`This item is already classified as ${KIT_SOURCE_LABEL[now] ?? now}`);
+        }
+        if (!now && cur && cur.institution_id !== ruleInstitution) {
+          throw new Error(
+            "This item belongs to another college's store — only that college's rules can set its kit source.",
+          );
+        }
+        if (!now) {
+          throw new Error(
+            "You can't classify items — ask a store admin to set the item's kit source.",
+          );
+        }
+        // now === kit_source: someone set the same value meanwhile — carry on.
+      }
+    }
+    const { error } = await this.supabase.from('ims_kit_rule_items').insert(row);
+    if (error) throw toError(error, 'Add failed');
   }
 
   static async removeRuleItem(id: string) {
@@ -162,7 +264,7 @@ export class ImsKitService {
 
   static async addRuleMember(dto: { rule_id: string; learner_id?: string; staff_id?: string }) {
     const { error } = await this.supabase.from('ims_kit_rule_members').insert(dto);
-    if (error) throw error;
+    if (error) throw toError(error, 'Add failed');
   }
 
   static async removeRuleMember(id: string) {
@@ -355,16 +457,26 @@ export class ImsKitService {
   }
 
   // ── Small selects for forms ──────────────────────────────────────────
-  static async searchItems(term: string) {
+  // Kit rule panel: list only items that may legally join the rule (mirrors
+  // fn_kit_guard_rule_item). A college rule sees its own college's items
+  // (classified or not) plus Central store items from anywhere; a rule
+  // spanning all colleges sees Central store items only (D40 rejects college
+  // items there, D32 rejects unclassified ones).
+  static async searchItems(term: string, scope?: { institutionId: string | null }) {
     const q = term.trim();
     if (q.length < 2) return [];
-    const { data, error } = await this.supabase
+    let query = this.supabase
       .from('ims_items')
-      .select('id, name, code')
+      .select('id, name, code, kit_source')
       .eq('is_active', true)
-      .or(orIlike(['name', 'code'], q))
-      .limit(15);
-    if (error) throw error;
+      .or(orIlike(['name', 'code'], q));
+    if (scope) {
+      query = scope.institutionId
+        ? query.or(`institution_id.eq.${scope.institutionId},kit_source.eq.central`)
+        : query.eq('kit_source', 'central');
+    }
+    const { data, error } = await query.limit(15);
+    if (error) throw toError(error, 'Search failed');
     return data ?? [];
   }
 

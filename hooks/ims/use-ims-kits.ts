@@ -17,7 +17,7 @@ export function useKitRules() {
 export function useCreateKitRule() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ImsKitService.createRule.bind(ImsKitService),
+    mutationFn: (v: Parameters<typeof ImsKitService.createRule>[0]) => ImsKitService.createRule(v),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['ims-kit-rules'] }),
   });
 }
@@ -43,15 +43,22 @@ export function useKitRuleItems(ruleId: string | null) {
 export function useAddKitRuleItem() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ImsKitService.addRuleItem.bind(ImsKitService),
+    mutationFn: (v: Parameters<typeof ImsKitService.addRuleItem>[0]) => ImsKitService.addRuleItem(v),
     onSuccess: (_d, v) => qc.invalidateQueries({ queryKey: ['ims-kit-rule-items', v.rule_id] }),
+    // The item may have been given a kit_source even when the rule-item insert
+    // then failed (classification is item setup, never reverted), so refresh
+    // item lists either way. Invalidation does not swallow the error: the
+    // page's mutateAsync still rejects and shows its toast.
+    onSettled: (_d, _e, v) => {
+      if (v.kit_source) qc.invalidateQueries({ queryKey: ['ims-items'] });
+    },
   });
 }
 
 export function useRemoveKitRuleItem(ruleId: string | null) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ImsKitService.removeRuleItem.bind(ImsKitService),
+    mutationFn: (v: Parameters<typeof ImsKitService.removeRuleItem>[0]) => ImsKitService.removeRuleItem(v),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['ims-kit-rule-items', ruleId] }),
   });
 }
@@ -67,7 +74,7 @@ export function useKitRuleMembers(ruleId: string | null) {
 export function useAddKitRuleMember() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ImsKitService.addRuleMember.bind(ImsKitService),
+    mutationFn: (v: Parameters<typeof ImsKitService.addRuleMember>[0]) => ImsKitService.addRuleMember(v),
     onSuccess: (_d, v) => qc.invalidateQueries({ queryKey: ['ims-kit-rule-members', v.rule_id] }),
   });
 }
@@ -75,7 +82,7 @@ export function useAddKitRuleMember() {
 export function useRemoveKitRuleMember(ruleId: string | null) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ImsKitService.removeRuleMember.bind(ImsKitService),
+    mutationFn: (v: Parameters<typeof ImsKitService.removeRuleMember>[0]) => ImsKitService.removeRuleMember(v),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['ims-kit-rule-members', ruleId] }),
   });
 }
@@ -92,7 +99,7 @@ export function useKitWindows() {
 export function useCreateKitWindow() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ImsKitService.createWindow.bind(ImsKitService),
+    mutationFn: (v: Parameters<typeof ImsKitService.createWindow>[0]) => ImsKitService.createWindow(v),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['ims-kit-windows'] }),
   });
 }
@@ -119,7 +126,7 @@ export function useResolveKitRule() {
 export function useRecordKitCollection() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ImsKitService.recordCollection.bind(ImsKitService),
+    mutationFn: (v: Parameters<typeof ImsKitService.recordCollection>[0]) => ImsKitService.recordCollection(v),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['ims-kit-entitlements'] });
       qc.invalidateQueries({ queryKey: ['ims-kit-collections'] });

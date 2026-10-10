@@ -4,7 +4,7 @@
 // Rules list + rule dialog + per-rule detail (items / members / resolve)
 // + collection windows. Spec: specs/store-kit-entitlements-spec-2026-07-12.md
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { ImsPageGuard } from '@/components/ims/ims-page-guard';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -32,7 +32,7 @@ import {
   useResolveKitRule, useRevokeKitRuleEntitlements,
   useKitInstitutions, useKitPrograms, useKitDepartments,
 } from '@/hooks/ims/use-ims-kits';
-import { ImsKitService, type KitRule, type KitPerson } from '@/lib/services/ims/kit-service';
+import { ImsKitService, KIT_SCREEN_SOURCE_OPTIONS, type KitRule, type KitPerson, type KitSource } from '@/lib/services/ims/kit-service';
 
 const ANY = '__any__'; // Radix Select forbids value="" (repo CI gate)
 
@@ -320,16 +320,30 @@ function RuleDetail({ rule }: { rule: KitRule }) {
   const revoke = useRevokeKitRuleEntitlements();
 
   const [itemTerm, setItemTerm] = useState('');
-  const [itemResults, setItemResults] = useState<Array<{ id: string; name: string; code: string | null }>>([]);
+  const [itemResults, setItemResults] = useState<
+    Array<{ id: string; name: string; code: string | null; kit_source: string | null }>
+  >([]);
+  // D32: source picked here for items not yet classified central/college.
+  const [pickedSource, setPickedSource] = useState<Record<string, KitSource>>({});
   const [qty, setQty] = useState('1');
   const [cadence, setCadence] = useState('yearly');
   const [memberTerm, setMemberTerm] = useState('');
   const [memberResults, setMemberResults] = useState<KitPerson[]>([]);
   const [applyExisting, setApplyExisting] = useState(false);
 
+  // Drop out-of-order responses: only the latest keystroke's search may land.
+  const itemSearchSeq = useRef(0);
   const searchItems = async (t: string) => {
     setItemTerm(t);
-    setItemResults(t.trim().length >= 2 ? await ImsKitService.searchItems(t) : []);
+    const seq = ++itemSearchSeq.current;
+    try {
+      const res = t.trim().length >= 2
+        ? await ImsKitService.searchItems(t, { institutionId: rule.institution_id })
+        : [];
+      if (seq === itemSearchSeq.current) setItemResults(res);
+    } catch (e: unknown) {
+      if (seq === itemSearchSeq.current) toast.error(e instanceof Error ? e.message : 'Search failed');
+    }
   };
   const searchMembers = async (t: string) => {
     setMemberTerm(t);
@@ -369,10 +383,32 @@ function RuleDetail({ rule }: { rule: KitRule }) {
 
           <div className="space-y-2 border-t pt-3">
             <Input placeholder="Search store items…" value={itemTerm} onChange={(e) => searchItems(e.target.value)} />
+            {!rule.institution_id && (
+              <p className="text-xs text-muted-foreground">
+                This rule spans all colleges, so only items set to Central store are listed.
+              </p>
+            )}
             {itemResults.map((r) => (
               <div key={r.id} className="flex flex-wrap items-center justify-between gap-2 text-sm">
                 <span>{r.name}{r.code ? ` (${r.code})` : ''}</span>
-                <span className="flex items-center gap-2">
+                <span className="flex flex-wrap items-center gap-2">
+                  {r.kit_source ? (
+                    <Badge variant="secondary">{r.kit_source === 'college' ? 'College store' : 'Central store'}</Badge>
+                  ) : (
+                    <Select
+                      value={pickedSource[r.id] ?? ''}
+                      onValueChange={(v) => setPickedSource((m) => ({ ...m, [r.id]: v as KitSource }))}
+                    >
+                      <SelectTrigger className="w-36 h-8" aria-label="Kit source">
+                        <SelectValue placeholder="Source…" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {KIT_SCREEN_SOURCE_OPTIONS.map((o) => (
+                          <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
                   <Input className="w-16 h-8" type="number" min={1} value={qty} onChange={(e) => setQty(e.target.value)} />
                   <Select value={cadence} onValueChange={setCadence}>
                     <SelectTrigger className="w-28 h-8"><SelectValue /></SelectTrigger>
@@ -381,9 +417,12 @@ function RuleDetail({ rule }: { rule: KitRule }) {
                       <SelectItem value="once">Once</SelectItem>
                     </SelectContent>
                   </Select>
-                  <Button size="sm" onClick={async () => {
+                  <Button size="sm" disabled={addItem.isPending || (!r.kit_source && !pickedSource[r.id])} onClick={async () => {
                     try {
-                      await addItem.mutateAsync({ rule_id: rule.id, item_id: r.id, quantity: Number(qty) || 1, cadence });
+                      await addItem.mutateAsync({
+                        rule_id: rule.id, item_id: r.id, quantity: Number(qty) || 1, cadence,
+                        ...(r.kit_source ? {} : { kit_source: pickedSource[r.id] }),
+                      });
                       setItemTerm(''); setItemResults([]);
                       toast.success('Item added');
                     } catch (e: unknown) {
