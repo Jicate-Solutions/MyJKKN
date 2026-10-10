@@ -73,12 +73,15 @@ export function winnerChanges(regs: WinnerRegistration[], before: Picks, after: 
   }
   const current = new Map(regs.map((r) => [r.id, r.final_rank ?? null]));
   const moving = [...final.entries()].filter(([id, rank]) => current.get(id) !== rank);
+  // expectedRank: the place the row held when the dialog loaded. The database
+  // refuses the save (409, "reload") if someone has changed it since, so a
+  // stale dialog cannot wipe or overwrite a newer place (#4311 r10).
   const clears = moving
     .filter(([id]) => current.get(id) != null)
-    .map(([registrationId]) => ({ registrationId, final_rank: null }));
+    .map(([registrationId]) => ({ registrationId, final_rank: null, expectedRank: current.get(registrationId) ?? null }));
   const sets = moving
     .filter(([, rank]) => rank !== null)
-    .map(([registrationId, final_rank]) => ({ registrationId, final_rank }));
+    .map(([registrationId, final_rank]) => ({ registrationId, final_rank, expectedRank: current.get(registrationId) ?? null }));
   return [...clears, ...sets];
 }
 
@@ -249,7 +252,11 @@ export function EventWinnersCard({
   // the same key (event, form). A single-form event shows one untitled set.
   const formName = new Map(forms.map((f) => [f.id, f.name]));
   const usedFormIds = [...new Set(registrations.map((r) => r.form_id ?? ''))];
-  const titled = usedFormIds.length > 1;
+  // Titled whenever the EVENT has more than one competition, not only when
+  // more than one already has winners: a viewer receives placed rows only, so
+  // counting their forms left a single placed set untitled for viewers while
+  // managers saw it titled (#4311 r10).
+  const titled = forms.length > 1 || usedFormIds.length > 1;
   const groups =
     usedFormIds.length === 0
       ? [{ key: 'all', title: null as string | null, regs: registrations }]

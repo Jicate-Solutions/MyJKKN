@@ -9,7 +9,7 @@ import type { ReactNode } from 'react';
 
 vi.mock('react-hot-toast', () => ({ default: { success: vi.fn(), error: vi.fn() } }));
 
-import { useRecordEventWinners } from '@/hooks/events/use-event-winners';
+import { useRecordEventWinners, SAVE_TIMEOUT_MESSAGE } from '@/hooks/events/use-event-winners';
 
 const fetchMock = vi.fn();
 
@@ -54,6 +54,17 @@ describe('useRecordEventWinners', () => {
       await result.current.mutateAsync([{ registrationId: 'b', final_rank: 1 }]).catch((e) => (err = e));
     });
     expect(err?.message).toBe('Only the creator');
+    await waitFor(() => expect(invalidate).toHaveBeenCalledWith({ queryKey: ['event-winners', 'ev-1'] }));
+  });
+
+  it('a timeout says the save may have gone through, and still reloads (#4311 r7)', async () => {
+    fetchMock.mockRejectedValue(new DOMException('signal timed out', 'TimeoutError'));
+    const { result, invalidate } = setup();
+    let err: Error | undefined;
+    await act(async () => {
+      await result.current.mutateAsync([{ registrationId: 'b', final_rank: 1 }]).catch((e) => (err = e));
+    });
+    expect(err?.message).toBe(SAVE_TIMEOUT_MESSAGE);
     await waitFor(() => expect(invalidate).toHaveBeenCalledWith({ queryKey: ['event-winners', 'ev-1'] }));
   });
 });

@@ -34,7 +34,16 @@ export interface EventWinnersPayload {
   registrations: WinnerRegistration[];
 }
 
-export type WinnerChange = { registrationId: string; final_rank: number | null };
+export type WinnerChange = {
+  registrationId: string;
+  final_rank: number | null;
+  /** The place the row held when the dialog loaded; the save is refused (409) if it has changed. */
+  expectedRank?: number | null;
+};
+
+/** Shown when a save timed out on our side: the database may still have committed it. */
+export const SAVE_TIMEOUT_MESSAGE =
+  'The save is taking longer than expected and may already have gone through. Reloading the winners — check them before trying again.';
 
 export const eventWinnersKey = (eventId: string) => ['event-winners', eventId] as const;
 
@@ -71,15 +80,24 @@ export function useEventWinners(eventId: string, enabled = true) {
 export function useRecordEventWinners(eventId: string) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (changes: WinnerChange[]) =>
-      readJson(
-        await fetch(`/api/events/winners?eventId=${encodeURIComponent(eventId)}`, {
+    mutationFn: async (changes: WinnerChange[]) => {
+      let res: Response;
+      try {
+        res = await fetch(`/api/events/winners?eventId=${encodeURIComponent(eventId)}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ changes }),
           signal: requestSignal(),
-        }),
-      ),
+        });
+      } catch (e) {
+        // Our 15 s timeout stops waiting, not the database: the save may have
+        // committed. Say so (onSettled reloads the winners) rather than show a
+        // plain failure that invites a retry (#4311 r7).
+        if ((e as { name?: string })?.name === 'TimeoutError') throw new Error(SAVE_TIMEOUT_MESSAGE);
+        throw e;
+      }
+      return readJson(res);
+    },
     onSuccess: () => {
       toast.success('Winners saved');
     },

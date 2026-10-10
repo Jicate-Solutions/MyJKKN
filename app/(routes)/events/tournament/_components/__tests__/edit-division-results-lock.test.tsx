@@ -15,6 +15,7 @@ const state = vi.hoisted(() => ({
   noDivisions: false,
   matchesLoading: false,
   heatsLoading: false,
+  marks: [] as string[],
 }));
 const calls = vi.hoisted(() => ({
   order: [] as string[],
@@ -81,6 +82,7 @@ vi.mock('@/hooks/events/use-tournament-fixtures', () => ({
     data: state.heatsLoading ? undefined : state.heats,
     isLoading: state.heatsLoading,
   }),
+  useDivisionResultMarks: () => ({ data: state.marks, isLoading: false }),
 }));
 vi.mock('@/hooks/use-permissions', () => ({
   usePermissions: () => ({ isSuperAdmin: state.superAdmin }),
@@ -122,6 +124,7 @@ afterEach(() => {
   state.noDivisions = false;
   state.matchesLoading = false;
   state.heatsLoading = false;
+  state.marks = [];
   calls.order = [];
   calls.divisionFails = false;
   calls.tournamentFailsOnce = false;
@@ -149,6 +152,14 @@ describe('Edit dialog — division with recorded results', () => {
     expect(isDisabled('Sport')).toBe(false);
     expect(isDisabled('Format')).toBe(false);
     expect(screen.queryByText(/already has recorded results/)).toBeNull();
+  });
+
+  it('stays locked when the division once had a result that was rolled back (result mark)', () => {
+    state.matches = [{ id: 'm1', division_id: 'd-chess', status: 'scheduled' }];
+    state.marks = ['d-chess'];
+    renderDialog();
+    expect(isDisabled('Sport')).toBe(true);
+    expect(isDisabled('Format')).toBe(true);
   });
 });
 

@@ -50,7 +50,19 @@ describe('winnerChanges — only the places the organiser changed', () => {
   it('removing the runner-up clears only that place', () => {
     const regs = [reg('a', 'A', 1), reg('b', 'B', 2)];
     const before = currentPicks(regs);
-    expect(winnerChanges(regs, before, { ...before, 2: '' })).toEqual([{ registrationId: 'b', final_rank: null }]);
+    expect(winnerChanges(regs, before, { ...before, 2: '' })).toEqual([
+      { registrationId: 'b', final_rank: null, expectedRank: 2 },
+    ]);
+  });
+
+  it('every change carries the place the row held when the dialog loaded (#4311 r10)', () => {
+    const regs = [reg('a', 'A', 1), reg('b', 'B'), reg('c', 'C', 3)];
+    const before = currentPicks(regs);
+    const changes = winnerChanges(regs, before, { 1: 'b', 3: 'c' });
+    expect(changes).toEqual([
+      { registrationId: 'a', final_rank: null, expectedRank: 1 },
+      { registrationId: 'b', final_rank: 1, expectedRank: null },
+    ]);
   });
 });
 
@@ -66,8 +78,8 @@ describe('EventWinnersCard', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));
     await waitFor(() => expect(mutateAsync).toHaveBeenCalledTimes(1));
     expect(mutateAsync).toHaveBeenCalledWith([
-      { registrationId: 'b', final_rank: 1 },
-      { registrationId: 'a', final_rank: 2 },
+      { registrationId: 'b', final_rank: 1, expectedRank: null },
+      { registrationId: 'a', final_rank: 2, expectedRank: null },
     ]);
   });
 
@@ -120,6 +132,20 @@ describe('EventWinnersCard', () => {
     render(<EventWinnersCard eventId="ev-1" />);
     expect(screen.getAllByTestId('event-winners-group')).toHaveLength(1);
     expect(screen.queryByText('Solo dance')).toBeNull();
+  });
+
+  it('titles a set for a viewer when the event has several competitions, even if only one has winners (#4311 r10)', () => {
+    winners.data = {
+      canManage: false,
+      forms: [
+        { id: 'f1', name: 'Solo dance' },
+        { id: 'f2', name: 'Group song' },
+      ],
+      registrations: [reg('a', 'Kavya', 1, { form_id: 'f1' })],
+    };
+    render(<EventWinnersCard eventId="ev-1" />);
+    expect(screen.getAllByTestId('event-winners-group')).toHaveLength(1);
+    expect(screen.getByText('Solo dance')).toBeTruthy();
   });
 
   it('keeps the dialog open, without an unhandled rejection, when the save is refused', async () => {
