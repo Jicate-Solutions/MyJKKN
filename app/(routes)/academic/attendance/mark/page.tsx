@@ -68,6 +68,8 @@ import { AttendanceSummaryModal } from './components/attendance-summary-modal';
 import { FacultySyncIndicator } from '../_components/faculty-sync-indicator';
 import { SubdividedAttendanceGrid } from './_components/subdivided-attendance-grid';
 import { PracticalAttendanceSelector } from './_components/practical-attendance-selector';
+import { UnbatchedLearnersNotice } from './_components/unbatched-learners-notice';
+import { learnersInNoPracticalBatch } from '@/lib/utils/academic/practical-unbatched-learners';
 import type { SubdivisionGroup, PeriodMode, PracticalConfig } from '@/types/academics';
 import type { AttendanceEditDiff } from '@/types/attendance';
 import { cn } from '@/lib/utils';
@@ -180,6 +182,10 @@ export default function AttendanceMarkPage() {
     expectedCount: number | null;
     listed: number;
   } | null>(null);
+
+  // Added: 2026-10-10 (BUG-006270 follow-up) - section learners in none of
+  // this practical slot's batches; shown as a notice, never blocks marking.
+  const [unbatchedLearners, setUnbatchedLearners] = useState<any[]>([]);
 
   // Updated: 2025-01-16 - Leave block checking state
   const [leaveBlockInfo, setLeaveBlockInfo] = useState<LeaveBlockInfo | null>(null);
@@ -1123,6 +1129,14 @@ export default function AttendanceMarkPage() {
             semesterId: contextData.semester_id
           });
         }
+
+        // Added: 2026-10-10 (BUG-006270 follow-up) - from the section roster
+        // BEFORE batch narrowing: who is in no batch of this practical slot.
+        setUnbatchedLearners(
+          periodMode === 'practical'
+            ? learnersInNoPracticalBatch(studentsData as any[], practicalConfig?.batches)
+            : []
+        );
 
         // Updated: 2025-10-13 - Filter students by subdivision group if applicable
         let filteredStudents = studentsData;
@@ -2872,6 +2886,8 @@ export default function AttendanceMarkPage() {
               </CardContent>
             </Card>
           )}
+
+          {!loadingStudents && <UnbatchedLearnersNotice learners={unbatchedLearners} />}
 
           {loadingStudents ? (
             <Card className='border-0 shadow-lg'>
