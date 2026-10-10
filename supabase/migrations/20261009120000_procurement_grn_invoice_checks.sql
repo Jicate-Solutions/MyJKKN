@@ -129,6 +129,16 @@
 --          (trg_pgrni_00_posted_lock): no line added, no quantity changed, no posted
 --          line re-opened, so its receiver cannot add goods nobody else checked.
 --
+--  11. Deep-panel round 1 (2026-10-10, PR #4296 M3): trg_ai_jobs_00_invoice_extract_guard.
+--      fn_ai_enqueue stores whatever payload its caller sends, so anyone with
+--      grn_create could enqueue procurement.invoice_extract directly (bypassing the
+--      extract-invoice route) and point the service-role runner at another bucket or
+--      path. On INSERT of that one job type the payload is pinned: storage_bucket is
+--      FORCED to procurement-invoice-pdfs, storage_path must be exactly
+--      <po_id>/<sha256>.pdf matching payload.po_id and payload.sha256, and the object
+--      must already be stored there (its upload policy, section 6, ties the folder to
+--      an order the uploader can see). Other job types are untouched.
+--
 -- I1 is deliberately NOT a unique index: the Director chose "confirm and allow" for
 -- honest resends, which a unique constraint would forbid.
 --
