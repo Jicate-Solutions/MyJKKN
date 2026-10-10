@@ -152,6 +152,14 @@ describe('who a CCTV report goes to', () => {
     expect(r).toMatchObject({ accountableProfileId: 'cao-1', ownerSource: 'cao_no_hod', hodProfileIds: [] });
   });
 
+  it('a blocked or broken camera -> the CAO, even in a room that has an HOD', async () => {
+    const r = await routeCctvReport(dbFor(world()), room({ departmentId: 'dept-pharm' }), 'camera_fault');
+    expect(r).toMatchObject({ accountableProfileId: 'cao-1', ownerSource: 'cao_camera_fault', hodProfileIds: [] });
+    expect(cctvTitle('camera_fault', 'Main gate (right side)', '2026-10-10T08:07:00.000Z')).toBe(
+      'CCTV: Camera blocked or not working — Main gate (right side), 10 Oct, 1:37 pm'
+    );
+  });
+
   it('the video shows the HOD -> the principal, and the HOD is not even copied', async () => {
     const r = await routeCctvReport(dbFor(world()), room({ departmentId: 'dept-pharm' }), 'staff_conduct', {
       involvesHod: true

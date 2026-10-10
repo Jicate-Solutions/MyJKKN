@@ -113,7 +113,7 @@ export async function POST(request: NextRequest) {
   const seat = isExam && typeof body.seat === 'string' ? body.seat.trim().slice(0, 60) : null;
   const names =
     namesAllowedFor(category) && typeof body.names === 'string' ? body.names.trim().slice(0, 300) : null;
-  const involvesHod = body.involves_hod === true && category !== 'exam_copying';
+  const involvesHod = body.involves_hod === true && category !== 'exam_copying' && category !== 'camera_fault';
   if (isExam && !seat) return fail('For exam copying, enter the seat number.', 400);
 
   const admin = createServiceRoleClient();

@@ -37,6 +37,7 @@ const OWNER_LABEL: Record<string, string> = {
   controller_of_examinations: 'the Controller of Examinations, with the HOD copied',
   principal_no_hod: 'the principal, because no HOD is on record for that department',
   principal_hod_involved: 'the principal, because it involves the HOD (the HOD is not told)',
+  cao_camera_fault: 'the CAO, who looks after the cameras',
   cao_no_hod: 'the CAO, because no HOD is on record for that department',
   unresolved: 'the estate office, because nobody else is on record'
 };
@@ -329,7 +330,7 @@ export function CctvForm() {
           </div>
         )}
 
-        {!isExam && category && (
+        {!isExam && category && category !== 'camera_fault' && (
           <label className="flex items-start gap-2 rounded-md border p-3 text-sm">
             <input
               type="checkbox"
