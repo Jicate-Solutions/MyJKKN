@@ -343,3 +343,22 @@ describe('Director handover — walls that must hold regardless of the manifest'
     expect(isBlocked('', walls)).toBe(true);
   });
 });
+
+describe('Director handover — single keys the Director ruled HANDABLE', () => {
+  // A regenerated manifest records what the walls do; it cannot record that
+  // anyone decided it. Each entry here is a first-hand Director ruling, cited,
+  // so a cross-department key is handable by decision, not by the ELSE false.
+  const DIRECTOR_RULED_HANDABLE: Record<string, string> = {
+    'procurement.view_all_departments':
+      'Q-1009-15 · Director, W12 desk tab, 2026-10-09 20:18 IST, "Yes, pass it on": ' +
+      'a colleague covering a handover may receive all-department procurement visibility.'
+  };
+
+  for (const [key, ruling] of Object.entries(DIRECTOR_RULED_HANDABLE)) {
+    it(`${key} stays handable in the SQL walls and the manifest (${ruling.split(' · ')[0]})`, () => {
+      const manifest = JSON.parse(readFileSync(MANIFEST, 'utf8')) as Manifest;
+      expect(isBlocked(key, walls), `the walls now block ${key}; the ruling was: ${ruling}`).toBe(false);
+      expect(manifest.handable).toContain(key);
+    });
+  }
+});
