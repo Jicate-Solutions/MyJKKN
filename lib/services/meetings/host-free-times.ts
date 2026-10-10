@@ -21,6 +21,8 @@ import { computeSlots } from '@/lib/services/meetings/native-slot-engine';
 export const FREE_TIME_STEP_MIN = 30;
 /** How far ahead to look for free times. */
 export const FREE_TIME_DAYS = 7;
+/** Gap kept before and after a busy time (the booking guard's 5-minute pad). */
+export const FREE_TIME_GAP_MIN = 5;
 
 function indiaDate(d: Date): string {
   return new Intl.DateTimeFormat('en-CA', {
@@ -58,6 +60,12 @@ export async function nextFreeTimes(
     timezone: CAMPUS_TZ,
     durationMin: opts.durationMin,
     bookings: busy,
+    // The booking guard keeps a 5-minute gap on both sides of a confirmed
+    // meeting (mb_no_double_booking_padded). A suggestion that touches another
+    // meeting would be refused as SLOT_TAKEN and suggested again, so the gap is
+    // kept here too. Next to Google-only events it over-excludes by 5 minutes.
+    bufferBeforeMin: FREE_TIME_GAP_MIN,
+    bufferAfterMin: FREE_TIME_GAP_MIN,
     slotIntervalMin: FREE_TIME_STEP_MIN,
     fromDate: indiaDate(after),
     toDate: indiaDate(until),

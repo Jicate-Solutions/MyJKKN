@@ -588,6 +588,56 @@ export class GoogleCalendarService {
   }
 
   /**
+   * patchEventTime, but saying WHICH kind of "no" it was, for callers that must
+   * decide whether to undo their own change (HostSchedulingService.moveDirect):
+   *   'applied'  Google answered 2xx: the event moved and invitees were told.
+   *   'refused'  Google never got the change (no calendar access, or the token
+   *              step failed before the PATCH was sent) or answered 4xx: it did
+   *              NOT apply it, so the caller may safely put things back.
+   *   'unknown'  the PATCH was sent but the answer was a 5xx/408 or never came:
+   *              Google may have applied it (sendUpdates=all already notified
+   *              invitees), so the caller must not claim nothing changed.
+   * Never throws.
+   */
+  static async patchEventTimeOutcome(
+    supabase: SupabaseClient,
+    hostProfileId: string,
+    eventId: string,
+    startIso: string,
+    endIso: string,
+    timezone: string,
+  ): Promise<'applied' | 'refused' | 'unknown'> {
+    let token: string | null;
+    try {
+      token = await this.accessTokenForHost(supabase, hostProfileId);
+    } catch (err) {
+      console.error(`${LOG_PREFIX} token step failed before the patch:`, err);
+      return 'refused';
+    }
+    if (!token) return 'refused';
+    let res: Response;
+    try {
+      res = await fetch(
+        `${CAL_BASE}/calendars/primary/events/${encodeURIComponent(eventId)}?sendUpdates=all`,
+        {
+          method: 'PATCH',
+          headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            start: { dateTime: startIso, timeZone: timezone },
+            end: { dateTime: endIso, timeZone: timezone },
+          }),
+        },
+      );
+    } catch (err) {
+      console.error(`${LOG_PREFIX} event patch: no answer:`, err);
+      return 'unknown';
+    }
+    if (res.ok) return 'applied';
+    console.error(`${LOG_PREFIX} event patch failed:`, res.status);
+    return res.status === 408 || res.status >= 500 ? 'unknown' : 'refused';
+  }
+
+  /**
    * Add Google Meet conferencing to an EXISTING event, optionally moving it in
    * the same call. This is what turns a face-to-face booking into an online one
    * without cancelling and re-inviting.

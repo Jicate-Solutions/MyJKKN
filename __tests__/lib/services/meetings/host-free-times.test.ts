@@ -25,7 +25,7 @@ beforeEach(() => {
 });
 
 describe('nextFreeTimes', () => {
-  it('skips a busy meeting and returns the next three half-hour starts', async () => {
+  it('skips a busy meeting (and its 5-minute gap) and returns the next three half-hour starts', async () => {
     // busy 10:00–11:00 India time
     hostBusy.mockResolvedValue([{ start: '2026-10-09T04:30:00.000Z', end: '2026-10-09T05:30:00.000Z' }]);
     const times = await nextFreeTimes(db, 'host-1', {
@@ -33,12 +33,22 @@ describe('nextFreeTimes', () => {
       durationMin: 30,
       now: NOW,
     });
+    // 11:00 would sit right against the meeting; the booking guard's 5-minute
+    // gap makes 11:30 the first time that can really be booked.
     expect(times).toEqual([
-      '2026-10-09T05:30:00.000Z', // 11:00
       '2026-10-09T06:00:00.000Z', // 11:30
       '2026-10-09T06:30:00.000Z', // 12:00
+      '2026-10-09T07:00:00.000Z', // 12:30
     ]);
     expect(hostBusy).toHaveBeenCalledWith(db, 'host-1', '2026-10-09T04:30:00.000Z', '2026-10-16T04:30:00.000Z');
+  });
+
+  it('keeps the booking guard\'s 5-minute gap after a busy meeting (no suggestion it would refuse)', async () => {
+    // busy 10:00–10:30 India time; asked for 10:00
+    hostBusy.mockResolvedValue([{ start: '2026-10-09T04:30:00.000Z', end: '2026-10-09T05:00:00.000Z' }]);
+    const times = await nextFreeTimes(db, 'host-1', { afterIso: '2026-10-09T04:30:00.000Z', durationMin: 30, count: 1, now: NOW });
+    // 10:30 would touch the meeting; the first offer is 11:00
+    expect(times).toEqual(['2026-10-09T05:30:00.000Z']);
   });
 
   it('a meeting that would run past 22:00 rolls to 07:00 the next day', async () => {

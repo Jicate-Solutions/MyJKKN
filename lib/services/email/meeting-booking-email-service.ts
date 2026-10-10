@@ -59,6 +59,12 @@ export interface RescheduleEmailParams
   extends Omit<BookingEmailParams, 'cancelUrl' | 'rescheduleUrl'> {
   previousStartTime: string; // ISO instant
   rescheduledBy: 'attendee' | 'host';
+  /**
+   * This move's number (the booking's reschedule_count after it). Without it
+   * the key names only the new start, so a move back to a time the meeting had
+   * earlier in the same day was deduped by Resend and nobody was told.
+   */
+  sequence?: number;
 }
 
 /**
@@ -476,7 +482,9 @@ export class MeetingBookingEmailService {
       ${card}`;
 
     // Idempotency key includes the new start — each distinct move sends once.
-    const moveKey = params.startTime.replace(/[^0-9]/g, '').slice(0, 12);
+    const moveKey =
+      params.startTime.replace(/[^0-9]/g, '').slice(0, 12) +
+      (params.sequence !== undefined ? `-m${params.sequence}` : '');
     return sendPair(
       send(
         params.attendeeEmail,

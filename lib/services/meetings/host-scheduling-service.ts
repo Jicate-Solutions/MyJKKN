@@ -168,13 +168,22 @@ export interface MoveDirectInput {
   startIso: string;
   durationMin: number;
   /**
-   * The start the caller validated against. When given, the move happens only
-   * if the meeting still starts then, so two concurrent moves cannot both pass.
+   * The start and end the caller validated against. When given, the move
+   * happens only if the meeting is still exactly there, so a concurrent change
+   * (another move, or an end dragged in Google) cannot slip past the caller's
+   * checks.
    */
   expectedStartIso?: string;
+  expectedEndIso?: string;
 }
 
-export type MoveFailureCode = 'NOT_FOUND' | 'SLOT_TAKEN' | 'CALENDAR_FAILED' | 'CANCELLED_MEANWHILE' | 'UNKNOWN';
+export type MoveFailureCode =
+  | 'NOT_FOUND'
+  | 'SLOT_TAKEN'
+  | 'CALENDAR_FAILED'
+  | 'CANCELLED_MEANWHILE'
+  | 'CHANGED_MEANWHILE'
+  | 'UNKNOWN';
 
 /** Flat shape for the same strictNullChecks reason as ScheduleDirectOutcome. */
 export interface MoveDirectOutcome {
@@ -183,6 +192,12 @@ export interface MoveDirectOutcome {
   error?: { code: MoveFailureCode; message: string };
   /** Set when the meeting moved but a follow-on step (the old time could not be restored) needs a person. */
   warning?: string | null;
+  /**
+   * On an UNKNOWN failure: true when the move's update may have reached the
+   * database (its answer was lost), so the caller must not treat it as
+   * "nothing changed".
+   */
+  mayHaveChanged?: boolean;
 }
 
 export class HostSchedulingService {
@@ -403,13 +418,22 @@ export class HostSchedulingService {
    * this — it re-validates against a meeting type's schedule, and these
    * meetings have none.
    *
-   * All or nothing. The booking row is moved first (a compare-and-swap on the
-   * start it was read at; the gist exclusion refuses a clash with another
-   * meeting → SLOT_TAKEN). Then the Google event is patched (sendUpdates=all,
-   * so every invitee's existing invite updates in place). If that patch fails,
-   * the row is put back and CALENDAR_FAILED is returned: nothing changed. Only
-   * if putting it back ALSO fails is the move reported with a warning.
+   * The rule: the database's answer is final, and the reply says exactly what
+   * happened.
+   *   1. ONE conditional update moves the row (status 'confirmed' and still at
+   *      the start/end the caller checked). Zero rows = nothing changed. A clash
+   *      with another meeting = SLOT_TAKEN (the gist exclusion, the same guard
+   *      booking relies on; neither checks Google busy times).
+   *   2. Google is patched (sendUpdates=all). 'refused' (4xx / never sent) puts
+   *      the row back: nothing changed. 'unknown' (5xx / no answer) keeps the
+   *      move and warns — Google may already have told the invitees.
+   *   3. A held room follows; failure is a warning.
+   *   4. One "moved" email per invitee, one to the host.
+   *   Before every side effect and once at the end, the row is re-read: if a
+   *   cancel or another move has landed, this move stops and its reply says
+   *   what it had already done (CANCELLED_MEANWHILE / CHANGED_MEANWHILE).
    *
+   * Only a meeting the SERVER marked host-direct (source + no type) qualifies.
    * `supabase` must be a SERVICE-ROLE client; the caller has proven the
    * signed-in user is `hostProfileId`.
    */
@@ -436,13 +460,17 @@ export class HostSchedulingService {
     const endIso = new Date(new Date(startIso).getTime() + input.durationMin * 60_000).toISOString();
     const oldStart = booking.start_time as string;
     const oldEnd = booking.end_time as string;
+    const sameInstant = (a: string | null | undefined, b: string) =>
+      !!a && new Date(a).getTime() === new Date(b).getTime();
     if (
-      input.expectedStartIso &&
-      new Date(input.expectedStartIso).getTime() !== new Date(oldStart).getTime()
+      (input.expectedStartIso && !sameInstant(input.expectedStartIso, oldStart)) ||
+      (input.expectedEndIso && !sameInstant(input.expectedEndIso, oldEnd))
     ) {
       return { ok: false, error: { code: 'NOT_FOUND', message: 'That meeting was changed or cancelled meanwhile.' } };
     }
+    const newCount = ((booking.reschedule_count as number | null) ?? 0) + 1;
 
+    // THE move: one conditional update. Zero rows back = nothing changed.
     const { data: moved, error: upErr } = await (supabase as any)
       .from('meeting_bookings')
       .update({
@@ -450,11 +478,12 @@ export class HostSchedulingService {
         end_time: endIso,
         previous_start_time: oldStart,
         rescheduled_at: new Date().toISOString(),
-        reschedule_count: ((booking.reschedule_count as number | null) ?? 0) + 1,
+        reschedule_count: newCount,
       })
       .eq('id', booking.id)
       .eq('status', 'confirmed')
-      .eq('start_time', oldStart) // someone else moved or cancelled it meanwhile
+      .eq('start_time', oldStart)
+      .eq('end_time', oldEnd)
       .select('id')
       .maybeSingle();
     if (upErr) {
@@ -465,72 +494,87 @@ export class HostSchedulingService {
         };
       }
       console.error(`${LOG_PREFIX} move failed for ${input.uid}:`, upErr.message);
-      return { ok: false, error: { code: 'UNKNOWN', message: 'The meeting could not be moved.' } };
+      // The update was sent; its answer was an error. It may still have landed.
+      return {
+        ok: false,
+        error: { code: 'UNKNOWN', message: 'MyJKKN could not confirm whether the meeting moved.' },
+        mayHaveChanged: true,
+      };
     }
     if (!moved) {
       return { ok: false, error: { code: 'NOT_FOUND', message: 'That meeting was changed or cancelled meanwhile.' } };
     }
 
-    // From here the row HAS moved (the conditional update above returned it),
-    // so no reply below may say "nothing changed".
+    // From here the row HAS moved, so no reply below may say "nothing changed".
     //
-    // A cancel can still commit after that update. The cancel's own path then
-    // owns the calendar (marks the event cancelled) and the emails, so this
-    // move stops its own side effects. Only a status READ AS something other
-    // than 'confirmed' counts as a cancel: a failed or empty read is not
-    // evidence of one, and the move carries on.
-    const cancelledSince = async (): Promise<boolean> => {
-      const { data: now, error: readErr } = await (supabase as any)
+    // Another request can still change the row after that update: a cancel (its
+    // own path then owns the calendar and the emails) or a second move. Before
+    // every side effect, and once more at the end, this move checks the row is
+    // still confirmed AND still at the time it set; if not, it stops and says
+    // exactly what it had already done. Only a status/time READ that shows a
+    // change counts: a failed read is not evidence of one.
+    const changedSince = async (): Promise<'cancelled' | 'moved-again' | null> => {
+      const { data: now, error: nowErr } = await (supabase as any)
         .from('meeting_bookings')
-        .select('status')
+        .select('status, start_time')
         .eq('id', booking.id)
         .maybeSingle();
-      const status = (now as { status?: string } | null)?.status;
-      return !readErr && typeof status === 'string' && status !== 'confirmed';
+      if (nowErr || !now) return null;
+      const n = now as { status?: string; start_time?: string };
+      if (typeof n.status === 'string' && n.status !== 'confirmed') return 'cancelled';
+      if (typeof n.start_time === 'string' && !sameInstant(n.start_time, startIso)) return 'moved-again';
+      return null;
     };
-    // What Google has been told so far decides what the reply may claim.
     let googleTold: 'no' | 'yes' | 'maybe' = 'no';
-    const cancelledMeanwhileOutcome = (): MoveDirectOutcome => ({
-      ok: false,
-      error: {
-        code: 'CANCELLED_MEANWHILE',
-        message:
-          googleTold === 'yes'
-            ? 'The meeting was cancelled while it was being moved. Google Calendar had already sent the invitees the new time; the cancellation then won, so their invites now show it cancelled.'
-            : googleTold === 'maybe'
-              ? 'The meeting was cancelled while it was being moved. Google Calendar may already have sent the invitees the new time; the cancellation then won, so their invites now show it cancelled.'
-              : 'The meeting was cancelled while it was being moved. The cancellation stands; nobody was sent the new time.',
-      },
-    });
+    let emailed = 0;
+    const stopped = (why: 'cancelled' | 'moved-again'): MoveDirectOutcome => {
+      const head =
+        why === 'cancelled'
+          ? 'The meeting was cancelled while it was being moved.'
+          : 'The meeting was moved again by another change while this move ran; that later change stands.';
+      const told =
+        googleTold === 'yes'
+          ? why === 'cancelled'
+            ? ' Google Calendar had already sent the invitees the new time; the cancellation then won, so their invites now show it cancelled.'
+            : ' Google Calendar had already sent the invitees this move\'s time before the later change.'
+          : googleTold === 'maybe'
+            ? why === 'cancelled'
+              ? ' Google Calendar may already have sent the invitees the new time; the cancellation then won, so their invites now show it cancelled.'
+              : ' Google Calendar may already have sent the invitees this move\'s time before the later change.'
+            : emailed === 0
+              ? why === 'cancelled'
+                ? ' The cancellation stands; nobody was sent the new time.'
+                : ' Nobody was sent this move\'s time.'
+              : '';
+      const mailed = emailed > 0 ? ` ${emailed} invitee(s) had already been emailed this move\'s new time.` : '';
+      return {
+        ok: false,
+        error: { code: why === 'cancelled' ? 'CANCELLED_MEANWHILE' : 'CHANGED_MEANWHILE', message: `${head}${told}${mailed}` },
+      };
+    };
 
     const warnings: string[] = [];
-    if (booking.google_event_id && (await cancelledSince())) return cancelledMeanwhileOutcome();
     if (booking.google_event_id) {
-      // false = Google answered and did not apply it (or no calendar access):
-      // a definite refusal, so the row is put back. A thrown error = the
-      // answer never arrived, and Google may already have moved the invite
-      // (sendUpdates=all), so the move is KEPT and reported with a warning
-      // rather than "nothing changed".
-      let patched: boolean | 'unknown';
-      try {
-        patched = await GoogleCalendarService.patchEventTime(
-          supabase,
-          input.hostProfileId,
-          booking.google_event_id as string,
-          startIso,
-          endIso,
-          CAMPUS_TZ,
-        );
-      } catch (err) {
-        console.error(`${LOG_PREFIX} move: calendar patch outcome unknown for ${input.uid}:`, err);
-        patched = 'unknown';
-      }
-      googleTold = patched === true ? 'yes' : patched === 'unknown' ? 'maybe' : 'no';
-      if (patched === 'unknown') {
+      const c = await changedSince();
+      if (c) return stopped(c);
+      const outcome = await GoogleCalendarService.patchEventTimeOutcome(
+        supabase,
+        input.hostProfileId,
+        booking.google_event_id as string,
+        startIso,
+        endIso,
+        CAMPUS_TZ,
+      );
+      if (outcome === 'applied') {
+        googleTold = 'yes';
+      } else if (outcome === 'unknown') {
+        // The PATCH was sent; Google may have applied it and told invitees.
+        googleTold = 'maybe';
         warnings.push(
           'Google Calendar did not confirm the new time, so the invite may still show the old time. Check it.',
         );
-      } else if (!patched) {
+      } else {
+        // Google definitely did not apply it: put the row back.
         const { data: back, error: backErr } = await (supabase as any)
           .from('meeting_bookings')
           .update({
@@ -541,8 +585,8 @@ export class HostSchedulingService {
             reschedule_count: (booking.reschedule_count as number | null) ?? 0,
           })
           .eq('id', booking.id)
-          .eq('status', 'confirmed') // never rewrite the time of a row cancelled meanwhile
-          .eq('start_time', startIso)
+          .eq('status', 'confirmed') // never rewrite a row cancelled meanwhile
+          .eq('start_time', startIso) // nor one another change has moved
           .select('id')
           .maybeSingle();
         if (!backErr && back) {
@@ -554,12 +598,11 @@ export class HostSchedulingService {
             },
           };
         }
-        // No row back and no error: the row is no longer 'confirmed' at the new
-        // time, i.e. it was cancelled meanwhile; nothing else here to do.
-        if (!backErr && (await cancelledSince())) return cancelledMeanwhileOutcome();
+        const c2 = await changedSince();
+        if (c2) return stopped(c2);
         // 23P01 here = another booking took the freed old time meanwhile.
         console.error(
-          `${LOG_PREFIX} move: calendar patch AND restore failed for ${input.uid}:`,
+          `${LOG_PREFIX} move: calendar refused AND restore failed for ${input.uid}:`,
           (backErr as { code?: string } | null)?.code ?? 'no row',
         );
         warnings.push(
@@ -569,10 +612,10 @@ export class HostSchedulingService {
     }
 
     // A held room follows the meeting (same rule as rescheduleBooking). If it
-    // cannot (a clash or an error), the move is reported half-done. A meeting
-    // cancelled meanwhile keeps its room released by the cancel.
-    if (booking.venue_reservation_id && (await cancelledSince())) return cancelledMeanwhileOutcome();
+    // cannot (a clash or an error), the move is reported half-done.
     if (booking.venue_reservation_id) {
+      const c = await changedSince();
+      if (c) return stopped(c);
       const { error: rErr } = await (supabase as any)
         .from('resource_reservations')
         .update({ start_time: startIso, end_time: endIso, updated_at: new Date().toISOString() })
@@ -585,7 +628,8 @@ export class HostSchedulingService {
     }
 
     // One "moved" email to every invitee (and one to the host), naming the
-    // meeting and both times. Google's own update reaches them too.
+    // meeting and both times. Every invitee; when the list is empty, the one
+    // attendee on the row (as cancelBooking does).
     const answers = (booking.answers ?? {}) as {
       title?: string;
       location_mode?: HostMeetingLocationMode;
@@ -597,10 +641,6 @@ export class HostSchedulingService {
       .select('full_name, email')
       .eq('id', input.hostProfileId)
       .maybeSingle();
-    if (await cancelledSince()) return cancelledMeanwhileOutcome();
-
-    // Every invitee; when the list is empty, the one attendee on the row (as
-    // cancelBooking does), so the host's copy always goes once.
     const listed = (answers.participants ?? []).filter((x) => x?.email);
     const recipients = listed.length
       ? listed
@@ -609,9 +649,11 @@ export class HostSchedulingService {
         : [];
     let hostTold = false;
     for (const p of recipients) {
+      const c = await changedSince();
+      if (c) return stopped(c);
       try {
-        // The host's copy is sent ONCE (its key names only the meeting; a
-        // second send with a different payload would be a duplicate-key 409).
+        // The host's copy is sent ONCE (its key names only the meeting and this
+        // move; a second send with a different payload would be a 409).
         const hostEmail = hostTold ? '' : (((host as any)?.email as string | undefined) ?? '');
         hostTold = true;
         await MeetingBookingEmailService.sendBookingRescheduledEmails({
@@ -622,6 +664,8 @@ export class HostSchedulingService {
           startTime: startIso,
           previousStartTime: oldStart,
           rescheduledBy: 'host',
+          // This move's number, so a later move back to the same time is a new email.
+          sequence: newCount,
           hostName: ((host as any)?.full_name as string | undefined) ?? ((host as any)?.email as string | undefined) ?? '',
           hostEmail,
           attendeeName: p.name || (p.email as string),
@@ -630,10 +674,14 @@ export class HostSchedulingService {
           locationText: answers.location_text ?? null,
           videoUrl: (booking.video_url as string | null) ?? null,
         });
+        emailed += 1;
       } catch (err) {
         console.error(`${LOG_PREFIX} moved email failed for ${p.email}:`, err);
       }
     }
+    // A change that landed during the last send still decides the reply.
+    const cEnd = await changedSince();
+    if (cEnd) return stopped(cEnd);
 
     return {
       ok: true,

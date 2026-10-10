@@ -1067,7 +1067,7 @@ export class NativeSchedulingService {
     uid: string,
     auth: { cancelToken?: string; actorProfileId?: string },
     reason?: string,
-  ): Promise<{ success: boolean; error?: string }> {
+  ): Promise<{ success: boolean; error?: string; warning?: string | null }> {
     const { data: booking, error } = await supabase
       .from('meeting_bookings')
       .select(
@@ -1082,7 +1082,7 @@ export class NativeSchedulingService {
     const byHost = !!auth.actorProfileId && auth.actorProfileId === booking.host_profile_id;
     if (!byToken && !byHost) return { success: false, error: 'FORBIDDEN' };
 
-    const { error: upErr } = await supabase
+    const { data: cancelledRow, error: upErr } = await supabase
       .from('meeting_bookings')
       .update({
         status: 'cancelled',
@@ -1091,11 +1091,21 @@ export class NativeSchedulingService {
         cancelled_by: byToken ? 'attendee' : 'host',
       })
       .eq('id', booking.id)
-      .eq('status', 'confirmed');
+      .eq('status', 'confirmed')
+      // the row as cancelled: its times decide the emails (a move may have
+      // landed between the read above and this update)
+      .select('start_time, end_time')
+      .maybeSingle();
     if (upErr) {
       console.error(`${LOG_PREFIX} cancel failed:`, upErr.message);
       return { success: false, error: 'INTERNAL' };
     }
+    // Nothing matched: another request cancelled it first. That one owns the
+    // calendar and the emails; this one reports it was already closed.
+    if (!cancelledRow) return { success: false, error: 'NOT_CONFIRMED' };
+    booking.start_time = (cancelledRow as { start_time: string }).start_time;
+    booking.end_time = (cancelledRow as { end_time: string }).end_time;
+    let warning: string | null = null;
 
     // PR3: free the held room. The booking is now cancelled, so the venue-sync
     // trigger leaves its venue_status alone (its status='confirmed' guard); the
@@ -1175,12 +1185,23 @@ export class NativeSchedulingService {
 
     if (booking.google_event_id) {
       const originalSummary = `${meetingTitle} — ${booking.attendee_name ?? ''}`.trim();
-      await GoogleCalendarService.markEventCancelled(
-        supabase,
-        booking.host_profile_id,
-        booking.google_event_id as string,
-        `Cancelled: ${originalSummary}`,
-      );
+      // Best effort, but never silent: the cancel is committed, so a calendar
+      // failure must not stop the emails below, and the caller is told.
+      let marked = false;
+      try {
+        marked = await GoogleCalendarService.markEventCancelled(
+          supabase,
+          booking.host_profile_id,
+          booking.google_event_id as string,
+          `Cancelled: ${originalSummary}`,
+        );
+      } catch (err) {
+        console.error(`${LOG_PREFIX} calendar cancel-mark threw:`, err);
+      }
+      if (!marked) {
+        warning =
+          "The meeting is cancelled in MyJKKN, but its Google Calendar invite could not be marked cancelled, so invitees' calendars may still show it.";
+      }
     }
 
     // The cancel is already committed: one invitee's failed email never stops
@@ -1211,7 +1232,7 @@ export class NativeSchedulingService {
       }
     }
 
-    return { success: true };
+    return { success: true, warning };
   }
 
   /**

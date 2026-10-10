@@ -347,6 +347,14 @@ describe('a clash offers the next free times', () => {
 });
 
 describe('cancel_meeting', () => {
+  it('a cancel whose calendar step failed answers with attention first', async () => {
+    cancelBooking.mockResolvedValue({ success: true, warning: 'Its Google Calendar invite could not be marked cancelled.' });
+    const res = await readRpc(await call('cancel_meeting', { uid: MEETING_UID }));
+    const body = JSON.parse(textOf(res));
+    expect(Object.keys(body)).toEqual(['cancelled', 'attention', 'uid']);
+    expect(body.attention).toMatch(/^Cancelled, but not complete: Its Google Calendar invite/);
+  });
+
   it('cancels a meeting this key booked, as the owner', async () => {
     const res = await readRpc(await call('cancel_meeting', { uid: MEETING_UID, reason: 'Parent is unwell' }));
     expect(res.result.isError).toBeFalsy();
@@ -436,8 +444,9 @@ describe('move_meeting (in place)', () => {
       hostProfileId: OWNER,
       startIso: `${FUTURE_DATE}T12:30:00.000Z`,
       durationMin: 30,
-      // the start the overlap was checked against is the compare-and-swap value
+      // the start and end the overlap was checked against are the compare-and-swap values
       expectedStartIso: OLD_START,
+      expectedEndIso: OLD_END,
     });
     expect(JSON.parse(textOf(res))).toEqual({
       moved: true,
@@ -476,6 +485,27 @@ describe('move_meeting (in place)', () => {
       `Taken. Nothing was changed. The meeting is still at its old time. Next free times (India time, use as start_local): ${FUTURE_DATE}T19:00.`
     );
     expect(released()).toEqual([{ p_reservation_id: 'res-1' }]);
+  });
+
+  it('an UNKNOWN whose update may have landed keeps the reservation counted', async () => {
+    moveDirect.mockResolvedValue({
+      ok: false,
+      error: { code: 'UNKNOWN', message: 'MyJKKN could not confirm whether the meeting moved.' },
+      mayHaveChanged: true,
+    });
+    const res = await readRpc(await call('move_meeting', { uid: MEETING_UID, start_local: `${FUTURE_DATE}T18:00` }));
+    expect(res.result.isError).toBe(true);
+    expect(released()).toEqual([]);
+  });
+
+  it('another move that won mid-move is reported as such, and the reservation stays counted', async () => {
+    moveDirect.mockResolvedValue({
+      ok: false,
+      error: { code: 'CHANGED_MEANWHILE', message: 'The meeting was moved again by another change while this move ran; that later change stands. Nobody was sent this move\'s time.' },
+    });
+    const res = await readRpc(await call('move_meeting', { uid: MEETING_UID, start_local: `${FUTURE_DATE}T18:00` }));
+    expect(textOf(res)).toMatch(/moved again by another change/);
+    expect(released()).toEqual([]);
   });
 
   it('an UNKNOWN failure (nothing changed) also gives the reservation back', async () => {

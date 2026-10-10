@@ -572,17 +572,18 @@ async function runScheduleTool(
 ): Promise<unknown> {
   const args = parseScheduleArgs(input);
 
-  await assertOwnerMayMeet(ownerClient);
-
-  const db = createServiceRoleClient() as unknown as SupabaseClient;
-
-  // Everything before booking runs under its own deadline, so a stuck lock or
-  // a slow database is answered (and audited) well inside maxDuration.
+  // Everything before booking runs under its own deadline (the Meetings check
+  // included, as cancel and move do), so a stuck lock or a slow database is
+  // answered (and audited) well inside maxDuration.
   const prepareDeadline = Date.now() + BOOKING_LIMITS.PREPARE_TIMEOUT_MS;
   const inTime = <T,>(p: Promise<T>) =>
     withDeadline(p, Math.max(1, prepareDeadline - Date.now())).catch((err) => {
       throw err instanceof BookingTimeout ? new PrepareTimeout() : err;
     });
+
+  await inTime(assertOwnerMayMeet(ownerClient));
+
+  const db = createServiceRoleClient() as unknown as SupabaseClient;
 
   const reservationId = await inTime(reserveBookingSlot(db, keyId, ownerId, args.attendees.length));
 
@@ -817,8 +818,13 @@ async function runCancelTool(
     throw new DoorRefusal('Booking was switched off for this key, so nothing was changed.');
   }
   const meeting = await inTime(loadThisKeysMeeting(db, ownerId, keyId, a.uid));
-  await cancelThisKeysMeeting(db, ownerId, meeting.uid, reason ?? 'Cancelled by the organiser.');
-  return { cancelled: true, uid: meeting.uid };
+  const warning = await cancelThisKeysMeeting(db, ownerId, meeting.uid, reason ?? 'Cancelled by the organiser.');
+  return {
+    cancelled: true,
+    // first, so an outside AI cannot miss a half-done cancel
+    ...(warning ? { attention: `Cancelled, but not complete: ${warning} Tell the person who asked.` } : {}),
+    uid: meeting.uid,
+  };
 }
 
 /** Cancels as the host. Throws DoorRefusal when it was already closed, BookingTimeout when slow. */
@@ -828,7 +834,7 @@ async function cancelThisKeysMeeting(
   uid: string,
   reason: string,
   ms: number = BOOKING_LIMITS.BOOKING_TIMEOUT_MS
-): Promise<void> {
+): Promise<string | null> {
   // Loaded only here: the scheduling service builds clients when imported.
   const { NativeSchedulingService } = await import('@/lib/services/meetings/native-scheduling-service');
   const work = NativeSchedulingService.cancelBooking(db, uid, { actorProfileId: ownerId }, reason);
@@ -843,6 +849,7 @@ async function cancelThisKeysMeeting(
     if (r.error === 'NOT_CONFIRMED') throw new DoorRefusal('That meeting is already cancelled or closed.');
     throw new Error(`cancel failed: ${r.error ?? 'unknown'}`);
   }
+  return r.warning ?? null;
 }
 
 async function runMoveTool(
@@ -917,6 +924,7 @@ async function runMoveTool(
     startIso,
     durationMin,
     expectedStartIso: old.start_time,
+    expectedEndIso: old.end_time,
   });
   let outcome: Awaited<typeof work>;
   try {
@@ -927,8 +935,8 @@ async function runMoveTool(
   }
   if (!outcome.ok) {
     const code = outcome.error?.code;
-    if (code === 'CANCELLED_MEANWHILE') {
-      // The row did move before the cancel landed: the reservation stays
+    if (code === 'CANCELLED_MEANWHILE' || code === 'CHANGED_MEANWHILE') {
+      // The row did move before another change landed: the reservation stays
       // counted, and the reply says exactly what happened.
       throw new DoorRefusal(outcome.error.message);
     }
@@ -952,8 +960,10 @@ async function runMoveTool(
           : `${outcome.error.message} The meeting is still at its old time.`
       );
     }
-    // UNKNOWN is also decided before anything changed (a failed read or update).
-    await releaseBookingSlot(db, reservationId);
+    // UNKNOWN: given back only when nothing can have changed (a failed read).
+    // When the update's answer was lost, the move may have happened, so the
+    // slot stays counted, as schedule_meeting does.
+    if (!outcome.mayHaveChanged) await releaseBookingSlot(db, reservationId);
     throw new Error(outcome.error?.message ?? 'not moved');
   }
   const warning = outcome.warning ?? null;

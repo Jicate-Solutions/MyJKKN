@@ -34,6 +34,16 @@ const markEventCancelled = vi.fn();
 vi.mock('@/lib/services/integrations/google-calendar-service', () => ({
   GoogleCalendarService: {
     patchEventTime: (...a: unknown[]) => patchEventTime(...a),
+    // The test drives patchEventTime: true = applied, false = refused, a throw
+    // = no answer (unknown), or it can return an outcome string directly.
+    patchEventTimeOutcome: async (...a: unknown[]) => {
+      try {
+        const r = await patchEventTime(...a);
+        return typeof r === 'string' ? r : r ? 'applied' : 'refused';
+      } catch {
+        return 'unknown';
+      }
+    },
     markEventCancelled: (...a: unknown[]) => markEventCancelled(...a),
     busyForHost: vi.fn(async () => ({ status: 'ok', busy: [] })),
   },
@@ -114,8 +124,9 @@ function makeDb(
             const matches = current && Object.entries(where).every(([k, v]) => (current as any)[k] === v);
             if (!matches) return { data: null, error: null };
             current = { ...(current as object), ...payload };
+            const returned = { ...(current as object) }; // the row as this update left it
             if (opts.cancelAfterMove && !isRestore) current = { ...(current as object), status: 'cancelled' };
-            return { data: { id: (current as any).id }, error: null };
+            return { data: returned, error: null };
           }
           if (table === 'meeting_bookings') {
             const statusOnlyRead = (current as any)?.start_time === NEW_START || updates.length > 0;
@@ -151,6 +162,7 @@ beforeEach(() => {
   patchEventTime.mockReset();
   patchEventTime.mockResolvedValue(true);
   markEventCancelled.mockReset();
+  markEventCancelled.mockResolvedValue(true);
 });
 
 describe('moveDirect: same meeting, same link, new time', () => {
@@ -364,7 +376,122 @@ describe('moveDirect: a cancel that lands mid-move (review 12:52 IST)', () => {
   });
 });
 
+describe('the three-lens pass (10 Oct)', () => {
+  it('a Google 5xx / no answer keeps the move and warns (never "nothing changed")', async () => {
+    patchEventTime.mockResolvedValue('unknown');
+    const { db, now } = makeDb(row());
+    const r = await HostSchedulingService.moveDirect(db, { uid: 'uid-1', hostProfileId: HOST, startIso: NEW_START, durationMin: 30 });
+    expect(r.ok).toBe(true);
+    expect(r.warning).toMatch(/did not confirm the new time/);
+    expect(now()).toMatchObject({ start_time: NEW_START });
+  });
+
+  it('a cancel landing during the email loop stops the loop and says how many were emailed', async () => {
+    const h = makeDb(row());
+    // cancel right after the first invitee email goes out
+    const send = (await import('@/lib/resend')).resend.emails.send as unknown as ReturnType<typeof vi.fn>;
+    const orig = send.getMockImplementation()!;
+    send.mockImplementation(async (msg: any, opts: any) => {
+      const out = await orig(msg, opts);
+      if (msg.to === 'parent@gmail.com') h.cancelNow();
+      return out;
+    });
+    try {
+      const r = await HostSchedulingService.moveDirect(h.db, { uid: 'uid-1', hostProfileId: HOST, startIso: NEW_START, durationMin: 30 });
+      expect(r).toMatchObject({ ok: false, error: { code: 'CANCELLED_MEANWHILE' } });
+      expect(r.error?.message).toMatch(/1 invitee\(s\) had already been emailed this move's new time/);
+      expect(sentEmails.map((e) => e.to)).not.toContain('viswanathan.s@jkkn.ac.in');
+    } finally {
+      send.mockImplementation(orig);
+    }
+  });
+
+  it('another move landing mid-move is reported as CHANGED_MEANWHILE', async () => {
+    const h = makeDb(row());
+    patchEventTime.mockImplementation(async () => {
+      // a second move takes the row elsewhere
+      (h.now() as any).start_time = '2099-01-12T09:00:00.000Z';
+      return 'refused';
+    });
+    const r = await HostSchedulingService.moveDirect(h.db, { uid: 'uid-1', hostProfileId: HOST, startIso: NEW_START, durationMin: 30 });
+    expect(r).toMatchObject({ ok: false, error: { code: 'CHANGED_MEANWHILE' } });
+    // the put-back did not overwrite the later move
+    expect(h.now()).toMatchObject({ start_time: '2099-01-12T09:00:00.000Z' });
+  });
+
+  it('an end changed since the caller checked it stops the move (nothing changed)', async () => {
+    const { db, updates } = makeDb(row());
+    const r = await HostSchedulingService.moveDirect(db, {
+      uid: 'uid-1', hostProfileId: HOST, startIso: NEW_START, durationMin: 30,
+      expectedStartIso: OLD_START, expectedEndIso: '2099-01-10T06:00:00.000Z',
+    });
+    expect(r).toMatchObject({ ok: false, error: { code: 'NOT_FOUND' } });
+    expect(updates).toHaveLength(0);
+  });
+
+  it('a lost answer to the move update says it may have moved (mayHaveChanged)', async () => {
+    const { db } = makeDb(row(), { updateError: { code: '08006', message: 'connection reset' } });
+    const r = await HostSchedulingService.moveDirect(db, { uid: 'uid-1', hostProfileId: HOST, startIso: NEW_START, durationMin: 30 });
+    expect(r).toMatchObject({ ok: false, error: { code: 'UNKNOWN' }, mayHaveChanged: true });
+  });
+
+  it('each move is its own email (a move back to an earlier time is not deduped)', async () => {
+    const { db } = makeDb(row({ reschedule_count: 2 }));
+    await HostSchedulingService.moveDirect(db, { uid: 'uid-1', hostProfileId: HOST, startIso: NEW_START, durationMin: 30 });
+    expect(sentEmails.every((e) => /-m3/.test(e.key))).toBe(true);
+  });
+
+  it('cancel: a calendar that fails or throws is reported, and every invitee is still emailed', async () => {
+    for (const fail of [async () => false, async () => { throw new Error('network'); }]) {
+      sentEmails.length = 0;
+      markEventCancelled.mockImplementation(fail);
+      const { db } = makeDb(row());
+      const r = await NativeSchedulingService.cancelBooking(db, 'uid-1', { actorProfileId: HOST });
+      expect(r.success).toBe(true);
+      expect(r.warning).toMatch(/could not be marked cancelled/);
+      expect(sentEmails.map((e) => e.to)).toEqual(expect.arrayContaining(['parent@gmail.com', 'viswanathan.s@jkkn.ac.in']));
+    }
+  });
+
+  it('cancel: losing a race to another cancel reports NOT_CONFIRMED and sends nothing', async () => {
+    const h = makeDb(row());
+    const realFrom = h.db.from.bind(h.db);
+    let reads = 0;
+    h.db.from = (t: string) => {
+      const b = realFrom(t);
+      if (t === 'meeting_bookings' && ++reads === 2) h.cancelNow(); // the other cancel commits first
+      return b;
+    };
+    const r = await NativeSchedulingService.cancelBooking(h.db, 'uid-1', { actorProfileId: HOST });
+    expect(r).toEqual({ success: false, error: 'NOT_CONFIRMED' });
+    expect(sentEmails).toHaveLength(0);
+    expect(markEventCancelled).not.toHaveBeenCalled();
+  });
+});
+
 describe('cancelling a directly scheduled meeting tells everyone', () => {
+  it('the cancel emails carry the time the row had when it was cancelled', async () => {
+    const h = makeDb(row());
+    const realFrom = h.db.from.bind(h.db);
+    let reads = 0;
+    h.db.from = (t: string) => {
+      // a move commits between the cancel's read and its update
+      if (t === 'meeting_bookings' && ++reads === 2) {
+        (h.now() as any).start_time = NEW_START;
+        (h.now() as any).end_time = '2099-01-11T09:30:00.000Z';
+      }
+      return realFrom(t);
+    };
+    const { resend } = await import('@/lib/resend');
+    const send = resend.emails.send as unknown as ReturnType<typeof vi.fn>;
+    send.mockClear();
+    await NativeSchedulingService.cancelBooking(h.db, 'uid-1', { actorProfileId: HOST });
+    const html = String(send.mock.calls[0][0].html);
+    // 11 Jan 2099 14:30 India time is the moved time; 10 Jan 10:30 was the old one
+    expect(html).toMatch(/11 Jan/);
+    expect(html).not.toMatch(/10 Jan/);
+  });
+
   it('emails every invitee with the meeting\'s own title', async () => {
     const { db } = makeDb(row());
     const r = await NativeSchedulingService.cancelBooking(db, 'uid-1', { actorProfileId: HOST }, 'Parent unwell');
