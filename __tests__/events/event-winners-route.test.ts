@@ -139,3 +139,24 @@ describe('round 6', () => {
     expect((await res.json()).registrations).toHaveLength(1200);
   });
 });
+
+describe('round 10: both keys are required', () => {
+  it('a change without final_rank is a 400 (not a clear) and never reaches the database', async () => {
+    const res = await post(EV, [{ registrationId: REG }]);
+    expect(res.status).toBe(400);
+    expect(rpc).not.toHaveBeenCalled();
+  });
+
+  it('a change without registrationId is a 400', async () => {
+    const res = await post(EV, [{ final_rank: 1 }]);
+    expect(res.status).toBe(400);
+    expect(rpc).not.toHaveBeenCalled();
+  });
+
+  it('an explicit final_rank: null is still a clear', async () => {
+    rpc.mockResolvedValue({ data: 1, error: null });
+    const res = await post(EV, [{ registrationId: REG, final_rank: null }]);
+    expect(res.status).toBe(200);
+    expect(rpc.mock.calls[0][1].p_changes).toEqual([{ registration_id: REG, final_rank: null }]);
+  });
+});

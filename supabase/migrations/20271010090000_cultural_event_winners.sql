@@ -198,16 +198,16 @@ BEGIN
       RETURN NEW;
     END IF;
 
-    -- The registrant on their own placed row: the ONLY change allowed is
-    -- cancelling it (plus updated_at). That clears the place (above) and is
-    -- logged. The operational allowlist below is for ops writers, not for the
-    -- registrant (desk ruling 10 Oct).
+    -- The registrant on their own placed row may change nothing but
+    -- updated_at. There is NO self-cancel: profile_id can be re-pointed on an
+    -- unplaced row by committee / scoped updaters before it is placed, so
+    -- "the registrant" is not a trustworthy identity here (desk ruling, round
+    -- 10). A winner who wants to withdraw asks the organiser, whose cancel
+    -- clears the place and is logged. The operational allowlist below is for
+    -- ops writers, not for the registrant.
     IF OLD.profile_id IS NOT NULL AND OLD.profile_id = auth.uid() THEN
-      IF (to_jsonb(NEW) - ARRAY['status', 'updated_at', 'final_rank'])
-           IS DISTINCT FROM (to_jsonb(OLD) - ARRAY['status', 'updated_at', 'final_rank'])
-         OR (NEW.status IS DISTINCT FROM OLD.status AND NOT (v_withdrawn AND NEW.status = 'cancelled'))
-         OR (v_rank_changed AND NOT v_withdrawn) THEN
-        RAISE EXCEPTION 'Your registration holds a place; you can cancel it, but other changes need the event''s organisers.'
+      IF (to_jsonb(NEW) - 'updated_at') IS DISTINCT FROM (to_jsonb(OLD) - 'updated_at') THEN
+        RAISE EXCEPTION 'Your registration holds a place; to withdraw or change it, ask the event''s organisers.'
           USING ERRCODE = '42501';
       END IF;
       RETURN NEW;
@@ -230,7 +230,7 @@ BEGIN
     -- "self-cancel").
     IF NEW.status IS DISTINCT FROM OLD.status
        AND (NOT (OLD.status = ANY (c_active)) OR NOT (NEW.status = ANY (c_active))) THEN
-      RAISE EXCEPTION 'Only the registrant (to cancel), or the event''s creator, its in-charge or an administrator, can change this winner''s status.'
+      RAISE EXCEPTION 'Only the event''s creator, its in-charge or an administrator can change this winner''s status.'
         USING ERRCODE = '42501';
     END IF;
     RETURN NEW;

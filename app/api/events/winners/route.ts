@@ -118,9 +118,13 @@ export async function POST(request: NextRequest) {
   // `?? {}`: a literal JSON null body parses fine and must still be a 400.
   const body = ((await request.json().catch(() => null)) ?? {}) as { changes?: unknown };
   const raw = Array.isArray(body.changes) ? body.changes : null;
+  // Both keys must be present: a missing final_rank is NOT a clear.
+  const complete = (c: any) =>
+    c !== null && typeof c === 'object' && 'registrationId' in c && 'final_rank' in c;
+  if (raw && !raw.every(complete)) return invalid();
   const changes = raw?.map((c: any) => ({
-    registration_id: typeof c?.registrationId === 'string' ? c.registrationId : null,
-    final_rank: c?.final_rank ?? null,
+    registration_id: typeof c.registrationId === 'string' ? c.registrationId : null,
+    final_rank: c.final_rank,
   }));
   if (
     !changes ||

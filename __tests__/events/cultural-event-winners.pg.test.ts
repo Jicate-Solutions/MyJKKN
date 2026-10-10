@@ -797,25 +797,25 @@ describe('review round 6 (#4311)', () => {
     await drop(row);
   });
 
-  it('#2 the registrant may cancel their own placed row: the place is cleared and logged as theirs', async () => {
+  it('#2 (round 10) the registrant cannot cancel their own placed row; the place stays', async () => {
     const learner = randomUUID();
     const row = await placedRow(2, { profile: learner });
     await actAs(learner);
-    expect(await sqlstate(`UPDATE public.events_registrations SET status = 'cancelled' WHERE id = $1`, [row])).toBeNull();
-    expect(await rowState(row)).toEqual({ status: 'cancelled', final_rank: null });
-    expect(await historyRows(row)).toEqual([{ old_rank: 2, new_rank: null, changed_by: learner }]);
+    expect(await sqlstate(`UPDATE public.events_registrations SET status = 'cancelled' WHERE id = $1`, [row])).toBe('42501');
+    expect(await rowState(row)).toEqual({ status: 'registered', final_rank: 2 });
+    expect(await historyRows(row)).toEqual([]);
     await asOwner();
     await drop(row);
   });
 
-  it('#2 the registrant cannot cancel and re-place in one statement (the place is cleared anyway)', async () => {
+  it('#2 the registrant cannot cancel and re-place in one statement', async () => {
     const learner = randomUUID();
     const row = await placedRow(2, { profile: learner });
     await actAs(learner);
     expect(
       await sqlstate(`UPDATE public.events_registrations SET status = 'cancelled', final_rank = 1 WHERE id = $1`, [row])
-    ).toBeNull();
-    expect(await rowState(row)).toEqual({ status: 'cancelled', final_rank: null });
+    ).toBe('42501');
+    expect(await rowState(row)).toEqual({ status: 'registered', final_rank: 2 });
     await asOwner();
     await drop(row);
   });
@@ -1036,7 +1036,7 @@ describe('review round 7 (#4311): an allowlist on a winner\'s row', () => {
     await drop(row);
   });
 
-  it('the registrant on their own winning row may only cancel it', async () => {
+  it('the registrant on their own winning row may change nothing but updated_at (round 10: not even cancel)', async () => {
     const learner = randomUUID();
     const row = await placedRow(learner);
     await actAs(learner);
@@ -1044,11 +1044,11 @@ describe('review round 7 (#4311): an allowlist on a winner\'s row', () => {
       expect(await sqlstate(`UPDATE public.events_registrations SET ${set} WHERE id = $1`, [row])).toBe('42501');
     }
     expect(await sqlstate(`UPDATE public.events_registrations SET updated_at = now() WHERE id = $1`, [row])).toBeNull();
-    expect(await sqlstate(`UPDATE public.events_registrations SET status = 'cancelled' WHERE id = $1`, [row])).toBeNull();
+    expect(await sqlstate(`UPDATE public.events_registrations SET status = 'cancelled' WHERE id = $1`, [row])).toBe('42501');
     await asOwner();
-    expect(await snapshot(row)).toMatchObject({ status: 'cancelled', final_rank: null });
+    expect(await snapshot(row)).toMatchObject({ status: 'registered', final_rank: 1 });
     const log = (await admin.query(`SELECT old_rank, new_rank, changed_by FROM public.event_winner_rank_changes WHERE registration_id = $1`, [row])).rows;
-    expect(log).toEqual([{ old_rank: 1, new_rank: null, changed_by: learner }]);
+    expect(log).toEqual([]);
     await drop(row);
   });
 
@@ -1143,13 +1143,13 @@ describe('review round 8 (#4311): one ACTIVE set of statuses', () => {
     await drop(row);
   });
 
-  it('the registrant may still cancel their own winning row, but not mark it no_show', async () => {
+  it('the registrant cannot move their own winning row out of the set at all (round 10)', async () => {
     const learner = randomUUID();
     const row = await placedRow(learner);
     await actAs(learner);
     expect(await sqlstate(`UPDATE public.events_registrations SET status = 'no_show' WHERE id = $1`, [row])).toBe('42501');
-    expect(await sqlstate(`UPDATE public.events_registrations SET status = 'cancelled' WHERE id = $1`, [row])).toBeNull();
-    expect(await state(row)).toEqual({ status: 'cancelled', final_rank: null });
+    expect(await sqlstate(`UPDATE public.events_registrations SET status = 'cancelled' WHERE id = $1`, [row])).toBe('42501');
+    expect(await state(row)).toEqual({ status: 'registered', final_rank: 2 });
     await asOwner();
     await drop(row);
   });
@@ -1297,3 +1297,48 @@ describe('review round 9 (#4311): check-before-lock races, two connections', () 
   }, 60_000);
 });
 
+describe('review round 10 (#4311): no registrant self-cancel on a winner', () => {
+  const state = async (row: string) =>
+    (await admin.query(`SELECT status, profile_id, final_rank FROM public.events_registrations WHERE id = $1`, [row])).rows[0];
+
+  it('the registrant can still cancel their own UNPLACED registration', async () => {
+    await reset();
+    const learner = randomUUID();
+    const row = (
+      await admin.query(`INSERT INTO public.events_registrations (event_id, profile_id) VALUES ($1, $2) RETURNING id`, [ids.event, learner])
+    ).rows[0].id;
+    await actAs(learner);
+    expect(await sqlstate(`UPDATE public.events_registrations SET status = 'cancelled' WHERE id = $1`, [row])).toBeNull();
+    expect(await state(row)).toMatchObject({ status: 'cancelled', final_rank: null });
+    await asOwner();
+    await admin.query(`DELETE FROM public.events_registrations WHERE id = $1`, [row]);
+  });
+
+  it('repoint-then-cancel: an updater re-points an unplaced row to themselves, a manager places it, the cancel is refused', async () => {
+    await reset();
+    const row = (
+      await admin.query(`INSERT INTO public.events_registrations (event_id, profile_id) VALUES ($1, $2) RETURNING id`, [ids.event, randomUUID()])
+    ).rows[0].id;
+    // 1. a committee-style updater re-points the (unplaced) row to themselves
+    await actAs(ids.outsider);
+    expect(await sqlstate(`UPDATE public.events_registrations SET profile_id = $1 WHERE id = $2`, [ids.outsider, row])).toBeNull();
+    // 2. the manager, unaware, places it
+    await actAs(ids.creator);
+    expect(
+      await sqlstate(`SELECT public.fn_set_event_registration_ranks($1, $2::jsonb)`, [
+        ids.event,
+        JSON.stringify([{ registration_id: row, final_rank: 1 }]),
+      ])
+    ).toBeNull();
+    // 3. the updater, now "the registrant", tries to wipe the winner
+    await actAs(ids.outsider);
+    expect(await sqlstate(`UPDATE public.events_registrations SET status = 'cancelled' WHERE id = $1`, [row])).toBe('42501');
+    expect(await state(row)).toMatchObject({ status: 'registered', final_rank: 1 });
+    // 4. the organiser can still withdraw the winner; the clear is logged
+    await actAs(ids.creator);
+    expect(await sqlstate(`UPDATE public.events_registrations SET status = 'cancelled' WHERE id = $1`, [row])).toBeNull();
+    expect(await state(row)).toMatchObject({ status: 'cancelled', final_rank: null });
+    await asOwner();
+    await admin.query(`DELETE FROM public.events_registrations WHERE id = $1`, [row]);
+  });
+});
