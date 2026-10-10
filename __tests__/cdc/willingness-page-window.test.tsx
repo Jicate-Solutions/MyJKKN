@@ -47,6 +47,18 @@ import { LearnerWillingnessView } from '@/app/(routes)/cdc/drives/[id]/willingne
 const DRIVE_ID = 'drive-1';
 
 function snapshot(over: Partial<LearnerWillingnessSnapshot> = {}): LearnerWillingnessSnapshot {
+  const base = buildSnapshot(over);
+  // `can_respond` is the service's own derivation; unless a case pins it, it
+  // must follow the window the case set, or a "window shut" test would silently
+  // be testing an open page.
+  return {
+    ...base,
+    can_respond:
+      over.can_respond ?? (base.is_window_open || base.reopened_for_learner),
+  };
+}
+
+function buildSnapshot(over: Partial<LearnerWillingnessSnapshot>): LearnerWillingnessSnapshot {
   return {
     drive: {
       id: DRIVE_ID,
@@ -81,6 +93,12 @@ function snapshot(over: Partial<LearnerWillingnessSnapshot> = {}): LearnerWillin
     window_state: 'open',
     is_window_open: true,
     deadline_passed: false,
+    // 2026-09-18 — the two Director rulings the page now carries: a same-day
+    // clash warning, and a CDC reopening that lets one learner answer with the
+    // window shut.
+    same_day_clashes: [],
+    reopened_for_learner: false,
+    can_respond: true,
     ...over,
   };
 }
@@ -154,6 +172,83 @@ describe('willingness page — window open (the state every production drive is 
         arrears_count: 0,
       });
     });
+  });
+});
+
+describe('willingness page — same-day clash (Director ruling A, 2026-09-18)', () => {
+  it('warns about the other drive by name and still lets the learner say yes', async () => {
+    serve(
+      snapshot({
+        same_day_clashes: [
+          {
+            drive_id: 'drive-2',
+            title: 'INDO-MIM',
+            drive_date: '2026-10-01',
+            drive_start_time: '10:00:00',
+            my_status: 'willing',
+          },
+        ],
+      })
+    );
+    await renderPage();
+
+    expect(await screen.findByText(/already said yes to another drive on this date/i)).toBeTruthy();
+    expect(screen.getByText('INDO-MIM')).toBeTruthy();
+    // A WARNING, not a block: both answers stay on the page.
+    expect(screen.getByRole('button', { name: /Confirm willingness/i })).toBeTruthy();
+    expect(screen.getByRole('button', { name: /I decline/i })).toBeTruthy();
+  });
+
+  it('says nothing when there is no clash', async () => {
+    serve(snapshot());
+    await renderPage();
+    await screen.findByRole('button', { name: /Confirm willingness/i });
+    expect(screen.queryByText(/already said yes to/i)).toBeNull();
+  });
+});
+
+describe('willingness page — CDC reopened a decline (Director ruling B, 2026-09-18)', () => {
+  it('lets a declined learner answer again with the window shut, and says why', async () => {
+    serve(
+      snapshot({
+        is_window_open: false,
+        window_state: 'closed',
+        reopened_for_learner: true,
+        willingness: {
+          id: 'w1',
+          status: 'withdrawn',
+          declared_at: '2026-09-16T06:00:00Z',
+        } as LearnerWillingnessSnapshot['willingness'],
+        drive: { ...snapshot().drive, willingness_window_close_at: '2026-09-15T00:00:00Z' },
+      })
+    );
+    await renderPage();
+
+    expect(await screen.findByText(/has reopened your response/i)).toBeTruthy();
+    expect(screen.getByRole('button', { name: /Change to "Confirm willingness"/i })).toBeTruthy();
+    // The shut-window notice must not also be shown — it would contradict it.
+    expect(screen.queryByText(/window for responding has closed/i)).toBeNull();
+  });
+
+  it('a declined learner with NO reopening still sees the shut window and no way in', async () => {
+    serve(
+      snapshot({
+        is_window_open: false,
+        window_state: 'closed',
+        reopened_for_learner: false,
+        willingness: {
+          id: 'w1',
+          status: 'withdrawn',
+          declared_at: '2026-09-16T06:00:00Z',
+        } as LearnerWillingnessSnapshot['willingness'],
+        drive: { ...snapshot().drive, willingness_window_close_at: '2026-09-15T00:00:00Z' },
+      })
+    );
+    await renderPage();
+
+    expect(await screen.findByText(/window for responding has closed/i)).toBeTruthy();
+    expect(screen.queryByText(/has reopened your response/i)).toBeNull();
+    expect(screen.queryByRole('button', { name: /Change to "Confirm willingness"/i })).toBeNull();
   });
 });
 
