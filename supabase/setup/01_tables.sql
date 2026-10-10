@@ -753,10 +753,23 @@ ALTER TABLE public.class_incharges ENABLE ROW LEVEL SECURITY;
 
 -- Student Attendance
 -- Updated: 2025-10-08 - Added period_slot_id for multi-section attendance tracking
+-- Updated: 2026-09-23 - Dropped `marked_by UUID NOT NULL`. Production's
+--   student_attendance has NO marked_by column (verified against the live table,
+--   which has 15 columns and none of them is marked_by), and no application code
+--   writes one: every `marked_by` in lib/services/academic/attendance-core-service.ts
+--   is a LOGGING field, and the real marker is recorded inside
+--   attendance_data.marked_by_details (JSONB). Declaring it NOT NULL here meant a
+--   database rebuilt from setup/ would reject every attendance insert the app makes.
+--   The trigger that read NEW.marked_by is dropped in the same change; production
+--   dropped it on 2025-09-05 via 20250905_rollback_attendance_staff_validation.sql
+--   and setup/ never followed.
+-- ⚠️ STILL DRIFTED: production carries six columns this definition does not —
+--   academic_year_id, degree_id, department_id, program_id, section_ids, semester_id.
+--   Not added here because their exact types and constraints were not read from the
+--   catalog, only their presence from a row. Do not treat this block as complete.
 CREATE TABLE IF NOT EXISTS public.student_attendance (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     attendance_date DATE NOT NULL,
-    marked_by UUID NOT NULL,
     institution_id UUID NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
