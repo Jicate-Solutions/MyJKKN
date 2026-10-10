@@ -68,17 +68,27 @@ type RawStockValuationRow = {
 type RawIndentWithDepartmentRow = {
   department_id: string | null;
   status: string;
+  request_scope: string | null;
   department: { id: string; department_name: string } | null;
 };
 
-/** getDepartmentConsumption: financial_transactions joined with department */
-type RawTransactionWithDepartmentRow = {
+/** getDepartmentConsumption: stock_issues joined with department + item cost */
+type RawStockIssueWithDepartmentRow = {
   department_id: string | null;
   item_id: string | null;
   quantity: number;
-  amount: number;
   department: { id: string; department_name: string } | null;
+  item: { cost_price: number | null } | null;
 };
+
+/**
+ * Store-to-store indents have no department. They get their own rows in the
+ * by-department table (keyed by these ids) instead of being dropped (BUG-005882).
+ */
+const NO_DEPARTMENT_ROWS = {
+  inter: { id: 'no-department-inter-institution', name: 'No department (inter-institution)' },
+  intra: { id: 'no-department-within-institution', name: 'No department (within institution)' },
+} as const;
 
 /** getItemConsumption: financial_transactions joined with item + department */
 type RawTransactionWithItemAndDeptRow = {
@@ -492,15 +502,29 @@ export class ImsReportsService {
 
       if (error) throw error;
 
-      const indents = data || [];
+      const indents: { status: string }[] = data || [];
+      const count = (statuses: string[]) =>
+        indents.filter((i) => statuses.includes(i.status)).length;
+
+      // Every indent lands in exactly one card, so the cards add up to Total
+      // (BUG-005881). Total stays the real indent count because the page's rates
+      // divide by it; anything not named below (draft, cancelled, shipped,
+      // received, any future status) is counted in `other`.
+      const pending = count(['pending_local_approval', 'pending_approval']);
+      const approved = count(['approved', 'pending_issue']);
+      const rejected = count(['rejected']);
+      const issued = count(['issued', 'partially_issued']);
+      const delivered = count(['delivered']);
+      const total = indents.length;
 
       return {
-        total: indents.length,
-        pending: indents.filter((i) => i.status === 'pending_approval').length,
-        approved: indents.filter((i) => i.status === 'approved').length,
-        rejected: indents.filter((i) => i.status === 'rejected').length,
-        issued: indents.filter((i) => i.status === 'issued' || i.status === 'partially_issued').length,
-        delivered: indents.filter((i) => i.status === 'delivered').length,
+        total,
+        pending,
+        approved,
+        rejected,
+        issued,
+        delivered,
+        other: total - pending - approved - rejected - issued - delivered,
       };
     } catch (error) {
       console.error('[ImsReportsService] Error in getIndentSummary:', error);
@@ -519,7 +543,7 @@ export class ImsReportsService {
       let deptIndentQuery = this.supabase
         .from('ims_indent_requests')
         .select(
-          `department_id, status,
+          `department_id, status, request_scope,
            department:departments(id,department_name)`
         );
 
@@ -542,10 +566,18 @@ export class ImsReportsService {
 
       const indentRows = (data || []) as RawIndentWithDepartmentRow[];
       for (const indent of indentRows) {
-        if (!indent.department_id) continue;
+        // No department = a store-to-store indent. Show it in its own row rather
+        // than dropping it (BUG-005882).
+        const noDept =
+          indent.request_scope === 'intra_institution'
+            ? NO_DEPARTMENT_ROWS.intra
+            : NO_DEPARTMENT_ROWS.inter;
+        const key = indent.department_id || noDept.id;
 
-        const existing = deptMap.get(indent.department_id) || {
-          name: indent.department?.department_name || 'Unknown',
+        const existing = deptMap.get(key) || {
+          name: indent.department_id
+            ? indent.department?.department_name || 'Unknown'
+            : noDept.name,
           total: 0,
           pending: 0,
           approved: 0,
@@ -557,7 +589,7 @@ export class ImsReportsService {
         if (indent.status === 'approved') existing.approved++;
         if (indent.status === 'delivered' || indent.status === 'issued') existing.completed++;
 
-        deptMap.set(indent.department_id, existing);
+        deptMap.set(key, existing);
       }
 
       return Array.from(deptMap.entries()).map(([deptId, info]) => ({
@@ -576,7 +608,13 @@ export class ImsReportsService {
   }
 
   /**
-   * Get department consumption (issues and adjustments by department).
+   * Get department consumption: stock issued to each department.
+   *
+   * Reads ims_stock_issues, the row ims_issue_stock_to_department writes for every
+   * issue (indent or direct). It used to read 'issue' rows of
+   * ims_financial_transactions, which nothing writes, so it was always empty
+   * (BUG-005887). Value = issued quantity x the item's cost_price, the same basis
+   * the stock valuation uses.
    */
   static async getDepartmentConsumption(
     storeId: string,
@@ -586,10 +624,11 @@ export class ImsReportsService {
   ): Promise<ImsDepartmentConsumption[]> {
     try {
       let query = this.supabase
-        .from('ims_financial_transactions')
+        .from('ims_stock_issues')
         .select(
-          `department_id, item_id, quantity, amount,
-           department:departments(id,department_name)`
+          `department_id, item_id, quantity,
+           department:departments(id,department_name),
+           item:ims_items(cost_price)`
         );
 
       // Primary: store_id; Fallback: institution_id
@@ -599,9 +638,7 @@ export class ImsReportsService {
         query = query.eq('institution_id', institutionId);
       }
 
-      query = query
-        .in('transaction_type', ['issue', 'adjustment'])
-        .not('department_id', 'is', null);
+      query = query.not('department_id', 'is', null);
 
       if (dateFrom) {
         query = query.gte('created_at', dateFrom);
@@ -627,8 +664,8 @@ export class ImsReportsService {
 
       let grandTotal = 0;
 
-      const txnRows = (data || []) as RawTransactionWithDepartmentRow[];
-      for (const t of txnRows) {
+      const issueRows = (data || []) as RawStockIssueWithDepartmentRow[];
+      for (const t of issueRows) {
         if (!t.department_id) continue;
 
         const existing = deptMap.get(t.department_id) || {
@@ -639,9 +676,11 @@ export class ImsReportsService {
         };
 
         if (t.item_id) existing.itemIds.add(t.item_id);
-        existing.totalQuantity += t.quantity || 0;
-        existing.totalValue += t.amount || 0;
-        grandTotal += t.amount || 0;
+        const quantity = Number(t.quantity) || 0;
+        const value = quantity * (Number(t.item?.cost_price) || 0);
+        existing.totalQuantity += quantity;
+        existing.totalValue += value;
+        grandTotal += value;
 
         deptMap.set(t.department_id, existing);
       }
