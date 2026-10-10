@@ -112,33 +112,49 @@ export async function GET(
     // empty by design and the column read 0 for every learner. There, "gave
     // feedback that day" means rated at least one of that day's sessions.
     // Inductions that DO use day feedback keep reading event_day_feedback.
-    let feedbackRows: any[] = [];
+    //
+    // Every feedback read is PAGED (see collectLearnerIds): the off-switch path
+    // returns roster x sessions rows, which passes PostgREST's 1,000-row cap
+    // on a real induction (225 learners x 5 sessions), and past the cap
+    // learners silently read "No". Any failed read returns 500 rather than a
+    // report of wrong No's.
+    const feedbackFailed = (what: string, err: unknown) => {
+      console.error(`[induction-attendance] ${what} failed for event ${eventId}:`, err);
+      return NextResponse.json({ error: 'Could not load feedback for this report' }, { status: 500 });
+    };
+    let submitted: Set<string>;
     if (sessionId) {
-      const { data } = await admin.from('event_session_feedback').select('learner_id')
-        .eq('session_id', sessionId).in('learner_id', ids);
-      feedbackRows = (data as any[]) ?? [];
+      const res = await collectLearnerIds(() => admin.from('event_session_feedback')
+        .select('id, learner_id').eq('session_id', sessionId).in('learner_id', ids));
+      if (res.error) return feedbackFailed('session feedback read', res.error);
+      submitted = res.ids;
     } else {
       const day = Number(dayParam);
-      const { data: program } = await admin.from('induction_programs')
+      const { data: program, error: programError } = await admin.from('induction_programs')
         .select('feedback_day_enabled').eq('event_id', eventId).maybeSingle();
-      if ((program as any)?.feedback_day_enabled) {
-        const { data } = await admin.from('event_day_feedback').select('learner_id')
-          .eq('event_id', eventId).eq('day_number', day).in('learner_id', ids);
-        feedbackRows = (data as any[]) ?? [];
-      } else {
-        const { data: daySessions } = await admin.from('event_sessions').select('id')
-          .eq('event_id', eventId).eq('day_number', day);
+      if (programError) return feedbackFailed('induction_programs lookup', programError);
+      // Session path ONLY when the program row exists and has day feedback
+      // switched off. No row keeps the original day-feedback behaviour.
+      if (program && (program as any).feedback_day_enabled === false) {
+        const { data: daySessions, error: sessionsError } = await admin.from('event_sessions')
+          .select('id').eq('event_id', eventId).eq('day_number', day);
+        if (sessionsError) return feedbackFailed('event_sessions read', sessionsError);
         const sessionIds = ((daySessions as any[]) ?? []).map((s) => s.id);
+        submitted = new Set<string>();
         if (sessionIds.length > 0) {
-          const { data } = await admin.from('event_session_feedback').select('learner_id')
-            .in('session_id', sessionIds).in('learner_id', ids);
-          feedbackRows = (data as any[]) ?? [];
+          const res = await collectLearnerIds(() => admin.from('event_session_feedback')
+            .select('id, learner_id').in('session_id', sessionIds).in('learner_id', ids));
+          if (res.error) return feedbackFailed('day session feedback read', res.error);
+          submitted = res.ids;
         }
+      } else {
+        const res = await collectLearnerIds(() => admin.from('event_day_feedback')
+          .select('id, learner_id').eq('event_id', eventId).eq('day_number', day)
+          .in('learner_id', ids));
+        if (res.error) return feedbackFailed('day feedback read', res.error);
+        submitted = res.ids;
       }
     }
-    const submitted = new Set<string>(
-      feedbackRows.map((f) => f.learner_id),
-    );
 
     const out: InductionAttendanceApiRow[] = rows.map((r) => {
       const p = byId.get(r.learner_id);
@@ -165,5 +181,24 @@ export async function GET(
     return NextResponse.json({ rows: out });
   } catch (e: any) {
     return NextResponse.json({ error: e?.message ?? 'Unexpected error' }, { status: 500 });
+  }
+}
+
+// PostgREST returns at most 1,000 rows per request. Page through with a stable
+// order until a short page, unioning learner ids. `build` must return a FRESH
+// query each call — a PostgREST builder cannot be re-run.
+const FEEDBACK_PAGE = 1000;
+async function collectLearnerIds(
+  build: () => any,
+): Promise<{ ids: Set<string>; error: unknown }> {
+  const ids = new Set<string>();
+  for (let from = 0; ; from += FEEDBACK_PAGE) {
+    const { data, error } = await build()
+      .order('id', { ascending: true })
+      .range(from, from + FEEDBACK_PAGE - 1);
+    if (error) return { ids, error };
+    const page = (data as any[]) ?? [];
+    for (const r of page) if (r.learner_id) ids.add(r.learner_id);
+    if (page.length < FEEDBACK_PAGE) return { ids, error: null };
   }
 }
