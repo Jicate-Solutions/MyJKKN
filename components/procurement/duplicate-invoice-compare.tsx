@@ -18,11 +18,17 @@ export function DuplicateInvoiceCompare({
   earlier,
   current,
   hiddenElsewhere,
+  checkFailed,
 }: {
   earlier: SupplierInvoiceGrn[];
   current: { invoice_number: string | null; invoice_date: string | null; invoice_amount: number | string | null };
   /** True when the database found a repeat the viewer cannot see (another college). */
   hiddenElsewhere?: boolean;
+  /**
+   * Deep-panel round 3 (U-L4): the list of earlier receipts could not be read. An empty
+   * list then says so, instead of claiming the repeat is at a college the viewer cannot open.
+   */
+  checkFailed?: boolean;
 }) {
   return (
     <div className="grid gap-3 text-sm sm:grid-cols-2">
@@ -51,7 +57,12 @@ export function DuplicateInvoiceCompare({
             </p>
           </div>
         ))}
-        {earlier.length === 0 && hiddenElsewhere && (
+        {earlier.length === 0 && checkFailed && (
+          <p className="text-muted-foreground">
+            Could not load the earlier receipt. Reload the page to compare the two bills.
+          </p>
+        )}
+        {earlier.length === 0 && !checkFailed && hiddenElsewhere && (
           <p className="text-muted-foreground">
             Recorded at a college you cannot open. Ask an admin to compare the two bills.
           </p>

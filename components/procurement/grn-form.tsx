@@ -15,7 +15,6 @@ import {
   invoiceNumberFormatOk,
   lateReasonMissing,
   isReusableInvoiceRead,
-  localToday,
   mergeInvoiceRead,
   nextInvoicePollStep,
   READ_FAILED_NOTICE,
@@ -24,7 +23,7 @@ import {
 import { ProcurementGrnService, type SupplierInvoiceGrn } from '@/lib/services/procurement/grn-service';
 import { getPolicyInt } from '@/lib/policies/get-policy-client';
 import { POLICY_KEYS } from '@/lib/policies/keys';
-import { formatDateDMY } from '@/lib/utils/date-format';
+import { formatDateDMY, istBusinessDate } from '@/lib/utils/date-format';
 import { GRN_MATCH_CONFIG, type GrnLineInput } from '@/types/procurement';
 import { DetailHeader } from '@/components/procurement/detail-header';
 import { DuplicateInvoiceCompare } from '@/components/procurement/duplicate-invoice-compare';
@@ -86,6 +85,10 @@ const EXTRACT_POLL_MS = 2_000;
 const EXTRACT_UNCLAIMED_MS = 120_000;
 // A runner took the job but never finished: stop spinning eventually.
 const EXTRACT_GIVE_UP_MS = 180_000;
+// Deep-panel round 3 (U-M2): no single request may hold the read up. A status check is
+// small (15 s); starting the read uploads the PDF, up to 15 MB (60 s).
+const INVOICE_STATUS_TIMEOUT_MS = 15_000;
+const INVOICE_START_TIMEOUT_MS = 60_000;
 /** In-code fallback for procurement.invoice.near_expiry_days (platform_policies). */
 const NEAR_EXPIRY_DEFAULT_DAYS = 30;
 
@@ -311,8 +314,11 @@ export function GrnForm({ poId, onSaved, onCancel, compact, onDirtyChange }: Grn
       let status: string | null = null;
       let result: unknown;
       try {
+        // Deep-panel round 3 (U-M2): a hung request is cut off, so it reaches the give-up
+        // windows below like any other failed check instead of stopping the poll forever.
         const res = await fetch(
-          `/api/procurement/grn/extract-invoice/status?job_id=${encodeURIComponent(extractJobId)}`
+          `/api/procurement/grn/extract-invoice/status?job_id=${encodeURIComponent(extractJobId)}`,
+          { signal: AbortSignal.timeout(INVOICE_STATUS_TIMEOUT_MS) }
         );
         const json = await res.json();
         if (typeof json?.status === 'string') {
@@ -401,7 +407,9 @@ export function GrnForm({ poId, onSaved, onCancel, compact, onDirtyChange }: Grn
   // already at the dock, so an odd date must never block recording what arrived. It exists to
   // catch a back-dated or stale bill before it is accepted, not to stop receipt.
   const poDate = po.created_at?.slice(0, 10) ?? null;
-  const today = localToday();
+  // Deep-panel round 3 (S-M4): the IST business day, as the service and the database use —
+  // never the device's own calendar.
+  const today = istBusinessDate();
   // I4 — older than the receiver's limit: warn AND require a reason (invoice-checks.ts).
   const invoiceAge = invoiceAgeCheck(invoiceDate || null, today, expectations.max_invoice_age_days);
   const invoiceDateWarning: string | null = !invoiceDate
@@ -475,7 +483,13 @@ export function GrnForm({ poId, onSaved, onCancel, compact, onDirtyChange }: Grn
       );
       // The reader is told what this receiver expects (watch-for, batch/expiry hunt).
       fd.append('expectations', JSON.stringify(expectations));
-      const res = await fetch('/api/procurement/grn/extract-invoice', { method: 'POST', body: fd });
+      // U-M2: the upload (up to 15 MB) gets a longer cut-off; a hung one ends in the error
+      // toast and frees the Read buttons instead of leaving "Reading invoice…" forever.
+      const res = await fetch('/api/procurement/grn/extract-invoice', {
+        method: 'POST',
+        body: fd,
+        signal: AbortSignal.timeout(INVOICE_START_TIMEOUT_MS),
+      });
       const json = await res.json().catch(() => ({}));
       if (stale()) return;
       if (!res.ok) throw new Error(json.error || 'Invoice reading failed');
@@ -587,6 +601,10 @@ export function GrnForm({ poId, onSaved, onCancel, compact, onDirtyChange }: Grn
     // I1 — the same invoice number from this supplier already recorded: stop and show
     // the earlier one. The person may still record it, on hold (Director: held save) —
     // verify is refused until a verifier other than them confirms it is different.
+    // Deep-panel round 3 (U-L3): whether the repeat check below actually ran. A failed
+    // lookup still lets the person save (the receipt page and the verify guard run the same
+    // check before anything goes into stock), but they are told it did not run.
+    let repeatCheckRan = true;
     if (!opts.heldDuplicate) {
       setCheckingDuplicate(true);
       try {
@@ -599,9 +617,11 @@ export function GrnForm({ poId, onSaved, onCancel, compact, onDirtyChange }: Grn
           setDuplicateOf(earlier);
           return;
         }
-      } catch {
+      } catch (e) {
         // The lookup failed. Saving is still safe: the receipt page and the verify guard
         // run the same check before anything goes into stock.
+        console.error('[procurement grn-form] repeated-invoice check could not run:', e);
+        repeatCheckRan = false;
       } finally {
         setCheckingDuplicate(false);
       }
@@ -640,11 +660,17 @@ export function GrnForm({ poId, onSaved, onCancel, compact, onDirtyChange }: Grn
         },
         userId: profile!.id,
       });
-      toast.success(
-        opts.heldDuplicate
-          ? `Delivery record ${grn.grn_number} saved on hold — a verifier must confirm the invoice number before stock is added.`
-          : `Delivery record ${grn.grn_number} created — pending verification.`
-      );
+      if (opts.heldDuplicate) {
+        toast.success(
+          `Delivery record ${grn.grn_number} saved on hold — a verifier must confirm the invoice number before stock is added.`
+        );
+      } else if (!repeatCheckRan) {
+        toast.warning(
+          `Delivery record ${grn.grn_number} saved. The repeated-invoice check could not run — a verifier will check it before stock is added.`
+        );
+      } else {
+        toast.success(`Delivery record ${grn.grn_number} created — pending verification.`);
+      }
       onDirtyChange?.(false);
       onSaved(grn.id);
     } catch (e) {
