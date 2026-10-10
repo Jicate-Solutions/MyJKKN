@@ -27197,7 +27197,7 @@ export type Database = {
           },
         ]
       }
-      billing_discounts: {
+      billing_scholarships: {
         Row: {
           approval_date: string | null
           approval_status: string | null
@@ -27205,20 +27205,20 @@ export type Database = {
           bill_id: string
           created_at: string | null
           created_by: string | null
-          discount_amount: number
-          discount_reason: string
-          discount_type: string
-          discount_value: number
           effective_date: string
           expiry_date: string | null
           id: string
           is_outcome_based: boolean | null
           outcome_criteria: Json | null
           outcome_verification: Json | null
+          scholarship_amount: number
           scholarship_category_id: string
+          scholarship_reason: string
           scholarship_type_id: string
+          scholarship_value: number
           supporting_documents: Json | null
           updated_at: string | null
+          value_mode: string
         }
         Insert: {
           approval_date?: string | null
@@ -27227,20 +27227,20 @@ export type Database = {
           bill_id: string
           created_at?: string | null
           created_by?: string | null
-          discount_amount: number
-          discount_reason: string
-          discount_type: string
-          discount_value: number
           effective_date: string
           expiry_date?: string | null
           id?: string
           is_outcome_based?: boolean | null
           outcome_criteria?: Json | null
           outcome_verification?: Json | null
+          scholarship_amount: number
           scholarship_category_id: string
+          scholarship_reason: string
           scholarship_type_id: string
+          scholarship_value: number
           supporting_documents?: Json | null
           updated_at?: string | null
+          value_mode: string
         }
         Update: {
           approval_date?: string | null
@@ -27249,101 +27249,101 @@ export type Database = {
           bill_id?: string
           created_at?: string | null
           created_by?: string | null
-          discount_amount?: number
-          discount_reason?: string
-          discount_type?: string
-          discount_value?: number
           effective_date?: string
           expiry_date?: string | null
           id?: string
           is_outcome_based?: boolean | null
           outcome_criteria?: Json | null
           outcome_verification?: Json | null
+          scholarship_amount?: number
           scholarship_category_id?: string
+          scholarship_reason?: string
           scholarship_type_id?: string
+          scholarship_value?: number
           supporting_documents?: Json | null
           updated_at?: string | null
+          value_mode?: string
         }
         Relationships: [
           {
-            foreignKeyName: "fk_billing_discounts_scholarship_category"
+            foreignKeyName: "fk_billing_scholarships_scholarship_category"
             columns: ["scholarship_category_id"]
             isOneToOne: false
             referencedRelation: "billing_scholarship_categories"
             referencedColumns: ["id"]
           },
           {
-            foreignKeyName: "fk_billing_discounts_scholarship_type"
+            foreignKeyName: "fk_billing_scholarships_scholarship_type"
             columns: ["scholarship_type_id", "scholarship_category_id"]
             isOneToOne: false
             referencedRelation: "billing_scholarship_types"
             referencedColumns: ["id", "category_id"]
           },
           {
-            foreignKeyName: "fk_billing_discounts_authorizer"
+            foreignKeyName: "fk_billing_scholarships_authorizer"
             columns: ["authorizer_id"]
             isOneToOne: false
             referencedRelation: "bug_reporters_leaderboard"
             referencedColumns: ["user_id"]
           },
           {
-            foreignKeyName: "fk_billing_discounts_authorizer"
+            foreignKeyName: "fk_billing_scholarships_authorizer"
             columns: ["authorizer_id"]
             isOneToOne: false
             referencedRelation: "mv_cluster_leaderboard_hods"
             referencedColumns: ["hod_user_id"]
           },
           {
-            foreignKeyName: "fk_billing_discounts_authorizer"
+            foreignKeyName: "fk_billing_scholarships_authorizer"
             columns: ["authorizer_id"]
             isOneToOne: false
             referencedRelation: "profiles"
             referencedColumns: ["id"]
           },
           {
-            foreignKeyName: "fk_billing_discounts_authorizer"
+            foreignKeyName: "fk_billing_scholarships_authorizer"
             columns: ["authorizer_id"]
             isOneToOne: false
             referencedRelation: "users_profiles"
             referencedColumns: ["id"]
           },
           {
-            foreignKeyName: "fk_billing_discounts_bill"
+            foreignKeyName: "fk_billing_scholarships_bill"
             columns: ["bill_id"]
             isOneToOne: false
             referencedRelation: "billing_deletion_dependencies"
             referencedColumns: ["bill_id"]
           },
           {
-            foreignKeyName: "fk_billing_discounts_bill"
+            foreignKeyName: "fk_billing_scholarships_bill"
             columns: ["bill_id"]
             isOneToOne: false
             referencedRelation: "billing_student_bills"
             referencedColumns: ["id"]
           },
           {
-            foreignKeyName: "fk_billing_discounts_created_by"
+            foreignKeyName: "fk_billing_scholarships_created_by"
             columns: ["created_by"]
             isOneToOne: false
             referencedRelation: "bug_reporters_leaderboard"
             referencedColumns: ["user_id"]
           },
           {
-            foreignKeyName: "fk_billing_discounts_created_by"
+            foreignKeyName: "fk_billing_scholarships_created_by"
             columns: ["created_by"]
             isOneToOne: false
             referencedRelation: "mv_cluster_leaderboard_hods"
             referencedColumns: ["hod_user_id"]
           },
           {
-            foreignKeyName: "fk_billing_discounts_created_by"
+            foreignKeyName: "fk_billing_scholarships_created_by"
             columns: ["created_by"]
             isOneToOne: false
             referencedRelation: "profiles"
             referencedColumns: ["id"]
           },
           {
-            foreignKeyName: "fk_billing_discounts_created_by"
+            foreignKeyName: "fk_billing_scholarships_created_by"
             columns: ["created_by"]
             isOneToOne: false
             referencedRelation: "users_profiles"
@@ -29357,8 +29357,6 @@ export type Database = {
           code: string
           created_at: string
           created_by: string | null
-          default_value: number | null
-          default_value_mode: string
           description: string | null
           id: string
           is_active: boolean
@@ -29372,8 +29370,6 @@ export type Database = {
           code: string
           created_at?: string
           created_by?: string | null
-          default_value?: number | null
-          default_value_mode?: string
           description?: string | null
           id?: string
           is_active?: boolean
@@ -29387,8 +29383,6 @@ export type Database = {
           code?: string
           created_at?: string
           created_by?: string | null
-          default_value?: number | null
-          default_value_mode?: string
           description?: string | null
           id?: string
           is_active?: boolean
@@ -217714,7 +217708,7 @@ export type Database = {
         }
         Returns: Json
       }
-      get_billing_reports_discounts: {
+      get_billing_reports_scholarships: {
         Args: {
           p_academic_year_id?: string
           p_academic_year_unspecified?: boolean
@@ -217736,18 +217730,18 @@ export type Database = {
         Returns: {
           approval_status: string
           bill_description: string
-          discount_amount: number
-          discount_id: string
-          discount_type: string
-          discount_value: number
           effective_date: string
           first_name: string
           institution_name: string
           last_name: string
           roll_number: string
+          scholarship_amount: number
           scholarship_category_name: string
+          scholarship_id: string
           scholarship_type_name: string
+          scholarship_value: number
           total_count: number
+          value_mode: string
         }[]
       }
       get_billing_reports_invoices: {
@@ -217881,12 +217875,12 @@ export type Database = {
         Returns: {
           actions_count: number
           amount_collected: number
-          discounts_count: number
           full_name: string
           last_active: string
           receipts_count: number
           refunds_count: number
           role: string
+          scholarships_count: number
           user_id: string
         }[]
       }

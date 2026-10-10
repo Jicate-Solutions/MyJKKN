@@ -3,16 +3,20 @@ import { createHash } from 'node:crypto';
 import { requireProcurement, PROC_QUOTATION_MANAGE } from '@/lib/utils/procurement-auth';
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server';
 import Anthropic from '@anthropic-ai/sdk';
+import * as XLSX from 'xlsx';
 import {
   directExtractApiKey,
   extractQuotationDirect,
   EXTRACT_RESULT_VERSION,
+  type QuotationSource,
 } from '@/lib/procurement/quotation-pdf-direct';
+import { itemKeyOf, knownNamesFor, type ItemAlias } from '@/lib/procurement/item-aliases';
 
 export const runtime = 'nodejs';
 // Normally enqueue-only (the ₹0 Max lane does the read). While that lane is
-// switched off, the read happens here directly — a Haiku PDF read takes ~5-10s.
-export const maxDuration = 60;
+// switched off, the read happens here directly: ~5 s for a one-page quotation, but a
+// 3–4 page, 60-line one is read by the steadier model in ~50–80 s, plus the second look.
+export const maxDuration = 300;
 
 const MAX_BYTES = 15 * 1024 * 1024; // 15 MB
 const BUCKET = 'procurement-quotation-pdfs';
@@ -47,7 +51,63 @@ export type ExtractItem = {
   item_spec: string | null;
   quantity: number | null;
   unit_label: string | null;
+  aka?: string[];
 };
+
+/**
+ * Names staff already confirmed for each requested item (procurement_item_aliases),
+ * handed to the reader as "also called" hints. Best-effort: no hints is never an error.
+ */
+async function withKnownNames(rfqId: string, items: ExtractItem[]): Promise<ExtractItem[]> {
+  try {
+    const admin = createServiceRoleClient();
+    const { data: rows } = await admin
+      .from('procurement_rfq_items')
+      .select('id, item_name, domain_item_id, rfq:procurement_rfqs!inner(institution_id)')
+      .eq('rfq_id', rfqId);
+    const first = (rows ?? [])[0] as { rfq?: { institution_id?: string } | { institution_id?: string }[] } | undefined;
+    const rfq = Array.isArray(first?.rfq) ? first?.rfq[0] : first?.rfq;
+    if (!rfq?.institution_id) return items;
+    const keyById = new Map(
+      (rows ?? []).map((r: { id: string; item_name: string; domain_item_id: string | null }) => [r.id, itemKeyOf(r)])
+    );
+    const { data: aliases } = await admin
+      .from('procurement_item_aliases')
+      .select('supplier_id, quoted_name, quoted_key, item_key, item_name, same')
+      .eq('institution_id', rfq.institution_id)
+      .eq('same', true)
+      .in('item_key', [...new Set(keyById.values())]);
+    if (!aliases?.length) return items;
+    return items.map((i) => {
+      const key = keyById.get(i.id);
+      const aka = key ? knownNamesFor(aliases as ItemAlias[], key) : [];
+      return aka.length ? { ...i, aka } : i;
+    });
+  } catch {
+    return items;
+  }
+}
+
+const IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif']);
+const SHEET_RE = /\.(xlsx|xls|csv)$/i;
+/** A sheet is sent as text; past this it is cut (a quotation is never this long). */
+const MAX_SHEET_CHARS = 60_000;
+
+/** What kind of quotation file this is, or null when it can't be read. */
+function kindOf(file: File): 'pdf' | 'image' | 'sheet' | null {
+  if (file.type === 'application/pdf' || /\.pdf$/i.test(file.name)) return 'pdf';
+  if (IMAGE_TYPES.has(file.type)) return 'image';
+  if (SHEET_RE.test(file.name) || /spreadsheet|ms-excel|csv/.test(file.type)) return 'sheet';
+  return null;
+}
+
+/** Every sheet of a workbook as CSV text, each under its own heading. */
+function sheetText(bytes: Buffer): string {
+  const wb = XLSX.read(bytes, { type: 'buffer' });
+  return wb.SheetNames.map((name) => `# ${name}\n${XLSX.utils.sheet_to_csv(wb.Sheets[name], { blankrows: false })}`)
+    .join('\n\n')
+    .slice(0, MAX_SHEET_CHARS);
+}
 
 const str = (v: unknown) => (typeof v === 'string' && v.trim() ? v.trim().slice(0, 200) : null);
 
@@ -79,8 +139,12 @@ export async function POST(req: NextRequest) {
   if (file.size === 0) return NextResponse.json({ error: 'File is empty.' }, { status: 400 });
   if (file.size > MAX_BYTES)
     return NextResponse.json({ error: 'PDF exceeds the 15 MB limit.' }, { status: 400 });
-  if (file.type !== 'application/pdf')
-    return NextResponse.json({ error: 'AI extraction supports PDF files only.' }, { status: 400 });
+  const kind = kindOf(file);
+  if (!kind)
+    return NextResponse.json(
+      { error: 'The AI reads PDFs, photos (JPG/PNG) and Excel/CSV quotations only.' },
+      { status: 400 }
+    );
 
   const rfqId = String(form.get('rfq_id') ?? '');
   if (!UUID_RE.test(rfqId))
@@ -106,6 +170,7 @@ export async function POST(req: NextRequest) {
   }
   if (items.length === 0)
     return NextResponse.json({ error: 'No RFQ items to match against.' }, { status: 400 });
+  items = await withKnownNames(rfqId, items);
 
   const bytes = Buffer.from(await file.arrayBuffer());
   const sha256 = createHash('sha256').update(bytes).digest('hex');
@@ -171,9 +236,29 @@ export async function POST(req: NextRequest) {
     }
   })();
 
-  if (!laneOn && directExtractApiKey()) {
+  if ((!laneOn || kind !== 'pdf') && directExtractApiKey()) {
     try {
-      const result = await extractQuotationDirect(bytes.toString('base64'), items);
+      const source: QuotationSource =
+        kind === 'image'
+          ? { kind: 'image', base64: bytes.toString('base64'), mediaType: file.type as 'image/jpeg' }
+          : kind === 'sheet'
+            ? { kind: 'text', text: sheetText(bytes), fileName: file.name }
+            : { kind: 'pdf', base64: bytes.toString('base64') };
+      const result = await extractQuotationDirect(source, items);
+      // Kept as a finished job, so the same file for the same purchase is never paid for twice.
+      await createServiceRoleClient()
+        .from('ai_jobs')
+        .insert({
+          job_type: JOB_TYPE,
+          lane: 'max-pdf',
+          status: 'done',
+          requested_by: user.id,
+          claimed_by: 'api-direct',
+          payload: { sha256, rfq_id: rfqId, file_name: file.name.slice(0, 200), direct: true },
+          result,
+          completed_at: new Date().toISOString(),
+        })
+        .then(({ error }) => error && console.error('[procurement quotation extract-pdf] cache write failed:', error));
       return NextResponse.json({ direct: true, result });
     } catch (err) {
       console.error('[procurement quotation extract-pdf] direct read failed:', err);
@@ -189,6 +274,10 @@ export async function POST(req: NextRequest) {
               : 'AI could not read the PDF — please enter the prices manually.';
       return NextResponse.json({ error: message, unavailable: true });
     }
+  }
+
+  if (kind !== 'pdf') {
+    return NextResponse.json({ error: 'AI reading of photos and sheets is not available right now — please type the prices.', unavailable: true });
   }
 
   const supabase = await createClient();

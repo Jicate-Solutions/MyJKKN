@@ -1,10 +1,9 @@
 // Dynamic scholarship categories/types: the pure rules behind the Apply and
 // Edit forms. The database enforces the same pairing with a composite FK
-// (billing_discounts → billing_scholarship_types(id, category_id)); this is the
+// (billing_scholarships → billing_scholarship_types(id, category_id)); this is the
 // client-side mirror that gives the applier a readable message first.
 import { describe, expect, it } from 'vitest';
 import {
-  resolveTypeDefaults,
   selectableCategories,
   selectableTypes,
   slugifyCode,
@@ -22,8 +21,6 @@ const type = (over: Partial<ScholarshipType>): ScholarshipType => ({
   code: 'general',
   name: 'General',
   description: null,
-  default_value_mode: 'percentage',
-  default_value: null,
   sort_order: 10,
   is_active: true,
   created_at: '',
@@ -42,7 +39,7 @@ const tree: ScholarshipCategoryWithTypes[] = [
     created_at: '',
     updated_at: '',
     types: [
-      type({ id: 't1', category_id: 'c1', name: 'Topper', default_value: 50 }),
+      type({ id: 't1', category_id: 'c1', name: 'Topper' }),
       type({ id: 't2', category_id: 'c1', name: 'Retired', is_active: false })
     ]
   },
@@ -58,20 +55,6 @@ const tree: ScholarshipCategoryWithTypes[] = [
     types: [type({ id: 't3', category_id: 'c2', name: 'State level' })]
   }
 ];
-
-describe('resolveTypeDefaults', () => {
-  it('pre-fills mode and value when the type has a default value', () => {
-    expect(
-      resolveTypeDefaults({ default_value_mode: 'percentage', default_value: 50 })
-    ).toEqual({ discount_type: 'percentage', discount_value: 50 });
-  });
-
-  it('pre-fills the mode only when there is no default value', () => {
-    expect(
-      resolveTypeDefaults({ default_value_mode: 'amount', default_value: null })
-    ).toEqual({ discount_type: 'amount' });
-  });
-});
 
 describe('selectableCategories / selectableTypes', () => {
   it('hides inactive categories unless one is already on the record', () => {

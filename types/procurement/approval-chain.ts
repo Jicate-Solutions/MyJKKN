@@ -23,7 +23,7 @@ export type ApprovalStepStatus =
 export interface CategoryStep {
   id?: string;
   stage?: ApprovalStage;
-  /** null/absent = the default chain; set = this college's own chain (replaces the default). */
+  /** null/absent = common approvers (every college); set = this college's own, asked BEFORE the common ones. */
   institution_id?: string | null;
   step_order: number;
   label: string;

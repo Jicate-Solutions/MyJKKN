@@ -450,17 +450,17 @@ export class StudentSearchService {
 
       if (receiptsError) throw receiptsError;
 
-      // Get all discounts for the student's bills
+      // Get all scholarships for the student's bills
       const billIds = (bills as any[])?.map((bill) => bill.id) || [];
-      let discounts: any[] = [];
+      let scholarships: any[] = [];
       if (billIds.length > 0) {
-        const { data: discountData, error: discountsError } =
+        const { data: scholarshipData, error: scholarshipsError } =
           await this.supabase
-            .from('billing_discounts')
+            .from('billing_scholarships')
             .select(
               `
             *,
-            creator:profiles!fk_billing_discounts_created_by(id, full_name),
+            creator:profiles!fk_billing_scholarships_created_by(id, full_name),
             scholarship_category:billing_scholarship_categories(id, name, code),
             scholarship_type:billing_scholarship_types(id, name, code),
             bill:billing_student_bills(
@@ -472,8 +472,8 @@ export class StudentSearchService {
             .in('bill_id', billIds)
             .order('created_at', { ascending: false });
 
-        if (discountsError) throw discountsError;
-        discounts = discountData || [];
+        if (scholarshipsError) throw scholarshipsError;
+        scholarships = scholarshipData || [];
       }
 
       // Get all refunds for the student's receipts
@@ -538,10 +538,10 @@ export class StudentSearchService {
         (bills as any[])
           ?.filter((bill) => bill.status === 'overdue')
           .reduce((sum, bill) => sum + bill.balance_amount, 0) || 0;
-      const discountAmount =
-        discounts
-          ?.filter((discount) => discount.approval_status === 'approved')
-          .reduce((sum, discount) => sum + discount.discount_amount, 0) || 0;
+      const scholarshipAmount =
+        scholarships
+          ?.filter((scholarship) => scholarship.approval_status === 'approved')
+          .reduce((sum, scholarship) => sum + scholarship.scholarship_amount, 0) || 0;
 
       // Total refund amount (for reporting purposes) - includes all refunds regardless of status
       const refundAmount =
@@ -551,7 +551,7 @@ export class StudentSearchService {
         student,
         bills: (bills || []) as StudentBill[],
         receipts: (receipts || []) as BillingReceipt[],
-        discounts,
+        scholarships,
         refunds,
         invoices: (invoices || []) as BillingInvoice[],
         summary: {
@@ -559,7 +559,7 @@ export class StudentSearchService {
           paid_amount: paidAmount,
           outstanding_amount: outstandingAmount,
           overdue_amount: overdueAmount,
-          discount_amount: discountAmount,
+          scholarship_amount: scholarshipAmount,
           refund_amount: refundAmount
         }
       };

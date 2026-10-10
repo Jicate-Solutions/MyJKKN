@@ -1,23 +1,7 @@
 import type {
-  DiscountType,
   ScholarshipCategoryWithTypes,
   ScholarshipType
 } from '@/types/billing-schedule';
-
-/**
- * What picking a Type pre-fills on the Apply / Edit form. The applier can still
- * override both; a type with no default value leaves the value box alone.
- */
-export function resolveTypeDefaults(
-  type: Pick<ScholarshipType, 'default_value_mode' | 'default_value'>
-): { discount_type: DiscountType; discount_value?: number } {
-  return {
-    discount_type: type.default_value_mode,
-    ...(type.default_value != null
-      ? { discount_value: Number(type.default_value) }
-      : {})
-  };
-}
 
 /** Active categories, plus the one already on the record if it was since retired. */
 export function selectableCategories(

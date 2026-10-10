@@ -152,7 +152,7 @@ function inferIcon(urlPath: string): string {
   if (urlPath.includes('/payment') || urlPath.includes('/billing')) return 'Wallet';
   if (urlPath.includes('/invoices') || urlPath.includes('/receipts')) return 'Receipt';
   if (urlPath.includes('/refunds')) return 'Undo2';
-  if (urlPath.includes('/discounts')) return 'Tag';
+  if (urlPath.includes('/scholarships')) return 'Tag';
   if (urlPath.includes('/finance') || urlPath.includes('/earnings')) return 'DollarSign';
   if (urlPath.includes('/ta-da')) return 'DollarSign';
 

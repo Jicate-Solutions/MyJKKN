@@ -28,7 +28,7 @@ export interface BillingAnalyticsOverview {
   bills_paid: number;
   bills_unpaid: number;
   bills_partially_paid: number;
-  total_discounts: number;
+  total_scholarships: number;
   total_refunds: number;
 }
 
@@ -163,7 +163,7 @@ export interface BillingUserActivityRow {
   actions_count: number; // user_activity_logs billing actions in range
   receipts_count: number; // billing_receipts created/handled in range
   amount_collected: number; // sum(payment_amount) in range
-  discounts_count: number;
+  scholarships_count: number;
   refunds_count: number;
   last_active: string | null;
 }

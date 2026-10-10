@@ -37,13 +37,13 @@ export function useDepartments(institutionId: string | undefined) {
 }
 
 /**
- * The request-approval steps that apply to a college: its own chain when it has one,
- * otherwise the category's default. Mirrors procurement_chain_institution() in the database.
+ * The request-approval steps that apply to a college: its own steps first, then the common
+ * ones. Mirrors procurement_chain_steps() in the database.
  */
 const requestSteps = (c: ProcurementCategory, institutionId?: string) => {
   const all = (c.steps ?? []).filter((s) => (s.stage ?? 'request') === 'request');
   const own = institutionId ? all.filter((s) => s.institution_id === institutionId) : [];
-  return own.length > 0 ? own : all.filter((s) => !s.institution_id);
+  return [...own, ...all.filter((s) => !s.institution_id)];
 };
 
 /** Categories a requester may pick: active and with at least one request approver for their college. */

@@ -13235,7 +13235,7 @@ AS $$
 DECLARE
   v_inst uuid[];
   v_billed numeric := 0; v_collected numeric := 0; v_refunds numeric := 0;
-  v_discounts numeric := 0; v_outstanding numeric := 0;
+  v_scholarships numeric := 0; v_outstanding numeric := 0;
   v_students int := 0; v_total int := 0; v_paid int := 0; v_unpaid int := 0; v_partial int := 0;
 BEGIN
   IF NOT public.user_has_permission('billing.analytics.view') THEN
@@ -13249,7 +13249,7 @@ BEGIN
   IF v_inst IS NULL THEN
     RETURN jsonb_build_object('total_billed',0,'total_collected',0,'net_collected',0,
       'total_outstanding',0,'collection_rate',0,'students_billed',0,'total_bills',0,
-      'bills_paid',0,'bills_unpaid',0,'bills_partially_paid',0,'total_discounts',0,'total_refunds',0);
+      'bills_paid',0,'bills_unpaid',0,'bills_partially_paid',0,'total_scholarships',0,'total_refunds',0);
   END IF;
 
   SELECT COALESCE(SUM(final_amount),0), COUNT(*),
@@ -13279,8 +13279,8 @@ BEGIN
     AND (p_date_from IS NULL OR r.refund_date >= p_date_from)
     AND (p_date_to   IS NULL OR r.refund_date <= p_date_to);
 
-  SELECT COALESCE(SUM(d.discount_amount),0) INTO v_discounts
-  FROM billing_discounts d JOIN billing_student_bills b ON b.id = d.bill_id
+  SELECT COALESCE(SUM(d.scholarship_amount),0) INTO v_scholarships
+  FROM billing_scholarships d JOIN billing_student_bills b ON b.id = d.bill_id
   WHERE b.institution_id = ANY(v_inst) AND d.approval_status = 'approved'
     AND (p_date_from IS NULL OR d.effective_date >= p_date_from)
     AND (p_date_to   IS NULL OR d.effective_date <= p_date_to);
@@ -13292,7 +13292,7 @@ BEGIN
     'collection_rate', CASE WHEN v_billed > 0 THEN round((v_collected / v_billed) * 100, 2) ELSE 0 END,
     'students_billed', v_students, 'total_bills', v_total,
     'bills_paid', v_paid, 'bills_unpaid', v_unpaid, 'bills_partially_paid', v_partial,
-    'total_discounts', v_discounts, 'total_refunds', v_refunds);
+    'total_scholarships', v_scholarships, 'total_refunds', v_refunds);
 END;
 $$;
 
@@ -13688,7 +13688,7 @@ CREATE OR REPLACE FUNCTION public.get_billing_user_activity(
   p_date_to date DEFAULT NULL
 ) RETURNS TABLE(
   user_id uuid, full_name text, role text, actions_count int, receipts_count int,
-  amount_collected numeric, discounts_count int, refunds_count int, last_active timestamptz)
+  amount_collected numeric, scholarships_count int, refunds_count int, last_active timestamptz)
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = public
 AS $$
 DECLARE v_inst uuid[];
@@ -13707,7 +13707,7 @@ BEGIN
     SELECT ual.user_id uid, COUNT(*) c, MAX(ual.created_at) last_at
     FROM user_activity_logs ual
     WHERE ual.institution_id = ANY(v_inst)
-      AND (ual.resource_type IN ('bill','receipt','invoice','discount','refund')
+      AND (ual.resource_type IN ('bill','receipt','invoice','scholarship','refund')
            OR (ual.resource_type = 'category' AND ual.metadata->>'sub_type' LIKE 'billing_%'))
       AND (p_date_from IS NULL OR ual.created_at >= p_date_from)
       AND (p_date_to   IS NULL OR (ual.created_at AT TIME ZONE 'Asia/Kolkata')::date <= p_date_to)
@@ -13721,7 +13721,7 @@ BEGIN
     GROUP BY COALESCE(created_by, accountant_id)),
   disc AS (
     SELECT d.created_by uid, COUNT(*) c
-    FROM billing_discounts d JOIN billing_student_bills b ON b.id = d.bill_id
+    FROM billing_scholarships d JOIN billing_student_bills b ON b.id = d.bill_id
     WHERE b.institution_id = ANY(v_inst)
       AND (p_date_from IS NULL OR d.created_at >= p_date_from)
       AND (p_date_to   IS NULL OR (d.created_at AT TIME ZONE 'Asia/Kolkata')::date <= p_date_to)

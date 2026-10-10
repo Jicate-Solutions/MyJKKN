@@ -59,34 +59,41 @@ export default function PurchasesPage() {
   const debouncedSearch = useDebounceValue(search, 300);
   const searchParams = useSearchParams();
   const [view, setView] = useState<'list' | 'table'>('table');
-  // The Status dropdown's first choice is "Waiting for you" (not a stage — worked
-  // out below from My approvals), and the page opens on it. The Overview status
-  // bars link here with ?institution=<id|all>&status=<status>, which opens on that
-  // stage instead.
-  const [stageFilter, setStageFilter] = useState<string>(() => {
+
+  // "Waiting for you" = requests whose item approval is this viewer's turn. Final (quotation)
+  // approvals live on the Quotations page: listing them here made an approved request look
+  // like it needed approving again.
+  const { data: myApprovals = [] } = useMyApprovals();
+  const requestApprovals = myApprovals.filter((a) => a.stage === 'request');
+  const approvalIds = new Set(requestApprovals.map((a) => a.request_id));
+  const yourTurn = (req: ProcurementPurchaseRequest) => approvalIds.has(req.id);
+  const isApprover = isSuperAdmin || canAccess('procurement', 'request_approve') || requestApprovals.length > 0;
+  // Everyone else is limited to their own department by RLS (procurement_can_see_request),
+  // and only inside colleges they belong to, so they get no college picker.
+  const seesWholeCollege = isSuperAdmin || canAccess('procurement', 'view_all_departments');
+
+  // Approvers open on "Waiting for you"; people who raise requests open on all
+  // stages of their own requests ("Raised by me"). The Overview status bars link
+  // here with ?institution=<id|all>&status=<status>, which opens on that stage.
+  const [stageChoice, setStageFilter] = useState<string | null>(() => {
     const raw = searchParams.get('stage') ?? searchParams.get('status');
-    return raw ? LEGACY_STATUS_TO_STAGE[raw] ?? raw : 'waiting';
+    return raw ? LEGACY_STATUS_TO_STAGE[raw] ?? raw : null;
   });
+  const stageFilter = stageChoice ?? (isApprover ? 'waiting' : 'all');
   const waitingForMe = stageFilter === 'waiting';
   // Opens on every college the viewer may see (RLS scopes the rows): requesters
   // usually raise purchases for a college other than their profile's, and a list
   // pinned to the profile college hid their own requests from them.
-  const [institutionId, setInstitutionId] = useState<string | undefined>(
+  const [institutionChoice, setInstitutionId] = useState<string | undefined>(
     () => searchParams.get('institution') ?? 'all'
   );
-  // People who only raise requests open on their own requests, so they can follow
-  // what happened to each one; approvers and buyers open on everything. Ticking the
-  // box (or ?mine=1 / ?mine=0) overrides the default.
+  const institutionId = seesWholeCollege ? institutionChoice : 'all';
+  // Ticking the box (or ?mine=1 / ?mine=0) overrides the default.
   const [mineChoice, setMineOnly] = useState<boolean | null>(() => {
     const m = searchParams.get('mine');
     return m === '1' ? true : m === '0' ? false : null;
   });
-  const handlesOthers =
-    isSuperAdmin ||
-    canAccess('procurement', 'request_approve') ||
-    canAccess('procurement', 'quotation_manage') ||
-    canAccess('procurement', 'rfq_manage');
-  const mineOnly = mineChoice ?? !handlesOthers;
+  const mineOnly = mineChoice ?? (!waitingForMe && !seesWholeCollege);
   // 'all' = every college the viewer may see (RLS scopes the rows). effectiveInstitution
   // stays a concrete college for anything that creates a document.
   const allColleges = institutionId === 'all';
@@ -112,12 +119,6 @@ export default function PurchasesPage() {
   const requests = (response?.data ?? []).filter(
     (r) => (stageFilter !== 'ordered' && stageFilter !== 'received') || stageOf(r) === stageFilter
   );
-
-  // "Waiting for you" = purchase approvals where it is this viewer's turn: their request-approval
-  // or final-approval step (plus the Super Admin's own final approvals). Same source as My approvals.
-  const { data: myApprovals = [] } = useMyApprovals();
-  const approvalIds = new Set(myApprovals.map((a) => a.request_id));
-  const yourTurn = (req: ProcurementPurchaseRequest) => approvalIds.has(req.id);
 
   // With a stage picked the rows are only that stage, so fall back to every
   // request waiting on this viewer (My approvals) for the dropdown's count.
@@ -146,7 +147,7 @@ export default function PurchasesPage() {
               <SelectValue placeholder="All statuses" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="waiting">Waiting for you ({waitingCount})</SelectItem>
+              {isApprover && <SelectItem value="waiting">Waiting for you ({waitingCount})</SelectItem>}
               <SelectItem value="all">All statuses</SelectItem>
               {STAGE_FILTERS.map((f) => (
                 <SelectItem key={f.value} value={f.value}>
@@ -159,13 +160,15 @@ export default function PurchasesPage() {
             <Checkbox checked={mineOnly} onCheckedChange={(v) => setMineOnly(v === true)} />
             Raised by me
           </label>
-          <InstitutionFilter
-            value={allColleges ? 'all' : effectiveInstitution}
-            onChange={setInstitutionId}
-            allLabel="All colleges"
-            label={null}
-            className="w-full sm:w-52 [&_button]:h-9"
-          />
+          {seesWholeCollege && (
+            <InstitutionFilter
+              value={allColleges ? 'all' : effectiveInstitution}
+              onChange={setInstitutionId}
+              allLabel="All colleges"
+              label={null}
+              className="w-full sm:w-52 [&_button]:h-9"
+            />
+          )}
           <div role="group" aria-label="Layout" className="inline-flex gap-0.5 rounded-lg bg-muted p-[3px] sm:ml-auto">
             {(['list', 'table'] as const).map((v) => (
               <button

@@ -132,3 +132,47 @@ export function comparePacks(
   }
   return { kind: 'scaled', factor: Math.round(factor * 1e6) / 1e6 };
 }
+
+// ── Counted packs ────────────────────────────────────────────────────────────
+// "Gloves × 500 Nos" asked; the vendor prices "Box of 100 — ₹450". Taken as-is,
+// ₹450 a glove. The price per piece is ₹4.50.
+
+const COUNT_UNITS = new Set(['no', 'nos', 'no.', 'number', 'numbers', 'pc', 'pcs', 'piece', 'pieces', 'unit', 'units', 'each', 'ea']);
+
+/** True when the item is counted in single pieces ("Nos", "pcs"), not in packs or measures. */
+export function isCountUnit(unitLabel: string | null | undefined): boolean {
+  return !!unitLabel && COUNT_UNITS.has(unitLabel.trim().toLowerCase());
+}
+
+const COUNT_PACK_RES: RegExp[] = [
+  /\b(?:pack|pkt|packet|box|bag|bundle|set|ream|roll|carton|strip|bottle|tin|jar)\s*(?:of|-|:)?\s*(\d{1,5})\b(?!\s*(?:mg|g|gm|gms|kg|ml|l|ltr|mm|cm|m|gb|tb|v|w)\b)/i,
+  /\b(\d{1,5})\s*(?:nos|pcs|pieces|sheets|units|tablets|strips|no's)\s*(?:\/|per|in\s+a|a)\s*(?:pack|pkt|packet|box|bag|bundle|set|ream|roll|carton)\b/i,
+  /\b(\d{1,5})\s*(?:'s|s)\s*(?:pack|pkt|box)\b/i,
+];
+
+/** How many pieces one quoted price buys, from a pack text ("Box of 100", "100 Nos/Pkt", "dozen"). null = one / not printed. */
+export function parseCountPack(text: string | null | undefined): number | null {
+  if (!text) return null;
+  if (/\bdozen\b|\bdoz\b/i.test(text)) return 12;
+  for (const re of COUNT_PACK_RES) {
+    const n = Number(re.exec(text)?.[1]);
+    if (n > 1) return n;
+  }
+  return null;
+}
+
+/**
+ * For an item counted in pieces with no pack of its own, the factor that turns the
+ * vendor's pack price into a price per piece (1/100 for "Box of 100"). null = not a
+ * counted pack, the price stands.
+ */
+export function perPieceFactor(
+  item: { unit_label?: string | null; item_name: string; item_spec?: string | null },
+  quotedPackText: string | null | undefined,
+): number | null {
+  if (!isCountUnit(item.unit_label)) return null;
+  // Asked in packs itself ("Gloves, box of 100"): the vendor's box is the unit.
+  if (parseCountPack(item.item_spec) || parseCountPack(item.item_name)) return null;
+  const n = parseCountPack(quotedPackText);
+  return n ? 1 / n : null;
+}

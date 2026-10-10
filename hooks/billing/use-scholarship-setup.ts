@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'react-hot-toast';
 import { queryKeys } from '@/lib/query/query-keys';
-import { ScholarshipSetupService } from '@/lib/services/billing/discounts/scholarship-setup-service';
+import { ScholarshipSetupService } from '@/lib/services/billing/scholarships/scholarship-setup-service';
 import type {
   CreateScholarshipCategoryDto,
   CreateScholarshipTypeDto,
@@ -18,13 +18,13 @@ export function useScholarshipSetup() {
 }
 
 // Nothing in this app self-refreshes, so every mutation invalidates the setup
-// tree (all the dropdowns) AND the discount lists (names are embedded there).
+// tree (all the dropdowns) AND the scholarship lists (names are embedded there).
 function useInvalidateScholarshipSetup() {
   const queryClient = useQueryClient();
   return () => {
     queryClient.invalidateQueries({ queryKey: queryKeys.scholarshipSetup.all });
-    queryClient.invalidateQueries({ queryKey: ['billing-discounts'] });
-    queryClient.invalidateQueries({ queryKey: ['billing-discount'] });
+    queryClient.invalidateQueries({ queryKey: ['billing-scholarships'] });
+    queryClient.invalidateQueries({ queryKey: ['billing-scholarship'] });
   };
 }
 

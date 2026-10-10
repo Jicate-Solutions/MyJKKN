@@ -98,11 +98,20 @@ export default function RfqsPage() {
   // out below from My approvals), and the page opens on it. The Overview status
   // bars link here with ?institution=<id|all>&status=<status>, which opens on that
   // status instead.
-  const [statusFilter, setStatusFilter] = useState<string>(() => searchParams.get('status') ?? 'waiting');
+  // Only final approvers open on "Waiting for you"; everyone else opens on all stages.
+  const { data: myApprovals = [] } = useMyApprovals();
+  const finalIds = new Set(myApprovals.filter((a) => a.stage === 'final').map((a) => a.request_id));
+  const isFinalApprover = isSuperAdmin || finalIds.size > 0;
+  const [statusChoice, setStatusFilter] = useState<string | null>(() => searchParams.get('status'));
+  const statusFilter = statusChoice ?? (isFinalApprover ? 'waiting' : 'all');
   const waitingForMe = statusFilter === 'waiting';
-  const [institutionId, setInstitutionId] = useState<string | undefined>(
+  // Others are held to their own department by RLS, so they get no college picker
+  // and see every quotation RLS lets through.
+  const seesWholeCollege = isSuperAdmin || canAccess('procurement', 'view_all_departments');
+  const [institutionChoice, setInstitutionId] = useState<string | undefined>(
     () => searchParams.get('institution') ?? undefined
   );
+  const institutionId = seesWholeCollege ? institutionChoice : 'all';
   // 'all' = every college the viewer may see (RLS scopes the rows). effectiveInstitution
   // stays a concrete college for anything that creates a document.
   const allColleges = institutionId === 'all';
@@ -123,8 +132,6 @@ export default function RfqsPage() {
   const { data: response, isLoading, isError } = useRfqs(filters);
   // "Waiting for you" = quotations whose final approval is this viewer's turn (same source as
   // My approvals, including the Super Admin's own final approvals).
-  const { data: myApprovals = [] } = useMyApprovals();
-  const finalIds = new Set(myApprovals.filter((a) => a.stage === 'final').map((a) => a.request_id));
   const isMine = (rfq: ProcurementRfq) => !!rfq.source_request_id && finalIds.has(rfq.source_request_id);
   const allRfqs = response?.data ?? [];
   // With a status picked the rows are only that status, so fall back to every
@@ -167,7 +174,7 @@ export default function RfqsPage() {
               <SelectValue placeholder="Status" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="waiting">Waiting for you ({waitingCount})</SelectItem>
+              {isFinalApprover && <SelectItem value="waiting">Waiting for you ({waitingCount})</SelectItem>}
               <SelectItem value="all">All stages</SelectItem>
               {STAGE_FILTERS.map((f) => (
                 <SelectItem key={f.value} value={f.value}>
@@ -176,13 +183,15 @@ export default function RfqsPage() {
               ))}
             </SelectContent>
           </Select>
-          <InstitutionFilter
-            value={allColleges ? 'all' : effectiveInstitution}
-            onChange={setInstitutionId}
-            allLabel="All colleges"
-            label={null}
-            className="w-full sm:w-52"
-          />
+          {seesWholeCollege && (
+            <InstitutionFilter
+              value={allColleges ? 'all' : effectiveInstitution}
+              onChange={setInstitutionId}
+              allLabel="All colleges"
+              label={null}
+              className="w-full sm:w-52"
+            />
+          )}
           {/* The primary action ends the filter row instead of sitting alone above it. */}
           {canManage && (
             <Button className="h-9 w-full sm:w-auto" onClick={() => setCreateOpen(true)}>

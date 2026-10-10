@@ -224,28 +224,42 @@ const dmy = (iso: string | null | undefined) => {
   return y && m && d ? `${d}-${m}-${y}` : '';
 };
 
+type SuggestedFrom = 'quotation' | 'last order' | 'order' | 'vendor';
+
 /**
- * What each empty "printed on the order" box defaults to, and where it came from:
- * the vendor's quotation first, then what the last order to this vendor printed.
+ * What each empty "printed on the order" box defaults to, and where it came from —
+ * so an approved order is ready to print without anyone typing:
+ *   the vendor's quotation → the last order to this vendor → this order's own
+ *   dates/terms → the vendor master's usual terms and lead time.
+ * An undated quotation takes the date it was entered (when it reached the store).
  * The page shows these filled in; the PDF prints them even before anyone saves.
  */
-export function suggestedHeaderValues(po: PoWithItems): Record<string, { value: string; from: 'quotation' | 'last order' }> {
-  const out: Record<string, { value: string; from: 'quotation' | 'last order' }> = {};
-  for (const [k, v] of Object.entries(po.vendor_defaults ?? {})) {
-    if (String(v ?? '').trim()) out[k] = { value: String(v), from: 'last order' };
-  }
+export function suggestedHeaderValues(po: PoWithItems): Record<string, { value: string; from: SuggestedFrom }> {
+  const out: Record<string, { value: string; from: SuggestedFrom }> = {};
+  const set = (k: string, value: string | null | undefined, from: SuggestedFrom) => {
+    if (!out[k] && String(value ?? '').trim()) out[k] = { value: String(value).trim(), from };
+  };
   const q = po.source_quotation;
-  if (q?.vendor_quote_number) out.quotation_no = { value: q.vendor_quote_number, from: 'quotation' };
-  if (q?.quote_date) out.quotation_date = { value: dmy(q.quote_date), from: 'quotation' };
-  if (q?.delivery_time_days) out.delivery = { value: `${q.delivery_time_days} days`, from: 'quotation' };
-  if (q?.payment_terms) out.payment = { value: q.payment_terms, from: 'quotation' };
-  if (q?.warranty) out.warranty = { value: q.warranty, from: 'quotation' };
+  set('quotation_no', q?.vendor_quote_number, 'quotation');
+  set('quotation_date', dmy(q?.quote_date), 'quotation');
+  set('delivery', q?.delivery_time_days ? `${q.delivery_time_days} days` : null, 'quotation');
+  set('payment', q?.payment_terms, 'quotation');
+  set('warranty', q?.warranty, 'quotation');
+  for (const [k, v] of Object.entries(po.vendor_defaults ?? {})) set(k, v, 'last order');
+  set('quotation_date', dmy(q?.created_at), 'quotation');
+  set('delivery', po.expected_delivery_date ? `By ${dotDate(po.expected_delivery_date)}` : null, 'order');
+  set('payment', po.payment_terms, 'order');
+  set('delivery', po.supplier?.lead_time_days ? `${po.supplier.lead_time_days} days` : null, 'vendor');
+  set('payment', po.supplier?.payment_terms, 'vendor');
   return out;
 }
 
-/** What a printed order can't go out without; everything else may stay blank. */
+/**
+ * What a printed order can't go out without; everything else may stay blank.
+ * The quotation number is not among them: many small vendors don't number their
+ * quotations, and the quotation date (always known) identifies it.
+ */
 export const PO_REQUIRED_FIELDS: Record<string, string> = {
-  quotation_no: 'Quotation no.',
   quotation_date: 'Quotation date',
   delivery: 'Delivery',
   payment: 'Payment',
@@ -290,7 +304,7 @@ export function resolvePoDocumentModel(po: PoWithItems): PoDocumentModel {
     .filter((f) => f.value);
 
   const quoteFields: ResolvedField[] = [
-    { key: 'quotation_no', label: 'PROFORMA INVOICE QUOTATION No.', value: hv('quotation_no') || quote?.vendor_quote_number || '' },
+    { key: 'quotation_no', label: 'PROFORMA INVOICE QUOTATION No.', value: hv('quotation_no') || quote?.vendor_quote_number || '--' },
     { key: 'quotation_date', label: 'QUOTATION DATE', value: hv('quotation_date') || dotDate(quote?.quote_date) },
     { key: 'call_dated', label: 'EMAIL/TELEPHONIC CALL DATED', value: hv('call_dated') || '--' },
     ...extraHeader.map((f) => ({ ...f, label: f.label.toUpperCase() })),

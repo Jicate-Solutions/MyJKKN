@@ -2079,25 +2079,6 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "children": []
       },
       {
-        "path": "/billing/discounts",
-        "label": "Discounts",
-        "iconName": "Wallet",
-        "children": [
-          {
-            "path": "/billing/discounts/new",
-            "label": "New",
-            "iconName": "Plus",
-            "children": []
-          },
-          {
-            "path": "/billing/discounts/setup",
-            "label": "Setup",
-            "iconName": "Wallet",
-            "children": []
-          }
-        ]
-      },
-      {
         "path": "/billing/invoices",
         "label": "Invoices",
         "iconName": "Wallet",
@@ -2217,6 +2198,25 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "path": "/billing/schedule/students",
             "label": "Students",
             "iconName": "CalendarClock",
+            "children": []
+          }
+        ]
+      },
+      {
+        "path": "/billing/scholarships",
+        "label": "Scholarships",
+        "iconName": "Wallet",
+        "children": [
+          {
+            "path": "/billing/scholarships/new",
+            "label": "New",
+            "iconName": "Plus",
+            "children": []
+          },
+          {
+            "path": "/billing/scholarships/setup",
+            "label": "Setup",
+            "iconName": "Wallet",
             "children": []
           }
         ]
