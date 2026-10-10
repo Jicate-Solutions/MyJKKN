@@ -36,6 +36,7 @@ import { FollowupList } from './_components/followup-list';
 import { UnassignedLeadsPanel } from './_components/unassigned-leads-panel';
 import { MiniPipeline } from './_components/mini-pipeline';
 import { TodayActivityLog } from './_components/today-activity-log';
+import { CallbackNowPanel } from './_components/callback-now-panel';
 
 // Generate academic year options (current + next)
 function getAcademicYearOptions(): string[] {
@@ -388,6 +389,12 @@ function CounselorViewPageContent() {
             total_this_month: 0,
             conversion_rate: 0,
           }} isLoading={isLoading} />
+
+          {/* Missed calls waiting for a callback */}
+          <CallbackNowPanel
+            institutionId={institutionId}
+            viewAsUserId={selectedCounselorUserId || undefined}
+          />
 
           {/* Manager: Unassigned leads panel */}
           {isManager && unassignedCount > 0 && (
