@@ -31,11 +31,16 @@ BEGIN
   RETURN v_ids;
 END $$;
 
--- Confidential notices and work items name no ticket (round 6): they are
--- found by the hashed key the database gives them.
-CREATE FUNCTION t_conf_notice(p_key text) RETURNS text LANGUAGE sql IMMUTABLE AS $$ SELECT 'grievance-confidential:' || md5(p_key) $$;
-CREATE FUNCTION t_conf_item(p_id uuid) RETURNS text LANGUAGE sql STABLE AS $$
-  SELECT 'grievance_confidential:' || md5('grievance_ticket:' || p_id::text || ':' || CURRENT_DATE::text) $$;
+-- Round 8: a complaint about the Joint MD writes NO notifications row (no
+-- notice, no work item). True when nothing in notifications / the work-item
+-- stub refers to this ticket in any way.
+CREATE FUNCTION t_no_notice(p_id uuid) RETURNS boolean LANGUAGE sql STABLE AS $$
+  SELECT NOT EXISTS (SELECT 1 FROM notifications n
+                     WHERE n.metadata ->> 'ticket_id' = p_id::text OR n.targeting ->> 'ticket_id' = p_id::text
+                        OR n.action_config ->> 'grievance_id' = p_id::text OR n.idempotency_key LIKE '%' || p_id::text || '%'
+                        OR n.url LIKE '%' || p_id::text || '%')
+     AND NOT EXISTS (SELECT 1 FROM stub_work_items w
+                     WHERE w.metadata ->> 'grievance_id' = p_id::text OR w.key LIKE '%' || p_id::text || '%') $$;
 
 -- ------------------------------------------------ 0. seeds, seats, grants
 SELECT t_ok((SELECT value FROM platform_policies WHERE policy_key = 'grievance.escalation.about_joint_md_profile_id'
@@ -46,7 +51,13 @@ SELECT t_ok(fn_grievance_joint_md_ids('10000000-0000-0000-0000-000000000001') = 
 SELECT t_ok(has_function_privilege('authenticated', f, 'EXECUTE'), 'signed-in users can run ' || f)
 FROM unnest(ARRAY['fn_grievance_send_back_to_normal_path(uuid,text)',
                   'fn_grievance_caller_joint_md_scope()',
-                  'fn_grievance_ticket_hidden_from_caller(uuid)']) AS f;
+                  'fn_grievance_confidential_awaiting_count()']) AS f;
+SELECT t_ok(to_regprocedure('fn_grievance_ticket_hidden_from_caller(uuid)') IS NULL,
+            'round 8: the existence oracle fn_grievance_ticket_hidden_from_caller(uuid) is gone');
+SELECT t_ok(NOT EXISTS (SELECT 1 FROM pg_policy WHERE polrelid IN ('public.notifications'::regclass, 'public.user_notifications'::regclass)
+                          AND polname LIKE '%confidential%')
+            AND to_regprocedure('fn_notification_is_confidential(uuid)') IS NULL,
+            'round 8: the migration adds no policy or helper on notifications / user_notifications');
 SELECT t_ok(NOT has_function_privilege('anon', 'fn_grievance_send_back_to_normal_path(uuid,text)', 'EXECUTE'), 'anon cannot send a complaint back');
 SELECT t_ok(NOT has_function_privilege(r, f, 'EXECUTE'), r || ' cannot run ' || f)
 FROM unnest(ARRAY['anon', 'authenticated']) AS r,
@@ -75,9 +86,7 @@ SELECT t_ok((tk('J1-held')).assigned_to IS NULL, 'Director not set: the complain
 SELECT t_ok((tk('J1-held')).metadata -> 'about_joint_md_hold' ->> 'reason' LIKE 'no_director_set%',
             'the hold says why: ' || COALESCE((tk('J1-held')).metadata::text, 'null'));
 SELECT t_ok((tk('J1b-held-named-jmd')).assigned_to IS NULL, 'an insert that names the Joint MD is never left with her');
-SELECT t_ok(NOT EXISTS (SELECT 1 FROM notifications WHERE idempotency_key IN (t_conf_notice('grievance-assigned:' || (tk('J1-held')).id),
-                                                                       t_conf_notice('grievance-assigned:' || (tk('J1b-held-named-jmd')).id)))
-            AND NOT EXISTS (SELECT 1 FROM notifications WHERE metadata ->> 'confidential' = 'true'),
+SELECT t_ok(t_no_notice((tk('J1-held')).id) AND t_no_notice((tk('J1b-held-named-jmd')).id),
             'a held complaint notifies nobody');
 
 -- ------------------------------------------------ 2. Director set: routed to the Director
@@ -107,15 +116,11 @@ SELECT t_ok((tk('J2b-icc-and-jmd')).assigned_to = 'a0000000-0000-0000-0000-00000
             AND (tk('J2b-icc-and-jmd')).metadata -> 'auto_route' ->> 'role' = 'icc_chair'
             AND (tk('J2b-icc-and-jmd')).metadata -> 'auto_route' ->> 'via' = 'icc_chair',
             'ICC-only AND about the Joint MD -> the ICC chair (ICC first): ' || ((tk('J2b-icc-and-jmd')).metadata -> 'auto_route')::text);
-SELECT t_ok(EXISTS (SELECT 1 FROM notifications n JOIN user_notifications un ON un.notification_id = n.id
-                    WHERE un.user_id = 'a0000000-0000-0000-0000-00000000000a'
-                      AND n.idempotency_key = t_conf_notice('grievance-assigned:' || (tk('J2b-icc-and-jmd')).id)
-                      AND n.metadata ->> 'confidential' = 'true'), 'the ICC chair is told, confidentially');
+SELECT t_ok(t_no_notice((tk('J2b-icc-and-jmd')).id), 'round 8: no notification row for it (the ICC chair finds it on the list)');
 SELECT t_ok((tk('J2c-superior-and-jmd')).assigned_to = 'a0000000-0000-0000-0000-00000000000e', 'about my superior AND about the Joint MD -> the Director');
-SELECT t_ok(EXISTS (SELECT 1 FROM notifications n JOIN user_notifications un ON un.notification_id = n.id
-                    WHERE un.user_id = 'a0000000-0000-0000-0000-00000000000e' AND n.category = 'grievance:assigned'
-                      AND n.idempotency_key = t_conf_notice('grievance-assigned:' || (tk('J2-director')).id)
-                      AND n.metadata ->> 'confidential' = 'true'), 'the Director is told, confidentially');
+SELECT t_ok(t_no_notice((tk('J2-director')).id) AND t_no_notice((tk('J2c-superior-and-jmd')).id)
+            AND NOT EXISTS (SELECT 1 FROM user_notifications WHERE user_id = 'a0000000-0000-0000-0000-00000000000e'),
+            'round 8: the Director gets NO notice (his alert is the banner count and My Desk)');
 
 -- the Director policy can never name the Joint MD: with the college row AND
 -- the global row both naming her, nobody is usable — held
@@ -163,7 +168,6 @@ SELECT t_ok((SELECT count(*) FROM grievance_comments) = 0, 'Joint MD: 0 comments
 SELECT t_ok((SELECT count(*) FROM grievance_history) = 0, 'Joint MD: 0 history lines of a complaint about her');
 WITH u AS (UPDATE grievance_tickets SET status = 'in_progress' WHERE about_joint_md RETURNING 1)
 SELECT t_ok((SELECT count(*) FROM u) = 0, 'Joint MD: cannot change one either');
-SELECT t_ok(NOT fn_grievance_ticket_hidden_from_caller('00000000-0000-0000-0000-000000000000'), 'the hidden-check answers false for a ticket that does not exist');
 SELECT set_config('request.jwt.claim.sub', 'a0000000-0000-0000-0000-00000000000f', false);   -- another super admin
 SELECT t_ok((SELECT count(*) FROM grievance_tickets WHERE about_joint_md) = :ticked_now, 'another super admin sees all of them, held ones included');
 SELECT t_ok(cardinality(fn_grievance_caller_joint_md_scope()) = 0, 'a super admin who is not the Joint MD has no seat');
@@ -350,43 +354,34 @@ SELECT t_ok((tk('J4-held-overdue')).assigned_to IS NULL AND (tk('J4-held-overdue
             'no Director set and overdue: NOT moved (never to the Joint MD)');
 SELECT t_ok((tk('J4-held-overdue')).metadata -> 'escalation_blocked' -> 'skipped' -> -1 ->> 'reason' LIKE 'no_director_set%',
             'the block names the missing Director: ' || COALESCE((tk('J4-held-overdue')).metadata::text, 'null'));
--- MEDIUM 1 (panel on 37a9c4fa1c): the one the Director held is no longer with
--- its handler (there is none) — taken off him and HELD, not left where it was
-SELECT t_ok((tk('J2-director')).assigned_to IS NULL
-            AND (tk('J2-director')).metadata -> 'about_joint_md_hold' ->> 'reason' LIKE 'no_director_set%'
-            AND (tk('J2-director')).metadata -> 'escalations' -> -1 ->> 'previous_assignee' = 'a0000000-0000-0000-0000-00000000000e',
-            'Director setting emptied: his complaint is held, the step on the ticket: ' || COALESCE((tk('J2-director')).metadata::text, 'null'));
+-- Round 8: the Director still holds his — he is usable and not the Joint MD,
+-- so blanking the setting does not take it off him
+SELECT t_ok((tk('J2-director')).assigned_to = 'a0000000-0000-0000-0000-00000000000e'
+            AND NOT ((tk('J2-director')).metadata ? 'about_joint_md_hold'),
+            'Director setting emptied: a usable holder keeps it: ' || COALESCE((tk('J2-director')).metadata::text, 'null'));
 UPDATE platform_policies SET value = to_jsonb('a0000000-0000-0000-0000-00000000000e'::text)
  WHERE policy_key = 'grievance.escalation.about_joint_md_profile_id' AND scope_type = 'global';
 
 SELECT t_ok((SELECT (fn_grievance_escalation_tick(true) ->> 'about_joint_md_routing_configured')::boolean),
             'Director set: routing reported as configured');
--- the next run hands both back to him, each with a FRESH deadline in its
--- notice (MEDIUM 5): escalation_deadline is set, the old one was in the past
+-- the next run hands the held one to him with a FRESH deadline (MEDIUM 5;
+-- the old one was in the past) and writes no notice (round 8)
 CREATE TEMP TABLE jrun3 AS SELECT fn_grievance_escalation_tick(false) r;
-SELECT t_ok((tk(x)).assigned_to = 'a0000000-0000-0000-0000-00000000000e'
-            AND (tk(x)).escalation_deadline > now() + interval '1 hour'
-            AND (tk(x)).sla_deadline < now()
-            AND (tk(x)).escalation_level = 3
-            AND NOT ((tk(x)).metadata ? 'about_joint_md_hold'),
-            x || ' handed to the Director with a fresh deadline: ' || COALESCE((tk(x)).escalation_deadline::text, 'none'))
-FROM unnest(ARRAY['J2-director', 'J4-held-overdue']) AS x;
-SELECT t_ok(EXISTS (SELECT 1 FROM notifications n JOIN user_notifications un ON un.notification_id = n.id
-                    WHERE un.user_id = 'a0000000-0000-0000-0000-00000000000e'
-                      AND n.idempotency_key = t_conf_notice('grievance-handed-to-director:' || (tk(x)).id || ':a0000000-0000-0000-0000-00000000000e')
-                      AND n.body LIKE '%' || to_char((tk(x)).escalation_deadline AT TIME ZONE 'Asia/Kolkata', 'DD Mon YYYY, HH24:MI') || ' IST%'
-                      AND n.body NOT LIKE '%' || to_char((tk(x)).sla_deadline AT TIME ZONE 'Asia/Kolkata', 'DD Mon YYYY, HH24:MI') || '%'),
-            x || ': the hand-over notice carries the fresh deadline, not the old one')
-FROM unnest(ARRAY['J2-director', 'J4-held-overdue']) AS x;
+SELECT t_ok((tk('J4-held-overdue')).assigned_to = 'a0000000-0000-0000-0000-00000000000e'
+            AND (tk('J4-held-overdue')).escalation_deadline > now() + interval '1 hour'
+            AND (tk('J4-held-overdue')).sla_deadline < now()
+            AND (tk('J4-held-overdue')).escalation_level = 3
+            AND (tk('J4-held-overdue')).metadata -> 'escalations' -> -1 ->> 'deadline' IS NOT NULL
+            AND NOT ((tk('J4-held-overdue')).metadata ? 'about_joint_md_hold'),
+            'the held one is handed to the Director with a fresh deadline: ' || COALESCE((tk('J4-held-overdue')).escalation_deadline::text, 'none'));
+SELECT t_ok(t_no_notice((tk('J4-held-overdue')).id), 'and the hand-over writes no notice');
 
 -- the dashboard work item: the unassigned fallback is the OLDEST super admin = the Joint MD here
 SELECT fn_generate_unresolved_issue_items();
-SELECT t_ok(NOT EXISTS (SELECT 1 FROM stub_work_items w
-                        WHERE w.metadata ->> 'confidential' = 'true' AND w.target = 'a0000000-0000-0000-0000-000000000001'),
-            'no work item about a complaint about the Joint MD goes to the Joint MD');
-SELECT t_ok(EXISTS (SELECT 1 FROM stub_work_items WHERE target = 'a0000000-0000-0000-0000-00000000000e'
-                    AND key = t_conf_item((tk('J2-director')).id) AND metadata ->> 'confidential' = 'true'),
-            'the Director gets the (confidential) work item for the overdue one he holds');
+SELECT t_ok(t_no_notice((tk('J2-director')).id) AND t_no_notice((tk('J4-held-overdue')).id)
+            AND NOT EXISTS (SELECT 1 FROM stub_work_items WHERE target IN ('a0000000-0000-0000-0000-000000000001', 'a0000000-0000-0000-0000-00000000000e')
+                              AND metadata ->> 'grievance_id' IN (SELECT id::text FROM grievance_tickets WHERE about_joint_md)),
+            'round 8: no work item for a complaint about the Joint MD, for anybody (not the Joint MD, not the Director)');
 -- round 3: a HELD one (nobody holds it) is a work item for nobody, not for
 -- whichever super admin is oldest — here made someone other than the Joint MD
 BEGIN;
@@ -396,10 +391,7 @@ DELETE FROM stub_work_items;
 SELECT fn_generate_unresolved_issue_items();
 SELECT t_ok(EXISTS (SELECT 1 FROM grievance_tickets WHERE about_joint_md AND assigned_to IS NULL AND sla_deadline < now()),
             'setup: an overdue complaint about the Joint MD is held');
-SELECT t_ok(NOT EXISTS (SELECT 1 FROM stub_work_items w JOIN grievance_tickets t ON w.key = t_conf_item(t.id)
-                        WHERE t.about_joint_md AND t.assigned_to IS NULL)
-            AND NOT EXISTS (SELECT 1 FROM stub_work_items w WHERE w.metadata ->> 'confidential' = 'true'
-                              AND w.target = 'a0000000-0000-0000-0000-00000000000f'),
+SELECT t_ok(t_no_notice((tk('J4-held-overdue')).id),
             'a held complaint about the Joint MD becomes nobody''s work item (not the oldest super admin''s)');
 SELECT t_ok(EXISTS (SELECT 1 FROM stub_work_items WHERE target = 'a0000000-0000-0000-0000-00000000000f'),
             'while ordinary unassigned ones still go to that super admin');
@@ -674,98 +666,20 @@ SELECT t_ok(NOT EXISTS (SELECT 1 FROM jsonb_array_elements((SELECT r -> 'tickets
 ROLLBACK;
 
 -- ------------------------------------------------ 6d. round 5: notices, forged routing, a Director who leaves, moving colleges
--- M5 (round 5) + H1 (round 6): a notice or work item about a complaint about
--- the Joint MD is CONFIDENTIAL: a generic line, a link to the complaints list,
--- and nothing that names the ticket (no id, number, subject, description,
--- level, breach or emergency flag — not in the url, targeting, metadata,
--- action_config or the dedupe key).
+-- Round 8: complaints about the Joint MD write NO notifications row at all —
+-- no notice, no work item — so nothing in those tables (read by super-admin
+-- row-level security and service-role admin routes) can reveal them.
 SELECT fn_generate_unresolved_issue_items();
-SELECT t_ok((SELECT count(*) FROM notifications WHERE metadata ->> 'confidential' = 'true' AND kind = 'announcement') > 0
-            AND (SELECT count(*) FROM notifications WHERE action_config ->> 'confidential' = 'true' AND kind = 'work_item') > 0,
-            'setup: there are confidential notices and work items (the Director''s)');
-SELECT t_ok(NOT EXISTS (
-  SELECT 1 FROM notifications n, grievance_tickets t
-  WHERE (n.metadata ->> 'confidential' = 'true' OR n.action_config ->> 'confidential' = 'true')
-    AND t.about_joint_md
-    AND (n.title <> 'A confidential complaint needs your review'
-         OR n.url IS DISTINCT FROM NULL AND n.url <> '/accreditation/naac/grievance'
-         OR position(t.id::text IN coalesce(n.url, '') || n.targeting::text || coalesce(n.metadata::text, '')
-                                   || coalesce(n.action_config::text, '') || coalesce(n.idempotency_key, '')) > 0
-         OR position(t.ticket_number IN n.title || n.body || coalesce(n.metadata::text, '') || coalesce(n.action_config::text, '')) > 0
-         OR position(t.subject IN n.title || n.body) > 0
-         OR position(left(t.description, 40) IN n.body) > 0
-         OR coalesce(n.action_config, '{}'::jsonb) ?| ARRAY['grievance_id', 'escalation_level', 'sla_breached', 'is_emergency', 'ticket_number']
-         OR coalesce(n.metadata, '{}'::jsonb) ?| ARRAY['ticket_id', 'ticket_number', 'level']
-         OR n.targeting ? 'ticket_id')),
-  'every confidential notice and work item is generic and names no ticket anywhere');
-SELECT t_ok((SELECT count(*) FROM notifications WHERE metadata ->> 'confidential' = 'true' AND url = '/accreditation/naac/grievance') > 0,
-            'the notice links to the complaints list, where the Director''s own access shows it');
-
--- H1 (round 6): as the Joint MD — a super admin, so the existing policies let
--- her read, update and delete every notification — no confidential row is
--- visible or changeable; the Director sees and can mark his; ordinary rows
--- behave as before for super admins and recipients.
-SELECT count(*) AS conf_n FROM notifications WHERE metadata ->> 'confidential' = 'true' OR action_config ->> 'confidential' = 'true' \gset
-SELECT count(*) AS conf_un FROM user_notifications un JOIN notifications n ON n.id = un.notification_id
- WHERE n.metadata ->> 'confidential' = 'true' OR n.action_config ->> 'confidential' = 'true' \gset
-SELECT count(*) AS plain_n FROM notifications WHERE NOT (coalesce(metadata ->> 'confidential', '') = 'true' OR coalesce(action_config ->> 'confidential', '') = 'true') \gset
-SELECT count(*) AS dir_conf FROM user_notifications un JOIN notifications n ON n.id = un.notification_id
- WHERE un.user_id = 'a0000000-0000-0000-0000-00000000000e' AND (n.metadata ->> 'confidential' = 'true' OR n.action_config ->> 'confidential' = 'true') \gset
-SELECT t_ok(:conf_n > 0 AND :conf_un > 0 AND :dir_conf > 0, 'setup: confidential rows exist, some of them the Director''s');
--- the confidential user_notifications, listed while row-level security does not apply
-CREATE TEMP TABLE t_conf_un AS
-  SELECT un.id FROM user_notifications un JOIN notifications n ON n.id = un.notification_id
-  WHERE n.metadata ->> 'confidential' = 'true' OR n.action_config ->> 'confidential' = 'true';
-GRANT SELECT ON t_conf_un TO authenticated;
-SELECT count(*) AS all_un FROM user_notifications \gset
-SET ROLE authenticated;
-SELECT set_config('request.jwt.claim.sub', 'a0000000-0000-0000-0000-000000000001', false),
-       set_config('request.jwt.claim.role', 'authenticated', false);   -- the Joint MD (a super admin)
-SELECT t_ok((SELECT count(*) FROM notifications WHERE metadata ->> 'confidential' = 'true' OR action_config ->> 'confidential' = 'true') = 0,
-            'Joint MD: 0 confidential notifications');
-SELECT t_ok((SELECT count(*) FROM notifications) = :plain_n, 'Joint MD: she still sees every other notification (' || :plain_n || ')');
-SELECT t_ok((SELECT count(*) FROM user_notifications un
-             WHERE un.id IN (SELECT id FROM t_conf_un)) = 0, 'Joint MD: 0 confidential user_notifications');
-SELECT t_ok((SELECT count(*) FROM user_notifications un JOIN notifications n ON n.id = un.notification_id)
-            = (SELECT count(*) FROM user_notifications) AND (SELECT count(*) FROM user_notifications) > 0,
-            'Joint MD: every user_notifications row she still sees has a notification she can see');
-SELECT t_ok((SELECT count(*) FROM user_notifications) = :all_un - :conf_un,
-            'Joint MD: she still sees every other user_notifications row (' || (:all_un - :conf_un) || ')');
-WITH u AS (UPDATE notifications SET title = 'x' WHERE id IN (SELECT id FROM notifications) AND metadata ->> 'confidential' = 'true' RETURNING 1)
-SELECT t_ok((SELECT count(*) FROM u) = 0, 'Joint MD: updates 0 confidential notifications');
-DO $$
-DECLARE n int;
-BEGIN
-  UPDATE user_notifications SET read_at = now() WHERE id IN (SELECT id FROM t_conf_un);
-  GET DIAGNOSTICS n = ROW_COUNT;
-  IF n <> 0 THEN RAISE EXCEPTION 'FAIL: the Joint MD marked % confidential notices read', n; END IF;
-  DELETE FROM user_notifications WHERE id IN (SELECT id FROM t_conf_un);
-  GET DIAGNOSTICS n = ROW_COUNT;
-  IF n <> 0 THEN RAISE EXCEPTION 'FAIL: the Joint MD deleted % confidential user_notifications', n; END IF;
-  DELETE FROM notifications WHERE metadata ->> 'confidential' = 'true' OR action_config ->> 'confidential' = 'true';
-  GET DIAGNOSTICS n = ROW_COUNT;
-  IF n <> 0 THEN RAISE EXCEPTION 'FAIL: the Joint MD deleted % confidential notifications', n; END IF;
-END $$;
--- ordinary rows: a super admin still manages them (the /notifications/admin flow)
-WITH u AS (UPDATE notifications SET priority = priority
-           WHERE NOT (coalesce(metadata ->> 'confidential', '') = 'true' OR coalesce(action_config ->> 'confidential', '') = 'true')
-           RETURNING 1)
-SELECT t_ok((SELECT count(*) FROM u) = :plain_n, 'a super admin still updates every ordinary notification');
-SELECT set_config('request.jwt.claim.sub', 'a0000000-0000-0000-0000-00000000000e', false);   -- the Director
-SELECT t_ok((SELECT count(*) FROM user_notifications un JOIN notifications n ON n.id = un.notification_id
-             WHERE un.user_id = 'a0000000-0000-0000-0000-00000000000e'
-               AND (n.metadata ->> 'confidential' = 'true' OR n.action_config ->> 'confidential' = 'true')) = :dir_conf,
-            'the Director reads all his confidential notices and work items (' || :dir_conf || ')');
-WITH u AS (UPDATE user_notifications SET read_at = now() WHERE user_id = 'a0000000-0000-0000-0000-00000000000e' RETURNING 1)
-SELECT t_ok((SELECT count(*) FROM u) >= :dir_conf, 'and can mark them read');
-SELECT set_config('request.jwt.claim.sub', 'a0000000-0000-0000-0000-000000000002', false);   -- an ordinary recipient (the Principal)
-SELECT t_ok((SELECT count(*) FROM user_notifications WHERE user_id = 'a0000000-0000-0000-0000-000000000002') > 0
-            AND NOT EXISTS (SELECT 1 FROM user_notifications WHERE user_id <> 'a0000000-0000-0000-0000-000000000002'),
-            'an ordinary recipient still reads her own notices (and only those)');
-RESET ROLE;
-SELECT set_config('request.jwt.claim.sub', '', false), set_config('request.jwt.claim.role', '', false);
-SELECT t_ok((SELECT count(*) FROM notifications WHERE metadata ->> 'confidential' = 'true' OR action_config ->> 'confidential' = 'true') = :conf_n,
-            'nothing the Joint MD tried removed a confidential row');
+SELECT t_ok(NOT EXISTS (SELECT 1 FROM grievance_tickets t WHERE t.about_joint_md AND NOT t_no_notice(t.id)),
+            'no notifications row or work item refers to any complaint about the Joint MD');
+SELECT t_ok(NOT EXISTS (SELECT 1 FROM notifications
+                        WHERE metadata ? 'confidential' OR action_config ? 'confidential'
+                           OR title ILIKE '%confidential%' OR url = '/accreditation/naac/grievance'),
+            'and there is no nameless "confidential" row either');
+SELECT t_ok(NOT EXISTS (SELECT 1 FROM notifications n WHERE n.category LIKE 'grievance:%'
+                          AND ((n.metadata ->> 'ticket_id') IS NULL
+                               OR (n.metadata ->> 'ticket_id')::uuid IN (SELECT id FROM grievance_tickets WHERE about_joint_md))),
+            'every grievance notice names a ticket that is not about the Joint MD');
 
 -- M4: routing metadata comes from the database only
 INSERT INTO grievance_tickets (institution_id, category_id, department_id, subject, description, raised_by_id, assigned_to, sla_deadline, metadata) VALUES
@@ -832,11 +746,9 @@ CREATE TEMP TABLE m3b AS SELECT fn_grievance_escalation_tick(false) r;
 SELECT t_ok((SELECT (r ->> 'about_joint_md_routing_configured')::boolean FROM m3b), 'a new Director set: configured again');
 SELECT t_ok((tk('J2c-superior-and-jmd')).assigned_to = 'a0000000-0000-0000-0000-000000000010',
             'the complaint goes to the new Director: ' || COALESCE(((tk('J2c-superior-and-jmd')).metadata -> 'escalations' -> -1)::text, 'null'));
-SELECT t_ok(EXISTS (SELECT 1 FROM notifications n JOIN user_notifications un ON un.notification_id = n.id
-                    WHERE un.user_id = 'a0000000-0000-0000-0000-000000000010'
-                      AND n.idempotency_key = t_conf_notice('grievance-handed-to-director:' || (tk('J2c-superior-and-jmd')).id || ':a0000000-0000-0000-0000-000000000010')
-                      AND n.title = 'A confidential complaint needs your review'),
-            'who is told, generically');
+SELECT t_ok(t_no_notice((tk('J2c-superior-and-jmd')).id)
+            AND NOT EXISTS (SELECT 1 FROM user_notifications WHERE user_id = 'a0000000-0000-0000-0000-000000000010'),
+            'and is sent no notice (round 8)');
 SELECT t_ok(NOT EXISTS (SELECT 1 FROM grievance_tickets WHERE about_joint_md AND assigned_to = 'a0000000-0000-0000-0000-000000000001'),
             'no complaint about the Joint MD went to her');
 ROLLBACK;
@@ -901,12 +813,23 @@ SELECT t_ok((tk('M1-director-holds')).assigned_to = 'a0000000-0000-0000-0000-000
             AND (tk('M1-director-holds')).escalation_deadline > now()
             AND (tk('M1-director-holds')).metadata -> 'escalations' -> -1 ->> 'reason' = 'handed_over',
             'the next run hands it to the new Director: ' || COALESCE(((tk('M1-director-holds')).metadata -> 'escalations' -> -1)::text, 'null'));
--- a holder who is simply not its handler (a hand reassignment) goes back too
+-- Round 8: the Director's deliberate reassignment to another usable person
+-- who is not the Joint MD STANDS ...
 UPDATE grievance_tickets SET assigned_to = 'a0000000-0000-0000-0000-00000000000c' WHERE subject = 'M1-director-holds';
 SELECT fn_grievance_escalation_tick(false);
+SELECT t_ok((tk('M1-director-holds')).assigned_to = 'a0000000-0000-0000-0000-00000000000c',
+            'round 8: a Director''s reassignment to a usable person who is not the Joint MD stands');
+-- ... but a holder who is the filer, or cannot act, goes back to the handler
+UPDATE grievance_tickets SET assigned_to = 'a0000000-0000-0000-0000-000000000007' WHERE subject = 'M1-director-holds';
+SELECT fn_grievance_escalation_tick(false);
 SELECT t_ok((tk('M1-director-holds')).assigned_to = 'a0000000-0000-0000-0000-000000000011'
-            AND (tk('M1-director-holds')).metadata -> 'escalations' -> -1 ->> 'reason' = 'holder_is_not_its_handler',
-            'a complaint about the Joint MD handed to someone else returns to its handler');
+            AND (tk('M1-director-holds')).metadata -> 'escalations' -> -1 ->> 'reason' = 'holder_cannot_act',
+            'round 8: held by the person who filed it -> back to its handler');
+UPDATE grievance_tickets SET assigned_to = 'a0000000-0000-0000-0000-00000000000c' WHERE subject = 'M1-director-holds';
+UPDATE profiles SET is_login_disabled = true WHERE id = 'a0000000-0000-0000-0000-00000000000c';
+SELECT fn_grievance_escalation_tick(false);
+SELECT t_ok((tk('M1-director-holds')).assigned_to = 'a0000000-0000-0000-0000-000000000011',
+            'round 8: held by someone whose login is disabled -> back to its handler');
 ROLLBACK;
 
 -- (6) The filer is left out FIRST: a college Director who filed it falls
@@ -1037,14 +960,107 @@ SELECT t_ok(fn_grievance_joint_md_seat_known('10000000-0000-0000-0000-0000000000
 -- (the reader gate in 30_ would rightly refuse this helper's dynamic SQL)
 DROP FUNCTION t_seen(uuid, text, uuid[]);
 
+-- ------------------------------------------------ 6g. round 8: the Director's banner, no existence oracle
+-- Runs one statement as a signed-in person and returns its single value as text.
+CREATE FUNCTION t_as(p_uid uuid, p_sql text) RETURNS text LANGUAGE plpgsql AS $$
+DECLARE v text;
+BEGIN
+  PERFORM set_config('request.jwt.claim.sub', p_uid::text, false);
+  PERFORM set_config('request.jwt.claim.role', 'authenticated', false);
+  SET ROLE authenticated;
+  EXECUTE p_sql INTO v;
+  RESET ROLE;
+  PERFORM set_config('request.jwt.claim.sub', '', false);
+  PERFORM set_config('request.jwt.claim.role', '', false);
+  RETURN v;
+EXCEPTION WHEN OTHERS THEN
+  RESET ROLE;
+  PERFORM set_config('request.jwt.claim.sub', '', false);
+  PERFORM set_config('request.jwt.claim.role', '', false);
+  RETURN 'ERROR ' || SQLSTATE || ': ' || SQLERRM;
+END $$;
+
+-- (2) "Confidential: N awaiting you" — the Director gets N, everybody else 0
+BEGIN;
+INSERT INTO grievance_tickets (institution_id, category_id, subject, description, raised_by_id, sla_deadline, about_joint_md) VALUES
+  ('10000000-0000-0000-0000-000000000001', 'c0000000-0000-0000-0000-000000000002', 'B-one', 'about the joint md', 'a0000000-0000-0000-0000-000000000007', now() + interval '3 days', true),
+  ('10000000-0000-0000-0000-000000000001', 'c0000000-0000-0000-0000-000000000002', 'B-two', 'about the joint md', 'a0000000-0000-0000-0000-000000000008', now() + interval '3 days', true);
+-- the Director hands B-two to a member of staff (it stands): it no longer
+-- awaits him, and it is not "awaiting" that staff member's banner either
+UPDATE grievance_tickets SET assigned_to = 'a0000000-0000-0000-0000-00000000000c' WHERE subject = 'B-two';
+SELECT count(*) AS awaiting_dir FROM grievance_tickets
+ WHERE about_joint_md AND assigned_to = 'a0000000-0000-0000-0000-00000000000e'
+   AND status IN ('open', 'in_progress', 'pending_info', 'reopened') AND resolved_at IS NULL AND withdrawn_at IS NULL \gset
+SELECT t_ok(:awaiting_dir >= 1 AND EXISTS (SELECT 1 FROM grievance_tickets WHERE about_joint_md AND resolved_at IS NULL
+                                            AND assigned_to IS DISTINCT FROM 'a0000000-0000-0000-0000-00000000000e'),
+            'setup: the Director holds ' || :awaiting_dir || ' open complaints about the Joint MD, and others are held or with someone else');
+SELECT t_ok(t_as('a0000000-0000-0000-0000-00000000000e', 'SELECT fn_grievance_confidential_awaiting_count()') = :awaiting_dir::text,
+            'the Director''s banner: Confidential: ' || :awaiting_dir || ' awaiting you');
+SELECT t_ok(t_as(u, 'SELECT fn_grievance_confidential_awaiting_count()') = '0',
+            'banner count for ' || u || ' is 0: ' || t_as(u, 'SELECT fn_grievance_confidential_awaiting_count()'))
+FROM unnest(ARRAY['a0000000-0000-0000-0000-000000000001',   -- the Joint MD (a super admin)
+                  'a0000000-0000-0000-0000-00000000000f',   -- another super admin
+                  'a0000000-0000-0000-0000-000000000007',   -- an ordinary user (who filed one)
+                  'a0000000-0000-0000-0000-000000000002',   -- a Principal
+                  'a0000000-0000-0000-0000-00000000000a',   -- the ICC chair
+                  'a0000000-0000-0000-0000-00000000000c'    -- the staff member who now holds B-two
+                 ]::uuid[]) AS u;
+SELECT t_ok(fn_grievance_confidential_awaiting_count() = 0, 'nobody signed in (the service role, a scheduler): 0');
+-- the Director named to the Joint MD's seat: his banner says 0 at once
+UPDATE platform_policies SET value = to_jsonb('a0000000-0000-0000-0000-00000000000e'::text)
+ WHERE policy_key = 'grievance.escalation.director_profile_id' AND scope_type = 'global';
+SELECT t_ok(t_as('a0000000-0000-0000-0000-00000000000e', 'SELECT fn_grievance_confidential_awaiting_count()') = '0',
+            'the Director named to the Joint MD''s seat: 0');
+ROLLBACK;
+SELECT t_ok(t_no_notice((SELECT id FROM grievance_tickets WHERE subject = 'J2c-superior-and-jmd')),
+            'the banner is the alert: still no notice row for any of them');
+
+-- (4) no existence oracle: a comment or history line on a complaint hidden
+--     from the caller fails exactly like one on a ticket that does not exist
+SELECT t_as('a0000000-0000-0000-0000-000000000001',
+            format('INSERT INTO grievance_comments (ticket_id, author_id, author_name, author_type, content) VALUES (%L, %L, ''x'', ''staff'', ''probe'') RETURNING 1',
+                   (tk('J2c-superior-and-jmd')).id, 'a0000000-0000-0000-0000-000000000001')) AS c_hidden \gset
+SELECT t_as('a0000000-0000-0000-0000-000000000001',
+            format('INSERT INTO grievance_comments (ticket_id, author_id, author_name, author_type, content) VALUES (%L, %L, ''x'', ''staff'', ''probe'') RETURNING 1',
+                   '00000000-0000-4000-8000-00000000dead', 'a0000000-0000-0000-0000-000000000001')) AS c_missing \gset
+SELECT t_ok(:'c_hidden' = :'c_missing' AND :'c_hidden' LIKE 'ERROR 23503:%',
+            'the Joint MD: a comment on a hidden complaint and on a missing one fail the same way: ' || :'c_hidden' || ' | ' || :'c_missing');
+SELECT t_as('a0000000-0000-0000-0000-000000000001',
+            format('INSERT INTO grievance_history (ticket_id, action, new_value, performed_by) VALUES (%L, ''note'', ''probe'', %L) RETURNING 1',
+                   (tk('J2c-superior-and-jmd')).id, 'a0000000-0000-0000-0000-000000000001')) AS h_hidden \gset
+SELECT t_as('a0000000-0000-0000-0000-000000000001',
+            format('INSERT INTO grievance_history (ticket_id, action, new_value, performed_by) VALUES (%L, ''note'', ''probe'', %L) RETURNING 1',
+                   '00000000-0000-4000-8000-00000000dead', 'a0000000-0000-0000-0000-000000000001')) AS h_missing \gset
+SELECT t_ok(:'h_hidden' = :'h_missing' AND :'h_hidden' LIKE 'ERROR 23503:%',
+            'and a history line: the same: ' || :'h_hidden' || ' | ' || :'h_missing');
+SELECT t_ok(NOT EXISTS (SELECT 1 FROM grievance_comments WHERE content = 'probe')
+            AND NOT EXISTS (SELECT 1 FROM grievance_history WHERE new_value = 'probe'), 'nothing was written');
+-- someone who may see it is not stopped by the guard (the filer on their own complaint)
+BEGIN;
+SELECT t_ok(t_as('a0000000-0000-0000-0000-000000000007',
+                 format('INSERT INTO grievance_comments (ticket_id, author_id, author_name, author_type, content) VALUES (%L, %L, ''Learner One'', ''complainant'', ''ok'') RETURNING 1',
+                        (tk('J2c-superior-and-jmd')).id, 'a0000000-0000-0000-0000-000000000007')) NOT LIKE 'ERROR 23503:%',
+            'the guard lets the filer through to the usual comment policies (the stub has no insert policy, so they decide)');
+ROLLBACK;
+-- comments stay hidden from her, visible to another super admin, through the
+-- ticket's own row-level security (no helper anybody can call)
+BEGIN;
+INSERT INTO grievance_comments (ticket_id, author_id, author_name, author_type, content)
+  VALUES ((tk('J2c-superior-and-jmd')).id, 'a0000000-0000-0000-0000-000000000007', 'Learner One', 'complainant', 'seen?');
+SELECT t_ok(t_as('a0000000-0000-0000-0000-000000000001',
+                 format('SELECT count(*) FROM grievance_comments WHERE ticket_id = %L', (tk('J2c-superior-and-jmd')).id)) = '0'
+            AND t_as('a0000000-0000-0000-0000-00000000000f',
+                 format('SELECT count(*) FROM grievance_comments WHERE ticket_id = %L', (tk('J2c-superior-and-jmd')).id)) = '1',
+            'comments of a complaint about her: 0 for the Joint MD, still there for another super admin');
+ROLLBACK;
+-- (the reader gate in 30_ would rightly refuse helpers that name the tables)
+DROP FUNCTION t_as(uuid, text);
+
 -- ------------------------------------------------ 7. across everything: never the Joint MD while ticked
 SELECT t_ok(NOT EXISTS (SELECT 1 FROM grievance_tickets WHERE about_joint_md AND assigned_to = 'a0000000-0000-0000-0000-000000000001'),
             'no ticked complaint is with the Joint MD');
-SELECT t_ok(NOT EXISTS (SELECT 1 FROM notifications n JOIN user_notifications un ON un.notification_id = n.id
-                        WHERE un.user_id = 'a0000000-0000-0000-0000-000000000001'
-                          AND (n.metadata ->> 'confidential' = 'true' OR n.action_config ->> 'confidential' = 'true'
-                               OR (n.metadata ->> 'ticket_id')::uuid IN (SELECT id FROM grievance_tickets WHERE about_joint_md))),
-            'the Joint MD was never told about a complaint that is still about her');
+SELECT t_ok(NOT EXISTS (SELECT 1 FROM grievance_tickets t WHERE t.about_joint_md AND NOT t_no_notice(t.id)),
+            'nobody — the Joint MD included — was ever sent a notice or work item about a complaint that is still about her');
 SELECT t_ok(NOT EXISTS (SELECT 1 FROM grievance_tickets t, jsonb_array_elements(COALESCE(t.metadata -> 'escalations', '[]')) e
                         WHERE t.about_joint_md AND e ->> 'to' = 'a0000000-0000-0000-0000-000000000001'),
             'no escalation step of a ticked complaint ever pointed at the Joint MD');

@@ -91,26 +91,6 @@ CREATE OR REPLACE FUNCTION public.user_has_permission(p_perm text) RETURNS boole
 CREATE OR REPLACE FUNCTION public.role_has_institution_access(p_inst uuid) RETURNS boolean LANGUAGE sql SECURITY DEFINER SET search_path = public STABLE AS $$
   SELECT EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND institution_id = p_inst); $$;
 
--- Row-level security on notifications / user_notifications, as production
--- has it (setup/03_policies.sql and 20251210_optimize_rls_policies.sql): the
--- recipient by targeting; super admins see everything and, with admins,
--- update and delete. Section 11b of the migration adds RESTRICTIVE policies.
-CREATE OR REPLACE FUNCTION public.fn_notification_is_for_user(p_targeting jsonb, p_user_id uuid) RETURNS boolean
-LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
-  SELECT COALESCE((p_targeting ->> 'user_id')::uuid = p_user_id OR (p_targeting -> 'user_ids' ? p_user_id::text)
-                  OR p_targeting ->> 'broadcast' = 'true', false) $$;
-ALTER TABLE public.notifications ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.user_notifications ENABLE ROW LEVEL SECURITY;
-GRANT SELECT, INSERT, UPDATE, DELETE ON public.notifications, public.user_notifications TO authenticated;
-CREATE POLICY notifications_select_own ON notifications FOR SELECT USING (auth.uid() IS NOT NULL AND fn_notification_is_for_user(targeting, auth.uid()));
-CREATE POLICY notifications_select_super_admin ON notifications FOR SELECT USING (is_super_admin());
-CREATE POLICY notifications_insert_admins ON notifications FOR INSERT WITH CHECK (is_super_admin() OR is_admin(auth.uid()));
-CREATE POLICY notifications_update_admins ON notifications FOR UPDATE USING (is_super_admin() OR is_admin(auth.uid())) WITH CHECK (is_super_admin() OR is_admin(auth.uid()));
-CREATE POLICY notifications_delete_admins ON notifications FOR DELETE USING (is_super_admin() OR is_admin(auth.uid()));
-CREATE POLICY "Users can view their own notifications" ON user_notifications FOR SELECT TO public USING (user_id = (SELECT auth.uid()));
-CREATE POLICY "Users can update their own notification read status" ON user_notifications FOR UPDATE TO public USING (user_id = (SELECT auth.uid()));
-CREATE POLICY "Super admins can manage all user notifications" ON user_notifications FOR ALL TO public USING (is_super_admin());
-
 CREATE TABLE public.grievance_categories (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(), institution_id uuid NOT NULL REFERENCES institutions(id), name varchar NOT NULL,
   default_sla_hours integer DEFAULT 72, default_assignee_role varchar, is_active boolean DEFAULT true, allow_anonymous boolean DEFAULT true);

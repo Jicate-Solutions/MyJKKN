@@ -33,6 +33,17 @@ export function leaveOutAboutJointMd<Q>(query: Q): Q {
   return (query as unknown as EqBuilder).eq(ABOUT_JOINT_MD_COLUMN, false) as Q;
 }
 
+/**
+ * The opposite, for the signed-in Director only (round 8): his own complaints
+ * about the Joint MD, behind the "Confidential: N awaiting you" banner. A
+ * USER-client read — row-level security still decides what he may see; this
+ * only narrows it. Never use it with the service role.
+ */
+export function onlyMyAboutJointMd<Q>(query: Q, assignee: string): Q {
+  const q = (query as unknown as EqBuilder).eq(ABOUT_JOINT_MD_COLUMN, true);
+  return (q as EqBuilder).eq('assigned_to', assignee) as Q;
+}
+
 type ResultLike = { error: unknown };
 type ProbeClient = {
   from: (table: string) => {

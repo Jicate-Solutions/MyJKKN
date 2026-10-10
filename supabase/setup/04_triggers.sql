@@ -3115,6 +3115,18 @@ CREATE TRIGGER trg_grievance_about_joint_md_guard
   BEFORE UPDATE ON public.grievance_tickets
   FOR EACH ROW EXECUTE FUNCTION public.fn_grievance_about_joint_md_guard();
 
+DROP TRIGGER IF EXISTS trg_grievance_comment_ticket_guard ON public.grievance_comments;
+
+CREATE TRIGGER trg_grievance_comment_ticket_guard
+  BEFORE INSERT ON public.grievance_comments
+  FOR EACH ROW EXECUTE FUNCTION public.fn_grievance_child_ticket_guard();
+
+DROP TRIGGER IF EXISTS trg_grievance_history_ticket_guard ON public.grievance_history;
+
+CREATE TRIGGER trg_grievance_history_ticket_guard
+  BEFORE INSERT ON public.grievance_history
+  FOR EACH ROW EXECUTE FUNCTION public.fn_grievance_child_ticket_guard();
+
 -- ---------------------------------------------------------------------
 -- 14) Self-check
 -- ---------------------------------------------------------------------
@@ -3130,14 +3142,6 @@ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_policy WHERE polname = 'grievance_tickets_hide_about_joint_md'
                     AND polrelid = 'public.grievance_tickets'::regclass AND NOT polpermissive) THEN
     RAISE EXCEPTION 'the restrictive policy hiding complaints about the Joint MD was not created';
-  END IF;
-  -- Confidential notices and work items: recipient only (section 11b).
-  IF (SELECT count(*) FROM pg_policy
-       WHERE polname IN ('notifications_confidential_recipient_select', 'notifications_confidential_recipient_update',
-                         'notifications_confidential_recipient_delete', 'user_notifications_confidential_recipient_select',
-                         'user_notifications_confidential_recipient_update', 'user_notifications_confidential_recipient_delete')
-         AND NOT polpermissive) <> 6 THEN
-    RAISE EXCEPTION 'the six recipient-only policies on notifications / user_notifications were not created';
   END IF;
   -- THE READER GATE (section 12b): no function, view or materialized view
   -- anywhere may read grievance_tickets / _comments / _history unless every

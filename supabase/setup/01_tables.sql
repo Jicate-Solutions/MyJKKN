@@ -12365,10 +12365,18 @@ CREATE UNIQUE INDEX IF NOT EXISTS ux_hr_memos_triggered_by_event
 --   current Director, never the Joint MD, and "configured" means every college
 --   has a usable Director (8); they stay in their college unless the Director
 --   moves them (10); section 9 is checked against the baseline it came from.
--- Updated: 2026-10-10 — independent review of round 5: notices and work
---   items about these complaints are CONFIDENTIAL — no ticket id anywhere,
---   and RESTRICTIVE policies on notifications / user_notifications let only
---   their recipient see, update or delete them (6, 9, 11b); the hourly run
+-- Updated: 2026-10-10 — round 8 (desk): a complaint about the Joint MD
+--   writes NO row to notifications / user_notifications — no notice, no work
+--   item (6, 8, 9). A shared table with many privileged readers cannot be made
+--   confidential, so this migration does not touch those tables or their
+--   policies at all. The Director's alert is the complaint itself: a count
+--   only he gets (fn_grievance_confidential_awaiting_count, banner on the
+--   complaints list) plus his My Desk. The hourly run re-routes one only when
+--   its holder sits in the Joint MD's seat or cannot act (a Director's own
+--   reassignment stands). No existence oracle: comments / history are hidden
+--   through the ticket's own row-level security and a comment on a hidden
+--   ticket fails exactly like one on a missing ticket (11).
+-- Updated: 2026-10-10 — independent review of round 5: the hourly run
 --   reads its switch without recording a policy_gate_observations row (8); a
 --   held one goes to the Director as soon as one resolves, every run (8);
 --   send-back leaves only a neutral history line (13).
@@ -12406,8 +12414,10 @@ CREATE UNIQUE INDEX IF NOT EXISTS ux_hr_memos_triggered_by_event
 --                    set / unusable = saved and HELD, unassigned, with the
 --                    reason in metadata.about_joint_md_hold. Escalation never
 --                    moves it to the Joint MD. The Joint MD cannot read it,
---                    its comments or history (row-level security), never gets
---                    a notice or work item for it, and it is left out of every
+--                    its comments or history (row-level security); NOBODY
+--                    gets a notice or work item for it (round 8: the Director
+--                    sees a count on the complaints list and his My Desk),
+--                    and it is left out of every
 --                    count (sections 8, 12) — not even complaints held with
 --                    nobody handling them are counted. Only the Director
 --                    can "send it back to the normal path" (section 13).

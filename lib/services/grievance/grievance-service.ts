@@ -15,6 +15,7 @@
 
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { updateGrievanceStatusAction } from '@/lib/grievance/actions';
+import { onlyMyAboutJointMd } from '@/lib/grievance/about-joint-md-filter';
 import type {
   GrievanceTicket,
   GrievanceTicketDetail,
@@ -38,6 +39,8 @@ export class GrievanceService {
     status?: GrievanceStatus;
     priority?: GrievancePriority;
     isEmergency?: boolean;
+    /** The Director's "Confidential: N awaiting you" filter: his own complaints about the Joint MD. */
+    confidentialAssignee?: string;
     page?: number;
     limit?: number;
   }): Promise<{ items: GrievanceTicket[]; total: number }> {
@@ -59,6 +62,7 @@ export class GrievanceService {
     if (params.status) query = query.eq('status', params.status);
     if (params.priority) query = query.eq('priority', params.priority);
     if (typeof params.isEmergency === 'boolean') query = query.eq('is_emergency', params.isEmergency);
+    if (params.confidentialAssignee) query = onlyMyAboutJointMd(query, params.confidentialAssignee);
 
     query = query.order('created_at', { ascending: false }).range(offset, offset + limit - 1);
 
@@ -66,6 +70,20 @@ export class GrievanceService {
     if (error) throw error;
 
     return { items: (data ?? []) as GrievanceTicket[], total: count ?? 0 };
+  }
+
+  /**
+   * How many complaints about the Joint MD await the signed-in Director
+   * (fn_grievance_confidential_awaiting_count). The database answers 0 for
+   * everybody else — the Joint MD and every other super admin included — and
+   * these complaints raise no bell notice, so this count is the Director's
+   * alert. Any error (e.g. the migration is not applied yet) reads as 0.
+   */
+  static async getConfidentialAwaitingCount(): Promise<number> {
+    const { data, error } = await (this.supabase as any).rpc('fn_grievance_confidential_awaiting_count');
+    if (error) return 0;
+    const n = Number(data ?? 0);
+    return Number.isFinite(n) && n > 0 ? n : 0;
   }
 
   static async getTicket(id: string): Promise<GrievanceTicketDetail> {
