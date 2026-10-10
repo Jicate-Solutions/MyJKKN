@@ -50,11 +50,14 @@ describe('patchEventTimeOutcome', () => {
     expect(await call()).toBe('unknown');
   });
   it('the PATCH carries an abort signal, so a hung Google call ends (and counts as unknown)', async () => {
+    let signal: unknown;
     fetchMock.mockImplementation(async (_url: string, init: { signal?: AbortSignal }) => {
-      expect(init.signal).toBeInstanceOf(AbortSignal);
+      signal = init.signal;
       throw Object.assign(new Error('The operation was aborted due to timeout'), { name: 'TimeoutError' });
     });
     expect(await call()).toBe('unknown');
+    // checked outside the fake, so a missing signal fails the test
+    expect(signal).toBeInstanceOf(AbortSignal);
   });
 
   it('a hung token step gives up after 5 s as refused (the PATCH was never sent)', async () => {
