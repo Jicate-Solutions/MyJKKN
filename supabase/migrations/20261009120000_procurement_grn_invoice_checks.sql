@@ -108,6 +108,20 @@
 --         the confirmation is written. Reviving a cancelled receipt voids its
 --         confirmation.
 --
+--  10. Director decisions 10 Oct 2026 (afternoon):
+--      E1. Self-check banned. Whoever received a delivery (procurement_grn.received_by)
+--          never checks it into stock, whatever their rights — admins and super admins
+--          included; only the service role is exempt. The verify guard refuses any entry
+--          into a posted status by the receiver (stored or new received_by); an INSERT
+--          straight into stock is refused unless it is a valid replacement receipt;
+--          received_by is now frozen for admins too. Replacement arm: whoever received
+--          the ORIGINAL delivery may neither claim its replacement
+--          (trg_pgrnr_replacement_checks, now BEFORE INSERT OR UPDATE) nor insert the
+--          replacement receipt.
+--      E2. No schema change: fn_ims_grn_retired_guard already lets an app user cancel a
+--          'verified' IMS receipt (status -> 'cancelled' + updated_at, what cancelGRN
+--          writes). GRN-260822-00002 is cancelled through the app after go-live.
+--
 -- I1 is deliberately NOT a unique index: the Director chose "confirm and allow" for
 -- honest resends, which a unique constraint would forbid.
 --
@@ -851,8 +865,31 @@ AS $$
 DECLARE
   v_status   text;
   v_rejected numeric;
+  v_receiver uuid;
 BEGIN
   IF coalesce(auth.role(), '') = 'service_role' THEN
+    RETURN NEW;
+  END IF;
+  -- E1 (Director 2026-10-10 afternoon), replacement arm: CLAIMING a replacement
+  -- (pending -> received, receiveReplacement's mutex) is receiving it, so it needs verify
+  -- rights and must not be done by whoever received the original delivery. Every other
+  -- UPDATE (the fulfilment link, the rollback to pending) is unchanged.
+  IF TG_OP = 'UPDATE' THEN
+    IF OLD.status = 'pending' AND NEW.status = 'received' THEN
+      IF NOT (public.is_super_admin() OR public.is_admin()
+              OR public.user_has_permission('procurement.grn_verify')) THEN
+        RAISE EXCEPTION 'not authorized to receive a replacement — this requires the procurement.grn_verify permission'
+          USING ERRCODE = '42501';
+      END IF;
+      SELECT g.received_by INTO v_receiver
+        FROM public.procurement_grn_items gi
+        JOIN public.procurement_grn g ON g.id = gi.grn_id
+       WHERE gi.id = NEW.grn_item_id;
+      IF auth.uid() IS NOT NULL AND v_receiver IS NOT DISTINCT FROM auth.uid() THEN
+        RAISE EXCEPTION 'you received the original delivery, so someone else must receive and check its replacement'
+          USING ERRCODE = '42501';
+      END IF;
+    END IF;
     RETURN NEW;
   END IF;
   IF NOT (public.is_super_admin() OR public.is_admin()
@@ -886,7 +923,7 @@ GRANT  EXECUTE ON FUNCTION public.fn_procurement_grn_replacement_checks() TO aut
 
 DROP TRIGGER IF EXISTS trg_pgrnr_replacement_checks ON public.procurement_grn_replacements;
 CREATE TRIGGER trg_pgrnr_replacement_checks
-  BEFORE INSERT ON public.procurement_grn_replacements
+  BEFORE INSERT OR UPDATE ON public.procurement_grn_replacements
   FOR EACH ROW EXECUTE FUNCTION public.fn_procurement_grn_replacement_checks();
 
 -- ----------------------------------------------------------------------------
