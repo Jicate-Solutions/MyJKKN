@@ -587,10 +587,14 @@ async function submit(
  * read is not selected, so a slug stored under a key this code does not know is
  * skipped rather than mis-triaged.
  *
- * ⚠ UNVERIFIED END TO END. Production holds ZERO rows with application_id set
- * (checked 2026-10-10 18:10), because the intake and backfill PRs are both still
- * drafts. This path has therefore never run against a real sibling row. It must
- * be exercised the day the intake lands, BEFORE the allowlist is switched on.
+ * ⚠ UNVERIFIED AGAINST A REAL ROW. Production holds ZERO rows with
+ * application_id set (checked 2026-10-10 18:10), because the intake and backfill
+ * PRs are both still drafts. What IS settled: the metadata keys and the five app
+ * slugs, read from the intake branch itself; and that this pass is inert with an
+ * empty allowlist and that its query executes clean when forced on. What is NOT
+ * settled is whether a real sibling bug yields a sensible briefing. Exercise it
+ * with ?sibling=<slug>&dry=1 the day the intake lands, read the briefings, and
+ * only then add the slug to the allowlist row.
  */
 async function submitSiblingApps(
   admin: Admin,
@@ -624,12 +628,20 @@ async function submitSiblingApps(
   for (const bug of Array.isArray(rows) ? rows : []) {
     if (out.sibling_considered >= batch) break;
 
-    // Slug match in code, not in the query: the set is small, and this keeps the
-    // one unverified assumption (which metadata key holds the slug) in plain
-    // sight instead of inside a PostgREST filter string.
+    // Slug match in code, not in the query: the set is small, and the key this
+    // reads is easier to check here than inside a PostgREST filter string.
+    //
+    // `metadata.source_app` is CONFIRMED against the intake, not guessed — the
+    // sibling route writes `application_id: app.id` alongside
+    // `metadata.source_app = app.slug` and `source_app_name = app.name`, and its
+    // migration seeds the slugs mentor, tms, coe, library, event-forms. Read from
+    // that branch directly on 2026-10-10, not taken on report.
+    //
+    // Still fails closed: a row whose slug cannot be read, or is not on the
+    // allowlist, is skipped rather than triaged.
     const meta = (bug.metadata ?? {}) as Record<string, unknown>;
     const slug = typeof meta.source_app === 'string' ? meta.source_app : null;
-    if (!slug || !allow.includes(slug)) continue; // fails closed
+    if (!slug || !allow.includes(slug)) continue;
 
     if (!bug.description || String(bug.description).trim().length === 0) {
       out.skipped_no_description += 1;
