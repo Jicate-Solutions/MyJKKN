@@ -33,6 +33,20 @@ function UnauthorizedContent() {
             variant: 'destructive' as const
           }
         };
+      case 'soi_no_programme':
+        // Sent by /startup-studio/school-of-influence when no programme event
+        // exists to apply to (BUG-005850). Not a permission refusal: say what is
+        // true and where to look next.
+        return {
+          icon: <AlertTriangle className='h-16 w-16 text-amber-500' />,
+          title: 'School of Influencer is not open',
+          subtitle: 'There is no programme to apply to right now',
+          message:
+            'No School of Influencer programme is set up for applications at the moment. Please check Events later, or ask the programme coordinator when applications open.',
+          buttonText: 'Go to Events',
+          buttonHref: '/events',
+          statusBadge: null
+        };
       default:
         return {
           icon: <ShieldAlert className='h-16 w-16 text-amber-500' />,
