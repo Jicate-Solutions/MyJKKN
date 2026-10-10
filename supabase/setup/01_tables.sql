@@ -12318,10 +12318,139 @@ CREATE UNIQUE INDEX IF NOT EXISTS ux_hr_memos_triggered_by_event
   WHERE triggered_by_event_id IS NOT NULL;
 
 -- =====================================================================
--- Updated: 2026-09-28 - Grievance: route on create, escalate on breach (columns)
--- Updated: 2026-10-09 - the "about the Joint MD" tick (rulings 9 Oct 23:18, 23:25)
+-- Grievance escalation + "about the Joint MD" (tables): GENERATED from the
+-- migration by supabase/tests/grievance/mirror_setup.py — do not edit by hand.
 -- Source of truth for apply: supabase/migrations/20271010020000_grievance_sla_escalation.sql
 -- =====================================================================
+-- =====================================================================
+-- Grievance: route on create, escalate on breach (HOD -> Principal -> Joint MD)
+-- Date: 2026-09-28
+-- Updated: 2026-10-09 — the "about the Joint MD" tick (Director rulings
+--   9 Oct 23:18 and 23:25): column about_joint_md, routing to the Director,
+--   hidden from the Joint MD, send-back action (sections 1, 2, 3b, 5, 7, 10-13).
+--   NOT applied to production when edited (no ledger row, 9 Oct 23:35).
+-- Updated: 2026-10-10 — deep-review fixes (PR #4079): the guard checks "never
+--   to the Joint MD" only when the handler changes and refuses setting the
+--   tick after filing (section 10); the hiding policies are TO authenticated
+--   (11); every read form in the five readers is wrapped and verified (12,
+--   14); the hourly run's answer carries no count or row for these (8).
+-- Updated: 2026-10-10 — deep review round 2 (PR #4079): RENAMED from
+--   20270420090000 to 20271010020000 so it sorts after every migration that
+--   (re)defines a reader it patches (20271008110101 rewrote
+--   fn_my_desk_waiting); send-back is the Director's alone and gives a fresh
+--   SLA (13); the rewriter also repairs schema-qualified column references
+--   (12). Never applied anywhere under the old number (no ledger row).
+-- Updated: 2026-10-10 — deep review round 3 (PR #4079): THE READER GATE
+--   (12b, 14): every function / view / materialized view naming
+--   grievance_tickets / _comments / _history must be wrapped or allow-listed
+--   with a reason, or the migration fails; THE SWITCH
+--   grievance.about_joint_md.hide_from_everyone (2, 3b; default = left out
+--   for everyone); get_grievance_sla_stats wrapped and emit_grievance_evidence
+--   patched (12); NO held count anywhere — the run reports only whether
+--   about-Joint-MD routing is configured (8); escalation never moves a
+--   complaint down the chain (8); a held complaint is nobody's work item (9);
+--   an empty college row no longer hides the global Director (3b, 13).
+-- Updated: 2026-10-10 — deep review round 4 (PR #4079): the configured
+--   Director ALWAYS sees these complaints in the patched readers (a held one
+--   stays on his My Desk), the Joint MD never, the switch decides only for
+--   everyone else; nobody signed in = hidden (fail closed); stored scores
+--   and evidence always leave them out (3b, 12); the hourly run handles each
+--   ticket in its own sub-transaction and counts failures (8); send-back
+--   checks the caller before locking the row (13).
+-- Updated: 2026-10-10 — deep review round 5 (PR #4079): one Director
+--   resolver (fn_grievance_director_for) that skips a row naming the Joint MD
+--   or someone who cannot act; routing metadata is the database's alone (7,
+--   10); notices and work items about these complaints name nothing (6, 9);
+--   `failed` never counts them (8); a holder who cannot act hands them to the
+--   current Director, never the Joint MD, and "configured" means every college
+--   has a usable Director (8); they stay in their college unless the Director
+--   moves them (10); section 9 is checked against the baseline it came from.
+-- Updated: 2026-10-10 — independent review of round 5: notices and work
+--   items about these complaints are CONFIDENTIAL — no ticket id anywhere,
+--   and RESTRICTIVE policies on notifications / user_notifications let only
+--   their recipient see, update or delete them (6, 9, 11b); the hourly run
+--   reads its switch without recording a policy_gate_observations row (8); a
+--   held one goes to the Director as soon as one resolves, every run (8);
+--   send-back leaves only a neutral history line (13).
+-- KNOWN OPEN ITEM (parked for the Director, round 2 H2): who holds the Joint
+--   MD's seat is read from the policy rows grievance.escalation.
+--   director_profile_id and instasolver.complaint.superior_route_to, and who
+--   is the Director from grievance.escalation.about_joint_md_profile_id. Any
+--   super admin can edit those rows today, so a super admin (the Joint MD
+--   included) can move herself out of the seat or redirect the Director.
+--   Not locked here. The round-3 switch row is a fourth such row.
+--
+-- WHY (production, read 2026-09-28 08:10 IST):
+--   * grievance_tickets: 9 ever filed, 8 open, 6 past sla_deadline, and
+--     escalation_level = 0 on every one. assigned_to is NULL on all 8 open
+--     tickets: nothing ever read grievance_categories.default_assignee_role,
+--     although the new-ticket form tells the filer "Auto-assignee: <role>".
+--     Every create path (Learners Council, Insta Solver, /accreditation form,
+--     b2a) inserts with no assignee.
+--   * The hourly cron /api/cron/grievance-sla-breach-check only stamped
+--     sla_breached_at. It told nobody and never raised escalation_level.
+--   * fn_generate_unresolved_issue_items linked every work item to
+--     /grievances/<id>, a page that does not exist. The ticket page is
+--     /accreditation/naac/grievance/<id>.
+--
+-- THE POLICY (every rule lives here, in the database; the route adds none):
+--   Chain position   1 = HOD, 2 = Principal, 3 = the Joint MD (Director ruling
+--                    8 Oct 2026; the policy key grievance.escalation.
+--                    director_profile_id and the word "Director level" below
+--                    are older names for that seat). Level 3 is the ceiling.
+--   About the        (ruling 9 Oct 2026 23:18 / 23:25) a complaint the filer
+--   Joint MD         ticked "This complaint is about the Joint MD"
+--                    (grievance_tickets.about_joint_md) goes to THE DIRECTOR
+--                    (policy grievance.escalation.about_joint_md_profile_id)
+--                    on create, skipping HOD, Principal and the Joint MD. Not
+--                    set / unusable = saved and HELD, unassigned, with the
+--                    reason in metadata.about_joint_md_hold. Escalation never
+--                    moves it to the Joint MD. The Joint MD cannot read it,
+--                    its comments or history (row-level security), never gets
+--                    a notice or work item for it, and it is left out of every
+--                    count (sections 8, 12) — not even complaints held with
+--                    nobody handling them are counted. Only the Director
+--                    can "send it back to the normal path" (section 13).
+--   On create        a ticket with no assignee goes to its category's
+--                    default_assignee_role: 'hod' -> the HOD (else the
+--                    Principal); 'principal' -> the Principal; 'admin' (or
+--                    anything else) -> the college's single admin-role profile
+--                    (else the Principal). The person is told by an in-app
+--                    notice. escalation_level stays 0 (not escalated); the
+--                    chain position the handler sits at is recorded in
+--                    metadata.auto_route.level so escalation starts ABOVE it.
+--   On breach        when the current level's deadline passes (level 0:
+--                    sla_deadline; level >= 1: escalation_deadline), the ticket
+--                    moves to the lowest chain level ABOVE both escalation_level
+--                    and the create-time handler's level that has a usable
+--                    person: assigned_to = that person, escalation_level = that
+--                    level, escalated_at = now, escalation_deadline = now +
+--                    grievance.escalation.level<N>_hours, one in-app notice.
+--                    At most one level per breach. Levels with nobody are
+--                    skipped and the reason is written into the event.
+--   Never            resolved / closed / withdrawn tickets; anything above 3.
+--   Switch           grievance.escalation.enabled (per college via scope).
+--                    Off = no escalation. Breach stamping (what the route
+--                    always did) continues regardless.
+--   Sensitive        is_icc_only, is_anonymous, and complaints about the
+--                    filer's own superior (Insta Solver I8) are NEVER routed
+--                    or escalated to a HOD or Principal: they are not
+--                    auto-routed on create, and on breach they go straight to
+--                    level 3 — for ICC-only, the active ICC committee chair of
+--                    the college if one exists, else the Director level.
+--   Never to         the person who filed or raised the ticket; an inactive or
+--                    login-disabled profile; a test / placeholder profile.
+--   Nobody usable    at every level above: the ticket is NOT moved, the reasons
+--                    are written ONCE to metadata.escalation_blocked, and the
+--                    run's answer counts it as skipped_no_target every hour
+--                    until someone fixes the data — never silent.
+--   A failed notice  never undoes an escalation or stops the run: it is
+--                    written on the event (notify_error) and counted as
+--                    notify_failed in the run's answer.
+--
+-- Rehearsal: supabase/tests/grievance/run.sh (local Postgres).
+-- =====================================================================
+
 -- ---------------------------------------------------------------------
 -- 1) Two columns: when the ticket last moved up, and that level's own deadline
 -- ---------------------------------------------------------------------
@@ -12334,6 +12463,7 @@ ALTER TABLE public.grievance_tickets
 
 COMMENT ON COLUMN public.grievance_tickets.escalated_at IS
   'When fn_grievance_escalation_tick last moved this ticket up the chain (HOD -> Principal -> the Joint MD). NULL = never escalated.';
+
 COMMENT ON COLUMN public.grievance_tickets.escalation_deadline IS
   'The deadline of the CURRENT escalation level (now + grievance.escalation.level<N>_hours when it moved up). Passing it moves the ticket up one more level. sla_deadline stays the original SLA.';
 

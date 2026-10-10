@@ -41,11 +41,13 @@ CREATE TABLE public.notifications (
   created_at timestamptz NOT NULL DEFAULT now(), updated_at timestamptz NOT NULL DEFAULT now(),
   category text DEFAULT 'general', sent_at timestamptz DEFAULT now(), expires_at timestamptz,
   requires_acknowledgment boolean DEFAULT false, idempotency_key text,
-  kind text NOT NULL DEFAULT 'announcement' CHECK (kind IN ('announcement','work_item')));
+  kind text NOT NULL DEFAULT 'announcement' CHECK (kind IN ('announcement','work_item')), action_config jsonb);
 CREATE UNIQUE INDEX idx_notifications_idempotency ON public.notifications (idempotency_key) WHERE idempotency_key IS NOT NULL;
 CREATE TABLE public.user_notifications (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(), notification_id uuid NOT NULL REFERENCES notifications(id), user_id uuid NOT NULL,
   read_at timestamptz, created_at timestamptz NOT NULL DEFAULT now(), UNIQUE (notification_id, user_id));
+-- (Row-level security on these two tables, as production has it, is set up
+-- further down, after is_super_admin() / is_admin() exist.)
 
 CREATE TABLE public.platform_policies (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(), policy_key text NOT NULL, scope_type text NOT NULL, scope_id uuid,
@@ -65,9 +67,18 @@ LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
 CREATE OR REPLACE FUNCTION public.fn_get_policy_int(p_key text, p_default integer, p_scope_id uuid DEFAULT NULL) RETURNS integer
 LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
   SELECT COALESCE((fn_get_policy(p_key, p_scope_id))::int, p_default) $$;
+-- Production's fn_get_policy_bool RECORDS every read in
+-- policy_gate_observations (20260808230000), a table super admins read; the
+-- stub records too, so the rehearsal can prove the hourly run's count does
+-- not depend on how many tickets are overdue.
+CREATE TABLE public.policy_gate_observations (policy_key text PRIMARY KEY, eval_count bigint NOT NULL DEFAULT 0);
 CREATE OR REPLACE FUNCTION public.fn_get_policy_bool(p_key text, p_default boolean, p_scope_id uuid DEFAULT NULL) RETURNS boolean
-LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
-  SELECT COALESCE((fn_get_policy(p_key, p_scope_id))::boolean, p_default) $$;
+LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path = public AS $$
+BEGIN
+  INSERT INTO policy_gate_observations (policy_key, eval_count) VALUES (p_key, 1)
+  ON CONFLICT (policy_key) DO UPDATE SET eval_count = policy_gate_observations.eval_count + 1;
+  RETURN COALESCE((fn_get_policy(p_key, p_scope_id))::boolean, p_default);
+END $$;
 
 CREATE OR REPLACE FUNCTION public.is_super_admin() RETURNS boolean LANGUAGE sql SECURITY DEFINER SET search_path = public STABLE AS $$
   SELECT EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND is_super_admin = true); $$;
@@ -79,6 +90,26 @@ CREATE OR REPLACE FUNCTION public.user_has_permission(p_perm text) RETURNS boole
                  WHERE p.id = auth.uid() AND (cr.permissions ->> p_perm)::boolean IS TRUE); $$;
 CREATE OR REPLACE FUNCTION public.role_has_institution_access(p_inst uuid) RETURNS boolean LANGUAGE sql SECURITY DEFINER SET search_path = public STABLE AS $$
   SELECT EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND institution_id = p_inst); $$;
+
+-- Row-level security on notifications / user_notifications, as production
+-- has it (setup/03_policies.sql and 20251210_optimize_rls_policies.sql): the
+-- recipient by targeting; super admins see everything and, with admins,
+-- update and delete. Section 11b of the migration adds RESTRICTIVE policies.
+CREATE OR REPLACE FUNCTION public.fn_notification_is_for_user(p_targeting jsonb, p_user_id uuid) RETURNS boolean
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
+  SELECT COALESCE((p_targeting ->> 'user_id')::uuid = p_user_id OR (p_targeting -> 'user_ids' ? p_user_id::text)
+                  OR p_targeting ->> 'broadcast' = 'true', false) $$;
+ALTER TABLE public.notifications ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.user_notifications ENABLE ROW LEVEL SECURITY;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.notifications, public.user_notifications TO authenticated;
+CREATE POLICY notifications_select_own ON notifications FOR SELECT USING (auth.uid() IS NOT NULL AND fn_notification_is_for_user(targeting, auth.uid()));
+CREATE POLICY notifications_select_super_admin ON notifications FOR SELECT USING (is_super_admin());
+CREATE POLICY notifications_insert_admins ON notifications FOR INSERT WITH CHECK (is_super_admin() OR is_admin(auth.uid()));
+CREATE POLICY notifications_update_admins ON notifications FOR UPDATE USING (is_super_admin() OR is_admin(auth.uid())) WITH CHECK (is_super_admin() OR is_admin(auth.uid()));
+CREATE POLICY notifications_delete_admins ON notifications FOR DELETE USING (is_super_admin() OR is_admin(auth.uid()));
+CREATE POLICY "Users can view their own notifications" ON user_notifications FOR SELECT TO public USING (user_id = (SELECT auth.uid()));
+CREATE POLICY "Users can update their own notification read status" ON user_notifications FOR UPDATE TO public USING (user_id = (SELECT auth.uid()));
+CREATE POLICY "Super admins can manage all user notifications" ON user_notifications FOR ALL TO public USING (is_super_admin());
 
 CREATE TABLE public.grievance_categories (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(), institution_id uuid NOT NULL REFERENCES institutions(id), name varchar NOT NULL,
@@ -266,6 +297,16 @@ CREATE OR REPLACE FUNCTION public.fn_create_dashboard_work_item(
   p_ttl_hours integer, p_extra integer DEFAULT NULL) RETURNS integer LANGUAGE plpgsql AS $$
 BEGIN
   INSERT INTO stub_work_items VALUES (p_key, p_target, p_metadata, p_title, p_body) ON CONFLICT DO NOTHING;
+  -- as production's fn_create_dashboard_work_item: a notifications row kind='work_item'
+  -- with action_config, targeted at the user, and its user_notifications row
+  IF NOT EXISTS (SELECT 1 FROM notifications WHERE idempotency_key = p_key) THEN
+    WITH n AS (
+      INSERT INTO notifications (title, body, category, kind, priority, action_config, idempotency_key, created_by, targeting)
+      VALUES (p_title, p_body, p_category, 'work_item', p_priority, p_metadata, p_key, p_target,
+              jsonb_build_object('type', 'user', 'user_ids', jsonb_build_array(p_target)))
+      RETURNING id)
+    INSERT INTO user_notifications (notification_id, user_id) SELECT id, p_target FROM n;
+  END IF;
   RETURN 1;
 END $$;
 

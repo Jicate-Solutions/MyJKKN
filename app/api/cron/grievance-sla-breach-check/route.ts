@@ -36,6 +36,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createServiceRoleClient } from '@/lib/supabase/server';
 import { logger } from '@/lib/utils/enhanced-logger';
 import { isMissingGrievanceSchema } from '@/lib/grievance/schema-compat';
+import { leaveOutAboutJointMd, readLeavingOutAboutJointMd } from '@/lib/grievance/about-joint-md-filter';
 
 const ESCALATION_TICK = 'fn_grievance_escalation_tick';
 
@@ -54,12 +55,16 @@ async function legacyBreachStamp(
 ) {
   logger.warn('grievance/cron/escalation', `${ESCALATION_TICK} is not in the database yet; breach stamping only (migration 20271010020000 not applied)`);
 
-  const { data: eligible, error: selectError } = await admin
-    .from('grievance_tickets')
-    .select('id')
-    .in('status', ['open', 'in_progress', 'pending_info', 'reopened'])
-    .is('sla_breached_at', null)
-    .lt('sla_deadline', new Date().toISOString());
+  // Through the shared helper like every service-role reader (round 6): it
+  // leaves out complaints about the Joint MD once the column exists, and reads
+  // as before while it does not.
+  const { data: eligible, error: selectError } = await readLeavingOutAboutJointMd(admin, (leaveOut) => {
+    const base = admin.from('grievance_tickets').select('id');
+    return (leaveOut ? leaveOutAboutJointMd(base) : base)
+      .in('status', ['open', 'in_progress', 'pending_info', 'reopened'])
+      .is('sla_breached_at', null)
+      .lt('sla_deadline', new Date().toISOString());
+  });
   if (selectError) {
     logger.error('grievance/cron/escalation', 'legacy breach select failed', selectError);
     return NextResponse.json(

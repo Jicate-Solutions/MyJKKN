@@ -41,6 +41,13 @@
 --   current Director, never the Joint MD, and "configured" means every college
 --   has a usable Director (8); they stay in their college unless the Director
 --   moves them (10); section 9 is checked against the baseline it came from.
+-- Updated: 2026-10-10 — independent review of round 5: notices and work
+--   items about these complaints are CONFIDENTIAL — no ticket id anywhere,
+--   and RESTRICTIVE policies on notifications / user_notifications let only
+--   their recipient see, update or delete them (6, 9, 11b); the hourly run
+--   reads its switch without recording a policy_gate_observations row (8); a
+--   held one goes to the Director as soon as one resolves, every run (8);
+--   send-back leaves only a neutral history line (13).
 -- KNOWN OPEN ITEM (parked for the Director, round 2 H2): who holds the Joint
 --   MD's seat is read from the policy rows grievance.escalation.
 --   director_profile_id and instasolver.complaint.superior_route_to, and who
@@ -474,6 +481,22 @@ AS $$
 $$;
 REVOKE EXECUTE ON FUNCTION public.fn_grievance_system_metadata_keys() FROM anon, authenticated, PUBLIC;
 
+-- A boolean setting read WITHOUT recording a policy_gate_observations row
+-- (fn_get_policy, not fn_get_policy_bool), for the hourly run (round 6).
+CREATE OR REPLACE FUNCTION public.fn_grievance_policy_flag(p_key text, p_default boolean, p_scope uuid DEFAULT NULL)
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SET search_path = public
+AS $$
+  SELECT COALESCE(CASE jsonb_typeof(x.v)
+                    WHEN 'boolean' THEN (x.v)::boolean
+                    WHEN 'string'  THEN lower(x.v #>> '{}') IN ('true', 't', '1', 'yes', 'on')
+                  END, p_default)
+  FROM (SELECT public.fn_get_policy(p_key, p_scope) AS v) AS x
+$$;
+REVOKE EXECUTE ON FUNCTION public.fn_grievance_policy_flag(text, boolean, uuid) FROM anon, authenticated, PUBLIC;
+
 -- Records why the hourly run could not process one ticket (round 4, M5).
 -- Best effort: a row that refuses even this write keeps its error in the
 -- run's `failed` count.
@@ -730,6 +753,7 @@ DECLARE
   v_title text;
   v_body  text;
   v_when  text := COALESCE(to_char(p_deadline AT TIME ZONE 'Asia/Kolkata', 'DD Mon YYYY, HH24:MI') || ' IST', 'as soon as you can');
+  v_conf  boolean := COALESCE(p_t.about_joint_md, false);
 BEGIN
   IF p_to IS NULL THEN RETURN NULL; END IF;
 
@@ -754,22 +778,31 @@ BEGIN
     v_body  := '"' || left(p_t.subject, 120) || '" was filed and sent to you. Please respond by ' || v_when || '. Open this notice to see it.';
   END IF;
 
+  -- A complaint about the Joint MD (round 6): a CONFIDENTIAL notice. It names
+  -- no ticket anywhere — not in the url (the complaints list, where the
+  -- Director's own row-level security shows it), not in the targeting or the
+  -- metadata, not in the dedupe key (hashed) — and metadata.confidential lets
+  -- the RESTRICTIVE policies below show and change it for its recipient only.
   INSERT INTO public.notifications
     (title, body, url, created_by, targeting, priority, category, metadata,
      requires_acknowledgment, expires_at, idempotency_key)
   VALUES
     (v_title, v_body,
-     '/accreditation/naac/grievance/' || p_t.id::text,
+     CASE WHEN v_conf THEN '/accreditation/naac/grievance'
+          ELSE '/accreditation/naac/grievance/' || p_t.id::text END,
      p_to,
-     jsonb_build_object('type', 'grievance_' || p_kind, 'ticket_id', p_t.id),
+     CASE WHEN v_conf THEN jsonb_build_object('type', 'user', 'user_ids', jsonb_build_array(p_to))
+          ELSE jsonb_build_object('type', 'grievance_' || p_kind, 'ticket_id', p_t.id) END,
      CASE WHEN p_kind = 'escalated' AND p_level >= 2 THEN 'urgent' ELSE 'high' END,
      'grievance:' || p_kind,
-     jsonb_build_object('kind', 'grievance_' || p_kind, 'ticket_id', p_t.id,
-                        'ticket_number', CASE WHEN COALESCE(p_t.about_joint_md, false) THEN NULL ELSE p_t.ticket_number END,
-                        'level', p_level, 'source', 'grievance_escalation'),
+     CASE WHEN v_conf THEN jsonb_build_object('kind', 'grievance_confidential', 'confidential', true,
+                                              'source', 'grievance_escalation')
+          ELSE jsonb_build_object('kind', 'grievance_' || p_kind, 'ticket_id', p_t.id,
+                                  'ticket_number', p_t.ticket_number, 'level', p_level,
+                                  'source', 'grievance_escalation') END,
      false,
      now() + interval '30 days',
-     p_key)
+     CASE WHEN v_conf THEN 'grievance-confidential:' || md5(p_key) ELSE p_key END)
   ON CONFLICT (idempotency_key) WHERE idempotency_key IS NOT NULL DO NOTHING
   RETURNING id INTO v_nid;
 
@@ -997,6 +1030,7 @@ DECLARE
   v_err        text;
   v_nadd       integer;
   v_nfadd      integer;
+  v_on_by_college jsonb;
 BEGIN
   IF auth.uid() IS NOT NULL THEN
     RAISE EXCEPTION 'the grievance escalation run is started by the scheduler, not by a person' USING ERRCODE = '42501';
@@ -1058,7 +1092,13 @@ BEGIN
     END;
   END IF;
 
-  v_enabled := COALESCE(public.fn_get_policy_bool('grievance.escalation.enabled', false), false);
+  -- The switch is read ONCE per run, per college, through a read that records
+  -- nothing (fn_get_policy, not fn_get_policy_bool): policy_gate_observations,
+  -- which super admins read, must not count overdue tickets (round 6).
+  v_enabled := public.fn_grievance_policy_flag('grievance.escalation.enabled', false, NULL);
+  SELECT COALESCE(jsonb_object_agg(i.id::text, public.fn_grievance_policy_flag('grievance.escalation.enabled', false, i.id)), '{}'::jsonb)
+    INTO v_on_by_college
+  FROM public.institutions i;
 
   -- 2) Escalation. Each ticket in its own sub-transaction: one that fails is
   --    rolled back alone, recorded on the ticket (metadata.escalation_error)
@@ -1075,53 +1115,90 @@ BEGIN
     v_from := COALESCE(v_t.escalation_level, 0);
     v_due  := CASE WHEN v_from = 0 THEN v_t.sla_deadline
                    ELSE COALESCE(v_t.escalation_deadline, v_t.sla_deadline) END;
-    CONTINUE WHEN v_due IS NULL OR v_due >= v_now;   -- not overdue at its current level
     v_show := NOT COALESCE(v_t.about_joint_md, false);   -- counted and listed only when true (M6)
 
-    BEGIN
-      -- A complaint about the Joint MD whose holder can no longer act (the
-      -- Director left, was deactivated, lost his login): to the Director the
-      -- setting names now, if there is a usable one — never the Joint MD.
-      -- Otherwise it stays, the block is written once on the ticket, and the
-      -- run reports routing as not configured (round 5, M3). Never counted.
-      IF NOT v_show AND v_t.assigned_to IS NOT NULL
-         AND public.fn_grievance_profile_unusable(v_t.assigned_to) IS NOT NULL THEN
-        v_res := public.fn_grievance_about_joint_md_target(v_t);
-        IF (v_res ->> 'to') IS NOT NULL THEN
-          v_to := (v_res ->> 'to')::uuid;
-          v_hours := GREATEST(COALESCE(public.fn_get_policy_int('grievance.escalation.level3_hours', 72, v_t.institution_id), 72), 1);
-          v_deadline := v_now + make_interval(hours => v_hours);
-          v_event := jsonb_build_object('level', 3, 'role', 'the_director', 'to', v_to, 'via', v_res ->> 'via',
-            'at', v_now, 'deadline', v_deadline, 'from_level', v_from, 'previous_assignee', v_t.assigned_to,
-            'reason', 'holder_cannot_act');
-          IF NOT v_dry THEN
-            UPDATE public.grievance_tickets
-               SET assigned_to = v_to, assigned_at = v_now, escalated_at = v_now,
-                   escalation_deadline = v_deadline,
-                   metadata = (COALESCE(metadata, '{}'::jsonb) - 'escalation_blocked' - 'escalation_error')
-                              || jsonb_build_object('escalations',
-                                   COALESCE(metadata -> 'escalations', '[]'::jsonb) || jsonb_build_array(v_event))
-             WHERE id = v_t.id;
-            BEGIN
-              PERFORM public.fn_grievance_notify(v_t, v_to, 'escalated', 3, v_deadline,
-                'grievance-rerouted:' || v_t.id::text || ':' || v_to::text);
-            EXCEPTION WHEN OTHERS THEN
+    -- A complaint about the Joint MD, EVERY run, whatever its deadline or the
+    -- switch (round 6): a held one goes to the Director as soon as a usable
+    -- one resolves (one he filed himself stays held); one whose holder can no
+    -- longer act goes to the current Director. Never counted, never listed.
+    IF NOT v_show THEN
+      BEGIN
+        IF v_t.assigned_to IS NULL THEN
+          v_res := public.fn_grievance_about_joint_md_target(v_t);
+          IF (v_res ->> 'to') IS NOT NULL THEN
+            v_to := (v_res ->> 'to')::uuid;
+            IF NOT v_dry THEN
               UPDATE public.grievance_tickets
-                 SET metadata = jsonb_set(metadata, '{escalations,-1,notify_error}', to_jsonb(SQLERRM))
+                 SET assigned_to = v_to, assigned_at = v_now,
+                     metadata = (COALESCE(metadata, '{}'::jsonb) - 'about_joint_md_hold' - 'escalation_blocked')
+                                || jsonb_build_object('auto_route', jsonb_build_object(
+                                     'assigned_to', v_to, 'level', 3, 'role', 'the_director',
+                                     'via', v_res ->> 'via', 'reason', 'about_joint_md', 'at', v_now))
                WHERE id = v_t.id;
-            END;
+              BEGIN
+                PERFORM public.fn_grievance_notify(v_t, v_to, 'assigned', 3, v_t.sla_deadline,
+                  'grievance-handed-to-director:' || v_t.id::text || ':' || v_to::text);
+              EXCEPTION WHEN OTHERS THEN
+                NULL;   -- a failed notice never undoes the hand-over
+              END;
+            END IF;
+            CONTINUE;
           END IF;
-        ELSIF NOT v_dry AND (v_t.metadata -> 'escalation_blocked' ->> 'reason') IS DISTINCT FROM 'holder_cannot_act' THEN
-          UPDATE public.grievance_tickets
-             SET metadata = COALESCE(metadata, '{}'::jsonb) || jsonb_build_object('escalation_blocked',
-                   jsonb_build_object('from_level', v_from, 'at', v_now, 'reason', 'holder_cannot_act',
-                                      'skipped', jsonb_build_array(v_res)))
-           WHERE id = v_t.id;
+        END IF;
+        -- A complaint about the Joint MD whose holder can no longer act (the
+        -- Director left, was deactivated, lost his login): to the Director the
+        -- setting names now, if there is a usable one — never the Joint MD.
+        -- Otherwise it stays, the block is written once on the ticket, and the
+        -- run reports routing as not configured (round 5, M3). Never counted.
+        IF NOT v_show AND v_t.assigned_to IS NOT NULL
+           AND public.fn_grievance_profile_unusable(v_t.assigned_to) IS NOT NULL THEN
+          v_res := public.fn_grievance_about_joint_md_target(v_t);
+          IF (v_res ->> 'to') IS NOT NULL THEN
+            v_to := (v_res ->> 'to')::uuid;
+            v_hours := GREATEST(COALESCE(public.fn_get_policy_int('grievance.escalation.level3_hours', 72, v_t.institution_id), 72), 1);
+            v_deadline := v_now + make_interval(hours => v_hours);
+            v_event := jsonb_build_object('level', 3, 'role', 'the_director', 'to', v_to, 'via', v_res ->> 'via',
+              'at', v_now, 'deadline', v_deadline, 'from_level', v_from, 'previous_assignee', v_t.assigned_to,
+              'reason', 'holder_cannot_act');
+            IF NOT v_dry THEN
+              UPDATE public.grievance_tickets
+                 SET assigned_to = v_to, assigned_at = v_now, escalated_at = v_now,
+                     escalation_deadline = v_deadline,
+                     metadata = (COALESCE(metadata, '{}'::jsonb) - 'escalation_blocked' - 'escalation_error')
+                                || jsonb_build_object('escalations',
+                                     COALESCE(metadata -> 'escalations', '[]'::jsonb) || jsonb_build_array(v_event))
+               WHERE id = v_t.id;
+              BEGIN
+                PERFORM public.fn_grievance_notify(v_t, v_to, 'escalated', 3, v_deadline,
+                  'grievance-rerouted:' || v_t.id::text || ':' || v_to::text);
+              EXCEPTION WHEN OTHERS THEN
+                UPDATE public.grievance_tickets
+                   SET metadata = jsonb_set(metadata, '{escalations,-1,notify_error}', to_jsonb(SQLERRM))
+                 WHERE id = v_t.id;
+              END;
+            END IF;
+          ELSIF NOT v_dry AND (v_t.metadata -> 'escalation_blocked' ->> 'reason') IS DISTINCT FROM 'holder_cannot_act' THEN
+            UPDATE public.grievance_tickets
+               SET metadata = COALESCE(metadata, '{}'::jsonb) || jsonb_build_object('escalation_blocked',
+                     jsonb_build_object('from_level', v_from, 'at', v_now, 'reason', 'holder_cannot_act',
+                                        'skipped', jsonb_build_array(v_res)))
+             WHERE id = v_t.id;
+          END IF;
+          CONTINUE;
+        END IF;
+
+      EXCEPTION WHEN OTHERS THEN
+        IF NOT v_dry THEN
+          PERFORM public.fn_grievance_tick_record_failure(v_t.id, 'about_joint_md', SQLERRM, v_now);
         END IF;
         CONTINUE;
-      END IF;
+      END;
+    END IF;
 
-      IF NOT COALESCE(public.fn_get_policy_bool('grievance.escalation.enabled', false, v_t.institution_id), false) THEN
+    CONTINUE WHEN v_due IS NULL OR v_due >= v_now;   -- not overdue at its current level
+
+    BEGIN
+      IF NOT COALESCE((v_on_by_college ->> v_t.institution_id::text)::boolean, v_enabled) THEN
         IF v_show THEN v_off := v_off + 1; END IF;
         CONTINUE;
       END IF;
@@ -1313,7 +1390,7 @@ BEGIN
   WHERE p.proname = 'fn_generate_unresolved_issue_items' AND p.pronargs = 0;
   IF v_md5 IS NOT NULL
      AND v_md5 NOT IN ('89ee6b3aebeb661d74331f3796c5525e',    -- 20261213100000 (baseline)
-                       'f8325d703091629996b988480b63c14d') THEN -- this migration (re-apply)
+                       'f0446dfe4139e9fe6a42dee39b9181d4') THEN -- this migration (re-apply)
     RAISE EXCEPTION 'grievance: fn_generate_unresolved_issue_items in this database (md5 %) is neither the 20261213100000 body this migration was written against nor its own version: re-create section 9 from the live body before applying.', v_md5;
   END IF;
 END
@@ -1416,6 +1493,12 @@ BEGIN
     -- every open ticket for one day across the deploy window.
     -- The url is the real ticket page (2026-09-28); /grievances/<id> never existed.
     v_key := 'grievance_ticket:' || v_griev.id::text || ':' || CURRENT_DATE::text;
+    -- A complaint about the Joint MD: a confidential work item (round 6) with
+    -- no ticket id, level, breach or emergency flag, a hashed key, and
+    -- action_config.confidential for the recipient-only policies below.
+    IF COALESCE(v_griev.about_joint_md, false) THEN
+      v_key := 'grievance_confidential:' || md5(v_key);
+    END IF;
     v_created := v_created + fn_create_dashboard_work_item(
       v_category, v_priority,
       -- A complaint about the Joint MD: no subject, description or number on
@@ -1427,15 +1510,17 @@ BEGIN
         CASE WHEN v_griev.escalation_level > 0 THEN ' | escalated L' || v_griev.escalation_level::text ELSE '' END ||
         CASE WHEN v_griev.sla_deadline < NOW() THEN ' | SLA breached ' || v_hours_past_sla::text || 'h' ELSE '' END ||
         CASE WHEN v_griev.assigned_to IS NULL THEN ' | UNASSIGNED, routed to Director' ELSE '' END END,
-      jsonb_build_object(
+      CASE WHEN COALESCE(v_griev.about_joint_md, false)
+        THEN jsonb_build_object('confidential', true, 'url', '/accreditation/naac/grievance')
+        ELSE jsonb_build_object(
         'grievance_id',     v_griev.id,
-        'ticket_number',    CASE WHEN COALESCE(v_griev.about_joint_md, false) THEN NULL ELSE v_griev.ticket_number END,
+        'ticket_number',    v_griev.ticket_number,
         'escalation_level', v_griev.escalation_level,
         'sla_breached',     (v_griev.sla_deadline < NOW()),
         'is_emergency',     v_griev.is_emergency,
         'unassigned_fallback', v_griev.assigned_to IS NULL,
         'url', '/accreditation/naac/grievance/' || v_griev.id::text
-      ),
+      ) END,
       v_target, v_key,
       CASE
         WHEN v_griev.is_emergency OR v_griev.escalation_level >= v_urgent_when_escalation_gte
@@ -1575,6 +1660,77 @@ CREATE POLICY grievance_history_hide_about_joint_md ON public.grievance_history
   AS RESTRICTIVE FOR ALL TO authenticated
   USING (CASE WHEN cardinality((SELECT public.fn_grievance_caller_joint_md_scope())) = 0 THEN true
               ELSE NOT public.fn_grievance_ticket_hidden_from_caller(ticket_id) END);
+
+-- ---------------------------------------------------------------------
+-- 11b) Confidential notices and work items: their recipient only
+-- ---------------------------------------------------------------------
+-- notifications / user_notifications already let every super admin read all
+-- rows (notifications_select_super_admin, "Super admins can manage all user
+-- notifications") and update or delete them (notifications_update_admins /
+-- _delete_admins). The notice or work item about a complaint about the Joint
+-- MD is marked confidential (notifications.metadata.confidential, or
+-- action_config.confidential on a work item; sections 6 and 9), and these
+-- RESTRICTIVE policies — ANDed with every existing one, which stay exactly
+-- as they are — let ONLY the person it targets see, update or delete it.
+-- Every other row is untouched; the service role is not subject to them;
+-- inserts are not covered (the database writes these rows). The
+-- notifications screens (/notifications/admin, the bell) behave as before
+-- for every row that is not confidential (deep review round 6, H1).
+CREATE OR REPLACE FUNCTION public.fn_notification_is_confidential(p_notification_id uuid)
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  SELECT EXISTS (
+    SELECT 1 FROM public.notifications n
+    WHERE n.id = p_notification_id
+      AND (n.metadata ->> 'confidential' = 'true' OR n.action_config ->> 'confidential' = 'true'))
+$$;
+-- ci:allow-secdef-authenticated the RESTRICTIVE policies on user_notifications call fn_notification_is_confidential(notification_id) for every signed-in reader, and the caller usually cannot read the notification row itself; it answers only whether one notification is confidential, never what it says or whom it is for.
+REVOKE EXECUTE ON FUNCTION public.fn_notification_is_confidential(uuid) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_notification_is_confidential(uuid) TO authenticated, service_role;
+
+DROP POLICY IF EXISTS notifications_confidential_recipient_select ON public.notifications;
+CREATE POLICY notifications_confidential_recipient_select ON public.notifications
+  AS RESTRICTIVE FOR SELECT TO authenticated
+  USING (CASE WHEN metadata ->> 'confidential' = 'true' OR action_config ->> 'confidential' = 'true'
+              THEN public.fn_notification_is_for_user(targeting, (SELECT auth.uid()))
+              ELSE true END);
+DROP POLICY IF EXISTS notifications_confidential_recipient_update ON public.notifications;
+CREATE POLICY notifications_confidential_recipient_update ON public.notifications
+  AS RESTRICTIVE FOR UPDATE TO authenticated
+  USING (CASE WHEN metadata ->> 'confidential' = 'true' OR action_config ->> 'confidential' = 'true'
+              THEN public.fn_notification_is_for_user(targeting, (SELECT auth.uid()))
+              ELSE true END)
+  WITH CHECK (CASE WHEN metadata ->> 'confidential' = 'true' OR action_config ->> 'confidential' = 'true'
+                   THEN public.fn_notification_is_for_user(targeting, (SELECT auth.uid()))
+                   ELSE true END);
+DROP POLICY IF EXISTS notifications_confidential_recipient_delete ON public.notifications;
+CREATE POLICY notifications_confidential_recipient_delete ON public.notifications
+  AS RESTRICTIVE FOR DELETE TO authenticated
+  USING (CASE WHEN metadata ->> 'confidential' = 'true' OR action_config ->> 'confidential' = 'true'
+              THEN public.fn_notification_is_for_user(targeting, (SELECT auth.uid()))
+              ELSE true END);
+
+DROP POLICY IF EXISTS user_notifications_confidential_recipient_select ON public.user_notifications;
+CREATE POLICY user_notifications_confidential_recipient_select ON public.user_notifications
+  AS RESTRICTIVE FOR SELECT TO authenticated
+  USING (CASE WHEN user_id = (SELECT auth.uid()) THEN true
+              ELSE NOT public.fn_notification_is_confidential(notification_id) END);
+DROP POLICY IF EXISTS user_notifications_confidential_recipient_update ON public.user_notifications;
+CREATE POLICY user_notifications_confidential_recipient_update ON public.user_notifications
+  AS RESTRICTIVE FOR UPDATE TO authenticated
+  USING (CASE WHEN user_id = (SELECT auth.uid()) THEN true
+              ELSE NOT public.fn_notification_is_confidential(notification_id) END)
+  WITH CHECK (CASE WHEN user_id = (SELECT auth.uid()) THEN true
+                   ELSE NOT public.fn_notification_is_confidential(notification_id) END);
+DROP POLICY IF EXISTS user_notifications_confidential_recipient_delete ON public.user_notifications;
+CREATE POLICY user_notifications_confidential_recipient_delete ON public.user_notifications
+  AS RESTRICTIVE FOR DELETE TO authenticated
+  USING (CASE WHEN user_id = (SELECT auth.uid()) THEN true
+              ELSE NOT public.fn_notification_is_confidential(notification_id) END);
 
 -- ---------------------------------------------------------------------
 -- 12) About the Joint MD: no list row and no count through the SECURITY
@@ -2165,7 +2321,9 @@ DECLARE
   v_to     uuid;
   v_hours  integer;
   v_due    timestamptz;
-  v_note   text := NULLIF(left(btrim(COALESCE(p_note, '')), 500), '');
+  -- p_note is accepted for the existing caller and deliberately NOT stored:
+  -- anything kept on the ticket becomes readable by the Joint MD once the
+  -- tick is cleared (round 6).
 BEGIN
   IF v_uid IS NULL THEN
     RETURN jsonb_build_object('success', false, 'error', 'You are not signed in.');
@@ -2228,25 +2386,21 @@ BEGIN
          sla_deadline        = v_due,
          sla_breached_at     = NULL,
          sla_status          = 'on_track',
-         metadata = (COALESCE(metadata, '{}'::jsonb) - 'about_joint_md_hold' - 'escalation_blocked')
-                    || jsonb_build_object(
-                         'auto_route', v_route -> 'auto_route',
-                         'about_joint_md_sent_back', jsonb_build_object(
-                           'by', v_uid, 'at', now(), 'note', v_note,
-                           'previous_assignee', v_was.assigned_to,
-                           'previous_level', v_was.escalation_level,
-                           'previous_sla_deadline', v_was.sla_deadline,
-                           'previous_sla_breached_at', v_was.sla_breached_at))
+         -- Once the tick is cleared the Joint MD may read this row, so it keeps
+         -- NOTHING from its time as a complaint about her (round 6): no hold,
+         -- no escalation steps (they name the Director's level), no send-back
+         -- marker, no note.
+         metadata = (COALESCE(metadata, '{}'::jsonb) - 'about_joint_md_hold' - 'escalation_blocked'
+                     - 'escalations' - 'escalation_error' - 'about_joint_md_sent_back')
+                    || jsonb_build_object('auto_route', v_route -> 'auto_route')
    WHERE id = v_was.id
    RETURNING * INTO v_t;
   PERFORM set_config('app.grievance_send_back', '', true);
   PERFORM set_config('app.grievance_system_write', '', true);
 
+  -- Neutral words: the Joint MD may read this history line from now on.
   INSERT INTO public.grievance_history (ticket_id, action, old_value, new_value, performed_by)
-  VALUES (v_t.id, 'about_joint_md_sent_back',
-          'about the Joint MD; with ' || COALESCE(v_was.assigned_to::text, 'nobody (held)'),
-          'normal path; with ' || COALESCE(v_to::text, 'nobody yet') || COALESCE('; note: ' || v_note, ''),
-          v_uid);
+  VALUES (v_t.id, 'routing_corrected', NULL, 'Routing corrected by the Director', v_uid);
 
   -- A failed notice never undoes the send-back.
   BEGIN
@@ -2280,6 +2434,14 @@ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_policy WHERE polname = 'grievance_tickets_hide_about_joint_md'
                     AND polrelid = 'public.grievance_tickets'::regclass AND NOT polpermissive) THEN
     RAISE EXCEPTION 'the restrictive policy hiding complaints about the Joint MD was not created';
+  END IF;
+  -- Confidential notices and work items: recipient only (section 11b).
+  IF (SELECT count(*) FROM pg_policy
+       WHERE polname IN ('notifications_confidential_recipient_select', 'notifications_confidential_recipient_update',
+                         'notifications_confidential_recipient_delete', 'user_notifications_confidential_recipient_select',
+                         'user_notifications_confidential_recipient_update', 'user_notifications_confidential_recipient_delete')
+         AND NOT polpermissive) <> 6 THEN
+    RAISE EXCEPTION 'the six recipient-only policies on notifications / user_notifications were not created';
   END IF;
   -- THE READER GATE (section 12b): no function, view or materialized view
   -- anywhere may read grievance_tickets / _comments / _history unless every

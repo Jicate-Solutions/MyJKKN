@@ -12399,25 +12399,90 @@ CREATE POLICY ig_learner_post_claims_delete ON public.ig_learner_post_claims
   );
 
 -- =====================================================================
--- Updated: 2026-09-28 - Grievance: route on create, escalate on breach (row-level security)
--- Updated: 2026-10-09 - the "about the Joint MD" tick (rulings 9 Oct 23:18, 23:25)
+-- Grievance escalation + "about the Joint MD" (policies): GENERATED from the
+-- migration by supabase/tests/grievance/mirror_setup.py — do not edit by hand.
 -- Source of truth for apply: supabase/migrations/20271010020000_grievance_sla_escalation.sql
 -- =====================================================================
+-- ---------------------------------------------------------------------
+-- 11) About the Joint MD: the Joint MD cannot read it (row-level security)
+-- ---------------------------------------------------------------------
+-- RESTRICTIVE, so it is ANDed with every existing permissive policy —
+-- including is_super_admin() / is_admin(), which the Joint MD may hold.
+-- The existing policies are left exactly as they are.
+-- TO authenticated: the Joint MD only ever reads signed in, and the two
+-- helpers below are not executable by anon. Without it an anonymous read
+-- that used to return no rows would fail with "permission denied for
+-- function" (deep review of #4079, M5); anon now behaves exactly as before.
 DROP POLICY IF EXISTS grievance_tickets_hide_about_joint_md ON public.grievance_tickets;
+
 CREATE POLICY grievance_tickets_hide_about_joint_md ON public.grievance_tickets
   AS RESTRICTIVE FOR ALL TO authenticated
   USING (NOT about_joint_md
          OR NOT ((SELECT public.fn_grievance_caller_joint_md_scope())
                  && ARRAY[institution_id, '00000000-0000-0000-0000-000000000000'::uuid]));
 
+-- CASE: for everybody who is not the Joint MD (an empty seat list, worked out
+-- once per statement) the per-row lookup never runs.
 DROP POLICY IF EXISTS grievance_comments_hide_about_joint_md ON public.grievance_comments;
+
 CREATE POLICY grievance_comments_hide_about_joint_md ON public.grievance_comments
   AS RESTRICTIVE FOR ALL TO authenticated
   USING (CASE WHEN cardinality((SELECT public.fn_grievance_caller_joint_md_scope())) = 0 THEN true
               ELSE NOT public.fn_grievance_ticket_hidden_from_caller(ticket_id) END);
 
 DROP POLICY IF EXISTS grievance_history_hide_about_joint_md ON public.grievance_history;
+
 CREATE POLICY grievance_history_hide_about_joint_md ON public.grievance_history
   AS RESTRICTIVE FOR ALL TO authenticated
   USING (CASE WHEN cardinality((SELECT public.fn_grievance_caller_joint_md_scope())) = 0 THEN true
               ELSE NOT public.fn_grievance_ticket_hidden_from_caller(ticket_id) END);
+
+DROP POLICY IF EXISTS notifications_confidential_recipient_select ON public.notifications;
+
+CREATE POLICY notifications_confidential_recipient_select ON public.notifications
+  AS RESTRICTIVE FOR SELECT TO authenticated
+  USING (CASE WHEN metadata ->> 'confidential' = 'true' OR action_config ->> 'confidential' = 'true'
+              THEN public.fn_notification_is_for_user(targeting, (SELECT auth.uid()))
+              ELSE true END);
+
+DROP POLICY IF EXISTS notifications_confidential_recipient_update ON public.notifications;
+
+CREATE POLICY notifications_confidential_recipient_update ON public.notifications
+  AS RESTRICTIVE FOR UPDATE TO authenticated
+  USING (CASE WHEN metadata ->> 'confidential' = 'true' OR action_config ->> 'confidential' = 'true'
+              THEN public.fn_notification_is_for_user(targeting, (SELECT auth.uid()))
+              ELSE true END)
+  WITH CHECK (CASE WHEN metadata ->> 'confidential' = 'true' OR action_config ->> 'confidential' = 'true'
+                   THEN public.fn_notification_is_for_user(targeting, (SELECT auth.uid()))
+                   ELSE true END);
+
+DROP POLICY IF EXISTS notifications_confidential_recipient_delete ON public.notifications;
+
+CREATE POLICY notifications_confidential_recipient_delete ON public.notifications
+  AS RESTRICTIVE FOR DELETE TO authenticated
+  USING (CASE WHEN metadata ->> 'confidential' = 'true' OR action_config ->> 'confidential' = 'true'
+              THEN public.fn_notification_is_for_user(targeting, (SELECT auth.uid()))
+              ELSE true END);
+
+DROP POLICY IF EXISTS user_notifications_confidential_recipient_select ON public.user_notifications;
+
+CREATE POLICY user_notifications_confidential_recipient_select ON public.user_notifications
+  AS RESTRICTIVE FOR SELECT TO authenticated
+  USING (CASE WHEN user_id = (SELECT auth.uid()) THEN true
+              ELSE NOT public.fn_notification_is_confidential(notification_id) END);
+
+DROP POLICY IF EXISTS user_notifications_confidential_recipient_update ON public.user_notifications;
+
+CREATE POLICY user_notifications_confidential_recipient_update ON public.user_notifications
+  AS RESTRICTIVE FOR UPDATE TO authenticated
+  USING (CASE WHEN user_id = (SELECT auth.uid()) THEN true
+              ELSE NOT public.fn_notification_is_confidential(notification_id) END)
+  WITH CHECK (CASE WHEN user_id = (SELECT auth.uid()) THEN true
+                   ELSE NOT public.fn_notification_is_confidential(notification_id) END);
+
+DROP POLICY IF EXISTS user_notifications_confidential_recipient_delete ON public.user_notifications;
+
+CREATE POLICY user_notifications_confidential_recipient_delete ON public.user_notifications
+  AS RESTRICTIVE FOR DELETE TO authenticated
+  USING (CASE WHEN user_id = (SELECT auth.uid()) THEN true
+              ELSE NOT public.fn_notification_is_confidential(notification_id) END);

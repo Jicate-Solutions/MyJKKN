@@ -27,6 +27,7 @@ const updates: { values: Record<string, unknown>; ids: string[] }[] = [];
 const from = vi.fn((_table: string) => ({
   select: () => {
     const chain = {
+      eq: () => chain,
       in: () => chain,
       is: () => chain,
       lt: () => Promise.resolve({ data: overdueRows, error: null }),

@@ -111,7 +111,7 @@ export default function GrievanceDetailPage({
   // setting — not a super admin, never the Joint MD, who cannot open this page
   // for such a complaint anyway); anyone else is shown the refusal.
   const handleSendBack = async () => {
-    if (!window.confirm('Send this complaint back to the normal path? The "about the Joint MD" mark is removed, it is routed like any other complaint, and the Joint MD will be able to see it.')) {
+    if (!window.confirm('Send this complaint back to the normal path? It is routed like any other complaint, and from then on everyone who handles complaints, the Joint MD included, can see it. The ticket keeps no record that it was marked; its history will only say "Routing corrected by the Director".')) {
       return;
     }
     setBusy('send-back');

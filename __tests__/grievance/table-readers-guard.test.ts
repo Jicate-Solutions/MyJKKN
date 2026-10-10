@@ -69,8 +69,8 @@ const GRIEVANCE_TABLE_READERS: Record<string, Entry> = {
 
   // ── service role, shows nothing ────────────────────────────────────────────
   'app/api/cron/grievance-sla-breach-check/route.ts': {
-    kind: 'service-role-internal',
-    reason: 'pre-migration fallback only (escalation function missing, so the column is too): stamps breach dates, returns ids to nobody',
+    kind: 'service-role',
+    reason: 'pre-migration fallback breach stamp (escalation function missing); through the helper like every service-role reader',
   },
 
   // ── names only ─────────────────────────────────────────────────────────────

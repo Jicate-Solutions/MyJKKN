@@ -10,6 +10,8 @@ HERE="$(cd "$(dirname "$0")" && pwd)"; ROOT="$(cd "$HERE/../../.." && pwd)"
 MIG="${GRIEVANCE_MIGRATION:-$ROOT/supabase/migrations/20271010020000_grievance_sla_escalation.sql}"
 case "$PGHOST" in 127.0.0.1|localhost|::1) ;; *) echo "refusing: PGHOST=$PGHOST is not local"; exit 2;; esac
 
+# The fresh-install setup files must carry exactly this migration (round 6).
+python3 -I "$HERE/mirror_setup.py" --check
 psql -d postgres -qc "DROP DATABASE IF EXISTS $DB" && psql -d postgres -qc "CREATE DATABASE $DB"
 psql -d "$DB" -v ON_ERROR_STOP=1 -q -f "$HERE/00_stubs.sql"
 psql -d "$DB" -v ON_ERROR_STOP=1 -q -f "$HERE/05_preseed.sql"
