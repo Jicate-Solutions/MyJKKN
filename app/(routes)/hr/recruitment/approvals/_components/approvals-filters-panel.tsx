@@ -318,13 +318,17 @@ export function ApprovalsFiltersPanel({
     [rows]
   );
   // Fixed designation list, in its own order, limited to the designations the
-  // loaded titles actually read as.
+  // loaded titles actually read as — plus the ACTIVE value, so a designation
+  // left over from earlier rows (or chosen while rows are still loading) is
+  // always shown and can be changed here, not only from its chip.
+  const activeDesignation = value.designation;
   const designationOptions = useMemo(() => {
     const present = new Set(rows.map((r) => designationOfJobTitle(r.job.title)));
+    if (activeDesignation) present.add(activeDesignation);
     return JOB_DESIGNATION_OPTIONS.filter((o) => present.has(o.value)).map(
       (o) => ({ value: o.value, label: o.label })
     );
-  }, [rows]);
+  }, [rows, activeDesignation]);
   const institutionOptions = useMemo(
     () =>
       distinct(

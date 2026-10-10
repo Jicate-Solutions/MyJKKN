@@ -63,11 +63,16 @@ const RULES: ReadonlyArray<[JobDesignation, RegExp]> = [
   ['associate_professor', / ASSOCIATE PROFESSOR /],
   ['assistant_professor', / ASSISTANT PROFESSOR /],
   ['professor', / PROFESSOR /],
+  // "Proof Reader" is not the academic Reader post.
+  ['other', / PROOF READER /],
   ['reader', / READER /],
   ['senior_lecturer', / SENIOR LECTURER /],
   ['lecturer', / LECTURER /],
   ['tutor', / TUTOR /],
-  ['lab_assistant', / LAB(ORATORY)? ASSISTANT /],
+  ['lab_assistant', / LAB ASSISTANT /],
+  ['lab_assistant', / LABORATORY ASSISTANT /],
+  // Vice / Assistant Principal are different posts, not Principal.
+  ['other', / (VICE|ASSISTANT) PRINCIPAL /],
   ['principal', / PRINCIPAL /],
 ];
 

@@ -9,11 +9,15 @@ import { dirname, join } from 'node:path';
 // gate (scripts/ci/check-terminology-delta.py) — BUG-006259.
 //
 // The Director ruled (2026-10-09) that official HR job titles keep their exact
-// wording. The gate exempts ONLY the designation words, and ONLY in a file that
-// carries the marker line. These tests pin all three halves of that:
-//   1. a marked file's designation copy is silent;
+// wording. The gate exempts ONLY full designation phrases, ONLY in a file on
+// the script's path allowlist, and ONLY when the marker sits on a comment line.
+// These tests pin every half of that:
+//   1. a marked, allowlisted file's designation copy is silent;
 //   2. the same copy in an UNMARKED file is still reported;
-//   3. a marked file's NON-designation copy is still reported.
+//   3. a marked file's NON-designation copy is still reported;
+//   4. the marker in a file OUTSIDE the allowlist is ignored;
+//   5. the marker inside a string literal is ignored;
+//   6. a bare "lab" / "teachers" outside a designation phrase is reported.
 //
 // Same harness shape as terminology-quote-boundary.test.ts: run the real gate
 // against a throwaway git repo in the OS temp dir. Fixtures live in JSON so this
@@ -23,12 +27,23 @@ import { dirname, join } from 'node:path';
 const REPO_ROOT = process.cwd();
 const GATE = join(REPO_ROOT, 'scripts', 'ci', 'check-terminology-delta.py');
 const DICT = join('.claude', 'skills', 'jkkn-terminologies', 'scripts', 'validate_terminology.py');
-const FIXTURE = join('app', 'demo', 'page.tsx');
 
 type Case = { name: string; line: string; term: string };
 const fixtures = JSON.parse(
   readFileSync(join(__dirname, 'terminology-designation-optin.fixtures.json'), 'utf8'),
-) as { marker: string; exempt: Case[]; flagged: Case[] };
+) as {
+  marker: string;
+  markerBlockComment: string;
+  markerInString: string;
+  allowlistedPath: string;
+  outOfScopePath: string;
+  exempt: Case[];
+  flagged: Case[];
+  bare: Case[];
+};
+
+const IN_SCOPE = fixtures.allowlistedPath;
+const OUT_OF_SCOPE = fixtures.outOfScopePath;
 
 let sandbox = '';
 let baseSha = '';
@@ -55,9 +70,11 @@ beforeAll(() => {
   mkdirSync(dirname(join(sandbox, DICT)), { recursive: true });
   copyFileSync(join(REPO_ROOT, DICT), join(sandbox, DICT));
 
-  mkdirSync(dirname(join(sandbox, FIXTURE)), { recursive: true });
-  writeFileSync(join(sandbox, FIXTURE), 'export const BASE = 1;\n');
-  git('add', FIXTURE);
+  for (const path of [IN_SCOPE, OUT_OF_SCOPE]) {
+    mkdirSync(dirname(join(sandbox, path)), { recursive: true });
+    writeFileSync(join(sandbox, path), 'export const BASE = 1;\n');
+    git('add', path);
+  }
   git('commit', '-qm', 'base');
   baseSha = git('rev-parse', 'HEAD').trim();
 });
@@ -68,13 +85,13 @@ afterAll(() => {
 
 const ROW = /^\|\s*`[^`]+`\s*\|\s*\*\*(.+?)\*\*/;
 
-/** Commit `line` (optionally under the marker) and return the reported terms. */
-function flaggedTerms(line: string, marked: boolean): string[] {
+/** Commit `line` into `path` under `header` (if any) and return the reported terms. */
+function flaggedTerms(line: string, header: string | null, path: string = IN_SCOPE): string[] {
   caseNo += 1;
   git('checkout', '-q', '-B', `case-${caseNo}`, baseSha);
-  const header = marked ? `${fixtures.marker}\n` : '';
-  writeFileSync(join(sandbox, FIXTURE), `${header}export const BASE = 1;\n${line}\n`);
-  git('add', FIXTURE);
+  const top = header ? `${header}\n` : '';
+  writeFileSync(join(sandbox, path), `${top}export const BASE = 1;\n${line}\n`);
+  git('add', path);
   git('commit', '-qm', `case ${caseNo}`);
   const head = git('rev-parse', 'HEAD').trim();
   const out = execFileSync('python3', [GATE, baseSha, head], { cwd: sandbox, encoding: 'utf8' });
@@ -86,15 +103,37 @@ function flaggedTerms(line: string, marked: boolean): string[] {
 }
 
 describe('terminology gate: official HR designations, file opt-in', () => {
-  it.each(fixtures.exempt)('stays silent on the $name in a marked file', ({ line }) => {
-    expect(flaggedTerms(line, true)).toEqual([]);
+  it.each(fixtures.exempt)('stays silent on the $name in a marked, allowlisted file', ({ line }) => {
+    expect(flaggedTerms(line, fixtures.marker)).toEqual([]);
+  });
+
+  it.each(fixtures.exempt)('honours a /* */ marker comment for the $name', ({ line }) => {
+    expect(flaggedTerms(line, fixtures.markerBlockComment)).toEqual([]);
   });
 
   it.each(fixtures.exempt)('still reports the $name in an unmarked file', ({ line, term }) => {
-    expect(flaggedTerms(line, false)).toContain(term);
+    expect(flaggedTerms(line, null)).toContain(term);
   });
 
   it.each(fixtures.flagged)('still reports the $name', ({ line, term }) => {
-    expect(flaggedTerms(line, true)).toContain(term);
+    expect(flaggedTerms(line, fixtures.marker)).toContain(term);
+  });
+
+  it.each(fixtures.exempt)(
+    'ignores the marker outside the path allowlist: reports the $name',
+    ({ line, term }) => {
+      expect(flaggedTerms(line, fixtures.marker, OUT_OF_SCOPE)).toContain(term);
+    },
+  );
+
+  it.each(fixtures.exempt)(
+    'ignores a marker inside a string literal: reports the $name',
+    ({ line, term }) => {
+      expect(flaggedTerms(line, fixtures.markerInString)).toContain(term);
+    },
+  );
+
+  it.each(fixtures.bare)('still reports a $name in a marked, allowlisted file', ({ line, term }) => {
+    expect(flaggedTerms(line, fixtures.marker)).toContain(term);
   });
 });

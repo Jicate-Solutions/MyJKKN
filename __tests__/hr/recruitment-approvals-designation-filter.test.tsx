@@ -115,4 +115,55 @@ describe('Approvals advanced filters: Designation (BUG-006259)', () => {
     );
     expect(kept).toEqual(['PROFESSOR']);
   });
+
+  it('keeps a stale designation visible and clearable when no loaded row reads as it', () => {
+    const onChange = vi.fn();
+    const stale: ApprovalsAdvancedFilters = {
+      ...EMPTY_APPROVALS_FILTERS,
+      designation: 'principal',
+    };
+    // Loading: no rows at all.
+    const { rerender } = render(
+      <ApprovalsFiltersPanel
+        open
+        rows={[]}
+        institutionNameById={new Map()}
+        value={stale}
+        onChange={onChange}
+      />
+    );
+    const findDesignation = () =>
+      screen
+        .getAllByTestId('select')
+        .find((el) => within(el).queryAllByText('All Designations').length > 0);
+
+    let designationSelect = findDesignation();
+    expect(designationSelect).toBeTruthy();
+    expect(designationSelect?.getAttribute('data-value')).toBe('principal');
+    expect(
+      within(designationSelect as HTMLElement).getByRole('option', { name: 'Principal' })
+    ).toBeTruthy();
+
+    // Rows arrive, none of them a Principal post: the active value stays offered.
+    rerender(
+      <ApprovalsFiltersPanel
+        open
+        rows={ROWS}
+        institutionNameById={new Map()}
+        value={stale}
+        onChange={onChange}
+      />
+    );
+    designationSelect = findDesignation();
+    expect(
+      within(designationSelect as HTMLElement).getByRole('option', { name: 'Principal' })
+    ).toBeTruthy();
+
+    // ...and it can be cleared from the dropdown itself.
+    fireEvent.click(
+      within(designationSelect as HTMLElement).getByRole('option', { name: 'All Designations' })
+    );
+    expect(onChange).toHaveBeenCalledTimes(1);
+    expect((onChange.mock.calls[0][0] as ApprovalsAdvancedFilters).designation).toBeNull();
+  });
 });

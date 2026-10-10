@@ -7,10 +7,25 @@
     "",
     "`marker` is the file-level opt-in line (BUG-006259, Director 2026-10-09).",
     "`exempt`  - official designation copy; silent ONLY when the file carries the marker.",
-    "`flagged` - non-designation copy; reported even when the file carries the marker."
+    "`flagged` - non-designation copy; reported even when the file carries the marker.",
+    "`bare`    - designation WORDS outside a full designation phrase; reported even in a marked file.",
+    "",
+    "`allowlistedPath` - a path where the gate honours the marker (the allowlist lives in the script).",
+    "`outOfScopePath`  - any other path; the marker is ignored there.",
+    "`markerInString`  - the marker inside a string literal, not a comment line; ignored.",
+    "`markerBlockComment` - the marker as a /* ... */ comment line; honoured."
   ],
 
   "marker": "// jkkn-terminology: official-hr-designations",
+  "markerBlockComment": "/* jkkn-terminology: official-hr-designations */",
+  "markerInString": "const note = '// jkkn-terminology: official-hr-designations';",
+  "allowlistedPath": "lib/hr/recruitment/job-designation.ts",
+  "outOfScopePath": "app/demo/page.tsx",
+
+  "bare": [
+    { "name": "bare lab in a room name", "line": "  const room = 'Computer Lab 2';", "term": "lab" },
+    { "name": "bare teachers in prose", "line": "  const msg = 'Teachers will review your file';", "term": "teachers" }
+  ],
 
   "exempt": [
     { "name": "Associate Professor label", "line": "  { value: 'associate_professor', label: 'Associate Professor' },", "term": "professor" },
