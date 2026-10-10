@@ -18,8 +18,8 @@ export function ImsGrnRetiredNotice({ showButton = true }: { showButton?: boolea
           <p className="font-medium">Deliveries are now recorded in Procurement</p>
           <p className="text-muted-foreground">
             New goods receipts can no longer be created, verified or approved here. Record each
-            delivery against its purchase order in Procurement → Deliveries. The older IMS
-            receipts below stay here to view.
+            delivery against its purchase order in Procurement → Deliveries. Older IMS
+            receipts can still be viewed under Stock · GRN.
           </p>
         </div>
       </div>

@@ -451,7 +451,9 @@ export function InstitutionDashboard() {
                   </Button>
                   <Button
                     variant="outline"
-                    onClick={() => router.push('/ims/stock/grn/new')}
+                    // IMS goods receipts are retired (Director decision D1, 2026-10-10):
+                    // deliveries are recorded in Procurement.
+                    onClick={() => router.push('/procurement/grn')}
                   >
                     <PackagePlus className="h-4 w-4 mr-2" />
                     Receive Stock

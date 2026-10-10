@@ -9,6 +9,10 @@ import {
   invoiceAgeCheck,
   lateReasonMissing,
   duplicateHold,
+  invoiceNumberFormatOk,
+  INVOICE_NUMBER_ALLOWED,
+  blankInvoiceBlocksStock,
+  receivedMatchingDelivery,
   isIsoDate,
   mergeInvoiceRead,
   isReusableInvoiceRead,
@@ -243,13 +247,19 @@ describe('I1 duplicateHold (held save)', () => {
   };
 
   it('holds an unconfirmed duplicate and blocks verify', () => {
-    expect(duplicateHold(base)).toEqual({ held: true, canConfirm: true, blocksVerify: true });
+    expect(duplicateHold(base)).toEqual({
+      held: true,
+      canConfirm: true,
+      blocksVerify: true,
+      viewerIsParty: false,
+    });
   });
   it('releases the hold once confirmed', () => {
     expect(duplicateHold({ ...base, confirmedBy: 'verifier' })).toEqual({
       held: false,
       canConfirm: false,
       blocksVerify: false,
+      viewerIsParty: false,
     });
   });
   it('never holds a receipt with no duplicate', () => {
@@ -265,6 +275,86 @@ describe('I1 duplicateHold (held save)', () => {
   });
   it('an unknown viewer cannot confirm', () => {
     expect(duplicateHold({ ...base, viewerId: null }).canConfirm).toBe(false);
+  });
+  it('D4: a verifier who received the OTHER delivery cannot confirm (third-person rule)', () => {
+    const r = duplicateHold({ ...base, viewerReceivedMatch: true });
+    expect(r.canConfirm).toBe(false);
+    expect(r.viewerIsParty).toBe(true);
+    expect(r.blocksVerify).toBe(true);
+  });
+  it('D4: the receiver is a party too', () => {
+    expect(duplicateHold({ ...base, viewerId: 'receiver' }).viewerIsParty).toBe(true);
+  });
+});
+
+describe('D4 receivedMatchingDelivery (fallback when the database cannot answer)', () => {
+  const grn = { id: 'g2', supplier_id: 's1', invoice_number: 'INV-7', created_at: '2026-10-09T05:00:00Z' };
+  const earlier = {
+    id: 'g1',
+    supplier_id: 's1',
+    invoice_number: 'inv7',
+    status: 'accepted',
+    created_at: '2026-10-08T05:00:00Z',
+    received_by: 'v3',
+  };
+  it('is true when the user received a receipt this one repeats', () => {
+    expect(receivedMatchingDelivery([earlier], grn, 'v3')).toBe(true);
+  });
+  it('is false for someone who received neither', () => {
+    expect(receivedMatchingDelivery([earlier], grn, 'v2')).toBe(false);
+  });
+  it('ignores receipts this one does not repeat (other supplier, other number, itself)', () => {
+    expect(receivedMatchingDelivery([{ ...earlier, supplier_id: 's9' }], grn, 'v3')).toBe(false);
+    expect(receivedMatchingDelivery([{ ...earlier, invoice_number: 'INV-8' }], grn, 'v3')).toBe(false);
+    expect(receivedMatchingDelivery([{ ...earlier, id: 'g2' }], grn, 'v3')).toBe(false);
+  });
+  it('is false for an unknown user', () => {
+    expect(receivedMatchingDelivery([earlier], grn, null)).toBe(false);
+  });
+});
+
+describe('D3 invoiceNumberFormatOk (letters, digits, - and / only)', () => {
+  it('accepts GST-style numbers', () => {
+    for (const ok of ['INV-2041', 'inv/2026-27/001', 'A1', '2041', 'GST/24-25/0007-B']) {
+      expect(invoiceNumberFormatOk(ok)).toBe(true);
+    }
+  });
+  it('refuses spaces, other punctuation, look-alike letters and blanks', () => {
+    for (const bad of [
+      'INV 2041',
+      ' INV-2041',
+      'INV_2041',
+      'INV#1',
+      'INV.1',
+      'І-1', // Cyrillic capital I (U+0406)
+      'ＩＮＶ1', // full-width letters
+      'INV‐1', // U+2010 hyphen
+      'INV\u200b1',
+      '',
+    ]) {
+      expect(invoiceNumberFormatOk(bad)).toBe(false);
+    }
+    expect(invoiceNumberFormatOk(null)).toBe(false);
+    expect(invoiceNumberFormatOk(undefined)).toBe(false);
+  });
+  it('matches exactly the 64 allowed characters of U+0000-U+FFFF (same count as the DB CHECK)', () => {
+    let n = 0;
+    for (let c = 0; c <= 0xffff; c++) {
+      if (c >= 0xd800 && c <= 0xdfff) continue;
+      if (INVOICE_NUMBER_ALLOWED.test(String.fromCharCode(c))) n++;
+    }
+    expect(n).toBe(64);
+  });
+});
+
+describe('D2 blankInvoiceBlocksStock', () => {
+  it('blocks a missing, empty or punctuation-only number', () => {
+    for (const blank of [null, undefined, '', '   ', '-', ' - ']) {
+      expect(blankInvoiceBlocksStock(blank)).toBe(true);
+    }
+  });
+  it('does not block a real number', () => {
+    expect(blankInvoiceBlocksStock('INV-1')).toBe(false);
   });
 });
 

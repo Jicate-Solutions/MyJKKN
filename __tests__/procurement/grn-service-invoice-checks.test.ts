@@ -443,7 +443,8 @@ describe('receiveReplacement — I2', () => {
 // ── confirmDifferentInvoice ──────────────────────────────────────────────────
 describe('confirmDifferentInvoice — the receiver may not confirm', () => {
   it('filters out the receiver and a non-pending receipt, and says so when nothing matched', async () => {
-    onTable = () => ({ data: null, error: null });
+    onTable = (c) => (c.op === 'select' ? { data: GRN, error: null } : { data: null, error: null });
+    onRpc = () => ({ data: false, error: null });
     await expect(ProcurementGrnService.confirmDifferentInvoice('g2', 'receiver')).rejects.toThrow(
       /you received it yourself/
     );
@@ -455,5 +456,76 @@ describe('confirmDifferentInvoice — the receiver may not confirm', () => {
         ['neq', 'received_by', 'receiver'],
       ])
     );
+  });
+});
+
+// ── Director decisions 10 Oct 2026 (D2-D4) ───────────────────────────────────
+describe('D4 confirmDifferentInvoice — third-person rule', () => {
+  it('refuses a verifier who received the other delivery, before any write', async () => {
+    onTable = (c) => (c.op === 'select' ? { data: GRN, error: null } : { data: GRN, error: null });
+    onRpc = (fn, args) =>
+      fn === 'fn_procurement_grn_has_duplicate' && args.p_received_by === 'v3'
+        ? { data: true, error: null }
+        : { data: false, error: null };
+    await expect(ProcurementGrnService.confirmDifferentInvoice('g2', 'v3')).rejects.toThrow(
+      /received the other delivery/
+    );
+    expect(writesTo('procurement_grn')).toHaveLength(0);
+    const call = rpcCalls.find((c) => c.fn === 'fn_procurement_grn_has_duplicate');
+    expect(call?.args).toMatchObject({ p_grn_id: 'g2', p_received_by: 'v3', p_created_at: GRN.created_at });
+  });
+
+  it('lets a third person (received neither) confirm', async () => {
+    onTable = (c) => (c.op === 'select' ? { data: GRN, error: null } : { data: { ...GRN, duplicate_confirmed_by: 'v2' }, error: null });
+    onRpc = () => ({ data: false, error: null });
+    await expect(ProcurementGrnService.confirmDifferentInvoice('g2', 'v2')).resolves.toMatchObject({
+      duplicate_confirmed_by: 'v2',
+    });
+    expect(writesTo('procurement_grn')).toHaveLength(1);
+  });
+
+  it('falls back to the visible receipts when the database cannot answer', async () => {
+    verifyWorld([], 'rpc-missing', [
+      { id: 'g1', supplier_id: 'sup1', invoice_number: 'INV-5', status: 'accepted', created_at: '2026-10-08T05:00:00+00:00', received_by: 'v3' },
+    ]);
+    await expect(ProcurementGrnService.confirmDifferentInvoice('g2', 'v3')).rejects.toThrow(
+      /received the other delivery/
+    );
+    expect(writesTo('procurement_grn')).toHaveLength(0);
+  });
+});
+
+describe('D2 verifyGrn — no invoice number, no stock', () => {
+  it('refuses a receipt with no invoice number, before any write', async () => {
+    verifyWorld([item()], false);
+    const base = onTable;
+    onTable = (c) =>
+      c.table === 'procurement_grn' && c.op === 'select' && !c.filters.some(([, k]) => k === 'supplier_id')
+        ? { data: { ...GRN, invoice_number: null }, error: null }
+        : base(c);
+    await expect(ProcurementGrnService.verifyGrn('g2', 'verifier')).rejects.toThrow(/no invoice number/);
+    expect(writesTo('procurement_grn')).toHaveLength(0);
+    expect(adapter.postReceipt).not.toHaveBeenCalled();
+  });
+});
+
+describe('D3 createGrnAgainstPO — invoice-number characters', () => {
+  it('refuses a number with a space, before any write', async () => {
+    createWorld();
+    await expect(
+      ProcurementGrnService.createGrnAgainstPO(baseInput({ invoice_number: 'INV 5' }), 'u1')
+    ).rejects.toThrow(/can only have letters/);
+    expect(writesTo('procurement_grn')).toHaveLength(0);
+  });
+  it('refuses a look-alike letter from another alphabet', async () => {
+    createWorld();
+    await expect(
+      ProcurementGrnService.createGrnAgainstPO(baseInput({ invoice_number: 'І-5' }), 'u1')
+    ).rejects.toThrow(/can only have letters/);
+  });
+  it('trims the edges and saves the trimmed number', async () => {
+    createWorld();
+    await ProcurementGrnService.createGrnAgainstPO(baseInput({ invoice_number: '  INV/24-25/5  ' }), 'u1');
+    expect((writesTo('procurement_grn')[0].payload as any).invoice_number).toBe('INV/24-25/5');
   });
 });
