@@ -48,6 +48,11 @@ const SCHEMA = `
 DO $$ BEGIN CREATE ROLE anon NOLOGIN;          EXCEPTION WHEN duplicate_object OR unique_violation THEN NULL; END $$;
 DO $$ BEGIN CREATE ROLE authenticated NOLOGIN; EXCEPTION WHEN duplicate_object OR unique_violation THEN NULL; END $$;
 DO $$ BEGIN CREATE ROLE service_role NOLOGIN;  EXCEPTION WHEN duplicate_object OR unique_violation THEN NULL; END $$;
+-- Supabase's service_role bypasses RLS. Roles are cluster-wide and other test files
+-- create this one without it, so set it explicitly rather than inherit whatever exists.
+-- Without it the service-role UPDATEs below match no row (api_keys' only policy is
+-- TO authenticated), raise nothing, and the freeze test fails on a fresh cluster.
+ALTER ROLE service_role BYPASSRLS;
 ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT EXECUTE ON FUNCTIONS TO anon;
 ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO anon, authenticated, service_role;
 CREATE SCHEMA auth;
