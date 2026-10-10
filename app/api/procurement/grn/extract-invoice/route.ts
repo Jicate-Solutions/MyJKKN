@@ -65,6 +65,14 @@ const str = (v: unknown) => (typeof v === 'string' && v.trim() ? v.trim().slice(
  *   grn_id        uuid?   the receipt, when one already exists (the form has none yet)
  *   items         JSON    Array<{ id, item_name, item_spec?, ordered_quantity?, unit_label? }> — the PO lines
  *   expectations  JSON    { tolerance_pct, require_batch_expiry, max_invoice_age_days, watch_for }
+ *   read_again    '1'?    E3 (Director 2026-10-10 afternoon): the person pressed "Read again".
+ *                         Skips ONLY the stored-result reuse below, for this request. The
+ *                         in-flight dedupe (same person, same PDF + order, still queued)
+ *                         still answers, so pressing it twice never queues two reads; the
+ *                         lane switch (enabled=false) and fn_ai_enqueue's caps still apply;
+ *                         the job type and lane are unchanged (the ₹0 Max lane — never a paid
+ *                         read). The fresh result becomes the newest completed_at match, so
+ *                         a later ordinary read of the same PDF reuses it.
  *
  * JOB PAYLOAD (what the runner receives):
  *   { storage_bucket, storage_path, sha256, po_id, grn_id, po_items, notify_url,
@@ -163,6 +171,8 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'No order lines to match against.' }, { status: 400 });
 
   const expectations = parseExpectations(form.get('expectations'));
+  // E3: "Read again" bypasses the stored-result reuse for this request only.
+  const readAgain = form.get('read_again') === '1';
 
   // The caller must be able to see this order (RLS) before anything is stored for it.
   const supabase = await createClient();
@@ -184,17 +194,19 @@ export async function POST(req: NextRequest) {
   // current contract version and shape is reused (isReusableInvoiceRead); a malformed
   // or older one falls through to a fresh read, which then becomes the newest match.
   try {
-    const { data: prior } = await admin
-      .from('ai_jobs')
-      .select('id, result')
-      .eq('job_type', JOB_TYPE)
-      .eq('status', 'done')
-      .contains('payload', { sha256, po_id: poId })
-      .order('completed_at', { ascending: false })
-      .limit(1)
-      .maybeSingle();
-    if (prior && isReusableInvoiceRead(prior.result)) {
-      return NextResponse.json({ reused: true, job_id: prior.id, result: prior.result });
+    if (!readAgain) {
+      const { data: prior } = await admin
+        .from('ai_jobs')
+        .select('id, result')
+        .eq('job_type', JOB_TYPE)
+        .eq('status', 'done')
+        .contains('payload', { sha256, po_id: poId })
+        .order('completed_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (prior && isReusableInvoiceRead(prior.result)) {
+        return NextResponse.json({ reused: true, job_id: prior.id, result: prior.result });
+      }
     }
 
     // The same person pressing the button again while their read is still queued.

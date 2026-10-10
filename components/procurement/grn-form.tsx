@@ -44,7 +44,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
-import { ChevronDown, ChevronRight, Sparkles } from 'lucide-react';
+import { ChevronDown, ChevronRight, RotateCcw, Sparkles } from 'lucide-react';
 import { BeatLoader } from 'react-spinners';
 import { toast } from 'sonner';
 import { errorMessage } from '@/lib/utils/supabase-error';
@@ -126,6 +126,9 @@ export function GrnForm({ poId, onSaved, onCancel, compact, onDirtyChange }: Grn
   // Enqueued and followed while the form is open. There is no paid fallback for
   // invoices: if the office AI machine does not pick it up, the person types it in.
   const [extractJobId, setExtractJobId] = useState<string | null>(null);
+  // E3 (Director 2026-10-10 afternoon): a reading of THIS file has been filled in, so
+  // "Read again" is offered. Cleared when another file is picked.
+  const [readFilled, setReadFilled] = useState(false);
   // A plain notice (never an error toast) when AI reading is not available.
   const [aiNotice, setAiNotice] = useState<string | null>(null);
   // Which fields the AI filled — keys 'invoice_number' | 'invoice_date' |
@@ -302,6 +305,7 @@ export function GrnForm({ poId, onSaved, onCancel, compact, onDirtyChange }: Grn
         if (cancelled) return;
         if (json.status === 'done') {
           applyRef.current(json.result as InvoiceReadResult);
+          setReadFilled(true);
           return stop(null);
         }
         if (json.status === 'error' || json.status === 'canceled' || json.status === 'not_found') {
@@ -419,7 +423,10 @@ export function GrnForm({ poId, onSaved, onCancel, compact, onDirtyChange }: Grn
 
   // Hand the invoice PDF to the ₹0 Max lane. This starts the read and returns; the
   // effect above follows it. "Not available" is a notice, not an error.
-  const handleReadInvoice = async () => {
+  // E3: { readAgain: true } asks the server for a FRESH read of the same PDF, skipping the
+  // stored-result reuse for this request only. Same free lane; still deduped while queued;
+  // a switched-off lane still answers with the plain "type it in" notice.
+  const handleReadInvoice = async ({ readAgain = false }: { readAgain?: boolean } = {}) => {
     if (!invoiceFile || !po) return;
     setReading(true);
     setAiNotice(null);
@@ -427,6 +434,7 @@ export function GrnForm({ poId, onSaved, onCancel, compact, onDirtyChange }: Grn
       const fd = new FormData();
       fd.append('file', invoiceFile);
       fd.append('po_id', po.id);
+      if (readAgain) fd.append('read_again', '1');
       fd.append(
         'items',
         JSON.stringify(
@@ -451,7 +459,8 @@ export function GrnForm({ poId, onSaved, onCancel, compact, onDirtyChange }: Grn
       }
       if (json.reused && json.result) {
         applyExtraction(json.result as InvoiceReadResult);
-        toast.info('Reused an earlier reading of this same invoice PDF.');
+        setReadFilled(true);
+        toast.info('Reused an earlier reading of this same invoice PDF. Use “Read again” for a fresh one.');
         return;
       }
       if (typeof json.job_id !== 'string') throw new Error('Could not start the AI reading.');
@@ -644,7 +653,10 @@ export function GrnForm({ poId, onSaved, onCancel, compact, onDirtyChange }: Grn
                 type="file"
                 accept=".pdf,image/*"
                 className="w-full max-w-xs sm:w-auto"
-                onChange={(e) => setInvoiceFile(e.target.files?.[0] ?? null)}
+                onChange={(e) => {
+                  setInvoiceFile(e.target.files?.[0] ?? null);
+                  setReadFilled(false);
+                }}
               />
               {invoiceFile?.type === 'application/pdf' && (
                 <Button
@@ -652,11 +664,25 @@ export function GrnForm({ poId, onSaved, onCancel, compact, onDirtyChange }: Grn
                   variant="secondary"
                   size="sm"
                   className="h-10 sm:h-9"
-                  onClick={handleReadInvoice}
+                  onClick={() => handleReadInvoice()}
                   disabled={reading || !!extractJobId}
                 >
                   <Sparkles className="mr-1 h-3.5 w-3.5" />
                   {reading || extractJobId ? 'Reading invoice…' : 'Read invoice (AI)'}
+                </Button>
+              )}
+              {invoiceFile?.type === 'application/pdf' && readFilled && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="h-10 sm:h-9"
+                  onClick={() => handleReadInvoice({ readAgain: true })}
+                  disabled={reading || !!extractJobId}
+                  title="Read this same PDF again instead of reusing the earlier reading"
+                >
+                  <RotateCcw className="mr-1 h-3.5 w-3.5" />
+                  Read again
                 </Button>
               )}
             </div>
