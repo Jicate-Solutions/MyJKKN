@@ -1058,6 +1058,43 @@ BEGIN
       RAISE EXCEPTION 'a replacement stays on the delivery line and quantity it was raised for — they cannot be changed'
         USING ERRCODE = '42501';
     END IF;
+    -- H2 round 3 (skeptic): a fulfilled replacement stays fulfilled. Before, anyone at the
+    -- college could reset a fulfilled row to pending with no link, claim it again and
+    -- receive the same rejected goods a second time. The link is written once, by
+    -- receiveReplacement, to the line of the receipt that names this replacement
+    -- (procurement_grn.replacement_id), while the row is 'received'.
+    IF OLD.replacement_grn_item_id IS NOT NULL
+       AND NEW.replacement_grn_item_id IS DISTINCT FROM OLD.replacement_grn_item_id THEN
+      RAISE EXCEPTION 'this replacement has already been received — its delivery cannot be changed'
+        USING ERRCODE = '42501';
+    END IF;
+    IF OLD.replacement_grn_item_id IS NULL AND NEW.replacement_grn_item_id IS NOT NULL
+       AND (NEW.status IS DISTINCT FROM 'received'
+            OR NOT EXISTS (
+              SELECT 1
+                FROM public.procurement_grn_items gi
+                JOIN public.procurement_grn g ON g.id = gi.grn_id
+               WHERE gi.id = NEW.replacement_grn_item_id
+                 AND g.replacement_id = NEW.id)) THEN
+      RAISE EXCEPTION 'a replacement can only be linked to a line of the delivery recorded for it'
+        USING ERRCODE = '42501';
+    END IF;
+    -- H2 round 3: received -> pending is receiveReplacement's rollback only. It runs
+    -- after the rollback has deleted the replacement receipt and before any link was
+    -- written, by a verifier. While a receipt still names this replacement (its goods
+    -- may be in stock), the claim stays.
+    IF OLD.status = 'received' AND NEW.status IS DISTINCT FROM 'received' THEN
+      IF NOT (public.is_super_admin() OR public.is_admin()
+              OR public.user_has_permission('procurement.grn_verify')) THEN
+        RAISE EXCEPTION 'not authorized to reopen a replacement — this requires the procurement.grn_verify permission'
+          USING ERRCODE = '42501';
+      END IF;
+      IF OLD.replacement_grn_item_id IS NOT NULL
+         OR EXISTS (SELECT 1 FROM public.procurement_grn g WHERE g.replacement_id = OLD.id) THEN
+        RAISE EXCEPTION 'this replacement has already been received — it cannot be reopened'
+          USING ERRCODE = '42501';
+      END IF;
+    END IF;
     IF OLD.status = 'pending' AND NEW.status = 'received' THEN
       IF NOT (public.is_super_admin() OR public.is_admin()
               OR public.user_has_permission('procurement.grn_verify')) THEN
