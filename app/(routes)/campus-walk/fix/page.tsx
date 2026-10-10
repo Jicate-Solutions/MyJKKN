@@ -406,6 +406,8 @@ export default async function CampusWalkFixPage({ searchParams }: PageProps) {
       : null,
     slaPausedDays: Number(metadata.sla?.paused_days_total ?? 0) || 0,
     actingAsDepartmentHead,
+    // A CCTV report is answered with the action taken, not a photo.
+    answerInWords: metadata.front_door === 'cctv',
   };
 
   return (
