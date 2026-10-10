@@ -36,6 +36,7 @@ import {
   routeCctvReport,
   cctvTitle,
   cctvDueInDays,
+  namesAllowedFor,
   type CctvRoom
 } from '@/lib/campus-walk/cctv';
 import { ladderFor, rungsDue, isCatchUpPrincipalStep } from '@/lib/campus-walk/chase-up';
@@ -290,6 +291,14 @@ describe('team-member names', () => {
     expect(hr.recipientIds).toEqual(['hr-1']);
     expect(hr.body).toContain('r kumar');
     expect(bells.filter((b) => b.recipientIds.includes('principal-1'))).toEqual([]);
+  });
+
+  it('names are allowed only for exam copying and team-member conduct — never a camera fault', () => {
+    expect(namesAllowedFor('camera_fault')).toBe(false);
+    expect(namesAllowedFor('learner_conduct')).toBe(false);
+    expect(namesAllowedFor('power_left_on')).toBe(false);
+    expect(namesAllowedFor('exam_copying')).toBe(true);
+    expect(namesAllowedFor('staff_conduct')).toBe(true);
   });
 
   it('a learner-conduct report never stores a name', async () => {

@@ -245,6 +245,10 @@ export async function routeCctvReport(
 ): Promise<CctvRouting> {
   // A camera that is blocked or not working is the CAO's, wherever it is
   // (Director, 10 Oct 2026) — it is campus equipment, not the room's conduct.
+  // The new category and owner_source values are safe to add: verified live
+  // 10 Oct: values land in project_tasks.metadata JSONB; only CHECK is
+  // project_tasks_task_type_check (on task_type, which createWalkTask
+  // hardcodes to 'task').
   if (category === 'camera_fault') {
     const cao = await profileIdsWithRole(db, 'cao');
     return {
