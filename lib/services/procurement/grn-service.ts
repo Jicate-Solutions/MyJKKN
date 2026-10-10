@@ -14,6 +14,30 @@ import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { getAdapter } from './domain-adapters/registry';
 import { matchLine, validateLineForVerify } from './three-way-match';
 import {
+  BLANK_INVOICE_MESSAGE,
+  blankInvoiceBlocksStock,
+  REPLACEMENT_SELF_CHECK_MESSAGE,
+  SELF_CHECK_MESSAGE,
+  selfCheckBlocks,
+  duplicateHold,
+  expiredLineBlocks,
+  findDuplicateGrns,
+  INVOICE_NUMBER_FORMAT_MESSAGE,
+  invoiceNumberFormatOk,
+  isIsoDate,
+  lateReasonMissing,
+  localToday,
+  POSTED_GRN_STATUSES,
+  receivedMatchingDelivery,
+  THIRD_PERSON_MESSAGE,
+  CONFIRMATION_VOID_MESSAGE,
+  DUPLICATE_CHECKS_MISSING_MESSAGE,
+  NO_RECEIVER_MESSAGE,
+  LINES_CHANGED_MESSAGE,
+  linesChangedSinceCheck,
+  type DuplicateCandidate,
+} from './invoice-checks';
+import {
   PO_PURCHASE_REQUEST_EMBED,
   rfqIdsForRequestSearch,
   sanitizeOrSearch,
@@ -36,6 +60,15 @@ function withGrnPurchaseRequest(row: any) {
   if (!row?.purchase_order) return { ...row, purchase_request: null };
   const { purchase_request, ...purchase_order } = withPurchaseRequest(row.purchase_order);
   return { ...row, purchase_order, purchase_request };
+}
+
+/** An earlier receipt shown side by side when an invoice number repeats (I1). */
+export interface SupplierInvoiceGrn extends DuplicateCandidate {
+  grn_number: string;
+  invoice_date: string | null;
+  invoice_amount: number | null;
+  created_at: string;
+  received_by_profile?: { full_name: string | null } | null;
 }
 
 export class ProcurementGrnService {
@@ -158,11 +191,22 @@ export class ProcurementGrnService {
       if (!input.lines?.length) throw new Error('A delivery record needs at least one line.');
       // Supplier invoice is mandatory — a GRN records goods received against a billed
       // invoice, and the three-way match has nothing to compare against without it.
-      if (!input.invoice_number?.trim()) {
+      const invoiceNumber = input.invoice_number?.trim() ?? '';
+      if (!invoiceNumber) {
         throw new Error('Invoice number is required to record a delivery.');
+      }
+      // D3 (Director 2026-10-10): letters, digits, "-" and "/" only. The database's
+      // procurement_grn_invoice_number_charset CHECK refuses anything else too.
+      if (!invoiceNumberFormatOk(invoiceNumber)) {
+        throw new Error(INVOICE_NUMBER_FORMAT_MESSAGE);
       }
       if (!input.invoice_date) {
         throw new Error('Invoice date is required to record a delivery.');
+      }
+      // A non-ISO date would silently switch off I4 (and I2 for line dates) — the rules
+      // treat an unreadable date as "nothing to judge" — so it is refused here.
+      if (!isIsoDate(input.invoice_date)) {
+        throw new Error(`Invoice date "${input.invoice_date}" is not a valid date — re-enter it.`);
       }
 
       // 1) Load PO header + lines (ordered qty and remaining-to-receive per line).
@@ -204,6 +248,15 @@ export class ProcurementGrnService {
 
         const orderedRemaining =
           Number(poItem.ordered_quantity) - Number(poItem.received_quantity ?? 0);
+
+        for (const [label, value] of [
+          ['expiry', line.expiry_date],
+          ['manufacturing', line.manufacturing_date],
+        ] as const) {
+          if (value && !isIsoDate(value)) {
+            throw new Error(`"${poItem.item_name}": the ${label} date "${value}" is not a valid date — re-enter it.`);
+          }
+        }
 
         // Catalog lookup for chemical flag + cost (null domain_item_id => new item).
         let isChemical = false;
@@ -293,27 +346,83 @@ export class ProcurementGrnService {
         );
       }
 
+      // Invoice checks I1/I2/I4 (lib/services/procurement/invoice-checks.ts), re-applied
+      // here so the save path enforces what the form shows, not only the form.
+      const today = localToday();
+
+      // I2 — already-expired goods are never accepted into stock (rejecting them is fine).
+      const expired = input.lines
+        .filter((l) => expiredLineBlocks(l, today))
+        .map((l) => `"${poItemMap.get(l.po_item_id)?.item_name ?? 'A line'}" expired on ${l.expiry_date}`);
+      if (expired.length) {
+        throw new Error(
+          `Expired goods cannot be accepted — reject them or correct the expiry date:\n${expired.join('\n')}`
+        );
+      }
+
+      // I4 — an invoice older than the receiver's limit needs a typed reason.
+      if (
+        lateReasonMissing(
+          input.invoice_date,
+          today,
+          expectations?.max_invoice_age_days ?? null,
+          input.late_invoice_reason
+        )
+      ) {
+        throw new Error(
+          `This invoice is older than the ${expectations?.max_invoice_age_days} days you allowed — say why before recording it.`
+        );
+      }
+
+      // I1 — a repeated invoice number is NOT refused here (Director: held save). The
+      // receipt saves as usual; verify is refused until a verifier other than the
+      // receiver confirms it is a different invoice (verifyGrn + the DB verify guard).
+      const lateReason = input.late_invoice_reason?.trim() || null;
+
       // 3) Insert header, then lines.
       const grnNumber = await this.generateGrnNumber(po.institution_id);
-      const { data: grn, error: grnErr } = await this.supabase
+      const header = {
+        institution_id: po.institution_id,
+        store_id: po.store_id ?? null,
+        grn_number: grnNumber,
+        purchase_order_id: po.id,
+        supplier_id: po.supplier_id,
+        domain,
+        invoice_number: invoiceNumber,
+        invoice_date: input.invoice_date ?? null,
+        invoice_amount: input.invoice_amount ?? null,
+        invoice_document_url: input.invoice_document_url ?? null,
+        status: 'pending_verification',
+        received_by: userId,
+        notes: this.composeNotes(input.notes, expectations),
+      };
+      let { data: grn, error: grnErr } = await this.supabase
         .from('procurement_grn')
-        .insert({
-          institution_id: po.institution_id,
-          store_id: po.store_id ?? null,
-          grn_number: grnNumber,
-          purchase_order_id: po.id,
-          supplier_id: po.supplier_id,
-          domain,
-          invoice_number: input.invoice_number ?? null,
-          invoice_date: input.invoice_date ?? null,
-          invoice_amount: input.invoice_amount ?? null,
-          invoice_document_url: input.invoice_document_url ?? null,
-          status: 'pending_verification',
-          received_by: userId,
-          notes: this.composeNotes(input.notes, expectations),
-        })
+        .insert({ ...header, ...(lateReason ? { late_invoice_reason: lateReason } : {}) })
         .select()
         .single();
+      // late_invoice_reason is sent only when I4 fired. On a database where
+      // 20271010170000_procurement_grn_invoice_checks is not applied yet the column does
+      // not exist (PostgREST PGRST204): save anyway, with the reason kept in the notes,
+      // so an old invoice can still be recorded and its reason is not lost.
+      if (
+        grnErr &&
+        lateReason &&
+        grnErr.code === 'PGRST204' &&
+        /late_invoice_reason/.test(String(grnErr.message ?? ''))
+      ) {
+        ({ data: grn, error: grnErr } = await this.supabase
+          .from('procurement_grn')
+          .insert({
+            ...header,
+            notes: this.composeNotes(
+              [input.notes?.trim(), `Late invoice reason: ${lateReason}`].filter(Boolean).join('\n'),
+              expectations
+            ),
+          })
+          .select()
+          .single());
+      }
       if (grnErr) throw grnErr;
 
       const { error: lineErr } = await this.supabase
@@ -324,6 +433,157 @@ export class ProcurementGrnService {
       return grn as ProcurementGrn;
     } catch (error) {
       console.error('[ProcurementGrnService] createGrnAgainstPO:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Earlier receipts from one supplier that carry an invoice number — the candidate set
+   * for the I1 duplicate check (matched on the normalised number by findDuplicateGrns).
+   * Read under the caller's RLS, so it covers the institutions the caller can see.
+   */
+  static async getSupplierInvoiceGrns(supplierId: string): Promise<SupplierInvoiceGrn[]> {
+    const { data, error } = await this.supabase
+      .from('procurement_grn')
+      .select(
+        `id, grn_number, supplier_id, invoice_number, invoice_date, invoice_amount, status, created_at,
+         received_by, received_by_profile:profiles!received_by(full_name)`
+      )
+      .eq('supplier_id', supplierId)
+      .not('invoice_number', 'is', null)
+      .order('created_at', { ascending: false })
+      .limit(500);
+    if (error) throw error;
+    return (data ?? []) as SupplierInvoiceGrn[];
+  }
+
+  /**
+   * Is this receipt's invoice number a repeat of another (non-cancelled) receipt from the
+   * same supplier? Asks the database first (fn_procurement_grn_has_duplicate — the same
+   * check the verify guard runs, and it also sees colleges the caller cannot); falls back
+   * to the caller's own view where that function does not exist yet.
+   */
+  static async hasDuplicateInvoice(
+    grn: Pick<ProcurementGrn, 'id' | 'supplier_id' | 'invoice_number' | 'created_at'>,
+    opts: { strict?: boolean } = {}
+  ): Promise<boolean> {
+    // Receipts already in stock, or recorded EARLIER, count: the original is never held
+    // by a later, not-yet-verified repeat — but is held once that repeat is in stock.
+    const { data, error } = await this.supabase.rpc('fn_procurement_grn_has_duplicate', {
+      p_grn_id: grn.id,
+      p_supplier_id: grn.supplier_id,
+      p_invoice_number: grn.invoice_number,
+      p_created_at: grn.created_at,
+    });
+    if (!error && typeof data === 'boolean') return data;
+    // Deep-panel L7: the fallback only sees the caller's own colleges, so a repeat
+    // recorded elsewhere would quietly pass. Good enough to show a banner; never to
+    // decide whether goods go into stock.
+    if (opts.strict) throw new Error(DUPLICATE_CHECKS_MISSING_MESSAGE);
+    const visible = await this.getSupplierInvoiceGrns(grn.supplier_id);
+    return (
+      findDuplicateGrns(visible, grn.supplier_id, grn.invoice_number, grn.id, grn).length > 0
+    );
+  }
+
+  /**
+   * D4 (Director 2026-10-10), third-person rule: did `userId` receive another delivery
+   * that this receipt's invoice number repeats? Asks the database first
+   * (fn_procurement_grn_has_duplicate with p_received_by — it answers only about the
+   * signed-in user, and also sees colleges the caller cannot); falls back to the
+   * caller's own view where that argument does not exist yet.
+   */
+  static async receivedMatchingDelivery(
+    grn: Pick<ProcurementGrn, 'id' | 'supplier_id' | 'invoice_number' | 'created_at'>,
+    userId: string,
+    opts: { strict?: boolean } = {}
+  ): Promise<boolean> {
+    const { data, error } = await this.supabase.rpc('fn_procurement_grn_has_duplicate', {
+      p_grn_id: grn.id,
+      p_supplier_id: grn.supplier_id,
+      p_invoice_number: grn.invoice_number,
+      p_created_at: grn.created_at,
+      p_received_by: userId,
+    });
+    if (!error && typeof data === 'boolean') return data;
+    if (opts.strict) throw new Error(DUPLICATE_CHECKS_MISSING_MESSAGE);
+    const visible = await this.getSupplierInvoiceGrns(grn.supplier_id);
+    return receivedMatchingDelivery(visible, grn, userId);
+  }
+
+  /**
+   * D4 at verify time (decisions round, red team): did whoever CONFIRMED this repeated
+   * invoice receive another delivery with the same number, in any status? The database
+   * answers only about the signed-in user, so when the confirmer is someone else this
+   * reads the caller's own view; the database verify guard is authoritative and also
+   * sees colleges the caller cannot.
+   */
+  static async confirmerReceivedMatch(
+    grn: Pick<
+      ProcurementGrn,
+      'id' | 'supplier_id' | 'invoice_number' | 'created_at' | 'duplicate_confirmed_by'
+    >,
+    viewerId: string,
+    opts: { strict?: boolean } = {}
+  ): Promise<boolean> {
+    const confirmer = grn.duplicate_confirmed_by;
+    if (!confirmer) return false;
+    if (confirmer === viewerId) return this.receivedMatchingDelivery(grn, viewerId, opts);
+    const visible = await this.getSupplierInvoiceGrns(grn.supplier_id);
+    return receivedMatchingDelivery(visible, grn, confirmer);
+  }
+
+  /**
+   * I1 held save: the verifier confirms that a repeated invoice number is a different
+   * invoice. The DB trigger fn_procurement_grn_invoice_checks stamps the time and refuses
+   * anyone who is the receiver, received the other delivery (D4), lacks verify rights,
+   * or is not the signed-in user.
+   */
+  static async confirmDifferentInvoice(id: string, userId: string): Promise<ProcurementGrn> {
+    try {
+      // D4: nor may whoever received the other delivery this one repeats — checked
+      // before any write.
+      const { data: current, error: curErr } = await this.supabase
+        .from('procurement_grn')
+        .select('id, supplier_id, invoice_number, created_at, status, received_by')
+        .eq('id', id)
+        .single();
+      if (curErr) throw curErr;
+      // Deep-panel M4: each refusal says why, before any write. received_by is NOT NULL
+      // in the schema (20260801000700) and pinned at INSERT, so a receipt without a
+      // receiver should not exist; if one ever does, say so plainly rather than let the
+      // `.neq('received_by', …)` below match nothing (SQL: NULL <> x is never true) and
+      // blame the confirmer.
+      if (current.status !== 'pending_verification') {
+        throw new Error('Could not confirm — this delivery is no longer waiting to be checked.');
+      }
+      if (!current.received_by) {
+        throw new Error(NO_RECEIVER_MESSAGE);
+      }
+      if (current.received_by === userId) {
+        throw new Error(
+          'Could not confirm — you received it yourself, so another verifier must confirm it is a different invoice.'
+        );
+      }
+      if (await this.receivedMatchingDelivery(current, userId)) {
+        throw new Error(THIRD_PERSON_MESSAGE);
+      }
+      const { data, error } = await this.supabase
+        .from('procurement_grn')
+        .update({ duplicate_confirmed_by: userId, updated_at: new Date().toISOString() })
+        .eq('id', id)
+        .eq('status', 'pending_verification')
+        .neq('received_by', userId)
+        .select()
+        .maybeSingle();
+      if (error) throw error;
+      if (!data) {
+        // The guarded update matched nothing: the receipt changed in between.
+        throw new Error('Could not confirm — this delivery changed while you were confirming. Reload and try again.');
+      }
+      return data as ProcurementGrn;
+    } catch (error) {
+      console.error('[ProcurementGrnService] confirmDifferentInvoice:', error);
       throw error;
     }
   }
@@ -340,6 +600,13 @@ export class ProcurementGrnService {
         throw new Error(`Delivery record ${grn.grn_number} is "${grn.status}" — only pending delivery records can be verified.`);
       }
 
+      // 0) E1 (Director 2026-10-10 afternoon): the person who received the delivery never
+      //    checks it, whatever their rights (admins included). The DB verify guard refuses
+      //    it too.
+      if (selfCheckBlocks(grn.received_by, userId)) {
+        throw new Error(SELF_CHECK_MESSAGE);
+      }
+
       // 1) Chemical validation — block the whole verify if any accepted chemical line
       //    is missing batch/expiry (fail loudly, post nothing).
       const errors = grn.items.flatMap((i) =>
@@ -352,6 +619,48 @@ export class ProcurementGrnService {
         })
       );
       if (errors.length) throw new Error(errors.join(' '));
+
+      // 1a) I2 — expired goods never go into stock, whenever they are verified: a line
+      //     that expired after it was recorded, or whose expiry was edited on the receipt
+      //     page (updateGrnItem), is refused here, before anything is posted.
+      const today = localToday();
+      const expired = grn.items
+        .filter((i) => expiredLineBlocks(i, today))
+        .map((i) => `"${i.item_name}" expired on ${i.expiry_date}`);
+      if (expired.length) {
+        throw new Error(
+          `Expired goods cannot be accepted — reject them or correct the expiry date:\n${expired.join('\n')}`
+        );
+      }
+
+      // 1a2) D2 (Director 2026-10-10): a receipt with no invoice number never goes into
+      //      stock. (Replacement receipts are exempt, but they never pass through here.)
+      //      The database verify guard refuses it too.
+      if (blankInvoiceBlocksStock(grn.invoice_number)) {
+        throw new Error(BLANK_INVOICE_MESSAGE);
+      }
+
+      // 1b) I1 held save — a repeated invoice number must be confirmed as a different
+      //     invoice before stock is added. D4 again at this moment (decisions round, red
+      //     team): a confirmation from someone who received this delivery or ANY other
+      //     with this number does not count. The DB verify guard refuses both too.
+      const hold = duplicateHold({
+        // L7: strict — no database answer, no stock (never the RLS-limited fallback).
+        hasDuplicate: await this.hasDuplicateInvoice(grn, { strict: true }),
+        confirmedBy: grn.duplicate_confirmed_by,
+        viewerId: userId,
+        receivedBy: grn.received_by,
+        viewerCanVerify: true,
+        confirmerReceivedMatch: await this.confirmerReceivedMatch(grn, userId, { strict: true }),
+      });
+      if (hold.confirmationVoid) {
+        throw new Error(CONFIRMATION_VOID_MESSAGE);
+      }
+      if (hold.blocksVerify) {
+        throw new Error(
+          'This invoice number repeats another delivery from the same supplier (already in stock, or recorded earlier). A verifier other than the receiver must confirm it is a different invoice before it is added to stock.'
+        );
+      }
 
       // 2) Guard the transition first so a concurrent verify can't double-post.
       const { data: locked, error: lockErr } = await this.supabase
@@ -368,6 +677,36 @@ export class ProcurementGrnService {
         .single();
       if (lockErr) throw lockErr;
       if (!locked) throw new Error('Delivery record was already verified by someone else; refresh.');
+
+      // 2a) Skeptic re-check (M4): the checks above judged the lines read at the start, in
+      //     separate requests. From the header post on, the database freezes the lines
+      //     (and makes a line write that was in flight finish first), so read them again
+      //     now: if any line was added, removed or changed in between, reopen the receipt
+      //     before anything posts and ask for a fresh check.
+      const { data: currentItems, error: currentErr } = await this.supabase
+        .from('procurement_grn_items')
+        .select('*')
+        .eq('grn_id', id)
+        .order('created_at', { ascending: true });
+      if (currentErr || linesChangedSinceCheck(grn.items, (currentItems ?? []) as typeof grn.items)) {
+        const { error: reopenErr } = await this.supabase
+          .from('procurement_grn')
+          .update({
+            status: 'pending_verification',
+            verified_by: null,
+            verified_at: null,
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', id)
+          .eq('status', 'accepted');
+        if (reopenErr) {
+          console.error(
+            '[ProcurementGrnService] verifyGrn: lines changed during the check AND the GRN could not be reopened — needs manual status reset',
+            reopenErr
+          );
+        }
+        throw currentErr ?? new Error(LINES_CHANGED_MESSAGE);
+      }
 
       const domain = (grn.domain ?? 'ims') as ProcurementDomain;
       const ctx: DomainCtx = { institutionId: grn.institution_id, storeId: grn.store_id, userId };
@@ -656,10 +995,25 @@ export class ProcurementGrnService {
 
     const { data: parentGrn, error: pgErr } = await this.supabase
       .from('procurement_grn')
-      .select('id,institution_id,store_id,domain,purchase_order_id,supplier_id,grn_number')
+      .select('id,institution_id,store_id,domain,purchase_order_id,supplier_id,grn_number,status,received_by')
       .eq('id', originItem.grn_id)
       .single();
     if (pgErr) throw pgErr;
+    // 1a) E1, replacement arm (Director 2026-10-10 afternoon): whoever received the original
+    //     delivery neither claims nor receives its replacement — checked before the claim.
+    //     The database refuses both (trg_pgrnr_replacement_checks, the verify guard).
+    if (selfCheckBlocks(parentGrn.received_by, userId)) {
+      throw new Error(REPLACEMENT_SELF_CHECK_MESSAGE);
+    }
+    // 1b) I1 (review round 2, red team): a replacement exists only for a line of a delivery
+    //     that was checked into stock. A pending (possibly HELD) receipt cannot reach stock
+    //     through its replacements. The database refuses such a replacement row too
+    //     (trg_pgrnr_replacement_checks).
+    if (!POSTED_GRN_STATUSES.includes(parentGrn.status)) {
+      throw new Error(
+        `Delivery record ${parentGrn.grn_number} has not been checked into stock ("${parentGrn.status}") — a replacement can only be received after it is verified.`
+      );
+    }
 
     // 2) Chemical gate — same rule as verify: batch + expiry required to post.
     const errors = validateLineForVerify({
@@ -670,6 +1024,22 @@ export class ProcurementGrnService {
       expiry_date: input.expiry_date,
     });
     if (errors.length) throw new Error(errors.join(' '));
+
+    // 2b) I2 — an expired replacement is never accepted into stock (same rule as save
+    //     and verify). A non-ISO date is refused rather than skipped.
+    for (const [label, value] of [
+      ['expiry', input.expiry_date],
+      ['manufacturing', input.manufacturing_date],
+    ] as const) {
+      if (value && !isIsoDate(value)) {
+        throw new Error(`The ${label} date "${value}" is not a valid date — re-enter it.`);
+      }
+    }
+    if (expiredLineBlocks({ expiry_date: input.expiry_date, accepted_quantity: accepted }, localToday())) {
+      throw new Error(
+        `Expired goods cannot be accepted — "${originItem.item_name}" expired on ${input.expiry_date}. Correct the expiry date or do not receive it.`
+      );
+    }
 
     // 3) Claim the replacement (mutex). Only one receiver wins the pending->received flip.
     const { data: claimed, error: claimErr } = await this.supabase
@@ -701,23 +1071,41 @@ export class ProcurementGrnService {
 
       // 4) Create the replacement GRN header (pre-inspected -> completed).
       const grnNumber = await this.generateGrnNumber(parentGrn.institution_id);
-      const { data: grn, error: grnErr } = await this.supabase
+      const replacementHeader = {
+        institution_id: parentGrn.institution_id,
+        store_id: parentGrn.store_id ?? null,
+        grn_number: grnNumber,
+        purchase_order_id: parentGrn.purchase_order_id,
+        supplier_id: parentGrn.supplier_id,
+        domain,
+        status: 'completed',
+        received_by: userId,
+        verified_by: userId,
+        verified_at: new Date().toISOString(),
+        notes: `Replacement for ${parentGrn.grn_number} — ${originItem.item_name}`,
+        // D2 (decisions round, red team): the database lets an invoice-less receipt
+        // into stock only when it names the claimed replacement it fulfils.
+        replacement_id: input.replacement_id,
+      };
+      let { data: grn, error: grnErr } = await this.supabase
         .from('procurement_grn')
-        .insert({
-          institution_id: parentGrn.institution_id,
-          store_id: parentGrn.store_id ?? null,
-          grn_number: grnNumber,
-          purchase_order_id: parentGrn.purchase_order_id,
-          supplier_id: parentGrn.supplier_id,
-          domain,
-          status: 'completed',
-          received_by: userId,
-          verified_by: userId,
-          verified_at: new Date().toISOString(),
-          notes: `Replacement for ${parentGrn.grn_number} — ${originItem.item_name}`,
-        })
+        .insert(replacementHeader)
         .select()
         .single();
+      // On a database where the decisions-round migration is not applied yet the column
+      // does not exist (PostgREST PGRST204) — and neither does the check that reads it.
+      if (
+        grnErr &&
+        grnErr.code === 'PGRST204' &&
+        /replacement_id/.test(String(grnErr.message ?? ''))
+      ) {
+        const { replacement_id: _omit, ...withoutMarker } = replacementHeader;
+        ({ data: grn, error: grnErr } = await this.supabase
+          .from('procurement_grn')
+          .insert(withoutMarker)
+          .select()
+          .single());
+      }
       if (grnErr) throw grnErr;
       createdGrnId = grn.id;
 
@@ -812,6 +1200,15 @@ export class ProcurementGrnService {
           ctx
         );
         posted = true;
+        // Mark the line posted, as verifyGrn does (the RM RPC already claimed it; this
+        // then matches 0 rows). The database refuses to delete a receipt with a posted
+        // line, so the rollback below can never erase a replacement that reached stock.
+        const { error: postedErr } = await this.supabase
+          .from('procurement_grn_items')
+          .update({ domain_posted_at: new Date().toISOString() })
+          .eq('id', newItem.id)
+          .is('domain_posted_at', null);
+        if (postedErr) throw postedErr;
       }
 
       // 7) Recompute the PO line's received_quantity — atomic single-statement
