@@ -1381,6 +1381,7 @@ function AdminBugReportsContent() {
                     <SelectContent>
                       <SelectItem value='all'>All Categories</SelectItem>
                       <SelectItem value='bug'>Bug/Issue</SelectItem>
+                      <SelectItem value='question'>Question</SelectItem>
                       <SelectItem value='feature_request'>
                         Feature Request
                       </SelectItem>
