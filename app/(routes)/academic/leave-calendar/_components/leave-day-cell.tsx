@@ -56,7 +56,7 @@ export function LeaveDayCell({ day, date, dayInfo, isToday, canApplyLeave, onApp
             <span
               className={cn(
                 'text-sm font-semibold',
-                isToday && 'flex items-center justify-center w-7 h-7 rounded-full bg-primary text-white',
+                isToday && 'flex items-center justify-center w-7 h-7 rounded-full bg-primary text-primary-foreground',
                 isSunday && !isToday && 'text-red-600',
                 !isToday && !isSunday && isBlocked && 'text-red-600',
                 !isToday && !isSunday && !isBlocked && 'text-slate-700'

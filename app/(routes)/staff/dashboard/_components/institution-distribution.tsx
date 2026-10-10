@@ -227,7 +227,7 @@ export function InstitutionDistribution({
                   className='flex items-center justify-between p-4 border rounded-lg hover:bg-muted/50 transition-colors'
                 >
                   <div className='flex items-center gap-3'>
-                    <div className='flex items-center justify-center w-8 h-8 bg-primary text-white rounded-full text-sm font-bold'>
+                    <div className='flex items-center justify-center w-8 h-8 bg-primary text-primary-foreground rounded-full text-sm font-bold'>
                       #{index + 1}
                     </div>
                     <div>

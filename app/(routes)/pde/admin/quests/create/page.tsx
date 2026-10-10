@@ -417,7 +417,7 @@ export default function CreateQuestPage() {
                       }`}
                     >
                       <div className={`w-4 h-4 rounded border flex items-center justify-center ${
-                        isSelected ? 'bg-primary border-primary text-white' : 'border-muted-foreground/30'
+                        isSelected ? 'bg-primary border-primary text-primary-foreground' : 'border-muted-foreground/30'
                       }`}>
                         {isSelected && <span className="text-[10px]">&#10003;</span>}
                       </div>
