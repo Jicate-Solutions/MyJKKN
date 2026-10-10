@@ -347,6 +347,27 @@ const config: ModuleNavConfig = {
           href: '/hr/payroll/register',
           matchPaths: ['/hr/payroll/register'],
         },
+        {
+          // Fifth payroll chip (2026-09-29), declared in the SAME change as the
+          // route, because the four blocks above record the same lesson four
+          // times: hasNavConfig makes AutoTabNav render only what is declared
+          // here, so a MENU_PERMISSIONS entry and a sidebar row together still
+          // give no chip.
+          //
+          // Last in the group because it reads the salary the three above
+          // populate and reports a proposal against it. Read-only: the report
+          // proposes an annual increment from each college's own saved rules and
+          // has no path that changes pay (Director, 2026-09-18 — a band is
+          // reference only, every rise is a per-person decision).
+          //
+          // Gated on hr.payroll.salary.view via MENU_PERMISSIONS[href] — the
+          // same key as Employee Salaries and TDS Bands, since the screen shows
+          // pay now beside pay proposed.
+          label: 'Annual Increments',
+          icon: 'TrendingUp',
+          href: '/hr/payroll/increments',
+          matchPaths: ['/hr/payroll/increments'],
+        },
       ],
     },
     {
