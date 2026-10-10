@@ -28,7 +28,11 @@ export const dynamic = 'force-dynamic';
 export const navMeta = { label: 'Feature adoption', icon: 'TrendingUp' } as const;
 
 import { ContentLayout } from '@/components/layout/content-layout';
-import { createServerSupabaseClient, getEnhancedUserProfile } from '@/lib/supabase/server';
+import {
+  createServerSupabaseClient,
+  createServiceRoleClient,
+  getEnhancedUserProfile,
+} from '@/lib/supabase/server';
 import {
   Table,
   TableBody,
@@ -68,6 +72,8 @@ import {
 import { FeatureActions, type PendingProposal } from './_components/feature-actions';
 import { RegisterFeatureForm } from './_components/register-feature-form';
 import { SyncUsageButton } from './_components/sync-usage-button';
+import { PowerUsersLastWeek } from './_components/power-users-last-week';
+import { loadPowerUsersLastWeek } from '@/lib/adoption/power-users';
 
 interface LoginDay {
   day: string;
@@ -191,7 +197,7 @@ export default async function FeatureAdoptionPage() {
   const loopEnabled = loopEnabledData === true;
 
   const now = new Date();
-  const [metricsResult, loginsResult, proposalsResult, remindersResult] = await Promise.all([
+  const [metricsResult, loginsResult, proposalsResult, remindersResult, powerUsers] = await Promise.all([
     // One clock for the whole render: the rolling window and the dead rule must agree.
     supabase.rpc('fn_adoption_metrics', {
       // A ROLLING seven days, not the calendar week: on a Monday or Tuesday a
@@ -208,6 +214,10 @@ export default async function FeatureAdoptionPage() {
     // Ruling 10: reminders sent per feature. Totals only; RLS on
     // adoption_reminders keeps even these to super admins.
     supabase.rpc('fn_adoption_reminder_summary'),
+    // The weekly Power Users report. Service role, AFTER the super-admin check
+    // above: its agendas live in ai_jobs rows owned by the Max seat, which a
+    // signed-in super admin's own client cannot read.
+    loadPowerUsersLastWeek(createServiceRoleClient()),
   ]);
 
   const metricsError = metricsResult.error;
@@ -326,6 +336,8 @@ export default async function FeatureAdoptionPage() {
           </p>
           <SignInLine days={loginDays} />
         </div>
+
+        <PowerUsersLastWeek {...powerUsers} />
 
         <RegisterFeatureForm />
 
