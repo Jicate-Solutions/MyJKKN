@@ -535,11 +535,11 @@ export class HostSchedulingService {
       const told =
         googleTold === 'yes'
           ? why === 'cancelled'
-            ? ' Google Calendar had already sent the invitees the new time; the cancellation then won, so their invites now show it cancelled.'
+            ? ' Google Calendar had already sent the invitees the new time; the cancellation then won.'
             : ' Google Calendar had already sent the invitees this move\'s time before the later change.'
           : googleTold === 'maybe'
             ? why === 'cancelled'
-              ? ' Google Calendar may already have sent the invitees the new time; the cancellation then won, so their invites now show it cancelled.'
+              ? ' Google Calendar may already have sent the invitees the new time; the cancellation then won.'
               : ' Google Calendar may already have sent the invitees this move\'s time before the later change.'
             : emailed === 0
               ? why === 'cancelled'
