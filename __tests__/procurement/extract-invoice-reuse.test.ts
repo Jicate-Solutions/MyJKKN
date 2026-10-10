@@ -4,18 +4,21 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 // the same order (review round 2 on Draft PR #4296). A malformed or old-contract read
 // must NOT be replayed: the route falls through towards a fresh read instead.
 
-let priorJob: { id: string; result: unknown } | null = null;
+// requested_by: who asked for the stored read. The mock applies a requested_by filter
+// the way the database would, so a lookup WITHOUT one would see anyone's job.
+let priorJob: { id: string; result: unknown; requested_by?: string } | null = null;
 let inFlightJob: { id: string } | null = null;
 
 // Each query is recognised by its SHAPE, not its call order (E3: "Read again" skips the
 // finished-read lookup, so the in-flight lookup can be the first ai_jobs query).
-type Shape = { eqStatusDone: boolean; inStatus: boolean };
+type Shape = { eqStatusDone: boolean; inStatus: boolean; requestedBy?: unknown };
 function chain(result: (shape: Shape) => { data: unknown; error: unknown }) {
   const shape: Shape = { eqStatusDone: false, inStatus: false };
   const b: any = {
     select: () => b,
     eq: (k: string, v: unknown) => {
       if (k === 'status' && v === 'done') shape.eqStatusDone = true;
+      if (k === 'requested_by') shape.requestedBy = v;
       return b;
     },
     in: (k: string) => {
@@ -41,7 +44,11 @@ const admin = {
       return chain((shape) => {
         if (shape.eqStatusDone) {
           doneLookups++;
-          return { data: priorJob, error: null };
+          const visible =
+            priorJob &&
+            (shape.requestedBy === undefined ||
+              (priorJob.requested_by ?? 'receiver') === shape.requestedBy);
+          return { data: visible ? priorJob : null, error: null };
         }
         if (shape.inStatus) {
           inFlightLookups++;
@@ -99,6 +106,21 @@ beforeEach(() => {
 });
 
 describe('extract-invoice reuse gate', () => {
+  // Deep-panel M3: fn_ai_enqueue stores any payload its caller sends, so a job someone
+  // else enqueued directly could carry this PDF's sha256 and order. Only the caller's
+  // own read is ever replayed.
+  it("does NOT replay another person's stored read of the same PDF + order", async () => {
+    priorJob = {
+      id: 'planted',
+      requested_by: 'someone-else',
+      result: { version: 1, invoice: { invoice_number: 'FAKE-1' }, lines: [] },
+    };
+    const json = await post();
+    expect(json.reused).toBeUndefined();
+    expect(json).toMatchObject({ unavailable: true });
+    expect(doneLookups).toBe(1);
+  });
+
   it('reuses a stored read of the current contract', async () => {
     priorJob = { id: 'job1', result: { version: 1, invoice: { invoice_number: 'INV-1' }, lines: [] } };
     await expect(post()).resolves.toMatchObject({ reused: true, job_id: 'job1' });

@@ -5,7 +5,10 @@ import { createClient, createServiceRoleClient } from '@/lib/supabase/server';
 import { isReusableInvoiceRead } from '@/lib/services/procurement/invoice-checks';
 
 export const runtime = 'nodejs';
-export const maxDuration = 15;
+// Deep-panel L6: a 15 MB form is parsed, hashed, uploaded and (when already stored)
+// downloaded and re-hashed, plus 4–5 database round-trips. 15 s was too tight for a
+// large PDF; 60 s covers it (45 routes here already ship 300 s on this plan).
+export const maxDuration = 60;
 
 const MAX_BYTES = 15 * 1024 * 1024; // 15 MB
 const JOB_TYPE = 'procurement.invoice_extract';
@@ -15,7 +18,10 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
  * Where the PDF is parked for the Windows runner: invoices have their own private
  * bucket (20261009120000_procurement_grn_invoice_checks.sql), readable only by people
  * with GRN rights — quotation-only managers cannot see supplier bills. The bucket name
- * rides in the payload so the runner never has to guess it.
+ * rides in the payload so the runner never has to guess it. It is never taken from the
+ * caller: this route sets it, and for a job enqueued any other way the database pins it
+ * (trg_ai_jobs_00_invoice_extract_guard forces storage_bucket to this value and refuses
+ * any storage_path other than <po_id>/<sha256>.pdf of a stored object — deep-panel M3).
  */
 const BUCKET = 'procurement-invoice-pdfs';
 
@@ -55,7 +61,7 @@ const str = (v: unknown) => (typeof v === 'string' && v.trim() ? v.trim().slice(
  * runner when the read finishes. There is NO paid route for invoices (spec decision 4).
  *
  * Other answers:
- *   { reused: true, job_id, result }  this exact PDF was already read for this order (decision 8)
+ *   { reused: true, job_id, result }  this person already had this exact PDF read for this order (decision 8)
  *   { unavailable: true, error }      the lane cannot take it (switched off, not set up,
  *                                     no permission, too many in flight) — type it in (decision 2)
  *
@@ -174,7 +180,8 @@ export async function POST(req: NextRequest) {
   // E3: "Read again" bypasses the stored-result reuse for this request only.
   const readAgain = form.get('read_again') === '1';
 
-  // The caller must be able to see this order (RLS) before anything is stored for it.
+  // The caller must be able to see this order (RLS) before anything is stored for it,
+  // queued for it, or reused from it (deep-panel M3: this runs before every lookup).
   const supabase = await createClient();
   const { data: po } = await supabase
     .from('procurement_purchase_orders')
@@ -188,11 +195,22 @@ export async function POST(req: NextRequest) {
   const admin = createServiceRoleClient();
 
   // ── Reuse an identical read (decision 8) ───────────────────────────────────
-  // Same file + same order = same answer. Also how a late result is used: the person
-  // comes back from the "invoice read" notification, picks the same PDF, and the form
-  // fills from the finished job instead of reading it again. Only a result of the
-  // current contract version and shape is reused (isReusableInvoiceRead); a malformed
-  // or older one falls through to a fresh read, which then becomes the newest match.
+  // Same file + same order + same person = same answer. This is how a late result is
+  // used: the person comes back from the "invoice read" notification, picks the same
+  // PDF, and the form fills from the finished job instead of reading it again. Only a
+  // result of the current contract version and shape is reused (isReusableInvoiceRead);
+  // a malformed or older one falls through to a fresh read, which then becomes the
+  // newest match.
+  //
+  // Deep-panel M3: ONLY the caller's own jobs (requested_by = user.id). fn_ai_enqueue
+  // stores whatever payload its caller sends, and anyone with grn_create can call it
+  // directly, so no payload field (sha256, po_id, a "written by the route" marker…)
+  // proves who wrote the job or what was read. requested_by is the one field the caller
+  // cannot choose — fn_ai_enqueue sets it from auth.uid(). The po_items and watch_for
+  // in a payload come from the requester's own form too. So a reused result is always
+  // one the same person's own request produced; nobody can plant a read for someone
+  // else. The cost: a colleague who uploads the same PDF gets a fresh (₹0) read instead
+  // of a replay. The order-visibility check above runs before this lookup.
   try {
     if (!readAgain) {
       const { data: prior } = await admin
@@ -200,6 +218,7 @@ export async function POST(req: NextRequest) {
         .select('id, result')
         .eq('job_type', JOB_TYPE)
         .eq('status', 'done')
+        .eq('requested_by', user.id)
         .contains('payload', { sha256, po_id: poId })
         .order('completed_at', { ascending: false })
         .limit(1)
