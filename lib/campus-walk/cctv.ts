@@ -82,6 +82,7 @@ export type CctvOwnerSource =
   | 'principal_no_hod'
   | 'cao_no_hod'
   | 'principal_hod_involved'
+  | 'cao_camera_fault'
   | 'unresolved';
 
 export interface CctvRoom {
@@ -242,6 +243,22 @@ export async function routeCctvReport(
   category: CctvCategory,
   opts: { involvesHod?: boolean } = {}
 ): Promise<CctvRouting> {
+  // A camera that is blocked or not working is the CAO's, wherever it is
+  // (Director, 10 Oct 2026) — it is campus equipment, not the room's conduct.
+  // The new category and owner_source values are safe to add: verified live
+  // 10 Oct: values land in project_tasks.metadata JSONB; only CHECK is
+  // project_tasks_task_type_check (on task_type, which createWalkTask
+  // hardcodes to 'task').
+  if (category === 'camera_fault') {
+    const cao = await profileIdsWithRole(db, 'cao');
+    return {
+      accountableProfileId: cao[0] ?? null,
+      consultedProfileIds: cao.slice(1),
+      ownerSource: cao.length > 0 ? 'cao_camera_fault' : 'unresolved',
+      hodProfileIds: []
+    };
+  }
+
   const hods = await resolveDepartmentHods(db, room.departmentId);
 
   // Edge case (Director, 9 Oct 2026): the video shows the HOD themself. It goes
@@ -435,7 +452,9 @@ export function cctvTitle(category: CctvCategory, room: string, observedAt: stri
         ? 'Exam copying'
         : category === 'staff_conduct'
           ? 'Team member conduct'
-          : 'Learner conduct';
+          : category === 'camera_fault'
+            ? 'Camera blocked or not working'
+            : 'Learner conduct';
   return `CCTV: ${what} — ${room}, ${istStamp(observedAt)}`;
 }
 

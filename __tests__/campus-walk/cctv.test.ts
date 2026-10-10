@@ -36,6 +36,7 @@ import {
   routeCctvReport,
   cctvTitle,
   cctvDueInDays,
+  namesAllowedFor,
   type CctvRoom
 } from '@/lib/campus-walk/cctv';
 import { ladderFor, rungsDue, isCatchUpPrincipalStep } from '@/lib/campus-walk/chase-up';
@@ -150,6 +151,14 @@ describe('who a CCTV report goes to', () => {
   it('no HOD on record -> the CAO (Director, 9 Oct 2026)', async () => {
     const r = await routeCctvReport(dbFor(world()), room({ departmentId: 'dept-empty' }), 'staff_conduct');
     expect(r).toMatchObject({ accountableProfileId: 'cao-1', ownerSource: 'cao_no_hod', hodProfileIds: [] });
+  });
+
+  it('a blocked or broken camera -> the CAO, even in a room that has an HOD', async () => {
+    const r = await routeCctvReport(dbFor(world()), room({ departmentId: 'dept-pharm' }), 'camera_fault');
+    expect(r).toMatchObject({ accountableProfileId: 'cao-1', ownerSource: 'cao_camera_fault', hodProfileIds: [] });
+    expect(cctvTitle('camera_fault', 'Main gate (right side)', '2026-10-10T08:07:00.000Z')).toBe(
+      'CCTV: Camera blocked or not working — Main gate (right side), 10 Oct, 1:37 pm'
+    );
   });
 
   it('the video shows the HOD -> the principal, and the HOD is not even copied', async () => {
@@ -282,6 +291,14 @@ describe('team-member names', () => {
     expect(hr.recipientIds).toEqual(['hr-1']);
     expect(hr.body).toContain('r kumar');
     expect(bells.filter((b) => b.recipientIds.includes('principal-1'))).toEqual([]);
+  });
+
+  it('names are allowed only for exam copying and team-member conduct — never a camera fault', () => {
+    expect(namesAllowedFor('camera_fault')).toBe(false);
+    expect(namesAllowedFor('learner_conduct')).toBe(false);
+    expect(namesAllowedFor('power_left_on')).toBe(false);
+    expect(namesAllowedFor('exam_copying')).toBe(true);
+    expect(namesAllowedFor('staff_conduct')).toBe(true);
   });
 
   it('a learner-conduct report never stores a name', async () => {
