@@ -421,6 +421,17 @@ BEGIN
         RAISE EXCEPTION 'the invoice number and supplier of a delivery cannot be changed once it is verified or cancelled'
           USING ERRCODE = '42501';
       END IF;
+      -- M5 round 3 (skeptic): only the person who received it (or an admin) may correct
+      -- the number. The duplicate check answers a non-receiver verifier about every
+      -- college, so letting that verifier also re-number someone else's receipt made one
+      -- account enough to probe another college's invoice numbers. No app path changes
+      -- the number after the receipt is saved.
+      IF NEW.invoice_number IS DISTINCT FROM OLD.invoice_number
+         AND NOT (public.is_super_admin() OR public.is_admin())
+         AND (auth.uid() IS NULL OR OLD.received_by IS DISTINCT FROM auth.uid()) THEN
+        RAISE EXCEPTION 'only the person who received this delivery can change its invoice number'
+          USING ERRCODE = '42501';
+      END IF;
       NEW.duplicate_confirmed_by := NULL;
       NEW.duplicate_confirmed_at := NULL;
       RETURN NEW;
