@@ -33,13 +33,10 @@ export function isIsoDate(v: unknown): v is string {
   return !Number.isNaN(t) && new Date(t).toISOString().slice(0, 10) === v;
 }
 
-/** Today's date in the viewer's local calendar, as YYYY-MM-DD. */
-export function localToday(now: Date = new Date()): string {
-  const y = now.getFullYear();
-  const m = String(now.getMonth() + 1).padStart(2, '0');
-  const d = String(now.getDate()).padStart(2, '0');
-  return `${y}-${m}-${d}`;
-}
+// "Today" for these rules is the IST business day — istBusinessDate() in
+// lib/utils/date-format.ts — passed in by every caller (deep-panel round 3, S-M4). The
+// former localToday() read the runtime's own clock and zone: on a UTC server it still
+// said yesterday until 05:30 IST, and in a browser it followed the user's device.
 
 // ── I1 duplicate invoice number ──────────────────────────────────────────────
 
@@ -462,6 +459,14 @@ export function linesChangedSinceCheck(checked: CheckedLine[], current: CheckedL
     return !now || CHECKED_LINE_FIELDS.some((f) => !sameValue(line[f], now[f]));
   });
 }
+
+/**
+ * Deep-panel round 3 (S-L6): verifyGrn could not put a provisionally posted receipt back to
+ * pending (the reopen matched no row, or failed). Checking it again cannot help — it is
+ * still in a posted status, with nothing (or not everything) in stock.
+ */
+export const GRN_STUCK_POSTED_MESSAGE =
+  'Nothing was added to stock, but this delivery could not be put back to "waiting to be checked" — it is stuck. Ask an admin to reset its status before anyone checks it again.';
 
 export const LINES_CHANGED_MESSAGE =
   'The lines of this delivery changed while you were checking it, so nothing was added to stock. Reload the delivery and check it again.';
