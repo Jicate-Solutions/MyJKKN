@@ -103,6 +103,15 @@ const config: ModuleNavConfig = {
           icon: 'RefreshCw',
           href: '/admission/social/loop',
         },
+        // 2026-10-08 — JKKN100 reel countdown scoreboard (Director's decision):
+        // per account × #JKKN100DayNN tag, YES / NO / UNKNOWN and minutes after
+        // the day's anchor reel. Read-only; gated social.view via
+        // MENU_PERMISSIONS — matches the page's PermissionGuard.
+        {
+          label: 'JKKN100',
+          icon: 'Trophy',
+          href: '/admission/social/jkkn100',
+        },
       ],
     },
     {
