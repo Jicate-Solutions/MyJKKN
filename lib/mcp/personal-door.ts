@@ -754,13 +754,6 @@ interface DoorBooking {
   answers: Record<string, unknown> | null;
 }
 
-/** Runs a step that comes before any change; a slow one means nothing was changed. */
-function beforeChange<T>(p: Promise<T>): Promise<T> {
-  return withDeadline(p, BOOKING_LIMITS.PREPARE_TIMEOUT_MS).catch((err) => {
-    throw err instanceof BookingTimeout ? new PrepareTimeout() : err;
-  });
-}
-
 async function assertOwnerMayMeet(ownerClient: SupabaseClient): Promise<void> {
   const [{ data: isSuper }, { data: canMeet }] = await Promise.all([
     ownerClient.rpc('is_super_admin'),
@@ -812,12 +805,18 @@ async function runCancelTool(
 ): Promise<unknown> {
   const a = input ?? {};
   const reason = typeof a.reason === 'string' && a.reason.trim() ? cutToLetters(a.reason.trim(), BOOKING_LIMITS.MAX_TITLE) : null;
-  await assertOwnerMayMeet(ownerClient);
+  // One shared deadline for every step before the change, as move_meeting.
+  const prepareDeadline = Date.now() + BOOKING_LIMITS.PREPARE_TIMEOUT_MS;
+  const inTime = <T,>(p: Promise<T>) =>
+    withDeadline(p, Math.max(1, prepareDeadline - Date.now())).catch((err) => {
+      throw err instanceof BookingTimeout ? new PrepareTimeout() : err;
+    });
+  await inTime(assertOwnerMayMeet(ownerClient));
   const db = createServiceRoleClient() as unknown as SupabaseClient;
-  if (!(await beforeChange(stillAllowedToBook(db, keyId, ownerId)))) {
+  if (!(await inTime(stillAllowedToBook(db, keyId, ownerId)))) {
     throw new DoorRefusal('Booking was switched off for this key, so nothing was changed.');
   }
-  const meeting = await beforeChange(loadThisKeysMeeting(db, ownerId, keyId, a.uid));
+  const meeting = await inTime(loadThisKeysMeeting(db, ownerId, keyId, a.uid));
   await cancelThisKeysMeeting(db, ownerId, meeting.uid, reason ?? 'Cancelled by the organiser.');
   return { cancelled: true, uid: meeting.uid };
 }
@@ -866,7 +865,10 @@ async function runMoveTool(
 
   const startIso = indiaLocalToIso(a.start_local);
   if (!startIso) throw new ToolArgsError('start_local must be India time as YYYY-MM-DDTHH:MM.');
-  if (new Date(startIso).getTime() < Date.now() - 5 * 60_000) {
+  // No grace period for a move: a meeting moved into the past could never be
+  // changed through the door again, and its invitees would be told of a time
+  // that has gone.
+  if (new Date(startIso).getTime() <= Date.now()) {
     throw new ToolArgsError('That start time has already passed.');
   }
   if (new Date(startIso).getTime() > Date.now() + BOOKING_LIMITS.MAX_DAYS_AHEAD * 86_400_000) {
@@ -939,7 +941,11 @@ async function runMoveTool(
           )
         );
       }
-      throw new DoorRefusal(`${outcome.error.message} The meeting is still at its old time.`);
+      throw new DoorRefusal(
+        code === 'NOT_FOUND'
+          ? `${outcome.error.message} This request changed nothing; check the owner's Meetings inbox for where it is now.`
+          : `${outcome.error.message} The meeting is still at its old time.`
+      );
     }
     // UNKNOWN is also decided before anything changed (a failed read or update).
     await releaseBookingSlot(db, reservationId);

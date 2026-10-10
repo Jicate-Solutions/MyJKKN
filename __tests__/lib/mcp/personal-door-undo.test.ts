@@ -535,6 +535,25 @@ describe('move_meeting (in place)', () => {
     expect(released()).toEqual([{ p_reservation_id: 'res-1' }]);
   });
 
+  it('refuses a new start in the past, even by a minute (no grace for moves)', async () => {
+    const past = new Date(Date.now() - 60_000);
+    const local = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'Asia/Kolkata', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
+    }).format(past).replace(', ', 'T');
+    const res = await readRpc(await call('move_meeting', { uid: MEETING_UID, start_local: local }));
+    expect(textOf(res)).toMatch(/already passed/);
+    expect(reserves()).toHaveLength(0);
+  });
+
+  it('a meeting changed or cancelled meanwhile: says this request changed nothing, not where it is', async () => {
+    moveDirect.mockResolvedValue({ ok: false, error: { code: 'NOT_FOUND', message: 'That meeting was cancelled meanwhile, so it was not moved.' } });
+    const res = await readRpc(await call('move_meeting', { uid: MEETING_UID, start_local: `${FUTURE_DATE}T18:00` }));
+    expect(textOf(res)).toBe(
+      "That meeting was cancelled meanwhile, so it was not moved. This request changed nothing; check the owner's Meetings inbox for where it is now."
+    );
+    expect(released()).toEqual([{ p_reservation_id: 'res-1' }]);
+  });
+
   it('rejects a bad time before reserving anything', async () => {
     const res = await readRpc(await call('move_meeting', { uid: MEETING_UID, start_local: 'tomorrow 3pm' }));
     expect(textOf(res)).toMatch(/start_local must be India time/);

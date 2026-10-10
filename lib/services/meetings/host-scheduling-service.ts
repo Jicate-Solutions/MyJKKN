@@ -417,7 +417,7 @@ export class HostSchedulingService {
     const { data: booking, error: readErr } = await (supabase as any)
       .from('meeting_bookings')
       .select(
-        'id, uid, host_profile_id, status, start_time, end_time, meeting_type_id, source, google_event_id, video_url, venue_reservation_id, reschedule_count, previous_start_time, rescheduled_at, answers',
+        'id, uid, host_profile_id, status, start_time, end_time, meeting_type_id, source, google_event_id, video_url, venue_reservation_id, reschedule_count, previous_start_time, rescheduled_at, attendee_email, attendee_name, answers',
       )
       .eq('uid', input.uid)
       .maybeSingle();
@@ -471,7 +471,24 @@ export class HostSchedulingService {
       return { ok: false, error: { code: 'NOT_FOUND', message: 'That meeting was changed or cancelled meanwhile.' } };
     }
 
+    // A cancel can commit after the move and before the calendar patch or the
+    // emails. Re-checked at both points: a meeting cancelled meanwhile is
+    // never re-timed in Google and never gets a "rescheduled" email.
+    const stillConfirmed = async (): Promise<boolean> => {
+      const { data: now } = await (supabase as any)
+        .from('meeting_bookings')
+        .select('status')
+        .eq('id', booking.id)
+        .maybeSingle();
+      return (now as { status?: string } | null)?.status === 'confirmed';
+    };
+    const cancelledMeanwhile = {
+      ok: false,
+      error: { code: 'NOT_FOUND' as const, message: 'That meeting was cancelled meanwhile, so it was not moved.' },
+    };
+
     const warnings: string[] = [];
+    if (booking.google_event_id && !(await stillConfirmed())) return cancelledMeanwhile;
     if (booking.google_event_id) {
       // false = Google answered and did not apply it (or no calendar access):
       // a definite refusal, so the row is put back. A thrown error = the
@@ -507,6 +524,7 @@ export class HostSchedulingService {
             reschedule_count: (booking.reschedule_count as number | null) ?? 0,
           })
           .eq('id', booking.id)
+          .eq('status', 'confirmed') // never rewrite the time of a row cancelled meanwhile
           .eq('start_time', startIso)
           .select('id')
           .maybeSingle();
@@ -557,8 +575,18 @@ export class HostSchedulingService {
       .select('full_name, email')
       .eq('id', input.hostProfileId)
       .maybeSingle();
+    if (!(await stillConfirmed())) return cancelledMeanwhile;
+
+    // Every invitee; when the list is empty, the one attendee on the row (as
+    // cancelBooking does), so the host's copy always goes once.
+    const listed = (answers.participants ?? []).filter((x) => x?.email);
+    const recipients = listed.length
+      ? listed
+      : booking.attendee_email
+        ? [{ email: booking.attendee_email as string, name: (booking.attendee_name as string | null) ?? undefined }]
+        : [];
     let hostTold = false;
-    for (const p of (answers.participants ?? []).filter((x) => x?.email)) {
+    for (const p of recipients) {
       try {
         // The host's copy is sent ONCE (its key names only the meeting; a
         // second send with a different payload would be a duplicate-key 409).

@@ -83,7 +83,13 @@ function row(over: Record<string, unknown> = {}) {
 /** A tiny meeting_bookings / profiles / meeting_types double. */
 function makeDb(
   booking: Record<string, unknown> | null,
-  opts: { updateError?: { code: string; message: string }; restoreFails?: boolean; roomError?: boolean } = {}
+  opts: {
+    updateError?: { code: string; message: string };
+    restoreFails?: boolean;
+    roomError?: boolean;
+    /** A cancel commits right after the move's row update (the race). */
+    cancelAfterMove?: boolean;
+  } = {}
 ) {
   const updates: Array<{ table: string; payload: Record<string, unknown>; where: Record<string, unknown> }> = [];
   let current = booking ? { ...booking } : null;
@@ -106,6 +112,7 @@ function makeDb(
             const matches = current && Object.entries(where).every(([k, v]) => (current as any)[k] === v);
             if (!matches) return { data: null, error: null };
             current = { ...(current as object), ...payload };
+            if (opts.cancelAfterMove && !isRestore) current = { ...(current as object), status: 'cancelled' };
             return { data: { id: (current as any).id }, error: null };
           }
           if (table === 'meeting_bookings') return { data: current, error: null };
@@ -121,7 +128,15 @@ function makeDb(
       return b;
     },
   };
-  return { db: db as any, updates, now: () => current };
+  return {
+    db: db as any,
+    updates,
+    now: () => current,
+    /** Cancel the row now, as another request would. */
+    cancelNow: () => {
+      current = { ...(current as object), status: 'cancelled' };
+    },
+  };
 }
 
 beforeEach(() => {
@@ -252,6 +267,34 @@ describe('moveDirect: the review round of 10 Oct', () => {
     const { db } = makeDb(row());
     await HostSchedulingService.moveDirect(db, { uid: 'uid-1', hostProfileId: HOST, startIso: NEW_START, durationMin: 30 });
     expect(sentEmails.filter((e) => e.to === 'director@jkkn.ac.in')).toHaveLength(1);
+  });
+});
+
+describe('moveDirect: a cancel that lands mid-move (review 12:52 IST)', () => {
+  it('a cancel after the row moved stops the calendar patch and every "moved" email', async () => {
+    const { db } = makeDb(row(), { cancelAfterMove: true });
+    const r = await HostSchedulingService.moveDirect(db, { uid: 'uid-1', hostProfileId: HOST, startIso: NEW_START, durationMin: 30 });
+    expect(r).toMatchObject({ ok: false, error: { code: 'NOT_FOUND' } });
+    expect(r.error?.message).toMatch(/cancelled meanwhile/);
+    expect(patchEventTime).not.toHaveBeenCalled();
+    expect(sentEmails).toHaveLength(0);
+  });
+
+  it('a cancel during the calendar patch: the put-back never rewrites the cancelled row, and no email goes', async () => {
+    const h = makeDb(row());
+    patchEventTime.mockImplementation(async () => {
+      h.cancelNow();
+      return false;
+    });
+    await HostSchedulingService.moveDirect(h.db, { uid: 'uid-1', hostProfileId: HOST, startIso: NEW_START, durationMin: 30 });
+    expect(h.now()).toMatchObject({ status: 'cancelled', start_time: NEW_START });
+    expect(sentEmails).toHaveLength(0);
+  });
+
+  it('with no invitee list, the row\'s attendee and the host still hear of the move', async () => {
+    const { db } = makeDb(row({ answers: { title: 'Fee review' } }));
+    await HostSchedulingService.moveDirect(db, { uid: 'uid-1', hostProfileId: HOST, startIso: NEW_START, durationMin: 30 });
+    expect(sentEmails.map((e) => e.to).sort()).toEqual(['director@jkkn.ac.in', 'parent@gmail.com']);
   });
 });
 
