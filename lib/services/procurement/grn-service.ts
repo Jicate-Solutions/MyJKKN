@@ -31,6 +31,8 @@ import {
   receivedMatchingDelivery,
   THIRD_PERSON_MESSAGE,
   CONFIRMATION_VOID_MESSAGE,
+  DUPLICATE_CHECKS_MISSING_MESSAGE,
+  NO_RECEIVER_MESSAGE,
   type DuplicateCandidate,
 } from './invoice-checks';
 import {
@@ -460,7 +462,8 @@ export class ProcurementGrnService {
    * to the caller's own view where that function does not exist yet.
    */
   static async hasDuplicateInvoice(
-    grn: Pick<ProcurementGrn, 'id' | 'supplier_id' | 'invoice_number' | 'created_at'>
+    grn: Pick<ProcurementGrn, 'id' | 'supplier_id' | 'invoice_number' | 'created_at'>,
+    opts: { strict?: boolean } = {}
   ): Promise<boolean> {
     // Receipts already in stock, or recorded EARLIER, count: the original is never held
     // by a later, not-yet-verified repeat — but is held once that repeat is in stock.
@@ -471,6 +474,10 @@ export class ProcurementGrnService {
       p_created_at: grn.created_at,
     });
     if (!error && typeof data === 'boolean') return data;
+    // Deep-panel L7: the fallback only sees the caller's own colleges, so a repeat
+    // recorded elsewhere would quietly pass. Good enough to show a banner; never to
+    // decide whether goods go into stock.
+    if (opts.strict) throw new Error(DUPLICATE_CHECKS_MISSING_MESSAGE);
     const visible = await this.getSupplierInvoiceGrns(grn.supplier_id);
     return (
       findDuplicateGrns(visible, grn.supplier_id, grn.invoice_number, grn.id, grn).length > 0
@@ -486,7 +493,8 @@ export class ProcurementGrnService {
    */
   static async receivedMatchingDelivery(
     grn: Pick<ProcurementGrn, 'id' | 'supplier_id' | 'invoice_number' | 'created_at'>,
-    userId: string
+    userId: string,
+    opts: { strict?: boolean } = {}
   ): Promise<boolean> {
     const { data, error } = await this.supabase.rpc('fn_procurement_grn_has_duplicate', {
       p_grn_id: grn.id,
@@ -496,6 +504,7 @@ export class ProcurementGrnService {
       p_received_by: userId,
     });
     if (!error && typeof data === 'boolean') return data;
+    if (opts.strict) throw new Error(DUPLICATE_CHECKS_MISSING_MESSAGE);
     const visible = await this.getSupplierInvoiceGrns(grn.supplier_id);
     return receivedMatchingDelivery(visible, grn, userId);
   }
@@ -512,11 +521,12 @@ export class ProcurementGrnService {
       ProcurementGrn,
       'id' | 'supplier_id' | 'invoice_number' | 'created_at' | 'duplicate_confirmed_by'
     >,
-    viewerId: string
+    viewerId: string,
+    opts: { strict?: boolean } = {}
   ): Promise<boolean> {
     const confirmer = grn.duplicate_confirmed_by;
     if (!confirmer) return false;
-    if (confirmer === viewerId) return this.receivedMatchingDelivery(grn, viewerId);
+    if (confirmer === viewerId) return this.receivedMatchingDelivery(grn, viewerId, opts);
     const visible = await this.getSupplierInvoiceGrns(grn.supplier_id);
     return receivedMatchingDelivery(visible, grn, confirmer);
   }
@@ -533,10 +543,26 @@ export class ProcurementGrnService {
       // before any write.
       const { data: current, error: curErr } = await this.supabase
         .from('procurement_grn')
-        .select('id, supplier_id, invoice_number, created_at')
+        .select('id, supplier_id, invoice_number, created_at, status, received_by')
         .eq('id', id)
         .single();
       if (curErr) throw curErr;
+      // Deep-panel M4: each refusal says why, before any write. received_by is NOT NULL
+      // in the schema (20260801000700) and pinned at INSERT, so a receipt without a
+      // receiver should not exist; if one ever does, say so plainly rather than let the
+      // `.neq('received_by', …)` below match nothing (SQL: NULL <> x is never true) and
+      // blame the confirmer.
+      if (current.status !== 'pending_verification') {
+        throw new Error('Could not confirm — this delivery is no longer waiting to be checked.');
+      }
+      if (!current.received_by) {
+        throw new Error(NO_RECEIVER_MESSAGE);
+      }
+      if (current.received_by === userId) {
+        throw new Error(
+          'Could not confirm — you received it yourself, so another verifier must confirm it is a different invoice.'
+        );
+      }
       if (await this.receivedMatchingDelivery(current, userId)) {
         throw new Error(THIRD_PERSON_MESSAGE);
       }
@@ -550,9 +576,8 @@ export class ProcurementGrnService {
         .maybeSingle();
       if (error) throw error;
       if (!data) {
-        throw new Error(
-          'Could not confirm — the delivery is no longer pending, or you received it yourself.'
-        );
+        // The guarded update matched nothing: the receipt changed in between.
+        throw new Error('Could not confirm — this delivery changed while you were confirming. Reload and try again.');
       }
       return data as ProcurementGrn;
     } catch (error) {
@@ -618,12 +643,13 @@ export class ProcurementGrnService {
       //     team): a confirmation from someone who received this delivery or ANY other
       //     with this number does not count. The DB verify guard refuses both too.
       const hold = duplicateHold({
-        hasDuplicate: await this.hasDuplicateInvoice(grn),
+        // L7: strict — no database answer, no stock (never the RLS-limited fallback).
+        hasDuplicate: await this.hasDuplicateInvoice(grn, { strict: true }),
         confirmedBy: grn.duplicate_confirmed_by,
         viewerId: userId,
         receivedBy: grn.received_by,
         viewerCanVerify: true,
-        confirmerReceivedMatch: await this.confirmerReceivedMatch(grn, userId),
+        confirmerReceivedMatch: await this.confirmerReceivedMatch(grn, userId, { strict: true }),
       });
       if (hold.confirmationVoid) {
         throw new Error(CONFIRMATION_VOID_MESSAGE);

@@ -388,6 +388,14 @@ export function receivedMatchingDelivery<T extends DuplicateCandidate>(
   );
 }
 
+/** Deep-panel M4: a receipt with no recorded receiver cannot be confirmed (see grn-service). */
+export const NO_RECEIVER_MESSAGE =
+  'This delivery has no recorded receiver, so the invoice cannot be confirmed here — ask a procurement admin to correct the record.';
+
+/** Deep-panel L7: the database duplicate check is missing, so nothing goes into stock. */
+export const DUPLICATE_CHECKS_MISSING_MESSAGE =
+  'The repeated-invoice check is not installed on this environment, so this delivery cannot be added to stock yet — ask the platform team.';
+
 export const THIRD_PERSON_MESSAGE =
   'You received the other delivery that carries this invoice number, so you cannot confirm it. A third person, who received neither delivery, must confirm.';
 

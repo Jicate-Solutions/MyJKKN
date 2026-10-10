@@ -306,6 +306,19 @@ describe('verifyGrn — nothing reaches stock that the rules refuse', () => {
   });
 });
 
+// Deep-panel L7: without the database check, a repeat recorded at a college the
+// verifier cannot see would quietly pass. The verify path refuses instead.
+describe('verifyGrn — duplicate check missing in the database', () => {
+  it('refuses to add to stock when fn_procurement_grn_has_duplicate is missing, before any write', async () => {
+    verifyWorld([item()], 'rpc-missing', []);
+    await expect(ProcurementGrnService.verifyGrn('g2', 'verifier')).rejects.toThrow(
+      /repeated-invoice check is not installed/
+    );
+    expect(writesTo('procurement_grn')).toHaveLength(0);
+    expect(adapter.postReceipt).not.toHaveBeenCalled();
+  });
+});
+
 describe('hasDuplicateInvoice fallback (database function not there yet)', () => {
   const g = { id: 'g2', supplier_id: 'sup1', invoice_number: 'INV-5', created_at: GRN.created_at };
   it('holds the later receipt when an earlier one carries the number', async () => {
@@ -442,18 +455,49 @@ describe('receiveReplacement — I2', () => {
 
 // ── confirmDifferentInvoice ──────────────────────────────────────────────────
 describe('confirmDifferentInvoice — the receiver may not confirm', () => {
-  it('filters out the receiver and a non-pending receipt, and says so when nothing matched', async () => {
+  it('refuses the receiver with a plain reason, before any write', async () => {
     onTable = (c) => (c.op === 'select' ? { data: GRN, error: null } : { data: null, error: null });
     onRpc = () => ({ data: false, error: null });
     await expect(ProcurementGrnService.confirmDifferentInvoice('g2', 'receiver')).rejects.toThrow(
       /you received it yourself/
     );
+    expect(writesTo('procurement_grn')).toHaveLength(0);
+  });
+
+  // Deep-panel M4: `.neq('received_by', userId)` never matches a NULL receiver, so such a
+  // receipt used to stay held for good with the confirmer wrongly told they received it.
+  it('refuses a receipt with no recorded receiver with its own message, before any write', async () => {
+    onTable = (c) =>
+      c.op === 'select' ? { data: { ...GRN, received_by: null }, error: null } : { data: GRN, error: null };
+    onRpc = () => ({ data: false, error: null });
+    const err = await ProcurementGrnService.confirmDifferentInvoice('g2', 'v2').catch((e) => e);
+    expect(err.message).toMatch(/no recorded receiver/);
+    expect(err.message).not.toMatch(/received it yourself/);
+    expect(writesTo('procurement_grn')).toHaveLength(0);
+  });
+
+  it('says "no longer waiting" for a receipt that is not pending, before any write', async () => {
+    onTable = (c) =>
+      c.op === 'select' ? { data: { ...GRN, status: 'accepted' }, error: null } : { data: GRN, error: null };
+    onRpc = () => ({ data: false, error: null });
+    await expect(ProcurementGrnService.confirmDifferentInvoice('g2', 'v2')).rejects.toThrow(
+      /no longer waiting to be checked/
+    );
+    expect(writesTo('procurement_grn')).toHaveLength(0);
+  });
+
+  it('keeps the guarded update (status + not the receiver) and reports a race plainly', async () => {
+    onTable = (c) => (c.op === 'select' ? { data: GRN, error: null } : { data: null, error: null });
+    onRpc = () => ({ data: false, error: null });
+    await expect(ProcurementGrnService.confirmDifferentInvoice('g2', 'v2')).rejects.toThrow(
+      /changed while you were confirming/
+    );
     const upd = writesTo('procurement_grn')[0];
-    expect(upd.payload).toMatchObject({ duplicate_confirmed_by: 'receiver' });
+    expect(upd.payload).toMatchObject({ duplicate_confirmed_by: 'v2' });
     expect(upd.filters).toEqual(
       expect.arrayContaining([
         ['eq', 'status', 'pending_verification'],
-        ['neq', 'received_by', 'receiver'],
+        ['neq', 'received_by', 'v2'],
       ])
     );
   });
