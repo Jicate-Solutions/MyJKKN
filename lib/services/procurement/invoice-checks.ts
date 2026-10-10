@@ -559,3 +559,54 @@ export function mergeInvoiceRead<L extends MergeableLine>(input: {
     matched: split.ordered.length,
   };
 }
+
+// ── Following a queued read (deep-panel round 1, M2) ─────────────────────────
+
+/** Every way a queued read ends without filling the form. Shown as a plain notice. */
+export const READ_FAILED_NOTICE = 'AI could not read this invoice — please type the invoice details in.';
+
+export type InvoicePollStep =
+  | { kind: 'apply' }
+  | { kind: 'stop'; notice: string; late?: 'unclaimed' | 'slow' }
+  | { kind: 'wait' };
+
+/**
+ * What the form does after one status check of a queued read. Pure, so a result that
+ * is malformed, or a check that keeps failing, can never make the form poll forever:
+ *   - `status` is what the status route answered this time, or null when the check
+ *     itself failed (network blip, bad JSON); `lastStatus` is the last real answer.
+ *   - a finished read is applied only when it has the documented shape
+ *     (isReusableInvoiceRead); anything else stops with the "type it in" notice.
+ *   - the give-up windows are judged on every check, whether or not it failed.
+ */
+export function nextInvoicePollStep(input: {
+  status: string | null;
+  result?: unknown;
+  lastStatus: string | null;
+  waitedMs: number;
+  unclaimedMs: number;
+  giveUpMs: number;
+}): InvoicePollStep {
+  const { status, result, lastStatus, waitedMs, unclaimedMs, giveUpMs } = input;
+  if (status === 'done') {
+    return isReusableInvoiceRead(result) ? { kind: 'apply' } : { kind: 'stop', notice: READ_FAILED_NOTICE };
+  }
+  if (status === 'error' || status === 'canceled' || status === 'not_found') {
+    return { kind: 'stop', notice: READ_FAILED_NOTICE };
+  }
+  if ((status ?? lastStatus) === 'pending' && waitedMs > unclaimedMs) {
+    return {
+      kind: 'stop',
+      late: 'unclaimed',
+      notice: "The office AI machine didn't pick this invoice up — please type the invoice details in.",
+    };
+  }
+  if (waitedMs > giveUpMs) {
+    return {
+      kind: 'stop',
+      late: 'slow',
+      notice: 'The AI reading is taking too long — please type the invoice details in.',
+    };
+  }
+  return { kind: 'wait' };
+}

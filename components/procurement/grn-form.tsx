@@ -14,8 +14,11 @@ import {
   invoiceAgeCheck,
   invoiceNumberFormatOk,
   lateReasonMissing,
+  isReusableInvoiceRead,
   localToday,
   mergeInvoiceRead,
+  nextInvoicePollStep,
+  READ_FAILED_NOTICE,
   type ReadInvoiceLine,
 } from '@/lib/services/procurement/invoice-checks';
 import { ProcurementGrnService, type SupplierInvoiceGrn } from '@/lib/services/procurement/grn-service';
@@ -141,6 +144,11 @@ export function GrnForm({ poId, onSaved, onCancel, compact, onDirtyChange }: Grn
   // Invoice lines billed a second time against an order line already filled from the
   // invoice. Shown so their quantity is never silently dropped; never added either.
   const [alsoBilled, setAlsoBilled] = useState<ReadInvoiceLine[]>([]);
+  // Deep-panel M1: which picked file a read belongs to. Bumped every time a file is
+  // picked; a read started for an earlier file (its POST answer, its queued job, its
+  // late result) is dropped instead of filling the form from the wrong invoice.
+  const fileGen = useRef(0);
+  const jobGen = useRef(0);
   // Order lines the person has edited. A late AI result never overwrites them.
   const touchedLines = useRef<Set<string>>(new Set());
   // I4: why an invoice older than the receiver's limit is being accepted.
@@ -289,6 +297,7 @@ export function GrnForm({ poId, onSaved, onCancel, compact, onDirtyChange }: Grn
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout>;
     const startedAt = Date.now();
+    let lastStatus: string | null = null;
 
     const stop = (notice: string | null) => {
       if (notice) setAiNotice(notice);
@@ -297,33 +306,47 @@ export function GrnForm({ poId, onSaved, onCancel, compact, onDirtyChange }: Grn
 
     const tick = async () => {
       if (cancelled) return;
+      // M1: a job started for a file that is no longer selected is never applied.
+      if (jobGen.current !== fileGen.current) return stop(null);
+      let status: string | null = null;
+      let result: unknown;
       try {
         const res = await fetch(
           `/api/procurement/grn/extract-invoice/status?job_id=${encodeURIComponent(extractJobId)}`
         );
         const json = await res.json();
-        if (cancelled) return;
-        if (json.status === 'done') {
-          applyRef.current(json.result as InvoiceReadResult);
-          setReadFilled(true);
-          return stop(null);
-        }
-        if (json.status === 'error' || json.status === 'canceled' || json.status === 'not_found') {
-          return stop('AI could not read this invoice — please type the invoice details in.');
-        }
-        const waited = Date.now() - startedAt;
-        if (json.status === 'pending' && waited > EXTRACT_UNCLAIMED_MS) {
-          return stop(
-            "The office AI machine didn't pick this invoice up — please type the invoice details in." +
-              LATE_RESULT_HINT
-          );
-        }
-        if (waited > EXTRACT_GIVE_UP_MS) {
-          return stop('The AI reading is taking too long — please type the invoice details in.' + LATE_RESULT_HINT);
+        if (typeof json?.status === 'string') {
+          status = json.status;
+          result = json.result;
         }
       } catch {
-        // Transient network error — keep polling.
+        // Transient network error — judged below like any other check, so the give-up
+        // windows still run.
       }
+      if (cancelled || jobGen.current !== fileGen.current) return;
+      if (status) lastStatus = status;
+
+      // M2: decided OUTSIDE the try, so nothing a check returns or throws can make the
+      // form poll forever. A malformed finished read stops with the "type it in" notice.
+      const step = nextInvoicePollStep({
+        status,
+        result,
+        lastStatus,
+        waitedMs: Date.now() - startedAt,
+        unclaimedMs: EXTRACT_UNCLAIMED_MS,
+        giveUpMs: EXTRACT_GIVE_UP_MS,
+      });
+      if (step.kind === 'apply') {
+        try {
+          applyRef.current(result as InvoiceReadResult);
+          setReadFilled(true);
+          return stop(null);
+        } catch (e) {
+          console.error('[procurement grn-form] could not apply the invoice read:', e);
+          return stop(READ_FAILED_NOTICE);
+        }
+      }
+      if (step.kind === 'stop') return stop(step.notice + (step.late ? LATE_RESULT_HINT : ''));
       if (!cancelled) timer = setTimeout(tick, EXTRACT_POLL_MS);
     };
 
@@ -428,6 +451,9 @@ export function GrnForm({ poId, onSaved, onCancel, compact, onDirtyChange }: Grn
   // a switched-off lane still answers with the plain "type it in" notice.
   const handleReadInvoice = async ({ readAgain = false }: { readAgain?: boolean } = {}) => {
     if (!invoiceFile || !po) return;
+    // M1: if another file is picked while this request is out, its answer is dropped.
+    const gen = fileGen.current;
+    const stale = () => gen !== fileGen.current;
     setReading(true);
     setAiNotice(null);
     try {
@@ -451,24 +477,26 @@ export function GrnForm({ poId, onSaved, onCancel, compact, onDirtyChange }: Grn
       fd.append('expectations', JSON.stringify(expectations));
       const res = await fetch('/api/procurement/grn/extract-invoice', { method: 'POST', body: fd });
       const json = await res.json().catch(() => ({}));
+      if (stale()) return;
       if (!res.ok) throw new Error(json.error || 'Invoice reading failed');
 
       if (json.unavailable) {
         setAiNotice(json.error || 'AI invoice reading is not available — please type the invoice details in.');
         return;
       }
-      if (json.reused && json.result) {
+      if (json.reused && isReusableInvoiceRead(json.result)) {
         applyExtraction(json.result as InvoiceReadResult);
         setReadFilled(true);
         toast.info('Reused an earlier reading of this same invoice PDF. Use “Read again” for a fresh one.');
         return;
       }
       if (typeof json.job_id !== 'string') throw new Error('Could not start the AI reading.');
+      jobGen.current = gen;
       setExtractJobId(json.job_id);
     } catch (e) {
-      toast.error(errorMessage(e, 'Could not read the invoice'));
+      if (!stale()) toast.error(errorMessage(e, 'Could not read the invoice'));
     } finally {
-      setReading(false);
+      if (!stale()) setReading(false);
     }
   };
 
@@ -654,8 +682,17 @@ export function GrnForm({ poId, onSaved, onCancel, compact, onDirtyChange }: Grn
                 accept=".pdf,image/*"
                 className="w-full max-w-xs sm:w-auto"
                 onChange={(e) => {
+                  // M1: a new file starts a new read. Whatever was being read, or was
+                  // found on the previous file, belongs to that file — drop it. Values
+                  // already on the form stay, still marked as AI-read until edited.
+                  fileGen.current += 1;
                   setInvoiceFile(e.target.files?.[0] ?? null);
                   setReadFilled(false);
+                  setReading(false);
+                  setExtractJobId(null);
+                  setAiNotice(null);
+                  setNotOrdered([]);
+                  setAlsoBilled([]);
                 }}
               />
               {invoiceFile?.type === 'application/pdf' && (

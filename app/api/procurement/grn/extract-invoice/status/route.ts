@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireProcurement, PROC_GRN_CREATE } from '@/lib/utils/procurement-auth';
 import { createClient } from '@/lib/supabase/server';
+import { isReusableInvoiceRead } from '@/lib/services/procurement/invoice-checks';
 
 export const runtime = 'nodejs';
 export const maxDuration = 15;
@@ -35,7 +36,14 @@ export async function GET(req: NextRequest) {
   }
 
   if (st.status === 'done') {
-    return NextResponse.json({ status: 'done', result: st.result ?? null });
+    // Deep-panel M2: a finished read is handed to the form only in the documented shape
+    // and contract version. Anything else is reported as a failed read, so the form shows
+    // the "type it in" notice instead of choking on it.
+    if (!isReusableInvoiceRead(st.result)) {
+      console.warn('[procurement grn extract-invoice status] malformed result for job', jobId);
+      return NextResponse.json({ status: 'error' });
+    }
+    return NextResponse.json({ status: 'done', result: st.result });
   }
   return NextResponse.json({ status: st.status });
 }
