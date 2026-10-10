@@ -15,6 +15,7 @@ import {
   OTHERS_RESOLVER_LABEL
 } from '@/lib/utils/bug-reports/status-tabs';
 import { isMissingResolvedByColumn } from '@/lib/api/bug-reports/resolved-by';
+import { REPORT_CATEGORIES } from '@/lib/bug-reports/report-categories';
 
 /** Ceiling on ids pulled for a resolved_by filter — see its use below. */
 const RESOLVER_ID_CAP = 5000;
@@ -122,7 +123,7 @@ const createReportSchema = z.object({
     .string()
     .min(10, { message: 'Description must be at least 10 characters long.' }),
   category: z
-    .enum(['bug', 'feature_request', 'ui_design', 'performance', 'security', 'other'])
+    .enum(REPORT_CATEGORIES)
     .optional()
     .default('bug'),
   // Screenshot and images are uploaded browser-direct via signed URLs, not through the API body.

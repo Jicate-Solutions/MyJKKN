@@ -28,6 +28,7 @@ import {
   HelpCircle
 } from 'lucide-react';
 import html2canvas from 'html2canvas';
+import { WIDGET_TOP_CATEGORIES } from '@/lib/bug-reports/report-categories';
 import {
   getLogManager,
   initializeLogCapture,
@@ -346,7 +347,7 @@ export function BugReporterWidget() {
 
   // Persist / restore last-selected category across sessions
   const CATEGORY_STORAGE_KEY = 'bug-reporter:last-category';
-  const VALID_TOP_CATEGORIES = ['question', 'feature_request', 'bug'] as const;
+  const VALID_TOP_CATEGORIES = WIDGET_TOP_CATEGORIES;
   type TopCategory = typeof VALID_TOP_CATEGORIES[number];
 
   const handleCategoryChange = (value: string) => {
