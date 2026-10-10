@@ -157,9 +157,12 @@ async function activeStaffByProfile(
 }
 
 /**
- * The HOD(s) of a department: its recorded head first, then every HOD-role
- * holder whose staff row sits in that department. Only 7 of 90 departments
- * record a head; the role holders take it to 37 (live, 9 Oct 2026).
+ * The HOD(s) of a department. A department with a recorded head gets ONLY
+ * that head (Director, 10 Oct 2026, after the first live report copied four
+ * Assistant Professors who carry the 'hod' role). Only when no head is
+ * recorded do the HOD-role holders whose staff row sits in that department
+ * stand in. Only 7 of 90 departments record a head; the role holders take
+ * it to 37 (live, 9 Oct 2026).
  */
 export async function resolveDepartmentHods(db: SupabaseClient, departmentId: string | null): Promise<string[]> {
   if (!departmentId) return [];
@@ -173,7 +176,7 @@ export async function resolveDepartmentHods(db: SupabaseClient, departmentId: st
     const recorded = (dept as any)?.head_of_department_id ?? null;
     const hodRole = await profileIdsWithRole(db, 'hod');
     const staff = await activeStaffByProfile(db, [...new Set([recorded, ...hodRole].filter(Boolean))]);
-    if (recorded && staff.has(recorded)) out.push(recorded);
+    if (recorded && staff.has(recorded)) return [recorded];
     for (const id of hodRole) {
       if (!out.includes(id) && staff.get(id)?.departmentId === departmentId) out.push(id);
     }
