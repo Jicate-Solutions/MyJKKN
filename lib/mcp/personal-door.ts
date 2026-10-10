@@ -675,7 +675,7 @@ const FREE_TIMES_TIMEOUT_MS = 4_000;
 async function withFreeTimes(
   db: SupabaseClient,
   ownerId: string,
-  args: Pick<ScheduleArgs, 'startIso' | 'durationMin'>,
+  args: Pick<ScheduleArgs, 'startIso' | 'durationMin'> & { ignore?: { start: string; end: string } },
   message: string,
   nothingDone = 'Nothing was booked.'
 ): Promise<string> {
@@ -684,7 +684,11 @@ async function withFreeTimes(
     // Loaded only here: the scheduling service builds clients when imported.
     const { nextFreeTimes } = await import('@/lib/services/meetings/host-free-times');
     times = await withDeadline(
-      nextFreeTimes(db, ownerId, { afterIso: args.startIso, durationMin: args.durationMin }),
+      nextFreeTimes(db, ownerId, {
+        afterIso: args.startIso,
+        durationMin: args.durationMin,
+        ...(args.ignore ? { ignore: args.ignore } : {}),
+      }),
       FREE_TIMES_TIMEOUT_MS
     );
   } catch {
@@ -948,7 +952,8 @@ async function runMoveTool(
           await withFreeTimes(
             db,
             ownerId,
-            { startIso, durationMin },
+            // the meeting being moved frees its own time
+            { startIso, durationMin, ignore: { start: old.start_time, end: old.end_time } },
             outcome.error.message,
             'Nothing was changed. The meeting is still at its old time.'
           )

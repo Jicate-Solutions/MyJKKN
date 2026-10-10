@@ -7,6 +7,7 @@
 // Must only be called from server-side code (API routes / server actions)
 // because RESEND_API_KEY is a server-only secret.
 
+import { createHash } from 'crypto';
 import { resend } from '@/lib/resend';
 import { logger } from '@/lib/utils/enhanced-logger';
 
@@ -258,7 +259,13 @@ function isConfigured(): boolean {
  * key, so the host still gets ONE email per meeting however many are invited.
  */
 function attendeeKey(base: string, attendeeEmail: string): string {
-  return `${base}-${(attendeeEmail ?? '').trim().toLowerCase()}`;
+  // A fingerprint of the address, not the address: the key travels in a
+  // request header and in provider logs.
+  const who = createHash('sha256')
+    .update((attendeeEmail ?? '').trim().toLowerCase())
+    .digest('hex')
+    .slice(0, 16);
+  return `${base}-${who}`;
 }
 
 async function send(

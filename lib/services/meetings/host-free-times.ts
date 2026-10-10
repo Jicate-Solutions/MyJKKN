@@ -41,7 +41,14 @@ function indiaDate(d: Date): string {
 export async function nextFreeTimes(
   supabase: SupabaseClient,
   hostProfileId: string,
-  opts: { afterIso: string; durationMin: number; count?: number; now?: Date },
+  opts: {
+    afterIso: string;
+    durationMin: number;
+    count?: number;
+    now?: Date;
+    /** A meeting that does not count as busy (the one being moved). */
+    ignore?: { start: string; end: string };
+  },
 ): Promise<string[]> {
   const now = opts.now ?? new Date();
   const count = opts.count ?? 3;
@@ -56,10 +63,14 @@ export async function nextFreeTimes(
     after.toISOString(),
     until.toISOString(),
   );
+  const sameRange = (b: { start: string; end: string }, c: { start: string; end: string }) =>
+    new Date(b.start).getTime() === new Date(c.start).getTime() &&
+    new Date(b.end).getTime() === new Date(c.end).getTime();
+  const counted = opts.ignore ? busy.filter((b) => !sameRange(b, opts.ignore!)) : busy;
   const slots = computeSlots({
     timezone: CAMPUS_TZ,
     durationMin: opts.durationMin,
-    bookings: busy,
+    bookings: counted,
     // The booking guard keeps a 5-minute gap on both sides of a confirmed
     // meeting (mb_no_double_booking_padded). A suggestion that touches another
     // meeting would be refused as SLOT_TAKEN and suggested again, so the gap is

@@ -61,6 +61,14 @@ describe('nextFreeTimes', () => {
     expect(times).toEqual(['2026-10-10T01:30:00.000Z']); // 07:00 on 10 Oct
   });
 
+  it('the meeting being moved does not block its own time', async () => {
+    // busy 10:00–10:30 is the meeting itself
+    const own = { start: '2026-10-09T04:30:00.000Z', end: '2026-10-09T05:00:00.000Z' };
+    hostBusy.mockResolvedValue([own]);
+    const times = await nextFreeTimes(db, 'host-1', { afterIso: '2026-10-09T04:30:00.000Z', durationMin: 30, count: 1, now: NOW, ignore: own });
+    expect(times).toEqual(['2026-10-09T04:30:00.000Z']); // 10:00 is offered
+  });
+
   it('never offers a time before now', async () => {
     const times = await nextFreeTimes(db, 'host-1', {
       afterIso: '2026-10-08T04:30:00.000Z', // yesterday
