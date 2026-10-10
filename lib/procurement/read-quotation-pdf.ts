@@ -59,7 +59,9 @@ export interface ExtractResult {
 }
 
 const POLL_MS = 2_000;
-const DIRECT_AFTER_MS = 10_000;
+// 2026-10-10: 10s -> 30s, matching the single Add-quotation page (#4293, Director
+// 2026-10-09 "give Windows longer"). Bulk upload and renegotiate use this one.
+const DIRECT_AFTER_MS = 30_000;
 const GIVE_UP_MS = 180_000;
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
