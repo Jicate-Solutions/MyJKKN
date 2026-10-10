@@ -24,6 +24,14 @@
 --     interactive and non-interactive work in separate passes, and all bug.*
 --     types are non-interactive.
 --
+-- The sibling_app_allowlist row ships EMPTY on purpose. The five other college
+-- apps file into this same table carrying application_id, and the Director's
+-- instruction was that those rows get text-only triage and NEVER reach the Mac
+-- runners that read the MyJKKN checkout. The producer honours both, but on
+-- 2026-10-10 production held ZERO such rows (the intake and backfill PRs are
+-- still drafts), so that path has never run against a real one. Empty keeps it
+-- inert until somebody exercises it for real and then names an app here.
+--
 -- Scope: global. No institution override — the bug queue is cluster-wide.
 
 -- The natural key is a UNIQUE INDEX on an EXPRESSION
@@ -51,6 +59,11 @@ FROM (VALUES
    '"2026-08-14"'::jsonb,
    'How far back the catch-up reaches. Reports filed before this date are left alone. 14 Aug 2026 is when the AI help stopped, which is the backlog the Director approved catching up (187 open reports). Move the date earlier to include the older ones - there are about 416 open reports before it, the oldest from Sep 2025.',
    'string'),
+
+  ('bug_reports.ai_auto.sibling_app_allowlist',
+   '[]'::jsonb,
+   'Which OTHER college apps (Mentor, TMS, COE, Library, Event Forms) may have their bug reports read by the AI for a plain-text summary. EMPTY means none, which is how this ships - nothing about another product is looked at until an app is named here. Add an app code to switch it on for that app only; no release needed. Those reports only ever get the text summary, never the "can one fix solve this group" check, because that one reads MyJKKN''s own code and would be looking at the wrong product.',
+   'array'),
 
   ('bug_reports.ai_auto.fixability_per_run',
    '10'::jsonb,

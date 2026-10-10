@@ -88,6 +88,10 @@ const POLICY = {
    *  queue in under two days — the Director's "a small batch per hour, clearing
    *  over a day or two". An earlier guess of 6 would have taken four days. */
   batchPerTick: 'bug_reports.ai_auto.batch_per_tick',
+  /** Which OTHER college apps' bug reports may get text-only AI triage here.
+   *  A list of app slugs; EMPTY means none, which is the shipped default and
+   *  makes the whole sibling path inert. See the sibling block in submit(). */
+  siblingAllowlist: 'bug_reports.ai_auto.sibling_app_allowlist',
   /** Oldest report the catch-up reaches back to. The Director's "already open"
    *  was scoped to the post-14-Aug arrivals; 416 open reports predate that and
    *  are deliberately out of reach until he widens this row. No deploy needed. */
@@ -97,6 +101,9 @@ const POLICY = {
 const DEFAULT_ENABLED = true;
 const DEFAULT_BATCH_PER_TICK = 15;
 const DEFAULT_BACKLOG_SINCE = '2026-08-14';
+/** EMPTY on purpose. Nothing about another product is analysed until the
+ *  Director names an app in the policy row — no deploy needed to do that. */
+const DEFAULT_SIBLING_ALLOWLIST: string[] = [];
 
 async function readPolicy(admin: Admin, key: string): Promise<unknown> {
   try {
@@ -126,6 +133,16 @@ export async function GET(req: NextRequest) {
   const mode = req.nextUrl.searchParams.get('mode') ?? 'both';
   const dry = req.nextUrl.searchParams.get('dry') === '1';
   const batchOverride = readCount(req.nextUrl.searchParams.get('batch'));
+  // null = "no override, read the policy row". An EMPTY ?sibling= is a
+  // deliberate "none this run", which is why absence and empty differ here too.
+  const siblingRaw = req.nextUrl.searchParams.get('sibling');
+  const siblingOverride =
+    siblingRaw === null
+      ? null
+      : siblingRaw
+          .split(',')
+          .map((v) => v.trim())
+          .filter((v) => v !== '');
 
   const admin = createServiceRoleClient();
   const startedAt = Date.now();
@@ -136,7 +153,7 @@ export async function GET(req: NextRequest) {
     mode === 'submit' ? null : await collect(admin, dry);
 
   const submitted =
-    mode === 'collect' ? null : await submit(admin, dry, batchOverride);
+    mode === 'collect' ? null : await submit(admin, dry, batchOverride, siblingOverride);
 
   return NextResponse.json({
     ok: true,
@@ -397,13 +414,19 @@ interface SubmitReport {
   skipped_in_flight: number;
   skipped_recent_job: number;
   skipped_no_description: number;
+  /** Other college apps whose reports this tick was allowed to triage. Empty =
+   *  the sibling path did not run at all. */
+  sibling_apps: string[];
+  sibling_considered: number;
+  sibling_triage_queued: number;
   errors: string[];
 }
 
 async function submit(
   admin: Admin,
   dry: boolean,
-  batchOverride: number
+  batchOverride: number | null,
+  siblingOverride: string[] | null
 ): Promise<SubmitReport> {
   const enabledRaw = await readPolicy(admin, POLICY.enabled);
   const batchRaw = await readPolicy(admin, POLICY.batchPerTick);
@@ -432,6 +455,9 @@ async function submit(
     skipped_in_flight: 0,
     skipped_recent_job: 0,
     skipped_no_description: 0,
+    sibling_apps: [],
+    sibling_considered: 0,
+    sibling_triage_queued: 0,
     errors: []
   };
 
@@ -526,7 +552,122 @@ async function submit(
     }
   }
 
+  await submitSiblingApps(admin, dry, batch, out, siblingOverride);
   return out;
+}
+
+/**
+ * TEXT-ONLY TRIAGE FOR THE OTHER COLLEGE APPS (Mentor, TMS, COE, Library, Event
+ * Forms), which file into this same table carrying application_id.
+ *
+ * The Director's instruction was to route those rows to text-only triage rather
+ * than drop them, and NEVER to the Mac runners. Both halves hold here:
+ *
+ *   • bug.triage and bug.duplicate_check are tool_set='none' in ai_job_types —
+ *     text in, text out, no repository checkout anywhere. Verified in the
+ *     registry, not assumed. So a Mentor bug read by bug.triage cannot touch
+ *     MyJKKN source.
+ *   • fixability and cluster_fix DO build a worktree of the MyJKKN checkout.
+ *     Those run from bug-cluster-scan, which stays filtered to
+ *     `application_id IS NULL`. Nothing here changes that.
+ *
+ * MODULE ROUTING IS IGNORED for these rows, as instructed: module_name is
+ * MyJKKN's own taxonomy and means nothing for another product, so the prompt's
+ * module slots carry the app's name instead of a MyJKKN module.
+ *
+ * NO DUPLICATE CHECK for these rows. fn_bug_duplicate_candidates is not
+ * app-scoped, so it would shortlist MyJKKN bugs as candidates for a Mentor bug
+ * and the model would be asked to compare across two different products.
+ * Skipped until that function can be given an app filter — a wrong "possible
+ * duplicate of X" pointing at another product's bug is worse than no verdict.
+ *
+ * INERT BY DEFAULT. The allowlist ships EMPTY, so this function returns before
+ * reading anything and the tick behaves exactly as the MyJKKN-only version that
+ * was verified. It also fails closed twice over: a row whose app slug cannot be
+ * read is not selected, so a slug stored under a key this code does not know is
+ * skipped rather than mis-triaged.
+ *
+ * ⚠ UNVERIFIED END TO END. Production holds ZERO rows with application_id set
+ * (checked 2026-10-10 18:10), because the intake and backfill PRs are both still
+ * drafts. This path has therefore never run against a real sibling row. It must
+ * be exercised the day the intake lands, BEFORE the allowlist is switched on.
+ */
+async function submitSiblingApps(
+  admin: Admin,
+  dry: boolean,
+  batch: number,
+  out: SubmitReport,
+  allowOverride: string[] | null
+): Promise<void> {
+  // ?sibling=slug,slug overrides the allowlist for ONE run, the same way
+  // ?batch= and ?fixability= do. It exists so this path can be exercised the day
+  // the intake lands — against a real sibling row, with `dry=1` first — without
+  // first switching it on for everybody via the policy row.
+  const allow = allowOverride ?? (await readAllowlist(admin));
+  if (allow.length === 0) return; // shipped default — nothing to do
+  out.sibling_apps = allow;
+
+  const { data: rows, error } = await (admin as any)
+    .from('bug_reports')
+    .select('id, display_id, description, page_url, category, metadata, console_logs, created_at')
+    .in('status', OPEN_STATUSES)
+    .not('application_id', 'is', null)
+    .is('metadata->ai_triage', null)
+    .order('created_at', { ascending: false })
+    .limit(Math.max(batch * 4, 20));
+
+  if (error) {
+    out.errors.push(`sibling read: ${error.message}`);
+    return;
+  }
+
+  for (const bug of Array.isArray(rows) ? rows : []) {
+    if (out.sibling_considered >= batch) break;
+
+    // Slug match in code, not in the query: the set is small, and this keeps the
+    // one unverified assumption (which metadata key holds the slug) in plain
+    // sight instead of inside a PostgREST filter string.
+    const meta = (bug.metadata ?? {}) as Record<string, unknown>;
+    const slug = typeof meta.source_app === 'string' ? meta.source_app : null;
+    if (!slug || !allow.includes(slug)) continue; // fails closed
+
+    if (!bug.description || String(bug.description).trim().length === 0) {
+      out.skipped_no_description += 1;
+      continue;
+    }
+
+    const dedupe = `bug-triage:${bug.id}`;
+    if (await hasRecentJob(admin, TRIAGE, dedupe)) {
+      out.skipped_recent_job += 1;
+      continue;
+    }
+
+    out.sibling_considered += 1;
+    if (dry) {
+      out.sibling_triage_queued += 1;
+      continue;
+    }
+
+    const appName = typeof meta.source_app_name === 'string' ? meta.source_app_name : slug;
+    const r = await enqueueTriage(
+      admin,
+      { ...bug, module_name: appName, sub_module_name: '(sibling app)' },
+      dedupe
+    );
+    if (r === 'queued') out.sibling_triage_queued += 1;
+    else if (r === 'in_flight') out.skipped_in_flight += 1;
+    else out.errors.push(`sibling triage ${bug.display_id ?? bug.id}: ${r}`);
+  }
+}
+
+/** App slugs allowed text-only triage. Anything that is not an array of
+ *  non-empty strings reads as EMPTY, so a malformed row disables the path
+ *  rather than enabling it for an unknown app. */
+async function readAllowlist(admin: Admin): Promise<string[]> {
+  const raw = await readPolicy(admin, POLICY.siblingAllowlist);
+  if (!Array.isArray(raw)) return DEFAULT_SIBLING_ALLOWLIST;
+  const slugs = raw.filter((v): v is string => typeof v === 'string' && v.trim() !== '');
+  return slugs.map((v) => v.trim());
 }
 
 /**
