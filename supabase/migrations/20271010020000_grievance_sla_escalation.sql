@@ -1818,13 +1818,14 @@ CREATE TRIGGER trg_grievance_history_ticket_guard
   FOR EACH ROW EXECUTE FUNCTION public.fn_grievance_child_ticket_guard();
 
 -- ---------------------------------------------------------------------
--- 11c) The Director's alert: how many complaints about the Joint MD await HIM
+-- 11c) The handler's alert: how many complaints about the Joint MD await them
 -- ---------------------------------------------------------------------
 -- No notice is written for these complaints (round 8), so the complaints
--- list shows the Director "Confidential: N awaiting you". N counts the open
+-- list shows their handler "Confidential: N awaiting you". N counts the open
 -- complaints about the Joint MD assigned to the CALLER where the caller is
--- the Director who handles them (fn_grievance_director_for, the filer left
--- out) and does not hold the Joint MD's seat. Everyone else — the Joint MD,
+-- that complaint's resolved HANDLER (fn_grievance_about_joint_md_target: the
+-- Director, or the ICC chair for an ICC-only one; the filer left out) and
+-- does not hold the Joint MD's seat. Everyone else — the Joint MD, the filer,
 -- every other super admin, everybody — gets 0, never a count. No argument:
 -- it can only describe the caller.
 CREATE OR REPLACE FUNCTION public.fn_grievance_confidential_awaiting_count()
@@ -1843,10 +1844,11 @@ AS $$
       AND t.resolved_at IS NULL AND t.withdrawn_at IS NULL
       AND NOT ((SELECT public.fn_grievance_caller_joint_md_scope())
                && ARRAY[t.institution_id, '00000000-0000-0000-0000-000000000000'::uuid])
-      AND auth.uid() = public.fn_grievance_director_for(t.institution_id,
-                         array_remove(ARRAY[t.raised_by_id, t.filed_by], NULL))) END
+      AND auth.uid() IS DISTINCT FROM t.raised_by_id
+      AND auth.uid() IS DISTINCT FROM t.filed_by
+      AND auth.uid() = (public.fn_grievance_about_joint_md_target(t) ->> 'to')::uuid) END
 $$;
--- ci:allow-secdef-authenticated the complaints list calls fn_grievance_confidential_awaiting_count() for the signed-in Director's banner; it takes no argument and returns a number only for the caller's own assigned complaints about the Joint MD when the caller IS their Director — 0 for the Joint MD, every other super admin and everyone else.
+-- ci:allow-secdef-authenticated the complaints list calls fn_grievance_confidential_awaiting_count() for the signed-in handler's banner; it takes no argument and returns a number only for the caller's own assigned complaints about the Joint MD when the caller IS their resolved handler (the Director, or the ICC chair for an ICC-only one) — 0 for the Joint MD, the filer, every other super admin and everyone else.
 REVOKE EXECUTE ON FUNCTION public.fn_grievance_confidential_awaiting_count() FROM anon, PUBLIC;
 GRANT  EXECUTE ON FUNCTION public.fn_grievance_confidential_awaiting_count() TO authenticated, service_role;
 
@@ -2307,7 +2309,7 @@ AS $allow$
     ('fn_grievance_escalation_tick',          'the scheduler''s hourly run; leaves these complaints out of every number and row of its answer (section 8)'),
     ('fn_grievance_send_back_to_normal_path', 'the Director''s own action on one ticket (section 13)'),
     ('fn_grievance_child_ticket_guard',       'BEFORE INSERT check on the comment / history line being written: the same error for a hidden or a missing ticket (section 11)'),
-    ('fn_grievance_confidential_awaiting_count', 'the Director''s own banner count: only his assigned complaints about the Joint MD, 0 for everybody else (section 11c)'),
+    ('fn_grievance_confidential_awaiting_count', 'the handler''s own banner count (the Director, or the ICC chair for an ICC-only one): only their assigned complaints about the Joint MD, 0 for everybody else (section 11c)'),
     ('fn_grievance_about_joint_md_guard',     'BEFORE UPDATE guard on the row being written (section 10)'),
     ('fn_grievance_route_on_create',          'BEFORE INSERT routing of the row being written (section 7)'),
     ('fn_grievance_notify_on_create',         'AFTER INSERT notice for the row just written (section 7)'),

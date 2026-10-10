@@ -985,6 +985,9 @@ BEGIN;
 INSERT INTO grievance_tickets (institution_id, category_id, subject, description, raised_by_id, sla_deadline, about_joint_md) VALUES
   ('10000000-0000-0000-0000-000000000001', 'c0000000-0000-0000-0000-000000000002', 'B-one', 'about the joint md', 'a0000000-0000-0000-0000-000000000007', now() + interval '3 days', true),
   ('10000000-0000-0000-0000-000000000001', 'c0000000-0000-0000-0000-000000000002', 'B-two', 'about the joint md', 'a0000000-0000-0000-0000-000000000008', now() + interval '3 days', true);
+INSERT INTO grievance_tickets (institution_id, category_id, subject, description, raised_by_id, sla_deadline, about_joint_md, is_icc_only) VALUES
+  ('10000000-0000-0000-0000-000000000001', 'c0000000-0000-0000-0000-000000000001', 'B-icc', 'harassment by the joint md', 'a0000000-0000-0000-0000-000000000007', now() + interval '3 days', true, true);
+SELECT t_ok((tk('B-icc')).assigned_to = 'a0000000-0000-0000-0000-00000000000a', 'setup: the ticked ICC-only one is with the ICC chair');
 -- the Director hands B-two to a member of staff (it stands): it no longer
 -- awaits him, and it is not "awaiting" that staff member's banner either
 UPDATE grievance_tickets SET assigned_to = 'a0000000-0000-0000-0000-00000000000c' WHERE subject = 'B-two';
@@ -995,14 +998,19 @@ SELECT t_ok(:awaiting_dir >= 1 AND EXISTS (SELECT 1 FROM grievance_tickets WHERE
                                             AND assigned_to IS DISTINCT FROM 'a0000000-0000-0000-0000-00000000000e'),
             'setup: the Director holds ' || :awaiting_dir || ' open complaints about the Joint MD, and others are held or with someone else');
 SELECT t_ok(t_as('a0000000-0000-0000-0000-00000000000e', 'SELECT fn_grievance_confidential_awaiting_count()') = :awaiting_dir::text,
-            'the Director''s banner: Confidential: ' || :awaiting_dir || ' awaiting you');
+            'the Director''s banner: Confidential: ' || :awaiting_dir || ' awaiting you (the ICC chair''s one is not counted for him)');
+SELECT count(*) AS awaiting_icc FROM grievance_tickets
+ WHERE about_joint_md AND assigned_to = 'a0000000-0000-0000-0000-00000000000a'
+   AND status IN ('open', 'in_progress', 'pending_info', 'reopened') AND resolved_at IS NULL AND withdrawn_at IS NULL \gset
+SELECT t_ok(:awaiting_icc >= 1
+            AND t_as('a0000000-0000-0000-0000-00000000000a', 'SELECT fn_grievance_confidential_awaiting_count()') = :awaiting_icc::text,
+            'the ICC chair''s banner: Confidential: ' || :awaiting_icc || ' awaiting you (its statutory handler; no notice is sent)');
 SELECT t_ok(t_as(u, 'SELECT fn_grievance_confidential_awaiting_count()') = '0',
             'banner count for ' || u || ' is 0: ' || t_as(u, 'SELECT fn_grievance_confidential_awaiting_count()'))
 FROM unnest(ARRAY['a0000000-0000-0000-0000-000000000001',   -- the Joint MD (a super admin)
                   'a0000000-0000-0000-0000-00000000000f',   -- another super admin
                   'a0000000-0000-0000-0000-000000000007',   -- an ordinary user (who filed one)
                   'a0000000-0000-0000-0000-000000000002',   -- a Principal
-                  'a0000000-0000-0000-0000-00000000000a',   -- the ICC chair
                   'a0000000-0000-0000-0000-00000000000c'    -- the staff member who now holds B-two
                  ]::uuid[]) AS u;
 SELECT t_ok(fn_grievance_confidential_awaiting_count() = 0, 'nobody signed in (the service role, a scheduler): 0');
