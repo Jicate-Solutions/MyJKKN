@@ -7,6 +7,7 @@
 // visitors sign in first, a failed lookup says so, and an open intake wins.
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { NextRequest } from 'next/server';
+import { AuthSessionMissingError } from '@supabase/supabase-js';
 
 const rpc = vi.fn();
 const getUser = vi.fn();
@@ -14,6 +15,7 @@ const listResult = vi.fn();
 const from = vi.fn();
 const profileResult = vi.fn();
 const eqCalls: Array<[string, unknown]> = [];
+const notCalls: Array<[string, string, unknown]> = [];
 const { createServiceRoleClient } = vi.hoisted(() => ({ createServiceRoleClient: vi.fn() }));
 
 vi.mock('@/lib/supabase/server', () => ({
@@ -22,6 +24,10 @@ vi.mock('@/lib/supabase/server', () => ({
       select: () => chain,
       eq: (col: string, val: unknown) => {
         eqCalls.push([col, val]);
+        return chain;
+      },
+      not: (col: string, op: string, val: unknown) => {
+        notCalls.push([col, op, val]);
         return chain;
       },
       order: () => chain,
@@ -61,6 +67,7 @@ describe('School of Influencer landing (BUG-005850)', () => {
     vi.mocked(logger.warn).mockReset();
     vi.mocked(logger.error).mockReset();
     eqCalls.length = 0;
+    notCalls.length = 0;
     getUser.mockResolvedValue({ data: { user: { id: 'learner-1' } }, error: null });
   });
 
@@ -133,6 +140,60 @@ describe('School of Influencer landing (BUG-005850)', () => {
     expect(location.searchParams.get('redirectedFrom')).toBe('/startup-studio/school-of-influence');
     expect(rpc).not.toHaveBeenCalled();
     expect(from).not.toHaveBeenCalled();
+  });
+
+  it('an Auth outage is "could not open", never a trip to sign-in (no login loop)', async () => {
+    getUser.mockResolvedValue({ data: { user: null }, error: new Error('fetch failed') });
+
+    const res = await GET(req());
+
+    expect(res.headers.get('location')).toBe(
+      'https://www.jkkn.ai/unauthorized?reason=soi_unavailable'
+    );
+    expect(rpc).not.toHaveBeenCalled();
+    expect(from).not.toHaveBeenCalled();
+  });
+
+  it('a thrown getUser is also "could not open", not sign-in', async () => {
+    getUser.mockRejectedValue(new Error('network down'));
+
+    const res = await GET(req());
+
+    expect(res.headers.get('location')).toBe(
+      'https://www.jkkn.ai/unauthorized?reason=soi_unavailable'
+    );
+  });
+
+  it('a missing session (AuthSessionMissingError) still goes to sign-in', async () => {
+    getUser.mockResolvedValue({ data: { user: null }, error: new AuthSessionMissingError() });
+
+    const res = await GET(req());
+
+    expect(new URL(res.headers.get('location') ?? '').pathname).toBe('/auth/login');
+  });
+
+  it('filters draft and cancelled programmes in the query, before the newest-25 limit', async () => {
+    rpc.mockResolvedValue({ data: false, error: null });
+    listResult.mockResolvedValue({ data: [{ id: EVENT_ID }], error: null });
+
+    await GET(req());
+
+    expect(notCalls).toContainEqual(['status', 'in', '(draft,cancelled)']);
+  });
+
+  it('an unparseable registration date is not an open intake', async () => {
+    rpc.mockResolvedValue({ data: false, error: null });
+    listResult.mockResolvedValue({
+      data: [
+        { id: EVENT_ID, registration_open_date: 'not-a-date', registration_close_date: 'also-bad' },
+        { id: OLDER_OPEN_ID, registration_open_date: iso(-1 * DAY), registration_close_date: iso(5 * DAY) },
+      ],
+      error: null,
+    });
+
+    const res = await GET(req());
+
+    expect(res.headers.get('location')).toBe(`https://www.jkkn.ai/events/${OLDER_OPEN_ID}/apply`);
   });
 
   it('says the programme could not be opened (not "not open") when the lookup fails, and logs it', async () => {
