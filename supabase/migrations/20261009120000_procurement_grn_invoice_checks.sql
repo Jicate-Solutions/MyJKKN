@@ -1237,3 +1237,60 @@ BEGIN
     $policy$;
   END IF;
 END $$;
+
+-- ----------------------------------------------------------------------------
+-- 11. Pin what an invoice-read job may point the runner at (deep-panel M3)
+-- ----------------------------------------------------------------------------
+-- fn_ai_enqueue (SECURITY DEFINER) inserts the caller's payload verbatim. The only
+-- fields a direct caller cannot choose are requested_by, lane and job_type. The
+-- runner reads the PDF with the service role, so the payload must never be able to
+-- name another bucket, or a path outside the content-addressed key the
+-- extract-invoice route writes. This runs inside fn_ai_enqueue (owner rights), so it
+-- does NOT test order visibility with RLS — that would be vacuous here. Visibility is
+-- enforced by the route (it reads the order as the caller first) and by the bucket's
+-- upload policy (section 6), which is why the stored object must exist.
+-- Updated: 2026-10-10 - deep-panel round 1, PR #4296.
+CREATE OR REPLACE FUNCTION public.fn_ai_jobs_invoice_extract_guard()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_po   text := NEW.payload->>'po_id';
+  v_sha  text := NEW.payload->>'sha256';
+  v_path text := NEW.payload->>'storage_path';
+BEGIN
+  IF NEW.job_type IS DISTINCT FROM 'procurement.invoice_extract' THEN
+    RETURN NEW;
+  END IF;
+  IF jsonb_typeof(NEW.payload) IS DISTINCT FROM 'object'
+     OR v_po IS NULL
+     OR v_po !~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+     OR v_sha IS NULL
+     OR v_sha !~ '^[0-9a-f]{64}$'
+     OR v_path IS DISTINCT FROM (v_po || '/' || v_sha || '.pdf') THEN
+    RAISE EXCEPTION 'invoice read job payload must name <po_id>/<sha256>.pdf for its own po_id and sha256'
+      USING ERRCODE = '22023';
+  END IF;
+  IF NOT EXISTS (
+       SELECT 1 FROM storage.objects o
+        WHERE o.bucket_id = 'procurement-invoice-pdfs'
+          AND o.name = v_path) THEN
+    RAISE EXCEPTION 'invoice read job names a PDF that is not stored'
+      USING ERRCODE = '22023';
+  END IF;
+  -- Whatever the caller sent, the runner only ever reads this bucket.
+  NEW.payload := jsonb_set(NEW.payload, '{storage_bucket}', to_jsonb('procurement-invoice-pdfs'::text), true);
+  RETURN NEW;
+END;
+$$;
+
+REVOKE EXECUTE ON FUNCTION public.fn_ai_jobs_invoice_extract_guard() FROM anon, PUBLIC;
+
+DROP TRIGGER IF EXISTS trg_ai_jobs_00_invoice_extract_guard ON public.ai_jobs;
+CREATE TRIGGER trg_ai_jobs_00_invoice_extract_guard
+  BEFORE INSERT ON public.ai_jobs
+  FOR EACH ROW
+  WHEN (NEW.job_type = 'procurement.invoice_extract')
+  EXECUTE FUNCTION public.fn_ai_jobs_invoice_extract_guard();
