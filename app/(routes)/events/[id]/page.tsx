@@ -82,7 +82,7 @@ import {
 import type { Event, EventStatus } from '@/types/events';
 import { SOI_EVENT_TYPE } from '@/lib/services/school-of-influence/constants';
 import { EditGeneralEventDialog } from '../_components/edit-general-event-dialog';
-import { canCancelEvent, canEditEvent } from '../_components/event-display';
+import { canCancelEvent, canEditEvent, isEventIncharge } from '../_components/event-display';
 import { EventFormCards } from '@/components/events/registration/event-form-cards';
 import { EventWaitlistCard } from '@/components/events/registration/event-waitlist-card';
 import { EventFeedbackLinkCard } from '@/components/events/feedback/event-feedback-link-card';
@@ -532,6 +532,17 @@ export default function GeneralEventDetailPage() {
       isSuperAdmin,
       canEditAny: canAccess('events', 'edit'),
     });
+
+  // The logistics boards (budget, sponsors, incidents, committees …) are run by
+  // the event's team, which includes its appointed in-charges — not only the
+  // people canEdit admits. The Director made the COO an in-charge of a cultural
+  // event so they could see its budget (BUG-006268, 9 Oct); gated on canEdit
+  // alone the Budget tab stayed hidden from them. The database agrees: the
+  // *_event_team_write policies on event_budget_items, event_sponsors,
+  // event_incidents and event_committees all admit fn_is_event_incharge.
+  // canEdit itself is untouched — status, visibility and the Edit dialog stay
+  // creator / editor only.
+  const canManageLogistics = canEdit || isEventIncharge(event, profile?.id);
 
   // Cancelling is narrower than editing (Director 30 Sep): in-charges and admins.
   const mayCancel =
@@ -1037,7 +1048,7 @@ export default function GeneralEventDetailPage() {
         <EventLogistics
           eventId={event.id}
           eventType={event.event_type as string}
-          canManage={canEdit}
+          canManage={canManageLogistics}
           enabledTools={enabledTools}
           hideSensitiveWithoutManage
         />
