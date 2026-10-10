@@ -64,7 +64,12 @@ import {
   useDeleteDivision,
 } from '@/hooks/events/use-tournaments';
 import { useTournamentEntries } from '@/hooks/events/use-tournament-registrations';
-import { useTournamentMatches, useTournamentHeats } from '@/hooks/events/use-tournament-fixtures';
+import {
+  useTournamentMatches,
+  useTournamentHeats,
+  useDivisionResultMarks,
+} from '@/hooks/events/use-tournament-fixtures';
+import { divisionHasResults, divisionResultsUnknown } from './division-results-lock';
 import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
 import { usePermissions } from '@/hooks/use-permissions';
 import { HostInstitutionsPicker, hostInstitutionsDto } from './host-institutions-picker';
@@ -88,11 +93,6 @@ const divisionKey = (
     (ageBand ?? '').trim().toLowerCase(),
   ].join('|');
 
-/**
- * Match statuses that mean a result is recorded. Same set the database guard
- * (trg_tournament_division_results_lock) and fn_tournament_set_fixture_mode use.
- */
-const RECORDED_RESULT_STATUSES = ['completed', 'walkover', 'disqualified'];
 
 /** Categories offered as one-click variant chips for the shown division's sport. */
 const VARIANT_GENDERS = ['male', 'female', 'mixed'] as const;
@@ -330,12 +330,25 @@ function EditTournamentForm({
   // A division with recorded results keeps its sport, category and format
   // (BALAM-2K26: a chess division with results was turned into a 400 m one).
   // The database trigger enforces it; this only explains it up front.
-  const { data: matches, isLoading: matchesLoading } = useTournamentMatches(tournament.id);
+  const matchesRead = useTournamentMatches(tournament.id);
+  const matches = matchesRead.data;
   // Heats divisions (athletics, swimming) keep results per athlete instead.
-  const { data: heats, isLoading: heatsLoading } = useTournamentHeats(tournament.id);
-  // Until both have loaded we cannot tell, so sport, category and format stay
-  // disabled rather than briefly editable.
-  const resultsPending = matchesLoading || heatsLoading;
+  const heatsRead = useTournamentHeats(tournament.id);
+  const heats = heatsRead.data;
+  // A division that EVER had a result stays locked after a rollback or delete.
+  const marksRead = useDivisionResultMarks(
+    tournament.id,
+    (detail?.divisions ?? []).map((d) => d.id).filter(Boolean)
+  );
+  // Until all three have loaded — or when the matches or heats read failed —
+  // we cannot tell, so sport, category and format stay disabled rather than
+  // editable. A failed marks read does not block: it is an extra signal (and
+  // fails until migration 20271010180000 is applied); the trigger still holds.
+  const resultsPending = divisionResultsUnknown([
+    matchesRead,
+    heatsRead,
+    { isLoading: marksRead.isLoading, isError: false },
+  ]);
   // Director ruling (9 Oct 2026): a super admin may still change them, and the
   // database records each such override.
   const { isSuperAdmin } = usePermissions();
@@ -410,18 +423,7 @@ function EditTournamentForm({
     divisions.find((d) => d.id === selectedDivisionId) ?? divisions[0] ?? null;
   const selectedHasResults =
     !!selectedDivision &&
-    ((matches ?? []).some(
-      (m) =>
-        m.division_id === selectedDivision.id && RECORDED_RESULT_STATUSES.includes(m.status)
-    ) ||
-      // Same test as the trigger: a place, a mark, or DNS/DNF/DQ.
-      (heats ?? []).some(
-        (h) =>
-          h.division_id === selectedDivision.id &&
-          (h.athletes ?? []).some(
-            (a) => a.position != null || a.mark_value != null || a.result_status !== 'ok'
-          )
-      ));
+    divisionHasResults(selectedDivision.id, matches, heats, marksRead.data);
 
   const set = (field: string, value: string | boolean) =>
     setForm((prev) => ({ ...prev, [field]: value }));

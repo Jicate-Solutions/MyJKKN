@@ -70,25 +70,30 @@ export async function GET(request: NextRequest) {
   // to them — only the placed rows are returned to a non-manager.
   const svc = createServiceRoleClient();
   const registrations: WinnerRegistration[] = [];
-  for (let from = 0; ; ) {
+  // Keyset pages on id (#4311 r7/r10): offset pages ordered by name skipped or
+  // repeated a registration when a row was added, removed or renamed between
+  // requests. Sorted by name once everything is in.
+  for (let after: string | null = null; ; ) {
     let page = (svc as any)
       .from('events_registrations')
       .select('id, form_id, participant_name, institution_name, department, status, final_rank')
       .eq('event_id', eventId);
     if (!canManage) page = page.not('final_rank', 'is', null);
-    const { data, error } = await page
-      .order('participant_name', { ascending: true })
-      .order('id', { ascending: true })
-      .range(from, from + PAGE - 1);
+    if (after) page = page.gt('id', after);
+    const { data, error } = await page.order('id', { ascending: true }).limit(PAGE);
     if (error) {
       return NextResponse.json({ error: 'Could not load the winners. Please try again.' }, { status: 500 });
     }
-    // Stop only on an empty page, and advance by what actually came back: a
-    // server whose max-rows is below PAGE returns short pages that are not the end.
+    // Stop only on an empty page: a server whose max-rows is below PAGE
+    // returns short pages that are not the end.
     if (!data || data.length === 0) break;
     registrations.push(...(data as WinnerRegistration[]));
-    from += data.length;
+    after = (data[data.length - 1] as WinnerRegistration).id;
   }
+  registrations.sort(
+    (a, b) =>
+      (a.participant_name ?? '').localeCompare(b.participant_name ?? '') || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0),
+  );
   const { data: forms } = await (svc as any)
     .from('event_registration_forms')
     .select('id, name')
@@ -122,9 +127,12 @@ export async function POST(request: NextRequest) {
   const complete = (c: any) =>
     c !== null && typeof c === 'object' && 'registrationId' in c && 'final_rank' in c;
   if (raw && !raw.every(complete)) return invalid();
+  // expectedRank is optional (an older open tab does not send it); when sent
+  // it must be a place or null, and the database refuses a stale one (40001).
   const changes = raw?.map((c: any) => ({
     registration_id: typeof c.registrationId === 'string' ? c.registrationId : null,
     final_rank: c.final_rank,
+    ...('expectedRank' in c ? { expected_rank: c.expectedRank } : {}),
   }));
   if (
     !changes ||
@@ -134,7 +142,8 @@ export async function POST(request: NextRequest) {
       (c) =>
         !c.registration_id ||
         !UUID.test(c.registration_id) ||
-        !(c.final_rank === null || [1, 2, 3].includes(c.final_rank)),
+        !(c.final_rank === null || [1, 2, 3].includes(c.final_rank)) ||
+        ('expected_rank' in c && !(c.expected_rank === null || [1, 2, 3].includes(c.expected_rank as number))),
     )
   ) {
     return invalid();

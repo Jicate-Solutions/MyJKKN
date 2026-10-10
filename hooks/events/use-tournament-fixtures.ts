@@ -7,6 +7,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import toast from 'react-hot-toast';
 import { TournamentFixturesService, type UpdateHeatDto } from '@/lib/services/events/tournament/tournament-fixtures-service';
+import { createClientSupabaseClient } from '@/lib/supabase/client';
 import type {
   ScheduleMatchDto,
   RecordResultDto,
@@ -177,6 +178,28 @@ export function useAwardAchievements(eventId: string) {
       }
     },
     onError: (e: Error) => toast.error(e.message || 'Failed to award achievements'),
+  });
+}
+
+/**
+ * Divisions (of those given) that have EVER had a recorded result — the marks
+ * the #4304 lock keeps after a rollback or delete. Read on the caller's session:
+ * a mark is visible exactly when its division is (20271010180000).
+ */
+export function useDivisionResultMarks(eventId: string, divisionIds: string[]) {
+  const ids = [...divisionIds].sort();
+  return useQuery({
+    queryKey: ['tournament-division-result-marks', eventId, ids] as const,
+    queryFn: async (): Promise<string[]> => {
+      if (ids.length === 0) return [];
+      const { data, error } = await (createClientSupabaseClient() as any)
+        .from('tournament_division_result_marks')
+        .select('division_id')
+        .in('division_id', ids);
+      if (error) throw new Error(error.message || 'Could not check recorded results');
+      return ((data ?? []) as { division_id: string }[]).map((r) => r.division_id);
+    },
+    enabled: !!eventId,
   });
 }
 
