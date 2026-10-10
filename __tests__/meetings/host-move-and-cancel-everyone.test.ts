@@ -301,6 +301,42 @@ describe('moveDirect: a cancel that lands mid-move (review 12:52 IST)', () => {
     expect(sentEmails).toHaveLength(0);
   });
 
+  it('a cancel AFTER Google already moved the invite says Google told them, never "nobody was sent"', async () => {
+    const h = makeDb(row());
+    // the cancel lands after the patch, before the emails
+    const realFrom = h.db.from.bind(h.db);
+    let patchedYet = false;
+    patchEventTime.mockImplementation(async () => {
+      patchedYet = true;
+      return true;
+    });
+    h.db.from = (t: string) => {
+      if (patchedYet && t === 'meeting_bookings') h.cancelNow();
+      return realFrom(t);
+    };
+    const r = await HostSchedulingService.moveDirect(h.db, { uid: 'uid-1', hostProfileId: HOST, startIso: NEW_START, durationMin: 30 });
+    expect(r).toMatchObject({ ok: false, error: { code: 'CANCELLED_MEANWHILE' } });
+    expect(r.error?.message).toMatch(/Google Calendar had already sent the invitees the new time/);
+    expect(r.error?.message).not.toMatch(/nobody was sent/);
+    expect(sentEmails).toHaveLength(0);
+  });
+
+  it('a cancel after a patch whose outcome is unknown says Google MAY have told them', async () => {
+    const h = makeDb(row());
+    const realFrom = h.db.from.bind(h.db);
+    let patchedYet = false;
+    patchEventTime.mockImplementation(async () => {
+      patchedYet = true;
+      throw new Error('socket hang up');
+    });
+    h.db.from = (t: string) => {
+      if (patchedYet && t === 'meeting_bookings') h.cancelNow();
+      return realFrom(t);
+    };
+    const r = await HostSchedulingService.moveDirect(h.db, { uid: 'uid-1', hostProfileId: HOST, startIso: NEW_START, durationMin: 30 });
+    expect(r.error?.message).toMatch(/may already have sent the invitees the new time/);
+  });
+
   it('a failed status read is NOT a cancel: the move goes on', async () => {
     const { db, now } = makeDb(row(), { statusReadFails: true });
     const r = await HostSchedulingService.moveDirect(db, { uid: 'uid-1', hostProfileId: HOST, startIso: NEW_START, durationMin: 30 });

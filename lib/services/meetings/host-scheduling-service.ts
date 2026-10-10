@@ -488,17 +488,23 @@ export class HostSchedulingService {
       const status = (now as { status?: string } | null)?.status;
       return !readErr && typeof status === 'string' && status !== 'confirmed';
     };
-    const cancelledMeanwhile: MoveDirectOutcome = {
+    // What Google has been told so far decides what the reply may claim.
+    let googleTold: 'no' | 'yes' | 'maybe' = 'no';
+    const cancelledMeanwhileOutcome = (): MoveDirectOutcome => ({
       ok: false,
       error: {
         code: 'CANCELLED_MEANWHILE',
         message:
-          'The meeting was cancelled while it was being moved. The cancellation stands; nobody was sent the new time.',
+          googleTold === 'yes'
+            ? 'The meeting was cancelled while it was being moved. Google Calendar had already sent the invitees the new time; the cancellation then won, so their invites now show it cancelled.'
+            : googleTold === 'maybe'
+              ? 'The meeting was cancelled while it was being moved. Google Calendar may already have sent the invitees the new time; the cancellation then won, so their invites now show it cancelled.'
+              : 'The meeting was cancelled while it was being moved. The cancellation stands; nobody was sent the new time.',
       },
-    };
+    });
 
     const warnings: string[] = [];
-    if (booking.google_event_id && (await cancelledSince())) return cancelledMeanwhile;
+    if (booking.google_event_id && (await cancelledSince())) return cancelledMeanwhileOutcome();
     if (booking.google_event_id) {
       // false = Google answered and did not apply it (or no calendar access):
       // a definite refusal, so the row is put back. A thrown error = the
@@ -519,6 +525,7 @@ export class HostSchedulingService {
         console.error(`${LOG_PREFIX} move: calendar patch outcome unknown for ${input.uid}:`, err);
         patched = 'unknown';
       }
+      googleTold = patched === true ? 'yes' : patched === 'unknown' ? 'maybe' : 'no';
       if (patched === 'unknown') {
         warnings.push(
           'Google Calendar did not confirm the new time, so the invite may still show the old time. Check it.',
@@ -549,7 +556,7 @@ export class HostSchedulingService {
         }
         // No row back and no error: the row is no longer 'confirmed' at the new
         // time, i.e. it was cancelled meanwhile; nothing else here to do.
-        if (!backErr && (await cancelledSince())) return cancelledMeanwhile;
+        if (!backErr && (await cancelledSince())) return cancelledMeanwhileOutcome();
         // 23P01 here = another booking took the freed old time meanwhile.
         console.error(
           `${LOG_PREFIX} move: calendar patch AND restore failed for ${input.uid}:`,
@@ -564,7 +571,7 @@ export class HostSchedulingService {
     // A held room follows the meeting (same rule as rescheduleBooking). If it
     // cannot (a clash or an error), the move is reported half-done. A meeting
     // cancelled meanwhile keeps its room released by the cancel.
-    if (booking.venue_reservation_id && (await cancelledSince())) return cancelledMeanwhile;
+    if (booking.venue_reservation_id && (await cancelledSince())) return cancelledMeanwhileOutcome();
     if (booking.venue_reservation_id) {
       const { error: rErr } = await (supabase as any)
         .from('resource_reservations')
@@ -590,7 +597,7 @@ export class HostSchedulingService {
       .select('full_name, email')
       .eq('id', input.hostProfileId)
       .maybeSingle();
-    if (await cancelledSince()) return cancelledMeanwhile;
+    if (await cancelledSince()) return cancelledMeanwhileOutcome();
 
     // Every invitee; when the list is empty, the one attendee on the row (as
     // cancelBooking does), so the host's copy always goes once.
