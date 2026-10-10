@@ -224,7 +224,9 @@ describe('dry run', () => {
     expect(body.prompts).toHaveLength(10);
     expect(enqueueJobsLane).not.toHaveBeenCalled();
     expect(writes()).toEqual([]);
-    expect(calls.some((c) => c.table === 'adoption_power_user_weeks')).toBe(false);
+    // it may READ the stored row (to show what a real run would use) but never writes it
+    expect(calls.some((c) => c.table === 'adoption_power_user_weeks' && (c.op === 'upsert' || c.op === 'update'))).toBe(false);
+    expect(body.report_source).toBe('computed');
   });
 });
 
@@ -336,7 +338,7 @@ describe('a real run', () => {
   });
 
   it('when the lookup fails, queues nobody (no doubled agenda) and answers 500 naming the ?week= to re-run', async () => {
-    tableResults.adoption_power_user_weeks = { data: { agenda_jobs: { 'u-01': 'old-1' } }, error: null };
+    tableResults.adoption_power_user_weeks = { data: { payload: payload(10), agenda_jobs: { 'u-01': 'old-1' } }, error: null };
     tableResults.ai_jobs = { data: null, error: { message: 'boom' } };
     const res = await GET(request({ bearer: SECRET, query: `?week=${WEEK}` }));
     expect(res.status).toBe(500);
@@ -349,7 +351,7 @@ describe('a real run', () => {
 
   it('is a 500 when a job lookup fails even if everyone already had a stored id', async () => {
     const all = Object.fromEntries(Array.from({ length: 10 }, (_, i) => [`u-${String(i + 1).padStart(2, '0')}`, `old-${i}`]));
-    tableResults.adoption_power_user_weeks = { data: { agenda_jobs: all }, error: null };
+    tableResults.adoption_power_user_weeks = { data: { payload: payload(10), agenda_jobs: all }, error: null };
     tableResults.ai_jobs = { data: null, error: { message: 'boom' } };
     const res = await GET(request({ bearer: SECRET, query: `?week=${WEEK}` }));
     expect(res.status).toBe(500);
@@ -582,7 +584,7 @@ describe('a real run', () => {
   });
 
   it('only merges the ids this run changed — a stored id that did not change is not rewritten', async () => {
-    tableResults.adoption_power_user_weeks = { data: { agenda_jobs: { 'u-01': 'old-1' } }, error: null };
+    tableResults.adoption_power_user_weeks = { data: { payload: payload(10), agenda_jobs: { 'u-01': 'old-1' } }, error: null };
     tableResults.ai_jobs = {
       data: [{ id: 'old-1', status: 'pending', result: null, dedupe: `adoption-agenda:${WEEK}:u-01` }],
       error: null,
@@ -590,6 +592,69 @@ describe('a real run', () => {
     await GET(request({ bearer: SECRET, query: `?week=${WEEK}` }));
     expect(merged()).not.toHaveProperty('u-01');
     expect(Object.keys(merged() ?? {})).toHaveLength(9);
+  });
+
+  it('a re-run of a week that already has a row KEEPS the stored report and re-queues only the missing agenda', async () => {
+    // Stored: P1..P10. The function would now return a different top 10 (pruned/backfilled usage).
+    const storedPayload = payload(10);
+    const all = Object.fromEntries(storedPayload.top.map((p) => [p.user_id, `job-of-${p.user_id}`]));
+    delete all['u-04']; // u-04's agenda id was never saved and no job exists for it
+    tableResults.adoption_power_user_weeks = { data: { payload: storedPayload, agenda_jobs: all }, error: null };
+    tableResults.ai_jobs = {
+      data: storedPayload.top
+        .filter((p) => p.user_id !== 'u-04')
+        .map((p) => ({ id: `job-of-${p.user_id}`, status: 'done', result: { answer: JSON.stringify({ questions: ['a', 'b', 'c'], topics: ['t1', 't2'] }) }, requested_at: new Date().toISOString(), dedupe: `adoption-agenda:${WEEK}:${p.user_id}` })),
+      error: null,
+    };
+    const different = payload(10);
+    different.top = different.top.map((p, i) => ({ ...p, user_id: `other-${i}` }));
+    rpcResult = { data: different, error: null };
+    const res = await GET(request({ bearer: SECRET, query: `?week=${WEEK}` }));
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.report_source).toBe('stored');
+    expect(rpc).not.toHaveBeenCalledWith('fn_adoption_power_users', expect.anything());
+    expect(calls.some((c) => c.table === 'adoption_power_user_weeks' && c.op === 'upsert')).toBe(false);
+    const users = enqueueJobsLane.mock.calls.map((c) => (c[1] as { context: { user_id: string } }).context.user_id);
+    expect(users).toEqual(['u-04']);
+    expect(body.kept).toBe(9);
+    expect(Object.keys(merged() ?? {})).toEqual(['u-04']);
+  });
+
+  it('?recompute=1 rebuilds the report with the function and replaces the stored one', async () => {
+    tableResults.adoption_power_user_weeks = { data: { payload: payload(10), agenda_jobs: {} }, error: null };
+    const different = payload(10);
+    different.top = different.top.map((p, i) => ({ ...p, user_id: `other-${i}` }));
+    rpcResult = { data: different, error: null };
+    const res = await GET(request({ bearer: SECRET, query: `?week=${WEEK}&recompute=1` }));
+    expect(res.status).toBe(200);
+    expect((await res.json()).report_source).toBe('computed');
+    expect(rpc).toHaveBeenCalledWith('fn_adoption_power_users', { p_week_start: WEEK });
+    const upsert = calls.find((c) => c.table === 'adoption_power_user_weeks' && c.op === 'upsert');
+    expect((upsert?.args[0] as { payload: { top: Array<{ user_id: string }> } }).payload.top[0].user_id).toBe('other-0');
+  });
+
+  it('a first run of a week (no row yet) computes the report and stores it, as before', async () => {
+    const res = await GET(request({ bearer: SECRET, query: `?week=${WEEK}` }));
+    expect(res.status).toBe(200);
+    expect((await res.json()).report_source).toBe('computed');
+    expect(rpc).toHaveBeenCalledWith('fn_adoption_power_users', { p_week_start: WEEK });
+    expect(calls.some((c) => c.table === 'adoption_power_user_weeks' && c.op === 'upsert')).toBe(true);
+  });
+
+  it('a stored report that cannot be read is a 500 telling the operator to add &recompute=1', async () => {
+    tableResults.adoption_power_user_weeks = { data: { payload: { nope: true }, agenda_jobs: {} }, error: null };
+    const res = await GET(request({ bearer: SECRET, query: `?week=${WEEK}` }));
+    expect(res.status).toBe(500);
+    expect((await res.json()).error).toContain(`?week=${WEEK}&recompute=1`);
+    expect(enqueueJobsLane).not.toHaveBeenCalled();
+  });
+
+  it('agenda 500s say a re-run keeps the ranking and how to rebuild it', async () => {
+    enqueueJobsLane.mockImplementation(() => Promise.resolve({ ok: false, reason: 'no_seat', error: 'no seat owner configured' }));
+    const body = await (await GET(request({ bearer: SECRET, query: `?week=${WEEK}` }))).json();
+    expect(body.error).toContain(`re-run with ?week=${WEEK}`);
+    expect(body.error).toContain('&recompute=1 to rebuild the ranking');
   });
 
   it('is a 500 when the job ids cannot be saved', async () => {

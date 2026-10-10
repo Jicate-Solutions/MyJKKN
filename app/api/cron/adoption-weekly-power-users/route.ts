@@ -16,11 +16,19 @@
 // One run:
 //   1. week_start = the Monday of the previous IST week, or ?week=YYYY-MM-DD
 //      (a Monday; anything else is 400).
-//   2. the RPC; then that person's own bug_reports from the last 30 days.
+//   2. the report. A week that ALREADY has a stored row keeps its stored
+//      report (ranking, lists, counts): a re-run of week W only re-queues
+//      agendas that are missing or unusable for W's stored top 10, so earlier
+//      agendas are never orphaned and W+1's NEW badge stays right even if W's
+//      usage_events were pruned or backfilled since. Only ?recompute=1
+//      rebuilds it with the RPC. A week with no row yet (the scheduled weekly
+//      run) is computed by the RPC as before. Then each top person's own
+//      bug_reports from the last 30 days.
 //   3. ?dry_run=1 stops here: the report + the prompts it WOULD queue. No write,
 //      no job.
-//   4. upsert the week's row in adoption_power_user_weeks (agenda_jobs is not
-//      touched by the upsert, so a re-run keeps the job ids it already has);
+//   4. upsert the week's row in adoption_power_user_weeks — only when the
+//      report was computed this run (agenda_jobs is not touched by the upsert,
+//      so a re-run keeps the job ids it already has);
 //   5. one agenda job per top-10 person (dedupe key adoption-agenda:<week>:<user>).
 //      Someone whose newest job this week (found by dedupe key) is still queued,
 //      or finished with a readable agenda, is skipped ('kept'); an errored job or
@@ -33,7 +41,8 @@
 // RETRIES ARE MANUAL. Every scheduled run works on the week that just ended,
 // so it never goes back to an earlier week: an agenda that failed to queue, an
 // id that was not saved or a stuck job in week W is fixed only by a manual
-// `?week=W` re-run (which is also the only time the stuck-job replacement
+// `?week=W` re-run (it keeps W's stored report; add &recompute=1 to rebuild
+// the ranking; it is also the only time the stuck-job replacement
 // above can fire: the one scheduled run for W is the run that queues W's jobs,
 // so it never finds one of them stuck). Without a re-run, those people get no
 // agenda for W. A 500 about agendas names the ?week= to re-run.
@@ -111,14 +120,36 @@ export async function GET(request: NextRequest) {
   }
   const weekStart = weekParam ?? lastCompletedWeek;
   const dryRun = ['1', 'true'].includes(request.nextUrl.searchParams.get('dry_run') ?? '');
+  const recompute = ['1', 'true'].includes(request.nextUrl.searchParams.get('recompute') ?? '');
   const admin = createServiceRoleClient();
 
-  // 1) the report — every rule is in the database function
-  const { data, error } = await admin.rpc('fn_adoption_power_users', { p_week_start: weekStart });
-  if (error) return fail(`report rpc failed: ${error.message}`, started);
-  const payload = (data ?? null) as PowerUsersPayload | null;
-  if (!payload || !Array.isArray(payload.top) || !Array.isArray(payload.one_day_staff)) {
-    return fail('report rpc returned no report', started);
+  // 1) the week's stored row, if any: its report is kept unless ?recompute=1,
+  // and its agenda job ids are kept either way.
+  const { data: storedRow, error: storedErr } = await admin
+    .from('adoption_power_user_weeks')
+    .select('payload, agenda_jobs')
+    .eq('week_start', weekStart)
+    .maybeSingle();
+  if (storedErr) return fail(`week row read failed: ${storedErr.message}`, started);
+  const stored = storedRow as { payload?: unknown; agenda_jobs?: Record<string, unknown> } | null;
+
+  const isReport = (p: unknown): p is PowerUsersPayload =>
+    !!p && Array.isArray((p as PowerUsersPayload).top) && Array.isArray((p as PowerUsersPayload).one_day_staff);
+  let payload: PowerUsersPayload;
+  let reportSource: 'stored' | 'computed';
+  if (stored && !recompute) {
+    if (!isReport(stored.payload)) {
+      return fail(`stored report for ${weekStart} is unreadable — re-run with ?week=${weekStart}&recompute=1 to rebuild it`, started);
+    }
+    payload = stored.payload;
+    reportSource = 'stored';
+  } else {
+    // every rule is in the database function
+    const { data, error } = await admin.rpc('fn_adoption_power_users', { p_week_start: weekStart });
+    if (error) return fail(`report rpc failed: ${error.message}`, started);
+    if (!isReport(data)) return fail('report rpc returned no report', started);
+    payload = data;
+    reportSource = 'computed';
   }
   const top = payload.top.slice(0, MAX_AGENDAS);
 
@@ -189,6 +220,7 @@ export async function GET(request: NextRequest) {
       dry_run: true,
       summary,
       week_start: weekStart,
+      report_source: reportSource,
       top: top.length,
       one_day_staff: payload.one_day_staff.length,
       enqueued: 0,
@@ -198,27 +230,22 @@ export async function GET(request: NextRequest) {
     });
   }
 
-  // 4) the week's row — agenda_jobs is left out of the upsert so a re-run keeps it
-  const { data: existing, error: existingErr } = await admin
-    .from('adoption_power_user_weeks')
-    .select('agenda_jobs')
-    .eq('week_start', weekStart)
-    .maybeSingle();
-  if (existingErr) return fail(`week row read failed: ${existingErr.message}`, started);
+  // 4) the week's row — written only when the report was computed this run;
+  // agenda_jobs is left out of the upsert so a re-run keeps it
   const agendaJobs: Record<string, string> = {};
-  for (const [userId, jobId] of Object.entries(
-    ((existing as { agenda_jobs?: Record<string, unknown> } | null)?.agenda_jobs ?? {}) as Record<string, unknown>
-  )) {
+  for (const [userId, jobId] of Object.entries((stored?.agenda_jobs ?? {}) as Record<string, unknown>)) {
     if (typeof jobId === 'string') agendaJobs[userId] = jobId;
   }
 
-  const { error: upsertErr } = await admin
-    .from('adoption_power_user_weeks')
-    .upsert(
-      { week_start: weekStart, computed_at: new Date().toISOString(), payload },
-      { onConflict: 'week_start' }
-    );
-  if (upsertErr) return fail(`week row write failed: ${upsertErr.message}`, started);
+  if (reportSource === 'computed') {
+    const { error: upsertErr } = await admin
+      .from('adoption_power_user_weeks')
+      .upsert(
+        { week_start: weekStart, computed_at: new Date().toISOString(), payload },
+        { onConflict: 'week_start' }
+      );
+    if (upsertErr) return fail(`week row write failed: ${upsertErr.message}`, started);
+  }
 
   // 5a) what each person already has this week. Looked up by the dedupe key,
   // not only by the stored id: if an earlier run queued a job but failed to
@@ -393,11 +420,11 @@ export async function GET(request: NextRequest) {
   // saved, and a manual ?week= re-run retries only the missing people (the
   // next scheduled run moves on to the next week and never comes back).
   if (failed > 0 || lookupFailed || staleReplaced > 0) {
-    const rerun = `re-run with ?week=${weekStart} to retry; the next scheduled run moves on to the next week`;
+    const rerun = `re-run with ?week=${weekStart} to retry (it keeps the stored ranking; add &recompute=1 to rebuild the ranking); the next scheduled run moves on to the next week`;
     const error =
       failed > 0 || lookupFailed
         ? `${failed} of ${prompts.length} agenda jobs not queued: ${failures.find((f) => !f.includes('replaced with a fresh job')) ?? failures[0]} — ${rerun}`
-        : `${staleReplaced} stuck agenda job(s) replaced with fresh ones (is the Max drain down?) — re-run with ?week=${weekStart} to confirm they finish`;
+        : `${staleReplaced} stuck agenda job(s) replaced with fresh ones (is the Max drain down?) — re-run with ?week=${weekStart} to confirm they finish (add &recompute=1 to rebuild the ranking)`;
     logger.error(LOG_MODULE, `${error} — ${summary}`);
     return NextResponse.json(
       {
@@ -405,6 +432,7 @@ export async function GET(request: NextRequest) {
         error,
         summary,
         week_start: weekStart,
+        report_source: reportSource,
         top: counts.top,
         one_day_staff: counts.oneDayStaff,
         enqueued,
@@ -426,6 +454,7 @@ export async function GET(request: NextRequest) {
     ok: true,
     summary,
     week_start: weekStart,
+    report_source: reportSource,
     top: counts.top,
     one_day_staff: counts.oneDayStaff,
     enqueued,
