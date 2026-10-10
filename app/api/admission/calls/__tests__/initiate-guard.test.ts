@@ -41,9 +41,14 @@ function profileRow() {
     role: state.role,
     institution_id: INST_A,
     full_name: 'Test User',
-    phone: state.profilePhone,
+    phone_number: state.profilePhone,
   };
 }
+
+// The live public.profiles phone column is phone_number; there is no 'phone'.
+// The service mock answers a select of an unknown column the way PostgREST
+// does (42703), so a wrong column name fails here instead of in production.
+const LIVE_PROFILE_COLUMNS = new Set(['id', 'email', 'role', 'institution_id', 'full_name', 'phone_number']);
 
 // profiles as read by withAuth and by createApiInstitutionFilter (role).
 function makeProfilesQuery() {
@@ -58,11 +63,28 @@ function makeProfilesQuery() {
 
 // profiles as read by the route (service client) for the caller's phone.
 function makeServiceProfilesQuery() {
-  const result = () =>
-    state.profileError
-      ? Promise.resolve({ data: null, error: state.profileError })
-      : Promise.resolve({ data: profileRow(), error: null });
-  const q: any = { select: () => q, eq: () => q, single: result, maybeSingle: result };
+  let cols: string[] = [];
+  const result = () => {
+    if (state.profileError) return Promise.resolve({ data: null, error: state.profileError });
+    const unknown = cols.find((c) => !LIVE_PROFILE_COLUMNS.has(c));
+    if (unknown) {
+      return Promise.resolve({
+        data: null,
+        error: { message: `column profiles.${unknown} does not exist`, code: '42703' },
+      });
+    }
+    const row: any = profileRow();
+    return Promise.resolve({ data: Object.fromEntries(cols.map((c) => [c, row[c]])), error: null });
+  };
+  const q: any = {
+    select: (s: string) => {
+      cols = s.split(',').map((c) => c.trim());
+      return q;
+    },
+    eq: () => q,
+    single: result,
+    maybeSingle: result,
+  };
   return q;
 }
 
@@ -337,6 +359,34 @@ describe('POST /api/admission/calls/initiate', () => {
     state.permissions = [LEADS_EDIT];
     const res = await POST(postReq({ ...baseBody, institution_id: [INST_A] }));
     expect(res.status).toBe(400);
+    expect(initiateCall).not.toHaveBeenCalled();
+  });
+
+  it('an empty lead_id means "no lead": the call is placed without lead_id, never with \'\'', async () => {
+    state.permissions = [LEADS_EDIT];
+    const res = await POST(postReq({ ...baseBody, lead_id: '' }));
+    expect(res.status).toBe(200);
+    expect(initiateCall).toHaveBeenCalledTimes(1);
+    expect(initiateCall.mock.calls[0][0].lead_id).toBeUndefined();
+  });
+
+  it('uppercase institution_id and lead_id for an in-scope lead are not refused', async () => {
+    // A hex id with letters, so upper and lower case actually differ.
+    const INST_HEX = 'abcdef12-3456-4789-8abc-def012345678';
+    state.permissions = [LEADS_EDIT];
+    state.accessible = [INST_HEX];
+    state.leads = [{ id: LEAD_A, institution_id: INST_HEX }];
+    const res = await POST(
+      postReq({ ...baseBody, institution_id: INST_HEX.toUpperCase(), lead_id: LEAD_A.toUpperCase() })
+    );
+    expect(res.status).toBe(200);
+    expect(initiateCall.mock.calls[0][0]).toMatchObject({ institution_id: INST_HEX, lead_id: LEAD_A });
+  });
+
+  it('uppercase ids do not bypass the lead check: another institution\'s lead is still refused', async () => {
+    state.permissions = [LEADS_EDIT];
+    const res = await POST(postReq({ ...baseBody, lead_id: LEAD_B.toUpperCase() }));
+    expect(res.status).toBe(403);
     expect(initiateCall).not.toHaveBeenCalled();
   });
 

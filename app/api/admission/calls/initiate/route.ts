@@ -71,6 +71,11 @@ export const POST = withAuth(async (request: NextRequest, auth) => {
     if (lead_id !== undefined && lead_id !== null && lead_id !== '' && !isUuid(lead_id)) {
       return errorResponse('lead_id must be a valid id', 400);
     }
+    // Ids are compared case-sensitively below (scope list, lead row), so
+    // lowercase them once here. An empty or absent lead_id means "no lead":
+    // it never reaches the lead check or the telephony service as ''.
+    const institutionId = institution_id.toLowerCase();
+    const leadId = isUuid(lead_id) ? lead_id.toLowerCase() : undefined;
     if (!prospect_phone || typeof prospect_phone !== 'string') {
       return NextResponse.json(
         { error: 'VALIDATION_ERROR', message: 'prospect_phone is required' },
@@ -88,41 +93,42 @@ export const POST = withAuth(async (request: NextRequest, auth) => {
 
     // Institution scope: super admin / admission-global = any; else own list.
     const scope = await createApiInstitutionFilter(request, {
-      allowSpecificInstitution: institution_id,
+      allowSpecificInstitution: institutionId,
     });
-    if (!institutionInScope(scope, institution_id)) {
+    if (!institutionInScope(scope, institutionId)) {
       return errorResponse('You do not have access to place calls for this institution', 403);
     }
 
     const supabase = createServiceRoleClient();
 
     // A lead, when given, must exist and belong to the same institution.
-    if (lead_id) {
+    if (leadId) {
       const { data: lead, error: leadError } = await supabase
         .from('admission_leads')
         .select('id, institution_id')
-        .eq('id', lead_id)
+        .eq('id', leadId)
         .maybeSingle();
       if (leadError) {
         logger.error('admission/calls', 'Initiate call lead lookup error', leadError);
         return errorResponse('Could not verify the lead for this call', 500);
       }
-      if (!lead || lead.institution_id !== institution_id) {
+      if (!lead || lead.institution_id !== institutionId) {
         return errorResponse('This lead does not belong to the selected institution', 403);
       }
     }
 
-    // The counsellor leg always rings the caller's own profile phone.
+    // The counsellor leg always rings the caller's own profile phone
+    // (profiles.phone_number; profiles has no 'phone' column).
     const { data: profile, error: profileError } = await supabase
       .from('profiles')
-      .select('id, phone')
+      .select('id, phone_number')
       .eq('id', user.id)
       .maybeSingle();
     if (profileError) {
       logger.error('admission/calls', 'Initiate call profile lookup error', profileError);
       return errorResponse('Could not read your profile to place the call', 500);
     }
-    const profilePhone: string = profile?.phone || '';
+    const profilePhone: string = profile?.phone_number || '';
     if (!profilePhone || !isValidIndianMobile(profilePhone)) {
       return errorResponse('Add your mobile number to your profile to place calls', 400);
     }
@@ -162,16 +168,16 @@ export const POST = withAuth(async (request: NextRequest, auth) => {
 
     logger.info('admission/calls', 'Initiating call', {
       userId: user.id,
-      leadId: lead_id,
+      leadId,
       to: maskPhone(prospect_phone),
     });
 
     const result = await TelephonyService.initiateCall({
-      institution_id,
+      institution_id: institutionId,
       counselor_id: user.id,
       counselor_phone: counselorPhone,
       prospect_phone: normalizeIndianPhone(prospect_phone),
-      lead_id,
+      lead_id: leadId,
     }, supabase);
 
     if (!result.success) {
