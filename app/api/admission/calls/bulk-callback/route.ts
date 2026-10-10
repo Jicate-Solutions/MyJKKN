@@ -5,12 +5,17 @@ export const dynamic = 'force-dynamic';
 // POST /api/admission/calls/bulk-callback — Initiate calls for queued callbacks
 //
 // Guard: the queue holds caller phone numbers of parents and prospective
-// learners, and POST places billed outbound calls. Both methods require
-// 'admission.counselors.view' (the key that gates the Call Logs page,
-// /admission/counselors/calls) through the withAuth triad (super admin /
-// is_admin / user_has_permission), and every row read or called must belong
-// to an institution the caller can access (createApiInstitutionFilter).
-// Refusals are explicit { success:false } 403s, never silent.
+// learners (lead data), and POST moves rows to in_progress and places billed
+// outbound calls. Through the withAuth triad (super admin / is_admin /
+// user_has_permission):
+//   GET  requires 'admission.leads.view'
+//   POST requires 'admission.leads.edit'
+// Every row read or called must belong to an institution the caller can
+// access (createApiInstitutionFilter). "All institutions" is granted ONLY
+// when the filter says so explicitly (super admin, or the admission-global
+// role); an empty institution list otherwise means NO institutions, so GET
+// returns [] and POST is refused. Refusals are explicit { success:false }
+// 403s, never silent. DB error details are logged, never sent to the client.
 
 import { NextRequest, NextResponse } from 'next/server';
 import { createServiceRoleClient } from '@/lib/supabase/server';
@@ -18,21 +23,38 @@ import { withAuth } from '@/lib/auth/with-auth';
 import { errorResponse } from '@/lib/api/response';
 import {
   createApiInstitutionFilter,
-  applyInstitutionFilterToQuery,
   type ApiInstitutionFilterResult,
 } from '@/lib/auth/api-institution-filter';
 import { TelephonyService } from '@/lib/services/telephony/telephony-service';
 import { logger } from '@/lib/utils/enhanced-logger';
 
-const CALLS_PERMISSION = 'admission.counselors.view';
+const VIEW_PERMISSION = 'admission.leads.view';
+const CALL_PERMISSION = 'admission.leads.edit';
 
-/** True when the filter grants every institution (super admin / admission-global). */
+const MAX_CALLBACKS = 20;
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function internalError() {
+  return NextResponse.json(
+    { success: false, error: 'INTERNAL_ERROR', message: 'Internal server error' },
+    { status: 500 }
+  );
+}
+
+/**
+ * True only when the filter EXPLICITLY grants every institution: super admin,
+ * or the admission-global role (the filter returns [] for both). An empty list
+ * for anyone else means no institutions, never all of them.
+ */
 function hasAllInstitutions(scope: ApiInstitutionFilterResult): boolean {
-  return scope.isAllowed && (scope.isSuperAdmin || scope.institutionIds.length === 0);
+  return scope.isAllowed && (scope.isSuperAdmin || scope.userRole === 'admission');
 }
 
 function institutionInScope(scope: ApiInstitutionFilterResult, institutionId: string): boolean {
-  return hasAllInstitutions(scope) || scope.institutionIds.includes(institutionId);
+  return (
+    hasAllInstitutions(scope) ||
+    (scope.isAllowed && scope.institutionIds.includes(institutionId))
+  );
 }
 
 export const GET = withAuth(async (request: NextRequest) => {
@@ -54,6 +76,12 @@ export const GET = withAuth(async (request: NextRequest) => {
       );
     }
 
+    const allInstitutions = hasAllInstitutions(scope);
+    if (!allInstitutions && scope.institutionIds.length === 0) {
+      // Allowed, but with no institutions: nothing to show.
+      return NextResponse.json([]);
+    }
+
     const supabase = createServiceRoleClient();
 
     let query = supabase
@@ -65,51 +93,57 @@ export const GET = withAuth(async (request: NextRequest) => {
 
     if (institutionId) {
       query = query.eq('institution_id', institutionId);
-    } else {
-      query = applyInstitutionFilterToQuery(query, scope);
+    }
+    if (!allInstitutions) {
+      query = query.in('institution_id', scope.institutionIds);
     }
 
     const { data, error } = await query;
 
     if (error) {
       logger.error('admission/calls', 'Fetch callback queue error', error);
-      return NextResponse.json(
-        { error: 'INTERNAL_ERROR', message: error.message },
-        { status: 500 }
-      );
+      return internalError();
     }
 
     return NextResponse.json(data || []);
   } catch (error) {
     logger.error('admission/calls', 'Callback queue GET error', error);
-    return NextResponse.json(
-      { error: 'INTERNAL_ERROR', message: error instanceof Error ? error.message : 'Internal server error' },
-      { status: 500 }
-    );
+    return internalError();
   }
-}, { allowApiKey: false, requirePermission: CALLS_PERMISSION });
+}, { allowApiKey: false, requirePermission: VIEW_PERMISSION });
 
 export const POST = withAuth(async (request: NextRequest, auth) => {
   try {
     const user = auth.user;
-    const supabase = createServiceRoleClient();
-    const { callbackIds } = await request.json();
 
-    if (!Array.isArray(callbackIds) || callbackIds.length === 0) {
-      return NextResponse.json({ error: 'callbackIds required' }, { status: 400 });
+    let body: unknown;
+    try {
+      body = await request.json();
+    } catch {
+      return errorResponse('Request body must be JSON', 400);
     }
+    const callbackIds = (body as { callbackIds?: unknown } | null)?.callbackIds;
 
-    if (callbackIds.length > 20) {
-      return NextResponse.json({ error: 'Max 20 callbacks at once' }, { status: 400 });
+    // 1-20 callback ids, each a UUID string, checked before any DB call.
+    if (!Array.isArray(callbackIds) || callbackIds.length === 0) {
+      return errorResponse('callbackIds required', 400);
+    }
+    if (callbackIds.length > MAX_CALLBACKS) {
+      return errorResponse(`Max ${MAX_CALLBACKS} callbacks at once`, 400);
+    }
+    if (!callbackIds.every((id) => typeof id === 'string' && UUID_RE.test(id))) {
+      return errorResponse('Every callbackId must be a UUID', 400);
     }
 
     // Every requested callback must sit inside the caller's institutions.
     // Checked across ALL requested ids (any status) before anything is
     // updated or any call is placed.
     const scope = await createApiInstitutionFilter(request);
-    if (!scope.isAllowed) {
+    if (!scope.isAllowed || (!hasAllInstitutions(scope) && scope.institutionIds.length === 0)) {
       return errorResponse('You do not have access to any institution\'s callback queue', 403);
     }
+
+    const supabase = createServiceRoleClient();
 
     const { data: requested, error: requestedError } = await supabase
       .from('admission_callback_queue')
@@ -118,10 +152,7 @@ export const POST = withAuth(async (request: NextRequest, auth) => {
 
     if (requestedError) {
       logger.error('admission/calls', 'Bulk callback scope lookup error', requestedError);
-      return NextResponse.json(
-        { error: 'INTERNAL_ERROR', message: requestedError.message },
-        { status: 500 }
-      );
+      return internalError();
     }
 
     const outOfScope = (requested || []).some(
@@ -188,16 +219,14 @@ export const POST = withAuth(async (request: NextRequest, auth) => {
 
         results.push({ id: entry.id, success: callResult.success, error: callResult.error });
       } catch (error) {
-        results.push({ id: entry.id, success: false, error: String(error) });
+        logger.error('admission/calls', 'Bulk callback call error', { id: entry.id, error });
+        results.push({ id: entry.id, success: false, error: 'Call could not be placed' });
       }
     }
 
     return NextResponse.json({ results, initiated: results.filter(r => r.success).length });
   } catch (error) {
     logger.error('admission/calls', 'Bulk callback POST error', error);
-    return NextResponse.json(
-      { error: 'INTERNAL_ERROR', message: error instanceof Error ? error.message : 'Internal server error' },
-      { status: 500 }
-    );
+    return internalError();
   }
-}, { allowApiKey: false, requirePermission: CALLS_PERMISSION });
+}, { allowApiKey: false, requirePermission: CALL_PERMISSION });
