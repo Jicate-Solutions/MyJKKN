@@ -1,8 +1,11 @@
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
-import { NextResponse, connection } from 'next/server';
+import { NextResponse, after, connection } from 'next/server';
 import type { NextRequest } from 'next/server';
 import type { CookieOptions } from '@supabase/ssr';
+import { createServiceRoleClient } from '@/lib/supabase/server';
+import { notifyOnboardingStepTurn } from '@/lib/services/hr/duty-notices/dispatch';
+import { nextStepAfterCompletion, readOnboardingSteps } from '@/lib/services/hr/duty-notices/selection';
 
 async function getClient() {
   const cookieStore = await cookies();
@@ -88,8 +91,10 @@ export async function POST(
 
     const isSuperAdmin = !!profile?.is_super_admin;
     const profileRole = (profile?.role as string | undefined) ?? '';
+    // Types only: PostgREST infers the embed as an array, but a many-to-one
+    // `!inner` embed returns one object at runtime.
     const userRoleKeys: string[] = Array.isArray(userRoles)
-      ? userRoles
+      ? (userRoles as unknown as Array<{ custom_roles?: { role_key?: string } | null }>)
           .map((r: { custom_roles?: { role_key?: string } | null }) => r?.custom_roles?.role_key)
           .filter((k): k is string => typeof k === 'string')
       : [];
@@ -182,6 +187,22 @@ export async function POST(
       .select()
       .single();
     if (updateErr) throw updateErr;
+
+    // HR staff harness (2026-10-01), duty R9: ticking a step hands the baton
+    // on — tell the owner(s) of the next open step that it is now theirs.
+    // Once per step (hr_duty_notices), after the response, never blocking it.
+    if (completed) {
+      const next = nextStepAfterCompletion(readOnboardingSteps(updatedDetails), step_index);
+      if (next !== null) {
+        after(async () => {
+          try {
+            await notifyOnboardingStepTurn(createServiceRoleClient(), candidateId, next, step_index);
+          } catch (notifyErr) {
+            console.warn('[hr/onboarding/complete-step] next-step notice failed:', notifyErr);
+          }
+        });
+      }
+    }
 
     return NextResponse.json({ data: updated });
   } catch (err) {

@@ -446,6 +446,22 @@ export const PLATFORM_OPS_ROUTINES: AIRoutine[] = [
     "notes": "Auth: Bearer or ?secret=. IST math: 07:00 UTC = 12:30 IST (minute_of_day 750)."
   },
   {
+    "id": "hr-duty-notices",
+    "name": "HR duty notices — onboarding steps + regularisation requests",
+    "category": "platform-ops",
+    "type": "cron",
+    "schedule": "Mon–Sat · 10:07 IST (editable via dispatcher)",
+    "triggerPath": "/api/cron/hr/duty-notices",
+    "callsClaude": false,
+    "featureKey": null,
+    "featureKeyNote": "Rules-based reminder windows; no model involved.",
+    "whatItDoes": "HR harness duties R9 and A3. Onboarding: one reminder to a step's owner when they have held it for more than 2 working days; one notice per joiner, to the owners of every open step, when the expected joining date is 3 days away or closer; one notice to the HR head once the joining date has passed with steps open. Regularisation: sends any 'awaiting approval' notice the browser missed, one reminder to the approvers after 48 hours pending, one notice to the HR head after 4 days pending, and any missed approved/rejected notice to the requester (last 14 days). Recipients are looked up in the candidate's or team member's own college, plus holders of group-wide roles. Nothing whose wait began before go-live is chased.",
+    "configKnobs": "platform_policies hr.onboarding.step_reminder_after_working_days (2), hr.onboarding.joining_soon_days (3), hr.regularization.reminder_after_hours (48), hr.regularization.hr_head_notice_after_days (4), hr.duty_notices.go_live_at (set once when the migration applies). Day/time editable at /admin/ai-routines; the route itself only chases Mon–Sat 08:00–20:00 IST.",
+    "sideEffects": "SENDS in-app notifications (notifications + user_notifications). Records every notice in hr_duty_notices, whose UNIQUE key makes each one fire at most once; a chase skips people on approved leave today and sends them the same notice on the first later run when they are back.",
+    "safeToManualTrigger": false,
+    "notes": "Auth: Bearer only. Seeded by 20270613101133 (minute_of_day 607, days {1..6}). Outside Mon–Sat 08:00–20:00 IST the route answers skipped: outside_daytime and sends nothing. Marked not-safe because it messages people; a repeat run itself sends nothing new, since the ledger refuses repeats."
+  },
+  {
     "id": "hr-intake-cleanup",
     "name": "HR intake helper — close idle uploads",
     "category": "platform-ops",

@@ -12157,6 +12157,18 @@ REVOKE ALL ON public.hr_playbook_lines FROM anon, PUBLIC, authenticated;
 
 GRANT SELECT ON public.hr_playbook_lines TO authenticated;
 
+
+-- ============================================================================
+-- Updated: 2026-10-01 - HR staff harness (duties R9 onboarding, A3 regularisation):
+-- hr_duty_notices read policy (service role is the only writer). Migration 20270613101133_hr_duty_notices_onboarding_regularization.sql
+-- ============================================================================
+DROP POLICY IF EXISTS hr_duty_notices_select ON public.hr_duty_notices;
+CREATE POLICY hr_duty_notices_select ON public.hr_duty_notices
+  FOR SELECT TO authenticated USING (
+    (SELECT is_super_admin()) OR (SELECT is_admin())
+    OR (SELECT auth.uid()) = ANY (recipient_user_ids)
+  );
+
 -- ============================================================================
 -- HR staff harness — chase ladder: RLS and grants
 -- Migration: 20270613101207_hr_duty_chase_ladder.sql
