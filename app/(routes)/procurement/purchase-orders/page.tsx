@@ -41,11 +41,14 @@ export default function PurchaseOrdersPage() {
   const searchParams = useSearchParams();
   // The Overview status bars link here with ?institution=<id|all>&status=<status>.
   const [statusFilter, setStatusFilter] = useState<string>(() => searchParams.get('status') ?? 'all');
-  const [institutionId, setInstitutionId] = useState<string | undefined>(
+  const [institutionChoice, setInstitutionId] = useState<string | undefined>(
     // Opens on every college the viewer may see (RLS scopes the rows), as Requests
     // does: the store team often handles orders for a college other than their profile's.
     () => searchParams.get('institution') ?? 'all'
   );
+  // Others are held to their own department by RLS, so they get no college picker.
+  const seesWholeCollege = isSuperAdmin || canAccess('procurement', 'view_all_departments');
+  const institutionId = seesWholeCollege ? institutionChoice : 'all';
   // 'all' = every college the viewer may see (RLS scopes the rows). effectiveInstitution
   // stays a concrete college for anything that creates a document.
   const allColleges = institutionId === 'all';
@@ -96,13 +99,15 @@ export default function PurchaseOrdersPage() {
               ))}
             </SelectContent>
           </Select>
-          <InstitutionFilter
-            value={allColleges ? 'all' : effectiveInstitution}
-            onChange={setInstitutionId}
-            allLabel="All colleges"
-            label={null}
-            className="w-full sm:w-52"
-          />
+          {seesWholeCollege && (
+            <InstitutionFilter
+              value={allColleges ? 'all' : effectiveInstitution}
+              onChange={setInstitutionId}
+              allLabel="All colleges"
+              label={null}
+              className="w-full sm:w-52"
+            />
+          )}
           {canManageFormats && (
             <Button
               variant="outline"

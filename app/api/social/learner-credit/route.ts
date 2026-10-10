@@ -55,6 +55,7 @@ import {
   latestSnapshotByPost,
   postNotOursMessage,
   ALREADY_CLAIMED,
+  NOT_A_POST_LINK,
   type ClaimedPostInput,
   type ClaimStatus,
   type IgMetricSnapshot,
@@ -73,10 +74,17 @@ function deny(error: string, status: number) {
 async function ownLearnerId(
   db: Awaited<ReturnType<typeof createServerSupabaseClient>>,
   userId: string
-): Promise<string | null> {
-  const { data } = await db.from('profiles').select('learner_id').eq('id', userId).maybeSingle();
-  return (data?.learner_id as string | null) ?? null;
+): Promise<{ learnerId: string | null } | { failed: true }> {
+  const { data, error } = await db.from('profiles').select('learner_id').eq('id', userId).maybeSingle();
+  if (error) {
+    logger.error(MODULE, 'profile read failed', error);
+    return { failed: true };
+  }
+  return { learnerId: (data?.learner_id as string | null) ?? null };
 }
+
+/** Instagram shortcodes are base64url: letters, digits, '-' and '_'. */
+const SHORTCODE_CHARS = /^[A-Za-z0-9_-]+$/;
 
 /**
  * Resolve a pasted link to a post we already hold.
@@ -88,25 +96,77 @@ async function resolvePostOrExplain(
   const parsed = parsePostLink(igUrl);
   if ('reason' in parsed) return { error: parsed.message, status: 400 };
 
+  // Anything outside the shortcode alphabet could act as a pattern character
+  // ('%', '\\', and '*', which PostgREST treats as '%'), so it is refused here.
+  if (!SHORTCODE_CHARS.test(parsed.shortcode)) return { error: NOT_A_POST_LINK, status: 400 };
+
+  // Case-sensitive LIKE with '_' escaped: shortcodes are case-sensitive and
+  // often contain '_', which LIKE would otherwise read as "any one character".
+  const escaped = parsed.shortcode.replace(/_/g, '\\_');
   const admin = createServiceRoleClient();
   const { data, error } = await admin
     .from('ig_posts')
     .select('id')
-    .ilike('permalink', `%/${parsed.shortcode}/%`)
-    .limit(1)
-    .maybeSingle();
+    .like('permalink', `%/${escaped}/%`)
+    .limit(2);
 
   if (error) {
     logger.error(MODULE, 'post lookup failed', error);
     return { error: 'Could not check that link just now. Try again shortly.', status: 500 };
   }
-  if (!data) return { error: postNotOursMessage(parsed.shortcode), status: 404 };
-  return { postId: data.id as string };
+  if (!data || data.length === 0) return { error: postNotOursMessage(parsed.shortcode), status: 404 };
+  if (data.length > 1) {
+    return {
+      error: 'That link matches more than one post we hold, so it cannot be credited automatically. Ask the department to check it.',
+      status: 409,
+    };
+  }
+  return { postId: data[0].id as string };
 }
 
 // ---------------------------------------------------------------------------
 // GET — the board
 // ---------------------------------------------------------------------------
+/** PostgREST returns at most 1,000 rows a read, so the board reads in pages of that size. */
+const CLAIM_PAGE_SIZE = 1000;
+/** Hard stop: past this many pages the board refuses rather than undercount. */
+const CLAIM_PAGE_LIMIT = 50;
+
+/** Ids per `.in()` read: one row per id, so far below the 1,000-row cap. */
+const ID_CHUNK = 200;
+
+/**
+ * The board reads one call after another; near the claim cap that is hundreds
+ * of calls. Stop at this budget with a clear 500 instead of letting the
+ * function time out with no message.
+ */
+const BOARD_READ_BUDGET_MS = 45_000;
+/** The platform limit for this route, kept above the read budget. */
+export const maxDuration = 60;
+const OUT_OF_TIME = { message: 'board read budget exceeded' };
+
+/** `error` is null on success; on failure `rows` is empty and must not be used. */
+type ChunkedRead = { rows: Array<Record<string, unknown>>; error: unknown };
+
+/**
+ * Run `build(ids)` over `ids` in ID_CHUNK slices and concatenate the rows.
+ * The first failed slice fails the whole read: a partial board is never shown.
+ */
+async function readByIdChunks(
+  ids: string[],
+  build: (ids: string[]) => PromiseLike<{ data: unknown; error: unknown }>,
+  signal: AbortSignal
+): Promise<ChunkedRead> {
+  const rows: Array<Record<string, unknown>> = [];
+  for (let i = 0; i < ids.length; i += ID_CHUNK) {
+    if (signal.aborted) return { rows: [], error: OUT_OF_TIME };
+    const { data, error } = await build(ids.slice(i, i + ID_CHUNK));
+    if (error) return { rows: [], error: signal.aborted ? OUT_OF_TIME : error };
+    rows.push(...((data ?? []) as Array<Record<string, unknown>>));
+  }
+  return { rows, error: null };
+}
+
 export async function GET(req: NextRequest) {
   // getAuthUser() returns { user, error }, never a bare user. Testing the
   // wrapper object for truthiness is always true, which silently disabled this
@@ -117,20 +177,73 @@ export async function GET(req: NextRequest) {
   const db = await createServerSupabaseClient();
   const admin = createServiceRoleClient();
   const institutionId = req.nextUrl.searchParams.get('institution_id');
+  // One signal for the whole board read. Every query carries it, so a single
+  // hung call is cut at the budget instead of running until the platform
+  // kills the function with no message.
+  const signal = AbortSignal.timeout(BOARD_READ_BUDGET_MS);
+  const outOfTime = () =>
+    deny(
+      institutionId
+        ? 'The board for this institution took too long to read in full, so it is not shown. Try again shortly; if it keeps happening, tell the MyJKKN team.'
+        : 'The board took too long to read in full, so it is not shown. Choose one institution and try again.',
+      500
+    );
 
   // RLS decides which claims this person may see: their own, or their
   // institution's if they hold social.learner_credit.view.
-  let q = db
-    .from('ig_learner_post_claims')
-    .select('learner_id, ig_post_id, status, institution_id');
-  if (institutionId) q = q.eq('institution_id', institutionId);
-  const { data: claims, error } = await q;
-
-  if (error) {
-    logger.error(MODULE, 'claim read failed', error);
-    return deny('Could not read the claims just now.', 500);
+  //
+  // Read in pages. PostgREST caps one read at 1,000 rows and says nothing when
+  // it does, so a single select undercounts the board once there are more
+  // claims than that. A stable order by id keeps pages from overlapping or
+  // skipping rows. The hard stop answers 500 rather than show a partial board.
+  const claims: Array<Record<string, unknown>> = [];
+  let complete = false;
+  // Keyset paging on the primary key, not offsets: a claim filed or withdrawn
+  // between two page reads can then neither be counted twice nor push another
+  // claim across a page boundary and out of the board.
+  let afterId: string | null = null;
+  const readPage = (size: number) => {
+    let q = db
+      .from('ig_learner_post_claims')
+      .select('id, learner_id, ig_post_id, status, institution_id, created_at');
+    if (institutionId) q = q.eq('institution_id', institutionId);
+    if (afterId) q = q.gt('id', afterId);
+    return q.order('id', { ascending: true }).limit(size).abortSignal(signal);
+  };
+  // Stop only on an EMPTY page. A short page does not prove the end: if the
+  // server's max-rows is below CLAIM_PAGE_SIZE, every page comes back short.
+  // Reading one row past the limit tells "exactly 50,000" from "more".
+  const maxClaims = CLAIM_PAGE_SIZE * CLAIM_PAGE_LIMIT;
+  while (claims.length <= maxClaims) {
+    if (signal.aborted) return outOfTime();
+    const { data, error } = await readPage(CLAIM_PAGE_SIZE);
+    if (error && signal.aborted) return outOfTime();
+    if (error) {
+      logger.error(MODULE, 'claim read failed', error);
+      return deny('Could not read the claims just now.', 500);
+    }
+    const pageRows = (data ?? []) as Array<Record<string, unknown>>;
+    if (pageRows.length === 0) {
+      complete = true;
+      break;
+    }
+    claims.push(...pageRows);
+    afterId = pageRows[pageRows.length - 1].id as string;
   }
-  if (!claims || claims.length === 0) {
+  if (!complete) {
+    logger.error(MODULE, 'claim read stopped at the claim limit', {
+      limit: maxClaims,
+      rows: claims.length,
+    });
+    const limit = (CLAIM_PAGE_SIZE * CLAIM_PAGE_LIMIT).toLocaleString('en-IN');
+    return deny(
+      institutionId
+        ? `This institution has more than ${limit} claims, which is more than the board can show in full. Ask the MyJKKN team to raise the limit.`
+        : `There are more than ${limit} claims to read, so the board cannot be shown in full. Choose one institution and try again.`,
+      500
+    );
+  }
+  if (claims.length === 0) {
     return NextResponse.json({
       success: true,
       rows: [],
@@ -141,31 +254,59 @@ export async function GET(req: NextRequest) {
   const postIds = Array.from(new Set(claims.map((c) => c.ig_post_id as string)));
   const learnerIds = Array.from(new Set(claims.map((c) => c.learner_id as string)));
 
-  const [{ data: posts }, { data: metrics }, { data: learners }] = await Promise.all([
-    admin.from('ig_posts').select('id, account_id').in('id', postIds),
-    admin
-      .from('ig_post_metrics')
-      .select('post_id, snapshot_at, saves, shares, comments, likes, reach')
-      .in('post_id', postIds),
-    db
-      .from('learners_profiles')
-      .select('id, first_name, last_name, institution_id')
-      .in('id', learnerIds),
-  ]);
+  // Every read keyed on an id list is done in chunks. Each id yields at most one
+  // row, so a chunk of ID_CHUNK ids can never reach PostgREST's silent
+  // 1,000-row cap, and the URL stays short. The view holds exactly one row per
+  // post (its latest snapshot); reading ig_post_metrics directly returned ~627
+  // rows a post and the cap cut it to an arbitrary subset.
+  const posts = await readByIdChunks(postIds, (ids) =>
+    admin.from('ig_posts').select('id, account_id').in('id', ids).abortSignal(signal),
+    signal
+  );
+  const metrics = !posts.error
+    ? await readByIdChunks(postIds, (ids) =>
+        admin
+          .from('v_ig_post_latest_metrics')
+          .select('post_id, snapshot_at, saves, shares, comments, likes, reach')
+          .in('post_id', ids)
+          .abortSignal(signal),
+        signal
+      )
+    : posts;
+  const learners = !metrics.error
+    ? await readByIdChunks(learnerIds, (ids) =>
+        db
+          .from('learners_profiles')
+          .select('id, first_name, last_name, institution_id')
+          .in('id', ids)
+          .abortSignal(signal),
+        signal
+      )
+    : metrics;
+  if (learners.error === OUT_OF_TIME) return outOfTime();
+  if (learners.error) {
+    logger.error(MODULE, 'board read failed', learners.error);
+    return deny('Could not read the board just now. Try again shortly.', 500);
+  }
 
   const accountIds = Array.from(
-    new Set((posts ?? []).map((p) => p.account_id as string).filter(Boolean))
+    new Set(posts.rows.map((p) => p.account_id as string).filter(Boolean))
   );
-  const { data: accounts } = await admin
-    .from('ig_accounts')
-    .select('id, metrics_source')
-    .in('id', accountIds);
+  const accounts = await readByIdChunks(accountIds, (ids) =>
+    admin.from('ig_accounts').select('id, metrics_source').in('id', ids).abortSignal(signal),
+    signal
+  );
+  if (accounts.error === OUT_OF_TIME) return outOfTime();
+  if (accounts.error) {
+    logger.error(MODULE, 'account read failed', accounts.error);
+    return deny('Could not read the board just now. Try again shortly.', 500);
+  }
 
   const sourceByAccount = new Map<string, string | null>(
-    (accounts ?? []).map((a) => [a.id as string, (a.metrics_source as string | null) ?? null])
+    accounts.rows.map((a) => [a.id as string, (a.metrics_source as string | null) ?? null])
   );
   const sourceByPost = new Map<string, string | null>(
-    (posts ?? []).map((p) => [
+    posts.rows.map((p) => [
       p.id as string,
       sourceByAccount.get(p.account_id as string) ?? null,
     ])
@@ -173,11 +314,24 @@ export async function GET(req: NextRequest) {
   // latestSnapshotByPost returns the very row objects it was given, so they
   // still carry `likes`; the cast restores the type the shared helper drops.
   const latestByPost = latestSnapshotByPost(
-    (metrics ?? []) as CreditSnapshot[]
+    metrics.rows as unknown as CreditSnapshot[]
   ) as Map<string, CreditSnapshot>;
 
   const claimsByLearner = new Map<string, ClaimedPostInput[]>();
+  const institutionByLearner = new Map<string, string>();
+  const earliestByLearner = new Map<string, string>();
   for (const c of claims) {
+    // A hidden learner's row takes the institution of their EARLIEST claim
+    // (by created_at, then id), so it does not depend on read order. With an
+    // institution filter every claim carries that institution anyway.
+    if (c.institution_id) {
+      const at = `${(c.created_at as string) ?? ''}|${c.id as string}`;
+      const prev = earliestByLearner.get(c.learner_id as string);
+      if (!prev || at < prev) {
+        earliestByLearner.set(c.learner_id as string, at);
+        institutionByLearner.set(c.learner_id as string, c.institution_id as string);
+      }
+    }
     const list = claimsByLearner.get(c.learner_id as string) ?? [];
     list.push({
       ig_post_id: c.ig_post_id as string,
@@ -187,19 +341,38 @@ export async function GET(req: NextRequest) {
     claimsByLearner.set(c.learner_id as string, list);
   }
 
-  const rows: LearnerCreditRow[] = (learners ?? []).map((l) =>
-    buildCreditRow(
-      {
-        learner_id: l.id as string,
-        learner_name: [l.first_name, l.last_name].filter(Boolean).join(' ') || 'Unnamed learner',
-        institution_id: (l.institution_id as string) ?? '',
-      },
-      claimsByLearner.get(l.id as string) ?? [],
-      latestByPost
-    )
+  // Rows come from the claims, not from the profiles this person can read, so a
+  // claim whose learner profile is hidden from them still shows and still counts.
+  const profileById = new Map(learners.rows.map((l) => [l.id as string, l]));
+  let hiddenProfiles = 0;
+  const rows: LearnerCreditRow[] = Array.from(claimsByLearner.entries()).map(
+    ([learnerId, learnerClaims]) => {
+      const l = profileById.get(learnerId);
+      if (!l) hiddenProfiles += 1;
+      return buildCreditRow(
+        {
+          learner_id: learnerId,
+          learner_name: l
+            ? [l.first_name, l.last_name].filter(Boolean).join(' ') || 'Unnamed learner'
+            : 'Learner (name not visible to you)',
+          institution_id: l
+            ? ((l.institution_id as string) ?? '')
+            : (institutionByLearner.get(learnerId) ?? ''),
+        },
+        learnerClaims,
+        latestByPost
+      );
+    }
   );
 
-  return NextResponse.json({ success: true, rows, caveats: boardCaveats(rows) });
+  const caveats = boardCaveats(rows);
+  if (hiddenProfiles > 0) {
+    caveats.unshift(
+      `${hiddenProfiles} ${hiddenProfiles === 1 ? 'learner is' : 'learners are'} shown without a name, because you can see ${hiddenProfiles === 1 ? 'their claims but not their profile' : 'their claims but not their profiles'}.`
+    );
+  }
+
+  return NextResponse.json({ success: true, rows, caveats });
 }
 
 // ---------------------------------------------------------------------------
@@ -221,7 +394,9 @@ export async function POST(req: NextRequest) {
   if (!body.ig_url) return deny('Send an Instagram post link.', 400);
 
   const db = await createServerSupabaseClient();
-  const mine = await ownLearnerId(db, user.id);
+  const own = await ownLearnerId(db, user.id);
+  if ('failed' in own) return deny('Could not read your account just now. Try again shortly.', 500);
+  const mine = own.learnerId;
 
   // No learner_id given → the signed-in learner is claiming for themselves.
   const learnerId = body.learner_id ?? mine;
@@ -307,10 +482,18 @@ export async function PATCH(req: NextRequest) {
       review_note: body.note ?? null,
     })
     .eq('id', body.claim_id)
+    // A decision is made once. Without this, a second reviewer or a double
+    // submit silently overwrites the first decision.
+    .eq('status', 'pending')
     .select('id, status')
     .maybeSingle();
 
   if (error) {
+    // 23514 is every CHECK failure; only the guard's own "a decision is final"
+    // means the claim was already decided.
+    if (error.code === '23514' && /decision is final/i.test(error.message ?? '')) {
+      return deny('This claim was already decided. A decision is final.', 409);
+    }
     if (error.code === '42501') {
       return deny('You are not allowed to decide that claim.', 403);
     }
@@ -318,7 +501,32 @@ export async function PATCH(req: NextRequest) {
     return deny(error.message, 400);
   }
   if (!data) {
-    return deny('That claim does not exist, or you cannot see it.', 404);
+    // Nothing matched a pending claim. Tell the three cases apart: the claim
+    // is visible and already decided (409), or it is not visible to this
+    // caller at all — no such claim, or not theirs to see (404).
+    const { data: seen, error: seenError } = await db
+      .from('ig_learner_post_claims')
+      .select('id, status, reviewed_by')
+      .eq('id', body.claim_id)
+      .maybeSingle();
+    if (seenError) {
+      logger.error(MODULE, 'claim lookup after decision failed', seenError);
+      return deny('Could not check that claim just now. Try again shortly.', 500);
+    }
+    if (!seen) {
+      return deny('That claim does not exist, or you are not allowed to see it.', 404);
+    }
+    if (seen.status === 'pending') {
+      // Visible and still pending, yet the update matched nothing: RLS let this
+      // caller read the claim but not decide it (e.g. the learner who filed it).
+      return deny('You are not allowed to decide that claim.', 403);
+    }
+    if (seen.status === body.status && seen.reviewed_by === user.id) {
+      // The same reviewer sending the same decision again (a retry or a double
+      // submit): it already went through, so say so instead of erroring.
+      return NextResponse.json({ success: true, claim: { id: seen.id, status: seen.status } });
+    }
+    return deny(`This claim was already ${seen.status}. A decision is final.`, 409);
   }
 
   return NextResponse.json({ success: true, claim: data });

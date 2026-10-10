@@ -649,7 +649,7 @@ export const ResourceManagementActivityTemplates = {
 
 /**
  * Billing module activity templates.
- * Covers: categories, bills, receipts, invoices, discounts, refunds.
+ * Covers: categories, bills, receipts, invoices, scholarships, refunds.
  * Sub-types in metadata let the audit dashboard filter by sub-domain.
  */
 export const BillingActivityTemplates = {
@@ -775,42 +775,42 @@ export const BillingActivityTemplates = {
     sub_type: 'invoice' as const,
   }),
 
-  // ── DISCOUNTS ────────────────────────────────────────────────────
-  discountCreated: (category: string, amount: number, studentName: string) => ({
-    actionType: ACTIVITY_TYPES.DISCOUNT_APPLY,
-    resourceType: RESOURCE_TYPES.DISCOUNT,
-    description: `Applied ${category} discount of ₹${amount.toLocaleString('en-IN')} for ${studentName}`,
-    sub_type: 'discount' as const,
+  // ── SCHOLARSHIPS ────────────────────────────────────────────────────
+  scholarshipCreated: (category: string, amount: number, studentName: string) => ({
+    actionType: ACTIVITY_TYPES.SCHOLARSHIP_APPLY,
+    resourceType: RESOURCE_TYPES.SCHOLARSHIP,
+    description: `Applied ${category} scholarship of ₹${amount.toLocaleString('en-IN')} for ${studentName}`,
+    sub_type: 'scholarship' as const,
   }),
-  discountUpdated: (discountId: string) => ({
+  scholarshipUpdated: (scholarshipId: string) => ({
     actionType: ACTIVITY_TYPES.UPDATE,
-    resourceType: RESOURCE_TYPES.DISCOUNT,
-    description: `Updated discount ${discountId}`,
-    sub_type: 'discount' as const,
+    resourceType: RESOURCE_TYPES.SCHOLARSHIP,
+    description: `Updated scholarship ${scholarshipId}`,
+    sub_type: 'scholarship' as const,
   }),
-  discountDeleted: (discountId: string) => ({
+  scholarshipDeleted: (scholarshipId: string) => ({
     actionType: ACTIVITY_TYPES.DELETE,
-    resourceType: RESOURCE_TYPES.DISCOUNT,
-    description: `Deleted discount ${discountId}`,
-    sub_type: 'discount' as const,
+    resourceType: RESOURCE_TYPES.SCHOLARSHIP,
+    description: `Deleted scholarship ${scholarshipId}`,
+    sub_type: 'scholarship' as const,
   }),
-  discountApproved: (category: string, amount: number, studentName: string) => ({
+  scholarshipApproved: (category: string, amount: number, studentName: string) => ({
     actionType: ACTIVITY_TYPES.APPROVE,
-    resourceType: RESOURCE_TYPES.DISCOUNT,
-    description: `Approved ${category} discount of ₹${amount.toLocaleString('en-IN')} for ${studentName}`,
-    sub_type: 'discount_approval' as const,
+    resourceType: RESOURCE_TYPES.SCHOLARSHIP,
+    description: `Approved ${category} scholarship of ₹${amount.toLocaleString('en-IN')} for ${studentName}`,
+    sub_type: 'scholarship_approval' as const,
   }),
-  discountRejected: (category: string, studentName: string) => ({
+  scholarshipRejected: (category: string, studentName: string) => ({
     actionType: ACTIVITY_TYPES.REJECT,
-    resourceType: RESOURCE_TYPES.DISCOUNT,
-    description: `Rejected ${category} discount for ${studentName}`,
-    sub_type: 'discount_approval' as const,
+    resourceType: RESOURCE_TYPES.SCHOLARSHIP,
+    description: `Rejected ${category} scholarship for ${studentName}`,
+    sub_type: 'scholarship_approval' as const,
   }),
-  discountReversed: (category: string, amount: number, studentName: string) => ({
+  scholarshipReversed: (category: string, amount: number, studentName: string) => ({
     actionType: ACTIVITY_TYPES.UPDATE,
-    resourceType: RESOURCE_TYPES.DISCOUNT,
-    description: `Reversed ${category} discount of ₹${amount.toLocaleString('en-IN')} for ${studentName}`,
-    sub_type: 'discount_reversal' as const,
+    resourceType: RESOURCE_TYPES.SCHOLARSHIP,
+    description: `Reversed ${category} scholarship of ₹${amount.toLocaleString('en-IN')} for ${studentName}`,
+    sub_type: 'scholarship_reversal' as const,
   }),
 
   // ── REFUNDS ──────────────────────────────────────────────────────

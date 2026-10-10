@@ -13,6 +13,7 @@ import type {
   ComparisonRow,
 } from '@/types/procurement';
 import { buildComparisonRows } from '@/lib/procurement/comparison-rows';
+import type { ItemAlias } from '@/lib/procurement/item-aliases';
 
 // The builder is pure and lives in lib/procurement so server routes (the compare
 // chat) can use it too; re-exported here so existing imports keep working.
@@ -154,6 +155,11 @@ export class ProcurementQuotationService {
         other_specs: i.other_specs ?? null,
         gst_percent: i.gst_percent ?? null,
         hsn: i.hsn?.trim() || null,
+        quoted_name: i.quoted_name?.trim() || null,
+        quoted_qty: i.quoted_qty ?? null,
+        quoted_pack: i.quoted_pack?.trim() || null,
+        match_source: i.match_source ?? null,
+        match_note: i.match_note?.slice(0, 500) || null,
       }));
       const { error: itemsErr } = await this.supabase
         .from('procurement_quotation_items')
@@ -173,6 +179,29 @@ export class ProcurementQuotationService {
       console.error('[ProcurementQuotationService] createQuotation:', error);
       throw error;
     }
+  }
+
+  /** What staff said before about vendor names for these items (the reader's memory). */
+  static async getItemAliases(institutionId: string, itemKeys: string[]): Promise<ItemAlias[]> {
+    if (!itemKeys.length) return [];
+    const { data, error } = await this.supabase
+      .from('procurement_item_aliases')
+      .select('supplier_id, quoted_name, quoted_key, item_key, item_name, same')
+      .eq('institution_id', institutionId)
+      .in('item_key', itemKeys);
+    if (error) throw error;
+    return (data ?? []) as ItemAlias[];
+  }
+
+  /** Remember "this vendor name is / is not this item". Latest answer wins. */
+  static async rememberItemNames(institutionId: string, rows: ItemAlias[]): Promise<void> {
+    if (!rows.length) return;
+    const now = new Date().toISOString();
+    const { error } = await this.supabase.from('procurement_item_aliases').upsert(
+      rows.map((r) => ({ ...r, institution_id: institutionId, updated_at: now })),
+      { onConflict: 'institution_id,supplier_id,quoted_key,item_key' }
+    );
+    if (error) throw error;
   }
 
   /** Link the vendor's PDF after the prices are saved (the upload runs in the background). */

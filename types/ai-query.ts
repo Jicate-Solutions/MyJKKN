@@ -369,7 +369,7 @@ export const TOOL_PERMISSIONS: Record<string, string> = {
   get_fee_defaulters: 'billing.bills.view',
   get_invoices: 'billing.invoices.view',
   get_receipts: 'billing.receipts.view',
-  get_discounts: 'billing.discounts.view',
+  get_scholarships: 'billing.scholarships.view',
   get_refunds: 'billing.refunds.view',
   get_billing_categories: 'billing.categories.view',
   get_payment_transactions: 'billing.payments.view',

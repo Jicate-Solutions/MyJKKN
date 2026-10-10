@@ -53,6 +53,7 @@ import { createBellNotification } from '@/lib/services/meetings/meeting-trigger-
 import { resolveDirectors, validateTargeting } from '@/lib/services/director-desk/handover-chase-service';
 import { closeCampusWalkTask } from '@/lib/campus-walk/closure';
 import { updateTaskKeepingJoins } from '@/lib/campus-walk/join-report';
+import { thinReplyReason } from '@/lib/campus-walk/cctv-categories';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -493,7 +494,7 @@ export async function POST(request: NextRequest) {
       { status: 400 }
     );
   }
-  if (action !== 'submit' && action !== 'block' && action !== 'unblock') {
+  if (action !== 'submit' && action !== 'block' && action !== 'unblock' && action !== 'reply') {
     return NextResponse.json(
       { ok: false, code: 'bad_request', error: 'Unknown action.' },
       { status: 400 }
@@ -667,6 +668,106 @@ export async function POST(request: NextRequest) {
         pausedDays > 0
           ? `Back on. The deadline moved out by ${pausedDays} day${pausedDays === 1 ? '' : 's'}.`
           : 'Back on.',
+    });
+  }
+
+  // ── reply: a CCTV report is answered in words (Director, 9 Oct 2026) ──────
+  // A CCTV report is usually about conduct, not a broken thing: there is
+  // nothing to photograph. The HOD (or the Controller of Examinations) replies
+  // with the action taken, and that reply closes the job the way a fix photo
+  // closes any other. Only CCTV jobs take this path — every other job still
+  // needs the photo (G5). Closed as a decision (auto: false), so the 1-in-10
+  // photo spot check is never pointed at a written reply.
+  if (action === 'reply') {
+    if (metadata.front_door !== 'cctv') {
+      return NextResponse.json(
+        { ok: false, code: 'bad_request', error: 'This job is closed with a photo of the finished work, not a written reply.' },
+        { status: 400 }
+      );
+    }
+    const reply = String(form.get('note') ?? '').trim().slice(0, 1000);
+    // The reply must name an action (Director, 9 Oct 2026): "noted" is refused.
+    const thin = thinReplyReason(reply);
+    if (thin) {
+      return NextResponse.json({ ok: false, code: 'thin_reply', error: thin }, { status: 400 });
+    }
+    if (task.status_key === 'done' && metadata.fix?.approval?.state === 'approved') {
+      return NextResponse.json({
+        ok: true,
+        action: 'reply',
+        closed: true,
+        status_key: 'done',
+        message: 'Done — this report already has a reply and is closed.',
+      });
+    }
+
+    const previousApproval = metadata.fix?.approval ?? null;
+    metadata.fix = {
+      submitted_at: nowIso,
+      submitted_by_profile_id: user.id,
+      submitted_by_staff_id: access.callerStaffId,
+      submitted_by_name: access.callerName || null,
+      submitted_via: access.via,
+      attachment_id: null,
+      attachment_version: null,
+      storage_path: null,
+      note: reply,
+      reply,
+      approval: {
+        state: 'awaiting_approval',
+        decided_at: null,
+        decided_by_profile_id: null,
+        note: null,
+        previous_state: previousApproval?.state ?? null,
+        previous_note: previousApproval?.note ?? null,
+      },
+    };
+    const { dueDate: settledDueDate } = closePause(metadata, task.due_date, nowIso);
+    const replyStep = await updateTaskKeepingJoins(admin as any, {
+      taskId,
+      expectStatus: null,
+      updatedAt: task.updated_at ?? null,
+      patch: { status_key: 'review', completed_at: null, is_blocked: false, due_date: settledDueDate },
+      metadata,
+    });
+    if (replyStep.ok === false) {
+      console.error('[campus-walk/fix] reply update failed:', replyStep.error);
+      return NextResponse.json(
+        { ok: false, code: 'reply_not_saved', error: 'Your reply could not be saved. Tap send again — nothing is lost.', retryable: true },
+        { status: 502 }
+      );
+    }
+    const closedByReply = await closeCampusWalkTask(
+      admin as any,
+      {
+        id: taskId,
+        title: task.title,
+        status_key: 'review',
+        updated_at: replyStep.updatedAt,
+        owner_staff_id: task.owner_staff_id,
+        completed_at: null,
+        metadata: replyStep.metadata,
+      },
+      { decidedByProfileId: user.id, auto: false, note: reply }
+    );
+    if (closedByReply.ok === false) {
+      console.error(`[campus-walk/fix] reply recorded but the job did not close (task ${taskId}, ${closedByReply.code})`);
+      return NextResponse.json({
+        ok: true,
+        action: 'reply',
+        closed: false,
+        status_key: 'review',
+        message: 'Your reply is saved on the report, but we could not close it just now. A manager will check it and close it.',
+      });
+    }
+    return NextResponse.json({
+      ok: true,
+      action: 'reply',
+      closed: true,
+      status_key: 'done',
+      completed_at: closedByReply.completedAt,
+      reporter_notified: closedByReply.reporterNotified,
+      message: 'Done — your reply is recorded and the report is closed. Thank you.',
     });
   }
 

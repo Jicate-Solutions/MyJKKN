@@ -1142,10 +1142,13 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/billing/receipts/[id]': 'billing.receipts.view',
   '/billing/receipts/[id]/edit': 'billing.receipts.edit',
   '/billing/receipts/generate': 'billing.receipts.generate',
-  '/billing/discounts': 'billing.discounts.view',
-  '/billing/discounts/new': 'billing.discounts.create',
-  '/billing/discounts/[id]': 'billing.discounts.view',
-  '/billing/discounts/[id]/edit': 'billing.discounts.edit',
+  '/billing/scholarships': 'billing.scholarships.view',
+  '/billing/scholarships/new': 'billing.scholarships.create',
+  '/billing/scholarships/[id]': 'billing.scholarships.view',
+  '/billing/scholarships/[id]/edit': 'billing.scholarships.edit',
+  // Categories & Types setup page (20271009090000). Needed as a menu entry: a
+  // sidebar href with no MENU_PERMISSIONS key is hidden for every non-super-admin.
+  '/billing/scholarships/setup': 'billing.scholarship_setup.view',
   '/billing/refunds': 'billing.refunds.view',
   '/billing/refunds/[id]': 'billing.refunds.view',
   '/billing/refund-approvals': 'billing.refunds.configure',
@@ -4253,6 +4256,7 @@ export function GetPages(pathname: string): MenuGroup[] {
             (pathname.startsWith('/billing/') &&
               !pathname.startsWith('/billing/transport') &&
               !pathname.startsWith('/billing/school-fees') &&
+              !pathname.startsWith('/billing/scholarships') &&
               !BILLING_SETTINGS_PREFIXES.some((prefix) => pathname.startsWith(prefix))),
           icon: GraduationCap,
           submenus: [
@@ -4260,7 +4264,6 @@ export function GetPages(pathname: string): MenuGroup[] {
             { href: '/billing/schedule/students', label: 'Schedule · Student Search', active: pathname.startsWith('/billing/schedule/students') },
             { href: '/billing/coverage', label: 'Bill Coverage', active: pathname.startsWith('/billing/coverage') },
             { href: '/billing/onboarding', label: 'Learner Onboarding', active: pathname.startsWith('/billing/onboarding') },
-            { href: '/billing/discounts', label: 'Scholarships', active: pathname.startsWith('/billing/discounts') },
             { href: '/billing/refunds', label: 'Refunds', active: pathname.startsWith('/billing/refunds') },
             { href: '/billing/refund-approvals', label: 'Refund Approvals', active: pathname.startsWith('/billing/refund-approvals') },
             { href: '/billing/receipt-cancellations', label: 'Receipt Cancellations', active: pathname.startsWith('/billing/receipt-cancellations') },
@@ -4310,6 +4313,30 @@ export function GetPages(pathname: string): MenuGroup[] {
             // Sits after Generate because that is the order of the work: raise
             // the year's bills, then take money against them.
             { href: '/billing/school-fees/collect', label: 'School Bill Payment', active: pathname.startsWith('/billing/school-fees/collect') },
+          ]
+        },
+        {
+          // Scholarships got its own menu 2026-10-09 (it was one row inside
+          // Colleges). Three rows = the module's three real screens; the
+          // detail (/[id]) and edit (/[id]/edit) pages are reached from the
+          // list and keep 'All Scholarships' highlighted. One href lives in
+          // exactly one menu, and the Colleges predicate above excludes this
+          // prefix, so only one menu highlights.
+          href: '/billing/scholarships',
+          label: 'Scholarships',
+          active: pathname.startsWith('/billing/scholarships'),
+          icon: Award,
+          submenus: [
+            // 'All Scholarships' owns the list and its /[id] and /[id]/edit
+            // sub-routes but NOT /new or /setup, which have their own rows —
+            // otherwise two rows highlight at once.
+            { href: '/billing/scholarships', label: 'All Scholarships',
+              active: pathname === '/billing/scholarships' ||
+                (pathname.startsWith('/billing/scholarships/') &&
+                  !pathname.startsWith('/billing/scholarships/new') &&
+                  !pathname.startsWith('/billing/scholarships/setup')) },
+            { href: '/billing/scholarships/new', label: 'Apply Scholarship', active: pathname.startsWith('/billing/scholarships/new') },
+            { href: '/billing/scholarships/setup', label: 'Categories & Types', active: pathname.startsWith('/billing/scholarships/setup') },
           ]
         },
         {

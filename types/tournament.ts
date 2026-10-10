@@ -5,7 +5,7 @@
 // types/health-sports.ts — do NOT define parallel sport enums here.
 // Created: 2026-06-22 (Sports Tournament PR1).
 
-import { TEAM_SPORTS, type SportLevel } from '@/types/health-sports';
+import { ATHLETICS_EVENTS, TEAM_SPORTS, type SportLevel } from '@/types/health-sports';
 import type { Event, EventStatus } from '@/types/events';
 
 // ============================================================================
@@ -64,14 +64,29 @@ export function isTournamentActive(status: string): boolean {
 }
 
 /** How a division's matches are organised. Matches the DB CHECK constraint. */
-export type TournamentFormat = 'knockout' | 'round_robin' | 'league' | 'pools_ko';
+export type TournamentFormat = 'knockout' | 'round_robin' | 'league' | 'pools_ko' | 'heats';
 
 export const TOURNAMENT_FORMATS: { value: TournamentFormat; label: string }[] = [
   { value: 'knockout', label: 'Knockout' },
   { value: 'round_robin', label: 'Round Robin' },
   { value: 'league', label: 'League' },
   { value: 'pools_ko', label: 'Pools + Knockout' },
+  { value: 'heats', label: 'Heats (group rounds)' },
 ];
+
+/**
+ * Sports contested as heats of 5-10 athletes ranked by position / mark, not 1-vs-1.
+ * New divisions of these sports default to the 'heats' format.
+ */
+export const HEAT_SPORTS: readonly string[] = ['Athletics', ...ATHLETICS_EVENTS, 'Swimming'];
+
+/** Heat sports where the BIGGER mark wins (distance); the rest are timed (smaller wins). */
+export const HIGHER_IS_BETTER_SPORTS: readonly string[] = ['Athletics - Long Jump', 'Athletics - Shot Put'];
+
+/** Default division format for a sport. */
+export function defaultFormatForSport(sport: string): TournamentFormat {
+  return HEAT_SPORTS.includes(sport) ? 'heats' : 'knockout';
+}
 
 /** Eligibility gender bands a division can be restricted to. */
 export type DivisionGender = 'male' | 'female' | 'mixed' | 'open';
@@ -792,6 +807,33 @@ export interface ScheduleMatchDto {
   venue_text?: string | null;    // free-text venue label
   resource_id?: string | null;   // optional court/ground resource → books a resource_reservation
   official_name?: string | null; // optional umpire/referee (free text)
+}
+
+/** One athlete inside a heat, with their result. */
+export interface TournamentHeatAthlete {
+  id: string;
+  heat_id: string;
+  entry_id: string;
+  entry_name: string | null;
+  institution_name: string | null;
+  lane_no: number | null;
+  position: number | null;
+  mark: string | null;
+  mark_value: number | null;
+  result_status: 'ok' | 'dns' | 'dnf' | 'dq';
+}
+
+/** A heat (group round) of a 'heats' division. */
+export interface TournamentHeat {
+  id: string;
+  event_id: string;
+  division_id: string;
+  heat_no: number;
+  label: string | null;
+  scheduled_at: string | null;
+  venue_text: string | null;
+  status: 'pending' | 'scheduled' | 'completed';
+  athletes: TournamentHeatAthlete[];
 }
 
 export interface GenerateFixturesResult {

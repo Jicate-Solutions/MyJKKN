@@ -43,11 +43,26 @@ export class CiaMarksService {
     for (const m of mapping) {
       if (m.semester_code && m.is_active) codes.add(m.semester_code);
     }
-    const extractNum = (code: string): number => {
-      const match = code.match(/(\d+)\s*$/);
-      return match ? parseInt(match[1], 10) : 0;
-    };
+    const extractNum = (code: string): number => this.semesterNumberOf(code) ?? 0;
     return Array.from(codes).sort((a, b) => extractNum(a) - extractNum(b));
+  }
+
+  /**
+   * Semester number of a COE semester code — its trailing digits ("EEE-5" → 5).
+   * This is the number registrations carry in `semester`.
+   */
+  static semesterNumberOf(semesterCode: string | undefined): number | undefined {
+    const match = semesterCode?.match(/(\d+)\s*$/);
+    return match ? parseInt(match[1], 10) : undefined;
+  }
+
+  /**
+   * Identity of a learner list: a course in ONE semester. A program can offer the
+   * same course code in two semesters of a session (CEC352 in ECE semesters 5 and
+   * 7), so the course code alone names two different lists.
+   */
+  static courseSemesterKey(courseCode: string, semester: number | undefined): string {
+    return `${courseCode}|${semester ?? ''}`;
   }
 
   /**
@@ -76,6 +91,7 @@ export class CiaMarksService {
     examSessionId: string;
     programCode?: string;
     courseCode?: string;
+    semester?: number;
   }): Promise<ExamRegistration[]> {
     const sp = new URLSearchParams({
       institutionId: params.institutionId,
@@ -83,6 +99,7 @@ export class CiaMarksService {
     });
     if (params.programCode) sp.set('programCode', params.programCode);
     if (params.courseCode) sp.set('courseCode', params.courseCode);
+    if (params.semester != null) sp.set('semester', String(params.semester));
 
     const res = await fetch(`${this.registrationsUrl}?${sp.toString()}`);
     if (!res.ok) {
@@ -95,24 +112,38 @@ export class CiaMarksService {
 
   /**
    * Derives distinct courses from registrations, filtered by program code and is_regular.
+   * One entry per course code + semester — see courseSemesterKey.
    */
   static getCoursesFromRegistrations(
     registrations: ExamRegistration[],
     programCode?: string
-  ): Array<{ course_code: string; course_offering_id: string }> {
+  ): Array<{
+    course_code: string;
+    course_offering_id: string;
+    semester: number;
+    semester_code?: string;
+    course_name?: string;
+    regulation_code?: string | null;
+  }> {
     const filtered = registrations.filter((r) =>
       r.is_regular && (!programCode || r.program_code === programCode)
     );
 
-    const courseMap = new Map<string, string>();
+    const courseMap = new Map<string, ExamRegistration>();
     for (const reg of filtered) {
-      if (!courseMap.has(reg.course_code)) {
-        courseMap.set(reg.course_code, reg.course_offering_id);
-      }
+      const key = this.courseSemesterKey(reg.course_code, reg.semester);
+      if (!courseMap.has(key)) courseMap.set(key, reg);
     }
-    return Array.from(courseMap.entries())
-      .map(([course_code, course_offering_id]) => ({ course_code, course_offering_id }))
-      .sort((a, b) => a.course_code.localeCompare(b.course_code));
+    return Array.from(courseMap.values())
+      .map((reg) => ({
+        course_code: reg.course_code,
+        course_offering_id: reg.course_offering_id,
+        semester: reg.semester,
+        semester_code: reg.semester_code,
+        course_name: reg.course_name,
+        regulation_code: reg.regulation_code,
+      }))
+      .sort((a, b) => a.semester - b.semester || a.course_code.localeCompare(b.course_code));
   }
 
   /**
@@ -160,7 +191,8 @@ export class CiaMarksService {
   }
 
   /**
-   * Derives student list from registrations for a specific course.
+   * Derives the learner list from registrations for a specific course in ONE semester
+   * (see courseSemesterKey).
    *
    * Registration STATUS is deliberately not a condition: a regular registration
    * row is enough. CIA marks are keyed in while COE is still approving exam
@@ -171,12 +203,14 @@ export class CiaMarksService {
   static getLearnersFromRegistrations(
     registrations: ExamRegistration[],
     courseCode: string,
+    semester: number,
     statuses?: readonly string[]
   ): LearnerForMarkEntry[] {
     return registrations
       .filter(
         (r) =>
           r.course_code === courseCode &&
+          r.semester === semester &&
           r.is_regular &&
           (!statuses || statuses.includes(r.registration_status))
       )
@@ -196,6 +230,7 @@ export class CiaMarksService {
     courseCode: string;
     ciaRound: number;
     programCode?: string;
+    semester?: number;
   }): Promise<CiaReportResponse> {
     const sp = new URLSearchParams({
       institutionId: params.institutionId,
@@ -204,6 +239,7 @@ export class CiaMarksService {
       ciaRound: String(params.ciaRound),
     });
     if (params.programCode) sp.set('programCode', params.programCode);
+    if (params.semester != null) sp.set('semester', String(params.semester));
 
     const res = await fetch(`${this.marksUrl}?${sp.toString()}`);
     if (!res.ok) {

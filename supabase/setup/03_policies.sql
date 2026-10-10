@@ -1679,20 +1679,75 @@ CREATE POLICY "invoice_items_all_billing" ON billing_invoice_items
         )
     );
 
--- BILLING_DISCOUNTS TABLE (1 policy)
-ALTER TABLE billing_discounts ENABLE ROW LEVEL SECURITY;
+-- BILLING_SCHOLARSHIPS TABLE (4 policies; renamed from billing_discounts, 20271009130000)
+-- Gated on billing.scholarships.{view,create,edit,delete}; super admin / admin pass without a key.
+ALTER TABLE billing_scholarships ENABLE ROW LEVEL SECURITY;
 
--- Updated: 2026-04-13 - Migrated to dynamic permission-based policies
-CREATE POLICY "discounts_all_billing" ON billing_discounts
-    FOR ALL USING (
-        is_super_admin() OR is_admin()
-        OR EXISTS (
-            SELECT 1 FROM billing_student_bills bsb
-            WHERE bsb.id = billing_discounts.bill_id
-            AND bsb.institution_id = get_current_user_institution_id()
-            AND user_has_permission('billing.discounts.view')
-        )
+CREATE POLICY billing_scholarships_select_permission ON billing_scholarships
+    FOR SELECT USING (
+        (SELECT is_super_admin()) OR (SELECT is_admin())
+        OR (SELECT user_has_permission('billing.scholarships.view'))
     );
+
+CREATE POLICY billing_scholarships_insert_permission ON billing_scholarships
+    FOR INSERT WITH CHECK (
+        (SELECT is_super_admin()) OR (SELECT is_admin())
+        OR (SELECT user_has_permission('billing.scholarships.create'))
+    );
+
+CREATE POLICY billing_scholarships_update_permission ON billing_scholarships
+    FOR UPDATE USING (
+        (SELECT is_super_admin()) OR (SELECT is_admin())
+        OR (SELECT user_has_permission('billing.scholarships.edit'))
+    );
+
+CREATE POLICY billing_scholarships_delete_permission ON billing_scholarships
+    FOR DELETE USING (
+        (SELECT is_super_admin()) OR (SELECT is_admin())
+        OR (SELECT user_has_permission('billing.scholarships.delete'))
+    );
+
+-- BILLING_SCHOLARSHIP_CATEGORIES / BILLING_SCHOLARSHIP_TYPES (4 policies each; 20271009090000)
+-- Read: any signed-in user (the Apply form needs the lists). Write: super admin /
+-- admin / billing.scholarship_setup.{create,edit,delete}.
+ALTER TABLE billing_scholarship_categories ENABLE ROW LEVEL SECURITY;
+ALTER TABLE billing_scholarship_types ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY billing_scholarship_categories_select ON billing_scholarship_categories
+    FOR SELECT TO authenticated USING ((SELECT auth.uid()) IS NOT NULL);
+CREATE POLICY billing_scholarship_categories_insert ON billing_scholarship_categories
+    FOR INSERT TO authenticated WITH CHECK (
+        (SELECT is_super_admin()) OR (SELECT is_admin())
+        OR (SELECT user_has_permission('billing.scholarship_setup.create')));
+CREATE POLICY billing_scholarship_categories_update ON billing_scholarship_categories
+    FOR UPDATE TO authenticated USING (
+        (SELECT is_super_admin()) OR (SELECT is_admin())
+        OR (SELECT user_has_permission('billing.scholarship_setup.edit')))
+    WITH CHECK (
+        (SELECT is_super_admin()) OR (SELECT is_admin())
+        OR (SELECT user_has_permission('billing.scholarship_setup.edit')));
+CREATE POLICY billing_scholarship_categories_delete ON billing_scholarship_categories
+    FOR DELETE TO authenticated USING (
+        (SELECT is_super_admin()) OR (SELECT is_admin())
+        OR (SELECT user_has_permission('billing.scholarship_setup.delete')));
+
+CREATE POLICY billing_scholarship_types_select ON billing_scholarship_types
+    FOR SELECT TO authenticated USING ((SELECT auth.uid()) IS NOT NULL);
+CREATE POLICY billing_scholarship_types_insert ON billing_scholarship_types
+    FOR INSERT TO authenticated WITH CHECK (
+        (SELECT is_super_admin()) OR (SELECT is_admin())
+        OR (SELECT user_has_permission('billing.scholarship_setup.create')));
+CREATE POLICY billing_scholarship_types_update ON billing_scholarship_types
+    FOR UPDATE TO authenticated USING (
+        (SELECT is_super_admin()) OR (SELECT is_admin())
+        OR (SELECT user_has_permission('billing.scholarship_setup.edit')))
+    WITH CHECK (
+        (SELECT is_super_admin()) OR (SELECT is_admin())
+        OR (SELECT user_has_permission('billing.scholarship_setup.edit')));
+CREATE POLICY billing_scholarship_types_delete ON billing_scholarship_types
+    FOR DELETE TO authenticated USING (
+        (SELECT is_super_admin()) OR (SELECT is_admin())
+        OR (SELECT user_has_permission('billing.scholarship_setup.delete')));
 
 -- BILLING_REFUNDS TABLE (1 policy)
 ALTER TABLE billing_refunds ENABLE ROW LEVEL SECURITY;

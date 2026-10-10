@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -28,9 +28,11 @@ import {
   Bus,
   CalendarDays,
   Download,
+  FileCode,
   FileText,
   ReceiptIndianRupee,
   Search,
+  Settings,
   TrendingUp,
   Wallet,
   X
@@ -39,7 +41,9 @@ import { toast } from 'react-hot-toast';
 import { useCollectionDaywise } from '@/hooks/billing/use-billing-reports';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import {
+  buildCategoryKeep,
   buildWorkbookModel,
+  categoriesPresent,
   daywiseModeLabel,
   groupByDay,
   isTransportMaintenanceFee,
@@ -48,7 +52,17 @@ import {
   summarise,
   transactionDetail
 } from '@/lib/services/billing/reports/collection-daywise';
+import {
+  TALLY_BOOK_LABELS,
+  buildTallyExport,
+  buildTallyXml,
+  tallyFileSlug,
+  type TallyBook
+} from '@/lib/services/billing/reports/collection-tally';
+import { TallySetupService } from '@/lib/services/billing/reports/tally-setup-service';
+import { TallySetupDialog } from './tally-setup-dialog';
 import type { BillingReportFilters } from '@/types/billing-schedule';
+import { CollectionCategoryFilter } from './collection-category-filter';
 
 interface CollectionReportTabProps {
   filters: BillingReportFilters;
@@ -91,44 +105,80 @@ export function CollectionReportTab({ filters, canExport }: CollectionReportTabP
   const [mode, setMode] = useState<string>(ALL_MODES);
   const [exporting, setExporting] = useState(false);
   const [exportingPdf, setExportingPdf] = useState(false);
-  // Downloads leave out Transport Maintenance Fee unless this is ticked;
-  // ticking also enables the separate Transport Maintenance Fee PDF.
+  // Table, cards and downloads leave out Transport Maintenance Fee unless this
+  // is ticked; ticking also enables the separate Transport Maintenance Fee PDF.
   const [includeTransport, setIncludeTransport] = useState(false);
+  // Picked fee categories; empty = all. '' is Uncategorised.
+  const [selectedCategories, setSelectedCategories] = useState<string[]>([]);
   const [exportingTransportPdf, setExportingTransportPdf] = useState(false);
+  const [exportingTally, setExportingTally] = useState<TallyBook | null>(null);
+  const [tallySetupOpen, setTallySetupOpen] = useState(false);
 
-  const visible = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    return rows.filter((r) => {
-      if (mode !== ALL_MODES && (r.payment_mode || '') !== mode) return false;
-      if (!q) return true;
-      return (
-        learnerName(r).toLowerCase().includes(q) ||
-        (r.receipt_number || '').toLowerCase().includes(q) ||
-        (r.roll_number || '').toLowerCase().includes(q) ||
-        (r.payment_reference_number || '').toLowerCase().includes(q) ||
-        (r.payer_name || '').toLowerCase().includes(q) ||
-        (r.categories || '').toLowerCase().includes(q)
-      );
-    });
-  }, [rows, search, mode]);
+  const categoryOptions = useMemo(() => categoriesPresent(rows), [rows]);
+
+  // Fee-category cut first, so the cards, the table and every download read
+  // the same projection (a receipt that settled several fees keeps only the
+  // picked part, with its refunds apportioned).
+  const projected = useMemo(
+    () => projectRowsByCategory(rows, buildCategoryKeep(selectedCategories, includeTransport)),
+    [rows, selectedCategories, includeTransport]
+  );
+
+  const applySearchAndMode = useCallback(
+    (list: typeof rows) => {
+      const q = search.trim().toLowerCase();
+      return list.filter((r) => {
+        if (mode !== ALL_MODES && (r.payment_mode || '') !== mode) return false;
+        if (!q) return true;
+        return (
+          learnerName(r).toLowerCase().includes(q) ||
+          (r.receipt_number || '').toLowerCase().includes(q) ||
+          (r.roll_number || '').toLowerCase().includes(q) ||
+          (r.payment_reference_number || '').toLowerCase().includes(q) ||
+          (r.payer_name || '').toLowerCase().includes(q) ||
+          (r.categories || '').toLowerCase().includes(q)
+        );
+      });
+    },
+    [search, mode]
+  );
+
+  const visible = useMemo(() => applySearchAndMode(projected), [projected, applySearchAndMode]);
 
   const sections = useMemo(() => groupByDay(visible), [visible]);
   const summary = useMemo(() => summarise(visible), [visible]);
-  // Mode selector options come from the unfiltered set so a mode stays
-  // pickable after another one is chosen.
-  const allModes = useMemo(() => summarise(rows).byMode, [rows]);
+  // Mode selector options come from the category-scoped set (not the search /
+  // mode-filtered one) so a mode stays pickable after another one is chosen
+  // and its count matches the table. A mode left with no receipts by a
+  // category change stays listed so it can still be cleared.
+  const allModes = useMemo(() => {
+    const modes = summarise(projected).byMode;
+    return mode === ALL_MODES || modes.some((m) => m.mode === mode)
+      ? modes
+      : [...modes, { mode, count: 0, gross: 0, refunds: 0, net: 0 }];
+  }, [projected, mode]);
 
-  const filtersActive = search.trim() !== '' || mode !== ALL_MODES;
+  const filtersActive =
+    search.trim() !== '' || mode !== ALL_MODES || selectedCategories.length > 0;
 
-  /** What the Excel and Cash / Online PDFs contain: the visible rows, with
-   *  the Transport Maintenance Fee part cut out unless the box is ticked. */
-  const exportRows = useMemo(
-    () =>
-      includeTransport
-        ? visible
-        : projectRowsByCategory(visible, (c) => !isTransportMaintenanceFee(c)),
-    [visible, includeTransport]
-  );
+  const handleIncludeTransport = (on: boolean) => {
+    setIncludeTransport(on);
+    if (on) {
+      // With categories picked, ticking adds Transport Maintenance Fee to them.
+      const tmf = categoryOptions.find((o) => isTransportMaintenanceFee(o.category))?.category;
+      if (tmf !== undefined && selectedCategories.length > 0 && !selectedCategories.includes(tmf)) {
+        setSelectedCategories([...selectedCategories, tmf]);
+      }
+    } else {
+      setSelectedCategories((s) => s.filter((c) => !isTransportMaintenanceFee(c)));
+    }
+  };
+
+  // Picking Transport Maintenance Fee is an explicit ask for it: tick the box.
+  const handleCategoriesChange = (next: string[]) => {
+    setSelectedCategories(next);
+    if (next.some(isTransportMaintenanceFee)) setIncludeTransport(true);
+  };
 
   const exportRange = () => ({
     from: (filters.date_from || sections[0].date).slice(0, 10),
@@ -147,7 +197,7 @@ export function CollectionReportTab({ filters, canExport }: CollectionReportTabP
   };
 
   const handleExport = async () => {
-    if (exportRows.length === 0) {
+    if (visible.length === 0) {
       toast.error('Nothing to export for this range.');
       return;
     }
@@ -157,7 +207,7 @@ export function CollectionReportTab({ filters, canExport }: CollectionReportTabP
       const rangeLabel = from === to ? shortDate(from) : `${shortDate(from)} – ${shortDate(to)}`;
       // Summary + All + one sheet per payment mode present. exceljs is
       // dynamic-imported so the reports page bundle does not carry it.
-      const model = buildWorkbookModel(exportRows, { rangeLabel });
+      const model = buildWorkbookModel(visible, { rangeLabel });
       const { writeCollectionWorkbook, downloadWorkbook } = await import(
         '@/lib/services/billing/reports/collection-excel'
       );
@@ -201,7 +251,7 @@ export function CollectionReportTab({ filters, canExport }: CollectionReportTabP
   const handleExportPdf = async () => {
     try {
       setExportingPdf(true);
-      if (!(await downloadModePdfs(exportRows, false))) {
+      if (!(await downloadModePdfs(visible, false))) {
         toast.error('No cash or online receipts to export for this range.');
       }
     } catch (err) {
@@ -216,7 +266,10 @@ export function CollectionReportTab({ filters, canExport }: CollectionReportTabP
   const handleExportTransportPdf = async () => {
     try {
       setExportingTransportPdf(true);
-      const transportRows = projectRowsByCategory(visible, isTransportMaintenanceFee);
+      // Transport Maintenance Fee alone, whatever the category picker says.
+      const transportRows = applySearchAndMode(
+        projectRowsByCategory(rows, isTransportMaintenanceFee)
+      );
       if (!(await downloadModePdfs(transportRows, true))) {
         toast.error('No cash or online Transport Maintenance Fee in this range.');
       }
@@ -225,6 +278,74 @@ export function CollectionReportTab({ filters, canExport }: CollectionReportTabP
       toast.error('PDF export failed');
     } finally {
       setExportingTransportPdf(false);
+    }
+  };
+
+  // Tally keeps one company per institution, and ledger names are set up per
+  // institution, so a Tally file is only ever for the one selected in the
+  // filters.
+  const tallyInstitutionId = filters.institution_id || '';
+  const tallyInstitutionName = rows[0]?.institution_name || 'Selected institution';
+
+  const requireTallyInstitution = () => {
+    if (tallyInstitutionId) return true;
+    toast.error('Select one institution in the filters for Tally.');
+    return false;
+  };
+
+  // One Receipt voucher per receipt for TallyPrime's Import > Transactions.
+  // Transport Maintenance Fee is a separate Tally company, so each book takes
+  // only its own fee categories whatever the Include Transport Fee box says.
+  // Receipts that cannot be posted (learner not mapped, combined payment, mode
+  // without a ledger) come out in a second file instead of being guessed at.
+  const handleExportTally = async (book: TallyBook) => {
+    if (!requireTallyInstitution()) return;
+    if (truncated) {
+      toast.error('This range is cut off at 10,000 receipts. Narrow the dates before exporting to Tally.');
+      return;
+    }
+    const source = projectRowsByCategory(
+      visible,
+      book === 'transport' ? isTransportMaintenanceFee : (c) => !isTransportMaintenanceFee(c)
+    );
+    if (source.length === 0) {
+      toast.error(`No ${TALLY_BOOK_LABELS[book]} receipts to export for this range.`);
+      return;
+    }
+    try {
+      setExportingTally(book);
+      const [modeLedgers, ledgerByJkknId] = await Promise.all([
+        TallySetupService.getModeLedgers(tallyInstitutionId, book),
+        TallySetupService.getLedgerMap(tallyInstitutionId, book)
+      ]);
+      if (Object.keys(modeLedgers).length === 0) {
+        toast.error('Set the Tally cash / bank ledgers first.');
+        setTallySetupOpen(true);
+        return;
+      }
+      const exp = buildTallyExport(source, { book, ledgerByJkknId, modeLedgers });
+      const { from, to } = exportRange();
+      const stem = `tally-${book}-${tallyFileSlug(tallyInstitutionName)}-${from}_to_${to}`;
+      const { downloadTallyXml, downloadTallyNotExported } = await import(
+        '@/lib/services/billing/reports/collection-tally-files'
+      );
+      if (exp.vouchers.length > 0) downloadTallyXml(buildTallyXml(exp.vouchers), `${stem}.xml`);
+      if (exp.skipped.length > 0 || exp.refunded.length > 0) {
+        await downloadTallyNotExported(exp, `${stem}-not-exported.xlsx`);
+      }
+      const done = `${exp.vouchers.length} of ${source.length} receipts exported (${formatCurrency(exp.total)})`;
+      if (exp.skipped.length > 0) {
+        toast.error(`${done}. ${exp.skipped.length} left out — see the not-exported file.`, { duration: 8000 });
+      } else if (exp.refunded.length > 0) {
+        toast.success(`${done}. ${exp.refunded.length} with refunds — see the not-exported file.`, { duration: 8000 });
+      } else {
+        toast.success(done);
+      }
+    } catch (err) {
+      console.error('Tally export failed:', err);
+      toast.error((err as { message?: string })?.message || 'Tally export failed');
+    } finally {
+      setExportingTally(null);
     }
   };
 
@@ -286,7 +407,7 @@ export function CollectionReportTab({ filters, canExport }: CollectionReportTabP
           </CardHeader>
           <CardContent>
             <div className='text-2xl font-bold'>{summary.count.toLocaleString('en-IN')}</div>
-            {filtersActive && (
+            {summary.count !== rows.length && (
               <p className='text-xs text-muted-foreground mt-1'>
                 of {rows.length.toLocaleString('en-IN')} total
               </p>
@@ -361,31 +482,31 @@ export function CollectionReportTab({ filters, canExport }: CollectionReportTabP
             )}
           </div>
 
-          {canExport && (
-            <div
-              className={`mt-3 flex flex-col gap-3 rounded-lg border px-3 py-2.5 transition-colors sm:flex-row sm:items-center sm:justify-between ${
-                includeTransport ? 'border-primary/40 bg-primary/5' : 'bg-muted/40'
-              }`}
-            >
-              <label htmlFor='include-transport-maintenance' className='flex cursor-pointer items-start gap-3'>
-                <Checkbox
-                  id='include-transport-maintenance'
-                  className='mt-0.5'
-                  checked={includeTransport}
-                  onCheckedChange={(v) => setIncludeTransport(v === true)}
-                />
-                <span className='space-y-0.5'>
-                  <span className='flex items-center gap-1.5 text-sm font-medium'>
-                    <Bus className='h-4 w-4 text-muted-foreground' />
-                    Include Transport Fee
-                  </span>
-                  <span className='block text-xs text-muted-foreground'>
-                    {includeTransport
-                      ? 'Transport Maintenance Fee is included in the PDF and Excel downloads.'
-                      : 'Transport Maintenance Fee is left out of the PDF and Excel downloads.'}
-                  </span>
+          <div
+            className={`mt-3 flex flex-col gap-3 rounded-lg border px-3 py-2.5 transition-colors sm:flex-row sm:items-center sm:justify-between ${
+              includeTransport ? 'border-primary/40 bg-primary/5' : 'bg-muted/40'
+            }`}
+          >
+            <label htmlFor='include-transport-maintenance' className='flex cursor-pointer items-start gap-3'>
+              <Checkbox
+                id='include-transport-maintenance'
+                className='mt-0.5'
+                checked={includeTransport}
+                onCheckedChange={(v) => handleIncludeTransport(v === true)}
+              />
+              <span className='space-y-0.5'>
+                <span className='flex items-center gap-1.5 text-sm font-medium'>
+                  <Bus className='h-4 w-4 text-muted-foreground' />
+                  Include Transport Fee
                 </span>
-              </label>
+                <span className='block text-xs text-muted-foreground'>
+                  {includeTransport
+                    ? 'Transport Maintenance Fee is included in the table, PDF and Excel.'
+                    : 'Transport Maintenance Fee is hidden from the table, PDF and Excel.'}
+                </span>
+              </span>
+            </label>
+            {canExport && (
               <Button
                 variant={includeTransport ? 'default' : 'outline'}
                 size='sm'
@@ -403,6 +524,50 @@ export function CollectionReportTab({ filters, canExport }: CollectionReportTabP
                   </>
                 )}
               </Button>
+            )}
+          </div>
+
+          {canExport && (
+            <div className='mt-3 flex flex-col gap-3 rounded-lg border bg-muted/40 px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between'>
+              <span className='space-y-0.5'>
+                <span className='flex items-center gap-1.5 text-sm font-medium'>
+                  <FileCode className='h-4 w-4 text-muted-foreground' />
+                  Tally
+                </span>
+                <span className='block text-xs text-muted-foreground'>
+                  Receipt vouchers for TallyPrime (Import &gt; Transactions), one institution at a
+                  time. Transport Maintenance Fee is always its own file.
+                </span>
+              </span>
+              <div className='flex flex-wrap items-center gap-2'>
+                {(['fees', 'transport'] as const).map((book) => (
+                  <Button
+                    key={book}
+                    variant='outline'
+                    size='sm'
+                    onClick={() => handleExportTally(book)}
+                    disabled={exportingTally !== null}
+                    className='min-w-[150px]'
+                  >
+                    {exportingTally === book ? (
+                      <BeatLoader size={8} color='currentColor' />
+                    ) : (
+                      <>
+                        <Download className='h-4 w-4 mr-2' />
+                        {book === 'fees' ? 'Tally XML' : 'Transport Tally XML'}
+                      </>
+                    )}
+                  </Button>
+                ))}
+                <Button
+                  variant='ghost'
+                  size='sm'
+                  onClick={() => requireTallyInstitution() && setTallySetupOpen(true)}
+                >
+                  <Settings className='h-4 w-4 mr-2' />
+                  Tally Setup
+                </Button>
+              </div>
             </div>
           )}
 
@@ -436,6 +601,11 @@ export function CollectionReportTab({ filters, canExport }: CollectionReportTabP
                 </SelectContent>
               </Select>
             </div>
+            <CollectionCategoryFilter
+              options={categoryOptions}
+              selected={selectedCategories}
+              onChange={handleCategoriesChange}
+            />
             {filtersActive && (
               <Button
                 variant='ghost'
@@ -443,6 +613,7 @@ export function CollectionReportTab({ filters, canExport }: CollectionReportTabP
                 onClick={() => {
                   setSearch('');
                   setMode(ALL_MODES);
+                  setSelectedCategories([]);
                 }}
               >
                 <X className='h-4 w-4 mr-1' />
@@ -459,7 +630,7 @@ export function CollectionReportTab({ filters, canExport }: CollectionReportTabP
               <h3 className='text-lg font-semibold mb-2'>No Collections</h3>
               <p className='text-muted-foreground'>
                 {filtersActive
-                  ? 'No receipts match your search or payment mode.'
+                  ? 'No receipts match your search, payment mode or fee category.'
                   : 'No receipts in the selected date range and filters.'}
               </p>
             </div>
@@ -609,6 +780,15 @@ export function CollectionReportTab({ filters, canExport }: CollectionReportTabP
           )}
         </CardContent>
       </Card>
+
+      {canExport && tallyInstitutionId && (
+        <TallySetupDialog
+          open={tallySetupOpen}
+          onOpenChange={setTallySetupOpen}
+          institutionId={tallyInstitutionId}
+          institutionName={tallyInstitutionName}
+        />
+      )}
     </div>
   );
 }

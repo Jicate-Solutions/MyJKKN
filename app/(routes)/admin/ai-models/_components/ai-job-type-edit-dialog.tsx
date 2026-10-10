@@ -22,7 +22,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import toast from 'react-hot-toast';
-import { FileClock, Info, Loader2, Plus, Trash2 } from 'lucide-react';
+import { CheckCircle2, FileClock, Info, Loader2, Plus, Trash2, XCircle } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -47,6 +47,7 @@ import {
 import {
   FIELD_TYPE_OPTIONS,
   LANE_OPTIONS,
+  maxLaneReadiness,
   promptNeedsExplicitNotice,
   type AiJobType,
   type AiJobTypeDef,
@@ -162,6 +163,8 @@ export function AiJobTypeEditDialog({
     () => form.output_target.startsWith('table:'),
     [form.output_target],
   );
+
+  const readiness = useMemo(() => maxLaneReadiness(form), [form]);
 
   const handleSubmit = async () => {
     // ── validate ──────────────────────────────────────────────────────────
@@ -627,6 +630,34 @@ export function AiJobTypeEditDialog({
                 ))}
               </div>
             )}
+          </div>
+          {/* 2026-10-09 — "Will the free Max lane run this?" Live from the form,
+              so a developer sees why a job would sit pending BEFORE saving it.
+              Rules and their sources: maxLaneReadiness in ai-job-types.ts. */}
+          <div className="space-y-2 rounded-md border p-3" aria-live="polite">
+            <p className="text-sm font-medium">Will the free Max lane run this?</p>
+            <ul className="space-y-1.5">
+              {readiness.map((c) => (
+                <li key={c.text} className="flex items-start gap-1.5 text-xs">
+                  {c.kind === 'pass' && (
+                    <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-emerald-600" aria-label="OK" />
+                  )}
+                  {c.kind === 'fail' && (
+                    <XCircle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-red-600" aria-label="Blocks the free lane" />
+                  )}
+                  {c.kind === 'info' && (
+                    <Info className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-label="Note" />
+                  )}
+                  <span className={c.kind === 'fail' ? 'text-foreground' : 'text-muted-foreground'}>{c.text}</span>
+                </li>
+              ))}
+            </ul>
+            <p className="border-t pt-2 text-xs text-muted-foreground">
+              <strong className="text-foreground">What this form cannot do.</strong> It cannot make a
+              job read a file, PDF, photo or scan. Those need a dedicated runner on the Windows box.
+              Picking a lane other than &quot;max&quot; does not create a runner for it. Saving does
+              not run the job; use its Run card to try it.
+            </p>
           </div>
         </div>
 

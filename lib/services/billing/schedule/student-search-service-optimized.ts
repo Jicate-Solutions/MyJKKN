@@ -131,7 +131,7 @@ export class StudentSearchServiceOptimized {
       const [
         categoryData,
         receiptItemsData,
-        discountsData,
+        scholarshipsData,
         refundsData,
         invoiceItemsData
       ] = await this.getRelatedBillingData(bills, receipts, invoices);
@@ -141,7 +141,7 @@ export class StudentSearchServiceOptimized {
         bills,
         categoryData,
         receiptItemsData,
-        discountsData as any[]
+        scholarshipsData as any[]
       );
       const enrichedReceipts = this.enrichReceiptsData(
         receipts,
@@ -167,7 +167,7 @@ export class StudentSearchServiceOptimized {
         student,
         bills: enrichedBills,
         receipts: enrichedReceipts,
-        discounts: discountsData as any[],
+        scholarships: scholarshipsData as any[],
         refunds: refundsData as any[],
         invoices: enrichedInvoices,
         summary
@@ -221,19 +221,20 @@ export class StudentSearchServiceOptimized {
       promises.push(Promise.resolve({ data: [] }));
     }
 
-    // Get discounts (only if needed)
+    // Get scholarships (only if needed)
     if (billIds.length > 0) {
       promises.push(
         this.supabase
-          .from('billing_discounts')
+          .from('billing_scholarships')
           .select(
             `
             id,
             bill_id,
-            discount_category,
-            discount_type,
-            discount_value,
-            discount_amount,
+            scholarship_category:billing_scholarship_categories(id, name, code),
+            scholarship_type:billing_scholarship_types(id, name, code),
+            value_mode,
+            scholarship_value,
+            scholarship_amount,
             approval_status,
             effective_date
           `
@@ -298,12 +299,12 @@ export class StudentSearchServiceOptimized {
     bills: any[],
     categories: any[],
     receiptItems: any[],
-    discounts: any[]
+    scholarships: any[]
   ) {
     // Create lookup maps for O(1) access
     const categoryMap = new Map(categories.map((cat) => [cat.id, cat]));
     const receiptItemsByBill = new Map<string, any[]>();
-    const discountsByBill = new Map<string, any[]>();
+    const scholarshipsByBill = new Map<string, any[]>();
 
     // Group receipt items by bill
     receiptItems.forEach((item) => {
@@ -313,12 +314,12 @@ export class StudentSearchServiceOptimized {
       receiptItemsByBill.get(item.bill_id)!.push(item);
     });
 
-    // Group discounts by bill
-    discounts.forEach((discount) => {
-      if (!discountsByBill.has(discount.bill_id)) {
-        discountsByBill.set(discount.bill_id, []);
+    // Group scholarships by bill
+    scholarships.forEach((scholarship) => {
+      if (!scholarshipsByBill.has(scholarship.bill_id)) {
+        scholarshipsByBill.set(scholarship.bill_id, []);
       }
-      discountsByBill.get(discount.bill_id)!.push(discount);
+      scholarshipsByBill.get(scholarship.bill_id)!.push(scholarship);
     });
 
     // Enrich bills
@@ -326,7 +327,7 @@ export class StudentSearchServiceOptimized {
       ...bill,
       item_category: categoryMap.get(bill.item_category_id) || null,
       receipt_items: receiptItemsByBill.get(bill.id) || [],
-      discounts: discountsByBill.get(bill.id) || []
+      scholarships: scholarshipsByBill.get(bill.id) || []
     }));
   }
 
@@ -440,7 +441,7 @@ export class StudentSearchServiceOptimized {
       overdue_amount: bills
         .filter((bill) => bill.status === 'overdue')
         .reduce((sum, bill) => sum + (bill.balance_amount || 0), 0),
-      discount_amount: 0, // Calculate if needed
+      scholarship_amount: 0, // Calculate if needed
       refund_amount: totalProcessedRefunds
     };
   }

@@ -32,7 +32,7 @@ export function useSaveCategorySteps() {
       categoryId: string;
       steps: CategoryStep[];
       stage?: ApprovalStage;
-      /** null = the default chain; set = that college's own chain. */
+      /** null = the common approvers; set = that college's own (asked before the common ones). */
       institutionId?: string | null;
     }) => ProcurementApprovalChainService.saveSteps(categoryId, steps, stage, institutionId),
     onSuccess: () => {
