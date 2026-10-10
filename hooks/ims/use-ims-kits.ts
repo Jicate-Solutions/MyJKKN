@@ -44,7 +44,11 @@ export function useAddKitRuleItem() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (v: Parameters<typeof ImsKitService.addRuleItem>[0]) => ImsKitService.addRuleItem(v),
-    onSuccess: (_d, v) => qc.invalidateQueries({ queryKey: ['ims-kit-rule-items', v.rule_id] }),
+    onSuccess: (_d, v) => {
+      qc.invalidateQueries({ queryKey: ['ims-kit-rule-items', v.rule_id] });
+      // The item may have just been given a kit_source: refresh item lists.
+      if (v.kit_source) qc.invalidateQueries({ queryKey: ['ims-items'] });
+    },
   });
 }
 

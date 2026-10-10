@@ -4,7 +4,7 @@
 // Rules list + rule dialog + per-rule detail (items / members / resolve)
 // + collection windows. Spec: specs/store-kit-entitlements-spec-2026-07-12.md
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { ImsPageGuard } from '@/components/ims/ims-page-guard';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -331,9 +331,19 @@ function RuleDetail({ rule }: { rule: KitRule }) {
   const [memberResults, setMemberResults] = useState<KitPerson[]>([]);
   const [applyExisting, setApplyExisting] = useState(false);
 
+  // Drop out-of-order responses: only the latest keystroke's search may land.
+  const itemSearchSeq = useRef(0);
   const searchItems = async (t: string) => {
     setItemTerm(t);
-    setItemResults(t.trim().length >= 2 ? await ImsKitService.searchItems(t, { institutionId: rule.institution_id }) : []);
+    const seq = ++itemSearchSeq.current;
+    try {
+      const res = t.trim().length >= 2
+        ? await ImsKitService.searchItems(t, { institutionId: rule.institution_id })
+        : [];
+      if (seq === itemSearchSeq.current) setItemResults(res);
+    } catch (e: unknown) {
+      if (seq === itemSearchSeq.current) toast.error(e instanceof Error ? e.message : 'Search failed');
+    }
   };
   const searchMembers = async (t: string) => {
     setMemberTerm(t);

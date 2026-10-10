@@ -9,12 +9,9 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 type Call = { table: string; op: string; arg?: unknown; filters?: Array<[string, string, unknown]> };
 const calls: Call[] = [];
 let updateResult: { data: unknown; error: unknown } = { data: [{ id: 'item-1' }], error: null };
-let revertResult: { error: unknown } = { error: null };
-let revertThrows = false;
 let readResult: { data: unknown; error: unknown } = { data: { kit_source: null, institution_id: 'inst-A' }, error: null };
 let insertResult: { error: unknown } = { error: null };
 let ruleResult: { data: unknown; error: unknown } = { data: { institution_id: 'inst-A' }, error: null };
-let ruleItemsResult: { data: unknown; error: unknown } = { data: [], error: null };
 let searchResult: { data: unknown; error: unknown } = { data: [], error: null };
 
 function from(table: string) {
@@ -22,16 +19,10 @@ function from(table: string) {
     update(arg: unknown) {
       const call: Call = { table, op: 'update', arg, filters: [] };
       calls.push(call);
-      // Awaited directly (revert, no .select) or via .select() (classify).
       const chain = {
         eq: (c: string, v: unknown) => (call.filters!.push(['eq', c, v]), chain),
         is: (c: string, v: unknown) => (call.filters!.push(['is', c, v]), chain),
         select: () => Promise.resolve(updateResult),
-        then: (res: (v: unknown) => unknown, rej?: (e: unknown) => unknown) =>
-          (revertThrows ? Promise.reject(new Error('network down')) : Promise.resolve(revertResult)).then(
-            res,
-            rej,
-          ),
       };
       return chain;
     },
@@ -42,8 +33,7 @@ function from(table: string) {
         eq: (c: string, v: unknown) => (call.filters!.push(['eq', c, v]), chain),
         or: (v: string) => (call.filters!.push(['or', v, null]), chain),
         maybeSingle: () => Promise.resolve(table === 'ims_kit_rules' ? ruleResult : readResult),
-        limit: () =>
-          Promise.resolve(table === 'ims_kit_rule_items' ? ruleItemsResult : searchResult),
+        limit: () => Promise.resolve(searchResult),
       };
       return chain;
     },
@@ -68,12 +58,9 @@ const base = { rule_id: 'rule-1', item_id: 'item-1', quantity: 1, cadence: 'year
 beforeEach(() => {
   calls.length = 0;
   updateResult = { data: [{ id: 'item-1' }], error: null };
-  revertResult = { error: null };
-  revertThrows = false;
   readResult = { data: { kit_source: null, institution_id: 'inst-A' }, error: null };
   insertResult = { error: null };
   ruleResult = { data: { institution_id: 'inst-A' }, error: null };
-  ruleItemsResult = { data: [], error: null };
   searchResult = { data: [], error: null };
 });
 
@@ -124,64 +111,16 @@ describe('ImsKitService.addRuleItem', () => {
     expect(calls.some((c) => c.op === 'insert')).toBe(false);
   });
 
-  it('reverts its own classification when the rule-item insert fails, and surfaces the insert error', async () => {
+  it('insert fails → item stays classified (item setup), no second update, insert message thrown', async () => {
     insertResult = { error: { message: 'duplicate key value violates unique constraint', code: '23505' } };
-    await expect(ImsKitService.addRuleItem({ ...base, kit_source: 'college' })).rejects.toThrow(
-      /duplicate key/,
-    );
-    const revert = calls.at(-1)!;
-    expect(calls.at(-2)).toMatchObject({
-      table: 'ims_kit_rule_items', op: 'select', filters: [['eq', 'item_id', 'item-1']],
-    });
-    expect(revert).toMatchObject({ table: 'ims_items', op: 'update', arg: { kit_source: null } });
-    expect(revert.filters).toEqual([
-      ['eq', 'id', 'item-1'],
-      ['eq', 'kit_source', 'college'],
+    const err = await ImsKitService.addRuleItem({ ...base, kit_source: 'college' }).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(Error);
+    expect((err as Error).message).toBe('duplicate key value violates unique constraint');
+    expect(writes()).toEqual([
+      { table: 'ims_items', op: 'update', arg: { kit_source: 'college' } },
+      { table: 'ims_kit_rule_items', op: 'insert', arg: base },
     ]);
-  });
-
-  it('still surfaces the insert error when the revert itself fails', async () => {
-    insertResult = { error: { message: 'insert boom' } };
-    revertResult = { error: { message: 'revert boom' } };
-    await expect(ImsKitService.addRuleItem({ ...base, kit_source: 'college' })).rejects.toThrow(
-      'insert boom',
-    );
-  });
-
-  it('still surfaces the insert error when the revert call throws', async () => {
-    insertResult = { error: { message: 'insert boom' } };
-    revertThrows = true;
-    await expect(ImsKitService.addRuleItem({ ...base, kit_source: 'college' })).rejects.toThrow(
-      'insert boom',
-    );
-  });
-
-  it('does not revert when the item was already classified before this call', async () => {
-    updateResult = { data: [], error: null };
-    readResult = { data: { kit_source: 'college' }, error: null };
-    insertResult = { error: { message: 'insert boom' } };
-    await expect(ImsKitService.addRuleItem({ ...base, kit_source: 'college' })).rejects.toThrow(
-      'insert boom',
-    );
-    expect(calls.filter((c) => c.op === 'update')).toHaveLength(1);
-  });
-
-  it("skips the revert when another admin's rule item already uses the item", async () => {
-    insertResult = { error: { message: 'insert boom' } };
-    ruleItemsResult = { data: [{ id: 'peer-rule-item' }], error: null };
-    await expect(ImsKitService.addRuleItem({ ...base, kit_source: 'college' })).rejects.toThrow(
-      'insert boom',
-    );
-    expect(calls.filter((c) => c.op === 'update')).toHaveLength(1);
-  });
-
-  it('skips the revert (fail safe) when the rule-item check errors, still surfacing the insert error', async () => {
-    insertResult = { error: { message: 'insert boom' } };
-    ruleItemsResult = { data: null, error: { message: 'check boom' } };
-    await expect(ImsKitService.addRuleItem({ ...base, kit_source: 'college' })).rejects.toThrow(
-      'insert boom',
-    );
-    expect(calls.filter((c) => c.op === 'update')).toHaveLength(1);
+    expect(calls.some((c) => c.table === 'ims_kit_rule_items' && c.op === 'select')).toBe(false);
   });
 
   it("scopes the classify update to the rule's institution", async () => {
@@ -219,13 +158,20 @@ describe('ImsKitService.searchItems (kit rule panel scope)', () => {
     expect(searchFilters()).toContainEqual(['or', 'institution_id.eq.inst-A,kit_source.eq.central', null]);
   });
 
+  it('search errors arrive as a real Error with the server message', async () => {
+    searchResult = { data: null, error: { message: 'permission denied for table ims_items' } };
+    const err = await ImsKitService.searchItems('pen', { institutionId: 'inst-A' }).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(Error);
+    expect((err as Error).message).toBe('permission denied for table ims_items');
+  });
+
   it('all-colleges rule: Central store items only', async () => {
     await ImsKitService.searchItems('pen', { institutionId: null });
     expect(searchFilters()).toContainEqual(['eq', 'kit_source', 'central']);
     expect(searchFilters()!.filter((f) => f[0] === 'or')).toHaveLength(1);
   });
 
-  it('does not revert when no source was passed (already-classified search result)', async () => {
+  it('writes nothing to the item when no source was passed and the insert fails', async () => {
     insertResult = { error: { message: 'insert boom' } };
     await expect(ImsKitService.addRuleItem(base)).rejects.toThrow('insert boom');
     expect(calls.some((c) => c.op === 'update')).toBe(false);

@@ -170,9 +170,6 @@ export class ImsKitService {
     kit_source?: KitSource;
   }) {
     const { kit_source, ...row } = dto;
-    // True only when THIS call moved the item from NULL to kit_source, so a
-    // failed insert below may undo exactly that (and nothing someone else set).
-    let classifiedHere = false;
     if (kit_source) {
       // Classification is an item-wide write and the ims_items UPDATE policy
       // lets a store_admin touch ANY college's item, so we scope it to the
@@ -196,6 +193,12 @@ export class ImsKitService {
       }
       // Guard on NULL: a stale search result must never overwrite another
       // admin's classification item-wide (#4336 review M1).
+      // No revert if the rule-item insert below fails (#4336 round 3): the
+      // hardening migration (20260712220000) defines kit_source as a property
+      // of the ITEM, "Set at item setup". The admin chose it explicitly, so an
+      // item left classified after a failed add is valid item setup, not a
+      // leak — and a client-side revert could never be race-free (a peer's
+      // rule item can commit between requests, or be hidden by RLS).
       const { data, error } = await this.supabase
         .from('ims_items')
         .update({ kit_source })
@@ -204,9 +207,7 @@ export class ImsKitService {
         .is('kit_source', null)
         .select('id');
       if (error) throw toError(error, 'Could not set the item\'s kit source');
-      if (data && data.length > 0) {
-        classifiedHere = true;
-      } else {
+      if (!data || data.length === 0) {
         // 0 rows: either someone classified it meanwhile, or RLS refused.
         const { data: current, error: readError } = await this.supabase
           .from('ims_items')
@@ -233,47 +234,7 @@ export class ImsKitService {
       }
     }
     const { error } = await this.supabase.from('ims_kit_rule_items').insert(row);
-    if (error) {
-      if (classifiedHere && (await this.itemHasNoRuleItems(row.item_id))) {
-        // Two writes, no transaction: undo our classification so a failed add
-        // does not leave the item reclassified (#4336 review M2). Guarded on
-        // our value so a later change by someone else is left alone, and
-        // skipped when another admin's committed rule item already relies on
-        // it (#4336 re-panel).
-        try {
-          const { error: revertError } = await this.supabase
-            .from('ims_items')
-            .update({ kit_source: null })
-            .eq('id', row.item_id)
-            .eq('kit_source', kit_source as KitSource);
-          if (revertError) logger.error(MOD, 'kit_source revert failed', revertError);
-        } catch (e) {
-          logger.error(MOD, 'kit_source revert failed', e);
-        }
-      }
-      throw toError(error, 'Add failed');
-    }
-  }
-
-  // Fail safe: any doubt (a rule item exists, or the check errors) keeps the
-  // classification, because removing it under a committed rule item would
-  // break D32 for that rule.
-  private static async itemHasNoRuleItems(itemId: string): Promise<boolean> {
-    try {
-      const { data, error } = await this.supabase
-        .from('ims_kit_rule_items')
-        .select('id')
-        .eq('item_id', itemId)
-        .limit(1);
-      if (error) {
-        logger.error(MOD, 'rule-item check before kit_source revert failed', error);
-        return false;
-      }
-      return !data || data.length === 0;
-    } catch (e) {
-      logger.error(MOD, 'rule-item check before kit_source revert failed', e);
-      return false;
-    }
+    if (error) throw toError(error, 'Add failed');
   }
 
   static async removeRuleItem(id: string) {
@@ -505,7 +466,7 @@ export class ImsKitService {
         : query.eq('kit_source', 'central');
     }
     const { data, error } = await query.limit(15);
-    if (error) throw error;
+    if (error) throw toError(error, 'Search failed');
     return data ?? [];
   }
 
