@@ -10608,6 +10608,81 @@ ALTER TABLE public.billing_bill_cancel_requests ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.billing_bill_cancel_request_actions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.billing_bill_cancel_approval_flows ENABLE ROW LEVEL SECURITY;
 
+-- ============================================================================
+-- Updated: 2026-09-30 - SEED DATA: the Director list (platform_policies row)
+-- Migration: 20270520090000_the_director_list.sql. Config-table pattern
+-- (docs/architecture/config-table-pattern.md, "Default-seeding rule"): the
+-- default row ships with the table's data, not with the policies. When the
+-- setup files are replayed in order, this runs before 04_triggers.sql creates
+-- the guard, so nothing checks it here; in the migration the guard exists
+-- first and only this seed may create an empty list.
+-- ============================================================================
+-- ----------------------------------------------------------------------------
+-- 6. Seed: BOTH Directors (ruling 30 Sep 2026 08:59), each the ONE
+--    verified auth account for its address. Only this block may create an
+--    empty list (see section 2 b), and only when neither can be verified.
+-- ----------------------------------------------------------------------------
+DO $seed$
+DECLARE
+  v_email  text;
+  v_auth_n int;
+  v_n      int;
+  v_id     text;
+  v_ids    jsonb := '[]'::jsonb;
+BEGIN
+  IF EXISTS (SELECT 1 FROM public.platform_policies
+              WHERE policy_key = 'platform.the_director_profile_ids'
+                AND scope_type = 'global' AND scope_id IS NULL) THEN
+    RAISE NOTICE 'the_director_list: the list already exists; left as it is.';
+    RETURN;
+  END IF;
+
+  FOREACH v_email IN ARRAY ARRAY['director@jkkn.ac.in', 'isvarya@jkkn.ac.in'] LOOP
+    SELECT count(*) INTO v_auth_n
+      FROM auth.users u
+     WHERE lower(trim(u.email)) = v_email
+       AND u.email_confirmed_at IS NOT NULL
+       AND u.deleted_at IS NULL;
+
+    SELECT count(*), min(p.id::text)
+      INTO v_n, v_id
+      FROM auth.users u
+      JOIN public.profiles p ON p.id = u.id
+     WHERE lower(trim(u.email)) = v_email
+       AND u.email_confirmed_at IS NOT NULL
+       AND u.deleted_at IS NULL;
+
+    IF v_n = 1 THEN
+      v_ids := v_ids || to_jsonb(v_id);
+    ELSE
+      RAISE NOTICE 'the_director_list: found % confirmed auth account(s) for % (% with a profile); exactly one is needed, so % is NOT on the list. service_role or the SQL console can add the right id.', v_auth_n, v_email, v_n, v_email;
+    END IF;
+  END LOOP;
+
+  IF v_ids = '[]'::jsonb THEN
+    RAISE NOTICE 'the_director_list: neither Director account could be verified. Seeding an EMPTY list: fn_is_the_director() is false for everyone until service_role or the SQL console adds an id.';
+  END IF;
+
+  PERFORM set_config('app.the_director_list_seed', 'on', true);
+
+  INSERT INTO public.platform_policies
+    (policy_key, scope_type, scope_id, value, description, data_type, is_system, is_active)
+  VALUES
+    ('platform.the_director_profile_ids', 'global', NULL, v_ids,
+     'Who counts as "the Director" for Director-only decisions (salary create '
+     'and edit, salary revision final yes, appraisal rating override). A JSON '
+     'array of profile ids; seeded with director@jkkn.ac.in and '
+     'isvarya@jkkn.ac.in (ruling 30 Sep 2026). Only someone already on this '
+     'list can change it, and it can never be emptied. Read through '
+     'fn_is_the_director(); is_super_admin() is NOT the Director.',
+     'array', true, true)
+  ON CONFLICT (policy_key, scope_type, COALESCE(scope_id, '00000000-0000-0000-0000-000000000000'::uuid))
+  DO NOTHING;
+
+  PERFORM set_config('app.the_director_list_seed', '', true);
+END
+$seed$;
+
 
 -- ============================================================================
 -- Updated: 2026-09-29 - Salary revisions: ask -> principal's check -> the Director's yes or no

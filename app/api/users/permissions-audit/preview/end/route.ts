@@ -1,6 +1,7 @@
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
+import { createServerClient } from '@supabase/ssr';
 import { createClient } from '@supabase/supabase-js';
 import { cookies } from 'next/headers';
 import { NextResponse, connection } from 'next/server';
@@ -98,6 +99,49 @@ export async function POST() {
         sessionId: claims.sessionId,
         description: `${actorName} ended preview session (clean logout)`,
       });
+    }
+
+    // Step 2b — revoke the session /preview/start minted for the target.
+    // Clearing cookies alone leaves its refresh token valid on the server, so
+    // a kept copy would still act as that person later — even after they are
+    // put on the Director list (#4121 review). 'local' ends that ONE session
+    // only; the person's own sessions on other devices are untouched. Only a
+    // session that belongs to the previewed person is revoked. Best effort:
+    // a failure is logged and the cookies are still cleared.
+    if (claims) {
+      try {
+        const cookieClient = createServerClient(
+          process.env.NEXT_PUBLIC_SUPABASE_URL!,
+          process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+          {
+            cookies: {
+              get(name: string) {
+                return cookieStore.get(name)?.value;
+              },
+              set() {},
+              remove() {},
+            },
+          },
+        );
+        const { data: sessionData } = await cookieClient.auth.getSession();
+        const minted = sessionData?.session ?? null;
+        if (minted?.access_token && minted.user?.id === claims.sub) {
+          const serviceClient = createClient(
+            process.env.NEXT_PUBLIC_SUPABASE_URL!,
+            process.env.SUPABASE_SERVICE_ROLE_KEY!,
+            { auth: { autoRefreshToken: false, persistSession: false } },
+          );
+          const { error: signOutError } = await serviceClient.auth.admin.signOut(
+            minted.access_token,
+            'local',
+          );
+          if (signOutError) {
+            console.error('[preview/end] could not revoke the preview session:', signOutError);
+          }
+        }
+      } catch (revokeErr) {
+        console.error('[preview/end] could not revoke the preview session:', revokeErr);
+      }
     }
 
     // Step 3 — build response with all cookie deletions staged.

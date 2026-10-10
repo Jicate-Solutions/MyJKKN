@@ -11404,6 +11404,67 @@ GRANT SELECT ON public.billing_bill_cancel_requests TO authenticated;
 GRANT SELECT ON public.billing_bill_cancel_request_actions TO authenticated;
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.billing_bill_cancel_approval_flows TO authenticated;
 
+-- ============================================================================
+-- Updated: 2026-09-30 - who may read the Director list row and its audit rows
+-- Migration: 20270520090000_the_director_list.sql (round 2: never-empty list,
+-- verified seed, profile ids checked, changes audited, readers closed)
+-- 'The Director' is ONE named list (platform_policies key
+-- 'platform.the_director_profile_ids'), NOT is_super_admin() (15 accounts).
+-- ============================================================================
+-- ----------------------------------------------------------------------------
+-- 4. Reading the raw row: super admins and listed people only.
+--    RESTRICTIVE, so it AND-s with the existing permissive select policies.
+--    Every other key is untouched (the first branch is true for them).
+--    The calls are wrapped as (SELECT ...) so they run once per statement.
+--    Two policies, by role: anon has no EXECUTE on fn_is_the_director(), and
+--    a policy that merely names it would make every anon read of this table
+--    fail with "permission denied for function". So anon gets a policy that
+--    names no function and simply never sees this key.
+-- ----------------------------------------------------------------------------
+DROP POLICY IF EXISTS platform_policies_the_director_list_read ON public.platform_policies;
+CREATE POLICY platform_policies_the_director_list_read ON public.platform_policies
+  AS RESTRICTIVE
+  FOR SELECT
+  TO authenticated
+  USING (
+    policy_key IS DISTINCT FROM 'platform.the_director_profile_ids'
+    OR (SELECT public.is_super_admin())
+    OR (SELECT public.fn_is_the_director())
+  );
+
+DROP POLICY IF EXISTS platform_policies_the_director_list_hide_anon ON public.platform_policies;
+CREATE POLICY platform_policies_the_director_list_hide_anon ON public.platform_policies
+  AS RESTRICTIVE
+  FOR SELECT
+  TO anon
+  USING (policy_key IS DISTINCT FROM 'platform.the_director_profile_ids');
+
+-- ----------------------------------------------------------------------------
+-- 5. The audit rows of this key carry the list: same readers only.
+--    hr_policy_audit_log shows every global (scope_id NULL) row to every
+--    signed-in user, so without this the ids would leak through the log.
+-- ----------------------------------------------------------------------------
+DO $audit_read$
+BEGIN
+  IF to_regclass('public.hr_policy_audit_log') IS NULL THEN
+    RAISE NOTICE 'the_director_list: hr_policy_audit_log does not exist; changes are recorded in updated_by only.';
+    RETURN;
+  END IF;
+  EXECUTE 'DROP POLICY IF EXISTS hr_policy_audit_log_the_director_list_read ON public.hr_policy_audit_log';
+  EXECUTE $p$
+    CREATE POLICY hr_policy_audit_log_the_director_list_read ON public.hr_policy_audit_log
+      AS RESTRICTIVE
+      FOR SELECT
+      TO authenticated
+      USING (
+        policy_key IS DISTINCT FROM 'platform.the_director_profile_ids'
+        OR (SELECT public.is_super_admin())
+        OR (SELECT public.fn_is_the_director())
+      )
+  $p$;
+END
+$audit_read$;
+
 
 -- ============================================================================
 -- Updated: 2026-09-29 - Salary revisions: ask -> principal's check -> the Director's yes or no

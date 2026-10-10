@@ -15,6 +15,7 @@ import {
   canUseWriteMode,
   type PreviewMode,
 } from '@/lib/auth/preview-session';
+import { isOnTheDirectorList } from '@/lib/auth/the-director-list';
 
 // ============================================================================
 // POST /api/users/permissions-audit/preview/start
@@ -28,6 +29,16 @@ import {
 //   1. Validate caller is signed in + super admin
 //   2. Validate target exists + no nested preview
 //   3. If mode=write, caller email must match DIRECTOR_EMAIL
+//   3a. Resolve the target's SIGN-IN account by id (never profiles.email,
+//       which its owner can edit)
+//   3b. Refuse any target on the Director list (a real session as the
+//       Director could change who counts as the Director — #4121 review)
+//   6b. After minting, the session's user id must equal the target's id
+//
+//   3c. The write-mode gate and the originator claim use the caller's SIGN-IN
+//       email (auth.getUser), never profiles.email, which its owner can edit.
+//       Before this, a super admin who set their profile email to an allowed
+//       address got write-mode previews (#4121 round 3 note, now closed).
 //   4. Back up the caller's sb-*-auth-token.* cookies → PREVIEW_ADMIN_BACKUP
 //   5. Generate a magic-link session for the target via service-role
 //   6. Exchange the hashed_token for a real access_token + refresh_token
@@ -133,7 +144,11 @@ export async function POST(request: NextRequest) {
 
     // Step 5 — mode gate
     const isWriteRequested = requestedMode === 'write';
-    if (isWriteRequested && !canUseWriteMode(callerProfile.email)) {
+    // The sign-in email comes from the session (auth.users), which the caller
+    // cannot edit; profiles.email is theirs to change. Trimmed and lower-cased
+    // so the write-mode allow-list never depends on how it was typed.
+    const callerSignInEmail = user.email ? user.email.trim().toLowerCase() : null;
+    if (isWriteRequested && !canUseWriteMode(callerSignInEmail)) {
       return NextResponse.json(
         {
           error: `Write-mode preview is restricted to the director and the MyJKKN lead developer. You may preview in read-only mode.`,
@@ -153,7 +168,38 @@ export async function POST(request: NextRequest) {
     if (targetError || !target) {
       return NextResponse.json({ error: 'Target user not found' }, { status: 404 });
     }
-    if (!target.email) {
+
+    const serviceClient = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!,
+      { auth: { autoRefreshToken: false, persistSession: false } },
+    );
+
+    // Step 6a — resolve the target by its SIGN-IN account id, never by
+    // profiles.email. profiles.email is editable by its owner and not unique:
+    // a profile whose email was set to a listed person's sign-in email would
+    // otherwise make the magic link below mint THAT person's session
+    // (#4121 review, round 2). profiles.id == auth.users.id, so the sign-in
+    // account for this profile is looked up by id and its own email is used.
+    const { data: authData, error: authError } = await serviceClient.auth.admin.getUserById(
+      target.id,
+    );
+    if (authError) {
+      console.error('[preview/start] getUserById failed:', authError);
+      return NextResponse.json(
+        { error: 'Could not check the sign-in account for this person, so this preview is refused. Try again later.' },
+        { status: 503 },
+      );
+    }
+    const targetAuthUser = authData?.user ?? null;
+    if (!targetAuthUser || targetAuthUser.id !== target.id) {
+      return NextResponse.json(
+        { error: 'This person has no sign-in account. Cannot create a preview session for them.' },
+        { status: 404 },
+      );
+    }
+    const targetAuthEmail = targetAuthUser.email ?? '';
+    if (!targetAuthEmail) {
       return NextResponse.json(
         {
           error:
@@ -163,19 +209,32 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Step 6b — never preview as someone on the Director list. The preview is
+    // a REAL session: the database sees the target as signed in, so a super
+    // admin previewing the Director could add themselves to the list (the
+    // database guard trusts the session). Checked on the SIGN-IN id, before
+    // any session exists. If the list cannot be read, refuse: "could not
+    // tell" is not "no".
+    const targetIsListed = await isOnTheDirectorList(serviceClient, targetAuthUser.id);
+    if (targetIsListed !== false) {
+      return NextResponse.json(
+        {
+          error:
+            targetIsListed === null
+              ? 'Could not check the Director list, so this preview is refused. Try again later.'
+              : 'This person is on the Director list. Nobody can preview as them.',
+        },
+        { status: targetIsListed === null ? 503 : 403 },
+      );
+    }
+
     // Step 7 — mint a real Supabase session for the target using service-role
     // admin.generateLink. This does NOT send an email (admin.* functions skip
     // the email delivery step); it just produces a hashed_token that we
     // immediately exchange for a session.
-    const serviceClient = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY!,
-      { auth: { autoRefreshToken: false, persistSession: false } },
-    );
-
     const { data: linkData, error: linkError } = await serviceClient.auth.admin.generateLink({
       type: 'magiclink',
-      email: target.email,
+      email: targetAuthEmail,
     });
     if (linkError || !linkData?.properties?.hashed_token) {
       console.error('[preview/start] generateLink failed:', linkError);
@@ -207,13 +266,34 @@ export async function POST(request: NextRequest) {
 
     const targetSession = otpData.session;
 
+    // Step 7b — the session must belong to the person that was checked. If it
+    // belongs to anyone else, nothing is installed, that ONE stray session is
+    // signed out (best effort; 'local', so the account's other sessions on
+    // other devices are left alone) and the mismatch is logged.
+    const mintedUserId = targetSession.user?.id ?? otpData.user?.id ?? null;
+    if (mintedUserId !== target.id) {
+      console.error(
+        '[preview/start] minted session does not belong to the target; aborting',
+        { targetId: target.id, mintedUserId },
+      );
+      try {
+        await serviceClient.auth.admin.signOut(targetSession.access_token, 'local');
+      } catch (signOutErr) {
+        console.error('[preview/start] could not sign out the stray session:', signOutErr);
+      }
+      return NextResponse.json(
+        { error: 'The preview session did not match this person, so it was refused.' },
+        { status: 500 },
+      );
+    }
+
     // Step 8 — build the response and install both cookie sets on it.
     // (No admin-backup cookie; /end regenerates the admin session fresh.)
     const sessionId = randomUUID();
     const previewToken = await mintPreviewToken({
       targetUserId: target.id,
       originatorId: callerProfile.id,
-      originatorEmail: callerProfile.email ?? '',
+      originatorEmail: callerSignInEmail ?? '',
       mode: effectiveMode,
       sessionId,
     });
