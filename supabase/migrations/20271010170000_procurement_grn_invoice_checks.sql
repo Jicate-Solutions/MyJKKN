@@ -658,6 +658,8 @@ GRANT  EXECUTE ON FUNCTION public.fn_procurement_grn_has_duplicate(uuid, uuid, t
 --   G5. D2: no invoice number, no stock (replacement-receipt exemption).
 --   G6. I1: advisory lock + held-duplicate check + D4 re-check at entry into stock.
 --   G7. E1: self-check ban (INSERT replacement arm, UPDATE receiver arm).
+--   plus the closing line: pg_get_functiondef prints `$function$` and this file has
+--   `$function$;` (the statement terminator) — expected, not a change.
 -- The other branches, the RFQ early arm and the tail after END CASE are unchanged.
 -- What each GRN hunk does:
 --   * a move INTO a posted status (accepted / partially_accepted /
@@ -1431,8 +1433,12 @@ BEGIN
   -- with only a read-own SELECT policy, and no authenticated-callable function writes
   -- payload or job_type), so this is defence in depth. The stored-object test is not
   -- re-run on UPDATE: the payload it approved is the one kept.
+  -- App users only, the same test as fn_ims_grn_retired_guard (L9): the service role and
+  -- a JWT-less owner session (a migration or repair script) are not frozen.
   IF TG_OP = 'UPDATE' THEN
-    IF coalesce(auth.role(), '') <> 'service_role'
+    IF (current_user IN ('authenticated', 'anon')
+        OR coalesce(auth.role(), '') IN ('authenticated', 'anon'))
+       AND coalesce(auth.role(), '') <> 'service_role'
        AND (NEW.payload IS DISTINCT FROM OLD.payload
             OR NEW.job_type IS DISTINCT FROM OLD.job_type) THEN
       RAISE EXCEPTION 'an invoice read job''s type and payload cannot be changed after it is queued'
