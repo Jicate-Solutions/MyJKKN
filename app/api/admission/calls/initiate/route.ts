@@ -7,8 +7,11 @@ export const dynamic = 'force-dynamic';
 // JKKN's caller ID. Placing a billed call is a write on a lead, so it requires
 // 'admission.leads.edit' through withAuth, an institution_id inside the
 // caller's institutions, and a lead (when given) from that institution.
-// The counsellor leg always rings the caller's OWN profile phone; the body's
-// counselor_phone and caller_id are accepted for compatibility but ignored.
+// Only an ACTIVE admission counsellor (a row in admission_counselors) may
+// place calls, and the counsellor leg always rings that row's admin-set WORK
+// number (Director ruling 11 Oct 2026: only admins set it), never the
+// self-editable profile phone. The body's counselor_phone and caller_id are
+// accepted for compatibility but ignored.
 // The route no longer passes caller_id, so TelephonyService.initiateCall falls
 // back to its existing getCounselorExoPhone() resolution (agent map, then
 // EXOTEL_CALLER_ID, then the hardcoded admission IVR number).
@@ -60,7 +63,17 @@ export const POST = withAuth(async (request: NextRequest, auth) => {
     }
 
     // Parse body
-    const body = await request.json();
+    // A null, array, primitive, empty or malformed body is a 400, not a 500.
+    let body: Record<string, any>;
+    try {
+      const parsed: unknown = await request.json();
+      if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+        return errorResponse('Invalid request body', 400);
+      }
+      body = parsed as Record<string, any>;
+    } catch {
+      return errorResponse('Invalid request body', 400);
+    }
     // counselor_phone and caller_id are deliberately not read (see header).
     const { institution_id, prospect_phone, lead_id } = body;
 
@@ -117,22 +130,41 @@ export const POST = withAuth(async (request: NextRequest, auth) => {
       }
     }
 
-    // The counsellor leg always rings the caller's own profile phone
-    // (profiles.phone_number; profiles has no 'phone' column).
-    const { data: profile, error: profileError } = await supabase
-      .from('profiles')
-      .select('id, phone_number')
-      .eq('id', user.id)
-      .maybeSingle();
-    if (profileError) {
-      logger.error('admission/calls', 'Initiate call profile lookup error', profileError);
-      return errorResponse('Could not read your profile to place the call', 500);
+    // The counsellor leg rings the caller's WORK calling number, set by an
+    // admission admin on the Counselors page (admission_counselors.phone).
+    // Counsellors cannot edit that row (UPDATE needs admission.counselors.edit),
+    // unlike profiles.phone_number, so the billed line never rings a number the
+    // caller chose. Read with the service client because counsellors lack
+    // admission.counselors.view; the filter is strictly the signed-in user id.
+    const { data: counselorRows, error: counselorError } = await supabase
+      .from('admission_counselors')
+      .select('phone, institution_id')
+      .eq('user_id', user.id)
+      .eq('is_active', true);
+    if (counselorError) {
+      logger.error('admission/calls', 'Initiate call counsellor lookup error', counselorError);
+      return errorResponse('Could not read your work calling number to place the call', 500);
     }
-    const profilePhone: string = profile?.phone_number || '';
-    if (!profilePhone || !isValidIndianMobile(profilePhone)) {
-      return errorResponse('Add your mobile number to your profile to place calls', 400);
+    const activeRows: Array<{ phone: string | null; institution_id: string | null }> =
+      counselorRows ?? [];
+    // Other roles holding admission.leads.edit (no counsellor row) may not
+    // place billed calls.
+    if (activeRows.length === 0) {
+      return errorResponse('Only admission counsellors can place calls.', 403);
     }
-    const counselorPhone = normalizeIndianPhone(profilePhone);
+    const withValidPhone = activeRows.filter(
+      (r) => typeof r.phone === 'string' && r.phone.trim() !== '' && isValidIndianMobile(r.phone)
+    );
+    const workRow =
+      withValidPhone.find((r) => (r.institution_id || '').toLowerCase() === institutionId) ??
+      withValidPhone[0];
+    if (!workRow) {
+      return errorResponse(
+        "Your work calling number isn't set. Ask your admission admin to add it on the Counselors page.",
+        400
+      );
+    }
+    const counselorPhone = normalizeIndianPhone(workRow.phone as string);
 
     // Rate limiting: max 5 calls per counselor per minute
     const oneMinuteAgo = new Date(Date.now() - 60_000).toISOString();

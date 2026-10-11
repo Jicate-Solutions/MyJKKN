@@ -2,9 +2,10 @@
 // Guard tests for POST /api/admission/calls/initiate.
 //
 // The route bridges two phones through JKKN's billed Exotel account. It must
-// require 'admission.leads.edit', stay inside the caller's institutions, ring
-// the caller's OWN profile phone (never a phone from the body) and refuse a
-// lead from another institution. The real withAuth wrapper AND the real
+// require 'admission.leads.edit' AND an active admission_counselors row, stay
+// inside the caller's institutions, ring the admin-set work number
+// (admission_counselors.phone; never the self-editable profile phone, never a
+// phone from the body) and refuse a lead from another institution. The real withAuth wrapper AND the real
 // createApiInstitutionFilter run; only their dependencies (cookies, Supabase
 // clients and the RPCs they call, preview session, telephony) are mocked.
 
@@ -24,8 +25,12 @@ const state = {
   permissions: [] as string[],
   role: 'staff',
   accessible: [INST_A] as string[],
-  profilePhone: '9876543210' as string | null,
-  profileError: null as null | { message: string; code: string },
+  // The caller's self-editable profile phone. The route must NEVER ring it.
+  profilePhone: '9000000011' as string | null,
+  // admission_counselors rows (all users); the route filters by user_id + is_active.
+  counselors: [] as Array<{ user_id: string; institution_id: string | null; phone: string | null; is_active: boolean }>,
+  counselorError: null as null | { message: string; code: string },
+  counselorFilters: [] as Array<[string, unknown]>,
   leads: [] as Array<{ id: string; institution_id: string }>,
 };
 
@@ -45,10 +50,10 @@ function profileRow() {
   };
 }
 
-// The live public.profiles phone column is phone_number; there is no 'phone'.
-// The service mock answers a select of an unknown column the way PostgREST
-// does (42703), so a wrong column name fails here instead of in production.
-const LIVE_PROFILE_COLUMNS = new Set(['id', 'email', 'role', 'institution_id', 'full_name', 'phone_number']);
+// Live admission_counselors columns used here. The service mock answers a
+// select of an unknown column the way PostgREST does (42703), so a wrong
+// column name fails here instead of in production.
+const LIVE_COUNSELOR_COLUMNS = new Set(['id', 'user_id', 'institution_id', 'name', 'email', 'phone', 'is_active']);
 
 // profiles as read by withAuth and by createApiInstitutionFilter (role).
 function makeProfilesQuery() {
@@ -61,29 +66,34 @@ function makeProfilesQuery() {
   return q;
 }
 
-// profiles as read by the route (service client) for the caller's phone.
-function makeServiceProfilesQuery() {
+// admission_counselors as read by the route (service client). A thenable
+// builder: awaiting it applies the recorded eq filters to state.counselors.
+function makeCounselorsQuery() {
   let cols: string[] = [];
+  let rows = state.counselors.slice();
   const result = () => {
-    if (state.profileError) return Promise.resolve({ data: null, error: state.profileError });
-    const unknown = cols.find((c) => !LIVE_PROFILE_COLUMNS.has(c));
+    if (state.counselorError) return { data: null, error: state.counselorError };
+    const unknown = cols.find((c) => !LIVE_COUNSELOR_COLUMNS.has(c));
     if (unknown) {
-      return Promise.resolve({
+      return {
         data: null,
-        error: { message: `column profiles.${unknown} does not exist`, code: '42703' },
-      });
+        error: { message: `column admission_counselors.${unknown} does not exist`, code: '42703' },
+      };
     }
-    const row: any = profileRow();
-    return Promise.resolve({ data: Object.fromEntries(cols.map((c) => [c, row[c]])), error: null });
+    return { data: rows.map((r: any) => Object.fromEntries(cols.map((c) => [c, r[c]]))), error: null };
   };
   const q: any = {
     select: (s: string) => {
       cols = s.split(',').map((c) => c.trim());
       return q;
     },
-    eq: () => q,
-    single: result,
-    maybeSingle: result,
+    eq: (col: string, val: unknown) => {
+      state.counselorFilters.push([col, val]);
+      rows = rows.filter((r) => (r as any)[col] === val);
+      return q;
+    },
+    then: (resolve: (v: unknown) => unknown, reject?: (e: unknown) => unknown) =>
+      Promise.resolve(result()).then(resolve, reject),
   };
   return q;
 }
@@ -140,7 +150,7 @@ const userClient: any = {
 
 const serviceClient: any = {
   from: (table: string) => {
-    if (table === 'profiles') return makeServiceProfilesQuery();
+    if (table === 'admission_counselors') return makeCounselorsQuery();
     if (table === 'admission_leads') return makeLeadsQuery();
     if (table === 'admission_call_logs') return makeCallLogsQuery();
     throw new Error(`unexpected service table ${table}`);
@@ -212,9 +222,14 @@ beforeEach(() => {
   state.isAdmin = false;
   state.permissions = [];
   state.role = 'staff';
-  state.profileError = null;
   state.accessible = [INST_A];
-  state.profilePhone = '9876543210';
+  state.profilePhone = '9000000011';
+  state.counselorError = null;
+  state.counselorFilters = [];
+  state.counselors = [
+    { user_id: USER.id, institution_id: INST_A, phone: '9876543210', is_active: true },
+    { user_id: 'other-user', institution_id: INST_A, phone: '9555555555', is_active: true },
+  ];
   state.leads = [
     { id: LEAD_A, institution_id: INST_A },
     { id: LEAD_B, institution_id: INST_B },
@@ -245,7 +260,7 @@ describe('POST /api/admission/calls/initiate', () => {
     expect(callLogInserts).toHaveLength(0);
   });
 
-  it('rings the caller\'s own profile phone, never a counselor_phone from the body', async () => {
+  it('rings the admin-set work number, never a counselor_phone from the body', async () => {
     state.permissions = [LEADS_EDIT];
     const res = await POST(postReq({ ...baseBody, counselor_phone: '9000000099' }));
     expect(res.status).toBe(200);
@@ -260,15 +275,85 @@ describe('POST /api/admission/calls/initiate', () => {
     expect(initiateCall.mock.calls[0][0].caller_id).toBeUndefined();
   });
 
-  it('asks the caller to add a phone when the profile has none', async () => {
+  it('never rings the self-edited profile phone: the admin-set work number is used', async () => {
     state.permissions = [LEADS_EDIT];
-    state.profilePhone = null;
+    state.profilePhone = '9000000011'; // counsellor edited their own profile
+    const res = await POST(postReq(baseBody));
+    expect(res.status).toBe(200);
+    expect(initiateCall.mock.calls[0][0].counselor_phone).toBe('+919876543210');
+    expect(initiateCall.mock.calls[0][0].counselor_phone).not.toBe('+919000000011');
+    // The lookup is strictly the signed-in user's ACTIVE row.
+    expect(state.counselorFilters).toEqual([
+      ['user_id', USER.id],
+      ['is_active', true],
+    ]);
+  });
+
+  it('an active counsellor row with no phone gives 400 "work calling number isn\'t set"', async () => {
+    state.permissions = [LEADS_EDIT];
+    state.counselors = [{ user_id: USER.id, institution_id: INST_A, phone: null, is_active: true }];
     const res = await POST(postReq(baseBody));
     expect(res.status).toBe(400);
     const body = await res.json();
     expect(body.success).toBe(false);
-    expect(body.message).toBe('Add your mobile number to your profile to place calls');
+    expect(body.message).toBe(
+      "Your work calling number isn't set. Ask your admission admin to add it on the Counselors page."
+    );
     expect(initiateCall).not.toHaveBeenCalled();
+    expect(callLogInserts).toHaveLength(0);
+  });
+
+  it('an active counsellor row with an invalid phone gives the same 400', async () => {
+    state.permissions = [LEADS_EDIT];
+    state.counselors = [{ user_id: USER.id, institution_id: INST_A, phone: '12345', is_active: true }];
+    const res = await POST(postReq(baseBody));
+    expect(res.status).toBe(400);
+    expect((await res.json()).message).toMatch(/work calling number isn't set/);
+    expect(initiateCall).not.toHaveBeenCalled();
+  });
+
+  it('a user holding admission.leads.edit with NO counsellor row is refused 403: no call, no log row', async () => {
+    state.permissions = [LEADS_EDIT];
+    state.counselors = [{ user_id: 'other-user', institution_id: INST_A, phone: '9555555555', is_active: true }];
+    const res = await POST(postReq(baseBody));
+    expect(res.status).toBe(403);
+    const body = await res.json();
+    expect(body.success).toBe(false);
+    expect(body.message).toBe('Only admission counsellors can place calls.');
+    expect(initiateCall).not.toHaveBeenCalled();
+    expect(callLogInserts).toHaveLength(0);
+  });
+
+  it('an INACTIVE counsellor row counts as no row: refused 403', async () => {
+    state.permissions = [LEADS_EDIT];
+    state.counselors = [{ user_id: USER.id, institution_id: INST_A, phone: '9876543210', is_active: false }];
+    const res = await POST(postReq(baseBody));
+    expect(res.status).toBe(403);
+    expect((await res.json()).message).toBe('Only admission counsellors can place calls.');
+    expect(initiateCall).not.toHaveBeenCalled();
+  });
+
+  it('a counsellor with two active rows rings the one for the requested institution', async () => {
+    state.permissions = [LEADS_EDIT];
+    state.accessible = [INST_A, INST_B];
+    state.counselors = [
+      { user_id: USER.id, institution_id: INST_A, phone: '9876543210', is_active: true },
+      { user_id: USER.id, institution_id: INST_B, phone: '9811111111', is_active: true },
+    ];
+    const res = await POST(postReq({ ...baseBody, institution_id: INST_B }));
+    expect(res.status).toBe(200);
+    expect(initiateCall.mock.calls[0][0].counselor_phone).toBe('+919811111111');
+  });
+
+  it('two active rows, none for the requested institution: the first with a valid phone is used', async () => {
+    state.permissions = [LEADS_EDIT];
+    state.counselors = [
+      { user_id: USER.id, institution_id: INST_B, phone: '', is_active: true },
+      { user_id: USER.id, institution_id: INST_B, phone: '9822222222', is_active: true },
+    ];
+    const res = await POST(postReq(baseBody));
+    expect(res.status).toBe(200);
+    expect(initiateCall.mock.calls[0][0].counselor_phone).toBe('+919822222222');
   });
 
   it('refuses a lead from another institution', async () => {
@@ -344,14 +429,36 @@ describe('POST /api/admission/calls/initiate', () => {
     expect(initiateCall).toHaveBeenCalledTimes(1);
   });
 
-  it('a profile DB error is a 500, not "add your mobile number"', async () => {
+  it('a counsellor-lookup DB error is a 500, not "number isn\'t set"', async () => {
     state.permissions = [LEADS_EDIT];
-    state.profileError = { message: 'connection reset', code: '08006' };
+    state.counselorError = { message: 'connection reset', code: '08006' };
     const res = await POST(postReq(baseBody));
     expect(res.status).toBe(500);
     const body = await res.json();
     expect(body.success).toBe(false);
-    expect(body.message).not.toMatch(/mobile number/i);
+    expect(body.message).not.toMatch(/isn't set|Only admission counsellors/i);
+    expect(initiateCall).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['null', 'null'],
+    ['an array', '[]'],
+    ['a string', '"x"'],
+    ['a number', '42'],
+    ['malformed JSON', '{"institution_id":'],
+    ['an empty body', ''],
+  ])('a body that is %s gives 400 "Invalid request body", not 500', async (_label, raw) => {
+    state.permissions = [LEADS_EDIT];
+    const req = new NextRequest('http://localhost/api/admission/calls/initiate', {
+      method: 'POST',
+      body: raw,
+      headers: { 'content-type': 'application/json' },
+    });
+    const res = await POST(req);
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.success).toBe(false);
+    expect(body.message).toBe('Invalid request body');
     expect(initiateCall).not.toHaveBeenCalled();
   });
 
