@@ -46,7 +46,12 @@ export async function nextFreeTimes(
     durationMin: number;
     count?: number;
     now?: Date;
-    /** A meeting that does not count as busy (the one being moved). */
+    /**
+     * The meeting being moved. Every busy block with exactly its range is
+     * dropped — the same meeting appears twice (the booking row, and its event
+     * in Google busy times), so dropping one copy would keep blocking it. Its
+     * own current start is never offered.
+     */
     ignore?: { start: string; end: string };
   },
 ): Promise<string[]> {
@@ -83,8 +88,11 @@ export async function nextFreeTimes(
     now,
     ...hostAnyTimeSlotInput(),
   });
+  // The meeting's own current start is not a "new" time to offer.
+  const ownStart = opts.ignore ? new Date(opts.ignore.start).getTime() : null;
   return slots
     .map((s) => s.start)
+    .filter((start) => ownStart === null || new Date(start).getTime() !== ownStart)
     // Only times whose whole length lies inside the range busy times were
     // read for — the last day's slots run past `until` and are unverified.
     .filter((start) => {

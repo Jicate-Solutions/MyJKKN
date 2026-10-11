@@ -689,6 +689,10 @@ describe('follow-ups after #4300 (10 Oct)', () => {
     const parentKey = sentEmails.find((e) => e.to === 'parent@gmail.com')!.key;
     expect(parentKey).not.toMatch(/parent|@|gmail/i);
     expect(parentKey).toMatch(/^meeting-cancelled-attendee-uid-1-[0-9a-f]{16}$/);
+    // keyed with a server secret: not the bare sha256 anyone could recompute
+    const { createHash } = await import('crypto');
+    const bare = createHash('sha256').update('parent@gmail.com').digest('hex').slice(0, 16);
+    expect(parentKey.endsWith(bare)).toBe(false);
   });
 });
 

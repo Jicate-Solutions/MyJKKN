@@ -7,7 +7,7 @@
 // Must only be called from server-side code (API routes / server actions)
 // because RESEND_API_KEY is a server-only secret.
 
-import { createHash } from 'crypto';
+import { createHash, createHmac } from 'crypto';
 import { resend } from '@/lib/resend';
 import { logger } from '@/lib/utils/enhanced-logger';
 
@@ -259,10 +259,13 @@ function isConfigured(): boolean {
  * key, so the host still gets ONE email per meeting however many are invited.
  */
 function attendeeKey(base: string, attendeeEmail: string): string {
-  // A fingerprint of the address, not the address: the key travels in a
-  // request header and in provider logs.
-  const who = createHash('sha256')
-    .update((attendeeEmail ?? '').trim().toLowerCase())
+  // A keyed fingerprint of the address, not the address: the key travels in a
+  // request header and in provider logs, and a bare hash of a guessable address
+  // (a roll-number email) could be reversed by trying them. Keyed with the
+  // Resend secret itself, which every real send has (no key = no send).
+  const normalised = (attendeeEmail ?? '').trim().toLowerCase();
+  const secret = process.env.RESEND_API_KEY;
+  const who = (secret ? createHmac('sha256', secret).update(normalised) : createHash('sha256').update(normalised))
     .digest('hex')
     .slice(0, 16);
   return `${base}-${who}`;

@@ -519,18 +519,19 @@ export class HostSchedulingService {
           mayHaveChanged: true,
         };
       }
-      const atNew = sameInstant(a.start_time, startIso) && a.reschedule_count === newCount;
+      const countNow = a.reschedule_count ?? 0;
+      const atNew = sameInstant(a.start_time, startIso) && countNow === newCount;
       const untouched =
         a.status === 'confirmed' &&
         sameInstant(a.start_time, oldStart) &&
-        a.reschedule_count === ((booking.reschedule_count as number | null) ?? 0);
+        countNow === ((booking.reschedule_count as number | null) ?? 0);
       if (untouched) {
         return { ok: false, error: { code: 'UNKNOWN', message: 'The meeting could not be moved.' } };
       }
       const cancelledUntouched =
-        a.status !== 'confirmed' &&
+        a.status === 'cancelled' &&
         sameInstant(a.start_time, oldStart) &&
-        a.reschedule_count === ((booking.reschedule_count as number | null) ?? 0);
+        countNow === ((booking.reschedule_count as number | null) ?? 0);
       if (cancelledUntouched) {
         // A cancel won before this move's update could land: nothing of ours changed.
         return {

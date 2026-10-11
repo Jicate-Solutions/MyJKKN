@@ -65,8 +65,12 @@ describe('nextFreeTimes', () => {
     // busy 10:00–10:30 is the meeting itself
     const own = { start: '2026-10-09T04:30:00.000Z', end: '2026-10-09T05:00:00.000Z' };
     hostBusy.mockResolvedValue([own]);
-    const times = await nextFreeTimes(db, 'host-1', { afterIso: '2026-10-09T04:30:00.000Z', durationMin: 30, count: 1, now: NOW, ignore: own });
-    expect(times).toEqual(['2026-10-09T04:30:00.000Z']); // 10:00 is offered
+    // the same meeting appears twice: the booking row and its Google event
+    hostBusy.mockResolvedValue([own, { ...own }]);
+    const times = await nextFreeTimes(db, 'host-1', { afterIso: '2026-10-09T04:30:00.000Z', durationMin: 30, count: 2, now: NOW, ignore: own });
+    // its own current start (10:00) is not offered as a "new" time, but the
+    // time right after it is free — both copies of its block were dropped
+    expect(times).toEqual(['2026-10-09T05:00:00.000Z', '2026-10-09T05:30:00.000Z']);
   });
 
   it('never offers a time before now', async () => {
