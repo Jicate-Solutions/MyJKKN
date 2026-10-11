@@ -89,12 +89,21 @@ export async function POST(
     const { data: bug, error: bugError } = await (
       adminSupabase.from('bug_reports') as any
     )
-      .select('id, display_id, description, module_name, sub_module_name, metadata')
+      .select('id, display_id, status, description, module_name, sub_module_name, metadata')
       .eq('id', reportId)
       .maybeSingle();
 
     if (bugError || !bug) {
       return NextResponse.json({ error: 'Bug report not found' }, { status: 404 });
+    }
+
+    // Quarantined college-app bug ('unverified', #4322): its text came in on a
+    // public key, so no AI reads it until a person promotes it to 'new'.
+    if (bug.status === 'unverified') {
+      return NextResponse.json(
+        { error: 'This college-app bug is unverified. Read it and move it to New before using AI on it.' },
+        { status: 409 }
+      );
     }
 
     if (!bug.description || bug.description.trim().length === 0) {
@@ -127,9 +136,13 @@ export async function POST(
       );
     }
 
-    const candidates: CandidateRow[] = Array.isArray(candidateRows)
-      ? candidateRows
-      : [];
+    // fn_bug_duplicate_candidates already returns only status new/seen/
+    // in_progress (20260802020000), so a quarantined college-app bug
+    // ('unverified') is never a candidate. Filtered again here so a later change
+    // to that function cannot put unverified text into the AI prompt.
+    const candidates: CandidateRow[] = (Array.isArray(candidateRows) ? candidateRows : []).filter(
+      (c: CandidateRow) => c.status !== 'unverified'
+    );
 
     // Nothing similar enough to be worth an AI call — answer honestly and cheaply
     // rather than asking the model to compare against an empty list.

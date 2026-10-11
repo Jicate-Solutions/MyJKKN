@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createHash } from 'crypto';
+import { isAdminKeyKind } from '@/lib/api-keys/key-kind';
 import { createServiceRoleClient } from '@/lib/supabase/server';
 import { corsHeaders } from '@/lib/api-keys/cors';
 import type { SupabaseClient } from '@supabase/supabase-js';
@@ -136,6 +137,14 @@ export async function authenticateApiKey(
     return unauthorized('This personal key only works with the MyJKKN MCP connection (/api/mcp/mcp)');
   }
 
+  // A college app's bug-intake key (jkkn_bi_…, key_kind 'bug_intake', migration
+  // 20271010151437) ships to every browser, so it may only file bug reports at
+  // /api/v1/public/bug-reports. Refused here before any lookup; the key_kind
+  // check below refuses it again whatever its prefix.
+  if (apiKey.startsWith('jkkn_bi_')) {
+    return unauthorized('This bug-intake key only works for submitting bug reports (/api/v1/public/bug-reports)');
+  }
+
   // 2. SHA-256 hash the raw key
   const hashedKey = createHash('sha256').update(apiKey).digest('hex');
 
@@ -145,13 +154,23 @@ export async function authenticateApiKey(
   // 4. Look up key in database
   const { data: keyData, error: keyError } = await supabase
     .from('api_keys')
-    .select('id, name, key_value, is_active, expires_at, permissions')
+    .select('id, name, key_value, is_active, expires_at, permissions, key_kind')
     .eq('key_value', hashedKey)
     .eq('is_active', true)
     .single();
 
   if (keyError || !keyData) {
     return unauthorized('Invalid or inactive API key');
+  }
+
+  // 4b. Only administrator keys open the B2A routes. A personal key or a public
+  // bug-intake key must never reach a service-role query, and several routes
+  // (b2a/memory/*) pass no requiredModule, so the permission check below would
+  // not stop them. A NULL kind is a pre-migration administrator key (the column
+  // is live: 20270301090000 is in the prod ledger, W12 checked 11 Oct 2026);
+  // any other kind is refused, including one added later.
+  if (!isAdminKeyKind((keyData as { key_kind?: unknown }).key_kind)) {
+    return unauthorized('This API key cannot be used here');
   }
 
   // 5. Check expiry

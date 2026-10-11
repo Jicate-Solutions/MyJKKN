@@ -10,6 +10,7 @@ import type { BugReportStatus } from '@/types/bugs';
 
 export const ALL_BUG_STATUSES: BugReportStatus[] = [
   'new',
+  'unverified',
   'seen',
   'in_progress',
   'resolved',
@@ -27,6 +28,9 @@ export interface BugStatusTabDefinition {
 }
 
 export const BUG_STATUS_TABS: BugStatusTabDefinition[] = [
+  // 'unverified' (college-app bugs in quarantine) is deliberately in NO tab but
+  // All, where the status filter finds it: the New tab drives exports, bulk
+  // actions and AI hand-offs, and quarantined text must reach none of them.
   { value: 'new', label: 'New', statuses: ['new'] },
   {
     value: 'in_progress',

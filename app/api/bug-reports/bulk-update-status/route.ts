@@ -78,24 +78,35 @@ export async function POST(request: Request) {
     }
 
     // Update bug reports status
-    const { error: updateError } = await updateWithResolvedBy(updateData, (payload) =>
-      (adminSupabase.from('bug_reports') as any).update(payload).in('id', reportIds)
+    const { data: changedRows, error: updateError } = await updateWithResolvedBy(updateData, (payload) =>
+      // Quarantined college-app bugs ('unverified') are promoted one at a time,
+      // after a person reads each; a bulk action never touches them.
+      (adminSupabase.from('bug_reports') as any)
+        .update(payload)
+        .in('id', reportIds)
+        .neq('status', 'unverified')
+        .select('id')
     );
 
     if (updateError) {
       throw updateError;
     }
+    // Everything below (cascade, emails, counts) uses only the rows changed.
+    // updateWithResolvedBy returns run()'s own { data, error } on both paths
+    // (first try and the retry without resolved_by), so data is always the
+    // .select('id') rows.
+    const changedIds: string[] = ((changedRows as { id: string }[] | null) ?? []).map((r) => r.id);
 
     // Cascade: closing canonical bugs also closes reports parked as their
     // duplicates. Resolved duplicates get the same reporter email as directly
-    // resolved bugs; wont_fix cascades silently.
+    // resolved bugs; wont_fix cascades silently. Nothing changed, no cascade.
     let cascadedIds: string[] = [];
-    if (status === 'resolved' || status === 'wont_fix') {
+    if ((status === 'resolved' || status === 'wont_fix') && changedIds.length > 0) {
       const { data: children, error: childrenError } = await (
         adminSupabase.from('bug_reports') as any
       )
         .select('id')
-        .in('duplicate_of', reportIds)
+        .in('duplicate_of', changedIds)
         .eq('status', 'duplicate');
 
       if (!childrenError && children && children.length > 0) {
@@ -120,16 +131,16 @@ export async function POST(request: Request) {
 
     // Fire bulk resolution emails (non-blocking) — canonical reporters AND
     // the reporters of any cascaded duplicates.
-    if (status === 'resolved') {
-      void sendBulkResolutionEmails(adminSupabase, [...reportIds, ...cascadedIds]);
+    if (status === 'resolved' && changedIds.length > 0) {
+      void sendBulkResolutionEmails(adminSupabase, [...changedIds, ...cascadedIds]);
     }
 
     return NextResponse.json({
       success: true,
-      message: `${reportIds.length} bug report(s) status updated to ${status.replace('_', ' ')} successfully${
+      message: `${changedIds.length} bug report(s) status updated to ${status.replace('_', ' ')} successfully${
         cascadedIds.length > 0 ? ` (+${cascadedIds.length} duplicate(s) closed with them)` : ''
       }`,
-      updatedCount: reportIds.length,
+      updatedCount: changedIds.length,
       cascadedCount: cascadedIds.length,
       status
     });
