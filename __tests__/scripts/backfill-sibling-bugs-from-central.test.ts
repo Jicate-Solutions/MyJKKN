@@ -81,7 +81,9 @@ describe('mapStatus (open bugs only)', () => {
     const plan = planBackfill(input({ bugs }));
     expect(plan.map((p) => p.decision)).toEqual(['stays-in-central', 'stays-in-central', 'stays-in-central', 'insert']);
     expect(plan.every((p) => p.blockers.length === 0)).toBe(true);
-    expect(plan[3].row.status).toBe('new');
+    // copied open bugs land in quarantine; the central status is kept in metadata
+    expect(plan[3].row.status).toBe('unverified');
+    expect((plan[3].row.metadata as Record<string, unknown>).central_status).toBe('new');
     expect(plan[3].row).not.toHaveProperty('resolved_by');
   });
 });

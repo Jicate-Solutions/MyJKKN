@@ -60,10 +60,12 @@
  *   BACKFILL_CONFIRM=copy-central-bugs-to-myjkkn npx tsx scripts/backfill-sibling-bugs-from-central.ts --apply
  *
  * ── HOW EACH FIELD IS CARRIED ──────────────────────────────────────────────
- *   status          new, seen, in_progress carried unchanged (all allowed by
- *                   bug_reports_status_check). Every other central status
- *                   stays in central. The original is also kept in
- *                   metadata.central_status.
+ *   status          only new, seen and in_progress bugs are copied, and every
+ *                   copy is filed as 'unverified' (#4322's quarantine status,
+ *                   read by no automation) until a person reads it and moves
+ *                   it to 'new'. Their text came in on a public key. Every
+ *                   other central status stays in central. The original is
+ *                   kept in metadata.central_status.
  *   reporter        NEVER linked: reporter_user_id, institution_id and
  *                   department_id are NULL on every row, as on the intake
  *                   route (#4322 review). The central email came from a public
@@ -413,7 +415,8 @@ export function planRow(
     page_url: bug.page_url,
     description: bug.description,
     category: bug.category ?? 'bug',
-    status,
+    // Quarantine, like the intake route: no automation reads 'unverified'.
+    status: status ? 'unverified' : null,
     console_logs: consoleLogs,
     screenshot_url: bug.screenshot_url,
     attachment_urls: attachments.map((a) => a.url as string),
