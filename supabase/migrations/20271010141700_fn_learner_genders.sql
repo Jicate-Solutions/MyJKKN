@@ -1,6 +1,8 @@
 -- =====================================================================
 -- 20271010141700 — fn_learner_genders: gender for the attendance marking list
 -- =====================================================================
+-- VERSION NOTE (verified 11 Oct 2026): 2027-prefixed versions are this repo's convention — 185 such files on main; live ledger max is 20271010100000. A 2026 prefix would sort before applied versions.
+--
 -- PURELY ADDITIVE. Creates ONE new function. Changes no existing function,
 -- table, policy or signature. fn_attendance_roster is NOT touched.
 --
@@ -19,6 +21,19 @@
 --
 -- Ids are constrained to p_institution_id, so another college's learner ids
 -- return nothing.
+--
+-- SCOPE (intended: institution-level, documented after review of #4328)
+-- * The permission gate below is copied verbatim from
+--   fn_attendance_roster(uuid,uuid[],uuid,uuid,uuid).
+-- * Under that exact gate, fn_attendance_roster already returns first_name,
+--   last_name, roll_number, photo, section etc. for any learner of the
+--   caller's institution. This function exposes nothing more sensitive than
+--   what the roster already shows to the same callers.
+-- * is_admin() is NOT institution-scoped (profiles.role IN ('admin',
+--   'super_admin','administrator') or is_super_admin). fn_attendance_roster
+--   has the same property, so this function adds no new reach.
+-- * At most 2000 ids per call (ERRCODE 22023); the client chunks larger
+--   rosters. A NULL array is treated as empty and returns no rows.
 -- =====================================================================
 CREATE OR REPLACE FUNCTION public.fn_learner_genders(
   p_institution_id uuid,
@@ -50,8 +65,17 @@ BEGIN
       USING ERRCODE = '42501';
   END IF;
 
+  IF COALESCE(cardinality(p_learner_ids), 0) > 2000 THEN
+    RAISE EXCEPTION 'At most 2000 learner ids per call (got %)', cardinality(p_learner_ids)
+      USING ERRCODE = '22023';
+  END IF;
+
+  IF p_learner_ids IS NULL THEN
+    RETURN;
+  END IF;
+
   RETURN QUERY
-  SELECT lp.id, lp.gender
+  SELECT lp.id, lp.gender::text
   FROM public.learners_profiles lp
   WHERE lp.institution_id = p_institution_id
     AND lp.id = ANY (p_learner_ids);

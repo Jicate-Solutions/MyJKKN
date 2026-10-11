@@ -72,6 +72,7 @@ import { narrowRosterToPracticalBatch } from '@/lib/utils/academic/practical-bat
 import {
   isRosterOrder,
   orderRoster,
+  rosterOrderNotice,
   ROSTER_ORDER_OPTIONS,
   ROSTER_ORDER_STORAGE_KEY,
   type RosterOrder
@@ -79,6 +80,7 @@ import {
 import type { PracticalBatchRosterResult } from '@/lib/utils/academic/practical-batch-roster';
 import { periodMarkedForLearners } from '@/lib/utils/practical-period-sections';
 import { AttendanceSummaryModal } from './components/attendance-summary-modal';
+import { useLearnerGenders } from './_hooks/use-learner-genders';
 import { FacultySyncIndicator } from '../_components/faculty-sync-indicator';
 import { SubdividedAttendanceGrid } from './_components/subdivided-attendance-grid';
 import { PracticalAttendanceSelector } from './_components/practical-attendance-selector';
@@ -129,7 +131,6 @@ export default function AttendanceMarkPage() {
   // Added: 2026-10-10 (BUG-006276) - Display order of the marking list, kept
   // per browser. Display only: `students` (what is saved) is never re-ordered.
   const [rosterOrder, setRosterOrder] = useState<RosterOrder>('default');
-  const [learnerGenders, setLearnerGenders] = useState<Map<string, string | null>>(new Map());
   const [attendanceData, setAttendanceData] = useState<
     Record<string, 'Present' | 'Absent'>
   >({});
@@ -231,23 +232,16 @@ export default function AttendanceMarkPage() {
   };
 
   // Gender is fetched only when "Boys, then girls" is chosen, so the default
-  // path makes no extra call.
-  useEffect(() => {
-    const needsGender = rosterOrder === 'boys_then_girls';
-    if (!needsGender || students.length === 0) return;
-    const institutionId = contextData?.institution_id;
-    if (!institutionId) return;
-    let cancelled = false;
-    AttendanceService.getLearnerGenders(
-      institutionId,
-      students.map((s) => s.id)
-    ).then((genders) => {
-      if (!cancelled) setLearnerGenders(genders);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [rosterOrder, students, contextData?.institution_id]);
+  // path makes no extra call. Updated: 2026-10-11 (#4328 review) - moved to
+  // useLearnerGenders: keyed by roster ids, reset on roster change, 10 s cap.
+  const rosterLearnerIds = useMemo(() => students.map((s) => s.id), [students]);
+  const { genders: learnerGenders, status: learnerGenderStatus } = useLearnerGenders(
+    rosterOrder === 'boys_then_girls',
+    contextData?.institution_id,
+    rosterLearnerIds,
+    AttendanceService.getLearnerGenders
+  );
+  const genderOrderNotice = rosterOrderNotice(rosterOrder, learnerGenderStatus);
 
   // Filter students based on search, then apply the chosen display order
   const filteredStudents = useMemo(() => {
@@ -261,8 +255,14 @@ export default function AttendanceMarkPage() {
             student.roll_number?.toLowerCase().includes(term) ||
             student.student_email?.toLowerCase().includes(term)
         );
-    return orderRoster(matched, rosterOrder, learnerGenders);
-  }, [students, searchTerm, rosterOrder, learnerGenders]);
+    // Until genders are ready (loading or unavailable) every learner ranks the
+    // same, so the list stays in plain name order instead of half-sorting.
+    return orderRoster(
+      matched,
+      rosterOrder,
+      learnerGenderStatus === 'ready' ? learnerGenders : undefined
+    );
+  }, [students, searchTerm, rosterOrder, learnerGenders, learnerGenderStatus]);
 
   // Updated: 2026-03-13 - Filter subdivision groups to only show the faculty's assigned group
   // When navigating for a specific group (e.g., _group_1), only show that group
@@ -2825,10 +2825,11 @@ export default function AttendanceMarkPage() {
               </div>
 
               {/* Added: 2026-10-10 (BUG-006276) - List order (display only) */}
+              <div className='w-full lg:w-56'>
               <Select value={rosterOrder} onValueChange={changeRosterOrder}>
                 <SelectTrigger
                   aria-label='List order'
-                  className='w-full lg:w-56 h-12 border-0 bg-white dark:bg-gray-800 shadow-md'
+                  className='w-full h-12 border-0 bg-white dark:bg-gray-800 shadow-md'
                 >
                   <SelectValue placeholder='List order' />
                 </SelectTrigger>
@@ -2840,6 +2841,12 @@ export default function AttendanceMarkPage() {
                   ))}
                 </SelectContent>
               </Select>
+              {genderOrderNotice && (
+                <p role='status' className='mt-1 text-xs text-amber-700 dark:text-amber-400'>
+                  {genderOrderNotice}
+                </p>
+              )}
+              </div>
 
               <div className='flex gap-3 w-full lg:w-auto'>
                 <Button

@@ -7,7 +7,9 @@
 import { describe, it, expect } from 'vitest';
 import {
   orderRoster,
-  isRosterOrder
+  isRosterOrder,
+  rosterOrderNotice,
+  GENDER_ORDER_UNAVAILABLE_NOTICE
 } from '@/lib/utils/academic/attendance-roster-order';
 
 const L = (id: string, student_name: string, roll_number: string | null = null) => ({
@@ -97,5 +99,36 @@ describe('orderRoster (BUG-006276)', () => {
     expect(isRosterOrder('boys_then_girls')).toBe(true);
     expect(isRosterOrder('gender')).toBe(false);
     expect(isRosterOrder(null)).toBe(false);
+  });
+
+  // #4328 review (LOW 8): a blank student_name must fall back to first + last.
+  it('falls back to first + last name when student_name is empty or blank', () => {
+    const rows = [
+      { id: 'z', student_name: 'Zara' },
+      { id: 'e', student_name: '', first_name: 'Bala', last_name: 'K' },
+      { id: 'w', student_name: '   ', first_name: 'Anbu', last_name: null },
+      { id: 'n', student_name: null, first_name: null, last_name: null }
+    ];
+    expect(ids(orderRoster(rows, 'name'))).toEqual(['w', 'e', 'z', 'n']);
+  });
+
+  // #4328 review (LOW 6): no genders -> plain name order, and a notice.
+  it('boys_then_girls without genders is plain name order', () => {
+    expect(ids(orderRoster(roster, 'boys_then_girls', undefined))).toEqual(
+      ids(orderRoster(roster, 'name'))
+    );
+    expect(ids(orderRoster(roster, 'boys_then_girls', new Map()))).toEqual(
+      ids(orderRoster(roster, 'name'))
+    );
+  });
+
+  it('shows the name-order notice only when boys_then_girls is unavailable', () => {
+    expect(rosterOrderNotice('boys_then_girls', 'unavailable')).toBe(
+      GENDER_ORDER_UNAVAILABLE_NOTICE
+    );
+    expect(GENDER_ORDER_UNAVAILABLE_NOTICE).toBe('Showing name order — gender not available.');
+    expect(rosterOrderNotice('boys_then_girls', 'loading')).toBeNull();
+    expect(rosterOrderNotice('boys_then_girls', 'ready')).toBeNull();
+    expect(rosterOrderNotice('name', 'unavailable')).toBeNull();
   });
 });

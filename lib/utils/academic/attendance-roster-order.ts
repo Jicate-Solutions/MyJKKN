@@ -28,9 +28,12 @@ interface OrderableLearner {
 
 /** The name as shown on the card, e.g. "S. Ponnaiyan" sorts under S. */
 function visibleName(l: OrderableLearner): string {
-  const name =
-    l.student_name ?? `${l.first_name ?? ''} ${l.last_name ?? ''}`;
-  return name.trim();
+  // An empty or blank student_name falls back to first + last name, the same
+  // fields the page's search box matches on.
+  return (
+    l.student_name?.trim() ||
+    `${l.first_name ?? ''} ${l.last_name ?? ''}`.trim()
+  );
 }
 
 const nameCollator = new Intl.Collator('en', { sensitivity: 'base', numeric: true });
@@ -78,4 +81,18 @@ export function orderRoster<T extends OrderableLearner>(
       genderRank(genderById?.get(a.id)) - genderRank(genderById?.get(b.id)) ||
       compareNames(a, b)
   );
+}
+
+// Added: 2026-10-11 (#4328 review) - The note under the order picker when
+// "Boys, then girls" cannot be applied (lookup failed, timed out or returned
+// nothing). Null when no note is needed.
+export const GENDER_ORDER_UNAVAILABLE_NOTICE = 'Showing name order — gender not available.';
+
+export function rosterOrderNotice(
+  order: RosterOrder,
+  genderStatus: 'idle' | 'loading' | 'ready' | 'unavailable'
+): string | null {
+  return order === 'boys_then_girls' && genderStatus === 'unavailable'
+    ? GENDER_ORDER_UNAVAILABLE_NOTICE
+    : null;
 }
