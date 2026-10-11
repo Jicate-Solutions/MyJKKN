@@ -211,6 +211,79 @@ export const EVENT_LOGISTICS_TABS: EventLogisticsTab[] = [
   },
 ];
 
+// ── In-charge write audit (PR #4326 review, 11 Oct 2026) ────────────────────
+// /events/[id] passes canManage = canEdit || isEventIncharge(event, uid). Every
+// control below that canManage unlocks was traced to the write it performs and
+// the LIVE gate on that write (pg_policies / pg_get_functiondef / route code,
+// read 11 Oct). Classes:
+//   ADMITS-INCHARGE  live policy / RPC / route admits fn_is_event_incharge
+//   OPEN             live gate admits any signed-in user (pre-existing hole,
+//                    out of scope here — it is open to in-charges and
+//                    non-in-charges alike)
+//   PERMISSION       gated on a named permission in BOTH the UI and the RPC;
+//                    canManage only narrows it (an editor without the
+//                    permission is refused too), so canEdit would change nothing
+//   EDITOR-ONLY / EVENTS-ROW  would be refused for an in-charge, or writes the
+//                    events row itself → must be fed canEdit instead. NONE found.
+//
+// board         control                         write target                                   live gate                                          class
+// registrations mark paid / withdraw (tourn.)   PATCH|DELETE /api/events/tournament/:id/entries canManageTournament (perm OR fn_is_event_incharge) ADMITS-INCHARGE
+// registrations payment link (tournament)       POST …/entries/:entry/pay                       canManageTournament                                ADMITS-INCHARGE
+// registrations division fee (DivisionFeeBadge) tournament_divisions UPDATE                     tournament_divisions_incharge_all                  ADMITS-INCHARGE
+// registrations export xlsx/csv                 none (download of rows already read)            —                                                  read-only
+// sponsors      add / edit / delete / stage     event_sponsors ALL                              event_sponsors_event_team_write                    ADMITS-INCHARGE
+// sponsors      sponsorship notes               event_sponsorship_notes UPSERT                  event_sponsorship_notes_event_team_write           ADMITS-INCHARGE
+// budget        add / edit / delete line        event_budget_items ALL                          event_budget_items_event_team_write (+ lock trg)   ADMITS-INCHARGE
+// budget        attach / remove bill            /api/events/:id/budget-attachment → items UPDATE same policy, via caller's session client          ADMITS-INCHARGE
+// budget        settle line                     rpc fn_settle_event_budget_line                 is_admin OR fn_is_event_incharge OR perms          ADMITS-INCHARGE
+// budget        submit for sign-off             rpc fn_submit_event_budget                      auth.uid() IS NOT NULL (button not on canManage)   OPEN
+// budget        approve / reopen / close books  rpc fn_{approve,reopen,close}_event_budget      is_admin OR events.budget.approve (UI: same perm)  PERMISSION
+// committees    create / edit / roster / leads  POST|PUT /api/events/marathon/:id/committees    canManageEventOps (… OR fn_is_event_incharge)      ADMITS-INCHARGE
+// committees    delete committee                event_committees DELETE                         event_committees_event_team_write                  ADMITS-INCHARGE
+// committees    add / edit / delete task        event_tasks ALL                                 event_tasks_committee_write (fn_can_manage_committee_tasks → incharge) ADMITS-INCHARGE
+// checkin       check in / undo                 events_registrations UPDATE                     events_reg_scoped_update (fn_is_event_incharge)    ADMITS-INCHARGE
+// qr            generate passes                 POST /api/events/marathon/:id/qr/generate       canGenerateEventQr → canManageEventOps             ADMITS-INCHARGE
+// qr            TournamentQrLinks               none (links only)                               —                                                  read-only
+// volunteers    check in / out / remove         event_volunteer_checkins ALL                    marathon_volunteers_auth_all USING (true)          OPEN
+// incidents     log / resolve / delete          event_incidents ALL                             event_incidents_event_team_write                   ADMITS-INCHARGE
+// certificates  generate                        marathon_results UPDATE                         marathon_results_auth_all USING (true)             OPEN
+// bulk-import   import roster                   POST /api/events/marathon/:id/bulk-register     getUser() only, then SERVICE-ROLE insert           OPEN
+// analytics     —                               none                                            —                                                  read-only
+// kit           mark collected                  events_registrations UPDATE                     events_reg_scoped_update (fn_is_event_incharge)    ADMITS-INCHARGE
+// messages      send                            server action                                   fn_can_manage_event_messages (ignores canManage)   own gate
+//
+// No board writes the events row (no .from('events') write in any board's
+// hook, service or route). So every board keeps the single canManage flag; no
+// per-board flag exists. If a future board is EDITOR-ONLY or EVENTS-ROW, add
+// one and feed that board canEdit — the test in
+// __tests__/events/event-incharge-sees-logistics.test.ts refuses either class
+// while no such flag exists, and refuses any tab missing from this map.
+export type InchargeWriteClass =
+  | 'admits-incharge'
+  | 'open'
+  | 'permission'
+  | 'read-only'
+  | 'own-gate'
+  | 'editor-only'
+  | 'events-row';
+
+/** Per-tab summary of the audit above : every class its controls fall into. */
+export const LOGISTICS_INCHARGE_WRITE_AUDIT: Record<string, InchargeWriteClass[]> = {
+  registrations: ['admits-incharge', 'read-only'],
+  sponsors: ['admits-incharge'],
+  budget: ['admits-incharge', 'open', 'permission'],
+  committees: ['admits-incharge'],
+  checkin: ['admits-incharge'],
+  qr: ['admits-incharge', 'read-only'],
+  volunteers: ['open'],
+  incidents: ['admits-incharge'],
+  certificates: ['open'],
+  'bulk-import': ['open'],
+  analytics: ['read-only'],
+  kit: ['admits-incharge'],
+  messages: ['own-gate'],
+};
+
 /**
  * Tabs whose boards expose money or incident detail. `canManage={false}` makes
  * every board READ-ONLY, not hidden — which is fine on a console that already
