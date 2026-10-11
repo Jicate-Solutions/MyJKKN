@@ -44,18 +44,32 @@ export function useTrendingPages(limit: number = 5) {
     queryKey: ['trending-pages', profile?.institution_id, limit],
     queryFn: async () => {
       if (!(limit > 0)) return [];
+      const want = Math.ceil(limit);
       const supabase = createClientSupabaseClient();
 
       // Aggregate RPC (SECURITY DEFINER): top-level module keys + visit counts
       // for the caller's OWN institution, only for modules 3+ people visited —
       // no paths, no user ids (20271010094500_usage_events_rls_hardening).
       // Over-fetch: keys this client has no hub for are dropped below.
-      const { data, error } = await supabase.rpc('fn_usage_trending_pages' as never, {
-        p_days: 7,
-        p_limit: Math.min(limit * 4, 50),
-      } as never);
-
-      if (error) throw error;
+      //
+      // Trending is optional: any RPC failure — PGRST202 / 42883 while the
+      // migration is not yet applied, or anything else — means "no trending",
+      // never an error thrown into the palette.
+      let data: unknown;
+      try {
+        const res = await supabase.rpc('fn_usage_trending_pages' as never, {
+          p_days: 7,
+          p_limit: Math.min(want * 4, 50),
+        } as never);
+        if (res.error) {
+          console.warn('[trending] fn_usage_trending_pages unavailable:', res.error.code ?? res.error.message);
+          return [];
+        }
+        data = res.data;
+      } catch (e) {
+        console.warn('[trending] fn_usage_trending_pages failed:', e);
+        return [];
+      }
       const rows = (data ?? []) as Array<{ module: string | null; visit_count: number | string }>;
 
       const pages: RecentPage[] = [];
@@ -80,7 +94,7 @@ export function useTrendingPages(limit: number = 5) {
           visitedAt: new Date().toISOString(),
           visitCount: Number(row.visit_count) || 0,
         });
-        if (pages.length >= limit) break;
+        if (pages.length >= want) break;
       }
       return pages;
     },

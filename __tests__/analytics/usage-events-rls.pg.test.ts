@@ -528,4 +528,30 @@ describe('migration self-check', () => {
       }
     }
   });
+
+  it('refuses to commit when TRUNCATE still reaches authenticated (via a PUBLIC grant)', () => {
+    // The migration revokes TRUNCATE FROM anon / authenticated, so a direct
+    // grant to authenticated is removed; a grant to PUBLIC survives those
+    // REVOKEs and still reaches both roles — exactly what the check must catch.
+    const db = `myjkkn_usage_trunc_${SUFFIX}`;
+    psql(['-d', 'postgres', '-c', `CREATE DATABASE ${db}`]);
+    try {
+      psql(['-d', db, '-f', path.join(tmp, 'fixture.sql')]);
+      psql(['-d', db, '-f', path.join(tmp, 'baseline.sql')]);
+      psql(['-d', db, '-c', `GRANT TRUNCATE ON public.usage_events TO PUBLIC`]);
+      let err = '';
+      try {
+        psql(['-d', db, '-f', MIGRATION]);
+      } catch (e: any) {
+        err = String(e?.stderr || e?.message || e);
+      }
+      expect(err).toContain('still holds TRUNCATE on usage_events');
+    } finally {
+      try {
+        psql(['-d', 'postgres', '-c', `DROP DATABASE IF EXISTS ${db}`]);
+      } catch {
+        /* best effort */
+      }
+    }
+  });
 });

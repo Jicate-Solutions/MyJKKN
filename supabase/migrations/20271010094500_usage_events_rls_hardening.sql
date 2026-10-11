@@ -1,3 +1,4 @@
+-- Version note (11 Oct 2026): 2027-prefixed versions are this repo's convention, not a future timestamp; the live ledger max is 20271010100000 and main holds 185 such files.
 -- ============================================================================
 -- usage_events: only signed-in users can log their OWN events; reading a whole
 -- institution's events needs an institution admin.
@@ -140,6 +141,12 @@ BEGIN
   IF has_table_privilege('authenticated', 'public.usage_events', 'UPDATE')
      OR has_table_privilege('authenticated', 'public.usage_events', 'DELETE') THEN
     RAISE EXCEPTION 'authenticated still holds UPDATE/DELETE on usage_events';
+  END IF;
+  -- has_table_privilege also counts a grant to PUBLIC, which the REVOKEs
+  -- above (FROM anon / FROM authenticated) do not remove.
+  IF has_table_privilege('anon', 'public.usage_events', 'TRUNCATE')
+     OR has_table_privilege('authenticated', 'public.usage_events', 'TRUNCATE') THEN
+    RAISE EXCEPTION 'anon or authenticated still holds TRUNCATE on usage_events';
   END IF;
 
   -- Exactly ONE INSERT policy, ours; a second permissive one would OR in.

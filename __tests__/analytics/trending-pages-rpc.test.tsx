@@ -106,6 +106,47 @@ describe('useTrendingPages', () => {
     expect(rpc).not.toHaveBeenCalled();
   });
 
+  it.each([
+    ['PGRST202 (function not in schema cache)', { error: { code: 'PGRST202', message: 'Could not find the function' }, data: null }],
+    ['42883 (undefined_function)', { error: { code: '42883', message: 'function does not exist' }, data: null }],
+    ['a generic error', { error: { code: '500', message: 'boom' }, data: null }],
+  ])('treats %s as "no trending": [] and a warning, never an error', async (_label, response) => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    rpc.mockResolvedValue(response);
+    const { result } = run(5);
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(result.current.isError).toBe(false);
+    expect(result.current.data).toEqual([]);
+    expect(warn).toHaveBeenCalled();
+    warn.mockRestore();
+  });
+
+  it('treats a rejected RPC call (network failure) as "no trending"', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    rpc.mockRejectedValue(new TypeError('Failed to fetch'));
+    const { result } = run(5);
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(result.current.data).toEqual([]);
+    expect(warn).toHaveBeenCalled();
+    warn.mockRestore();
+  });
+
+  it('rounds a fractional limit up (2.5 -> 3)', async () => {
+    rpc.mockResolvedValue({
+      data: [
+        { module: 'billing', visit_count: 40 },
+        { module: 'hr', visit_count: 30 },
+        { module: 'events', visit_count: 20 },
+        { module: 'academic', visit_count: 10 },
+      ],
+      error: null,
+    });
+    const { result } = run(2.5);
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(rpc).toHaveBeenLastCalledWith('fn_usage_trending_pages', { p_days: 7, p_limit: 12 });
+    expect(result.current.data?.map((p) => p.path)).toEqual(['/billing', '/hr', '/events']);
+  });
+
   it('returns at most `limit` known modules from the over-fetched rows', async () => {
     rpc.mockResolvedValue({
       data: [
