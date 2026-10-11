@@ -69,9 +69,9 @@
 --   index idx_bug_reports_application_created; unique expression index
 --   uq_bug_reports_intake_dedup. reporter_user_id, institution_id and
 --   department_id are ALWAYS NULL on an intake row (the email is a claim).
--- ASSISTANT TOOLS (section 4b): ai_rpc_bug_reports and ai_rpc_bug_report_details
---   are replaced with quarantine-aware bodies (skip / refuse 'unverified'),
---   only if the live body matches the in-repo one (md5 check); else it stops.
+-- ASSISTANT TOOL (section 4b): ai_rpc_bug_report_details is replaced with a
+--   body that refuses 'unverified', only if the live body matches the in-repo
+--   one (md5 check); else it stops. Grants restated as in 20270308090000.
 --
 -- FILE ONLY — NOT APPLIED. A person applies it after the PR is approved.
 -- No BEGIN/COMMIT in the file. Safe to run twice.
@@ -363,83 +363,22 @@ BEGIN
 END;
 $$;
 
--- ─── 4b. Assistant tools never read quarantined bugs ───────────────────────
--- ai_rpc_bug_reports (list) and ai_rpc_bug_report_details are how the
--- assistant reads bug_reports. Both now skip status 'unverified'.
--- ai_rpc_my_bug_reports needs no change: it lists the caller's own bugs, and an
--- intake row has no reporter. Each body below is the latest in-repo one
--- (20260712134500 / 20270308090000) plus the quarantine lines. Before it is
--- replaced, the LIVE body is fingerprinted: if it differs from that in-repo
--- version, this stops rather than overwrite someone's newer change. A database
+-- ─── 4b. The assistant's bug-details tool never reads quarantined bugs ─────
+-- ai_rpc_bug_report_details is how the in-app assistant reads one bug (enabled
+-- for the assistant only by 20271009100500). It now refuses status
+-- 'unverified'. ai_rpc_bug_reports (the list tool) is NOT changed: it is not
+-- enabled in the tool catalog (20270301090000 seeds it off and 20271009100500
+-- does not turn it on), so the assistant cannot call it. ai_rpc_my_bug_reports
+-- needs nothing: it lists the caller's own bugs, and an intake row has no
+-- reporter. The body below is the 20270308090000 one plus the quarantine
+-- lines. Before it is replaced, the LIVE body is fingerprinted: if it differs
+-- from that version (md5 c6a13d61…, the "after" hash 20270308090000 itself
+-- records), this stops rather than overwrite a newer change. A database
 -- without the function (a fresh test database) is left alone.
 DO $quarantine$
 DECLARE
   v_md5 text;
 BEGIN
-  SELECT md5(prosrc) INTO v_md5 FROM pg_proc
-   WHERE oid = to_regprocedure('public.ai_rpc_bug_reports(uuid,text,text,integer,integer)');
-  IF v_md5 IS NOT NULL AND v_md5 NOT IN ('081db5b60bcd592fdb9b9d2b45f2607b', '27596b1c392b82c41b2b7b6ca7cc6194') THEN
-    RAISE EXCEPTION 'live ai_rpc_bug_reports differs from 20260712134500 (md5 %); refresh section 4b of this migration', v_md5;
-  END IF;
-  IF v_md5 IS NOT NULL THEN
-    EXECUTE $create_list$CREATE OR REPLACE FUNCTION public.ai_rpc_bug_reports(p_user_id uuid, p_status text DEFAULT NULL::text, p_priority text DEFAULT NULL::text, p_limit integer DEFAULT 10000, p_offset integer DEFAULT 0)
- RETURNS jsonb
- LANGUAGE plpgsql
- SECURITY DEFINER
- SET search_path TO 'public'
-AS $function$
-DECLARE
-    v_result jsonb;
-    v_count integer;
-BEGIN
-  -- [authz-guard 2026-07-12] pin identity to auth.uid() (confused-deputy fix; ignores caller-supplied p_user_id)
-  IF auth.uid() IS NULL THEN
-    RETURN jsonb_build_object('success', false, 'error', jsonb_build_object('code','UNAUTHORIZED','message','Sign in required.'));
-  END IF;
-  p_user_id := auth.uid();
-    SELECT COUNT(*)
-    INTO v_count
-    FROM bug_reports br
-    WHERE (p_status IS NULL OR br.status = p_status)
-      AND br.status <> 'unverified'  -- [quarantine 20271010151437] college-app text never reaches the assistant
-      AND (p_priority IS NULL OR br.priority = p_priority);
-
-    SELECT jsonb_build_object(
-        'success', true,
-        'data', COALESCE(jsonb_agg(row_to_json(bug)), '[]'::jsonb),
-        'metadata', jsonb_build_object(
-            'total_count', v_count,
-            'returned_count', COUNT(*),
-            'has_more', v_count > p_offset + p_limit,
-            'filters_applied', jsonb_build_object('status', p_status, 'priority', p_priority)
-        ),
-        'actions_available', '[]'::jsonb
-    )
-    INTO v_result
-    FROM (
-        SELECT
-            br.id,
-            br.reporter_user_id,
-            pr.full_name as reporter_name,
-            br.status,
-            br.priority,
-            br.module,
-            br.description,
-            br.created_at
-        FROM bug_reports br
-        LEFT JOIN profiles pr ON br.reporter_user_id = pr.id
-        WHERE (p_status IS NULL OR br.status = p_status)
-      AND br.status <> 'unverified'  -- [quarantine 20271010151437] college-app text never reaches the assistant
-          AND (p_priority IS NULL OR br.priority = p_priority)
-        ORDER BY br.created_at DESC
-        LIMIT p_limit OFFSET p_offset
-    ) bug;
-
-    RETURN v_result;
-END;
-$function$$create_list$;
-  END IF;
-
   SELECT md5(prosrc) INTO v_md5 FROM pg_proc
    WHERE oid = to_regprocedure('public.ai_rpc_bug_report_details(uuid,uuid)');
   IF v_md5 IS NOT NULL AND v_md5 NOT IN ('c6a13d61826ce9e857a569b40320c3d4', 'ffc009c3123a890480d973d1fdeee563') THEN
@@ -549,6 +488,10 @@ BEGIN
   RETURN v_result;
 END;
 $function$$create_details$;
+    -- Same grants as 20270308090000 (an in-app assistant tool; the body checks
+    -- the caller's role): no anon, no PUBLIC, signed-in users only.
+    EXECUTE 'REVOKE EXECUTE ON FUNCTION public.ai_rpc_bug_report_details(uuid, uuid) FROM anon, PUBLIC';
+    EXECUTE 'GRANT  EXECUTE ON FUNCTION public.ai_rpc_bug_report_details(uuid, uuid) TO authenticated';
   END IF;
 END $quarantine$;
 

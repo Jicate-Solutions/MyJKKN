@@ -415,41 +415,33 @@ describe('status check re-create is guarded', () => {
   });
 });
 
-describe('assistant tools skip quarantined bugs (section 4b)', () => {
-  // The in-repo bodies the migration expects: pulled from their own migrations.
-  const fnFrom = (file: string, name: string) => {
-    const sql = readFileSync(path.join(REPO, 'supabase/migrations', file), 'utf8');
-    const start = sql.indexOf(`CREATE OR REPLACE FUNCTION public.${name}(`);
-    const end = sql.indexOf('$function$;', start) + '$function$;'.length;
-    return sql.slice(start, end);
-  };
-  const list = fnFrom('20260712134500_ai_rpc_authuid_confused_deputy_sweep.sql', 'ai_rpc_bug_reports');
-  const details = fnFrom('20270308090000_ai_rpc_repair_dead_scope_lookups.sql', 'ai_rpc_bug_report_details');
+describe('the assistant bug-details tool refuses quarantined bugs (section 4b)', () => {
+  // The in-repo body the migration expects, pulled from its own migration.
+  const sql = readFileSync(
+    path.join(REPO, 'supabase/migrations/20270308090000_ai_rpc_repair_dead_scope_lookups.sql'),
+    'utf8'
+  );
+  const start = sql.indexOf('CREATE OR REPLACE FUNCTION public.ai_rpc_bug_report_details(');
+  const details = sql.slice(start, sql.indexOf('$function$;', start) + '$function$;'.length);
 
-  it('replaces both in-repo bodies with quarantine-aware ones, and re-applies cleanly', async () => {
+  it('replaces the in-repo body with a quarantine-aware one, and re-applies cleanly', async () => {
     await db.query('SET check_function_bodies = off');
-    await db.query(list);
     await db.query(details);
     await db.query(migrationSql);
     await db.query(migrationSql);
     const r = await db.query(
-      `SELECT proname, prosrc LIKE '%unverified%' AS guarded FROM pg_proc
-        WHERE proname IN ('ai_rpc_bug_reports', 'ai_rpc_bug_report_details')
-          AND pronamespace = 'public'::regnamespace AND pronargs > 0 ORDER BY proname`
+      `SELECT prosrc LIKE '%unverified%' AS guarded FROM pg_proc
+        WHERE oid = 'public.ai_rpc_bug_report_details(uuid,uuid)'::regprocedure`
     );
-    expect(r.rows).toEqual([
-      { proname: 'ai_rpc_bug_report_details', guarded: true },
-      { proname: 'ai_rpc_bug_reports', guarded: true },
-    ]);
+    expect(r.rows).toEqual([{ guarded: true }]);
   });
 
   it('stops instead of overwriting a body that differs from the in-repo one', async () => {
     await db.query(
-      `CREATE OR REPLACE FUNCTION public.ai_rpc_bug_reports(p_user_id uuid, p_status text DEFAULT NULL, p_priority text DEFAULT NULL, p_limit integer DEFAULT 10000, p_offset integer DEFAULT 0)
+      `CREATE OR REPLACE FUNCTION public.ai_rpc_bug_report_details(p_user_id uuid, p_bug_report_id uuid)
        RETURNS jsonb LANGUAGE sql AS 'select null::jsonb'`
     );
-    await expect(db.query(migrationSql)).rejects.toThrow(/live ai_rpc_bug_reports differs/);
-    await db.query('DROP FUNCTION public.ai_rpc_bug_reports(uuid, text, text, integer, integer)');
+    await expect(db.query(migrationSql)).rejects.toThrow(/live ai_rpc_bug_report_details differs/);
     await db.query('DROP FUNCTION public.ai_rpc_bug_report_details(uuid, uuid)');
   });
 });
