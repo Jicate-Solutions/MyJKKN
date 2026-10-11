@@ -16,16 +16,23 @@ type UnbatchedLearner = {
  *
  * Added: 2026-10-10 (BUG-006270 follow-up)
  */
+// Updated: 2026-10-11 (#4332 review) - a whole unbatched section must not
+// become a wall of names above the marking grid.
+export const UNBATCHED_NAMES_SHOWN = 10;
+
 export function UnbatchedLearnersNotice({ learners }: { learners: UnbatchedLearner[] }) {
   if (!learners || learners.length === 0) return null;
 
-  const names = learners
-    .map((l) => {
-      const name = [l.first_name, l.last_name].filter(Boolean).join(' ').trim() || 'Unnamed learner';
-      return l.roll_number ? `${name} (${l.roll_number})` : name;
-    })
-    .join(', ');
   const count = learners.length;
+  const hidden = Math.max(0, count - UNBATCHED_NAMES_SHOWN);
+  const names =
+    learners
+      .slice(0, UNBATCHED_NAMES_SHOWN)
+      .map((l) => {
+        const name = [l.first_name, l.last_name].filter(Boolean).join(' ').trim() || 'Unnamed learner';
+        return l.roll_number ? `${name} (${l.roll_number})` : name;
+      })
+      .join(', ') + (hidden > 0 ? ` +${hidden} more` : '');
 
   return (
     <Card className='mb-4 border-0 shadow-lg border-l-4 border-l-amber-500'>
