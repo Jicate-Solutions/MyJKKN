@@ -43,15 +43,23 @@ export const KIT_SCREEN_SOURCE_OPTIONS: ReadonlyArray<{ value: KitSource; label:
 ];
 
 // Q-1010-395 (Director 11 Oct 2026): "Only store admins" may mark an item
-// Central store or reset its source. The database enforces this on
-// profiles.role (trigger trg_ims_items_kit_source_guard,
-// 20271011100000_ims_kit_source_central_store_admin.sql), so the app keys off
-// exactly the same field — NOT the store-picker permission or the
-// is_super_admin flag, which the trigger does not read.
+// Central store or reset its source. The database enforces this (trigger
+// trg_ims_items_kit_source_guard,
+// 20271011100000_ims_kit_source_central_store_admin.sql) on profiles.role
+// store_admin/super_admin OR the platform super-admin flag (is_super_admin()),
+// and the app keys off exactly the same two fields.
+// Deliberately NOT the ims.settings.stores.manage permission that
+// useImsStoreContext().isStoreAdmin accepts for the store picker: the ruling
+// says "only store admins", and that key's only other live holder is the
+// Chief Administrative Officer (desk decision 11 Oct). The mismatch is
+// intentional, not a bug.
 export const KIT_STORE_ADMIN_ROLES: ReadonlyArray<string> = ['store_admin', 'super_admin'];
 
-export function isKitStoreAdmin(role: string | null | undefined): boolean {
-  return !!role && KIT_STORE_ADMIN_ROLES.includes(role);
+export function isKitStoreAdmin(
+  role: string | null | undefined,
+  isSuperAdminFlag?: boolean | null,
+): boolean {
+  return isSuperAdminFlag === true || (!!role && KIT_STORE_ADMIN_ROLES.includes(role));
 }
 
 export const KIT_SCREEN_SOURCE_OPTIONS_STORE_ADMIN: ReadonlyArray<{ value: KitSource; label: string }> = [
@@ -59,8 +67,10 @@ export const KIT_SCREEN_SOURCE_OPTIONS_STORE_ADMIN: ReadonlyArray<{ value: KitSo
   { value: 'central', label: KIT_SOURCE_LABEL.central },
 ];
 
-export function kitSourceOptionsFor(role: string | null | undefined) {
-  return isKitStoreAdmin(role) ? KIT_SCREEN_SOURCE_OPTIONS_STORE_ADMIN : KIT_SCREEN_SOURCE_OPTIONS;
+export function kitSourceOptionsFor(role: string | null | undefined, isSuperAdminFlag?: boolean | null) {
+  return isKitStoreAdmin(role, isSuperAdminFlag)
+    ? KIT_SCREEN_SOURCE_OPTIONS_STORE_ADMIN
+    : KIT_SCREEN_SOURCE_OPTIONS;
 }
 
 const STORE_ADMIN_ONLY = 'Only a store admin can mark an item Central or reset its source.';
@@ -202,9 +212,10 @@ export class ImsKitService {
     cadence: string;
     kit_source?: KitSource;
     caller_role?: string | null;
+    caller_is_super_admin?: boolean | null;
   }) {
-    const { kit_source, caller_role, ...row } = dto;
-    if (kit_source === 'central' && isKitStoreAdmin(caller_role)) {
+    const { kit_source, caller_role, caller_is_super_admin, ...row } = dto;
+    if (kit_source === 'central' && isKitStoreAdmin(caller_role, caller_is_super_admin)) {
       await this.markCentral(row.rule_id, row.item_id);
     } else if (kit_source) {
       if (!KIT_SCREEN_SOURCE_OPTIONS.some((o) => o.value === kit_source)) {
@@ -314,8 +325,12 @@ export class ImsKitService {
 
   // Q-1010-395: store admin resets an item's kit source to "not set" (NULL).
   // The database refuses anyone else (42501), whatever the app sends.
-  static async resetKitSource(itemId: string, callerRole: string | null | undefined) {
-    if (!isKitStoreAdmin(callerRole)) throw new Error(STORE_ADMIN_ONLY);
+  static async resetKitSource(
+    itemId: string,
+    callerRole: string | null | undefined,
+    callerIsSuperAdmin?: boolean | null,
+  ) {
+    if (!isKitStoreAdmin(callerRole, callerIsSuperAdmin)) throw new Error(STORE_ADMIN_ONLY);
     const { data, error } = await this.supabase
       .from('ims_items')
       .update({ kit_source: null })

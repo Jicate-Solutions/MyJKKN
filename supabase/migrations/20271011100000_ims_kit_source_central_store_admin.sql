@@ -11,9 +11,14 @@
 --       - UPDATE kit_source NULL -> 'college'
 --       - write kit_source unchanged (an edit form re-sending the same value)
 --   · every other kit_source change needs profiles.role IN
---     ('store_admin','super_admin') (get_current_user_role()): any write of
---     'central', central -> college, college/central -> NULL (reset),
---     college -> central.
+--     ('store_admin','super_admin') (get_current_user_role()) OR the platform
+--     super-admin flag (is_super_admin()): any write of 'central',
+--     central -> college, college/central -> NULL (reset), college -> central.
+--   · ims.settings.stores.manage is deliberately NOT admitted (desk decision
+--     11 Oct, Q-1010-395: the ruling says "only store admins"; that key's only
+--     other live holder is the Chief Administrative Officer). The app's
+--     useImsStoreContext().isStoreAdmin accepts that key for the store picker;
+--     the difference is intentional, not a bug.
 --   · writes with no JWT user (auth.uid() IS NULL — migrations, the service
 --     role, cron) are allowed. A SECURITY DEFINER function called by a signed-
 --     in college user still has auth.uid() set, so it is NOT exempt.
@@ -60,7 +65,8 @@ BEGIN
     RETURN NEW;
   END IF;
 
-  IF COALESCE(public.get_current_user_role() IN ('store_admin', 'super_admin'), false) THEN
+  IF COALESCE(public.get_current_user_role() IN ('store_admin', 'super_admin'), false)
+     OR COALESCE(public.is_super_admin(), false) THEN
     RETURN NEW;
   END IF;
 
@@ -70,7 +76,7 @@ END;
 $$;
 
 COMMENT ON FUNCTION public.fn_ims_items_kit_source_guard() IS
-  'Q-1010-395 (Director 11 Oct 2026): college staff may only set kit_source NULL -> college; Central, changes and resets need profiles.role store_admin/super_admin. No-JWT writes exempt.';
+  'Q-1010-395 (Director 11 Oct 2026): college staff may only set kit_source NULL -> college; Central, changes and resets need profiles.role store_admin/super_admin or is_super_admin(). No-JWT writes exempt.';
 
 -- Trigger functions are never called directly; keep them off the API surface.
 REVOKE EXECUTE ON FUNCTION public.fn_ims_items_kit_source_guard() FROM PUBLIC, anon, authenticated;

@@ -34,6 +34,7 @@ import {
 } from '@/hooks/ims/use-ims-kits';
 import { ImsKitService, isKitStoreAdmin, kitSourceOptionsFor, type KitRule, type KitPerson, type KitSource } from '@/lib/services/ims/kit-service';
 import { usePermissions } from '@/hooks/use-permissions';
+import { ResetKitSourceButton } from './_components/reset-kit-source-button';
 
 const ANY = '__any__'; // Radix Select forbids value="" (repo CI gate)
 
@@ -317,11 +318,13 @@ function RuleDetail({ rule }: { rule: KitRule }) {
   const removeItem = useRemoveKitRuleItem(rule.id);
   const resetSource = useResetKitSource(rule.id);
   // Q-1010-395: Central store and Reset source are for store admins only —
-  // keyed on profiles.role, the same field the database trigger checks.
+  // keyed on profiles.role + the is_super_admin flag, the same fields the
+  // database trigger checks (NOT ims.settings.stores.manage — see kit-service).
   const { userProfile } = usePermissions();
   const callerRole = userProfile?.role ?? null;
-  const storeAdmin = isKitStoreAdmin(callerRole);
-  const sourceOptions = kitSourceOptionsFor(callerRole);
+  const callerIsSuperAdmin = userProfile?.is_super_admin === true;
+  const storeAdmin = isKitStoreAdmin(callerRole, callerIsSuperAdmin);
+  const sourceOptions = kitSourceOptionsFor(callerRole, callerIsSuperAdmin);
   const addMember = useAddKitRuleMember();
   const removeMember = useRemoveKitRuleMember(rule.id);
   const resolve = useResolveKitRule();
@@ -384,22 +387,17 @@ function RuleDetail({ rule }: { rule: KitRule }) {
                   <Badge variant="secondary">{it.item.kit_source === 'college' ? 'College store' : 'Central store'}</Badge>
                 )}
                 {storeAdmin && it.item?.kit_source && (
-                  <Button
-                    variant="ghost"
-                    size="sm"
+                  <ResetKitSourceButton
                     disabled={resetSource.isPending}
-                    title="Clear this item's kit source (store admin)"
-                    onClick={async () => {
+                    onConfirm={async () => {
                       try {
-                        await resetSource.mutateAsync({ itemId: it.item_id, callerRole });
+                        await resetSource.mutateAsync({ itemId: it.item_id, callerRole, callerIsSuperAdmin });
                         toast.success('Kit source reset');
                       } catch (e: unknown) {
                         toast.error(e instanceof Error ? e.message : 'Reset failed');
                       }
                     }}
-                  >
-                    Reset source
-                  </Button>
+                  />
                 )}
                 <Badge variant="outline">{it.cadence === 'yearly' ? 'Every year' : 'Once'}</Badge>
                 <Button variant="ghost" size="sm" onClick={() => removeItem.mutate(it.id)}>
@@ -450,7 +448,7 @@ function RuleDetail({ rule }: { rule: KitRule }) {
                     try {
                       await addItem.mutateAsync({
                         rule_id: rule.id, item_id: r.id, quantity: Number(qty) || 1, cadence,
-                        ...(r.kit_source ? {} : { kit_source: pickedSource[r.id], caller_role: callerRole }),
+                        ...(r.kit_source ? {} : { kit_source: pickedSource[r.id], caller_role: callerRole, caller_is_super_admin: callerIsSuperAdmin }),
                       });
                       // Bump the sequence so a search still in flight cannot
                       // repopulate the results we just cleared.

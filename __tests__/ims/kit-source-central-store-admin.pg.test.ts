@@ -35,6 +35,7 @@ const STORE_ADMIN = '00000000-0000-4000-8000-0000000000b2';
 const SUPER_ADMIN = '00000000-0000-4000-8000-0000000000c3';
 const NO_ROLE = '00000000-0000-4000-8000-0000000000d4';
 const ITEM = '00000000-0000-4000-8000-0000000000e5';
+const FLAG_SUPER = '00000000-0000-4000-8000-0000000000f6';
 
 const PRELUDE = `
 DO $$ BEGIN CREATE ROLE anon NOLOGIN;          EXCEPTION WHEN duplicate_object OR unique_violation THEN NULL; END $$;
@@ -42,10 +43,15 @@ DO $$ BEGIN CREATE ROLE authenticated NOLOGIN; EXCEPTION WHEN duplicate_object O
 ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT EXECUTE ON FUNCTIONS TO anon;
 CREATE SCHEMA IF NOT EXISTS auth;
 CREATE FUNCTION auth.uid() RETURNS uuid LANGUAGE sql STABLE AS $$ SELECT nullif(current_setting('test.uid', true), '')::uuid $$;
-CREATE TABLE public.profiles (id uuid PRIMARY KEY, role text);
+CREATE TABLE public.profiles (id uuid PRIMARY KEY, role text, is_super_admin boolean);
 INSERT INTO public.profiles VALUES
-  ('${COLLEGE_USER}', 'staff'), ('${STORE_ADMIN}', 'store_admin'),
-  ('${SUPER_ADMIN}', 'super_admin'), ('${NO_ROLE}', NULL);
+  ('${COLLEGE_USER}', 'staff', false), ('${STORE_ADMIN}', 'store_admin', false),
+  ('${SUPER_ADMIN}', 'super_admin', false), ('${NO_ROLE}', NULL, NULL),
+  ('${FLAG_SUPER}', 'staff', true);
+-- Live shape: COALESCE(profiles.is_super_admin for auth.uid(), false), SECURITY DEFINER.
+CREATE FUNCTION public.is_super_admin() RETURNS boolean
+  LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
+  SELECT COALESCE((SELECT is_super_admin FROM public.profiles WHERE id = auth.uid()), false) $$;
 -- Live shape: SELECT role FROM profiles WHERE id = auth.uid(), SECURITY DEFINER.
 CREATE FUNCTION public.get_current_user_role() RETURNS text
   LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
@@ -62,7 +68,7 @@ CREATE FUNCTION public.test_definer_set_source(p_id uuid, p_source text) RETURNS
   UPDATE public.ims_items SET kit_source = p_source WHERE id = p_id $$;
 GRANT USAGE ON SCHEMA public, auth TO anon, authenticated;
 GRANT SELECT, INSERT, UPDATE ON public.ims_items TO authenticated;
-GRANT EXECUTE ON FUNCTION public.get_current_user_role(), public.test_definer_set_source(uuid, text) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.get_current_user_role(), public.is_super_admin(), public.test_definer_set_source(uuid, text) TO authenticated;
 `;
 
 function psql(args: string[]) {
@@ -222,6 +228,13 @@ describe('ims_items.kit_source guard — store admins and system writes', () => 
   it('a super admin may mark Central and reset', async () => {
     expect((await setSource(SUPER_ADMIN, 'central')).error).toBeNull();
     expect((await setSource(SUPER_ADMIN, null)).error).toBeNull();
+    expect(await current()).toBeNull();
+  });
+
+  it('the platform super-admin flag (is_super_admin, ordinary role) may mark Central and reset', async () => {
+    expect((await setSource(FLAG_SUPER, 'central')).error).toBeNull();
+    expect(await current()).toBe('central');
+    expect((await setSource(FLAG_SUPER, null)).error).toBeNull();
     expect(await current()).toBeNull();
   });
 

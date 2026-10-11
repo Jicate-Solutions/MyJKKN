@@ -59,8 +59,9 @@ export function useAddKitRuleItem() {
 export function useResetKitSource(ruleId: string | null) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ itemId, callerRole }: { itemId: string; callerRole: string | null | undefined }) =>
-      ImsKitService.resetKitSource(itemId, callerRole),
+    mutationFn: ({ itemId, callerRole, callerIsSuperAdmin }: {
+      itemId: string; callerRole: string | null | undefined; callerIsSuperAdmin?: boolean | null;
+    }) => ImsKitService.resetKitSource(itemId, callerRole, callerIsSuperAdmin),
     onSettled: () => {
       qc.invalidateQueries({ queryKey: ['ims-kit-rule-items', ruleId] });
       qc.invalidateQueries({ queryKey: ['ims-items'] });

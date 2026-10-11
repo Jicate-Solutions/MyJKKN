@@ -293,6 +293,21 @@ describe('Central store and reset — store admins only (Q-1010-395)', () => {
     expect((err as Error).message).toBe(STORE_ADMIN_ONLY);
   });
 
+  it('the platform super-admin flag counts (ordinary role + is_super_admin)', async () => {
+    expect(kitSourceOptionsFor('staff', true).map((o) => o.value)).toEqual(['college', 'central']);
+    expect(kitSourceOptionsFor('staff', false).map((o) => o.value)).toEqual(['college']);
+    await ImsKitService.addRuleItem({
+      ...base, kit_source: 'central', caller_role: 'staff', caller_is_super_admin: true,
+    });
+    expect(writes()).toEqual([
+      { table: 'ims_items', op: 'update', arg: { kit_source: 'central' } },
+      { table: 'ims_kit_rule_items', op: 'insert', arg: base },
+    ]);
+    calls.length = 0;
+    await ImsKitService.resetKitSource('item-1', 'staff', true);
+    expect(writes()).toEqual([{ table: 'ims_items', op: 'update', arg: { kit_source: null } }]);
+  });
+
   it('reset is refused for non-admins — nothing sent', async () => {
     for (const role of [undefined, null, 'staff', 'admin']) {
       calls.length = 0;
