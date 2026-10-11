@@ -81,6 +81,13 @@ REVOKE UPDATE, DELETE, TRUNCATE ON public.usage_events FROM authenticated;
 -- whitespace and every control character anywhere — browsers strip tab/CR/LF,
 -- so '/<TAB>/evil.com' would otherwise open //evil.com. '%' is allowed: the
 -- browser does not decode '%09' before resolving, so '/%09/x' stays on-site.
+-- PRIVACY: this runs as definer, so it must not reveal who looked at what.
+--   * A path with any id segment (a uuid, or all digits — /students/<uuid>,
+--     /staff/123/payslip) is never returned: a detail page names a person, and
+--     a template like /students/[id] is not navigable, so trending shows only
+--     static pages.
+--   * A page shows only when 3+ different people visited it in the window.
+-- All filtering happens before LIMIT, so LIMIT returns p_limit clean rows.
 -- ci:allow-secdef-authenticated every signed-in user may see the top page paths + visit counts of their OWN institution (derived from auth.uid(), not a parameter); no user ids or metadata are returned. Replaces the per-row read TrendingPages.tsx made through the old open policy (b).
 CREATE OR REPLACE FUNCTION public.fn_usage_trending_pages(p_days integer DEFAULT 7, p_limit integer DEFAULT 5)
 RETURNS TABLE (module text, page_path text, visit_count bigint)
@@ -94,6 +101,7 @@ AS $$
          count(*)         AS visit_count
     FROM (
       SELECT ue.module,
+             ue.user_id,
              COALESCE(ue.metadata->>'page_path', '/' || ue.module) AS page_path
         FROM public.usage_events ue
        WHERE ue.event_type = 'page_visit'
@@ -102,7 +110,9 @@ AS $$
     ) v
    WHERE v.page_path ~ '^/[A-Za-z0-9._~!$&''()*+,;=:@%/-]*$'
      AND v.page_path NOT LIKE '//%'
+     AND v.page_path !~ '/([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}|[0-9]+)(/|$)'
    GROUP BY v.page_path
+  HAVING count(DISTINCT v.user_id) >= 3
    ORDER BY 3 DESC, 2
    LIMIT LEAST(GREATEST(COALESCE(p_limit, 5), 1), 50);
 $$;

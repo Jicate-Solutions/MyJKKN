@@ -188,6 +188,39 @@ const INSERT_AS = (userId: string | null) => ({
 
 const COUNT_INST_A = `SELECT count(*)::int AS n FROM public.usage_events WHERE institution_id = '${INST_A}'`;
 
+/**
+ * Add page visits to institution A as service_role (the only page_visit writer;
+ * paths are client-supplied, as the usage beacon route stores them), then call
+ * fn_usage_trending_pages as a plain user of A — all in one rolled-back
+ * transaction. `module` alone (no path) exercises the '/' || module fallback.
+ */
+async function trendingAfter(
+  visits: Array<{ user: string; path?: string; module?: string }>,
+  limit = 50
+): Promise<any[]> {
+  const c = clients.hard;
+  await c.query('BEGIN');
+  try {
+    await c.query('SET LOCAL ROLE service_role');
+    for (const v of visits) {
+      await c.query(
+        `INSERT INTO public.usage_events (user_id, event_type, module, institution_id, metadata)
+         VALUES ($1, 'page_visit', $2, $3,
+                 CASE WHEN $4::text IS NULL THEN '{}'::jsonb ELSE jsonb_build_object('page_path', $4::text) END)`,
+        [v.user, v.module ?? 'x', INST_A, v.path ?? null]
+      );
+    }
+    await c.query(`SELECT set_config('test.acting_uid', $1, true)`, [people.plain]);
+    await c.query('SET LOCAL ROLE authenticated');
+    return (await c.query(`SELECT * FROM public.fn_usage_trending_pages(7, $1)`, [limit])).rows;
+  } finally {
+    await c.query('ROLLBACK');
+  }
+}
+
+/** n distinct visitor ids. */
+const visitors = (n: number) => Array.from({ length: n }, () => randomUUID());
+
 beforeAll(async () => {
   try {
     psql(['-d', 'postgres', '-c', `CREATE DATABASE ${DB_BASE}`]);
@@ -343,18 +376,47 @@ describe('HARDENED (after 20271010094500)', () => {
   });
 
   it('fn_usage_trending_pages gives a plain user their institution’s page counts, no user ids', async () => {
-    const r = await actAs(
-      'hard',
-      'authenticated',
-      people.plain,
-      `SELECT * FROM public.fn_usage_trending_pages(7, 5)`
+    // Seed: the colleague visited /billing twice and /attendance once. Two more
+    // people visit /billing (3 people), one more visits /attendance (2 people).
+    const [u2, u3] = visitors(2);
+    const rows = await trendingAfter(
+      [
+        { user: u2, module: 'billing' },
+        { user: u3, module: 'billing' },
+        { user: u2, module: 'attendance' },
+      ],
+      5
     );
-    expect(r.error).toBeNull();
-    expect(r.rows).toEqual([
-      { module: 'billing', page_path: '/billing', visit_count: '2' },
-      { module: 'attendance', page_path: '/attendance', visit_count: '1' },
+    expect(rows).toEqual([{ module: 'billing', page_path: '/billing', visit_count: '4' }]);
+    expect(Object.keys(rows[0])).not.toContain('user_id');
+  });
+
+  it('fn_usage_trending_pages shows a page only when 3+ different people visited it', async () => {
+    const two = visitors(2);
+    const three = visitors(3);
+    const rows = await trendingAfter([
+      // one person visiting many times does not count as many people
+      ...Array.from({ length: 10 }, () => ({ user: two[0], path: '/two-people' })),
+      { user: two[1], path: '/two-people' },
+      ...three.map((user) => ({ user, path: '/three-people' })),
     ]);
-    expect(Object.keys(r.rows[0])).not.toContain('user_id');
+    expect(rows.map((r: any) => r.page_path)).toEqual(['/three-people']);
+  });
+
+  it('fn_usage_trending_pages never returns a page that carries an id, however many people visited it', async () => {
+    const many = visitors(6);
+    const idPaths = [
+      `/students/${randomUUID()}`,
+      `/students/${randomUUID().toUpperCase()}/marks`,
+      '/staff/123/payslip',
+      '/staff/123',
+    ];
+    const rows = await trendingAfter([
+      ...many.flatMap((user) => idPaths.map((path) => ({ user, path }))),
+      ...many.slice(0, 3).map((user) => ({ user, path: '/students' })),
+      ...many.slice(0, 3).map((user) => ({ user, path: '/staff/payroll2027' })),
+    ]);
+    expect(rows.map((r: any) => r.page_path).sort()).toEqual(['/staff/payroll2027', '/students']);
   });
 
   it('fn_usage_trending_pages returns nothing for another institution’s user', async () => {
@@ -406,49 +468,29 @@ describe('HARDENED (after 20271010094500)', () => {
     }
   });
 
-  it('fn_usage_trending_pages never returns an off-site path, however many visits it has', async () => {
-    const c = clients.hard;
-    await c.query('BEGIN');
-    try {
-      // Written as service_role — the only writer of page_visit — with
-      // client-supplied paths, as the usage beacon route would.
-      await c.query('SET LOCAL ROLE service_role');
-      for (const p of [
-        '//evil.com',
-        '/\\evil.com',
-        'https://evil.com/x',
-        'javascript:alert(1)',
-        // Browsers strip tab/CR/LF, so each of these would open //evil.com.
-        '/\t/evil.com',
-        '/\n/evil.com',
-        '/\r/evil.com',
-        '/ /evil.com',
-        '/\x0b',
-        // '%' is allowlisted on purpose: the browser does not decode '%09' into a
-        // tab before resolving, so '/%09/x' stays a same-site path.
-        '/%09/x',
-      ]) {
-        for (let i = 0; i < 5; i++) {
-          await c.query(
-            `INSERT INTO public.usage_events (user_id, event_type, module, institution_id, metadata)
-             VALUES ($1, 'page_visit', 'x', $2, jsonb_build_object('page_path', $3::text))`,
-            [people.colleague, INST_A, p]
-          );
-        }
-      }
-      // A module-only row whose fallback path would be '//evil.com'.
-      await c.query(
-        `INSERT INTO public.usage_events (user_id, event_type, module, institution_id)
-         VALUES ($1, 'page_visit', '/evil.com', $2)`,
-        [people.colleague, INST_A]
-      );
-      await c.query(`SELECT set_config('test.acting_uid', $1, true)`, [people.plain]);
-      await c.query('SET LOCAL ROLE authenticated');
-      const rows = (await c.query(`SELECT * FROM public.fn_usage_trending_pages(7, 50)`)).rows;
-      expect(rows.map((r: any) => r.page_path).sort()).toEqual(['/%09/x', '/attendance', '/billing']);
-    } finally {
-      await c.query('ROLLBACK');
-    }
+  it('fn_usage_trending_pages never returns an off-site path, however many people visited it', async () => {
+    const many = visitors(5);
+    const paths = [
+      '//evil.com',
+      '/\\evil.com',
+      'https://evil.com/x',
+      'javascript:alert(1)',
+      // Browsers strip tab/CR/LF, so each of these would open //evil.com.
+      '/\t/evil.com',
+      '/\n/evil.com',
+      '/\r/evil.com',
+      '/ /evil.com',
+      '/\x0b',
+      // '%' is allowlisted on purpose: the browser does not decode '%09' into a
+      // tab before resolving, so '/%09/x' stays a same-site path.
+      '/%09/x',
+    ];
+    const rows = await trendingAfter([
+      ...many.flatMap((user) => paths.map((path) => ({ user, path }))),
+      // module-only rows whose fallback path would be '//evil.com'
+      ...many.map((user) => ({ user, module: '/evil.com' })),
+    ]);
+    expect(rows.map((r: any) => r.page_path)).toEqual(['/%09/x']);
   });
 
   it('anon cannot call fn_usage_trending_pages', async () => {
