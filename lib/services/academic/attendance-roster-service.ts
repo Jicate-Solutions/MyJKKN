@@ -207,6 +207,85 @@ export class AttendanceRosterService {
     }
   }
 
+  // Added: 2026-10-10 (BUG-006276) - Gender per learner, for the "Boys, then
+  // girls" display order on the marking screen. fn_attendance_roster does not
+  // return gender and faculty cannot read learners_profiles, so this goes
+  // through fn_learner_genders (same permission gate as the roster). Never
+  // throws: on any failure every learner is "unknown" and the order falls back
+  // to names; the roster and saving are untouched.
+  // Updated: 2026-10-11 (#4328 review) - ids are sent in chunks of at most
+  // LEARNER_GENDER_CHUNK (the function refuses more), and the whole lookup is
+  // capped at LEARNER_GENDER_TIMEOUT_MS. All-or-nothing: if any chunk fails or
+  // times out the map comes back empty, so the order is never half-known.
+  static readonly LEARNER_GENDER_CHUNK = 2000;
+  static readonly LEARNER_GENDER_TIMEOUT_MS = 10_000;
+
+  static async getLearnerGenders(
+    institutionId: string,
+    learnerIds: string[]
+  ): Promise<Map<string, string | null>> {
+    const genders = new Map<string, string | null>();
+    if (!institutionId || learnerIds.length === 0) return genders;
+
+    const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const timeout = new Promise<'timeout'>((resolve) => {
+      timer = setTimeout(() => {
+        controller?.abort();
+        resolve('timeout');
+      }, this.LEARNER_GENDER_TIMEOUT_MS);
+    });
+
+    const chunks: string[][] = [];
+    for (let i = 0; i < learnerIds.length; i += this.LEARNER_GENDER_CHUNK) {
+      chunks.push(learnerIds.slice(i, i + this.LEARNER_GENDER_CHUNK));
+    }
+
+    try {
+      const lookup = Promise.all(
+        chunks.map(async (ids) => {
+          let query = (this.supabase as any).rpc('fn_learner_genders', {
+            p_institution_id: institutionId,
+            p_learner_ids: ids
+          });
+          if (controller && typeof query?.abortSignal === 'function') {
+            query = query.abortSignal(controller.signal);
+          }
+          const { data, error } = await query;
+          if (error || !Array.isArray(data)) {
+            throw Object.assign(new Error((error as any)?.message ?? 'No data'), {
+              code: (error as any)?.code
+            });
+          }
+          return data as any[];
+        })
+      );
+
+      const result = await Promise.race([lookup, timeout]);
+      if (result === 'timeout') {
+        lookup.catch(() => undefined); // the aborted calls reject later; ignore
+        logger.warn('academic/attendance', 'Learner gender lookup timed out; boys-then-girls order falls back to names', {
+          institutionId,
+          learners: learnerIds.length
+        });
+        return genders;
+      }
+      for (const rows of result) {
+        for (const row of rows) genders.set(row.id, row.gender ?? null);
+      }
+      return genders;
+    } catch (error) {
+      logger.warn('academic/attendance', 'Could not resolve learner genders; boys-then-girls order falls back to names', {
+        institutionId,
+        code: (error as any)?.code,
+        message: (error as any)?.message
+      });
+      return new Map();
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
   // =====================
   // ROSTER CHECKING / AGGREGATION METHODS
   // =====================

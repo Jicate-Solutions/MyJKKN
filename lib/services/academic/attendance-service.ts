@@ -591,6 +591,11 @@ export class AttendanceService {
     return AttendanceRosterService.getStudentsForAttendance(...args);
   }
 
+  // Added: 2026-10-10 (BUG-006276) - Gender per learner for the marking-list order
+  static getLearnerGenders(...args: Parameters<typeof AttendanceRosterService.getLearnerGenders>) {
+    return AttendanceRosterService.getLearnerGenders(...args);
+  }
+
   // Get timetable slots for a specific date and filters
   static async getTimetableSlotsForDate(
     filters: {
