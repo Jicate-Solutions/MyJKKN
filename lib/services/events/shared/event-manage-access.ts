@@ -157,7 +157,7 @@ export async function canGenerateEventQr(caller: EventOpsCaller, eventId: string
  *
  *   super admin (is_super_admin, or role 'super_admin')  allow, any institution
  *   admin / administrator / event_coordinator             allow ONLY in the event's institution
- *   creator                                               allow
+ *   creator                                               allow ONLY as a non-learner in the event's institution
  *   creator-less event, same-institution non-learner      NOT admitted (manage tier only)
  *   event in-charge (fn_is_event_incharge)                allow (a named person, may be cross-institution)
  *   sports_tournament + sports.tournaments.manage         allow ONLY in the event's institution
@@ -179,8 +179,15 @@ export async function canWriteEventRegistrations(
 
   if (profile?.is_super_admin === true || role === 'super_admin') return true;
   if (ADMIN_ROLES.includes(role) && sameInstitution) return true;
-  if (event.created_by && event.created_by === caller.userId) return true;
-  if (await rpcTrue(caller.auth, 'fn_is_event_incharge', { p_event_id: eventId })) return true;
+  if (
+    event.created_by &&
+    event.created_by === caller.userId &&
+    !LEARNER_ROLES.includes(role) &&
+    sameInstitution
+  ) {
+    return true;
+  }
+  if (await rpcTrue(caller.auth, 'fn_is_event_incharge', { p_event_id: ctx.eventId })) return true;
 
   if (event.event_type === 'sports_tournament' && sameInstitution) {
     return rpcTrue(caller.auth, 'user_has_permission', {

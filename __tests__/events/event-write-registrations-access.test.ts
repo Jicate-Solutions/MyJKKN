@@ -114,9 +114,34 @@ describe('canWriteEventRegistrations', () => {
     expect(await canWriteEventRegistrations(caller(w), EV)).toBe(true);
   });
 
-  it('the creator is allowed', async () => {
-    const w: World = { profile: person('faculty', INST_B), event: marathon({ created_by: ME }) };
+  it('the creator is allowed as a non-learner in the event institution', async () => {
+    const w: World = { profile: person('faculty', INST_A), event: marathon({ created_by: ME }) };
     expect(await canWriteEventRegistrations(caller(w), EV)).toBe(true);
+  });
+
+  it('a creator now in another institution is refused', async () => {
+    const w: World = { profile: person('faculty', INST_B), event: marathon({ created_by: ME }) };
+    expect(await canWriteEventRegistrations(caller(w), EV)).toBe(false);
+  });
+
+  it('a learner who created the event is refused', async () => {
+    for (const role of ['student', 'course_participant', 'parent']) {
+      const w: World = { profile: person(role, INST_A), event: marathon({ created_by: ME }) };
+      expect(await canWriteEventRegistrations(caller(w), EV)).toBe(false);
+    }
+  });
+
+  it('the in-charge check is asked about this event', async () => {
+    const seen: unknown[] = [];
+    const c = caller({ profile: person('faculty', INST_B), event: marathon() });
+    c.auth = {
+      rpc: async (fn: string, args?: Record<string, unknown>) => {
+        if (fn === 'fn_is_event_incharge') seen.push(args?.p_event_id);
+        return { data: false };
+      },
+    };
+    expect(await canWriteEventRegistrations(c, EV)).toBe(false);
+    expect(seen).toEqual([EV]);
   });
 
   it('a super admin is allowed in any institution', async () => {

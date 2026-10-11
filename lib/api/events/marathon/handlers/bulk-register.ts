@@ -9,7 +9,8 @@
 //   path                                        canManageEventOps     canWriteEventRegistrations
 //   is_super_admin / role super_admin           allow                 allow
 //   admin, administrator, event_coordinator     allow, any inst.      allow ONLY in event's institution
-//   event creator                               allow                 allow
+//   event creator                               allow                 allow ONLY as a non-learner in
+//                                                                     the event's institution
 //   creator-less event, same-inst. non-learner  allow                 refuse
 //   fn_is_event_incharge                        allow                 allow (named, may be cross-inst.)
 //   tournament + sports.tournaments.manage      allow, any inst.      allow ONLY in event's institution
@@ -46,7 +47,7 @@ import { logger } from '@/lib/utils/enhanced-logger';
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /** 400/401/403 response when the caller may not bulk-import into this event, else null. */
-async function denyUnlessManager(eventId: string): Promise<NextResponse | null> {
+async function denyUnlessRegistrationWriter(eventId: string): Promise<NextResponse | null> {
   if (!UUID_RE.test(eventId)) {
     return NextResponse.json({ error: 'Invalid event id' }, { status: 400 });
   }
@@ -80,7 +81,7 @@ export async function GET(
       return NextResponse.json({ error: 'Invalid action' }, { status: 400 });
     }
 
-    const denied = await denyUnlessManager(eventId);
+    const denied = await denyUnlessRegistrationWriter(eventId);
     if (denied) return denied;
     const supabase = await createServerSupabaseClient();
 
@@ -119,7 +120,7 @@ export async function POST(
   try {
     const { eventId } = await params;
 
-    const denied = await denyUnlessManager(eventId);
+    const denied = await denyUnlessRegistrationWriter(eventId);
     if (denied) return denied;
 
     // Parse body
