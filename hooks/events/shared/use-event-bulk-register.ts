@@ -18,6 +18,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import * as XLSX from 'xlsx';
 import toast from 'react-hot-toast';
 import { logger } from '@/lib/utils/enhanced-logger';
+import { useAuth } from '@/hooks/use-auth';
 
 const MOD = 'events/bulk-register';
 
@@ -413,6 +414,53 @@ export function useEventCategoryCodes(eventId: string) {
       return list
         .filter((c) => c && c.code)
         .map((c) => String(c.code).toUpperCase());
+    },
+  });
+}
+
+/** Combine react-query's abort signal with a timeout (AbortSignal.any where available). */
+function withTimeout(signal: AbortSignal | undefined, ms: number): AbortSignal {
+  const timeout = AbortSignal.timeout(ms);
+  if (!signal) return timeout;
+  if (typeof AbortSignal.any === 'function') return AbortSignal.any([signal, timeout]);
+  const controller = new AbortController();
+  for (const s of [signal, timeout]) {
+    if (s.aborted) {
+      controller.abort(s.reason);
+      break;
+    }
+    s.addEventListener('abort', () => controller.abort(s.reason), { once: true });
+  }
+  return controller.signal;
+}
+
+export const CAN_WRITE_TIMEOUT_MS = 10_000;
+
+/**
+ * May the signed-in caller bulk-import registrations into this event? Asks the bulk-register
+ * route (?action=can-write), which runs the same gate as the import itself. Only an explicit
+ * { canWrite: false } means "no"; a failed or unreadable answer THROWS, so the board can offer
+ * a retry instead of wrongly telling an organiser they are not one. React Query keeps the last
+ * good answer when a background refetch fails.
+ */
+export function useCanWriteRegistrations(eventId: string, enabled = true) {
+  // The answer belongs to the signed-in person: key it by their id so a sign-out and
+  // sign-in as someone else never reuses it.
+  const { profile } = useAuth();
+  const profileId = profile?.id ?? null;
+  return useQuery({
+    queryKey: ['event-bulk-register-can-write', eventId, profileId],
+    enabled: !!eventId && !!profileId && enabled,
+    retry: false,
+    queryFn: async ({ signal }) => {
+      const res = await fetch(`/api/events/marathon/${eventId}/bulk-register?action=can-write`, {
+        signal: withTimeout(signal, CAN_WRITE_TIMEOUT_MS),
+      });
+      if (!res.ok) throw new Error(`Access check failed (${res.status})`);
+      const json = await res.json();
+      if (json?.canWrite === true) return true;
+      if (json?.canWrite === false) return false;
+      throw new Error('Access check returned no answer');
     },
   });
 }

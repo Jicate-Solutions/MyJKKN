@@ -1,9 +1,33 @@
 // POST /api/events/marathon/[eventId]/bulk-register
 // Accepts parsed roster rows (JSON array) and bulk-inserts them into events_registrations.
-// Requires authentication — admin/coordinator only.
+// Requires WRITE rights on THIS event (canWriteEventRegistrations), checked before any row is read
+// or written: the inserts run on the service-role client, so a bare sign-in check let any
+// signed-in user, learners included, write registrations into any event. The same gate covers
+// the template GET.
+//
+// Who may bulk-register, path by path (canManageEventOps = committees/QR tier, unchanged):
+//   path                                        canManageEventOps     canWriteEventRegistrations
+//   is_super_admin / role super_admin           allow                 allow
+//   admin, administrator, event_coordinator     allow, any inst.      allow ONLY in event's institution
+//   event creator                               allow                 allow ONLY with a staff role on the
+//                                                                     WRITE_CREATOR_STAFF_ROLES allow-list,
+//                                                                     in the event's institution; null,
+//                                                                     empty or unlisted roles refused
+//   creator-less event, same-inst. non-learner  allow                 refuse
+//   fn_is_event_incharge                        allow                 allow (named, may be cross-inst.)
+//   tournament + sports.tournaments.manage      allow, any inst.      allow ONLY in event's institution
+//   marathon + events.marathon.view             allow                 refuse (read permission; held by
+//                                                                     Senior Learner, HOD, etc.)
+//   anyone else signed in                       refuse                refuse (403)
+//   signed out                                  401                   401
+//   eventId not a UUID                          -                     400, before the gate
 //
 // GET /api/events/marathon/[eventId]/bulk-register?action=template
 // Downloads the Excel import template for this event.
+//
+// GET /api/events/marathon/[eventId]/bulk-register?action=can-write
+// Returns { canWrite: boolean } from the same gate, so the Bulk Import tab can hide its buttons
+// instead of letting the caller hit a 403 (400 for a bad id, 401 when signed out, as above).
 //
 // Events Platform Promotion PR7: this route is now event-type-agnostic. Bulk import was promoted to
 // the shared EventBulkRegisterService. The route auto-detects whether the event has categories:
@@ -13,10 +37,43 @@
 // committees/budget services); the logic underneath is shared.
 
 import { NextRequest, NextResponse } from 'next/server';
-import { createServerSupabaseClient } from '@/lib/supabase/server';
+import {
+  createServerSupabaseClient,
+  createServiceRoleClient,
+  getAuthUser,
+} from '@/lib/supabase/server';
+import {
+  canWriteEventRegistrations,
+  type EventOpsCaller,
+} from '@/lib/services/events/shared/event-manage-access';
 import { MarathonBulkRegistrationService } from '@/lib/services/events/marathon/marathon-bulk-registration-service';
 import { EventBulkRegisterService } from '@/lib/services/events/shared/event-bulk-register-service';
 import { logger } from '@/lib/utils/enhanced-logger';
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** 400/401/403 response when the caller may not bulk-import into this event, else null. */
+async function denyUnlessRegistrationWriter(eventId: string): Promise<NextResponse | null> {
+  if (!UUID_RE.test(eventId)) {
+    return NextResponse.json({ error: 'Invalid event id' }, { status: 400 });
+  }
+  const { user } = await getAuthUser();
+  if (!user) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+  const auth: EventOpsCaller['auth'] = await createServerSupabaseClient();
+  const allowed = await canWriteEventRegistrations(
+    { auth, svc: createServiceRoleClient(), userId: user.id },
+    eventId
+  );
+  if (!allowed) {
+    return NextResponse.json(
+      { error: "You don't have permission to import registrations for this event" },
+      { status: 403 }
+    );
+  }
+  return null;
+}
 
 export async function GET(
   request: NextRequest,
@@ -26,16 +83,19 @@ export async function GET(
     const { eventId } = await params;
     const action = request.nextUrl.searchParams.get('action');
 
+    if (action === 'can-write') {
+      const refused = await denyUnlessRegistrationWriter(eventId);
+      if (refused && refused.status !== 403) return refused;
+      return NextResponse.json({ canWrite: !refused }, { status: 200 });
+    }
+
     if (action !== 'template') {
       return NextResponse.json({ error: 'Invalid action' }, { status: 400 });
     }
 
-    // Verify auth
+    const denied = await denyUnlessRegistrationWriter(eventId);
+    if (denied) return denied;
     const supabase = await createServerSupabaseClient();
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
 
     // Fetch event name
     const { data: event } = await supabase
@@ -72,12 +132,8 @@ export async function POST(
   try {
     const { eventId } = await params;
 
-    // Verify auth
-    const supabase = await createServerSupabaseClient();
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
+    const denied = await denyUnlessRegistrationWriter(eventId);
+    if (denied) return denied;
 
     // Parse body
     const body = await request.json();

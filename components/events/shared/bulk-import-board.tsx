@@ -37,6 +37,7 @@ import {
   useEventCategoryCodes,
   useImportRoster,
   useDownloadRosterTemplate,
+  useCanWriteRegistrations,
   type ValidatedRosterRow,
   type RosterRowError,
   type RosterImportResult,
@@ -94,6 +95,13 @@ export function BulkImportBoard({
   const { data: categoryCodes = [] } = useEventCategoryCodes(eventId);
   const importMutation = useImportRoster();
   const downloadTemplate = useDownloadRosterTemplate();
+  // The server allows bulk import to fewer people than canManage does (organisers only), so ask it.
+  const {
+    data: canWrite,
+    isLoading: canWriteLoading,
+    isError: canWriteError,
+    refetch: recheckAccess,
+  } = useCanWriteRegistrations(eventId, canManage);
 
   const validatedRows: ValidatedRosterRow[] = useMemo(
     () => (parsedRows.length > 0 ? validateRosterRows(parsedRows, categoryCodes) : []),
@@ -187,6 +195,33 @@ export function BulkImportBoard({
         You don&apos;t have permission to import registrations for this event.
       </p>
     );
+  }
+
+  // Render from the last good answer when there is one: a failed background re-check must
+  // neither hide an organiser's board nor wipe their preview (the state above is kept).
+  if (canWrite !== true) {
+    if (canWriteError) {
+      return (
+        <div className="flex flex-col items-center gap-2 py-8 text-center text-sm text-muted-foreground">
+          <p>Couldn&apos;t check access.</p>
+          <Button variant="outline" size="sm" onClick={() => recheckAccess()}>
+            Retry
+          </Button>
+        </div>
+      );
+    }
+    if (canWrite === false) {
+      return (
+        <p className="py-8 text-center text-sm text-muted-foreground">
+          Only the event&apos;s organisers can bulk-import registrations.
+        </p>
+      );
+    }
+    if (canWriteLoading) {
+      return <p className="py-8 text-center text-sm text-muted-foreground">Checking access…</p>;
+    }
+    // Not signed in yet, so the check has not run: show nothing rather than a spinner.
+    return null;
   }
 
   return (

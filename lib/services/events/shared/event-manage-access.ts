@@ -53,6 +53,28 @@ const ADMIN_ROLES = ['super_admin', 'admin', 'administrator', 'event_coordinator
 const MARATHON_OPS_ROLES = ['principal', 'hod', 'faculty', 'vice_principal', 'dean'];
 /** Never manage-tier by institution alone. */
 const LEARNER_ROLES = ['student', 'course_participant', 'parent'];
+/**
+ * Roles whose CREATOR may bulk-write registrations (canWriteEventRegistrations only).
+ * An ALLOW-list, so an unlisted, custom (e.g. production_learner, senior_learner), null or
+ * empty role is refused. No canonical repo-wide staff-role list exists (lc-roles.ts,
+ * call-attribution.ts and engagement-scope.ts each keep a partial local one), so this is
+ * local. Built from the live profiles.role spread on 11 Oct 2026:
+ *   event creators: faculty 14, hod 7, staff_counselor 3, principal 3, super_admin 3,
+ *     cdc_coordinator 2, admission_counselor 1, admission 1, digital_coordinator 1, ceo 1,
+ *     induction_lead 1
+ *   other live staff roles: staff, office_assistant, accounts, system_admin, admission_staff,
+ *     jicate_staff, warden, coe, librarian, registrar, vice_principal, cao, coo,
+ *     managing_director, school_faculty, event_coordinator, administrator, admin
+ * Deliberately absent: learner roles, and service roles such as drivers, gate security,
+ * maintenance vendors and mess caterers. canManageEventOps / canGenerateEventQr are unchanged.
+ */
+const WRITE_CREATOR_STAFF_ROLES = [
+  'faculty', 'hod', 'staff_counselor', 'principal', 'super_admin', 'cdc_coordinator',
+  'admission_counselor', 'admission', 'digital_coordinator', 'ceo', 'induction_lead',
+  'staff', 'office_assistant', 'accounts', 'system_admin', 'admission_staff', 'jicate_staff',
+  'warden', 'coe', 'librarian', 'registrar', 'vice_principal', 'cao', 'coo',
+  'managing_director', 'school_faculty', 'event_coordinator', 'administrator', 'admin',
+];
 
 interface Ctx {
   caller: EventOpsCaller;
@@ -148,4 +170,52 @@ export async function canGenerateEventQr(caller: EventOpsCaller, eventId: string
 
   // ...OR useCommitteeMembership(eventId).isMember.
   return rpcTrue(auth, 'fn_is_event_committee_member', { p_event_id: ctx.eventId });
+}
+
+/**
+ * May the caller bulk-WRITE registrations into this event (bulk-register)?
+ * Stricter than canManageEventOps, because that route inserts up to 1,000 rows
+ * on the service-role client:
+ *
+ *   super admin (is_super_admin, or role 'super_admin')  allow, any institution
+ *   admin / administrator / event_coordinator             allow ONLY in the event's institution
+ *   creator                                               allow ONLY with a WRITE_CREATOR_STAFF_ROLES role
+ *                                                         in the event's institution (null/empty/unlisted refused)
+ *   creator-less event, same-institution non-learner      NOT admitted (manage tier only)
+ *   event in-charge (fn_is_event_incharge)                allow (a named person, may be cross-institution)
+ *   sports_tournament + sports.tournaments.manage         allow ONLY in the event's institution
+ *   marathon + events.marathon.view                       NOT admitted (a read permission;
+ *                                                         Senior Learner holds it)
+ *
+ * canManageEventOps (committees, QR) is unchanged.
+ */
+export async function canWriteEventRegistrations(
+  caller: EventOpsCaller,
+  eventId: string
+): Promise<boolean> {
+  const ctx = await loadCtx(caller, eventId);
+  if (!ctx) return false;
+  const { profile, event } = ctx;
+  const role = profile?.role ?? '';
+  const sameInstitution =
+    !!profile?.institution_id && event.institution_id === profile.institution_id;
+
+  if (profile?.is_super_admin === true || role === 'super_admin') return true;
+  if (ADMIN_ROLES.includes(role) && sameInstitution) return true;
+  if (
+    event.created_by &&
+    event.created_by === caller.userId &&
+    WRITE_CREATOR_STAFF_ROLES.includes(role) &&
+    sameInstitution
+  ) {
+    return true;
+  }
+  if (await rpcTrue(caller.auth, 'fn_is_event_incharge', { p_event_id: ctx.eventId })) return true;
+
+  if (event.event_type === 'sports_tournament' && sameInstitution) {
+    return rpcTrue(caller.auth, 'user_has_permission', {
+      permission_name: 'sports.tournaments.manage',
+    });
+  }
+  return false;
 }
