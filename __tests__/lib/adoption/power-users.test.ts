@@ -171,26 +171,24 @@ describe('stale agenda jobs', () => {
     // the later of claimed_at and started_at counts
     expect(isStaleAgendaJob({ ...takenLongAgo, started_at: '2026-10-10T11:00:00Z' }, now)).toBe(false);
   });
-  it('a claimed/running job with NEITHER time recorded falls back to its request time (#4298 panel LOW 2)', () => {
+  it('a claimed/running job with NEITHER time recorded is never stale, however old its request (#4324 panel MEDIUM)', () => {
     for (const status of ['claimed', 'running']) {
-      const noTimesOld = { status, result: null, requested_at: '2026-10-09T10:00:00Z', claimed_at: null, started_at: null };
-      const noTimesFresh = { ...noTimesOld, requested_at: '2026-10-10T10:00:00Z' };
-      // requested 26 h ago, never stamped: stuck, so no longer counted as usable
-      expect(isStaleAgendaJob(noTimesOld, now)).toBe(true);
-      expect(isUsableAgendaJob(noTimesOld, now)).toBe(false);
-      // requested 2 h ago, never stamped: still in flight
-      expect(isStaleAgendaJob(noTimesFresh, now)).toBe(false);
-      expect(isUsableAgendaJob(noTimesFresh, now)).toBe(true);
+      // requested 3 days ago, claimed just now by a path that left claimed_at NULL:
+      // nothing on the row tells it from a stuck one, so it must not be cancelled
+      const noTimesOld = { status, result: null, requested_at: '2026-10-07T12:00:00Z', claimed_at: null, started_at: null };
+      expect(isStaleAgendaJob(noTimesOld, now)).toBe(false);
+      expect(isUsableAgendaJob(noTimesOld, now)).toBe(true);
     }
-    // no time at all: cannot tell, not judged stuck
     expect(isStaleAgendaJob({ status: 'running', requested_at: null }, now)).toBe(false);
   });
-  it('the SQL cancel rule falls back to requested_at the same way (migration 20271010120000)', () => {
-    const sql = readFileSync(
-      join(process.cwd(), 'supabase/migrations/20271010120000_adoption_power_users_lows.sql'),
-      'utf8'
+  it('the SQL cancel rule is left as #4298 shipped it: no request-time fallback (migration 20271010120000 does not touch it)', () => {
+    const read = (f: string) => readFileSync(join(process.cwd(), 'supabase/migrations', f), 'utf8');
+    const lows = read('20271010120000_adoption_power_users_lows.sql');
+    expect(lows).not.toMatch(/FUNCTION public\.fn_adoption_agenda_supersede_stale/);
+    expect(lows).not.toMatch(/requested_at\) < now\(\)/);
+    expect(read('20271009115500_adoption_weekly_power_users.sql')).toMatch(
+      /AND GREATEST\(claimed_at, started_at\) < now\(\) - interval '24 hours'/
     );
-    expect(sql).toMatch(/COALESCE\(GREATEST\(claimed_at, started_at\), requested_at\) < now\(\) - interval '24 hours'/);
   });
 });
 

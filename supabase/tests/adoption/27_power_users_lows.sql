@@ -35,62 +35,88 @@ DO $$ DECLARE bad jsonb; ok_report boolean; ok_check boolean; BEGIN
   EXCEPTION WHEN raise_exception THEN IF SQLERRM LIKE 'FAIL:%' THEN RAISE; END IF; END;
 END $$;
 
-\echo '--- LOW 3: EXPECT prune keeps only the given people, adds nothing, and refuses a missing week or a null list'
+\echo '--- LOW 2 (#4324 panel): EXPECT one save stores the report and keeps only ids of people in its top list'
 INSERT INTO adoption_power_user_weeks (week_start, computed_at, payload, agenda_jobs)
-VALUES ('2026-09-28', now(), '{"top":[]}', '{"u-1":"j-1","u-2":"j-2","u-gone":"j-3"}');
-DO $$ BEGIN
-  PERFORM fn_adoption_power_user_weeks_prune_jobs('2026-09-28', ARRAY['u-1', 'u-2', 'u-new']);
-  IF (SELECT agenda_jobs FROM adoption_power_user_weeks WHERE week_start = '2026-09-28')
-     IS DISTINCT FROM '{"u-1":"j-1","u-2":"j-2"}'::jsonb THEN
-    RAISE EXCEPTION 'FAIL: prune left %', (SELECT agenda_jobs FROM adoption_power_user_weeks WHERE week_start = '2026-09-28'); END IF;
-  PERFORM fn_adoption_power_user_weeks_prune_jobs('2026-09-28', ARRAY[]::text[]);
+VALUES ('2026-09-28', now() - interval '2 days', '{"top":[{"user_id":"u-1"},{"user_id":"u-2"},{"user_id":"u-gone"}]}',
+        '{"u-1":"j-1","u-2":"j-2","u-gone":"j-3"}');
+DO $$ DECLARE r record; BEGIN
+  PERFORM fn_adoption_power_user_weeks_save('2026-09-28', '{"top":[{"user_id":"u-1"},{"user_id":"u-2"},{"user_id":"u-new"}],"one_day_staff":[]}');
+  SELECT * INTO r FROM adoption_power_user_weeks WHERE week_start = '2026-09-28';
+  IF r.agenda_jobs IS DISTINCT FROM '{"u-1":"j-1","u-2":"j-2"}'::jsonb THEN
+    RAISE EXCEPTION 'FAIL: save left agenda_jobs %', r.agenda_jobs; END IF;
+  IF r.payload->'top'->2->>'user_id' IS DISTINCT FROM 'u-new' THEN
+    RAISE EXCEPTION 'FAIL: save did not store the new report'; END IF;
+  IF r.computed_at < now() - interval '1 minute' THEN
+    RAISE EXCEPTION 'FAIL: save did not stamp computed_at'; END IF;
+  -- a first save of a week inserts the row with an empty map
+  PERFORM fn_adoption_power_user_weeks_save('2026-09-21', '{"top":[{"user_id":"u-1"}],"one_day_staff":[]}');
+  IF (SELECT agenda_jobs FROM adoption_power_user_weeks WHERE week_start = '2026-09-21') IS DISTINCT FROM '{}'::jsonb THEN
+    RAISE EXCEPTION 'FAIL: a first save did not start with an empty map'; END IF;
+  -- an empty top list keeps no ids
+  PERFORM fn_adoption_power_user_weeks_save('2026-09-28', '{"top":[],"one_day_staff":[]}');
   IF (SELECT agenda_jobs FROM adoption_power_user_weeks WHERE week_start = '2026-09-28') IS DISTINCT FROM '{}'::jsonb THEN
-    RAISE EXCEPTION 'FAIL: prune with an empty keep list did not empty the map'; END IF;
-  BEGIN PERFORM fn_adoption_power_user_weeks_prune_jobs('2026-08-31', ARRAY['u-1']);
-    RAISE EXCEPTION 'FAIL: prune on a week with no row was accepted';
+    RAISE EXCEPTION 'FAIL: an empty top list kept ids'; END IF;
+  BEGIN PERFORM fn_adoption_power_user_weeks_save('2026-09-28', NULL);
+    RAISE EXCEPTION 'FAIL: a null report was accepted';
   EXCEPTION WHEN raise_exception THEN IF SQLERRM LIKE 'FAIL:%' THEN RAISE; END IF; END;
-  BEGIN PERFORM fn_adoption_power_user_weeks_prune_jobs('2026-09-28', NULL);
-    RAISE EXCEPTION 'FAIL: prune with a null keep list was accepted';
+  BEGIN PERFORM fn_adoption_power_user_weeks_save('2026-09-28', '{"nope":true}');
+    RAISE EXCEPTION 'FAIL: a report with no top list was accepted';
+  EXCEPTION WHEN raise_exception THEN IF SQLERRM LIKE 'FAIL:%' THEN RAISE; END IF; END;
+  BEGIN PERFORM fn_adoption_power_user_weeks_save('2026-09-29', '{"top":[]}');
+    RAISE EXCEPTION 'FAIL: a week that is not a Monday was stored';
+  EXCEPTION WHEN check_violation THEN NULL; END;
+END $$;
+
+\echo '--- LOW 2 (#4324 panel): EXPECT a merge keeps only people in the row''s CURRENT top list (a run that read the old list cannot add a leaver back)'
+DO $$ BEGIN
+  PERFORM fn_adoption_power_user_weeks_save('2026-09-28', '{"top":[{"user_id":"u-1"},{"user_id":"u-new"}],"one_day_staff":[]}');
+  PERFORM fn_adoption_power_user_weeks_merge_jobs('2026-09-28', '{"u-1":"j-1"}');
+  -- a plain re-run that read the OLD top list merges the leaver's id after the save
+  PERFORM fn_adoption_power_user_weeks_merge_jobs('2026-09-28', '{"u-gone":"j-3","u-new":"j-4"}');
+  IF (SELECT agenda_jobs FROM adoption_power_user_weeks WHERE week_start = '2026-09-28')
+     IS DISTINCT FROM '{"u-1":"j-1","u-new":"j-4"}'::jsonb THEN
+    RAISE EXCEPTION 'FAIL: merge left %', (SELECT agenda_jobs FROM adoption_power_user_weeks WHERE week_start = '2026-09-28'); END IF;
+  -- later ids still win, as before
+  PERFORM fn_adoption_power_user_weeks_merge_jobs('2026-09-28', '{"u-1":"j-9"}');
+  IF (SELECT agenda_jobs->>'u-1' FROM adoption_power_user_weeks WHERE week_start = '2026-09-28') <> 'j-9' THEN
+    RAISE EXCEPTION 'FAIL: a newer id did not replace the older one'; END IF;
+  BEGIN PERFORM fn_adoption_power_user_weeks_merge_jobs('2026-08-31', '{"u-1":"j-1"}');
+    RAISE EXCEPTION 'FAIL: merge on a week with no row was accepted';
+  EXCEPTION WHEN raise_exception THEN IF SQLERRM LIKE 'FAIL:%' THEN RAISE; END IF; END;
+  BEGIN PERFORM fn_adoption_power_user_weeks_merge_jobs('2026-09-28', '"x"');
+    RAISE EXCEPTION 'FAIL: a merge that is not an object was accepted';
   EXCEPTION WHEN raise_exception THEN IF SQLERRM LIKE 'FAIL:%' THEN RAISE; END IF; END;
   IF EXISTS (SELECT 1 FROM adoption_power_user_weeks WHERE week_start = '2026-08-31') THEN
     RAISE EXCEPTION 'FAIL: a week row was invented'; END IF;
 END $$;
 
-\echo '--- LOW 2: EXPECT a claimed/running job with no claim or start time is cancelled 24 h after its request, and nothing else changes'
+\echo '--- MEDIUM (#4324 panel): EXPECT a claimed/running job with no claim or start time is NEVER cancelled, however old its request'
 INSERT INTO ai_job_types (job_type, title) VALUES ('other.job', 'Other');
 INSERT INTO ai_jobs (id, job_type, requested_by, status, requested_at, claimed_at, started_at) VALUES
-  -- neither time recorded, requested 30 h ago: NOW cancelled (was stuck for good)
-  ('b1000000-0000-0000-0000-000000000001','adoption.chat_agenda','60000000-0000-0000-0000-000000000001','running', now() - interval '30 hours', NULL, NULL),
-  ('b1000000-0000-0000-0000-000000000002','adoption.chat_agenda','60000000-0000-0000-0000-000000000001','claimed', now() - interval '30 hours', NULL, NULL),
-  -- neither time recorded, requested 2 h ago: NOT cancelled
-  ('b1000000-0000-0000-0000-000000000003','adoption.chat_agenda','60000000-0000-0000-0000-000000000001','running', now() - interval '2 hours', NULL, NULL),
-  -- requested 3 days ago but claimed a minute ago: NOT cancelled (the claim time still wins)
+  -- requested 3 days ago, claimed now, claimed_at NULL: NOT cancelled (the panel's case)
+  ('b1000000-0000-0000-0000-000000000001','adoption.chat_agenda','60000000-0000-0000-0000-000000000001','claimed', now() - interval '3 days', NULL, NULL),
+  ('b1000000-0000-0000-0000-000000000002','adoption.chat_agenda','60000000-0000-0000-0000-000000000001','running', now() - interval '3 days', NULL, NULL),
+  -- requested 3 days ago but claimed a minute ago: NOT cancelled
   ('b1000000-0000-0000-0000-000000000004','adoption.chat_agenda','60000000-0000-0000-0000-000000000001','claimed', now() - interval '3 days', now() - interval '1 minute', NULL),
-  -- claimed 2 days ago, started a minute ago: NOT cancelled
-  ('b1000000-0000-0000-0000-000000000005','adoption.chat_agenda','60000000-0000-0000-0000-000000000001','running', now() - interval '3 days', now() - interval '2 days', now() - interval '1 minute'),
-  -- the old rules still hold
+  -- the #4298 rules still hold
   ('b1000000-0000-0000-0000-000000000006','adoption.chat_agenda','60000000-0000-0000-0000-000000000001','pending', now() - interval '30 hours', NULL, NULL),
   ('b1000000-0000-0000-0000-000000000007','adoption.chat_agenda','60000000-0000-0000-0000-000000000001','running', now() - interval '30 hours', now() - interval '29 hours', now() - interval '28 hours'),
   ('b1000000-0000-0000-0000-000000000008','adoption.chat_agenda','60000000-0000-0000-0000-000000000001','done',    now() - interval '30 hours', NULL, NULL),
-  ('b1000000-0000-0000-0000-000000000009','other.job',           '60000000-0000-0000-0000-000000000001','running', now() - interval '30 hours', NULL, NULL);
+  ('b1000000-0000-0000-0000-000000000009','other.job',           '60000000-0000-0000-0000-000000000001','running', now() - interval '30 hours', now() - interval '29 hours', NULL);
 DO $$ DECLARE got text; BEGIN
-  IF NOT fn_adoption_agenda_supersede_stale('b1000000-0000-0000-0000-000000000001')
-     OR NOT fn_adoption_agenda_supersede_stale('b1000000-0000-0000-0000-000000000002') THEN
-    RAISE EXCEPTION 'FAIL: a claimed/running job with no claim or start time, requested 30 h ago, was not cancelled'; END IF;
-  IF fn_adoption_agenda_supersede_stale('b1000000-0000-0000-0000-000000000003') THEN
-    RAISE EXCEPTION 'FAIL: a job with no claim time requested 2 h ago was cancelled'; END IF;
-  IF fn_adoption_agenda_supersede_stale('b1000000-0000-0000-0000-000000000004')
-     OR fn_adoption_agenda_supersede_stale('b1000000-0000-0000-0000-000000000005') THEN
-    RAISE EXCEPTION 'FAIL: a job the drain took or started a minute ago was cancelled'; END IF;
+  IF fn_adoption_agenda_supersede_stale('b1000000-0000-0000-0000-000000000001')
+     OR fn_adoption_agenda_supersede_stale('b1000000-0000-0000-0000-000000000002') THEN
+    RAISE EXCEPTION 'FAIL: a claimed/running job with no claim or start time was cancelled'; END IF;
+  IF fn_adoption_agenda_supersede_stale('b1000000-0000-0000-0000-000000000004') THEN
+    RAISE EXCEPTION 'FAIL: a job the drain took a minute ago was cancelled'; END IF;
   IF NOT fn_adoption_agenda_supersede_stale('b1000000-0000-0000-0000-000000000006')
      OR NOT fn_adoption_agenda_supersede_stale('b1000000-0000-0000-0000-000000000007') THEN
-    RAISE EXCEPTION 'FAIL: the old stuck rules no longer cancel'; END IF;
+    RAISE EXCEPTION 'FAIL: the #4298 stuck rules no longer cancel'; END IF;
   IF fn_adoption_agenda_supersede_stale('b1000000-0000-0000-0000-000000000008')
-     OR fn_adoption_agenda_supersede_stale('b1000000-0000-0000-0000-000000000009')
-     OR fn_adoption_agenda_supersede_stale('b1000000-0000-0000-0000-000000000001') THEN
-    RAISE EXCEPTION 'FAIL: a finished, other-type or already-cancelled job was cancelled'; END IF;
+     OR fn_adoption_agenda_supersede_stale('b1000000-0000-0000-0000-000000000009') THEN
+    RAISE EXCEPTION 'FAIL: a finished or other-type job was cancelled'; END IF;
   SELECT string_agg(status, ',' ORDER BY id) INTO got FROM ai_jobs;
-  IF got IS DISTINCT FROM 'canceled,canceled,running,claimed,running,canceled,canceled,done,running' THEN
+  IF got IS DISTINCT FROM 'claimed,running,claimed,canceled,canceled,done,running' THEN
     RAISE EXCEPTION 'FAIL: job states after superseding %', got; END IF;
 END $$;
 
@@ -100,7 +126,9 @@ DO $$ DECLARE r text; BEGIN
     EXECUTE format('SET ROLE %I', r);
     BEGIN PERFORM fn_adoption_power_users_exclusions(); RAISE EXCEPTION 'FAIL: % read the exclusion check', r;
     EXCEPTION WHEN insufficient_privilege THEN NULL; END;
-    BEGIN PERFORM fn_adoption_power_user_weeks_prune_jobs('2026-09-28', ARRAY['u-1']); RAISE EXCEPTION 'FAIL: % pruned agenda ids', r;
+    BEGIN PERFORM fn_adoption_power_user_weeks_save('2026-09-28', '{"top":[]}'); RAISE EXCEPTION 'FAIL: % stored a report', r;
+    EXCEPTION WHEN insufficient_privilege THEN NULL; END;
+    BEGIN PERFORM fn_adoption_power_user_weeks_merge_jobs('2026-09-28', '{}'); RAISE EXCEPTION 'FAIL: % merged agenda ids', r;
     EXCEPTION WHEN insufficient_privilege THEN NULL; END;
     BEGIN PERFORM fn_adoption_agenda_supersede_stale('b1000000-0000-0000-0000-000000000003'); RAISE EXCEPTION 'FAIL: % cancelled a job', r;
     EXCEPTION WHEN insufficient_privilege THEN NULL; END;

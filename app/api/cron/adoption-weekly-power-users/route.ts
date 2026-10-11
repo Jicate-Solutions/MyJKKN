@@ -25,16 +25,16 @@
 //      same fail-closed check as the report function): a broken list is a
 //      500, and anyone whose college was added to it since gets no agenda.
 //      Only ?recompute=1 rebuilds it with the RPC, and then stops tracking
-//      the agenda jobs of people who left the top 10
-//      (fn_adoption_power_user_weeks_prune_jobs; their jobs are not
+//      the agenda jobs of people who left the top 10 (in the same
+//      fn_adoption_power_user_weeks_save call; their jobs are not
 //      cancelled). A week with no row yet (the scheduled weekly run) is
 //      computed by the RPC as before. Then each top person's own bug_reports
 //      from the last 30 days.
 //   3. ?dry_run=1 stops here: the report + the prompts it WOULD queue. No write,
 //      no job.
-//   4. upsert the week's row in adoption_power_user_weeks — only when the
-//      report was computed this run (agenda_jobs is not touched by the upsert,
-//      so a re-run keeps the job ids it already has);
+//   4. store the week's row (fn_adoption_power_user_weeks_save) — only when the
+//      report was computed this run; it keeps the job ids of people still in
+//      its top list and drops the rest, in one statement;
 //   5. one agenda job per top-10 person (dedupe key adoption-agenda:<week>:<user>).
 //      Someone whose newest job this week (found by dedupe key) is still queued,
 //      or finished with a readable agenda, is skipped ('kept'); an errored job or
@@ -43,7 +43,8 @@
 //      24 h after the drain took it) is cancelled
 //      (fn_adoption_agenda_supersede_stale) and a fresh one queued; that run
 //      still answers 500 (the Max drain looked down);
-//   6. the job ids are merged into agenda_jobs.
+//   6. the job ids are merged into agenda_jobs (only people in the row's
+//      current top list are kept, so an older read cannot add a leaver back).
 // RETRIES ARE MANUAL. Every scheduled run works on the week that just ended,
 // so it never goes back to an earlier week: an agenda that failed to queue, an
 // id that was not saved or a stuck job in week W is fixed only by a manual
@@ -92,8 +93,10 @@ import {
 } from '@/lib/adoption/power-users';
 
 const LOG_MODULE = 'adoption/weekly-power-users';
-/** After a refused cancel, how long to wait before reading the newest job a second time. */
-const REREAD_WAIT_MS = 1000;
+/** After a refused cancel, the waits before each re-read of the newest job (bounded by the time limit). */
+const REREAD_WAITS_MS = [500, 1000, 2000, 4000];
+/** Stop waiting once the run has used this much of maxDuration. */
+const REREAD_BUDGET_MS = 90_000;
 function fail(message: string, started: number, status = 500) {
   logger.error(LOG_MODULE, message);
   return NextResponse.json({ ok: false, error: message, elapsed_ms: Date.now() - started }, { status });
@@ -172,9 +175,10 @@ export async function GET(request: NextRequest) {
   }
   // A college added to the exclusion list after the week was stored: its
   // people get no agenda (the stored report itself is left as it was).
+  // Cut to the top 10 FIRST, so leaving someone out never moves #11 up.
   const top = payload.top
-    .filter((p) => !(excludedNow && p.institution_id && excludedNow.has(p.institution_id)))
-    .slice(0, MAX_AGENDAS);
+    .slice(0, MAX_AGENDAS)
+    .filter((p) => !(excludedNow && p.institution_id && excludedNow.has(p.institution_id)));
 
   // 2) each top person's OWN problem reports, last 30 days, newest first
   const bugsByUser = new Map<string, OwnBugReport[]>();
@@ -254,33 +258,25 @@ export async function GET(request: NextRequest) {
   }
 
   // 4) the week's row — written only when the report was computed this run;
-  // agenda_jobs is left out of the upsert so a re-run keeps it
+  // the save keeps the stored ids of people still in the top list
   const agendaJobs: Record<string, string> = {};
   for (const [userId, jobId] of Object.entries((stored?.agenda_jobs ?? {}) as Record<string, unknown>)) {
     if (typeof jobId === 'string') agendaJobs[userId] = jobId;
   }
 
+  // One database call stores the report AND stops tracking agenda jobs of
+  // people no longer in its top list (?recompute=1 on a stored week). Their
+  // jobs are not cancelled, only no longer recorded. Together, so a failure
+  // cannot leave the new report with the old ids, and no merge lands between.
   if (reportSource === 'computed') {
-    const { error: upsertErr } = await admin
-      .from('adoption_power_user_weeks')
-      .upsert(
-        { week_start: weekStart, computed_at: new Date().toISOString(), payload },
-        { onConflict: 'week_start' }
-      );
-    if (upsertErr) return fail(`week row write failed: ${upsertErr.message}`, started);
-  }
-
-  // ?recompute=1 on a stored week: stop tracking agenda jobs of people who
-  // left the top 10 (their jobs are not cancelled, only no longer recorded).
-  if (reportSource === 'computed' && stored) {
-    const keep = top.map((p) => p.user_id);
-    const { error: pruneErr } = await admin.rpc('fn_adoption_power_user_weeks_prune_jobs', {
+    const { error: saveErr } = await admin.rpc('fn_adoption_power_user_weeks_save', {
       p_week_start: weekStart,
-      p_keep_user_ids: keep,
+      p_payload: payload,
     });
-    if (pruneErr) return fail(`agenda job ids of people who left the top 10 not pruned: ${pruneErr.message}`, started);
+    if (saveErr) return fail(`week row write failed: ${saveErr.message}`, started);
+    const inTop = new Set(payload.top.map((p) => p.user_id));
     for (const userId of Object.keys(agendaJobs)) {
-      if (!keep.includes(userId)) delete agendaJobs[userId];
+      if (!inTop.has(userId)) delete agendaJobs[userId];
     }
   }
 
@@ -362,11 +358,13 @@ export async function GET(request: NextRequest) {
           return { current: (now as ExistingAgendaJob[] | null)?.[0], nowErr };
         };
         let { current, nowErr } = await readNewest();
-        if (nowErr || !current || !isUsableAgendaJob(current)) {
-          // The other run may have cancelled the old job but not yet queued
-          // the fresh one: wait a moment and read once more before calling it
-          // a failure.
-          await new Promise((resolve) => setTimeout(resolve, REREAD_WAIT_MS));
+        // The other run may have cancelled the old job but not yet queued the
+        // fresh one: wait and read again, a little longer each time, within
+        // the time limit.
+        for (const wait of REREAD_WAITS_MS) {
+          if (!nowErr && current && isUsableAgendaJob(current)) break;
+          if (Date.now() - started + wait > REREAD_BUDGET_MS) break;
+          await new Promise((resolve) => setTimeout(resolve, wait));
           ({ current, nowErr } = await readNewest());
         }
         if (!nowErr && current && isUsableAgendaJob(current)) {
@@ -374,6 +372,11 @@ export async function GET(request: NextRequest) {
           // Already finished with a readable agenda = kept; still queued = in flight.
           if (current.status === 'done') kept++;
           else inFlight++;
+        } else if (!nowErr && !current) {
+          // Still nothing: the run that cancelled it is between its cancel and
+          // its enqueue, and records the fresh job's id itself. In flight, not
+          // a failure (#4324 panel).
+          inFlight++;
         } else {
           failed++;
           failures.push(

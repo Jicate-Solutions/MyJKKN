@@ -106,9 +106,10 @@ export function isStaleAgendaJob(job: StaleFields, now: number = Date.now()): bo
     const times = [parseTime(job.claimed_at), parseTime(job.started_at)].filter(
       (t): t is number => t !== null
     );
-    // neither time recorded: fall back to the request time
-    const at = times.length > 0 ? Math.max(...times) : parseTime(job.requested_at);
-    return at !== null && now - at > STALE_JOB_MS;
+    // Neither time recorded: never stale. Nothing else on the row tells such a
+    // job from one claimed seconds ago, so it is never cancelled (#4324 panel).
+    if (times.length === 0) return false;
+    return now - Math.max(...times) > STALE_JOB_MS;
   }
   return false;
 }

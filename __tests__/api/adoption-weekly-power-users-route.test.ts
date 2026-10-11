@@ -17,7 +17,7 @@
  *   - every 500 names the ?week= to re-run (the next scheduled run moves on to the next week);
  *   - an RPC error, or a run where ANY job failed to queue, is a 500.
  */
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 type Result = { data: unknown; error: { message: string } | null };
 type Call = { table: string; op: string; args: unknown[] };
@@ -30,11 +30,11 @@ let calls: Call[];
 const MERGE_FN = 'fn_adoption_power_user_weeks_merge_jobs';
 const SUPERSEDE_FN = 'fn_adoption_agenda_supersede_stale';
 const EXCLUSIONS_FN = 'fn_adoption_power_users_exclusions';
-const PRUNE_FN = 'fn_adoption_power_user_weeks_prune_jobs';
+const SAVE_FN = 'fn_adoption_power_user_weeks_save';
 let mergeResult: Result;
 let supersedeResult: Result;
 let exclusionsResult: Result;
-let pruneResult: Result;
+let saveResult: Result;
 const defaultRpc = (name: string, _args?: Record<string, unknown>) =>
   Promise.resolve(
     name === MERGE_FN
@@ -43,8 +43,8 @@ const defaultRpc = (name: string, _args?: Record<string, unknown>) =>
         ? supersedeResult
         : name === EXCLUSIONS_FN
           ? exclusionsResult
-          : name === PRUNE_FN
-            ? pruneResult
+          : name === SAVE_FN
+            ? saveResult
             : rpcResult
   );
 const rpc = vi.fn(defaultRpc);
@@ -137,8 +137,13 @@ function request(opts: { bearer?: string; query?: string } = {}) {
 
 const writes = () => [
   ...calls.filter((c) => c.op === 'upsert' || c.op === 'update'),
-  ...rpc.mock.calls.filter((c) => c[0] === MERGE_FN),
+  ...rpc.mock.calls.filter((c) => c[0] === MERGE_FN || c[0] === SAVE_FN),
 ];
+/** The report the run stored through fn_adoption_power_user_weeks_save, if any. */
+const saved = () =>
+  rpc.mock.calls.find((c) => c[0] === SAVE_FN)?.[1] as
+    | { p_week_start: string; p_payload: { top: Array<{ user_id: string }> } }
+    | undefined;
 
 beforeEach(() => {
   rpc.mockClear();
@@ -152,7 +157,12 @@ beforeEach(() => {
   mergeResult = { data: null, error: null };
   supersedeResult = { data: true, error: null };
   exclusionsResult = { data: [], error: null };
-  pruneResult = { data: null, error: null };
+  saveResult = { data: null, error: null };
+  // The re-read waits after a refused cancel run instantly in tests.
+  timerSpy = vi.spyOn(globalThis, 'setTimeout').mockImplementation(((fn: () => void) => {
+    fn();
+    return 0;
+  }) as never);
   tableResults = {
     bug_reports: {
       data: [
@@ -165,6 +175,11 @@ beforeEach(() => {
     ai_jobs: { data: [], error: null },
   };
   process.env.CRON_SECRET = SECRET;
+});
+
+let timerSpy: ReturnType<typeof vi.spyOn> | undefined;
+afterEach(() => {
+  timerSpy?.mockRestore();
 });
 
 describe('who can start the run', () => {
@@ -242,6 +257,7 @@ describe('dry run', () => {
     expect(writes()).toEqual([]);
     // it may READ the stored row (to show what a real run would use) but never writes it
     expect(calls.some((c) => c.table === 'adoption_power_user_weeks' && (c.op === 'upsert' || c.op === 'update'))).toBe(false);
+    expect(rpc).not.toHaveBeenCalledWith(SAVE_FN, expect.anything());
     expect(body.report_source).toBe('computed');
   });
 });
@@ -263,10 +279,10 @@ describe('a real run', () => {
       expect((c[1] as { jobType: string }).jobType).toBe('adoption.chat_agenda');
     }
 
-    const upsert = calls.find((c) => c.op === 'upsert');
-    expect(upsert?.table).toBe('adoption_power_user_weeks');
-    expect(upsert?.args[0]).not.toHaveProperty('agenda_jobs'); // a re-run keeps the stored ids
-    expect(calls.find((c) => c.op === 'update')).toBeUndefined(); // never a whole-map write
+    // one database call stores the report (and trims ids of anyone not in its top list)
+    expect(saved()?.p_week_start).toBe(WEEK);
+    expect(saved()?.p_payload).not.toHaveProperty('agenda_jobs');
+    expect(calls.find((c) => c.op === 'upsert' || c.op === 'update')).toBeUndefined(); // never a whole-map write
     expect(merged()?.['u-01']).toBe('job-1');
     expect(rpc.mock.calls.find((c) => c[0] === MERGE_FN)?.[1]).toMatchObject({ p_week_start: WEEK });
   });
@@ -630,7 +646,7 @@ describe('a real run', () => {
     const body = await res.json();
     expect(body.report_source).toBe('stored');
     expect(rpc).not.toHaveBeenCalledWith('fn_adoption_power_users', expect.anything());
-    expect(calls.some((c) => c.table === 'adoption_power_user_weeks' && c.op === 'upsert')).toBe(false);
+    expect(rpc).not.toHaveBeenCalledWith(SAVE_FN, expect.anything());
     const users = enqueueJobsLane.mock.calls.map((c) => (c[1] as { context: { user_id: string } }).context.user_id);
     expect(users).toEqual(['u-04']);
     expect(body.kept).toBe(9);
@@ -646,8 +662,7 @@ describe('a real run', () => {
     expect(res.status).toBe(200);
     expect((await res.json()).report_source).toBe('computed');
     expect(rpc).toHaveBeenCalledWith('fn_adoption_power_users', { p_week_start: WEEK });
-    const upsert = calls.find((c) => c.table === 'adoption_power_user_weeks' && c.op === 'upsert');
-    expect((upsert?.args[0] as { payload: { top: Array<{ user_id: string }> } }).payload.top[0].user_id).toBe('other-0');
+    expect(saved()?.p_payload.top[0].user_id).toBe('other-0');
   });
 
   it('a first run of a week (no row yet) computes the report and stores it, as before', async () => {
@@ -655,7 +670,7 @@ describe('a real run', () => {
     expect(res.status).toBe(200);
     expect((await res.json()).report_source).toBe('computed');
     expect(rpc).toHaveBeenCalledWith('fn_adoption_power_users', { p_week_start: WEEK });
-    expect(calls.some((c) => c.table === 'adoption_power_user_weeks' && c.op === 'upsert')).toBe(true);
+    expect(saved()?.p_week_start).toBe(WEEK);
   });
 
   it('a stored report that cannot be read is a 500 telling the operator to add &recompute=1', async () => {
@@ -827,23 +842,24 @@ describe("#4298 panel follow-ups (five LOW findings)", () => {
     });
   });
 
-  // LOW 2 — a claimed/running job never stamped with claimed_at/started_at
-  it('LOW 2: a claimed job with no claim or start time, requested over a day ago, is replaced (not kept for ever)', async () => {
+  // #4324 panel MEDIUM — a claimed/running job with no claimed_at/started_at
+  it('MEDIUM: requested 3 days ago, claimed now, claimed_at NULL: never cancelled, kept, nothing re-queued', async () => {
     tableResults.ai_jobs = {
-      data: [{ ...stuckU01(), status: 'claimed', claimed_at: null, started_at: null }],
+      data: [{ ...stuckU01(), status: 'claimed', requested_at: new Date(Date.now() - 72 * 3600_000).toISOString(), claimed_at: null, started_at: null }],
       error: null,
     };
     const res = await GET(request({ bearer: SECRET, query: `?week=${WEEK}` }));
+    expect(res.status).toBe(200);
     const body = await res.json();
-    expect(rpc).toHaveBeenCalledWith(SUPERSEDE_FN, { p_job_id: 'stuck-1' });
-    expect(body.stale_replaced).toBe(1);
-    expect(body.kept).toBe(0);
-    expect(usersQueued()).toContain('u-01');
+    expect(rpc).not.toHaveBeenCalledWith(SUPERSEDE_FN, expect.anything());
+    expect(body.stale_replaced).toBe(0);
+    expect(body.kept).toBe(1);
+    expect(usersQueued()).not.toContain('u-01');
   });
 
   // LOW 3 — ?recompute=1 stops tracking people who left the top 10
-  describe('LOW 3: ?recompute=1 prunes agenda ids of people who left the top 10', () => {
-    it('keeps only the new top 10 in agenda_jobs, and cancels nobody', async () => {
+  describe('LOW 3: ?recompute=1 stops tracking agenda ids of people who left the top 10 (in the save call)', () => {
+    it('stores the new report in one call, drops the leaver locally, and cancels nobody', async () => {
       tableResults.adoption_power_user_weeks = {
         data: { payload: payload(10), agenda_jobs: { 'u-01': 'job-a', 'u-02': 'job-b' } },
         error: null,
@@ -853,37 +869,31 @@ describe("#4298 panel follow-ups (five LOW findings)", () => {
       rpcResult = { data: fresh, error: null };
       const res = await GET(request({ bearer: SECRET, query: `?week=${WEEK}&recompute=1` }));
       expect(res.status).toBe(200);
-      const prune = rpc.mock.calls.find((c) => c[0] === PRUNE_FN)?.[1] as
-        | { p_week_start: string; p_keep_user_ids: string[] }
-        | undefined;
-      expect(prune?.p_week_start).toBe(WEEK);
-      expect(prune?.p_keep_user_ids).toEqual(fresh.top.map((p) => p.user_id));
-      expect(prune?.p_keep_user_ids).not.toContain('u-02');
+      expect(saved()?.p_week_start).toBe(WEEK);
+      expect(saved()?.p_payload.top.map((p) => p.user_id)).not.toContain('u-02');
+      expect(rpc.mock.calls.filter((c) => c[0] === SAVE_FN)).toHaveLength(1); // no separate clean-up call
       expect(rpc).not.toHaveBeenCalledWith(SUPERSEDE_FN, expect.anything()); // their jobs are not cancelled
       expect(merged()).not.toHaveProperty('u-02'); // and never written back
       expect(usersQueued()).toContain('u-newcomer');
     });
 
-    it('a failed prune is a 500', async () => {
+    it('a failed save is a 500 and queues nobody', async () => {
       tableResults.adoption_power_user_weeks = { data: { payload: payload(10), agenda_jobs: {} }, error: null };
-      pruneResult = { data: null, error: { message: 'boom' } };
+      saveResult = { data: null, error: { message: 'boom' } };
       const res = await GET(request({ bearer: SECRET, query: `?week=${WEEK}&recompute=1` }));
       expect(res.status).toBe(500);
       expect(enqueueJobsLane).not.toHaveBeenCalled();
     });
 
-    it('prunes nothing on a first run or a plain re-run', async () => {
-      await GET(request({ bearer: SECRET, query: `?week=${WEEK}` }));
-      expect(rpc).not.toHaveBeenCalledWith(PRUNE_FN, expect.anything());
-      rpc.mockClear();
+    it('a plain re-run of a stored week stores nothing (the merge itself keeps only the stored top list)', async () => {
       tableResults.adoption_power_user_weeks = { data: { payload: payload(10), agenda_jobs: {} }, error: null };
       await GET(request({ bearer: SECRET, query: `?week=${WEEK}` }));
-      expect(rpc).not.toHaveBeenCalledWith(PRUNE_FN, expect.anything());
+      expect(rpc).not.toHaveBeenCalledWith(SAVE_FN, expect.anything());
     });
   });
 
   // LOW 4 — the losing run read before the winner queued the fresh job
-  describe('LOW 4: a refused cancel reads the newest job once more before calling it a failure', () => {
+  describe('LOW 4: a refused cancel re-reads the newest job with growing waits before deciding', () => {
     beforeEach(() => {
       supersedeResult = { data: false, error: null }; // the other run cancelled it first
     });
@@ -903,12 +913,30 @@ describe("#4298 panel follow-ups (five LOW findings)", () => {
       expect(usersQueued()).not.toContain('u-01');
     });
 
-    it('still nothing usable on the second read: failed (500)', async () => {
+    it('still no job after every re-read: in flight (the cancelling run records its fresh job), not a failure', async () => {
       const reads = rereadsAnswer([{ data: [], error: null }]);
+      const res = await GET(request({ bearer: SECRET, query: `?week=${WEEK}` }));
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      expect(reads()).toBe(5); // the first read + four waits
+      expect(body.failed).toBe(0);
+      expect(body.in_flight).toBe(1);
+      expect(merged()).not.toHaveProperty('u-01'); // not ours to record
+      expect(usersQueued()).not.toContain('u-01'); // never a second agenda
+    });
+
+    it('a re-read that errors is still a failure (500): we cannot tell', async () => {
+      rereadsAnswer([{ data: null, error: { message: 'boom' } }]);
+      const res = await GET(request({ bearer: SECRET, query: `?week=${WEEK}` }));
+      expect(res.status).toBe(500);
+      expect((await res.json()).failed).toBe(1);
+    });
+
+    it('a replacement that stays stuck after every re-read is a failure (500)', async () => {
+      rereadsAnswer([{ data: [stuckU01()], error: null }]);
       const res = await GET(request({ bearer: SECRET, query: `?week=${WEEK}` }));
       expect(res.status).toBe(500);
       const body = await res.json();
-      expect(reads()).toBe(2);
       expect(body.failed).toBe(1);
       expect(merged()).not.toHaveProperty('u-01');
     });

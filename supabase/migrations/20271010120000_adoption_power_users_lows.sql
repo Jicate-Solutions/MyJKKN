@@ -1,5 +1,5 @@
 -- =============================================================================
--- Adoption: weekly Power Users — three small SQL follow-ups from #4298's panel
+-- Adoption: weekly Power Users — small SQL follow-ups from #4298's panel
 -- =============================================================================
 -- Builds on 20271009115500_adoption_weekly_power_users.sql (already applied;
 -- this file never edits it). Adds two functions and replaces one:
@@ -10,15 +10,21 @@
 --      it re-uses a stored week (no fn_adoption_power_users call), so a re-run
 --      fails closed too and leaves out anyone whose college was added since.
 --      Service role only.
---   2. fn_adoption_power_user_weeks_prune_jobs(date, text[]) — keeps only the
---      agenda_jobs entries of the given people (the new top 10 after
---      ?recompute=1), in one row-locked UPDATE. Never cancels a job; it only
---      stops tracking it. Raises if the week row is missing. Service role only.
---   3. fn_adoption_agenda_supersede_stale(uuid) — same rule as before, plus: a
---      claimed/running job with NEITHER claimed_at nor started_at falls back to
---      requested_at (GREATEST(NULL, NULL) is NULL, so such a job could never be
---      replaced and blocked that person's agenda for good). Same rule as
---      isStaleAgendaJob in lib/adoption/power-users.ts.
+--   2. fn_adoption_power_user_weeks_save(date, jsonb) — stores a freshly
+--      computed report AND, in the same statement, stops tracking the agenda
+--      jobs of people no longer in its top list (#4324 panel LOW: a separate
+--      upsert and clean-up could race a plain re-run, or leave stale ids if the
+--      clean-up failed after the upsert). Never cancels a job; it only stops
+--      recording it. Service role only.
+--   3. fn_adoption_power_user_weeks_merge_jobs(date, jsonb) — REPLACED: still
+--      merges with `||` under the row lock, but now keeps only people in the
+--      row's CURRENT payload.top, so a run that read an older top list cannot
+--      put a dropped person's id back.
+-- fn_adoption_agenda_supersede_stale is NOT changed (#4324 panel MEDIUM): a
+-- claimed/running job with neither claimed_at nor started_at is still never
+-- cancelled. ai_jobs has no other liveness column, so such a job cannot be told
+-- apart from one claimed seconds ago; and every claim path sets claimed_at
+-- (fn_ai_claim, and the TS writers that claim directly), so none is expected.
 -- Changes no table, no row and no policy. Messages nobody.
 -- Rehearsal: supabase/tests/adoption/27_power_users_lows.sql (run.sh).
 -- =============================================================================
@@ -62,58 +68,64 @@ REVOKE EXECUTE ON FUNCTION public.fn_adoption_power_users_exclusions() FROM PUBL
 GRANT  EXECUTE ON FUNCTION public.fn_adoption_power_users_exclusions() TO service_role;
 
 -- ---------------------------------------------------------------------
--- 2) stop tracking agenda jobs of people no longer in the top 10
+-- 2) store a computed report and drop ids of people who left its top list
 -- ---------------------------------------------------------------------
-CREATE OR REPLACE FUNCTION public.fn_adoption_power_user_weeks_prune_jobs(p_week_start date, p_keep_user_ids text[])
+CREATE OR REPLACE FUNCTION public.fn_adoption_power_user_weeks_save(p_week_start date, p_payload jsonb)
 RETURNS void
 LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path = public
 AS $$
 BEGIN
-  IF p_keep_user_ids IS NULL THEN
-    RAISE EXCEPTION 'p_keep_user_ids must be a list of user ids (empty = keep none)';
+  IF p_payload IS NULL OR jsonb_typeof(p_payload) <> 'object'
+     OR jsonb_typeof(p_payload->'top') IS DISTINCT FROM 'array' THEN
+    RAISE EXCEPTION 'p_payload must be a report object with a top list';
   END IF;
-  UPDATE public.adoption_power_user_weeks w
-     SET agenda_jobs = COALESCE(
+  -- One statement: the row lock covers the report and the trimmed id map
+  -- together, so no merge can land between them.
+  INSERT INTO public.adoption_power_user_weeks AS w (week_start, computed_at, payload, agenda_jobs)
+  VALUES (p_week_start, now(), p_payload, '{}'::jsonb)
+  ON CONFLICT (week_start) DO UPDATE
+     SET computed_at = now(),
+         payload     = EXCLUDED.payload,
+         agenda_jobs = COALESCE(
            (SELECT jsonb_object_agg(j.key, j.value)
               FROM jsonb_each(COALESCE(w.agenda_jobs, '{}'::jsonb)) AS j
-             WHERE j.key = ANY (p_keep_user_ids)),
-           '{}'::jsonb)
-   WHERE w.week_start = p_week_start;
-  IF NOT FOUND THEN
-    RAISE EXCEPTION 'fn_adoption_power_user_weeks_prune_jobs: no week row for %', p_week_start;
-  END IF;
+             WHERE j.key IN (SELECT e->>'user_id' FROM jsonb_array_elements(EXCLUDED.payload->'top') AS e)),
+           '{}'::jsonb);
 END;
 $$;
-REVOKE EXECUTE ON FUNCTION public.fn_adoption_power_user_weeks_prune_jobs(date, text[]) FROM PUBLIC, anon, authenticated;
-GRANT  EXECUTE ON FUNCTION public.fn_adoption_power_user_weeks_prune_jobs(date, text[]) TO service_role;
+REVOKE EXECUTE ON FUNCTION public.fn_adoption_power_user_weeks_save(date, jsonb) FROM PUBLIC, anon, authenticated;
+GRANT  EXECUTE ON FUNCTION public.fn_adoption_power_user_weeks_save(date, jsonb) TO service_role;
 
 -- ---------------------------------------------------------------------
--- 3) retire ONE stuck agenda job — now also one with no claim/start time
+-- 3) merge agenda job ids — only for people in the row's current top list
 -- ---------------------------------------------------------------------
-CREATE OR REPLACE FUNCTION public.fn_adoption_agenda_supersede_stale(p_job_id uuid)
-RETURNS boolean
+CREATE OR REPLACE FUNCTION public.fn_adoption_power_user_weeks_merge_jobs(p_week_start date, p_jobs jsonb)
+RETURNS void
 LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path = public
 AS $$
 BEGIN
-  UPDATE public.ai_jobs
-     SET status = 'canceled',
-         error = 'superseded: stuck over 24 h (pending since its request, or claimed/running since the drain took it); the weekly power users run queued a fresh job',
-         completed_at = now()
-   WHERE id = p_job_id
-     AND job_type = 'adoption.chat_agenda'
-     AND ((status = 'pending' AND requested_at < now() - interval '24 hours')
-          OR (status IN ('claimed', 'running')
-              -- neither time recorded: fall back to the request time
-              AND COALESCE(GREATEST(claimed_at, started_at), requested_at) < now() - interval '24 hours'));
-  RETURN FOUND;
+  IF p_jobs IS NULL OR jsonb_typeof(p_jobs) <> 'object' THEN
+    RAISE EXCEPTION 'p_jobs must be a json object of user_id -> job id';
+  END IF;
+  UPDATE public.adoption_power_user_weeks w
+     SET agenda_jobs = COALESCE(
+           (SELECT jsonb_object_agg(j.key, j.value)
+              FROM jsonb_each(COALESCE(w.agenda_jobs, '{}'::jsonb) || p_jobs) AS j
+             WHERE j.key IN (SELECT e->>'user_id' FROM jsonb_array_elements(COALESCE(w.payload->'top', '[]'::jsonb)) AS e)),
+           '{}'::jsonb)
+   WHERE w.week_start = p_week_start;
+  -- No week row = the ids would be dropped while the route reports success.
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'fn_adoption_power_user_weeks_merge_jobs: no week row for %', p_week_start;
+  END IF;
 END;
 $$;
-REVOKE EXECUTE ON FUNCTION public.fn_adoption_agenda_supersede_stale(uuid) FROM PUBLIC, anon, authenticated;
-GRANT  EXECUTE ON FUNCTION public.fn_adoption_agenda_supersede_stale(uuid) TO service_role;
+REVOKE EXECUTE ON FUNCTION public.fn_adoption_power_user_weeks_merge_jobs(date, jsonb) FROM PUBLIC, anon, authenticated;
+GRANT  EXECUTE ON FUNCTION public.fn_adoption_power_user_weeks_merge_jobs(date, jsonb) TO service_role;
 
 DO $$
 BEGIN
@@ -121,12 +133,12 @@ BEGIN
      OR has_function_privilege('authenticated', 'public.fn_adoption_power_users_exclusions()', 'EXECUTE') THEN
     RAISE EXCEPTION 'fn_adoption_power_users_exclusions is callable by a client role';
   END IF;
-  IF has_function_privilege('anon', 'public.fn_adoption_power_user_weeks_prune_jobs(date, text[])', 'EXECUTE')
-     OR has_function_privilege('authenticated', 'public.fn_adoption_power_user_weeks_prune_jobs(date, text[])', 'EXECUTE') THEN
-    RAISE EXCEPTION 'fn_adoption_power_user_weeks_prune_jobs is callable by a client role';
+  IF has_function_privilege('anon', 'public.fn_adoption_power_user_weeks_save(date, jsonb)', 'EXECUTE')
+     OR has_function_privilege('authenticated', 'public.fn_adoption_power_user_weeks_save(date, jsonb)', 'EXECUTE') THEN
+    RAISE EXCEPTION 'fn_adoption_power_user_weeks_save is callable by a client role';
   END IF;
-  IF has_function_privilege('anon', 'public.fn_adoption_agenda_supersede_stale(uuid)', 'EXECUTE')
-     OR has_function_privilege('authenticated', 'public.fn_adoption_agenda_supersede_stale(uuid)', 'EXECUTE') THEN
-    RAISE EXCEPTION 'fn_adoption_agenda_supersede_stale is callable by a client role';
+  IF has_function_privilege('anon', 'public.fn_adoption_power_user_weeks_merge_jobs(date, jsonb)', 'EXECUTE')
+     OR has_function_privilege('authenticated', 'public.fn_adoption_power_user_weeks_merge_jobs(date, jsonb)', 'EXECUTE') THEN
+    RAISE EXCEPTION 'fn_adoption_power_user_weeks_merge_jobs is callable by a client role';
   END IF;
 END $$;
