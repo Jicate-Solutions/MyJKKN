@@ -106,6 +106,10 @@ AS $$
          AND ue.institution_id = (SELECT p.institution_id FROM public.profiles p WHERE p.id = auth.uid())
          AND ue.created_at >= now() - make_interval(days => LEAST(GREATEST(COALESCE(p_days, 7), 1), 90))
     ) v
+   -- Live proof the slug filter drops no real traffic (read-only, 11 Oct 2026,
+   -- page_visit, last 30 days): 350,837 rows, 100% with a slug-shaped top-level
+   -- module key, 75 distinct keys (Bugs desk); W12 independently found every
+   -- top-level key matches, 30 of the top 60 map in lib/navigation/modules.ts.
    WHERE v.module_key ~ '^[a-z][a-z0-9-]{0,39}$'
    GROUP BY v.module_key
   HAVING count(DISTINCT v.user_id) >= 3

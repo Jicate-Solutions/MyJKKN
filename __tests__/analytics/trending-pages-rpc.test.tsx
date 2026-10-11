@@ -69,6 +69,43 @@ describe('useTrendingPages', () => {
     expect(result.current.data?.map((p) => p.path)).toEqual(['/staff']);
   });
 
+  it('maps known usage-key aliases to their module hubs, once each', async () => {
+    rpc.mockResolvedValue({
+      data: [
+        { module: 'students', visit_count: 85 },
+        { module: 'dashboard', visit_count: 60 },
+        { module: 'organization', visit_count: 40 },
+        { module: 'bug-reports', visit_count: 30 },
+        { module: 'learners', visit_count: 20 },
+        // hubs exist but have no modules.ts entry: dropped
+        { module: 'cdc', visit_count: 19 },
+        { module: 'instasolver', visit_count: 18 },
+        { module: 'guide', visit_count: 17 },
+        { module: 'my-desk', visit_count: 16 },
+        // prototype keys must not resolve through the alias map
+        { module: 'constructor', visit_count: 15 },
+        { module: '__proto__', visit_count: 14 },
+      ],
+      error: null,
+    });
+    const { result } = run(10);
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(result.current.data?.map((p) => [p.path, p.title, p.visitCount])).toEqual([
+      ['/learners', 'Learners', 85],
+      ['/dashboard', 'Dashboard (Classic)', 60],
+      ['/organizations', 'Organizations', 40],
+      ['/my-bug-reports', 'My Bug Reports', 30],
+    ]);
+  });
+
+  it.each([0, -3])('returns [] without calling the RPC when limit is %s', async (limit) => {
+    rpc.mockClear();
+    const { result } = run(limit);
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(result.current.data).toEqual([]);
+    expect(rpc).not.toHaveBeenCalled();
+  });
+
   it('returns at most `limit` known modules from the over-fetched rows', async () => {
     rpc.mockResolvedValue({
       data: [
