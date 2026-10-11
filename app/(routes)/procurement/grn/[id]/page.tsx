@@ -90,7 +90,7 @@ export default function GrnDetailPage() {
   const receiveReplacement = useReceiveReplacement(id);
   // Director 11 Oct 2026: for a replacement receipt, the replacement it fulfils and who
   // received the original delivery (that person never checks the replacement in).
-  const { data: replacementOrigin } = useReplacementOrigin(grn?.replacement_id);
+  const { data: replacementOrigin, isError: replacementOriginFailed } = useReplacementOrigin(grn?.replacement_id);
   const updateItem = useUpdateGrnItem(id);
   // I1 held save: a repeated invoice number must be confirmed before verify.
   const dupQuery = useGrnDuplicateInvoice(grn, profile?.id);
@@ -305,6 +305,11 @@ export default function GrnDetailPage() {
                 ? 'Not in stock yet. Someone who did not record it, and did not receive the original delivery, must check it into stock.'
                 : 'Checked into stock by a second person.'}
             </p>
+            {pending && replacementOriginFailed && (
+              <p className="text-destructive">
+                Could not load the replacement it fulfils, so it cannot be checked yet. Reload the page.
+              </p>
+            )}
           </section>
         )}
 
