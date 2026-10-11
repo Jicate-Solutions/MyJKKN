@@ -47,4 +47,25 @@ describe('useTrendingPages', () => {
       ['/attendance', 'Attendance', 'attendance', 3],
     ]);
   });
+
+  it('drops any path that is not a single-slash same-site path', async () => {
+    rpc.mockResolvedValue({
+      data: [
+        { module: 'x', page_path: '//evil.com', visit_count: 900 },
+        { module: 'x', page_path: '/\\evil.com', visit_count: 800 },
+        { module: 'x', page_path: 'https://evil.com/login', visit_count: 700 },
+        { module: 'x', page_path: 'javascript:alert(1)', visit_count: 600 },
+        { module: 'attendance', page_path: '/attendance', visit_count: 3 },
+      ],
+      error: null,
+    });
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const wrapper = ({ children }: { children: React.ReactNode }) => (
+      <QueryClientProvider client={client}>{children}</QueryClientProvider>
+    );
+
+    const { result } = renderHook(() => useTrendingPages(5), { wrapper });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(result.current.data?.map((p) => p.path)).toEqual(['/attendance']);
+  });
 });

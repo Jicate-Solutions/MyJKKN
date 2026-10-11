@@ -19,7 +19,7 @@ export function useTrendingPages(limit: number = 5) {
 
       // Aggregate RPC (SECURITY DEFINER): top page paths + visit counts for the
       // caller's OWN institution, no user ids. Raw usage_events rows are readable
-      // only by institution admins (20271010090000_usage_events_rls_hardening).
+      // only by institution admins (20271010094500_usage_events_rls_hardening).
       const { data, error } = await supabase.rpc('fn_usage_trending_pages' as never, {
         p_days: 7,
         p_limit: limit,
@@ -37,6 +37,10 @@ export function useTrendingPages(limit: number = 5) {
       const counts = new Map<string, { module: string; path: string; count: number }>();
       for (const row of rows) {
         const path = row.page_path;
+        // Same-site paths only: '//host' and '/\\host' open another site.
+        if (typeof path !== 'string' || !path.startsWith('/') || path.startsWith('//') || path.startsWith('/\\')) {
+          continue;
+        }
         const existing = counts.get(path);
         if (existing) {
           existing.count += Number(row.visit_count) || 0;

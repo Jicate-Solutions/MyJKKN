@@ -367,6 +367,76 @@ describe('HARDENED (after 20271010094500)', () => {
     expect(r.rows).toEqual([]);
   });
 
+  it('a signed-in user cannot insert an event tagged with ANOTHER institution', async () => {
+    const r = await actAs(
+      'hard',
+      'authenticated',
+      people.plain,
+      `INSERT INTO public.usage_events (user_id, event_type, module, institution_id, source)
+       VALUES ($1, 'search', 'navigation', $2, 'client')`,
+      [people.plain, INST_B]
+    );
+    expect(r.error).toBe('42501');
+  });
+
+  it('a signed-in user can insert their own search event with a NULL institution', async () => {
+    const r = await actAs(
+      'hard',
+      'authenticated',
+      people.plain,
+      `INSERT INTO public.usage_events (user_id, event_type, module, institution_id, source)
+       VALUES ($1, 'search', 'navigation', NULL, 'client')`,
+      [people.plain]
+    );
+    expect(r.error).toBeNull();
+    expect(r.rowCount).toBe(1);
+  });
+
+  it('a signed-in user cannot insert a page_visit (or any non-search event) from the browser', async () => {
+    for (const eventType of ['page_visit', 'create']) {
+      const r = await actAs(
+        'hard',
+        'authenticated',
+        people.plain,
+        `INSERT INTO public.usage_events (user_id, event_type, module, institution_id, metadata)
+         VALUES ($1, $2, 'x', $3, '{"page_path":"//evil.com"}')`,
+        [people.plain, eventType, INST_A]
+      );
+      expect(r.error).toBe('42501');
+    }
+  });
+
+  it('fn_usage_trending_pages never returns an off-site path, however many visits it has', async () => {
+    const c = clients.hard;
+    await c.query('BEGIN');
+    try {
+      // Written as service_role — the only writer of page_visit — with
+      // client-supplied paths, as the usage beacon route would.
+      await c.query('SET LOCAL ROLE service_role');
+      for (const p of ['//evil.com', '/\\evil.com', 'https://evil.com/x', 'javascript:alert(1)']) {
+        for (let i = 0; i < 5; i++) {
+          await c.query(
+            `INSERT INTO public.usage_events (user_id, event_type, module, institution_id, metadata)
+             VALUES ($1, 'page_visit', 'x', $2, jsonb_build_object('page_path', $3::text))`,
+            [people.colleague, INST_A, p]
+          );
+        }
+      }
+      // A module-only row whose fallback path would be '//evil.com'.
+      await c.query(
+        `INSERT INTO public.usage_events (user_id, event_type, module, institution_id)
+         VALUES ($1, 'page_visit', '/evil.com', $2)`,
+        [people.colleague, INST_A]
+      );
+      await c.query(`SELECT set_config('test.acting_uid', $1, true)`, [people.plain]);
+      await c.query('SET LOCAL ROLE authenticated');
+      const rows = (await c.query(`SELECT * FROM public.fn_usage_trending_pages(7, 50)`)).rows;
+      expect(rows.map((r: any) => r.page_path)).toEqual(['/billing', '/attendance']);
+    } finally {
+      await c.query('ROLLBACK');
+    }
+  });
+
   it('anon cannot call fn_usage_trending_pages', async () => {
     const r = await actAs('hard', 'anon', null, `SELECT * FROM public.fn_usage_trending_pages(7, 5)`);
     expect(r.error).toBe('42501');

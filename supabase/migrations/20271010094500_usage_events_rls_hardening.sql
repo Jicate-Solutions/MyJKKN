@@ -33,12 +33,24 @@
 
 BEGIN;
 
--- (a) blind INSERT → own-row INSERT for signed-in users only
+-- (a) blind INSERT → own-row INSERT for signed-in users only. The ONLY browser
+-- writer is lib/navigation/search-analytics.ts (event_type 'search', the
+-- caller's own profile.institution_id or NULL). page_visit and every other
+-- event type come from the service-role route, so a browser may not write them
+-- — otherwise anyone could forge page visits that fn_usage_trending_pages shows
+-- as trending, and pin them to ANOTHER institution's id.
 DROP POLICY IF EXISTS "Service role can insert usage_events" ON public.usage_events;
 DROP POLICY IF EXISTS "usage_events_insert_own" ON public.usage_events;
 CREATE POLICY "usage_events_insert_own" ON public.usage_events
   FOR INSERT TO authenticated
-  WITH CHECK (user_id = (SELECT auth.uid()));
+  WITH CHECK (
+    user_id = (SELECT auth.uid())
+    AND event_type = 'search'
+    AND (
+      institution_id IS NULL
+      OR institution_id = (SELECT p.institution_id FROM public.profiles p WHERE p.id = (SELECT auth.uid()))
+    )
+  );
 
 -- (b) institution read → institution ADMIN read
 DROP POLICY IF EXISTS "Institution admin can view own institution usage_events" ON public.usage_events;
@@ -62,7 +74,9 @@ REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON public.usage_events FROM anon;
 REVOKE UPDATE, DELETE, TRUNCATE ON public.usage_events FROM authenticated;
 
 -- Trending pages for the command palette — aggregate only, caller's own
--- institution, no user ids.
+-- institution, no user ids. Only same-site paths ('/x', never '//host' or
+-- '/\host', which browsers treat as another site) are ever returned, because
+-- the page path comes from the client (the usage beacon's request body).
 -- ci:allow-secdef-authenticated every signed-in user may see the top page paths + visit counts of their OWN institution (derived from auth.uid(), not a parameter); no user ids or metadata are returned. Replaces the per-row read TrendingPages.tsx made through the old open policy (b).
 CREATE OR REPLACE FUNCTION public.fn_usage_trending_pages(p_days integer DEFAULT 7, p_limit integer DEFAULT 5)
 RETURNS TABLE (module text, page_path text, visit_count bigint)
@@ -71,14 +85,20 @@ STABLE
 SECURITY DEFINER
 SET search_path = public
 AS $$
-  SELECT min(ue.module)                                              AS module,
-         COALESCE(ue.metadata->>'page_path', '/' || ue.module)      AS page_path,
-         count(*)                                                    AS visit_count
-    FROM public.usage_events ue
-   WHERE ue.event_type = 'page_visit'
-     AND ue.institution_id = (SELECT p.institution_id FROM public.profiles p WHERE p.id = auth.uid())
-     AND ue.created_at >= now() - make_interval(days => LEAST(GREATEST(COALESCE(p_days, 7), 1), 90))
-   GROUP BY 2
+  SELECT min(v.module)  AS module,
+         v.page_path      AS page_path,
+         count(*)         AS visit_count
+    FROM (
+      SELECT ue.module,
+             COALESCE(ue.metadata->>'page_path', '/' || ue.module) AS page_path
+        FROM public.usage_events ue
+       WHERE ue.event_type = 'page_visit'
+         AND ue.institution_id = (SELECT p.institution_id FROM public.profiles p WHERE p.id = auth.uid())
+         AND ue.created_at >= now() - make_interval(days => LEAST(GREATEST(COALESCE(p_days, 7), 1), 90))
+    ) v
+   WHERE left(v.page_path, 1) = '/'
+     AND left(v.page_path, 2) NOT IN ('//', '/\')
+   GROUP BY v.page_path
    ORDER BY 3 DESC, 2
    LIMIT LEAST(GREATEST(COALESCE(p_limit, 5), 1), 50);
 $$;
@@ -113,6 +133,9 @@ BEGIN
    WHERE schemaname = 'public' AND tablename = 'usage_events' AND cmd = 'INSERT';
   IF v_check IS NULL OR v_check NOT ILIKE '%auth.uid()%' THEN
     RAISE EXCEPTION 'usage_events INSERT policy does not pin user_id to auth.uid(): %', v_check;
+  END IF;
+  IF v_check NOT ILIKE '%institution_id%' OR v_check NOT ILIKE '%event_type%' THEN
+    RAISE EXCEPTION 'usage_events INSERT policy does not pin institution_id and event_type: %', v_check;
   END IF;
 END $$;
 
