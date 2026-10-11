@@ -184,7 +184,8 @@
 --          stays fulfilled: its link (replacement_grn_item_id) is written once, to a line
 --          of the receipt naming it, and received -> pending (receiveReplacement's
 --          rollback) needs grn_verify and is refused while any receipt names it. The
---          receipt's replacement_id can no longer be cleared (rule 9b, admins excepted).
+--          receipt's replacement_id can no longer be cleared (rule 9b; admins too since
+--          R2 skeptic round 2, section 15).
 --          App roles lose TRUNCATE on the GRN and IMS receipt tables (no row trigger).
 --      M5. fn_procurement_grn_has_duplicate, called directly, answers about every college
 --          only for an admin or a verifier who did not receive the receipt; anyone else
@@ -265,6 +266,20 @@
 --          Exactly-once is unchanged: the pending -> received claim is the mutex, one
 --          receipt per replacement (unique index), the receipt's own pending -> posted
 --          update is the verify mutex, and the link is written once.
+--      R2 skeptic round 2 (2026-10-11):
+--          * a receipt's replacement_id is now frozen for admins too (rule 9b): it is set
+--            only at INSERT, by its recorder, so whoever made a receipt a replacement
+--            receipt is always the person E1 bars from checking it (an admin alone used to
+--            point someone else's ordinary pending receipt at a replacement and check it
+--            in), and the original receiver can no longer clear the marker and check the
+--            replacement goods in as an ordinary delivery. Only ON DELETE SET NULL clears
+--            it, after the replacement row is gone;
+--          * trg_pgrnr_delete_guard refuses deleting a replacement that a receipt names,
+--            for admins too (an admin removes the receipt first);
+--          * trg_pgrni_00_posted_lock: a line is marked as in stock (domain_posted_at)
+--            only while its receipt is in a posted status — a pending line could be
+--            pre-marked by anyone at the college, which blocked the recorder's rollback
+--            (claim stuck) and let verifyGrn skip the post (receipt in stock, nothing in).
 --
 -- I1 is deliberately NOT a unique index: the Director chose "confirm and allow" for
 -- honest resends, which a unique constraint would forbid.
@@ -602,11 +617,17 @@ BEGIN
     --     ordinary receipt's receiver, who never touched the replacement. A receipt becomes
     --     a replacement receipt only at INSERT, where received_by is pinned to its recorder
     --     (rule a), so whoever made it a replacement is always the one E1 bars from checking
-    --     it. Only clearing it stays open to admins: ON DELETE SET NULL fires this trigger
-    --     when an admin deletes the replacement row.
+    --     it. Clearing it is refused to admins too (skeptic round 2, A1.4: the original
+    --     receiver, an admin, cleared the marker, typed an invoice number and checked the
+    --     replacement goods in as an ordinary delivery in one statement — and the claim
+    --     could then be reopened and the goods received twice). The only clear left is
+    --     ON DELETE SET NULL, which fires this trigger after the replacement row is gone
+    --     (trg_pgrnr_delete_guard keeps a named replacement row from being deleted by an
+    --     app user, so that happens only by cascade or for the service role).
     IF NEW.replacement_id IS DISTINCT FROM OLD.replacement_id
        AND (NEW.replacement_id IS NOT NULL
-            OR NOT (public.is_super_admin() OR public.is_admin())) THEN
+            OR EXISTS (SELECT 1 FROM public.procurement_grn_replacements r
+                        WHERE r.id = OLD.replacement_id)) THEN
       RAISE EXCEPTION 'which replacement a delivery fulfils cannot be changed after it is recorded'
         USING ERRCODE = '42501';
     END IF;
@@ -1517,7 +1538,8 @@ CREATE TRIGGER trg_pgrnr_replacement_checks
 -- them must not be open. pgrnr_parent_scope is FOR ALL (institution only), so anyone at
 -- the college could delete a line's replacements — fulfilled ones included — and raise
 -- the full rejected quantity again. No app path deletes a replacement row; only an admin
--- or the service role may. When the delivery line itself is already gone (a cascade
+-- or the service role may — an admin only while no delivery names it (R2 skeptic round 2,
+-- rule 9b). When the delivery line itself is already gone (a cascade
 -- from a line delete, which trg_pgrni_delete_guard judged) the row goes with it.
 CREATE OR REPLACE FUNCTION public.fn_procurement_grn_replacement_delete_guard()
 RETURNS trigger
@@ -1525,11 +1547,21 @@ LANGUAGE plpgsql
 SET search_path = public
 AS $$
 BEGIN
-  IF coalesce(auth.role(), '') = 'service_role'
-     OR public.is_super_admin() OR public.is_admin() THEN
+  IF coalesce(auth.role(), '') = 'service_role' THEN
     RETURN OLD;
   END IF;
   IF NOT EXISTS (SELECT 1 FROM public.procurement_grn_items gi WHERE gi.id = OLD.grn_item_id) THEN
+    RETURN OLD;
+  END IF;
+  -- R2 skeptic round 2: a replacement that a delivery was recorded for stays, for admins
+  -- too — deleting it would clear that delivery's marker (ON DELETE SET NULL) and turn the
+  -- replacement goods into an ordinary delivery that its original receiver could check in.
+  -- An admin removes the delivery first (trg_pgrn_delete_guard allows it while pending).
+  IF EXISTS (SELECT 1 FROM public.procurement_grn g WHERE g.replacement_id = OLD.id) THEN
+    RAISE EXCEPTION 'a delivery has been recorded for this replacement, so it cannot be deleted — remove that delivery first, if it is wrong'
+      USING ERRCODE = '42501';
+  END IF;
+  IF public.is_super_admin() OR public.is_admin() THEN
     RETURN OLD;
   END IF;
   RAISE EXCEPTION 'a replacement request cannot be deleted — ask an admin'
