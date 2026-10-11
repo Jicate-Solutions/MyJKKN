@@ -1634,6 +1634,20 @@ BEGIN
     RAISE EXCEPTION 'only the person who recorded this replacement delivery can add its line or change its quantities'
       USING ERRCODE = '42501';
   END IF;
+  -- R2 skeptic round 2 (SK.A4 / SK.B3): a line is marked as in stock (domain_posted_at)
+  -- only while its delivery is in a posted status — which is when both real markers run
+  -- (fn_procurement_rm_post_receipt refuses a receipt that is not posted; markLinePosted
+  -- runs after verifyGrn's provisional 'accepted'). Before, anyone at the college could
+  -- mark a line of a pending receipt: the delete guards then took it to be in stock, so the
+  -- recorder's rollback was refused and a replacement stayed claimed; and verifyGrn would
+  -- skip the "already posted" line, so a receipt could reach stock with nothing posted.
+  IF (CASE WHEN TG_OP = 'INSERT' THEN NEW.domain_posted_at IS NOT NULL
+           ELSE NEW.domain_posted_at IS DISTINCT FROM OLD.domain_posted_at END)
+     AND NOT (v_found
+              AND v_status IN ('accepted', 'partially_accepted', 'replacement_requested', 'completed')) THEN
+    RAISE EXCEPTION 'a delivery line is marked as in stock only when its delivery is checked into stock'
+      USING ERRCODE = '42501';
+  END IF;
   IF NOT v_found
      OR NOT (v_status IN ('accepted', 'partially_accepted', 'replacement_requested', 'completed')
              OR v_first IS NOT NULL) THEN
