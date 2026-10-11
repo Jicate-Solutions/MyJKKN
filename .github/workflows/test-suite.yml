@@ -198,6 +198,7 @@ jobs:
       MEETING_HISTORY_TEST_PGUSER: postgres   # __tests__/ai-query/meeting-history.pg.test.ts (#4051)
       HR_INTAKE_TEST_PGUSER: postgres   # __tests__/hr/intake/intake-schema.pg.test.ts
       DIVLOCK_TEST_PGUSER: postgres   # __tests__/events/tournament-division-results-lock.pg.test.ts (#4304)
+      KITSRC_TEST_PGUSER: postgres   # __tests__/ims/kit-source-central-store-admin.pg.test.ts (Q-1010-395)
 
     steps:
       - uses: actions/checkout@v4

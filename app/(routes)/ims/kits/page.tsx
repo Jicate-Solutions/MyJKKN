@@ -26,13 +26,14 @@ import { Plus, Play, Package, Users, CalendarRange, Trash2, Undo2 } from 'lucide
 import { toast } from 'sonner';
 import {
   useKitRules, useCreateKitRule, useUpdateKitRule,
-  useKitRuleItems, useAddKitRuleItem, useRemoveKitRuleItem,
+  useKitRuleItems, useAddKitRuleItem, useRemoveKitRuleItem, useResetKitSource,
   useKitRuleMembers, useAddKitRuleMember, useRemoveKitRuleMember,
   useKitWindows, useCreateKitWindow, useToggleKitWindow,
   useResolveKitRule, useRevokeKitRuleEntitlements,
   useKitInstitutions, useKitPrograms, useKitDepartments,
 } from '@/hooks/ims/use-ims-kits';
-import { ImsKitService, KIT_SCREEN_SOURCE_OPTIONS, type KitRule, type KitPerson, type KitSource } from '@/lib/services/ims/kit-service';
+import { ImsKitService, isKitStoreAdmin, kitSourceOptionsFor, type KitRule, type KitPerson, type KitSource } from '@/lib/services/ims/kit-service';
+import { usePermissions } from '@/hooks/use-permissions';
 
 const ANY = '__any__'; // Radix Select forbids value="" (repo CI gate)
 
@@ -314,6 +315,13 @@ function RuleDetail({ rule }: { rule: KitRule }) {
   const { data: members = [] } = useKitRuleMembers(rule.id);
   const addItem = useAddKitRuleItem();
   const removeItem = useRemoveKitRuleItem(rule.id);
+  const resetSource = useResetKitSource(rule.id);
+  // Q-1010-395: Central store and Reset source are for store admins only —
+  // keyed on profiles.role, the same field the database trigger checks.
+  const { userProfile } = usePermissions();
+  const callerRole = userProfile?.role ?? null;
+  const storeAdmin = isKitStoreAdmin(callerRole);
+  const sourceOptions = kitSourceOptionsFor(callerRole);
   const addMember = useAddKitRuleMember();
   const removeMember = useRemoveKitRuleMember(rule.id);
   const resolve = useResolveKitRule();
@@ -372,6 +380,27 @@ function RuleDetail({ rule }: { rule: KitRule }) {
             <div key={it.id} className="flex items-center justify-between rounded border p-2 text-sm">
               <span>{it.item?.name ?? it.item_id} × {it.quantity}</span>
               <span className="flex items-center gap-2">
+                {it.item?.kit_source && (
+                  <Badge variant="secondary">{it.item.kit_source === 'college' ? 'College store' : 'Central store'}</Badge>
+                )}
+                {storeAdmin && it.item?.kit_source && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    disabled={resetSource.isPending}
+                    title="Clear this item's kit source (store admin)"
+                    onClick={async () => {
+                      try {
+                        await resetSource.mutateAsync({ itemId: it.item_id, callerRole });
+                        toast.success('Kit source reset');
+                      } catch (e: unknown) {
+                        toast.error(e instanceof Error ? e.message : 'Reset failed');
+                      }
+                    }}
+                  >
+                    Reset source
+                  </Button>
+                )}
                 <Badge variant="outline">{it.cadence === 'yearly' ? 'Every year' : 'Once'}</Badge>
                 <Button variant="ghost" size="sm" onClick={() => removeItem.mutate(it.id)}>
                   <Trash2 className="h-3 w-3" />
@@ -403,7 +432,7 @@ function RuleDetail({ rule }: { rule: KitRule }) {
                         <SelectValue placeholder="Source…" />
                       </SelectTrigger>
                       <SelectContent>
-                        {KIT_SCREEN_SOURCE_OPTIONS.map((o) => (
+                        {sourceOptions.map((o) => (
                           <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
                         ))}
                       </SelectContent>
@@ -421,7 +450,7 @@ function RuleDetail({ rule }: { rule: KitRule }) {
                     try {
                       await addItem.mutateAsync({
                         rule_id: rule.id, item_id: r.id, quantity: Number(qty) || 1, cadence,
-                        ...(r.kit_source ? {} : { kit_source: pickedSource[r.id] }),
+                        ...(r.kit_source ? {} : { kit_source: pickedSource[r.id], caller_role: callerRole }),
                       });
                       // Bump the sequence so a search still in flight cannot
                       // repopulate the results we just cleared.

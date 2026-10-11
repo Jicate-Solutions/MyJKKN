@@ -55,6 +55,19 @@ export function useAddKitRuleItem() {
   });
 }
 
+// Q-1010-395: store admin resets an item's kit source (the DB refuses others).
+export function useResetKitSource(ruleId: string | null) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ itemId, callerRole }: { itemId: string; callerRole: string | null | undefined }) =>
+      ImsKitService.resetKitSource(itemId, callerRole),
+    onSettled: () => {
+      qc.invalidateQueries({ queryKey: ['ims-kit-rule-items', ruleId] });
+      qc.invalidateQueries({ queryKey: ['ims-items'] });
+    },
+  });
+}
+
 export function useRemoveKitRuleItem(ruleId: string | null) {
   const qc = useQueryClient();
   return useMutation({

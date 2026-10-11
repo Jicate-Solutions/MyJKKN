@@ -22,6 +22,7 @@ function from(table: string) {
       const chain = {
         eq: (c: string, v: unknown) => (call.filters!.push(['eq', c, v]), chain),
         is: (c: string, v: unknown) => (call.filters!.push(['is', c, v]), chain),
+        not: (c: string, op: string, v: unknown) => (call.filters!.push(['not', `${c}.${op}`, v]), chain),
         select: () => Promise.resolve(updateResult),
       };
       return chain;
@@ -34,6 +35,7 @@ function from(table: string) {
         or: (v: string) => (call.filters!.push(['or', v, null]), chain),
         maybeSingle: () => Promise.resolve(table === 'ims_kit_rules' ? ruleResult : readResult),
         limit: () => Promise.resolve(searchResult),
+        order: () => Promise.resolve({ data: [], error: null }),
       };
       return chain;
     },
@@ -51,7 +53,12 @@ vi.mock('@/lib/utils/enhanced-logger', () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
 }));
 
-import { ImsKitService, KIT_SCREEN_SOURCE_OPTIONS } from '../kit-service';
+import {
+  ImsKitService,
+  KIT_SCREEN_SOURCE_OPTIONS,
+  KIT_SCREEN_SOURCE_OPTIONS_STORE_ADMIN,
+  kitSourceOptionsFor,
+} from '../kit-service';
 
 const base = { rule_id: 'rule-1', item_id: 'item-1', quantity: 1, cadence: 'yearly' };
 
@@ -217,5 +224,112 @@ describe('ImsKitService.searchItems (kit rule panel scope)', () => {
     const err = await ImsKitService.addRuleItem(base).catch((e: unknown) => e);
     expect(err).toBeInstanceOf(Error);
     expect((err as Error).message).toMatch(/\(D32\)/);
+  });
+});
+
+// Q-1010-395 (Director 11 Oct 2026): only store admins mark Central / reset.
+describe('Central store and reset — store admins only (Q-1010-395)', () => {
+  const STORE_ADMIN_ONLY = 'Only a store admin can mark an item Central or reset its source.';
+
+  it('college team members (any non-admin role) are still refused Central — no read, no write', async () => {
+    for (const caller_role of [undefined, null, 'staff', 'hod', 'admin']) {
+      calls.length = 0;
+      await expect(
+        ImsKitService.addRuleItem({ ...base, kit_source: 'central', caller_role }),
+      ).rejects.toThrow('Central store items are set up by a store admin in item setup');
+      expect(calls).toEqual([]);
+    }
+  });
+
+  it('the picker offers Central only to store_admin / super_admin', () => {
+    expect(kitSourceOptionsFor('staff').map((o) => o.value)).toEqual(['college']);
+    expect(kitSourceOptionsFor(null).map((o) => o.value)).toEqual(['college']);
+    expect(kitSourceOptionsFor('store_admin')).toBe(KIT_SCREEN_SOURCE_OPTIONS_STORE_ADMIN);
+    expect(kitSourceOptionsFor('super_admin').map((o) => o.value)).toEqual(['college', 'central']);
+    expect(KIT_SCREEN_SOURCE_OPTIONS_STORE_ADMIN.map((o) => o.label)).toEqual(['College store', 'Central store']);
+  });
+
+  it('a store admin marks the item Central, then adds the rule item (caller_role never sent to the DB)', async () => {
+    await ImsKitService.addRuleItem({ ...base, kit_source: 'central', caller_role: 'store_admin' });
+    expect(writes()).toEqual([
+      { table: 'ims_items', op: 'update', arg: { kit_source: 'central' } },
+      { table: 'ims_kit_rule_items', op: 'insert', arg: base },
+    ]);
+    const upd = calls.find((c) => c.op === 'update')!;
+    // No NULL guard: College -> Central is a store-admin change the trigger allows.
+    expect(upd.filters).not.toContainEqual(['is', 'kit_source', null]);
+    expect(upd.filters).toContainEqual(['eq', 'institution_id', 'inst-A']);
+  });
+
+  it('a super admin may mark Central on a rule spanning all colleges (no institution scope)', async () => {
+    ruleResult = { data: { institution_id: null }, error: null };
+    await ImsKitService.addRuleItem({ ...base, kit_source: 'central', caller_role: 'super_admin' });
+    const upd = calls.find((c) => c.op === 'update')!;
+    expect(upd.filters).toEqual([['eq', 'id', 'item-1']]);
+    expect(writes().at(-1)).toEqual({ table: 'ims_kit_rule_items', op: 'insert', arg: base });
+  });
+
+  it('store admin, 0 rows but item already Central → carries on', async () => {
+    updateResult = { data: [], error: null };
+    readResult = { data: { kit_source: 'central', institution_id: 'inst-A' }, error: null };
+    await ImsKitService.addRuleItem({ ...base, kit_source: 'central', caller_role: 'store_admin' });
+    expect(writes().at(-1)).toEqual({ table: 'ims_kit_rule_items', op: 'insert', arg: base });
+  });
+
+  it('store admin, 0 rows and not Central → plain refusal, no insert', async () => {
+    updateResult = { data: [], error: null };
+    readResult = { data: { kit_source: null, institution_id: 'inst-A' }, error: null };
+    await expect(
+      ImsKitService.addRuleItem({ ...base, kit_source: 'central', caller_role: 'store_admin' }),
+    ).rejects.toThrow(STORE_ADMIN_ONLY);
+    expect(calls.some((c) => c.op === 'insert')).toBe(false);
+  });
+
+  it('the DB trigger refusal (42501) reaches the user as a real Error', async () => {
+    updateResult = { data: null, error: { message: STORE_ADMIN_ONLY, code: '42501' } };
+    const err = await ImsKitService.addRuleItem({ ...base, kit_source: 'central', caller_role: 'store_admin' })
+      .catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(Error);
+    expect((err as Error).message).toBe(STORE_ADMIN_ONLY);
+  });
+
+  it('reset is refused for non-admins — nothing sent', async () => {
+    for (const role of [undefined, null, 'staff', 'admin']) {
+      calls.length = 0;
+      await expect(ImsKitService.resetKitSource('item-1', role)).rejects.toThrow(STORE_ADMIN_ONLY);
+      expect(calls).toEqual([]);
+    }
+  });
+
+  it('reset works for a store admin: sets kit_source NULL on a classified item', async () => {
+    await ImsKitService.resetKitSource('item-1', 'store_admin');
+    expect(writes()).toEqual([{ table: 'ims_items', op: 'update', arg: { kit_source: null } }]);
+    expect(calls[0].filters).toEqual([
+      ['eq', 'id', 'item-1'],
+      ['not', 'kit_source.is', null],
+    ]);
+  });
+
+  it('reset of an item with no source says so (0 rows)', async () => {
+    updateResult = { data: [], error: null };
+    readResult = { data: { kit_source: null }, error: null };
+    await expect(ImsKitService.resetKitSource('item-1', 'super_admin')).rejects.toThrow(
+      'This item has no kit source to reset',
+    );
+  });
+
+  it('reset of an item the admin cannot see says so (0 rows, no row)', async () => {
+    updateResult = { data: [], error: null };
+    readResult = { data: null, error: null };
+    await expect(ImsKitService.resetKitSource('item-1', 'store_admin')).rejects.toThrow(
+      'Item not found, or you cannot see it',
+    );
+  });
+
+  it("getRuleItems reads each item's kit_source (badge + Reset source on the rule)", async () => {
+    await ImsKitService.getRuleItems('rule-1');
+    expect(calls[0]).toMatchObject({
+      table: 'ims_kit_rule_items', op: 'select', arg: '*, item:ims_items(name, code, kit_source)',
+    });
   });
 });
