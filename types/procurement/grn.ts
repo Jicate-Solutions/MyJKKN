@@ -36,6 +36,13 @@ export interface ProcurementGrn {
   verified_by: string | null;
   verified_at: string | null;
   notes: string | null;
+  /** I1: verifier (never the receiver) who confirmed a same-number invoice is genuinely different. */
+  duplicate_confirmed_by?: string | null;
+  duplicate_confirmed_at?: string | null;
+  /** I4: why an invoice older than the receiver's limit was accepted. */
+  late_invoice_reason?: string | null;
+  /** D2: the replacement this receipt fulfils (set by receiveReplacement; server-checked). */
+  replacement_id?: string | null;
   created_at: string;
   updated_at: string;
   supplier?: { id: string; name: string; code: string; gstin: string | null } | null;
@@ -128,6 +135,8 @@ export interface CreateGrnInput {
   invoice_document_url?: string | null;
   notes?: string | null;
   expectations?: GrnExpectations | null;
+  /** I4: required when the invoice is older than expectations.max_invoice_age_days. */
+  late_invoice_reason?: string | null;
   lines: GrnLineInput[];
 }
 
@@ -148,6 +157,11 @@ export interface ProcurementGrnReplacement {
     is_chemical: boolean;
     domain_item_id: string | null;
   } | null;
+  /**
+   * Director 11 Oct 2026: the pending receipt recorded for a claimed replacement, until a
+   * second person checks it into stock (read by getReplacements).
+   */
+  receipt?: { id: string; grn_number: string; status: string } | null;
 }
 
 /** Payload when the supplier delivers replacement goods for a rejected line. */
