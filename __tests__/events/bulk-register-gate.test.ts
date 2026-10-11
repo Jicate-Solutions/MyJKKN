@@ -5,7 +5,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 const auth = vi.hoisted(() => ({ user: { id: 'u1' } as { id: string } | null }));
-const canManageEventOps = vi.hoisted(() => vi.fn());
+const canWriteEventRegistrations = vi.hoisted(() => vi.fn());
 const marathonBulk = vi.hoisted(() => vi.fn());
 const sharedBulk = vi.hoisted(() => vi.fn());
 const getCategoryInfo = vi.hoisted(() => vi.fn());
@@ -24,7 +24,7 @@ vi.mock('@/lib/supabase/server', () => ({
   }),
   createServiceRoleClient: () => ({}),
 }));
-vi.mock('@/lib/services/events/shared/event-manage-access', () => ({ canManageEventOps }));
+vi.mock('@/lib/services/events/shared/event-manage-access', () => ({ canWriteEventRegistrations }));
 vi.mock('@/lib/services/events/marathon/marathon-bulk-registration-service', () => ({
   MarathonBulkRegistrationService: {
     validateRows: (rows: unknown[]) => ({ validRows: rows, errors: [] }),
@@ -62,7 +62,7 @@ const ROWS = { rows: [{ name: 'Asha', phone: '9876543210', category: '5K' }], ca
 
 beforeEach(() => {
   auth.user = { id: 'u1' };
-  canManageEventOps.mockReset();
+  canWriteEventRegistrations.mockReset();
   marathonBulk.mockReset().mockResolvedValue(ok());
   sharedBulk.mockReset().mockResolvedValue(ok());
   getCategoryInfo.mockReset().mockResolvedValue([]);
@@ -71,18 +71,18 @@ beforeEach(() => {
 
 describe('POST bulk-register', () => {
   it('a signed-in user without event-ops rights gets 403 and nothing is written', async () => {
-    canManageEventOps.mockResolvedValue(false);
+    canWriteEventRegistrations.mockResolvedValue(false);
     const res = await post(ROWS);
     expect(res.status).toBe(403);
     expect((await res.json()).error).toMatch(/permission/i);
-    expect(canManageEventOps).toHaveBeenCalledWith(expect.objectContaining({ userId: 'u1' }), EV);
+    expect(canWriteEventRegistrations).toHaveBeenCalledWith(expect.objectContaining({ userId: 'u1' }), EV);
     expect(marathonBulk).not.toHaveBeenCalled();
     expect(sharedBulk).not.toHaveBeenCalled();
     expect(getCategoryInfo).not.toHaveBeenCalled();
   });
 
   it('a refused caller is refused even for a category-less event', async () => {
-    canManageEventOps.mockResolvedValue(false);
+    canWriteEventRegistrations.mockResolvedValue(false);
     const res = await post({ rows: ROWS.rows });
     expect(res.status).toBe(403);
     expect(sharedBulk).not.toHaveBeenCalled();
@@ -90,7 +90,7 @@ describe('POST bulk-register', () => {
   });
 
   it('an event manager gets through and the rows are registered', async () => {
-    canManageEventOps.mockResolvedValue(true);
+    canWriteEventRegistrations.mockResolvedValue(true);
     const res = await post(ROWS);
     expect(res.status).toBe(200);
     expect(marathonBulk).toHaveBeenCalledWith(EV, ROWS.rows);
@@ -100,28 +100,53 @@ describe('POST bulk-register', () => {
     auth.user = null;
     const res = await post(ROWS);
     expect(res.status).toBe(401);
-    expect(canManageEventOps).not.toHaveBeenCalled();
+    expect(canWriteEventRegistrations).not.toHaveBeenCalled();
     expect(marathonBulk).not.toHaveBeenCalled();
   });
 
   it('the 1000-row limit still holds for a manager', async () => {
-    canManageEventOps.mockResolvedValue(true);
+    canWriteEventRegistrations.mockResolvedValue(true);
     const res = await post({ rows: Array.from({ length: 1001 }, () => ROWS.rows[0]), categoryCodes: ['5K'] });
     expect(res.status).toBe(400);
     expect(marathonBulk).not.toHaveBeenCalled();
   });
 });
 
+describe('malformed event id', () => {
+  const bad = { params: Promise.resolve({ eventId: 'not-a-uuid' }) };
+  it('POST is a 400 before the access check runs', async () => {
+    const res = await POST(
+      new NextRequest('http://x/api/events/marathon/not-a-uuid/bulk-register', {
+        method: 'POST',
+        body: JSON.stringify(ROWS),
+      }),
+      bad,
+    );
+    expect(res.status).toBe(400);
+    expect(canWriteEventRegistrations).not.toHaveBeenCalled();
+    expect(marathonBulk).not.toHaveBeenCalled();
+  });
+
+  it('GET template is a 400 before the access check runs', async () => {
+    const res = await GET(
+      new NextRequest('http://x/api/events/marathon/not-a-uuid/bulk-register?action=template'),
+      bad,
+    );
+    expect(res.status).toBe(400);
+    expect(canWriteEventRegistrations).not.toHaveBeenCalled();
+  });
+});
+
 describe('GET bulk-register?action=template', () => {
   it('a signed-in user without event-ops rights gets 403 and no template is built', async () => {
-    canManageEventOps.mockResolvedValue(false);
+    canWriteEventRegistrations.mockResolvedValue(false);
     const res = await getTemplate();
     expect(res.status).toBe(403);
     expect(generateTemplate).not.toHaveBeenCalled();
   });
 
   it('an event manager downloads the template', async () => {
-    canManageEventOps.mockResolvedValue(true);
+    canWriteEventRegistrations.mockResolvedValue(true);
     const res = await getTemplate();
     expect(res.status).toBe(200);
     expect(generateTemplate).toHaveBeenCalledWith(EV, 'Run 2026');

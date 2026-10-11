@@ -1,8 +1,23 @@
 // POST /api/events/marathon/[eventId]/bulk-register
 // Accepts parsed roster rows (JSON array) and bulk-inserts them into events_registrations.
-// Requires event-ops rights on THIS event (canManageEventOps), checked before any row is read
+// Requires WRITE rights on THIS event (canWriteEventRegistrations), checked before any row is read
 // or written: the inserts run on the service-role client, so a bare sign-in check let any
-// signed-in user, learners included, write registrations into any event.
+// signed-in user, learners included, write registrations into any event. The same gate covers
+// the template GET.
+//
+// Who may bulk-register, path by path (canManageEventOps = committees/QR tier, unchanged):
+//   path                                        canManageEventOps     canWriteEventRegistrations
+//   is_super_admin / role super_admin           allow                 allow
+//   admin, administrator, event_coordinator     allow, any inst.      allow ONLY in event's institution
+//   event creator                               allow                 allow
+//   creator-less event, same-inst. non-learner  allow                 refuse
+//   fn_is_event_incharge                        allow                 allow (named, may be cross-inst.)
+//   tournament + sports.tournaments.manage      allow, any inst.      allow ONLY in event's institution
+//   marathon + events.marathon.view             allow                 refuse (read permission; held by
+//                                                                     Senior Learner, HOD, etc.)
+//   anyone else signed in                       refuse                refuse (403)
+//   signed out                                  401                   401
+//   eventId not a UUID                          -                     400, before the gate
 //
 // GET /api/events/marathon/[eventId]/bulk-register?action=template
 // Downloads the Excel import template for this event.
@@ -20,19 +35,28 @@ import {
   createServiceRoleClient,
   getAuthUser,
 } from '@/lib/supabase/server';
-import { canManageEventOps } from '@/lib/services/events/shared/event-manage-access';
+import {
+  canWriteEventRegistrations,
+  type EventOpsCaller,
+} from '@/lib/services/events/shared/event-manage-access';
 import { MarathonBulkRegistrationService } from '@/lib/services/events/marathon/marathon-bulk-registration-service';
 import { EventBulkRegisterService } from '@/lib/services/events/shared/event-bulk-register-service';
 import { logger } from '@/lib/utils/enhanced-logger';
 
-/** 401/403 response when the caller may not bulk-import into this event, else null. */
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** 400/401/403 response when the caller may not bulk-import into this event, else null. */
 async function denyUnlessManager(eventId: string): Promise<NextResponse | null> {
+  if (!UUID_RE.test(eventId)) {
+    return NextResponse.json({ error: 'Invalid event id' }, { status: 400 });
+  }
   const { user } = await getAuthUser();
   if (!user) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
-  const allowed = await canManageEventOps(
-    { auth: (await createServerSupabaseClient()) as any, svc: createServiceRoleClient(), userId: user.id },
+  const auth: EventOpsCaller['auth'] = await createServerSupabaseClient();
+  const allowed = await canWriteEventRegistrations(
+    { auth, svc: createServiceRoleClient(), userId: user.id },
     eventId
   );
   if (!allowed) {
