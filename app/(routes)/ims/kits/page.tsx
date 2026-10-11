@@ -26,13 +26,16 @@ import { Plus, Play, Package, Users, CalendarRange, Trash2, Undo2 } from 'lucide
 import { toast } from 'sonner';
 import {
   useKitRules, useCreateKitRule, useUpdateKitRule,
-  useKitRuleItems, useAddKitRuleItem, useRemoveKitRuleItem,
+  useKitRuleItems, useAddKitRuleItem, useRemoveKitRuleItem, useResetKitSource,
   useKitRuleMembers, useAddKitRuleMember, useRemoveKitRuleMember,
   useKitWindows, useCreateKitWindow, useToggleKitWindow,
   useResolveKitRule, useRevokeKitRuleEntitlements,
   useKitInstitutions, useKitPrograms, useKitDepartments,
 } from '@/hooks/ims/use-ims-kits';
-import { ImsKitService, KIT_SCREEN_SOURCE_OPTIONS, type KitRule, type KitPerson, type KitSource } from '@/lib/services/ims/kit-service';
+import { ImsKitService, isKitStoreAdmin, kitSourceOptionsFor, type KitRule, type KitPerson, type KitSource } from '@/lib/services/ims/kit-service';
+import { usePermissions } from '@/hooks/use-permissions';
+import { ResetKitSourceButton } from './_components/reset-kit-source-button';
+import { KitItemResultRow } from './_components/kit-item-result-row';
 
 const ANY = '__any__'; // Radix Select forbids value="" (repo CI gate)
 
@@ -314,6 +317,15 @@ function RuleDetail({ rule }: { rule: KitRule }) {
   const { data: members = [] } = useKitRuleMembers(rule.id);
   const addItem = useAddKitRuleItem();
   const removeItem = useRemoveKitRuleItem(rule.id);
+  const resetSource = useResetKitSource();
+  // Q-1010-395: Central store and Reset source are for store admins only —
+  // keyed on profiles.role + the is_super_admin flag, the same fields the
+  // database trigger checks (NOT ims.settings.stores.manage — see kit-service).
+  const { userProfile } = usePermissions();
+  const callerRole = userProfile?.role ?? null;
+  const callerIsSuperAdmin = userProfile?.is_super_admin === true;
+  const storeAdmin = isKitStoreAdmin(callerRole, callerIsSuperAdmin);
+  const sourceOptions = kitSourceOptionsFor(callerRole, callerIsSuperAdmin);
   const addMember = useAddKitRuleMember();
   const removeMember = useRemoveKitRuleMember(rule.id);
   const resolve = useResolveKitRule();
@@ -372,6 +384,22 @@ function RuleDetail({ rule }: { rule: KitRule }) {
             <div key={it.id} className="flex items-center justify-between rounded border p-2 text-sm">
               <span>{it.item?.name ?? it.item_id} × {it.quantity}</span>
               <span className="flex items-center gap-2">
+                {it.item?.kit_source && (
+                  <Badge variant="secondary">{it.item.kit_source === 'college' ? 'College store' : 'Central store'}</Badge>
+                )}
+                {storeAdmin && it.item?.kit_source && (
+                  <ResetKitSourceButton
+                    disabled={resetSource.isPending}
+                    onConfirm={async () => {
+                      try {
+                        await resetSource.mutateAsync({ itemId: it.item_id, callerRole, callerIsSuperAdmin });
+                        toast.success('Kit source reset');
+                      } catch (e: unknown) {
+                        toast.error(e instanceof Error ? e.message : 'Reset failed');
+                      }
+                    }}
+                  />
+                )}
                 <Badge variant="outline">{it.cadence === 'yearly' ? 'Every year' : 'Once'}</Badge>
                 <Button variant="ghost" size="sm" onClick={() => removeItem.mutate(it.id)}>
                   <Trash2 className="h-3 w-3" />
@@ -389,51 +417,36 @@ function RuleDetail({ rule }: { rule: KitRule }) {
               </p>
             )}
             {itemResults.map((r) => (
-              <div key={r.id} className="flex flex-wrap items-center justify-between gap-2 text-sm">
-                <span>{r.name}{r.code ? ` (${r.code})` : ''}</span>
-                <span className="flex flex-wrap items-center gap-2">
-                  {r.kit_source ? (
-                    <Badge variant="secondary">{r.kit_source === 'college' ? 'College store' : 'Central store'}</Badge>
-                  ) : (
-                    <Select
-                      value={pickedSource[r.id] ?? ''}
-                      onValueChange={(v) => setPickedSource((m) => ({ ...m, [r.id]: v as KitSource }))}
-                    >
-                      <SelectTrigger className="w-36 h-8" aria-label="Kit source">
-                        <SelectValue placeholder="Source…" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {KIT_SCREEN_SOURCE_OPTIONS.map((o) => (
-                          <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  )}
-                  <Input className="w-16 h-8" type="number" min={1} value={qty} onChange={(e) => setQty(e.target.value)} />
-                  <Select value={cadence} onValueChange={setCadence}>
-                    <SelectTrigger className="w-28 h-8"><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="yearly">Every year</SelectItem>
-                      <SelectItem value="once">Once</SelectItem>
-                    </SelectContent>
-                  </Select>
-                  <Button size="sm" disabled={addItem.isPending || (!r.kit_source && !pickedSource[r.id])} onClick={async () => {
-                    try {
-                      await addItem.mutateAsync({
-                        rule_id: rule.id, item_id: r.id, quantity: Number(qty) || 1, cadence,
-                        ...(r.kit_source ? {} : { kit_source: pickedSource[r.id] }),
-                      });
-                      // Bump the sequence so a search still in flight cannot
-                      // repopulate the results we just cleared.
-                      itemSearchSeq.current += 1;
-                      setItemTerm(''); setItemResults([]);
-                      toast.success('Item added');
-                    } catch (e: unknown) {
-                      toast.error(e instanceof Error ? e.message : 'Add failed');
-                    }
-                  }}>Add</Button>
-                </span>
-              </div>
+              <KitItemResultRow
+                key={r.id}
+                item={r}
+                picked={pickedSource[r.id]}
+                onPick={(v) => setPickedSource((m) => ({ ...m, [r.id]: v }))}
+                sourceOptions={sourceOptions}
+                qty={qty}
+                onQty={setQty}
+                cadence={cadence}
+                onCadence={setCadence}
+                pending={addItem.isPending}
+                onAdd={async () => {
+                  try {
+                    const res = await addItem.mutateAsync({
+                      rule_id: rule.id, item_id: r.id, quantity: Number(qty) || 1, cadence,
+                      ...(r.kit_source ? {} : {
+                        kit_source: pickedSource[r.id], seen_kit_source: null,
+                        caller_role: callerRole, caller_is_super_admin: callerIsSuperAdmin,
+                      }),
+                    });
+                    // Bump the sequence so a search still in flight cannot
+                    // repopulate the results we just cleared.
+                    itemSearchSeq.current += 1;
+                    setItemTerm(''); setItemResults([]);
+                    toast.success(res?.alreadyInRule ? 'Source set — item already in this rule' : 'Item added');
+                  } catch (e: unknown) {
+                    toast.error(e instanceof Error ? e.message : 'Add failed');
+                  }
+                }}
+              />
             ))}
           </div>
         </CardContent>

@@ -50,7 +50,27 @@ export function useAddKitRuleItem() {
     // item lists either way. Invalidation does not swallow the error: the
     // page's mutateAsync still rejects and shows its toast.
     onSettled: (_d, _e, v) => {
-      if (v.kit_source) qc.invalidateQueries({ queryKey: ['ims-items'] });
+      if (v.kit_source) {
+        qc.invalidateQueries({ queryKey: ['ims-items'] });
+        // The item's source badge shows in every rule that holds it.
+        qc.invalidateQueries({ queryKey: ['ims-kit-rule-items'] });
+      }
+    },
+  });
+}
+
+// Q-1010-395: store admin resets an item's kit source (the DB refuses others).
+export function useResetKitSource() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ itemId, callerRole, callerIsSuperAdmin }: {
+      itemId: string; callerRole: string | null | undefined; callerIsSuperAdmin?: boolean | null;
+    }) => ImsKitService.resetKitSource(itemId, callerRole, callerIsSuperAdmin),
+    // kit_source lives on the ITEM, which may sit in several rules: refresh
+    // every rule's item list, not just this one (#4346 panel LOW-5).
+    onSettled: () => {
+      qc.invalidateQueries({ queryKey: ['ims-kit-rule-items'] });
+      qc.invalidateQueries({ queryKey: ['ims-items'] });
     },
   });
 }

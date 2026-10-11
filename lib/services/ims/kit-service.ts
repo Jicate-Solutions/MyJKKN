@@ -42,6 +42,41 @@ export const KIT_SCREEN_SOURCE_OPTIONS: ReadonlyArray<{ value: KitSource; label:
   { value: 'college', label: KIT_SOURCE_LABEL.college },
 ];
 
+// Q-1010-395 (Director 11 Oct 2026): "Only store admins" may mark an item
+// Central store or reset its source. The database enforces this (trigger
+// trg_ims_items_kit_source_guard,
+// 20271011100000_ims_kit_source_central_store_admin.sql) on profiles.role
+// store_admin/super_admin OR the platform super-admin flag (is_super_admin()),
+// and the app keys off exactly the same two fields.
+// Deliberately NOT the ims.settings.stores.manage permission that
+// useImsStoreContext().isStoreAdmin accepts for the store picker: the ruling
+// says "only store admins", and that key's only other live holder is the
+// Chief Administrative Officer (desk decision 11 Oct). The mismatch is
+// intentional, not a bug.
+export const KIT_STORE_ADMIN_ROLES: ReadonlyArray<string> = ['store_admin', 'super_admin'];
+
+export function isKitStoreAdmin(
+  role: string | null | undefined,
+  isSuperAdminFlag?: boolean | null,
+): boolean {
+  return isSuperAdminFlag === true || (!!role && KIT_STORE_ADMIN_ROLES.includes(role));
+}
+
+export const KIT_SCREEN_SOURCE_OPTIONS_STORE_ADMIN: ReadonlyArray<{ value: KitSource; label: string }> = [
+  { value: 'college', label: KIT_SOURCE_LABEL.college },
+  { value: 'central', label: KIT_SOURCE_LABEL.central },
+];
+
+export function kitSourceOptionsFor(role: string | null | undefined, isSuperAdminFlag?: boolean | null) {
+  return isKitStoreAdmin(role, isSuperAdminFlag)
+    ? KIT_SCREEN_SOURCE_OPTIONS_STORE_ADMIN
+    : KIT_SCREEN_SOURCE_OPTIONS;
+}
+
+const STORE_ADMIN_ONLY = 'Only a store admin can mark an item Central or reset its source.';
+const ITEM_UNREADABLE = "Couldn't read this item. Reload and try again.";
+const KIT_SOURCE_CHANGED = "This item's kit source was changed by someone else. Reload and try again.";
+
 export interface KitRule {
   id: string;
   rule_name: string;
@@ -63,7 +98,7 @@ export interface KitRuleItem {
   item_id: string;
   quantity: number;
   cadence: 'yearly' | 'once';
-  item?: { name: string; code: string | null } | null;
+  item?: { name: string; code: string | null; kit_source?: KitSource | null } | null;
 }
 
 export interface KitRuleMember {
@@ -155,7 +190,7 @@ export class ImsKitService {
   static async getRuleItems(ruleId: string): Promise<KitRuleItem[]> {
     const { data, error } = await this.supabase
       .from('ims_kit_rule_items')
-      .select('*, item:ims_items(name, code)')
+      .select('*, item:ims_items(name, code, kit_source)')
       .eq('rule_id', ruleId)
       .order('created_at');
     if (error) throw error;
@@ -169,15 +204,62 @@ export class ImsKitService {
   // classify the item first (ims_items RLS: store admin / ims.inventory.edit),
   // then add it to the rule. A 0-row update means RLS refused — say so plainly
   // instead of letting the D32 trigger fire with a confusing message.
+  //
+  // Q-1010-395: a store admin / super admin (caller_role, profiles.role) may
+  // also mark the item Central store here — see markCentral below.
   static async addRuleItem(dto: {
     rule_id: string;
     item_id: string;
     quantity: number;
     cadence: string;
     kit_source?: KitSource;
-  }) {
-    const { kit_source, ...row } = dto;
-    if (kit_source) {
+    caller_role?: string | null;
+    caller_is_super_admin?: boolean | null;
+    // The item's kit_source as the screen showed it (stale-value guard for
+    // the store-admin Central path). The picker only appears for items with
+    // no source, so it defaults to null.
+    seen_kit_source?: KitSource | null;
+  }): Promise<{ alreadyInRule: boolean }> {
+    const { kit_source, caller_role, caller_is_super_admin, seen_kit_source, ...row } = dto;
+    if (kit_source === 'central' && isKitStoreAdmin(caller_role, caller_is_super_admin)) {
+      const seen = seen_kit_source ?? null;
+      const changed = await this.markCentral(row.rule_id, row.item_id, seen);
+      // #4346 round 3: the item may ALREADY be in this rule (reset, then
+      // Central again; or a second tab/peer added it meanwhile). Then the
+      // source change stands and there is nothing to insert — never revert,
+      // or the rule item is left with no source and the counter refuses it.
+      const { data: existing, error: existingError } = await this.supabase
+        .from('ims_kit_rule_items')
+        .select('id')
+        .eq('rule_id', row.rule_id)
+        .eq('item_id', row.item_id)
+        .maybeSingle();
+      if (!existingError && existing) return { alreadyInRule: true };
+      const { error } = await this.supabase.from('ims_kit_rule_items').insert(row);
+      if (!error) return { alreadyInRule: false };
+      // A concurrent add won the race (unique violation): same outcome.
+      if ((error as { code?: string }).code === '23505') return { alreadyInRule: true };
+      // #4346 panel LOW-4: any OTHER failed add must not leave the item
+      // Central silently. Marking Central AFTER the insert is not possible
+      // (D32 rejects an unclassified item; D40 rejects a College item on an
+      // all-colleges rule), so we put back the value the screen showed, with
+      // the same guard: only while the item is still the Central we wrote.
+      if (changed) {
+        const { data: undone, error: undoError } = await this.supabase
+          .from('ims_items')
+          .update({ kit_source: seen })
+          .eq('id', row.item_id)
+          .eq('kit_source', 'central')
+          .select('id');
+        if (undoError || !undone || undone.length === 0) {
+          throw new Error(
+            `${error.message || 'Add failed'} — and the item is still set to Central store. ` +
+              'Reset its source if that was not intended.',
+          );
+        }
+      }
+      throw toError(error, 'Add failed');
+    } else if (kit_source) {
       if (!KIT_SCREEN_SOURCE_OPTIONS.some((o) => o.value === kit_source)) {
         throw new Error('Central store items are set up by a store admin in item setup');
       }
@@ -245,6 +327,81 @@ export class ImsKitService {
     }
     const { error } = await this.supabase.from('ims_kit_rule_items').insert(row);
     if (error) throw toError(error, 'Add failed');
+    return { alreadyInRule: false };
+  }
+
+  // Store-admin path of addRuleItem: mark the item Central store. Central is
+  // valid for any rule (including one spanning all colleges), and may replace
+  // College (the trigger allows that only for a store admin). A college rule
+  // still scopes the write to its own college's items, as the College path
+  // does. Stale-value guard (#4346 panel LOW-3): only while the item still
+  // holds the value the screen showed. Returns true when this call changed
+  // the item (false: it was already Central).
+  private static async markCentral(
+    ruleId: string,
+    itemId: string,
+    seen: KitSource | null,
+  ): Promise<boolean> {
+    const { data: rule, error: ruleError } = await this.supabase
+      .from('ims_kit_rules')
+      .select('institution_id')
+      .eq('id', ruleId)
+      .maybeSingle();
+    if (ruleError) throw toError(ruleError, 'Could not read the kit rule');
+    if (!rule) throw new Error('Kit rule not found');
+    const ruleInstitution = (rule as { institution_id: string | null }).institution_id;
+    let q = this.supabase.from('ims_items').update({ kit_source: 'central' }).eq('id', itemId);
+    if (ruleInstitution) q = q.eq('institution_id', ruleInstitution);
+    q = seen === null ? q.is('kit_source', null) : q.eq('kit_source', seen);
+    const { data, error } = await q.select('id');
+    if (error) throw toError(error, 'Could not set the item\'s kit source');
+    if (data && data.length > 0) return true;
+    const { data: current, error: readError } = await this.supabase
+      .from('ims_items')
+      .select('kit_source, institution_id')
+      .eq('id', itemId)
+      .maybeSingle();
+    // #4346 panel LOW-6: an unreadable item is not a permission problem.
+    if (readError || !current) throw new Error(ITEM_UNREADABLE);
+    const cur = current as { kit_source: KitSource | null; institution_id: string | null };
+    if (cur.kit_source === 'central') return false; // already Central: carry on
+    if (ruleInstitution && cur.institution_id !== ruleInstitution) {
+      throw new Error(
+        "This item belongs to another college's store — only that college's rules can set its kit source.",
+      );
+    }
+    if (cur.kit_source !== seen) throw new Error(KIT_SOURCE_CHANGED);
+    throw new Error(STORE_ADMIN_ONLY);
+  }
+
+  // Q-1010-395: store admin resets an item's kit source to "not set" (NULL).
+  // The database refuses anyone else (42501), whatever the app sends.
+  static async resetKitSource(
+    itemId: string,
+    callerRole: string | null | undefined,
+    callerIsSuperAdmin?: boolean | null,
+  ) {
+    if (!isKitStoreAdmin(callerRole, callerIsSuperAdmin)) throw new Error(STORE_ADMIN_ONLY);
+    const { data, error } = await this.supabase
+      .from('ims_items')
+      .update({ kit_source: null })
+      .eq('id', itemId)
+      .not('kit_source', 'is', null)
+      .select('id');
+    if (error) throw toError(error, 'Could not reset the item\'s kit source');
+    if (!data || data.length === 0) {
+      const { data: current, error: readError } = await this.supabase
+        .from('ims_items')
+        .select('kit_source')
+        .eq('id', itemId)
+        .maybeSingle();
+      if (readError) throw toError(readError, 'Could not read the item\'s kit source');
+      if (!current) throw new Error('Item not found, or you cannot see it');
+      if ((current as { kit_source: KitSource | null }).kit_source === null) {
+        throw new Error('This item has no kit source to reset');
+      }
+      throw new Error(STORE_ADMIN_ONLY);
+    }
   }
 
   static async removeRuleItem(id: string) {
