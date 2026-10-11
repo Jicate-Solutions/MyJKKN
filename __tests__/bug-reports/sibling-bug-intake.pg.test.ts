@@ -43,6 +43,9 @@ const DBNAME = `bug_intake_${randomUUID().replace(/-/g, '').slice(0, 16)}`;
 
 const USER = 'aaaaaaaa-0000-4000-8000-000000000001'; // plain signed-in person
 const SUPER = 'cccccccc-0000-4000-8000-000000000003'; // super admin
+const ADMIN = 'dddddddd-0000-4000-8000-000000000004'; // a college's admin (role 'admin')
+const CEO = 'eeeeeeee-0000-4000-8000-000000000005'; // role 'ceo'
+const COLLEGE_A = 'f0000000-0000-4000-8000-00000000000a';
 
 const SCHEMA = `
 DO $$ BEGIN CREATE ROLE anon NOLOGIN;          EXCEPTION WHEN duplicate_object OR unique_violation THEN NULL; END $$;
@@ -63,7 +66,14 @@ CREATE FUNCTION auth.uid() RETURNS uuid LANGUAGE sql STABLE
   AS $f$ SELECT nullif(current_setting('request.jwt.claim.sub', true), '')::uuid $f$;
 CREATE TABLE auth.users (id uuid PRIMARY KEY);
 CREATE TABLE public.profiles (id uuid PRIMARY KEY, institution_id uuid, is_super_admin boolean DEFAULT false,
-  is_active boolean DEFAULT true, is_login_disabled boolean NOT NULL DEFAULT false);
+  is_active boolean DEFAULT true, is_login_disabled boolean NOT NULL DEFAULT false,
+  role text, full_name text, email text);
+CREATE TABLE public.institutions (id uuid PRIMARY KEY, name text);
+CREATE TABLE public.departments (id uuid PRIMARY KEY, department_name text);
+CREATE FUNCTION public.get_current_user_role() RETURNS text LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public
+  AS $f$ SELECT role FROM profiles WHERE id = auth.uid() $f$;
+CREATE FUNCTION public._user_accessible_institutions() RETURNS uuid[] LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public
+  AS $f$ SELECT COALESCE((SELECT ARRAY[institution_id] FROM profiles WHERE id = auth.uid() AND institution_id IS NOT NULL), '{}') $f$;
 CREATE TABLE public.test_perms (user_id uuid, key text);
 CREATE FUNCTION public.is_super_admin() RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public
   AS $f$ SELECT COALESCE((SELECT is_super_admin FROM profiles WHERE id = auth.uid()), false) $f$;
@@ -90,17 +100,41 @@ CREATE TABLE public.api_keys (
 ALTER TABLE public.api_keys ENABLE ROW LEVEL SECURITY;
 CREATE POLICY api_keys_any ON public.api_keys FOR ALL TO authenticated USING (true) WITH CHECK (true);
 INSERT INTO public.api_keys (name, key_value) VALUES ('legacy admin key', 'legacy-hash');
--- bug_reports / participants, as far as the participant trigger needs them
+-- bug_reports / participants, as far as the participant trigger and the two
+-- assistant tools need them. 'module' is here only so ai_rpc_bug_reports can
+-- run; whether prod has that column is a separate ticket (br.module).
 CREATE TABLE public.bug_reports (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   reporter_user_id uuid,
   application_id uuid,
+  institution_id uuid,
+  department_id uuid,
+  assigned_to_user_id uuid,
+  display_id text,
   page_url text NOT NULL,
   description text NOT NULL,
   status text NOT NULL DEFAULT 'new',
+  priority text,
+  category text,
+  module text,
+  screenshot_url text,
+  console_logs jsonb,
+  resolved_at timestamptz,
+  reporter_ip text,
+  reporter_user_agent text,
   metadata jsonb,
-  created_at timestamptz NOT NULL DEFAULT now()
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz
 );
+-- The two permissive policies live today (rls_initplan_wrap_sweep.sql text).
+-- Between them every admin and ceo reads every row.
+ALTER TABLE public.bug_reports ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Allow admins to manage all reports" ON public.bug_reports USING ((EXISTS ( SELECT 1
+   FROM profiles p
+  WHERE ((p.id = ( SELECT auth.uid() AS uid)) AND (p.role = ANY (ARRAY['super_admin'::text, 'admin'::text, 'ceo'::text]))))));
+CREATE POLICY "Enhanced bug reports view access with department filtering" ON public.bug_reports FOR SELECT USING (((reporter_user_id = ( SELECT auth.uid() AS uid)) OR (EXISTS ( SELECT 1
+   FROM profiles p
+  WHERE ((p.id = ( SELECT auth.uid() AS uid)) AND (p.role = ANY (ARRAY['super_admin'::text, 'admin'::text, 'ceo'::text])))))));
 CREATE TABLE public.bug_report_participants (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   bug_report_id uuid NOT NULL,
@@ -121,8 +155,11 @@ BEGIN
 END $f$;
 CREATE TRIGGER trigger_add_bug_reporter_participant AFTER INSERT ON public.bug_reports
   FOR EACH ROW EXECUTE FUNCTION public.add_bug_reporter_as_participant();
-INSERT INTO auth.users VALUES ('${USER}'), ('${SUPER}');
-INSERT INTO public.profiles (id, is_super_admin) VALUES ('${USER}', false), ('${SUPER}', true);
+INSERT INTO auth.users VALUES ('${USER}'), ('${SUPER}'), ('${ADMIN}'), ('${CEO}');
+INSERT INTO public.profiles (id, is_super_admin, role, institution_id) VALUES
+  ('${USER}', false, 'staff', NULL), ('${SUPER}', true, 'super_admin', NULL),
+  ('${ADMIN}', false, 'admin', '${COLLEGE_A}'), ('${CEO}', false, 'ceo', '${COLLEGE_A}');
+INSERT INTO public.institutions (id, name) VALUES ('${COLLEGE_A}', 'College A');
 `;
 
 let admin: Client;
@@ -443,5 +480,172 @@ describe('the assistant bug-details tool refuses quarantined bugs (section 4b)',
     );
     await expect(db.query(migrationSql)).rejects.toThrow(/live ai_rpc_bug_report_details differs/);
     await db.query('DROP FUNCTION public.ai_rpc_bug_report_details(uuid, uuid)');
+  });
+});
+
+// ── College-app rows with no college: super admins only (sections 4b, 4c, 4d) ──
+describe('who sees a college-app bug with no college', () => {
+  const ids: Record<string, string> = {};
+  const seed = async (key: string, cols: Record<string, unknown>) => {
+    const names = ['page_url', 'description', ...Object.keys(cols)];
+    const values = [`https://x.example/${key}`, `row ${key}`, ...Object.values(cols)];
+    const r = await db.query(
+      `INSERT INTO public.bug_reports (${names.join(', ')}) VALUES (${names.map((_, i) => `$${i + 1}`).join(', ')}) RETURNING id`,
+      values
+    );
+    ids[key] = r.rows[0].id;
+  };
+  const mentorId = async () =>
+    (await db.query(`SELECT id FROM public.sibling_apps WHERE slug = 'mentor'`)).rows[0].id as string;
+  const visible = async (who: string) => {
+    const r = await as<{ id: string }>(who, `SELECT id FROM public.bug_reports WHERE id = ANY ($1::uuid[])`, [
+      Object.values(ids),
+    ]);
+    if (r.error) throw new Error(r.error);
+    const byId = Object.fromEntries(Object.entries(ids).map(([k, v]) => [v, k]));
+    return r.rows.map((row) => byId[row.id]).sort();
+  };
+  const PEOPLE = { USER, ADMIN, CEO, SUPER } as const;
+
+  beforeAll(async () => {
+    const app = await mentorId();
+    await seed('own', { reporter_user_id: USER });
+    await seed('college_a', { institution_id: COLLEGE_A });
+    await seed('no_college', {});
+    await seed('app_no_college', { application_id: app, status: 'unverified' }); // as the intake files it
+    await seed('app_promoted_no_college', { application_id: app, status: 'new' });
+    await seed('app_with_college', { application_id: app, institution_id: COLLEGE_A });
+    await seed('app_unverified_with_college', { application_id: app, institution_id: COLLEGE_A, status: 'unverified' });
+  });
+
+  it('narrows only college-app rows with no college; every other row is seen exactly as before', async () => {
+    await db.query(migrationSql);
+    const after: Record<string, string[]> = {};
+    for (const [name, who] of Object.entries(PEOPLE)) after[name] = await visible(who);
+    // the same database without the new policy is "before"
+    await db.query(`DROP POLICY bug_reports_college_app_rows_super_admin_only ON public.bug_reports`);
+    const before: Record<string, string[]> = {};
+    for (const [name, who] of Object.entries(PEOPLE)) before[name] = await visible(who);
+    await db.query(migrationSql); // and back
+
+    const all = Object.keys(ids).sort();
+    expect(before).toEqual({ USER: ['own'], ADMIN: all, CEO: all, SUPER: all });
+    const narrowed = ['app_no_college', 'app_promoted_no_college'];
+    expect(after.USER).toEqual(before.USER);
+    expect(after.SUPER).toEqual(before.SUPER);
+    expect(after.ADMIN).toEqual(all.filter((k) => !narrowed.includes(k)));
+    expect(after.CEO).toEqual(all.filter((k) => !narrowed.includes(k)));
+    // only rows with an application_id moved
+    for (const k of all) {
+      if (!k.startsWith('app_')) expect(after.ADMIN.includes(k), k).toBe(before.ADMIN.includes(k));
+    }
+  });
+
+  it('a college admin cannot update a row it cannot see; an ordinary row still updates', async () => {
+    const hidden = await as(ADMIN, `UPDATE public.bug_reports SET status = 'seen' WHERE id = $1 RETURNING id`, [
+      ids.app_promoted_no_college,
+    ]);
+    expect(hidden.error).toBeUndefined();
+    expect(hidden.rows).toHaveLength(0);
+    const ordinary = await as(ADMIN, `UPDATE public.bug_reports SET status = 'seen' WHERE id = $1 RETURNING id`, [
+      ids.no_college,
+    ]);
+    expect(ordinary.rows).toHaveLength(1);
+    await db.query(`UPDATE public.bug_reports SET status = 'new' WHERE id = $1`, [ids.no_college]);
+  });
+
+  describe('the assistant list tool ai_rpc_bug_reports (section 4d)', () => {
+    const sweep = readFileSync(
+      path.join(REPO, 'supabase/migrations/20260712134500_ai_rpc_authuid_confused_deputy_sweep.sql'),
+      'utf8'
+    );
+    const start = sweep.indexOf('CREATE OR REPLACE FUNCTION public.ai_rpc_bug_reports(');
+    const listBody = sweep.slice(start, sweep.indexOf('$function$;', start) + '$function$;'.length);
+    const LIST = `public.ai_rpc_bug_reports(uuid,text,text,integer,integer)`;
+    const call = (who: string) =>
+      as<{ out: any }>(who, `SELECT public.ai_rpc_bug_reports($1::uuid, NULL, NULL, 100, 0) AS out`, [who]);
+
+    it('the in-repo body is the one W12 fingerprinted live (md5 081db5b6…)', async () => {
+      await db.query('SET check_function_bodies = off');
+      await db.query(listBody);
+      const r = await db.query(`SELECT md5(prosrc) AS m FROM pg_proc WHERE oid = '${LIST}'::regprocedure`);
+      expect(r.rows[0].m).toBe('081db5b60bcd592fdb9b9d2b45f2607b');
+    });
+
+    it('is replaced, re-applies cleanly, and keeps its grants: signed-in yes, anon no', async () => {
+      await db.query(migrationSql);
+      await db.query(migrationSql);
+      const r = await db.query(`SELECT prosrc FROM pg_proc WHERE oid = '${LIST}'::regprocedure`);
+      expect(r.rows[0].prosrc.match(/br\.status <> 'unverified'/g)).toHaveLength(2);
+      expect(r.rows[0].prosrc).toContain('br.module'); // br.module is a separate ticket: untouched
+      const g = await db.query(
+        `SELECT has_function_privilege('anon', '${LIST}', 'EXECUTE') AS anon,
+                has_function_privilege('authenticated', '${LIST}', 'EXECUTE') AS authed`
+      );
+      expect(g.rows[0]).toEqual({ anon: false, authed: true });
+    });
+
+    it('a plain signed-in person is refused; an admin never sees unverified or no-college app rows; a super admin sees promoted ones', async () => {
+      expect((await call(USER)).rows[0].out.error.code).toBe('FORBIDDEN');
+
+      const names = (out: any) => {
+        const byId = Object.fromEntries(Object.entries(ids).map(([k, v]) => [v, k]));
+        return (out.data as { id: string }[]).map((b) => byId[b.id]).filter(Boolean).sort();
+      };
+      const admin = (await call(ADMIN)).rows[0].out;
+      expect(admin.success).toBe(true);
+      expect(names(admin)).toEqual(['app_with_college', 'college_a', 'no_college', 'own']);
+      const superAdmin = (await call(SUPER)).rows[0].out;
+      expect(names(superAdmin)).toEqual(['app_promoted_no_college', 'app_with_college', 'college_a', 'no_college', 'own']);
+    });
+
+    it('stops instead of overwriting a body that differs from the in-repo one', async () => {
+      await db.query(
+        `CREATE OR REPLACE FUNCTION public.ai_rpc_bug_reports(p_user_id uuid, p_status text DEFAULT NULL::text,
+           p_priority text DEFAULT NULL::text, p_limit integer DEFAULT 10000, p_offset integer DEFAULT 0)
+         RETURNS jsonb LANGUAGE sql AS 'select null::jsonb'`
+      );
+      await expect(db.query(migrationSql)).rejects.toThrow(/live ai_rpc_bug_reports differs/);
+      await db.query(`DROP FUNCTION ${LIST}`);
+      await db.query(migrationSql); // absent: left alone
+      const r = await db.query(`SELECT to_regprocedure('${LIST}') AS f`);
+      expect(r.rows[0].f).toBeNull();
+    });
+  });
+
+  describe('the assistant details tool ai_rpc_bug_report_details (section 4b)', () => {
+    const sql = readFileSync(
+      path.join(REPO, 'supabase/migrations/20270308090000_ai_rpc_repair_dead_scope_lookups.sql'),
+      'utf8'
+    );
+    const start = sql.indexOf('CREATE OR REPLACE FUNCTION public.ai_rpc_bug_report_details(');
+    const details = sql.slice(start, sql.indexOf('$function$;', start) + '$function$;'.length);
+    const read = async (who: string, key: string) =>
+      (await as<{ out: any }>(who, `SELECT public.ai_rpc_bug_report_details($1::uuid, $2::uuid) AS out`, [who, ids[key]]))
+        .rows[0].out;
+
+    beforeAll(async () => {
+      await db.query('SET check_function_bodies = off');
+      await db.query(details);
+      await db.query(migrationSql);
+    });
+
+    it('a college admin cannot read a promoted college-app bug with no college; a super admin can', async () => {
+      expect((await read(ADMIN, 'app_promoted_no_college')).error.code).toBe('NOT_FOUND');
+      expect((await read(CEO, 'app_promoted_no_college')).error.code).toBe('NOT_FOUND');
+      expect((await read(SUPER, 'app_promoted_no_college')).success).toBe(true);
+    });
+
+    it('ordinary rows read exactly as before: no-college and own-college yes for the admin', async () => {
+      expect((await read(ADMIN, 'no_college')).success).toBe(true);
+      expect((await read(ADMIN, 'college_a')).success).toBe(true);
+      expect((await read(ADMIN, 'app_with_college')).success).toBe(true);
+      expect((await read(USER, 'college_a')).error.code).toBe('NOT_FOUND');
+    });
+
+    it('unverified stays quarantined, even for a super admin', async () => {
+      expect((await read(SUPER, 'app_no_college')).error.code).toBe('QUARANTINED');
+      expect((await read(ADMIN, 'app_unverified_with_college')).error.code).toBe('QUARANTINED');
+    });
   });
 });

@@ -79,7 +79,10 @@ describe('authenticateApiKey and bug-intake keys', () => {
     expect('context' in result).toBe(true);
   });
 
-  it('accepts a key with no kind column at all (20270301090000 not applied)', async () => {
+  // The column itself is REQUIRED (authenticate.ts selects key_kind by name; it
+  // is live on prod). This only proves the rule: a row object without the field,
+  // like a NULL kind, is read as an administrator key.
+  it('reads a row without a key_kind value as an administrator key', async () => {
     const { key_kind: _omit, ...noKind } = intakeRow;
     keyRow = { ...noKind, id: 'k-legacy', permissions: { read: ['bug-reports'], write: [] } };
     const result = await authenticateApiKey(req('jkkn_legacy'), { requiredModule: 'bug-reports', requireRead: true });

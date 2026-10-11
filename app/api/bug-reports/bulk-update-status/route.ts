@@ -92,13 +92,16 @@ export async function POST(request: Request) {
       throw updateError;
     }
     // Everything below (cascade, emails, counts) uses only the rows changed.
+    // updateWithResolvedBy returns run()'s own { data, error } on both paths
+    // (first try and the retry without resolved_by), so data is always the
+    // .select('id') rows.
     const changedIds: string[] = ((changedRows as { id: string }[] | null) ?? []).map((r) => r.id);
 
     // Cascade: closing canonical bugs also closes reports parked as their
     // duplicates. Resolved duplicates get the same reporter email as directly
-    // resolved bugs; wont_fix cascades silently.
+    // resolved bugs; wont_fix cascades silently. Nothing changed, no cascade.
     let cascadedIds: string[] = [];
-    if (status === 'resolved' || status === 'wont_fix') {
+    if ((status === 'resolved' || status === 'wont_fix') && changedIds.length > 0) {
       const { data: children, error: childrenError } = await (
         adminSupabase.from('bug_reports') as any
       )
@@ -128,7 +131,7 @@ export async function POST(request: Request) {
 
     // Fire bulk resolution emails (non-blocking) — canonical reporters AND
     // the reporters of any cascaded duplicates.
-    if (status === 'resolved') {
+    if (status === 'resolved' && changedIds.length > 0) {
       void sendBulkResolutionEmails(adminSupabase, [...changedIds, ...cascadedIds]);
     }
 

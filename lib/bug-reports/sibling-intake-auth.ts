@@ -7,16 +7,16 @@
  * sibling app is accepted. Admin keys (jkkn_…), personal keys (jkkn_pk_…) and
  * anything else without the jkkn_bi_ prefix are refused before any lookup.
  *
- * The rate limit runs BEFORE any database lookup, per caller IP across every
- * key, so a flood of made-up jkkn_bi_ keys never reaches the database
- * unthrottled. It is in-memory per server instance; the shared cap is the
- * per-app daily count the POST checks in the database.
+ * The rate limit runs BEFORE any database lookup, per caller (callerKeyFromIp)
+ * across every key, so a flood of made-up jkkn_bi_ keys never reaches the
+ * database unthrottled. It is in-memory per server instance; the shared caps
+ * are the per-app daily counts the POST checks in the database.
  */
 import { NextResponse } from 'next/server';
 import { createHash } from 'crypto';
 import { createServiceRoleClient } from '@/lib/supabase/server';
 import { checkRateLimit } from '@/lib/api-keys/rate-limiter';
-import { intakeCorsHeaders } from '@/lib/bug-reports/sibling-intake';
+import { callerKeyFromIp, intakeCorsHeaders } from '@/lib/bug-reports/sibling-intake';
 
 /**
  * The caller's IP as the platform saw it: ONLY x-vercel-forwarded-for, which
@@ -79,9 +79,12 @@ export async function authenticateIntakeKey(
 
   const hashedKey = createHash('sha256').update(apiKey).digest('hex');
 
-  // ── Rate limit, before any lookup: per caller IP across all keys. A caller
-  // with no IP (never on Vercel) is limited per key, not in one shared bucket.
-  const caller = opts.ipAddress ? `ip:${opts.ipAddress}` : `key:${hashedKey.slice(0, 16)}`;
+  // ── Rate limit, before any lookup: per caller across all keys. The caller is
+  // callerKeyFromIp (IPv6 by its /64, IPv4-mapped IPv6 as IPv4), the same key
+  // the route's daily caps use, so rotating addresses inside one /64 does not
+  // open a fresh bucket. A caller with no IP (never on Vercel) is limited per
+  // key, not in one shared bucket.
+  const caller = opts.ipAddress ? `ip:${callerKeyFromIp(opts.ipAddress)}` : `key:${hashedKey.slice(0, 16)}`;
   const rate = checkRateLimit(`${opts.rateLimitBucket}:${caller}`);
   if (!rate.allowed) {
     const retryAfter = Math.max(1, Math.ceil((rate.resetAt.getTime() - Date.now()) / 1000));

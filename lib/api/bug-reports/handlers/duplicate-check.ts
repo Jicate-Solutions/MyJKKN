@@ -136,9 +136,13 @@ export async function POST(
       );
     }
 
-    const candidates: CandidateRow[] = Array.isArray(candidateRows)
-      ? candidateRows
-      : [];
+    // fn_bug_duplicate_candidates already returns only status new/seen/
+    // in_progress (20260802020000), so a quarantined college-app bug
+    // ('unverified') is never a candidate. Filtered again here so a later change
+    // to that function cannot put unverified text into the AI prompt.
+    const candidates: CandidateRow[] = (Array.isArray(candidateRows) ? candidateRows : []).filter(
+      (c: CandidateRow) => c.status !== 'unverified'
+    );
 
     // Nothing similar enough to be worth an AI call — answer honestly and cheaply
     // rather than asking the model to compare against an empty list.

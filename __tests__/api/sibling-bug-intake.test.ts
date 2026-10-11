@@ -25,6 +25,8 @@ const state = {
   keyRow: null as Row | null,
   app: null as Row | null,
   todayCount: 0,
+  // rows with no over_cap flag (full rows) today
+  fullCount: 0,
   callerCount: 0,
   shotCount: 0,
   countError: null as { message: string } | null,
@@ -45,6 +47,11 @@ function builder(table: string) {
   let byCaller = false;
   let byDedupIn = false;
   let byShot = false;
+  let byFull = false;
+  b.is = (col: string, val: unknown) => {
+    if (col === 'metadata->>over_cap' && val === null) byFull = true;
+    return b;
+  };
   b.select = (_cols?: string, opts?: { head?: boolean }) => {
     if (opts?.head) isCount = true;
     return b;
@@ -94,7 +101,13 @@ function builder(table: string) {
       return Promise.resolve({ data: null, error: null }).then(resolve);
     }
     if (isCount) {
-      const count = byCaller ? state.callerCount : byShot ? state.shotCount : state.todayCount;
+      const count = byCaller
+        ? state.callerCount
+        : byShot
+          ? state.shotCount
+          : byFull
+            ? state.fullCount
+            : state.todayCount;
       return Promise.resolve({ data: null, count, error: state.countError }).then(resolve);
     }
     const data = table !== 'bug_reports' ? [] : byDedupIn ? state.recent : state.winner;
@@ -182,6 +195,7 @@ beforeEach(() => {
   };
   state.app = { ...APP };
   state.todayCount = 0;
+  state.fullCount = 0;
   state.callerCount = 0;
   state.shotCount = 0;
   state.countError = null;
@@ -366,22 +380,60 @@ describe('POST /api/v1/public/bug-reports — abuse limits', () => {
     expect(fromSpy.mock.calls.length).toBe(lookupsBefore);
   });
 
-  it('over the app cap, still files the report (flagged, no screenshot) so a flood cannot silence it', async () => {
+  it('past the full-row budget, still files the report, MINIMAL: title, description and page_url only', async () => {
     state.todayCount = 300;
+    state.fullCount = 300;
     const res = await post(INTAKE_KEY);
     expect(res.status).toBe(201);
     const row = state.inserted[0] as any;
     expect(row.metadata.over_cap).toBe('app');
     expect(row.metadata.screenshot_dropped).toBe('over_cap');
     expect(state.uploads).toHaveLength(0);
+    expect(row).toMatchObject({
+      description: 'Clicking save on the mentor notes page does nothing at all.',
+      page_url: 'https://mentor.jkkn.ai/notes/42',
+      console_logs: null,
+      reporter_user_agent: null,
+    });
+    expect(row.metadata.title).toBe('Save button does nothing');
+    for (const k of ['reporter_email', 'reporter_name', 'client_metadata', 'network_trace', 'browser_info', 'system_info']) {
+      expect(row.metadata, k).not.toHaveProperty(k);
+    }
   });
 
-  it('refuses only past the hard daily ceiling', async () => {
-    state.todayCount = 2000;
+  it('minimal rows never use up the full-row budget: the budget counts only rows with no over_cap flag', async () => {
+    state.todayCount = 1500; // many minimal rows today ...
+    state.fullCount = 10; // ... but only 10 full ones
     const res = await post(INTAKE_KEY);
-    expect(res.status).toBe(429);
-    expect((await res.json()).error.code).toBe('RATE_LIMITED');
+    expect(res.status).toBe(201);
+    const row = state.inserted[0] as any;
+    expect(row.metadata.over_cap).toBeNull();
+    expect(row.console_logs).toEqual([{ level: 'error', message: 'boom' }]);
+  });
+
+  it('a heavy caller is refused at the ceiling; a light caller still has the reserve', async () => {
+    state.todayCount = 2000;
+    state.fullCount = 300;
+    state.callerCount = 40; // heavy
+    const heavy = await post(INTAKE_KEY);
+    expect(heavy.status).toBe(429);
+    expect((await heavy.json()).error.code).toBe('RATE_LIMITED');
     expect(state.inserted).toHaveLength(0);
+
+    state.callerCount = 3; // light, same day, same app
+    const light = await post(INTAKE_KEY, body({ title: 'another bug' }));
+    expect(light.status).toBe(201);
+    expect((state.inserted[0] as any).metadata.over_cap).toBe('app');
+  });
+
+  it('a light caller is refused only past ceiling + reserve (2,500)', async () => {
+    state.todayCount = 2499;
+    state.fullCount = 300;
+    expect((await post(INTAKE_KEY)).status).toBe(201);
+    state.todayCount = 2500;
+    const res = await post(INTAKE_KEY, body({ title: 'one more' }));
+    expect(res.status).toBe(429);
+    expect(state.inserted).toHaveLength(1);
   });
 
   it('refuses with 503 when BUG_INTAKE_IP_PEPPER is not set (no reversible hash)', async () => {
@@ -490,6 +542,116 @@ describe('POST /api/v1/public/bug-reports — abuse limits', () => {
     expect(json.data.bug_report.id).toBe('bug-0');
     expect(state.inserted).toHaveLength(0);
     expect(state.uploads).toHaveLength(0);
+  });
+
+  it('a double-submit hit never reveals the stored bug\'s triage status or text', async () => {
+    state.recent = [{ id: 'bug-0', display_id: 'BUG-009000', created_at: 't', status: 'in_progress', description: 'other' }];
+    const json = await (await post(INTAKE_KEY)).json();
+    expect(json.data.bug_report).toMatchObject({
+      id: 'bug-0',
+      display_id: 'BUG-009000',
+      status: 'unverified',
+      description: 'Clicking save on the mentor notes page does nothing at all.',
+    });
+  });
+
+  it('IPv6 addresses inside one /64 share the per-minute bucket, so rotating them opens no new one', async () => {
+    state.keyRow = null;
+    const send = (ip: string) =>
+      POST(
+        new NextRequest('https://www.jkkn.ai/api/v1/public/bug-reports', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', 'x-api-key': 'jkkn_bi_' + '1'.repeat(48), 'x-vercel-forwarded-for': ip },
+          body: JSON.stringify(body()),
+        })
+      );
+    for (let i = 0; i < 60; i++) expect((await send(`2001:db8:aa:bb::${(i + 1).toString(16)}`)).status).toBe(401);
+    const before = fromSpy.mock.calls.length;
+    expect((await send('2001:db8:aa:bb:ffff:1:2:3')).status).toBe(429);
+    expect(fromSpy.mock.calls.length).toBe(before);
+    // another /64 is another caller
+    expect((await send('2001:db8:aa:cc::1')).status).toBe(401);
+  });
+
+  it('an IPv4-mapped IPv6 caller is its IPv4 address, not one shared ::/64 bucket', async () => {
+    const send = (ip: string, title: string) =>
+      POST(
+        new NextRequest('https://www.jkkn.ai/api/v1/public/bug-reports', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', 'x-api-key': INTAKE_KEY, 'x-vercel-forwarded-for': ip },
+          body: JSON.stringify(body({ title })),
+        })
+      );
+    await send('::ffff:203.0.113.9', 'mapped');
+    await send('203.0.113.9', 'plain');
+    await send('::ffff:198.51.100.7', 'stranger');
+    const [mapped, plain, stranger] = state.inserted.map((r: any) => r.metadata.client_ip_hash);
+    expect(mapped).toBe(plain);
+    expect(mapped).not.toBe(stranger);
+  });
+});
+
+describe('POST /api/v1/public/bug-reports — every stored row is size-bounded', () => {
+  const bytes = (v: unknown) => Buffer.byteLength(JSON.stringify(v), 'utf8');
+  const big = (n: number) => 'x'.repeat(n);
+
+  it('console_logs + network_trace together are trimmed to 64 KB, newest kept', async () => {
+    const logs = Array.from({ length: 200 }, (_, i) => ({ i, message: big(2_000) }));
+    const trace = Array.from({ length: 50 }, (_, i) => ({ i, url: big(2_000) }));
+    const res = await post(INTAKE_KEY, body({ console_logs: logs, network_trace: trace, screenshot_data_url: null }));
+    expect(res.status).toBe(201);
+    const row = state.inserted[0] as any;
+    expect(bytes(row.console_logs) + (row.metadata.network_trace ? bytes(row.metadata.network_trace) : 0)).toBeLessThanOrEqual(
+      64_000
+    );
+    expect(row.console_logs.at(-1).i).toBe(199); // newest kept
+    expect(row.metadata.over_cap).toBeNull();
+  });
+
+  it('caps client metadata, browser and system info; one huge entry cannot blow the row', async () => {
+    const res = await post(
+      INTAKE_KEY,
+      body({
+        metadata: { userAgent: 'UA', blob: big(30_000) },
+        browser_info: { blob: big(10_000) },
+        system_info: big(10_000),
+        console_logs: [{ message: big(100_000) }, { message: 'small' }],
+        screenshot_data_url: null,
+      })
+    );
+    expect(res.status).toBe(201);
+    const row = state.inserted[0] as any;
+    expect(row.metadata.client_metadata).toBeNull();
+    expect(row.metadata.browser_info).toBeNull();
+    expect(row.metadata.system_info).toBeNull();
+    expect(row.console_logs).toEqual([{ message: 'small' }]);
+    expect(bytes(row)).toBeLessThanOrEqual(200_000);
+  });
+
+  it('the largest body the schema allows still stores within 200 KB (full) or 24 KB (minimal)', async () => {
+    // 20,000 three-byte characters: the most UTF-8 a description can carry
+    const worst = body({
+      title: '語'.repeat(300),
+      description: '語'.repeat(20_000),
+      page_url: 'https://mentor.jkkn.ai/' + 'a'.repeat(1_970),
+      reporter_name: '語'.repeat(200),
+      reporter_email: 'a'.repeat(300) + '@jkkn.ac.in',
+      metadata: { userAgent: big(3_900), blob: big(15_000) },
+      browser_info: big(3_900),
+      system_info: big(3_900),
+      console_logs: Array.from({ length: 200 }, () => ({ message: big(1_000) })),
+      network_trace: Array.from({ length: 50 }, () => ({ url: big(1_000) })),
+      screenshot_data_url: null,
+    });
+    expect((await post(INTAKE_KEY, worst)).status).toBe(201);
+    expect(bytes(state.inserted[0])).toBeLessThanOrEqual(200_000);
+
+    state.fullCount = 300; // now minimal
+    expect((await post(INTAKE_KEY, { ...worst, title: '語'.repeat(299) })).status).toBe(201);
+    const minimal = state.inserted[1] as any;
+    expect(minimal.metadata.over_cap).toBe('app');
+    expect(minimal.metadata.description_clipped).toBe(true);
+    expect(bytes(minimal)).toBeLessThanOrEqual(24_000);
   });
 });
 

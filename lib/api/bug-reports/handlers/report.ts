@@ -135,6 +135,23 @@ export async function PATCH(
     // Use admin client for the update
     const adminSupabase = createAdminClient();
 
+    // The update runs as the service role, so it applies the row rule itself:
+    // a college-app bug with no college is for super admins only (policy
+    // bug_reports_college_app_rows_super_admin_only, 20271010151437). Without
+    // this an admin could change it, and read it back in the response, by its
+    // id. Every other bug is unaffected.
+    const { data: scope, error: scopeError } = await (adminSupabase.from('bug_reports') as any)
+      .select('application_id, institution_id')
+      .eq('id', reportId)
+      .maybeSingle();
+    const isSuperAdmin = (profile as any).is_super_admin === true || profile.role === 'super_admin';
+    if (scopeError || !scope || (scope.application_id && !scope.institution_id && !isSuperAdmin)) {
+      return NextResponse.json(
+        { error: 'Bug report not found or access denied' },
+        { status: 404 }
+      );
+    }
+
     const updateData: {
       status: string;
       resolved_at?: string | null;

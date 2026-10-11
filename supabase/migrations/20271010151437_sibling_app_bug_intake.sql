@@ -69,9 +69,18 @@
 --   index idx_bug_reports_application_created; unique expression index
 --   uq_bug_reports_intake_dedup. reporter_user_id, institution_id and
 --   department_id are ALWAYS NULL on an intake row (the email is a claim).
--- ASSISTANT TOOL (section 4b): ai_rpc_bug_report_details is replaced with a
---   body that refuses 'unverified', only if the live body matches the in-repo
---   one (md5 check); else it stops. Grants restated as in 20270308090000.
+-- ASSISTANT TOOLS (sections 4b, 4d): ai_rpc_bug_report_details and
+--   ai_rpc_bug_reports are both ENABLED on prod (tool catalog row
+--   'bug_reports', audience {assistant, door}). Each is replaced with a body
+--   that refuses 'unverified' and shows college-app rows with no college to
+--   super admins only, only if the live body matches the in-repo one (md5
+--   check); else it stops. ai_rpc_bug_reports also gains an admin-role gate.
+--   Grants restated: no anon, no PUBLIC, signed-in users only.
+-- WHO SEES COLLEGE-APP ROWS (section 4c): a RESTRICTIVE select policy on
+--   bug_reports. A row with an application_id and no institution_id is seen
+--   only by a super admin (or its reporter, always NULL today). Every row
+--   without an application_id passes it unchanged, so no existing row's
+--   visibility moves, whatever permissive policies are live.
 --
 -- FILE ONLY — NOT APPLIED. A person applies it after the PR is approved.
 -- No BEGIN/COMMIT in the file. Safe to run twice.
@@ -364,13 +373,14 @@ END;
 $$;
 
 -- ─── 4b. The assistant's bug-details tool never reads quarantined bugs ─────
--- ai_rpc_bug_report_details is how the in-app assistant reads one bug (enabled
--- for the assistant only by 20271009100500). It now refuses status
--- 'unverified'. ai_rpc_bug_reports (the list tool) is NOT changed: it is not
--- enabled in the tool catalog (20270301090000 seeds it off and 20271009100500
--- does not turn it on), so the assistant cannot call it. ai_rpc_my_bug_reports
+-- ai_rpc_bug_report_details is how the in-app assistant reads one bug. The
+-- tool catalog row 'bug_reports' is ENABLED on prod with audience
+-- {assistant, door} (W12 read it live, 11 Oct 2026), so this tool and the list
+-- tool ai_rpc_bug_reports (section 4d) are both callable. It now refuses status
+-- 'unverified', and a college-app row with no college is shown to super admins
+-- only (the same rule as section 4c). ai_rpc_my_bug_reports
 -- needs nothing: it lists the caller's own bugs, and an intake row has no
--- reporter. The body below is the 20270308090000 one plus the quarantine
+-- reporter. The body below is the 20270308090000 one plus those
 -- lines. Before it is replaced, the LIVE body is fingerprinted: if it differs
 -- from that version (md5 c6a13d61…, the "after" hash 20270308090000 itself
 -- records), this stops rather than overwrite a newer change. A database
@@ -381,7 +391,7 @@ DECLARE
 BEGIN
   SELECT md5(prosrc) INTO v_md5 FROM pg_proc
    WHERE oid = to_regprocedure('public.ai_rpc_bug_report_details(uuid,uuid)');
-  IF v_md5 IS NOT NULL AND v_md5 NOT IN ('c6a13d61826ce9e857a569b40320c3d4', 'ffc009c3123a890480d973d1fdeee563') THEN
+  IF v_md5 IS NOT NULL AND v_md5 NOT IN ('c6a13d61826ce9e857a569b40320c3d4', '1007e889eb461dddd19ba12b2071befd') THEN
     RAISE EXCEPTION 'live ai_rpc_bug_report_details differs from 20270308090000 (md5 %); refresh section 4b of this migration', v_md5;
   END IF;
   IF v_md5 IS NOT NULL THEN
@@ -408,11 +418,14 @@ BEGIN
   -- that. On top of the policy, a non-super caller only sees reports from colleges
   -- role_has_institution_access() admits (or with no college). A refusal reads the
   -- same as a missing report, as before.
-  SELECT br.reporter_user_id, br.institution_id INTO v_bug FROM bug_reports br WHERE br.id = p_bug_report_id;
+  SELECT br.reporter_user_id, br.institution_id, br.application_id INTO v_bug FROM bug_reports br WHERE br.id = p_bug_report_id;
   IF NOT FOUND OR (  -- [fail-closed 2026-09-28] a NULL reporter or role used to skip this deny
        public.is_super_admin()
        OR v_bug.reporter_user_id = auth.uid()
        OR (public.get_current_user_role() IN ('super_admin', 'admin', 'ceo')
+           -- [college-app 20271010151437] a college-app bug with no college
+           -- belongs to no admin's college: super admins only (section 4c).
+           AND (v_bug.application_id IS NULL OR v_bug.institution_id IS NOT NULL)
            AND (v_bug.institution_id IS NULL
                 OR v_bug.institution_id = ANY(public._user_accessible_institutions())))
      ) IS NOT TRUE THEN
@@ -494,6 +507,123 @@ $function$$create_details$;
     EXECUTE 'GRANT  EXECUTE ON FUNCTION public.ai_rpc_bug_report_details(uuid, uuid) TO authenticated';
   END IF;
 END $quarantine$;
+
+-- ─── 4c. College-app rows with no college: super admins only ──────────────
+-- Every intake row has institution_id NULL (the email is a claim). The live
+-- permissive SELECT policies on bug_reports ("Enhanced bug reports view access
+-- with department filtering", "Allow admins to manage all reports", and any
+-- other) let every college's admin and ceo read every row, so without this an
+-- admin of one college would read the reporter email, name and text of bugs
+-- from all five apps. A RESTRICTIVE policy is ANDed with all permissive ones,
+-- whatever they are, so it narrows exactly the rows it names:
+--   - application_id IS NULL (every MyJKKN bug, and every row today: 0 of
+--     3,607 use application_id, checked live 11 Oct 2026): passes, unchanged.
+--   - application_id set AND institution_id set: passes, unchanged.
+--   - application_id set AND institution_id NULL: only a super admin, or the
+--     row's reporter (always NULL on an intake row today).
+-- It also governs UPDATE and DELETE through the API, which read the row first.
+-- The service role (the intake route, the admin client) bypasses RLS.
+DROP POLICY IF EXISTS bug_reports_college_app_rows_super_admin_only ON public.bug_reports;
+CREATE POLICY bug_reports_college_app_rows_super_admin_only ON public.bug_reports
+  AS RESTRICTIVE
+  FOR SELECT
+  TO authenticated
+  USING (
+    application_id IS NULL
+    OR institution_id IS NOT NULL
+    OR reporter_user_id = (SELECT auth.uid())
+    OR (SELECT public.is_super_admin())
+  );
+
+-- ─── 4d. The assistant's bug-list tool: quarantine, admin gate, college-app rows
+-- ai_rpc_bug_reports is ENABLED on prod (catalog row 'bug_reports', audience
+-- {assistant, door}). It is SECURITY DEFINER, so the policy above does not
+-- apply inside it; its own WHERE clauses now skip 'unverified' rows and
+-- college-app rows with no college (unless the caller is a super admin), and
+-- only super_admin / admin / ceo may call it (the bug_reports SELECT policy's
+-- list). br.module and br.priority are left exactly as they are: that is a
+-- separate ticket, and changing what the tool reads is out of scope here.
+-- Fingerprinted first: the in-repo body is 20260712134500, md5 081db5b6…
+-- (W12 confirmed live, 11 Oct 2026). Any other body stops this file. A
+-- database without the function is left alone.
+DO $list_guard$
+DECLARE
+  v_md5 text;
+BEGIN
+  SELECT md5(prosrc) INTO v_md5 FROM pg_proc
+   WHERE oid = to_regprocedure('public.ai_rpc_bug_reports(uuid,text,text,integer,integer)');
+  IF v_md5 IS NOT NULL AND v_md5 NOT IN ('081db5b60bcd592fdb9b9d2b45f2607b', '8aa86a6bf848dbb1b91f29ad33593e16') THEN
+    RAISE EXCEPTION 'live ai_rpc_bug_reports differs from 20260712134500 (md5 %); refresh section 4d of this migration', v_md5;
+  END IF;
+  IF v_md5 IS NOT NULL THEN
+    EXECUTE $create_list$CREATE OR REPLACE FUNCTION public.ai_rpc_bug_reports(p_user_id uuid, p_status text DEFAULT NULL::text, p_priority text DEFAULT NULL::text, p_limit integer DEFAULT 10000, p_offset integer DEFAULT 0)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+DECLARE
+    v_result jsonb;
+    v_count integer;
+BEGIN
+  -- [authz-guard 2026-07-12] pin identity to auth.uid() (confused-deputy fix; ignores caller-supplied p_user_id)
+  IF auth.uid() IS NULL THEN
+    RETURN jsonb_build_object('success', false, 'error', jsonb_build_object('code','UNAUTHORIZED','message','Sign in required.'));
+  END IF;
+  p_user_id := auth.uid();
+  -- [admin-gate 20271010151437] the list reads every college's bugs, so only the
+  -- roles the bug_reports SELECT policy admits may call it.
+  IF (public.is_super_admin()
+      OR public.get_current_user_role() IN ('super_admin', 'admin', 'ceo')) IS NOT TRUE THEN
+    RETURN jsonb_build_object('success', false, 'error', jsonb_build_object('code','FORBIDDEN','message','Only administrators can list bug reports.'));
+  END IF;
+    SELECT COUNT(*)
+    INTO v_count
+    FROM bug_reports br
+    WHERE (p_status IS NULL OR br.status = p_status)
+      AND (p_priority IS NULL OR br.priority = p_priority)
+      AND br.status <> 'unverified'  -- [quarantine 20271010151437]
+      AND (br.application_id IS NULL OR br.institution_id IS NOT NULL OR public.is_super_admin());  -- [college-app 20271010151437]
+
+    SELECT jsonb_build_object(
+        'success', true,
+        'data', COALESCE(jsonb_agg(row_to_json(bug)), '[]'::jsonb),
+        'metadata', jsonb_build_object(
+            'total_count', v_count,
+            'returned_count', COUNT(*),
+            'has_more', v_count > p_offset + p_limit,
+            'filters_applied', jsonb_build_object('status', p_status, 'priority', p_priority)
+        ),
+        'actions_available', '[]'::jsonb
+    )
+    INTO v_result
+    FROM (
+        SELECT
+            br.id,
+            br.reporter_user_id,
+            pr.full_name as reporter_name,
+            br.status,
+            br.priority,
+            br.module,
+            br.description,
+            br.created_at
+        FROM bug_reports br
+        LEFT JOIN profiles pr ON br.reporter_user_id = pr.id
+        WHERE (p_status IS NULL OR br.status = p_status)
+          AND (p_priority IS NULL OR br.priority = p_priority)
+          AND br.status <> 'unverified'  -- [quarantine 20271010151437]
+          AND (br.application_id IS NULL OR br.institution_id IS NOT NULL OR public.is_super_admin())  -- [college-app 20271010151437]
+        ORDER BY br.created_at DESC
+        LIMIT p_limit OFFSET p_offset
+    ) bug;
+
+    RETURN v_result;
+END;
+$function$$create_list$;
+    EXECUTE 'REVOKE EXECUTE ON FUNCTION public.ai_rpc_bug_reports(uuid, text, text, integer, integer) FROM anon, PUBLIC';
+    EXECUTE 'GRANT  EXECUTE ON FUNCTION public.ai_rpc_bug_reports(uuid, text, text, integer, integer) TO authenticated';
+  END IF;
+END $list_guard$;
 
 -- ─── 5. Apply-time checks ──────────────────────────────────────────────────
 DO $$

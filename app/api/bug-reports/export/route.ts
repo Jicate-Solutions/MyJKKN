@@ -154,8 +154,15 @@ export async function POST(request: Request) {
     // feeds the code-fixing agents, and this text came in on a public key.
     query = query.neq('status', 'unverified');
 
-    const { data: bugs, error } = await query;
+    const { data: fetched, error } = await query;
     if (error) throw error;
+    // This export reads as the service role, so it applies the row rule itself:
+    // a college-app bug (metadata.source 'sibling_app') with no college is for
+    // super admins only (20271010151437, section 4c).
+    const isSuperAdmin = (profile as any).is_super_admin === true || profile.role === 'super_admin';
+    const bugs = (fetched ?? []).filter(
+      (bug: any) => isSuperAdmin || bug.metadata?.source !== 'sibling_app' || bug.institution_name
+    );
 
     // Group bugs by module/sub-module key for ZIP file naming
     // When sub_module_name filter is active, group by sub-module within the module.

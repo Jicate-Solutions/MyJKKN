@@ -33,6 +33,33 @@ describe('quarantine: unverified college-app bugs', () => {
     expect(code).toMatch(/\.in\('duplicate_of', changedIds\)/);
   });
 
+  it('never reaches the duplicate-check prompt as a candidate', () => {
+    // the candidate function returns only open statuses ...
+    const fn = src('supabase/migrations/20260802020000_bug_duplicate_check_job_and_candidates.sql');
+    expect(fn).toMatch(/AND b\.status IN \('new', 'seen', 'in_progress'\)/);
+    // ... and the handler filters again, in case that function ever changes
+    expect(src('lib/api/bug-reports/handlers/duplicate-check.ts')).toMatch(
+      /\.filter\(\s*\(c: CandidateRow\) => c\.status !== 'unverified'\s*\)/
+    );
+  });
+
+  it('no status change can move a bug INTO unverified: only the intake sets it', () => {
+    for (const file of ['lib/api/bug-reports/handlers/report.ts', 'app/api/bug-reports/bulk-update-status/route.ts']) {
+      const targets = /status: z\.enum\(\[([^\]]*)\]\)/.exec(src(file))?.[1] ?? '';
+      expect(targets, file).toMatch(/'new'/);
+      expect(targets, file).not.toMatch(/unverified/);
+    }
+  });
+
+  it('service-role paths apply the college-app row rule themselves (super admins only)', () => {
+    expect(src('lib/api/bug-reports/handlers/report.ts')).toMatch(
+      /scope\.application_id && !scope\.institution_id && !isSuperAdmin/
+    );
+    expect(src('app/api/bug-reports/export/route.ts')).toMatch(
+      /isSuperAdmin \|\| bug\.metadata\?\.source !== 'sibling_app' \|\| bug\.institution_name/
+    );
+  });
+
   it.each(['ai-triage', 'duplicate-check', 'ai-reverify'])('the %s handler refuses it with 409', (h) => {
     const code = src(`lib/api/bug-reports/handlers/${h}.ts`);
     expect(code).toMatch(/select\(\s*'id, display_id, status,/);
