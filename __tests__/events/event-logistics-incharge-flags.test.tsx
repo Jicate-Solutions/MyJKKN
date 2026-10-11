@@ -31,7 +31,15 @@ function stub(key: string) {
 vi.mock('@/components/events/shared/registrations-board', () => ({ RegistrationsBoard: stub('registrations') }));
 vi.mock('@/components/events/shared/sponsors-board', () => ({ SponsorsBoard: stub('sponsors') }));
 vi.mock('@/components/events/shared/budget-board', () => ({ BudgetBoard: stub('budget') }));
-vi.mock('@/components/events/shared/committees-board', () => ({ CommitteesBoard: stub('committees') }));
+vi.mock('@/components/events/shared/committees-board', () => ({
+  CommitteesBoard: ({ canManage, canEditTasks }: { canManage?: boolean; canEditTasks?: boolean }) => (
+    <i
+      data-testid="board-committees"
+      data-manage={String(canManage)}
+      data-tasks={String(canEditTasks)}
+    />
+  ),
+}));
 vi.mock('@/components/events/shared/checkin-board', () => ({ CheckinBoard: stub('checkin') }));
 vi.mock('@/components/events/shared/qr-board', () => ({ QrBoard: stub('qr'), TournamentQrLinks: stub('qr') }));
 vi.mock('@/components/events/shared/volunteers-board', () => ({ VolunteersBoard: stub('volunteers') }));
@@ -99,6 +107,19 @@ describe('EventLogistics — what each board receives', () => {
     const got = received({ canManage: false, canEdit: false });
     expect(Object.values(got).some(Boolean)).toBe(false);
     for (const k of ['budget', 'sponsors', 'incidents']) expect(got).not.toHaveProperty(k);
+  });
+
+  it('committee task editing follows the committees board flag, not the host flag', () => {
+    const tasksFor = (props: { canManage: boolean; canEdit?: boolean; canEditTasks?: boolean }) => {
+      cleanup();
+      render(<EventLogistics eventId="e1" eventType="cultural" {...props} />);
+      return screen.getByTestId('board-committees').getAttribute('data-tasks');
+    };
+    expect(tasksFor({ canManage: true, canEdit: false })).toBe('true'); // in-charge
+    expect(tasksFor({ canManage: false, canEdit: false })).toBe('false'); // plain viewer
+    expect(tasksFor({ canManage: true, canEdit: true })).toBe('true'); // editor
+    // An explicit canEditTasks still wins (tournament committee members).
+    expect(tasksFor({ canManage: false, canEditTasks: true })).toBe('true');
   });
 
   it('a host that passes no canEdit is unchanged (canEdit defaults to canManage)', () => {

@@ -236,6 +236,16 @@ export const EVENT_LOGISTICS_TABS: EventLogisticsTab[] = [
 // registrations export xlsx/csv                 none (download of rows already read)            —                                                  read-only
 // sponsors      add / edit / delete / stage     event_sponsors ALL                              event_sponsors_event_team_write                    ADMITS-INCHARGE
 // sponsors      sponsorship notes               event_sponsorship_notes UPSERT                  event_sponsorship_notes_event_team_write           ADMITS-INCHARGE
+// sponsors      deliverables / activity log     NO write control. event_sponsor_deliverables and
+//               event_sponsor_activity_log are USING (true) live, but the board only READS
+//               them (deliverable count, sponsors-board.tsx:338-340, :479-484).
+//               EventSponsorService.addDeliverable / updateDeliverable / deleteDeliverable /
+//               logActivity (event-sponsor-service.ts:184, :217, :246, :266) have no caller
+//               anywhere in app/, components/, hooks/ or lib/ (checked 11 Oct). The only write
+//               reaching them is ON DELETE CASCADE from deleting a sponsor, which runs inside
+//               the event_sponsors DELETE that event_sponsors_event_team_write admits for this
+//               event. A test refuses a deliverable/activity-log write in the board or its
+//               hook; add one only with its own canEdit-fed flag.
 // budget        add / edit / delete line        event_budget_items ALL                          event_budget_items_event_team_write (+ lock trg)   ADMITS-INCHARGE
 // budget        attach / remove bill            /api/events/:id/budget-attachment → items UPDATE same policy, via caller's session client          ADMITS-INCHARGE
 // budget        settle line                     rpc fn_settle_event_budget_line                 is_admin OR fn_is_event_incharge OR perms          ADMITS-INCHARGE
@@ -429,7 +439,7 @@ export function EventLogistics({
    * does not distinguish the two is unchanged.
    */
   canEdit?: boolean;
-  /** Defaults to canManage — pass true to let non-managers tick committee tasks. */
+  /** Defaults to the board's own flag (boardCanManage) — pass true to let non-managers tick committee tasks. */
   canEditTasks?: boolean;
   /**
    * `events.config.enabled_tools` — the tools chosen when the event was created.
@@ -451,7 +461,6 @@ export function EventLogistics({
     hideSensitiveWithoutManage,
   });
   if (tabs.length === 0) return null;
-  const tasksEditable = canEditTasks ?? canManage;
   // Tab VISIBILITY above stays on canManage, so an in-charge still sees Budget,
   // Sponsors and Incidents; only each board's write controls use its own flag.
   const flags = { canManage, canEdit: canEdit ?? canManage };
@@ -480,7 +489,10 @@ export function EventLogistics({
                 eventId,
                 eventType,
                 canManage: boardCanManage(t.key, flags),
-                canEditTasks: tasksEditable,
+                // Defaults to THIS board's flag, not the host's canManage, so the
+                // per-board audit governs task writes too (committee tasks admit
+                // in-charges via fn_can_manage_committee_tasks).
+                canEditTasks: canEditTasks ?? boardCanManage(t.key, flags),
               })}
             </TabsContent>
           ))}

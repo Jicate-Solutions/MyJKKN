@@ -206,6 +206,20 @@ describe('in-charge write audit — board to flag mapping', () => {
     });
   });
 
+  it('the sponsors board has no deliverable / activity-log write (both tables are USING (true) live)', () => {
+    // Sponsors is classed admits-incharge because its only writes are
+    // event_sponsors and event_sponsorship_notes. A write to either open
+    // sub-table would need its own canEdit-fed flag first.
+    for (const file of [
+      'components/events/shared/sponsors-board.tsx',
+      'hooks/events/shared/use-event-sponsors.ts',
+    ]) {
+      const src = readFileSync(join(process.cwd(), file), 'utf8');
+      expect(src, file).not.toMatch(/\b(addDeliverable|updateDeliverable|deleteDeliverable|logActivity)\b/);
+      expect(src, file).not.toMatch(/from\(\s*['"]event_sponsor_(deliverables|activity_log)['"]/);
+    }
+  });
+
   it('an unaudited board gets canEdit, never the in-charge flag', () => {
     expect(boardManageFlag('some-new-board')).toBe('canEdit');
     expect(boardCanManage('some-new-board', IN_CHARGE)).toBe(false);
