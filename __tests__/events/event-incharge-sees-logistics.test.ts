@@ -55,6 +55,12 @@ describe('isEventIncharge', () => {
     expect(isEventIncharge({ config: { incharges: [null, 'x', { name: 'no id' }] } }, COO)).toBe(false);
   });
 
+  it('compares exactly, like fn_is_event_incharge (member_id = auth.uid()::text)', () => {
+    const upper = { config: { incharges: [{ member_id: COO.toUpperCase() }] } };
+    // The database would refuse this viewer's writes, so the UI must not open the tabs.
+    expect(isEventIncharge(upper, COO)).toBe(false);
+  });
+
   it('is false for a signed-out viewer or a missing event', () => {
     expect(isEventIncharge(olympus, undefined)).toBe(false);
     expect(isEventIncharge(olympus, null)).toBe(false);

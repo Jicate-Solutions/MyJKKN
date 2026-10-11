@@ -542,6 +542,15 @@ export default function GeneralEventDetailPage() {
   // event_incidents and event_committees all admit fn_is_event_incharge.
   // canEdit itself is untouched — status, visibility and the Edit dialog stay
   // creator / editor only.
+  // Verified live 11 Oct 2026: migrations 20261220092000, 20261220093000,
+  // 20270202090000, 20270203090000 and 20270207100000 are all in
+  // supabase_migrations.schema_migrations, so the in-charge write policies above
+  // are live. event_sponsor_deliverables and event_volunteer_checkins RLS is
+  // authenticated ALL USING (true), so in-charge writes there are not refused
+  // (that open policy is a separate, pre-existing hole parked with the Director).
+  // profile.id IS the auth uid fn_is_event_incharge compares with: the auth
+  // provider loads the profile with .eq('id', session.user.id)
+  // (hooks/use-auth-provider.tsx:81).
   const canManageLogistics = canEdit || isEventIncharge(event, profile?.id);
 
   // Cancelling is narrower than editing (Director 30 Sep): in-charges and admins.

@@ -82,6 +82,12 @@ export function canEditEvent(event: EventOwnership, viewer: EventEditViewer): bo
  * logistics (budget, sponsors, incidents — RLS *_event_team_write admits
  * fn_is_event_incharge) but does not edit the event row, its status or its
  * visibility (BUG-006268, Director 9 Oct: "Add COO as in-charge").
+ *
+ * The compare is exact on purpose, to match the database byte for byte:
+ * fn_is_event_incharge checks inc->>'member_id' = auth.uid()::text, which is
+ * case-sensitive. Lower-casing only here could show a tab whose writes the
+ * database then refuses. Live check 11 Oct 2026: 0 of 112 stored member_ids
+ * contain upper case.
  */
 export function isEventIncharge(
   event: { config?: unknown } | null | undefined,
