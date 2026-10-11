@@ -1572,7 +1572,8 @@ REVOKE TRUNCATE ON public.procurement_grn, public.procurement_grn_items,
 --     verifier or admin who did not receive the delivery (D-M1: its receiver could link
 --     an unposted line to any item and post it with fn_procurement_rm_post_receipt);
 --   * changing domain_posted_at once set (NULL -> now() stays possible: the RM RPC's own
---     claim and the service's marker).
+--     claim and the service's marker — and, for every receipt, only while it is in a
+--     posted status: R2 skeptic round 2, a pending line cannot be pre-marked).
 --   * I2 (round 3, S-M5): a replacement line is now judged at verify, by the verify
 --     guard's G8 like every other line.
 -- A line can never move to another receipt (grn_id), posted or not. Deleting a line is
