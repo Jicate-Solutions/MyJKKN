@@ -34,8 +34,10 @@ import {
   EVENT_LOGISTICS_TABS,
   INCHARGE_FLAG_ALLOWLIST,
   LOGISTICS_INCHARGE_WRITE_AUDIT,
+  LOGISTICS_INCHARGE_WRITE_AUDIT_BY_TYPE,
   boardCanManage,
   boardManageFlag,
+  inchargeAuditFor,
   visibleLogisticsTabs,
 } from '@/components/events/shared/event-logistics';
 
@@ -176,20 +178,78 @@ describe('in-charge write audit — board to flag mapping', () => {
     expect(INCHARGE_FLAG_ALLOWLIST).toEqual([]);
   });
 
-  it('no OPEN, EDITOR-ONLY or EVENTS-ROW board receives the in-charge flag unless allowlisted', () => {
-    const offenders = Object.entries(LOGISTICS_INCHARGE_WRITE_AUDIT)
-      .filter(([, c]) => c.some((x) => x === 'open' || x === 'editor-only' || x === 'events-row'))
-      .map(([k]) => k)
-      .filter((k) => !INCHARGE_FLAG_ALLOWLIST.includes(k))
-      .filter((k) => boardCanManage(k, IN_CHARGE));
+  // Every event_type a logistics board can be rendered for: the general
+  // /events/[id] types plus the three dedicated consoles.
+  const EVENT_TYPES = [
+    'cultural',
+    'lecture',
+    'general',
+    'workshop',
+    'sports_tournament',
+    'marathon',
+    'induction',
+  ];
+
+  it('no OPEN, EDITOR-ONLY or EVENTS-ROW board receives the in-charge flag on ANY event type unless allowlisted', () => {
+    const offenders: string[] = [];
+    for (const eventType of EVENT_TYPES) {
+      for (const { key } of EVENT_LOGISTICS_TABS) {
+        const c = inchargeAuditFor(key, eventType);
+        expect(c, `${key} on ${eventType} is unaudited`).toBeDefined();
+        const needsEdit = c!.some((x) => x === 'open' || x === 'editor-only' || x === 'events-row');
+        if (needsEdit && !INCHARGE_FLAG_ALLOWLIST.includes(key) && boardCanManage(key, eventType, IN_CHARGE)) {
+          offenders.push(`${key}@${eventType}`);
+        }
+      }
+    }
     expect(offenders).toEqual([]);
   });
 
-  it('pins the mapping for an in-charge who is not an editor', () => {
+  it('every board that branches on the event type has a per-type audit entry', () => {
+    // A type-specific write must not hide behind another type's classification.
+    const dir = join(process.cwd(), 'components/events/shared');
+    const files: Record<string, string> = {
+      registrations: 'registrations-board.tsx',
+      sponsors: 'sponsors-board.tsx',
+      budget: 'budget-board.tsx',
+      committees: 'committees-board.tsx',
+      checkin: 'checkin-board.tsx',
+      qr: 'qr-board.tsx',
+      volunteers: 'volunteers-board.tsx',
+      incidents: 'incidents-board.tsx',
+      certificates: 'certificates-board.tsx',
+      'bulk-import': 'bulk-import-board.tsx',
+      analytics: 'analytics-board.tsx',
+      kit: 'kit-board.tsx',
+      messages: 'messages-board.tsx',
+    };
+    expect(Object.keys(files).sort()).toEqual(EVENT_LOGISTICS_TABS.map((t) => t.key).sort());
+    const branching = Object.entries(files)
+      .filter(([, f]) => /\beventType\s*[!=]==|event_type\s*[!=]==/.test(readFileSync(join(dir, f), 'utf8')))
+      .map(([k]) => k);
+    // The registry itself branches the QR tab on sports_tournament.
+    const registry = readFileSync(join(dir, 'event-logistics.tsx'), 'utf8');
+    expect(registry).toMatch(/eventType === 'sports_tournament' \?/);
+    for (const k of [...branching, 'qr']) {
+      expect(LOGISTICS_INCHARGE_WRITE_AUDIT_BY_TYPE[k], `${k} branches on eventType`).toBeDefined();
+    }
+    expect(branching).toEqual(['registrations']);
+  });
+
+  it('pins registrations and QR per event type', () => {
+    expect(boardCanManage('registrations', 'sports_tournament', IN_CHARGE)).toBe(true);
+    expect(inchargeAuditFor('registrations', 'cultural')).toEqual(['read-only']);
+    expect(inchargeAuditFor('registrations', 'sports_tournament')).toEqual(['admits-incharge', 'read-only']);
+    expect(inchargeAuditFor('qr', 'sports_tournament')).toEqual(['read-only']);
+    expect(inchargeAuditFor('qr', 'cultural')).toEqual(['admits-incharge']);
+  });
+
+  it('pins the mapping for an in-charge who is not an editor, on every event type', () => {
+    for (const eventType of EVENT_TYPES) {
     const got = Object.fromEntries(
-      EVENT_LOGISTICS_TABS.map((t) => [t.key, boardCanManage(t.key, IN_CHARGE)]),
+      EVENT_LOGISTICS_TABS.map((t) => [t.key, boardCanManage(t.key, eventType, IN_CHARGE)]),
     );
-    expect(got).toEqual({
+    expect(got, eventType).toEqual({
       registrations: true,
       sponsors: true,
       budget: true,
@@ -204,6 +264,7 @@ describe('in-charge write audit — board to flag mapping', () => {
       kit: true,
       messages: true,
     });
+    }
   });
 
   it('the sponsors board has no deliverable / activity-log write (both tables are USING (true) live)', () => {
@@ -221,8 +282,8 @@ describe('in-charge write audit — board to flag mapping', () => {
   });
 
   it('an unaudited board gets canEdit, never the in-charge flag', () => {
-    expect(boardManageFlag('some-new-board')).toBe('canEdit');
-    expect(boardCanManage('some-new-board', IN_CHARGE)).toBe(false);
+    expect(boardManageFlag('some-new-board', 'cultural')).toBe('canEdit');
+    expect(boardCanManage('some-new-board', 'cultural', IN_CHARGE)).toBe(false);
   });
 
   it('every tab render passes the canManage it is given straight to its board', () => {
