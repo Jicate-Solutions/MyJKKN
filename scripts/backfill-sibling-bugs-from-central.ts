@@ -20,7 +20,7 @@
  *   1. Apply migration 20271010151437_sibling_app_bug_intake.sql (PR #4322).
  *      It creates sibling_apps and adds the NULL-reporter guard to
  *      add_bug_reporter_as_participant. Without the guard, every copied bug
- *      whose reporter has no MyJKKN profile fails its insert.
+ *      (all are filed with no reporter) fails its insert.
  *   2. Deploy.
  *   3. Run this with --apply, on the Director's word.
  *
@@ -64,12 +64,13 @@
  *                   bug_reports_status_check). Every other central status
  *                   stays in central. The original is also kept in
  *                   metadata.central_status.
- *   reporter        reporter_email (or metadata.reporter_email) matched to
- *                   profiles.email case-insensitively, exactly as the intake
- *                   route does it: one match → reporter_user_id, plus that
- *                   profile's institution_id and department_id; none or
- *                   several → NULL. Email and name stay in metadata either
- *                   way, with reporter_verified false.
+ *   reporter        NEVER linked: reporter_user_id, institution_id and
+ *                   department_id are NULL on every row, as on the intake
+ *                   route (#4322 review). The central email came from a public
+ *                   key, so it is a claim. Email and name stay in metadata
+ *                   with reporter_verified false. The dry run still counts how
+ *                   many emails match exactly one profile, for a later
+ *                   verified-link step; nothing is written from that.
  *   screenshot_url  the central public URL as-is (bucket bug-attachments is
  *                   public; an unauthenticated GET returns the image).
  *   attachments     attachments[].url → attachment_urls (MyJKKN keeps an
@@ -351,20 +352,16 @@ export function planRow(
   const md = (bug.metadata && typeof bug.metadata === 'object' ? bug.metadata : {}) as Record<string, unknown>;
   const reporterEmail = normEmail(bug.reporter_email) ?? normEmail(md.reporter_email);
   let reporter: PlannedRow['reporter'] = 'no-email';
-  let profile: ProfileMatch | null = null;
   if (reporterEmail) {
     const hit = input.reporterByEmail.get(reporterEmail) ?? 'none';
     if (hit === 'none') reporter = 'unmatched';
     else if (hit === 'ambiguous') reporter = 'ambiguous';
-    else {
-      reporter = 'matched';
-      profile = hit;
-    }
+    else reporter = 'matched';
   }
-  if (!profile && input.siblingApps === null) {
-    // The live add_bug_reporter_as_participant inserts NEW.reporter_user_id
-    // into a NOT NULL column; #4322's migration adds the NULL guard.
-    needsMigration.push('reporter has no MyJKKN profile (participant trigger needs #4322 guard)');
+  if (input.siblingApps === null) {
+    // Every row has reporter_user_id NULL. The live add_bug_reporter_as_participant
+    // inserts it into a NOT NULL column; #4322's migration adds the NULL guard.
+    needsMigration.push('reporter is NULL (participant trigger needs #4322 guard)');
   }
 
   const events = input.eventsByBug.get(bug.id) ?? [];
@@ -409,9 +406,10 @@ export function planRow(
   // Never display_id, module_name, sub_module_name or priority.
   const row: Record<string, unknown> = {
     application_id: app.id,
-    reporter_user_id: profile?.id ?? null,
-    institution_id: profile?.institution_id ?? null,
-    department_id: profile?.department_id ?? null,
+    // Never derived from the claimed email (see the header).
+    reporter_user_id: null,
+    institution_id: null,
+    department_id: null,
     page_url: bug.page_url,
     description: bug.description,
     category: bug.category ?? 'bug',
@@ -635,9 +633,10 @@ function printPlan(plan: PlannedRow[], args: Args, simulated: boolean) {
     if ((p.reporter === 'unmatched' || p.reporter === 'ambiguous') && p.reporterEmail)
       unmatched.set(p.reporterEmail, (unmatched.get(p.reporterEmail) ?? 0) + 1);
   console.log(
-    `\nUnmatched reporters (open bugs): ${open.filter((p) => p.reporter !== 'matched').length} rows ` +
-      `(${unmatched.size} distinct emails with no single MyJKKN profile; ` +
-      `${open.filter((p) => p.reporter === 'no-email').length} rows with no email) → reporter_user_id NULL`
+    `\nReporters: every row is filed with reporter_user_id NULL (a claimed email is never linked). ` +
+      `${open.filter((p) => p.reporter === 'matched').length} open rows have an email matching exactly one profile ` +
+      `(for a later verified link); ${open.filter((p) => p.reporter !== 'matched').length} do not ` +
+      `(${unmatched.size} distinct emails; ${open.filter((p) => p.reporter === 'no-email').length} rows with no email).`
   );
   if (args.verbose) for (const [e, c] of [...unmatched].sort()) console.log(`    ${e}  ×${c}`);
 

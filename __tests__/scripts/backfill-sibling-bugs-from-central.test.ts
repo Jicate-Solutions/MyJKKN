@@ -129,10 +129,12 @@ describe('row shape', () => {
     expect(p.row.application_id).toBe('sib-mentor');
   });
 
-  it('matches the reporter case-insensitively and keeps email and name in metadata', () => {
+  it('never links a reporter from the email, even on an exact match; keeps email and name in metadata', () => {
     const [p] = planBackfill(input({ bugs: [{ centralApp: 'tms', bug: bug({ id: 'b1' }) }] }));
-    expect(p.row.reporter_user_id).toBe('p-1');
-    expect(p.row.institution_id).toBe('i-1');
+    expect(p.reporter).toBe('matched');
+    expect(p.row.reporter_user_id).toBeNull();
+    expect(p.row.institution_id).toBeNull();
+    expect(p.row.department_id).toBeNull();
     const md = p.row.metadata as Record<string, unknown>;
     expect(md.reporter_email).toBe('anitha@jkkn.ac.in');
     expect(md.reporter_name).toBe('Anitha');
