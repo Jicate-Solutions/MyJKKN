@@ -1,6 +1,8 @@
 // POST /api/events/marathon/[eventId]/bulk-register
 // Accepts parsed roster rows (JSON array) and bulk-inserts them into events_registrations.
-// Requires authentication — admin/coordinator only.
+// Requires event-ops rights on THIS event (canManageEventOps), checked before any row is read
+// or written: the inserts run on the service-role client, so a bare sign-in check let any
+// signed-in user, learners included, write registrations into any event.
 //
 // GET /api/events/marathon/[eventId]/bulk-register?action=template
 // Downloads the Excel import template for this event.
@@ -13,10 +15,34 @@
 // committees/budget services); the logic underneath is shared.
 
 import { NextRequest, NextResponse } from 'next/server';
-import { createServerSupabaseClient } from '@/lib/supabase/server';
+import {
+  createServerSupabaseClient,
+  createServiceRoleClient,
+  getAuthUser,
+} from '@/lib/supabase/server';
+import { canManageEventOps } from '@/lib/services/events/shared/event-manage-access';
 import { MarathonBulkRegistrationService } from '@/lib/services/events/marathon/marathon-bulk-registration-service';
 import { EventBulkRegisterService } from '@/lib/services/events/shared/event-bulk-register-service';
 import { logger } from '@/lib/utils/enhanced-logger';
+
+/** 401/403 response when the caller may not bulk-import into this event, else null. */
+async function denyUnlessManager(eventId: string): Promise<NextResponse | null> {
+  const { user } = await getAuthUser();
+  if (!user) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+  const allowed = await canManageEventOps(
+    { auth: (await createServerSupabaseClient()) as any, svc: createServiceRoleClient(), userId: user.id },
+    eventId
+  );
+  if (!allowed) {
+    return NextResponse.json(
+      { error: "You don't have permission to import registrations for this event" },
+      { status: 403 }
+    );
+  }
+  return null;
+}
 
 export async function GET(
   request: NextRequest,
@@ -30,12 +56,9 @@ export async function GET(
       return NextResponse.json({ error: 'Invalid action' }, { status: 400 });
     }
 
-    // Verify auth
+    const denied = await denyUnlessManager(eventId);
+    if (denied) return denied;
     const supabase = await createServerSupabaseClient();
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
 
     // Fetch event name
     const { data: event } = await supabase
@@ -72,12 +95,8 @@ export async function POST(
   try {
     const { eventId } = await params;
 
-    // Verify auth
-    const supabase = await createServerSupabaseClient();
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
+    const denied = await denyUnlessManager(eventId);
+    if (denied) return denied;
 
     // Parse body
     const body = await request.json();
