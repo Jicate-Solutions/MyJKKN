@@ -32,7 +32,8 @@ interface ErrorProps {
 /**
  * One automatic retry per route, recorded in sessionStorage.
  *
- * The marker is set when the automatic retry fires and removed in exactly two
+ * The marker is set when the automatic retry actually runs (not when it is
+ * scheduled — a cancelled timer spends nothing) and removed in exactly two
  * places: when this boundary mounts for a DIFFERENT route (the learner moved
  * on, so that route's one retry is spent and irrelevant), and when the learner
  * presses Try Again (a deliberate retry re-arms the automatic one). A repeat
@@ -148,19 +149,31 @@ export default function RoutesError({ error, reset }: ErrorProps) {
     );
 
     if (isNetworkError) {
-      let mayRetry = false;
+      // Only an EXECUTED retry is recorded. Scheduling one writes nothing, so a
+      // timer cancelled before it fires — the error changed, or React Strict
+      // Mode replayed this effect — leaves the retry available to the next run
+      // of this effect instead of spending it on an attempt that never happened.
+      const key = retryMarkerKey(pathname);
+      let alreadyRetried = true;
       try {
-        const key = retryMarkerKey(pathname);
-        if (sessionStorage.getItem(key) === null) {
-          sessionStorage.setItem(key, '1');
-          mayRetry = true;
-        }
+        alreadyRetried = sessionStorage.getItem(key) !== null;
       } catch {
         // sessionStorage blocked (private window, blocked site data): skip the
         // auto retry rather than risk a loop. "Try Again" still works.
       }
-      if (mayRetry) {
-        const timer = setTimeout(() => recoverRef.current(), 1500);
+      if (!alreadyRetried) {
+        const timer = setTimeout(() => {
+          try {
+            // Re-check at fire time and record the attempt BEFORE running it,
+            // so a failed retry that re-mounts this boundary sees it spent.
+            if (sessionStorage.getItem(key) !== null) return;
+            sessionStorage.setItem(key, '1');
+          } catch {
+            // Could not record the attempt: do not run it, or it could loop.
+            return;
+          }
+          recoverRef.current();
+        }, 1500);
         return () => clearTimeout(timer);
       }
     }
