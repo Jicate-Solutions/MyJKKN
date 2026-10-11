@@ -74,6 +74,8 @@ export function kitSourceOptionsFor(role: string | null | undefined, isSuperAdmi
 }
 
 const STORE_ADMIN_ONLY = 'Only a store admin can mark an item Central or reset its source.';
+const ITEM_UNREADABLE = "Couldn't read this item. Reload and try again.";
+const KIT_SOURCE_CHANGED = "This item's kit source was changed by someone else. Reload and try again.";
 
 export interface KitRule {
   id: string;
@@ -213,10 +215,37 @@ export class ImsKitService {
     kit_source?: KitSource;
     caller_role?: string | null;
     caller_is_super_admin?: boolean | null;
+    // The item's kit_source as the screen showed it (stale-value guard for
+    // the store-admin Central path). The picker only appears for items with
+    // no source, so it defaults to null.
+    seen_kit_source?: KitSource | null;
   }) {
-    const { kit_source, caller_role, caller_is_super_admin, ...row } = dto;
+    const { kit_source, caller_role, caller_is_super_admin, seen_kit_source, ...row } = dto;
     if (kit_source === 'central' && isKitStoreAdmin(caller_role, caller_is_super_admin)) {
-      await this.markCentral(row.rule_id, row.item_id);
+      const seen = seen_kit_source ?? null;
+      const changed = await this.markCentral(row.rule_id, row.item_id, seen);
+      const { error } = await this.supabase.from('ims_kit_rule_items').insert(row);
+      if (!error) return;
+      // #4346 panel LOW-4: a failed add must not leave the item Central
+      // silently. Marking Central AFTER the insert is not possible (D32
+      // rejects an unclassified item; D40 rejects a College item on an
+      // all-colleges rule), so we put back the value the screen showed, with
+      // the same guard: only while the item is still the Central we wrote.
+      if (changed) {
+        const { data: undone, error: undoError } = await this.supabase
+          .from('ims_items')
+          .update({ kit_source: seen })
+          .eq('id', row.item_id)
+          .eq('kit_source', 'central')
+          .select('id');
+        if (undoError || !undone || undone.length === 0) {
+          throw new Error(
+            `${error.message || 'Add failed'} — and the item is still set to Central store. ` +
+              'Reset its source if that was not intended.',
+          );
+        }
+      }
+      throw toError(error, 'Add failed');
     } else if (kit_source) {
       if (!KIT_SCREEN_SOURCE_OPTIONS.some((o) => o.value === kit_source)) {
         throw new Error('Central store items are set up by a store admin in item setup');
@@ -289,10 +318,16 @@ export class ImsKitService {
 
   // Store-admin path of addRuleItem: mark the item Central store. Central is
   // valid for any rule (including one spanning all colleges), and may replace
-  // College (the trigger allows that only for a store admin), so there is no
-  // NULL guard here. A college rule still scopes the write to its own
-  // college's items, as the College path does.
-  private static async markCentral(ruleId: string, itemId: string) {
+  // College (the trigger allows that only for a store admin). A college rule
+  // still scopes the write to its own college's items, as the College path
+  // does. Stale-value guard (#4346 panel LOW-3): only while the item still
+  // holds the value the screen showed. Returns true when this call changed
+  // the item (false: it was already Central).
+  private static async markCentral(
+    ruleId: string,
+    itemId: string,
+    seen: KitSource | null,
+  ): Promise<boolean> {
     const { data: rule, error: ruleError } = await this.supabase
       .from('ims_kit_rules')
       .select('institution_id')
@@ -303,24 +338,26 @@ export class ImsKitService {
     const ruleInstitution = (rule as { institution_id: string | null }).institution_id;
     let q = this.supabase.from('ims_items').update({ kit_source: 'central' }).eq('id', itemId);
     if (ruleInstitution) q = q.eq('institution_id', ruleInstitution);
+    q = seen === null ? q.is('kit_source', null) : q.eq('kit_source', seen);
     const { data, error } = await q.select('id');
     if (error) throw toError(error, 'Could not set the item\'s kit source');
-    if (!data || data.length === 0) {
-      const { data: current, error: readError } = await this.supabase
-        .from('ims_items')
-        .select('kit_source, institution_id')
-        .eq('id', itemId)
-        .maybeSingle();
-      if (readError) throw toError(readError, 'Could not read the item\'s kit source');
-      const cur = current as { kit_source: KitSource | null; institution_id: string | null } | null;
-      if (cur?.kit_source === 'central') return; // already Central: carry on
-      if (cur && ruleInstitution && cur.institution_id !== ruleInstitution) {
-        throw new Error(
-          "This item belongs to another college's store — only that college's rules can set its kit source.",
-        );
-      }
-      throw new Error(STORE_ADMIN_ONLY);
+    if (data && data.length > 0) return true;
+    const { data: current, error: readError } = await this.supabase
+      .from('ims_items')
+      .select('kit_source, institution_id')
+      .eq('id', itemId)
+      .maybeSingle();
+    // #4346 panel LOW-6: an unreadable item is not a permission problem.
+    if (readError || !current) throw new Error(ITEM_UNREADABLE);
+    const cur = current as { kit_source: KitSource | null; institution_id: string | null };
+    if (cur.kit_source === 'central') return false; // already Central: carry on
+    if (ruleInstitution && cur.institution_id !== ruleInstitution) {
+      throw new Error(
+        "This item belongs to another college's store — only that college's rules can set its kit source.",
+      );
     }
+    if (cur.kit_source !== seen) throw new Error(KIT_SOURCE_CHANGED);
+    throw new Error(STORE_ADMIN_ONLY);
   }
 
   // Q-1010-395: store admin resets an item's kit source to "not set" (NULL).

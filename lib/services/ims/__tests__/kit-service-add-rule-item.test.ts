@@ -9,6 +9,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 type Call = { table: string; op: string; arg?: unknown; filters?: Array<[string, string, unknown]> };
 const calls: Call[] = [];
 let updateResult: { data: unknown; error: unknown } = { data: [{ id: 'item-1' }], error: null };
+// Per-call results for tests with more than one update (taken first, in order).
+let updateQueue: Array<{ data: unknown; error: unknown }> = [];
 let readResult: { data: unknown; error: unknown } = { data: { kit_source: null, institution_id: 'inst-A' }, error: null };
 let insertResult: { error: unknown } = { error: null };
 let ruleResult: { data: unknown; error: unknown } = { data: { institution_id: 'inst-A' }, error: null };
@@ -23,7 +25,7 @@ function from(table: string) {
         eq: (c: string, v: unknown) => (call.filters!.push(['eq', c, v]), chain),
         is: (c: string, v: unknown) => (call.filters!.push(['is', c, v]), chain),
         not: (c: string, op: string, v: unknown) => (call.filters!.push(['not', `${c}.${op}`, v]), chain),
-        select: () => Promise.resolve(updateResult),
+        select: () => Promise.resolve(updateQueue.length ? updateQueue.shift()! : updateResult),
       };
       return chain;
     },
@@ -65,6 +67,7 @@ const base = { rule_id: 'rule-1', item_id: 'item-1', quantity: 1, cadence: 'year
 beforeEach(() => {
   calls.length = 0;
   updateResult = { data: [{ id: 'item-1' }], error: null };
+  updateQueue = [];
   readResult = { data: { kit_source: null, institution_id: 'inst-A' }, error: null };
   insertResult = { error: null };
   ruleResult = { data: { institution_id: 'inst-A' }, error: null };
@@ -256,8 +259,8 @@ describe('Central store and reset — store admins only (Q-1010-395)', () => {
       { table: 'ims_kit_rule_items', op: 'insert', arg: base },
     ]);
     const upd = calls.find((c) => c.op === 'update')!;
-    // No NULL guard: College -> Central is a store-admin change the trigger allows.
-    expect(upd.filters).not.toContainEqual(['is', 'kit_source', null]);
+    // Stale-value guard on the value the screen showed (null by default).
+    expect(upd.filters).toContainEqual(['is', 'kit_source', null]);
     expect(upd.filters).toContainEqual(['eq', 'institution_id', 'inst-A']);
   });
 
@@ -265,7 +268,7 @@ describe('Central store and reset — store admins only (Q-1010-395)', () => {
     ruleResult = { data: { institution_id: null }, error: null };
     await ImsKitService.addRuleItem({ ...base, kit_source: 'central', caller_role: 'super_admin' });
     const upd = calls.find((c) => c.op === 'update')!;
-    expect(upd.filters).toEqual([['eq', 'id', 'item-1']]);
+    expect(upd.filters).toEqual([['eq', 'id', 'item-1'], ['is', 'kit_source', null]]);
     expect(writes().at(-1)).toEqual({ table: 'ims_kit_rule_items', op: 'insert', arg: base });
   });
 
@@ -346,5 +349,72 @@ describe('Central store and reset — store admins only (Q-1010-395)', () => {
     expect(calls[0]).toMatchObject({
       table: 'ims_kit_rule_items', op: 'select', arg: '*, item:ims_items(name, code, kit_source)',
     });
+  });
+});
+
+// #4346 panel LOWs 3, 4, 6 — store-admin Central path.
+describe('markCentral hardening (#4346 panel)', () => {
+  const admin = { ...base, kit_source: 'central' as const, caller_role: 'store_admin' };
+
+  it('LOW-3: guards on the value the screen showed (College -> Central uses eq college)', async () => {
+    await ImsKitService.addRuleItem({ ...admin, seen_kit_source: 'college' });
+    const upd = calls.find((c) => c.op === 'update')!;
+    expect(upd.filters).toContainEqual(['eq', 'kit_source', 'college']);
+    expect(upd.filters).not.toContainEqual(['is', 'kit_source', null]);
+  });
+
+  it('LOW-3: 0 rows because someone changed it meanwhile -> "changed by someone else", no insert', async () => {
+    updateResult = { data: [], error: null };
+    readResult = { data: { kit_source: 'college', institution_id: 'inst-A' }, error: null };
+    await expect(ImsKitService.addRuleItem({ ...admin, seen_kit_source: null })).rejects.toThrow(
+      "This item's kit source was changed by someone else. Reload and try again.",
+    );
+    expect(calls.some((c) => c.op === 'insert')).toBe(false);
+  });
+
+  it("LOW-6: 0 rows and the item cannot be read -> \"Couldn't read this item\"", async () => {
+    updateResult = { data: [], error: null };
+    readResult = { data: null, error: null };
+    await expect(ImsKitService.addRuleItem(admin)).rejects.toThrow(
+      "Couldn't read this item. Reload and try again.",
+    );
+    readResult = { data: null, error: { message: 'permission denied' } };
+    calls.length = 0;
+    await expect(ImsKitService.addRuleItem(admin)).rejects.toThrow(
+      "Couldn't read this item. Reload and try again.",
+    );
+  });
+
+  it('LOW-4: rule-item insert fails after marking Central -> puts back the shown value, guarded', async () => {
+    insertResult = { error: { message: 'duplicate key value violates unique constraint' } };
+    const err = await ImsKitService.addRuleItem({ ...admin, seen_kit_source: null }).catch((e: unknown) => e);
+    expect((err as Error).message).toBe('duplicate key value violates unique constraint');
+    const updates = calls.filter((c) => c.op === 'update');
+    expect(updates.map((u) => u.arg)).toEqual([{ kit_source: 'central' }, { kit_source: null }]);
+    expect(updates[1].filters).toEqual([['eq', 'id', 'item-1'], ['eq', 'kit_source', 'central']]);
+  });
+
+  it('LOW-4: revert puts back College when the screen showed College', async () => {
+    insertResult = { error: { message: 'insert boom' } };
+    await expect(ImsKitService.addRuleItem({ ...admin, seen_kit_source: 'college' })).rejects.toThrow('insert boom');
+    expect(calls.filter((c) => c.op === 'update').map((u) => u.arg)).toEqual([
+      { kit_source: 'central' }, { kit_source: 'college' },
+    ]);
+  });
+
+  it('LOW-4: revert could not run -> says the item is still Central', async () => {
+    insertResult = { error: { message: 'insert boom' } };
+    updateQueue = [{ data: [{ id: 'item-1' }], error: null }, { data: [], error: null }];
+    await expect(ImsKitService.addRuleItem(admin)).rejects.toThrow(
+      /insert boom — and the item is still set to Central store/,
+    );
+  });
+
+  it('LOW-4: item was already Central (this call changed nothing) -> no revert on insert failure', async () => {
+    updateResult = { data: [], error: null };
+    readResult = { data: { kit_source: 'central', institution_id: 'inst-A' }, error: null };
+    insertResult = { error: { message: 'insert boom' } };
+    await expect(ImsKitService.addRuleItem(admin)).rejects.toThrow('insert boom');
+    expect(calls.filter((c) => c.op === 'update')).toHaveLength(1);
   });
 });

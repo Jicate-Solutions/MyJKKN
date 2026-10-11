@@ -316,7 +316,7 @@ function RuleDetail({ rule }: { rule: KitRule }) {
   const { data: members = [] } = useKitRuleMembers(rule.id);
   const addItem = useAddKitRuleItem();
   const removeItem = useRemoveKitRuleItem(rule.id);
-  const resetSource = useResetKitSource(rule.id);
+  const resetSource = useResetKitSource();
   // Q-1010-395: Central store and Reset source are for store admins only —
   // keyed on profiles.role + the is_super_admin flag, the same fields the
   // database trigger checks (NOT ims.settings.stores.manage — see kit-service).
@@ -448,7 +448,10 @@ function RuleDetail({ rule }: { rule: KitRule }) {
                     try {
                       await addItem.mutateAsync({
                         rule_id: rule.id, item_id: r.id, quantity: Number(qty) || 1, cadence,
-                        ...(r.kit_source ? {} : { kit_source: pickedSource[r.id], caller_role: callerRole, caller_is_super_admin: callerIsSuperAdmin }),
+                        ...(r.kit_source ? {} : {
+                          kit_source: pickedSource[r.id], seen_kit_source: null,
+                          caller_role: callerRole, caller_is_super_admin: callerIsSuperAdmin,
+                        }),
                       });
                       // Bump the sequence so a search still in flight cannot
                       // repopulate the results we just cleared.
