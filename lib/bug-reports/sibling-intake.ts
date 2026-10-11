@@ -64,79 +64,8 @@ export function decodeScreenshot(dataUrl: string): DecodedScreenshot | 'invalid'
   return { buffer, contentType: contentType === 'image/jpg' ? 'image/jpeg' : contentType, ext };
 }
 
-/** Escape LIKE wildcards so an email is matched literally (case-insensitive). */
-export function likeLiteral(value: string): string {
-  return value.replace(/[\\%_]/g, (c) => `\\${c}`);
-}
-
-// ── The reporter's read routes (the widget's "My bugs" drawer) ──────────────
-//
-// The key is public and the reporter's email is a claim (the POST stores
-// metadata.reporter_verified = false on every sibling row). So these routes
-// always answer with the MINIMAL view of a bug: what the reporter already
-// typed, its status and its dates. Never the screenshot, console logs,
-// network trace, browser details, reporter email/name or MyJKKN profile id,
-// institution/department, or anything the team wrote internally.
-
-/** Every status bug_reports allows (bug_reports_status_check). */
-export const BUG_STATUSES = ['new', 'seen', 'in_progress', 'resolved', 'wont_fix', 'duplicate'] as const;
-
-/** Sort fields the central reporter's /me accepts, all real columns here. */
-export const SORTABLE_FIELDS = ['created_at', 'resolved_at', 'status'] as const;
-
-/** Longest description or title excerpt a read returns. */
-export const EXCERPT_CHARS = 200;
-
-/**
- * Columns a read selects. Title and source app are pulled out of metadata by
- * PostgREST so the rest of metadata (client details, network trace, the
- * reporter's email) never leaves the database.
- */
-export const REPORTER_BUG_SELECT =
-  'id, display_id, status, category, description, created_at, updated_at, resolved_at, ' +
-  'title:metadata->>title, source_app:metadata->>source_app';
-
-/** Same normalisation the POST applies before storing metadata.reporter_email. */
+/** The POST's normalisation before storing metadata.reporter_email. */
 export function normalizeReporterEmail(email: string | null | undefined): string | null {
   const trimmed = email?.trim().toLowerCase();
   return trimmed ? trimmed : null;
-}
-
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
-/** A bug id that is not a UUID can only be "not found" (and must not 500). */
-export function isUuid(value: string): boolean {
-  return UUID_RE.test(value);
-}
-
-export function excerpt(value: unknown, max = EXCERPT_CHARS): string | null {
-  if (typeof value !== 'string') return null;
-  const text = value.trim();
-  return text.length > max ? `${text.slice(0, max - 1)}…` : text;
-}
-
-/**
- * The only shape a bug ever leaves these routes in. `metadata.title` is where
- * the SDK's MyBugsPanel reads the title from.
- */
-export function minimalBug(row: Record<string, unknown>) {
-  return {
-    id: row.id ?? null,
-    display_id: row.display_id ?? null,
-    status: row.status ?? null,
-    category: row.category ?? null,
-    description: excerpt(row.description),
-    created_at: row.created_at ?? null,
-    updated_at: row.updated_at ?? null,
-    resolved_at: row.resolved_at ?? null,
-    metadata: { title: excerpt(row.title), source_app: row.source_app ?? null },
-  };
-}
-
-/**
- * Search text made safe for a PostgREST or() logic tree, as the central
- * reporter does it: quotes, backslashes, wildcards, commas and brackets go.
- */
-export function sanitizeSearch(search: string | null): string {
-  return (search ?? '').replace(/["\\%*,()]/g, '').trim().slice(0, 100);
 }

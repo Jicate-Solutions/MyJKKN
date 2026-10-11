@@ -21,9 +21,17 @@
  * refused here, so it never needs to sit in a browser.
  *
  * Because the key is public, everything in the body is a CLAIM. The reporter's
- * email is matched to a profile so the bug lands in that person's "My bug
- * reports", but metadata.reporter_verified is false, and the response never
- * says whether the email matched.
+ * email and name are stored in metadata only (reporter_verified: false). They
+ * are never matched to a MyJKKN profile: reporter_user_id, institution_id and
+ * department_id stay NULL, so nobody can plant a bug in a colleague's "My bug
+ * reports" or their institution's queue by typing that colleague's email.
+ * Linking a sibling bug to a person waits for a server-signed identity from
+ * the app. This route is submit-only; there are no read routes for this key.
+ *
+ * Abuse limits: per-IP rate limit before any lookup (sibling-intake-auth.ts),
+ * a shared per-app cap of MAX_REPORTS_PER_APP_PER_DAY counted in the database,
+ * and a double-submit guard (same app, page and description within
+ * DUPLICATE_WINDOW_MS returns the bug already filed).
  *
  * module_name on bug_reports is a GENERATED column (computed from page_url,
  * 20260906213000) and cannot be written. The app a bug came from is in
@@ -42,7 +50,7 @@ import {
   MAX_SCREENSHOT_BYTES,
   decodeScreenshot,
   intakeCorsHeaders,
-  likeLiteral,
+  normalizeReporterEmail,
   type DecodedScreenshot,
 } from '@/lib/bug-reports/sibling-intake';
 import { authenticateIntakeKey, intakeFail as fail } from '@/lib/bug-reports/sibling-intake-auth';
@@ -53,6 +61,8 @@ const ENDPOINT = '/api/v1/public/bug-reports';
 const MAX_CONSOLE_LOGS = 200;
 const MAX_NETWORK_TRACE = 50;
 const MAX_CLIENT_METADATA_CHARS = 20_000;
+const MAX_REPORTS_PER_APP_PER_DAY = 300;
+const DUPLICATE_WINDOW_MS = 2 * 60 * 1000;
 
 const bodySchema = z.object({
   title: z.string().trim().min(1, 'title is required').max(300),
@@ -82,7 +92,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   const { ipAddress, userAgent } = extractRequestMeta(request);
 
   // ── 1–2. Key (live bug_intake row, active app) and rate limit ────────────
-  // Shared with the reporter's read routes: lib/bug-reports/sibling-intake-auth.ts
+  // lib/bug-reports/sibling-intake-auth.ts
   const auth = await authenticateIntakeKey(request, {
     rateLimitBucket: 'bug-intake',
     rateLimitedMessage: 'Too many bug reports. Please try again in a minute.',
@@ -159,27 +169,56 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     screenshot = decoded;
   }
 
-  // ── 4. Reporter: match the claimed email to a profile, if exactly one ─────
-  const reporterEmail = body.reporter_email ? body.reporter_email.toLowerCase() : null;
-  let reporterUserId: string | null = null;
-  let institutionId: string | null = null;
-  let departmentId: string | null = null;
-
-  if (reporterEmail && reporterEmail.includes('@')) {
-    const { data: matches, error: profileError } = await supabase
-      .from('profiles')
-      .select('id, institution_id, department_id')
-      .ilike('email', likeLiteral(reporterEmail))
-      .limit(2);
-
-    if (profileError) {
-      logger.warn(LOG_MODULE, 'Reporter profile lookup failed; filing without a reporter', profileError);
-    } else if (matches && matches.length === 1) {
-      reporterUserId = matches[0].id;
-      institutionId = matches[0].institution_id ?? null;
-      departmentId = matches[0].department_id ?? null;
-    }
+  // ── 4. Shared caps: per-app daily total, then the double-submit guard ───
+  const dayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+  const { count: todayCount, error: countError } = await supabase
+    .from('bug_reports')
+    .select('id', { count: 'exact', head: true })
+    .eq('application_id', app.id)
+    .gte('created_at', dayAgo);
+  if (countError) {
+    logger.warn(LOG_MODULE, 'Daily cap count failed; filing anyway', countError);
+  } else if ((todayCount ?? 0) >= MAX_REPORTS_PER_APP_PER_DAY) {
+    audit(429);
+    return fail('RATE_LIMITED', 'This app has sent too many bug reports today. Please try again tomorrow.', 429);
   }
+
+  const windowStart = new Date(Date.now() - DUPLICATE_WINDOW_MS).toISOString();
+  const { data: recent } = await supabase
+    .from('bug_reports')
+    .select('id, display_id, description, category, status, page_url, screenshot_url, created_at')
+    .eq('application_id', app.id)
+    .eq('page_url', body.page_url)
+    .eq('description', body.description)
+    .gte('created_at', windowStart)
+    .limit(1);
+  if (recent && recent.length > 0) {
+    // A double-click or an SDK retry: answer with the bug already filed.
+    const dup = recent[0];
+    audit(200);
+    return NextResponse.json(
+      {
+        success: true,
+        data: {
+          bug_report: {
+            id: dup.id,
+            display_id: dup.display_id ?? null,
+            title: body.title,
+            description: dup.description,
+            category: dup.category,
+            status: dup.status,
+            page_url: dup.page_url,
+            screenshot_url: dup.screenshot_url ?? null,
+            created_at: dup.created_at,
+          },
+          message: 'Bug report submitted successfully. Thank you for your report!',
+        },
+      },
+      { status: 200, headers: intakeCorsHeaders }
+    );
+  }
+
+  const reporterEmail = normalizeReporterEmail(body.reporter_email);
 
   // ── 5. Insert (display_id comes from the set_bug_display_id trigger) ──────
   const clientMetadata =
@@ -189,9 +228,10 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
   const report = {
     application_id: app.id,
-    reporter_user_id: reporterUserId,
-    institution_id: institutionId,
-    department_id: departmentId,
+    // Never derived from the claimed email (see the header).
+    reporter_user_id: null,
+    institution_id: null,
+    department_id: null,
     page_url: body.page_url,
     description: body.description,
     category: body.category,
@@ -268,9 +308,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
   audit(201);
 
-  // Only what the reporter already knows, plus the id and display_id. Never
-  // reporter_user_id: that would tell any caller whether an email has a
-  // MyJKKN account.
+  // Only what the reporter already knows, plus the id and display_id.
   return NextResponse.json(
     {
       success: true,

@@ -47,8 +47,9 @@
 --      only: a person runs it from the Supabase SQL editor. Not callable by
 --      anon or signed-in users.
 --   4. add_bug_reporter_as_participant() learns to skip a NULL reporter.
---      A bug from a college app is filed with reporter_user_id = NULL when the
---      reporter's email matches no MyJKKN profile. The AFTER INSERT trigger
+--      A bug from a college app is always filed with reporter_user_id = NULL:
+--      its reporter email comes from a public key, so it is a claim and is
+--      never matched to a MyJKKN profile. The AFTER INSERT trigger
 --      trigger_add_bug_reporter_participant used to insert that NULL into
 --      bug_report_participants.user_id (NOT NULL) and so failed the whole bug
 --      insert. Body otherwise identical to the latest in-repo definition
@@ -116,10 +117,10 @@ BEGIN
   ALTER TABLE public.api_keys
     ADD CONSTRAINT api_keys_key_kind_check CHECK (key_kind IN ('admin', 'personal', 'bug_intake'));
 
-  IF NOT EXISTS (SELECT 1 FROM pg_constraint
-                  WHERE conname = 'api_keys_bug_intake_shape_check'
-                    AND conrelid = 'public.api_keys'::regclass) THEN
-    ALTER TABLE public.api_keys
+  -- Same for the shape rule: dropped and re-created every run, so a re-apply
+  -- after its body changes never keeps the old definition silently.
+  ALTER TABLE public.api_keys DROP CONSTRAINT IF EXISTS api_keys_bug_intake_shape_check;
+  ALTER TABLE public.api_keys
       ADD CONSTRAINT api_keys_bug_intake_shape_check CHECK (
         -- an app link is only ever on an intake key ...
         (sibling_app_id IS NULL OR key_kind = 'bug_intake')
@@ -136,7 +137,6 @@ BEGIN
           )
         )
       );
-  END IF;
 END $$;
 
 CREATE INDEX IF NOT EXISTS idx_api_keys_bug_intake_app
@@ -263,8 +263,8 @@ SECURITY DEFINER -- bypasses RLS on bug_report_participants (fix_bug_report_part
 SET search_path = public
 AS $$
 BEGIN
-    -- Updated: 2026-10-10 - a bug filed by a college app whose reporter has no
-    -- MyJKKN profile has no reporter to add; inserting NULL into the NOT NULL
+    -- Updated: 2026-10-10 - a bug filed by a college app carries no verified
+    -- reporter (NULL), so there is no one to add; inserting NULL into the NOT NULL
     -- user_id failed the whole bug insert.
     IF NEW.reporter_user_id IS NULL THEN
         RETURN NEW;

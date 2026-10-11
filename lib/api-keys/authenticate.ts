@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createHash } from 'crypto';
+import { isAdminKeyKind } from '@/lib/api-keys/key-kind';
 import { createServiceRoleClient } from '@/lib/supabase/server';
 import { corsHeaders } from '@/lib/api-keys/cors';
 import type { SupabaseClient } from '@supabase/supabase-js';
@@ -153,7 +154,7 @@ export async function authenticateApiKey(
   // 4. Look up key in database
   const { data: keyData, error: keyError } = await supabase
     .from('api_keys')
-    .select('id, name, key_value, is_active, expires_at, permissions, key_kind')
+    .select('*')
     .eq('key_value', hashedKey)
     .eq('is_active', true)
     .single();
@@ -165,8 +166,10 @@ export async function authenticateApiKey(
   // 4b. Only administrator keys open the B2A routes. A personal key or a public
   // bug-intake key must never reach a service-role query, and several routes
   // (b2a/memory/*) pass no requiredModule, so the permission check below would
-  // not stop them. Allow-list, not deny-list: an unknown kind is refused too.
-  if (keyData.key_kind !== 'admin') {
+  // not stop them. An absent or NULL kind is a pre-migration administrator key
+  // (select('*') above, so a missing column cannot fail the lookup itself);
+  // any other kind is refused, including one added later.
+  if (!isAdminKeyKind((keyData as { key_kind?: unknown }).key_kind)) {
     return unauthorized('This API key cannot be used here');
   }
 

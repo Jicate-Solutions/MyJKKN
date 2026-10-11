@@ -1,6 +1,5 @@
 /**
- * The bug-intake key check shared by every /api/v1/public/bug-reports route
- * (and the SDK's leaderboard route).
+ * The bug-intake key check for POST /api/v1/public/bug-reports.
  *
  * The key is PUBLIC — it sits in the browser of every visitor of the college
  * app — so it establishes WHICH APP is calling and nothing else. Only a live
@@ -8,15 +7,15 @@
  * sibling app is accepted. Admin keys (jkkn_…), personal keys (jkkn_pk_…) and
  * anything else without the jkkn_bi_ prefix are refused before any lookup.
  *
- * Rate limiting is per key AND per caller (the key itself is shared by every
- * visitor). Reads use their own bucket so opening the "My bugs" drawer cannot
- * use up the 60-a-minute budget for filing a bug.
+ * The rate limit runs BEFORE any database lookup, per caller IP across every
+ * key, so a flood of made-up jkkn_bi_ keys never reaches the database
+ * unthrottled. It is in-memory per server instance; the shared cap is the
+ * per-app daily count the POST checks in the database.
  */
 import { NextResponse } from 'next/server';
 import { createHash } from 'crypto';
 import { createServiceRoleClient } from '@/lib/supabase/server';
 import { checkRateLimit } from '@/lib/api-keys/rate-limiter';
-import { logApiUsage } from '@/lib/api-keys/audit-logger';
 import { intakeCorsHeaders } from '@/lib/bug-reports/sibling-intake';
 
 /** The SDK's failure envelope; the SDK shows error.message in its toast. */
@@ -30,11 +29,6 @@ export function intakeFail(
     { success: false, error: { code, message } },
     { status, headers: { ...intakeCorsHeaders, ...extraHeaders } }
   );
-}
-
-/** The SDK's success envelope. */
-export function intakeOk(data: unknown, status = 200) {
-  return NextResponse.json({ success: true, data }, { status, headers: intakeCorsHeaders });
 }
 
 export type SiblingApp = { id: string; slug: string; name: string };
@@ -69,8 +63,23 @@ export async function authenticateIntakeKey(
     };
   }
 
-  const supabase = createServiceRoleClient();
   const hashedKey = createHash('sha256').update(apiKey).digest('hex');
+
+  // ── Rate limit, before any lookup: per caller IP across all keys. A caller
+  // with no IP (never on Vercel) is limited per key, not in one shared bucket.
+  const caller = opts.ipAddress ? `ip:${opts.ipAddress}` : `key:${hashedKey.slice(0, 16)}`;
+  const rate = checkRateLimit(`${opts.rateLimitBucket}:${caller}`);
+  if (!rate.allowed) {
+    const retryAfter = Math.max(1, Math.ceil((rate.resetAt.getTime() - Date.now()) / 1000));
+    return {
+      ok: false,
+      response: intakeFail('RATE_LIMITED', opts.rateLimitedMessage, 429, {
+        'Retry-After': String(retryAfter),
+      }),
+    };
+  }
+
+  const supabase = createServiceRoleClient();
 
   const { data: keyRow, error: keyError } = await supabase
     .from('api_keys')
@@ -102,43 +111,10 @@ export async function authenticateIntakeKey(
     };
   }
 
-  // ── Rate limit: per key AND per caller, since the key itself is public ───
-  const rate = checkRateLimit(`${opts.rateLimitBucket}:${keyRow.id}:${opts.ipAddress ?? 'unknown'}`);
-  if (!rate.allowed) {
-    const retryAfter = Math.max(1, Math.ceil((rate.resetAt.getTime() - Date.now()) / 1000));
-    return {
-      ok: false,
-      response: intakeFail('RATE_LIMITED', opts.rateLimitedMessage, 429, {
-        'Retry-After': String(retryAfter),
-      }),
-    };
-  }
-
   return {
     ok: true,
     keyId: keyRow.id as string,
     app: { id: app.id as string, slug: app.slug as string, name: app.name as string },
     supabase,
   };
-}
-
-/** Usage log line for a read, the same table the POST writes to. */
-export function auditIntakeRead(entry: {
-  keyId: string;
-  endpoint: string;
-  statusCode: number;
-  startTime: number;
-  ipAddress: string | null;
-  userAgent: string | null;
-}) {
-  logApiUsage({
-    apiKeyId: entry.keyId,
-    endpoint: entry.endpoint,
-    module: 'bug-reports',
-    institutionId: null,
-    statusCode: entry.statusCode,
-    responseTimeMs: Date.now() - entry.startTime,
-    ipAddress: entry.ipAddress,
-    userAgent: entry.userAgent,
-  });
 }

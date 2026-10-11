@@ -3,9 +3,10 @@
  * 20271010151437) ships to every browser. It must never open a B2A route,
  * all of which query with the service role. authenticateApiKey refuses:
  *   - the jkkn_bi_ prefix, before any lookup
- *   - any row whose key_kind is not 'admin', whatever the key looks like —
+ *   - any row whose key_kind is set and is not 'admin', whatever the key looks like —
  *     including when the route asks for no module (b2a/memory/*), where the
  *     {read:false, write:false} permissions alone would NOT have stopped it.
+ * A NULL or absent key_kind is a pre-migration administrator key and passes.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { NextRequest } from 'next/server';
@@ -70,6 +71,19 @@ describe('authenticateApiKey and bug-intake keys', () => {
     keyRow = { ...intakeRow, key_kind: 'personal', permissions: { read: true, write: true } };
     const result = await authenticateApiKey(req('jkkn_whatever'), { requireRead: true });
     expect('error' in result).toBe(true);
+  });
+
+  it('accepts a key with a NULL kind (row from before the column existed)', async () => {
+    keyRow = { ...intakeRow, id: 'k-old', key_kind: null, permissions: { read: ['bug-reports'], write: [] } };
+    const result = await authenticateApiKey(req('jkkn_old'), { requiredModule: 'bug-reports', requireRead: true });
+    expect('context' in result).toBe(true);
+  });
+
+  it('accepts a key with no kind column at all (20270301090000 not applied)', async () => {
+    const { key_kind: _omit, ...noKind } = intakeRow;
+    keyRow = { ...noKind, id: 'k-legacy', permissions: { read: ['bug-reports'], write: [] } };
+    const result = await authenticateApiKey(req('jkkn_legacy'), { requiredModule: 'bug-reports', requireRead: true });
+    expect('context' in result).toBe(true);
   });
 
   it('still accepts an administrator key', async () => {

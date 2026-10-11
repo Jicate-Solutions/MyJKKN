@@ -13,6 +13,7 @@ export const dynamic = 'force-dynamic';
 
 import { NextResponse , connection } from 'next/server';
 import { createServiceRoleClient } from '@/lib/supabase/server';
+import { isAdminKeyKind } from '@/lib/api-keys/key-kind';
 
 export async function GET(request: Request) {
   await connection();
@@ -54,7 +55,8 @@ export async function GET(request: Request) {
     // 20271010151437) is refused the same way, and more so: its plaintext
     // ships to every browser, so ANYONE can compute its stored hash. Any kind
     // other than 'admin' is refused; an absent kind (pre-migration) still works.
-    if (apiKey.key_kind !== undefined && apiKey.key_kind !== null && apiKey.key_kind !== 'admin') {
+    // Same rule as authenticateApiKey: lib/api-keys/key-kind.ts.
+    if (!isAdminKeyKind(apiKey.key_kind)) {
       return NextResponse.json(
         { error: 'Invalid or inactive API key' },
         { status: 401 }

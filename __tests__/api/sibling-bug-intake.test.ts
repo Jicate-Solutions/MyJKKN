@@ -7,11 +7,13 @@
  *     up when it lacks the jkkn_bi_ prefix, and refused by kind when it has it)
  *   - refuse an oversize screenshot before inserting anything
  *   - insert into bug_reports with application_id = the key's app, status
- *     'new', reporter matched by email (null when no single match), the email
- *     and name kept in metadata
+ *     'new', and NO reporter: the claimed email is never matched to a profile
+ *     (reporter_user_id, institution_id, department_id stay null), so nobody
+ *     can plant a bug in a colleague's list; email and name stay in metadata
+ *   - rate-limit per IP before any lookup, cap each app per day, and answer a
+ *     double-submit with the bug already filed
  *   - store the screenshot in the 'bug-reports' bucket at <id>/screenshot.png
  *   - answer in the SDK's envelope { success, data: { bug_report, message } }
- *     without saying whether the email matched a MyJKKN account
  */
 import { createHash } from 'crypto';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -22,26 +24,27 @@ type Row = Record<string, unknown>;
 const state = {
   keyRow: null as Row | null,
   app: null as Row | null,
-  profiles: [] as Row[],
+  todayCount: 0,
+  recent: [] as Row[],
   inserted: [] as Row[],
   updates: [] as Row[],
   uploads: [] as { bucket: string; path: string; size: number; contentType?: string }[],
   lookups: [] as { table: string; col: string; val: unknown }[],
-  ilikes: [] as unknown[],
 };
 
 function builder(table: string) {
   const b: Record<string, any> = {};
   let pendingInsert: Row | null = null;
   let pendingUpdate: Row | null = null;
-  b.select = () => b;
-  b.limit = () => b;
-  b.eq = (col: string, val: unknown) => {
-    state.lookups.push({ table, col, val });
+  let isCount = false;
+  b.select = (_cols?: string, opts?: { head?: boolean }) => {
+    if (opts?.head) isCount = true;
     return b;
   };
-  b.ilike = (_col: string, val: unknown) => {
-    state.ilikes.push(val);
+  b.limit = () => b;
+  b.gte = () => b;
+  b.eq = (col: string, val: unknown) => {
+    state.lookups.push({ table, col, val });
     return b;
   };
   b.insert = (row: Row) => {
@@ -68,8 +71,12 @@ function builder(table: string) {
     return { data: null, error: null };
   };
   b.then = (resolve: (v: unknown) => unknown) => {
-    if (table === 'bug_reports' && pendingUpdate) state.updates.push(pendingUpdate);
-    const data = table === 'profiles' ? state.profiles : [];
+    if (table === 'bug_reports' && pendingUpdate) {
+      state.updates.push(pendingUpdate);
+      return Promise.resolve({ data: null, error: null }).then(resolve);
+    }
+    if (isCount) return Promise.resolve({ data: null, count: state.todayCount, error: null }).then(resolve);
+    const data = table === 'bug_reports' ? state.recent : [];
     return Promise.resolve({ data, error: null }).then(resolve);
   };
   return b;
@@ -119,8 +126,8 @@ function body(extra: Row = {}): Row {
     console_logs: [{ level: 'error', message: 'boom' }],
     network_trace: [],
     metadata: { userAgent: 'UA', viewport: '1280x720', screenResolution: '1920x1080', timestamp: 't' },
-    reporter_email: 'Faculty.One@jkkn.ac.in',
-    reporter_name: 'Faculty One',
+    reporter_email: 'Mentor.One@jkkn.ac.in',
+    reporter_name: 'Mentor One',
     ...extra,
   };
 }
@@ -148,12 +155,12 @@ beforeEach(() => {
     sibling_app_id: APP.id,
   };
   state.app = { ...APP };
-  state.profiles = [{ id: 'user-1', institution_id: 'inst-1', department_id: 'dept-1' }];
+  state.todayCount = 0;
+  state.recent = [];
   state.inserted = [];
   state.updates = [];
   state.uploads = [];
   state.lookups = [];
-  state.ilikes = [];
 });
 
 describe('POST /api/v1/public/bug-reports — happy path', () => {
@@ -172,8 +179,6 @@ describe('POST /api/v1/public/bug-reports — happy path', () => {
       title: 'Save button does nothing',
       screenshot_url: 'https://proj.supabase.co/storage/v1/object/public/bug-reports/bug-1/screenshot.png',
     });
-    // never tells the caller whether the email has a MyJKKN account
-    expect(JSON.stringify(json)).not.toContain('user-1');
 
     // the key was looked up by its SHA-256, never by plaintext
     expect(state.lookups).toContainEqual({ table: 'api_keys', col: 'key_value', val: INTAKE_HASH });
@@ -183,9 +188,9 @@ describe('POST /api/v1/public/bug-reports — happy path', () => {
     const row = state.inserted[0] as Record<string, any>;
     expect(row).toMatchObject({
       application_id: APP.id,
-      reporter_user_id: 'user-1',
-      institution_id: 'inst-1',
-      department_id: 'dept-1',
+      reporter_user_id: null,
+      institution_id: null,
+      department_id: null,
       status: 'new',
       category: 'bug',
       page_url: 'https://mentor.jkkn.ai/notes/42',
@@ -198,13 +203,13 @@ describe('POST /api/v1/public/bug-reports — happy path', () => {
       source_app: 'mentor',
       source_app_name: 'Mentor',
       title: 'Save button does nothing',
-      reporter_email: 'faculty.one@jkkn.ac.in',
-      reporter_name: 'Faculty One',
+      reporter_email: 'mentor.one@jkkn.ac.in',
+      reporter_name: 'Mentor One',
       reporter_verified: false,
     });
 
-    // the email is matched literally (LIKE wildcards escaped), case-insensitively
-    expect(state.ilikes).toEqual(['faculty.one@jkkn.ac.in']);
+    // the claimed email is never looked up against MyJKKN profiles
+    expect(fromSpy.mock.calls.map((c) => c[0])).not.toContain('profiles');
 
     expect(state.uploads).toEqual([
       { bucket: 'bug-reports', path: 'bug-1/screenshot.png', size: expect.any(Number), contentType: 'image/png' },
@@ -214,20 +219,15 @@ describe('POST /api/v1/public/bug-reports — happy path', () => {
     ]);
   });
 
-  it('files with no reporter when the email matches no single profile', async () => {
-    state.profiles = [];
-    const res = await post(INTAKE_KEY);
+  it('cannot plant a bug on a colleague: even a colleague email files with no reporter', async () => {
+    const res = await post(INTAKE_KEY, body({ reporter_email: 'principal@jkkn.ac.in' }));
     expect(res.status).toBe(201);
     const row = state.inserted[0] as Record<string, any>;
     expect(row.reporter_user_id).toBeNull();
     expect(row.institution_id).toBeNull();
-    expect(row.metadata.reporter_email).toBe('faculty.one@jkkn.ac.in');
-  });
-
-  it('escapes LIKE wildcards in the claimed email', async () => {
-    state.profiles = [];
-    await post(INTAKE_KEY, body({ reporter_email: 'a_b%c@x.in' }));
-    expect(state.ilikes).toEqual(['a\\_b\\%c@x.in']);
+    expect(row.department_id).toBeNull();
+    expect(row.metadata.reporter_email).toBe('principal@jkkn.ac.in');
+    expect(row.metadata.reporter_verified).toBe(false);
   });
 
   it('answers the CORS preflight with X-API-Key allowed', async () => {
@@ -307,6 +307,51 @@ describe('POST /api/v1/public/bug-reports — keys', () => {
     const res = await post(INTAKE_KEY);
     expect(res.status).toBe(429);
     expect(res.headers.get('retry-after')).toBeTruthy();
+  });
+});
+
+describe('POST /api/v1/public/bug-reports — abuse limits', () => {
+  it('limits a flood of made-up keys from one IP before any database lookup', async () => {
+    state.keyRow = null;
+    for (let i = 0; i < 60; i++) {
+      const res = await post('jkkn_bi_' + String(i).padStart(48, '0'));
+      expect(res.status).toBe(401);
+    }
+    const lookupsBefore = fromSpy.mock.calls.length;
+    const res = await post('jkkn_bi_' + 'z'.repeat(48));
+    expect(res.status).toBe(429);
+    expect(fromSpy.mock.calls.length).toBe(lookupsBefore);
+  });
+
+  it('stops an app at its daily cap, counted in the database', async () => {
+    state.todayCount = 300;
+    const res = await post(INTAKE_KEY);
+    expect(res.status).toBe(429);
+    const json = await res.json();
+    expect(json.error.code).toBe('RATE_LIMITED');
+    expect(state.inserted).toHaveLength(0);
+  });
+
+  it('answers a double-submit with the bug already filed, inserting nothing', async () => {
+    state.recent = [
+      {
+        id: 'bug-0',
+        display_id: 'BUG-009000',
+        description: 'Clicking save on the mentor notes page does nothing at all.',
+        category: 'bug',
+        status: 'new',
+        page_url: 'https://mentor.jkkn.ai/notes/42',
+        screenshot_url: null,
+        created_at: '2026-10-10T00:00:00Z',
+      },
+    ];
+    const res = await post(INTAKE_KEY);
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.success).toBe(true);
+    expect(json.data.bug_report.id).toBe('bug-0');
+    expect(state.inserted).toHaveLength(0);
+    expect(state.uploads).toHaveLength(0);
   });
 });
 
