@@ -551,6 +551,10 @@ export default function GeneralEventDetailPage() {
   // profile.id IS the auth uid fn_is_event_incharge compares with: the auth
   // provider loads the profile with .eq('id', session.user.id)
   // (hooks/use-auth-provider.tsx:81).
+  // canManageLogistics only reaches EventLogistics boards; none of the 14 boards
+  // writes the events row itself (checked 11 Oct: no .from('events') update in
+  // components/events/shared/*-board.tsx). Event edits, people and config stay
+  // behind canEdit (edit-general-event-dialog, incharge-panel).
   const canManageLogistics = canEdit || isEventIncharge(event, profile?.id);
 
   // Cancelling is narrower than editing (Director 30 Sep): in-charges and admins.

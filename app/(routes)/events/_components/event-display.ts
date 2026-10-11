@@ -87,7 +87,9 @@ export function canEditEvent(event: EventOwnership, viewer: EventEditViewer): bo
  * fn_is_event_incharge checks inc->>'member_id' = auth.uid()::text, which is
  * case-sensitive. Lower-casing only here could show a tab whose writes the
  * database then refuses. Live check 11 Oct 2026: 0 of 112 stored member_ids
- * contain upper case.
+ * contain upper case — query: SELECT count(*) FILTER (WHERE inc->>'member_id'
+ * <> lower(inc->>'member_id')) FROM events e, jsonb_array_elements(
+ * coalesce(e.config->'incharges','[]')) inc WHERE inc ? 'member_id';
  */
 export function isEventIncharge(
   event: { config?: unknown } | null | undefined,
