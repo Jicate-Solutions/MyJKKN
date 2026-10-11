@@ -255,7 +255,7 @@ export async function POST(
 
 /** The runner returns { answer: "<text>" } (ai-query contract). The text should
  *  be strict JSON but may arrive fenced or padded — parse defensively. */
-function parseBriefing(result: unknown): Record<string, unknown> | null {
+export function parseBriefing(result: unknown): Record<string, unknown> | null {
   let text: string | null = null;
   if (typeof result === 'string') text = result;
   else if (result && typeof result === 'object') {
