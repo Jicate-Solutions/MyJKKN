@@ -26,6 +26,7 @@ const state = {
   app: null as Row | null,
   todayCount: 0,
   callerCount: 0,
+  shotCount: 0,
   countError: null as { message: string } | null,
   recent: [] as Row[],
   winner: [] as Row[],
@@ -43,6 +44,7 @@ function builder(table: string) {
   let isCount = false;
   let byCaller = false;
   let byDedupIn = false;
+  let byShot = false;
   b.select = (_cols?: string, opts?: { head?: boolean }) => {
     if (opts?.head) isCount = true;
     return b;
@@ -52,6 +54,10 @@ function builder(table: string) {
   b.eq = (col: string, val: unknown) => {
     state.lookups.push({ table, col, val });
     if (col === 'metadata->>client_ip_hash') byCaller = true;
+    return b;
+  };
+  b.not = () => {
+    byShot = true;
     return b;
   };
   b.in = () => {
@@ -88,7 +94,7 @@ function builder(table: string) {
       return Promise.resolve({ data: null, error: null }).then(resolve);
     }
     if (isCount) {
-      const count = byCaller ? state.callerCount : state.todayCount;
+      const count = byCaller ? state.callerCount : byShot ? state.shotCount : state.todayCount;
       return Promise.resolve({ data: null, count, error: state.countError }).then(resolve);
     }
     const data = table !== 'bug_reports' ? [] : byDedupIn ? state.recent : state.winner;
@@ -148,7 +154,10 @@ function body(extra: Row = {}): Row {
 }
 
 function post(key: string | null, payload: unknown = body()) {
-  const headers: Record<string, string> = { 'content-type': 'application/json' };
+  const headers: Record<string, string> = {
+    'content-type': 'application/json',
+    'x-vercel-forwarded-for': '203.0.113.9',
+  };
   if (key !== null) headers['x-api-key'] = key;
   return POST(
     new NextRequest('https://www.jkkn.ai/api/v1/public/bug-reports', {
@@ -172,6 +181,7 @@ beforeEach(() => {
   state.app = { ...APP };
   state.todayCount = 0;
   state.callerCount = 0;
+  state.shotCount = 0;
   state.countError = null;
   state.recent = [];
   state.winner = [];
@@ -194,7 +204,7 @@ describe('POST /api/v1/public/bug-reports — happy path', () => {
     expect(json.data.bug_report).toMatchObject({
       id: 'bug-1',
       display_id: 'BUG-009001',
-      status: 'new',
+      status: 'unverified',
       title: 'Save button does nothing',
       screenshot_url: 'https://proj.supabase.co/storage/v1/object/public/bug-reports/bug-1/screenshot.png',
     });
@@ -210,7 +220,8 @@ describe('POST /api/v1/public/bug-reports — happy path', () => {
       reporter_user_id: null,
       institution_id: null,
       department_id: null,
-      status: 'new',
+      // quarantine: no automation reads 'unverified'
+      status: 'unverified',
       category: 'bug',
       page_url: 'https://mentor.jkkn.ai/notes/42',
     });
@@ -356,7 +367,7 @@ describe('POST /api/v1/public/bug-reports — abuse limits', () => {
   });
 
   it('stops one caller at its own daily cap before the app cap', async () => {
-    state.callerCount = 20;
+    state.callerCount = 40;
     const res = await post(INTAKE_KEY);
     expect(res.status).toBe(429);
     expect((await res.json()).error.message).toMatch(/You have sent many/);
@@ -384,6 +395,20 @@ describe('POST /api/v1/public/bug-reports — abuse limits', () => {
     const res = await post(INTAKE_KEY);
     expect(res.status).toBe(200);
     expect((await res.json()).data.bug_report.id).toBe('bug-w');
+  });
+
+  it('keeps the report but drops the screenshot past the daily screenshot budget', async () => {
+    state.shotCount = 100;
+    const res = await post(INTAKE_KEY);
+    expect(res.status).toBe(201);
+    expect(state.uploads).toHaveLength(0);
+    expect((state.inserted[0] as any).metadata.screenshot_dropped).toBe('daily_budget');
+  });
+
+  it('never echoes a stored screenshot URL on a repeat', async () => {
+    state.recent = [{ id: 'bug-0', display_id: 'B', description: 'd', category: 'bug', status: 'unverified', page_url: 'p', screenshot_url: 'https://x/secret.png', created_at: 't' }];
+    const res = await post(INTAKE_KEY);
+    expect((await res.json()).data.bug_report.screenshot_url).toBeNull();
   });
 
   it('answers a double-submit with the bug already filed, inserting nothing', async () => {
@@ -433,6 +458,15 @@ describe('POST /api/v1/public/bug-reports — body', () => {
     const json = await res.json();
     expect(json.error.code).toBe('VALIDATION_ERROR');
   });
+
+  it.each(['javascript:alert(1)', 'data:text/html,hi', 'file:///etc/passwd', 'http://mentor.jkkn.ai/x'])(
+    'refuses page_url %s (https only)',
+    async (url) => {
+      const res = await post(INTAKE_KEY, body({ page_url: url }));
+      expect(res.status).toBe(400);
+      expect(state.inserted).toHaveLength(0);
+    }
+  );
 
   it('refuses a body that is not JSON', async () => {
     const res = await post(INTAKE_KEY, 'not json{');

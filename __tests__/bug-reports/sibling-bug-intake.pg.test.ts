@@ -371,3 +371,23 @@ describe('bug_reports intake links (application_id, dedup)', () => {
     await insert(null);
   });
 });
+
+describe('bug_reports quarantine status and key shape', () => {
+  it("accepts status 'unverified' and still refuses an unknown status", async () => {
+    await db.query(
+      `INSERT INTO public.bug_reports (page_url, description, status) VALUES ('https://mentor.jkkn.ai/q', 'q', 'unverified')`
+    );
+    await expect(
+      db.query(`INSERT INTO public.bug_reports (page_url, description, status) VALUES ('https://x', 'x', 'bogus')`)
+    ).rejects.toThrow(/bug_reports_status_check/);
+  });
+
+  it('the shape check treats a NULL kind as admin (COALESCE), so it cannot carry a link', async () => {
+    // key_kind is NOT NULL DEFAULT 'admin' (20270301090000), so a NULL row cannot
+    // be written today; the COALESCE keeps the rule right if that ever changes.
+    const r = await db.query(
+      `SELECT pg_get_constraintdef(oid) AS def FROM pg_constraint WHERE conname = 'api_keys_bug_intake_shape_check'`
+    );
+    expect(r.rows[0].def).toMatch(/COALESCE\(key_kind, 'admin'::text\)/);
+  });
+});

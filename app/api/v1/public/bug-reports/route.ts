@@ -39,7 +39,19 @@
  *      database on metadata.client_ip_hash, so a handful of callers cannot use
  *      up an app's whole daily allowance
  *   4. per-app daily cap (MAX_REPORTS_PER_APP_PER_DAY), counted in the database
- * Both counts fail CLOSED (503) if the database cannot answer.
+ * Both counts fail CLOSED (503) if the database cannot answer. They are SOFT
+ * limits: they count, then insert, so a parallel burst can pass a cap by a
+ * few. The status below, not the caps, is what keeps these rows safe.
+ *
+ * QUARANTINE. Every row is filed with status 'unverified', because its text
+ * came in on a public key and may be written to steer an AI. No automated
+ * consumer reads that status: fn_bug_cluster_scan clusters only
+ * status IN ('new','seen','in_progress') (20261222000000), so neither
+ * fn_bug_auto_resolve_scan nor the Max-lane cluster fixers
+ * (bug-cluster-fix / bug-cluster-fixability, which take cluster members)
+ * ever see it; /fixmyjkkn and the bug-tab AI producer (#4323) also skip rows
+ * with an application_id. An admin sees it in the New tab and moves it to
+ * 'new' after reading it; only then does the normal pipeline apply.
  *
  * module_name on bug_reports is a GENERATED column (computed from page_url,
  * 20260906213000) and cannot be written. The app a bug came from is in
@@ -62,7 +74,7 @@ import {
   normalizeReporterEmail,
   type DecodedScreenshot,
 } from '@/lib/bug-reports/sibling-intake';
-import { authenticateIntakeKey, intakeFail as fail } from '@/lib/bug-reports/sibling-intake-auth';
+import { authenticateIntakeKey, intakeClientIp, intakeFail as fail } from '@/lib/bug-reports/sibling-intake-auth';
 
 const LOG_MODULE = 'bug-reports/intake';
 const ENDPOINT = '/api/v1/public/bug-reports';
@@ -71,13 +83,25 @@ const MAX_CONSOLE_LOGS = 200;
 const MAX_NETWORK_TRACE = 50;
 const MAX_CLIENT_METADATA_CHARS = 20_000;
 const MAX_REPORTS_PER_APP_PER_DAY = 300;
-const MAX_REPORTS_PER_IP_PER_APP_PER_DAY = 20;
+// A whole campus can sit behind one NAT address, so this is per app and
+// generous; the app cap above is the real ceiling.
+const MAX_REPORTS_PER_IP_PER_APP_PER_DAY = 40;
+// Screenshots are up to 3 MB each. Past this many in a day, a report is still
+// filed but its screenshot is not stored (metadata.screenshot_dropped).
+const MAX_SCREENSHOTS_PER_APP_PER_DAY = 100;
 const DUPLICATE_WINDOW_MS = 2 * 60 * 1000;
 
 const bodySchema = z.object({
   title: z.string().trim().min(1, 'title is required').max(300),
   description: z.string().trim().min(10, 'description must be at least 10 characters').max(20_000),
-  page_url: z.string().trim().url('page_url must be a valid URL').max(2_000),
+  // https only: admin screens and exports render it as a link, and module_name
+  // is computed from it. javascript:, data:, file: and http: are refused.
+  page_url: z
+    .string()
+    .trim()
+    .url('page_url must be a valid URL')
+    .max(2_000)
+    .refine((u) => u.toLowerCase().startsWith('https://'), 'page_url must be an https:// address'),
   category: z
     .enum(['bug', 'feature_request', 'ui_design', 'performance', 'security', 'other'])
     .optional()
@@ -99,7 +123,8 @@ export async function OPTIONS() {
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
   const startTime = Date.now();
-  const { ipAddress, userAgent } = extractRequestMeta(request);
+  const { userAgent } = extractRequestMeta(request);
+  const ipAddress = intakeClientIp(request);
 
   // ── 1–2. Key (live bug_intake row, active app) and rate limit ────────────
   // lib/bug-reports/sibling-intake-auth.ts
@@ -184,8 +209,15 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   // ── 4. Double-submit guard, then the daily caps (see the header) ─────────
   const sha = (text: string) => createHash('sha256').update(text).digest('hex');
   const windowNo = Math.floor(Date.now() / DUPLICATE_WINDOW_MS);
+  // Includes the caller, so two anonymous people sending the same words are
+  // never merged into one bug.
+  const clientIpHash = sha(`${app.id}:${ipAddress ?? 'no-ip'}`);
   const dedupKey = (win: number) =>
-    sha([app.id, reporterEmail ?? '', body.page_url, body.title, body.description, String(win)].join('\u0000'));
+    sha(
+      [app.id, clientIpHash, reporterEmail ?? '', body.page_url, body.title, body.description, String(win)].join(
+        '\u0000'
+      )
+    );
   const currentKey = dedupKey(windowNo);
 
   const answer = (bug: Record<string, any>, status: number) => {
@@ -202,7 +234,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
             category: bug.category,
             status: bug.status,
             page_url: bug.page_url,
-            screenshot_url: bug.screenshot_url ?? null,
+            // The caller sent this screenshot itself; never echo a stored URL.
+            screenshot_url: null,
             created_at: bug.created_at,
           },
           message: 'Bug report submitted successfully. Thank you for your report!',
@@ -227,8 +260,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   }
 
   const dayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
-  const clientIpHash = ipAddress ? sha(`${app.id}:${ipAddress}`) : null;
-  if (clientIpHash) {
+  {
     const { count: callerCount, error: callerError } = await supabase
       .from('bug_reports')
       .select('id', { count: 'exact', head: true })
@@ -261,6 +293,22 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     return fail('RATE_LIMITED', 'This app has sent too many bug reports today. Please try again tomorrow.', 429);
   }
 
+  // Screenshot budget: past MAX_SCREENSHOTS_PER_APP_PER_DAY the report is kept
+  // and its picture is not stored. If the count fails, the picture is dropped.
+  let screenshotDropped: string | null = null;
+  if (screenshot) {
+    const { count: shotCount, error: shotError } = await supabase
+      .from('bug_reports')
+      .select('id', { count: 'exact', head: true })
+      .eq('application_id', app.id)
+      .not('screenshot_url', 'is', null)
+      .gte('created_at', dayAgo);
+    if (shotError || (shotCount ?? 0) >= MAX_SCREENSHOTS_PER_APP_PER_DAY) {
+      screenshot = null;
+      screenshotDropped = shotError ? 'count_failed' : 'daily_budget';
+    }
+  }
+
   // ── 5. Insert (display_id comes from the set_bug_display_id trigger) ──────
   const clientMetadata =
     body.metadata && JSON.stringify(body.metadata).length <= MAX_CLIENT_METADATA_CHARS
@@ -276,7 +324,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     page_url: body.page_url,
     description: body.description,
     category: body.category,
-    status: 'new',
+    // Quarantine: see the header. No automation reads 'unverified'.
+    status: 'unverified',
     console_logs: body.console_logs ? body.console_logs.slice(-MAX_CONSOLE_LOGS) : null,
     reporter_user_agent: userAgent,
     metadata: {
@@ -287,6 +336,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       title: body.title,
       intake_dedup_key: currentKey,
       client_ip_hash: clientIpHash,
+      screenshot_dropped: screenshotDropped,
       reporter_email: reporterEmail,
       reporter_name: body.reporter_name || null,
       // The key is public: who sent this is a claim, never a proof.

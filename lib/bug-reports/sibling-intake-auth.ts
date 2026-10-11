@@ -18,6 +18,20 @@ import { createServiceRoleClient } from '@/lib/supabase/server';
 import { checkRateLimit } from '@/lib/api-keys/rate-limiter';
 import { intakeCorsHeaders } from '@/lib/bug-reports/sibling-intake';
 
+/**
+ * The caller's IP as the platform saw it. On Vercel, x-vercel-forwarded-for
+ * and x-forwarded-for are set at the edge, which overwrites any value the
+ * client sent (Vercel docs, "Request headers"; not re-verified live). The
+ * first entry is used. If a proxy is ever put in front of Vercel, revisit this.
+ */
+export function intakeClientIp(request: Request): string | null {
+  for (const name of ['x-vercel-forwarded-for', 'x-forwarded-for', 'x-real-ip']) {
+    const first = request.headers.get(name)?.split(',')[0]?.trim();
+    if (first) return first;
+  }
+  return null;
+}
+
 /** The SDK's failure envelope; the SDK shows error.message in its toast. */
 export function intakeFail(
   code: string,

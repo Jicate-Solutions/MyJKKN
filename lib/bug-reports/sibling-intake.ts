@@ -25,14 +25,14 @@ const SCREENSHOT_TYPES: Record<string, string> = {
 
 /**
  * CORS for a browser request from another origin with the X-API-Key header
- * (POST to file a bug; GET for the widget's "My bugs" drawer, which still
- * preflights because of the custom header). lib/api-keys/cors.ts does not
+ * (POST to file a bug; the custom header makes the browser preflight it).
+ * Submit-only: there are no read routes for this key. lib/api-keys/cors.ts does not
  * allow X-API-Key, so the preflight would fail with it. No credentials: the
  * SDK sends none.
  */
 export const intakeCorsHeaders = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS',
   'Access-Control-Allow-Headers': 'Content-Type, X-API-Key, x-api-key',
   'Access-Control-Max-Age': '86400',
 };

@@ -58,10 +58,17 @@
 --      (bug_report_id, user_id) unique constraint is present.
 --
 -- NOT IN THIS FILE
---   No real keys. No change to bug_reports. module_name on bug_reports is a
+--   No real keys. module_name on bug_reports is a
 --   GENERATED column computed from page_url (20260906213000), so the intake
 --   cannot set it; the app is recorded in application_id and
 --   metadata.source_app instead.
+--
+-- CHANGES TO bug_reports (section 1b): status 'unverified' added to
+--   bug_reports_status_check (the intake's quarantine status, read by no
+--   automation); FK bug_reports_application_id_sibling_fkey → sibling_apps;
+--   index idx_bug_reports_application_created; unique expression index
+--   uq_bug_reports_intake_dedup. reporter_user_id, institution_id and
+--   department_id are ALWAYS NULL on an intake row (the email is a claim).
 --
 -- FILE ONLY — NOT APPLIED. A person applies it after the PR is approved.
 -- No BEGIN/COMMIT in the file. Safe to run twice.
@@ -99,7 +106,17 @@ INSERT INTO public.sibling_apps (slug, name) VALUES
   ('event-forms', 'Event Forms')
 ON CONFLICT (slug) DO NOTHING;
 
--- ─── 1b. bug_reports: tie application_id to sibling_apps; intake lookups ───
+-- ─── 1b. bug_reports: quarantine status, app link, intake lookups ─────────
+-- 'unverified': every college-app bug arrives with this status. No automated
+-- consumer reads it: fn_bug_cluster_scan clusters only new/seen/in_progress
+-- (20261222000000), and the auto-resolve scan and the Max-lane cluster fixers
+-- work from those clusters. An admin moves it to 'new' after reading it.
+-- Same list as 20260717061500 plus 'unverified'; re-created every run.
+ALTER TABLE public.bug_reports DROP CONSTRAINT IF EXISTS bug_reports_status_check;
+ALTER TABLE public.bug_reports ADD CONSTRAINT bug_reports_status_check
+  CHECK (status = ANY (ARRAY['new'::text, 'unverified'::text, 'seen'::text, 'in_progress'::text,
+                             'resolved'::text, 'wont_fix'::text, 'duplicate'::text]));
+
 -- application_id is a nullable uuid with no foreign key today, and no row uses
 -- it (checked live 11 Oct 2026: 0 of 3,607). From now on it means "the college
 -- app this bug came from", so it references sibling_apps. Added only if absent.
@@ -122,11 +139,11 @@ CREATE INDEX IF NOT EXISTS idx_bug_reports_application_created
 -- Double-submit guard: the intake writes metadata.intake_dedup_key (a hash of
 -- app, reporter email, page, title, description and a 2-minute window). Two
 -- identical submits in one window collide here and the second is answered with
--- the first bug, atomically. Rows without the key (every MyJKKN bug) are outside
--- the index.
+-- the first bug, atomically.
+-- Not partial, so the intake's metadata->>'intake_dedup_key' lookup can use
+-- it; rows without the key hold NULL, and NULLs never collide.
 CREATE UNIQUE INDEX IF NOT EXISTS uq_bug_reports_intake_dedup
-  ON public.bug_reports ((metadata->>'intake_dedup_key'))
-  WHERE metadata ? 'intake_dedup_key';
+  ON public.bug_reports ((metadata->>'intake_dedup_key'));
 
 -- ─── 2. api_keys: the bug_intake kind ──────────────────────────────────────
 ALTER TABLE public.api_keys
@@ -152,9 +169,10 @@ BEGIN
   ALTER TABLE public.api_keys
       ADD CONSTRAINT api_keys_bug_intake_shape_check CHECK (
         -- an app link is only ever on an intake key ...
-        (sibling_app_id IS NULL OR key_kind = 'bug_intake')
+        -- COALESCE: a NULL kind is an administrator key and may not carry a link
+        (sibling_app_id IS NULL OR COALESCE(key_kind, 'admin') = 'bug_intake')
         AND (
-          key_kind <> 'bug_intake'
+          COALESCE(key_kind, 'admin') <> 'bug_intake'
           -- ... and an intake key is linked to an app and can read/write nothing
           OR (
                 sibling_app_id IS NOT NULL

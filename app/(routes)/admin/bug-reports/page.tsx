@@ -96,6 +96,7 @@ import toast from 'react-hot-toast';
 
 const STATUS_LABELS: Record<BugReportStatus, string> = {
   new: 'New',
+  unverified: 'Unverified (college app)',
   seen: 'Seen',
   in_progress: 'In Progress',
   resolved: 'Resolved',

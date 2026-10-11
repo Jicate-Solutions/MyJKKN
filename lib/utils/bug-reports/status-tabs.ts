@@ -10,6 +10,7 @@ import type { BugReportStatus } from '@/types/bugs';
 
 export const ALL_BUG_STATUSES: BugReportStatus[] = [
   'new',
+  'unverified',
   'seen',
   'in_progress',
   'resolved',
@@ -27,7 +28,8 @@ export interface BugStatusTabDefinition {
 }
 
 export const BUG_STATUS_TABS: BugStatusTabDefinition[] = [
-  { value: 'new', label: 'New', statuses: ['new'] },
+  // 'unverified' college-app bugs show here so a person reads them first.
+  { value: 'new', label: 'New', statuses: ['new', 'unverified'] },
   {
     value: 'in_progress',
     label: 'In-Progress',

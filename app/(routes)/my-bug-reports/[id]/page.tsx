@@ -56,6 +56,13 @@ const BugStatusBadge = ({ status }: { status: BugReportStatus }) => {
         'bg-blue-100 text-blue-800 hover:bg-blue-200 hover:text-blue-800 border-blue-200 dark:bg-blue-900 dark:text-blue-200',
       icon: AlertCircle
     },
+    // A college-app bug awaiting review; it has no reporter, so it never
+    // shows on a person's own list. Styled like 'new' for completeness.
+    unverified: {
+      colorClass:
+        'bg-blue-100 text-blue-800 hover:bg-blue-200 hover:text-blue-800 border-blue-200 dark:bg-blue-900 dark:text-blue-200',
+      icon: AlertCircle
+    },
     seen: {
       colorClass:
         'bg-gray-100 text-gray-800 hover:bg-gray-200 hover:text-gray-800 border-gray-200 dark:bg-gray-800 dark:text-gray-200',

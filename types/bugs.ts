@@ -1,5 +1,8 @@
 export type BugReportStatus =
   | 'new'
+  // A college-app bug (sibling intake, 20271010151437) waiting for a person to
+  // read it. No automation picks it up; an admin moves it to 'new'.
+  | 'unverified'
   | 'seen'
   | 'in_progress'
   | 'resolved'
