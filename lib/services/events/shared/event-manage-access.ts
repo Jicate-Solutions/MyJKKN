@@ -54,11 +54,27 @@ const MARATHON_OPS_ROLES = ['principal', 'hod', 'faculty', 'vice_principal', 'de
 /** Never manage-tier by institution alone. */
 const LEARNER_ROLES = ['student', 'course_participant', 'parent'];
 /**
- * Learner roles for the strict registration-write gate only. Adds the custom role
- * production_learner (content-production learner). Kept separate so adding it does not
- * change canManageEventOps or canGenerateEventQr, which use LEARNER_ROLES.
+ * Roles whose CREATOR may bulk-write registrations (canWriteEventRegistrations only).
+ * An ALLOW-list, so an unlisted, custom (e.g. production_learner, senior_learner), null or
+ * empty role is refused. No canonical repo-wide staff-role list exists (lc-roles.ts,
+ * call-attribution.ts and engagement-scope.ts each keep a partial local one), so this is
+ * local. Built from the live profiles.role spread on 11 Oct 2026:
+ *   event creators: faculty 14, hod 7, staff_counselor 3, principal 3, super_admin 3,
+ *     cdc_coordinator 2, admission_counselor 1, admission 1, digital_coordinator 1, ceo 1,
+ *     induction_lead 1
+ *   other live staff roles: staff, office_assistant, accounts, system_admin, admission_staff,
+ *     jicate_staff, warden, coe, librarian, registrar, vice_principal, cao, coo,
+ *     managing_director, school_faculty, event_coordinator, administrator, admin
+ * Deliberately absent: learner roles, and service roles such as drivers, gate security,
+ * maintenance vendors and mess caterers. canManageEventOps / canGenerateEventQr are unchanged.
  */
-const WRITE_LEARNER_ROLES = [...LEARNER_ROLES, 'production_learner'];
+const WRITE_CREATOR_STAFF_ROLES = [
+  'faculty', 'hod', 'staff_counselor', 'principal', 'super_admin', 'cdc_coordinator',
+  'admission_counselor', 'admission', 'digital_coordinator', 'ceo', 'induction_lead',
+  'staff', 'office_assistant', 'accounts', 'system_admin', 'admission_staff', 'jicate_staff',
+  'warden', 'coe', 'librarian', 'registrar', 'vice_principal', 'cao', 'coo',
+  'managing_director', 'school_faculty', 'event_coordinator', 'administrator', 'admin',
+];
 
 interface Ctx {
   caller: EventOpsCaller;
@@ -163,7 +179,8 @@ export async function canGenerateEventQr(caller: EventOpsCaller, eventId: string
  *
  *   super admin (is_super_admin, or role 'super_admin')  allow, any institution
  *   admin / administrator / event_coordinator             allow ONLY in the event's institution
- *   creator                                               allow ONLY as a non-learner in the event's institution
+ *   creator                                               allow ONLY with a WRITE_CREATOR_STAFF_ROLES role
+ *                                                         in the event's institution (null/empty/unlisted refused)
  *   creator-less event, same-institution non-learner      NOT admitted (manage tier only)
  *   event in-charge (fn_is_event_incharge)                allow (a named person, may be cross-institution)
  *   sports_tournament + sports.tournaments.manage         allow ONLY in the event's institution
@@ -188,7 +205,7 @@ export async function canWriteEventRegistrations(
   if (
     event.created_by &&
     event.created_by === caller.userId &&
-    !WRITE_LEARNER_ROLES.includes(role) &&
+    WRITE_CREATOR_STAFF_ROLES.includes(role) &&
     sameInstitution
   ) {
     return true;

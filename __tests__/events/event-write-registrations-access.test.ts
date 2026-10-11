@@ -50,7 +50,7 @@ const marathon = (over: Partial<World['event']> = {}) => ({
   institution_id: INST_A,
   ...over,
 });
-const person = (role: string, institution_id: string | null = INST_A, is_super_admin = false) => ({
+const person = (role: string | null, institution_id: string | null = INST_A, is_super_admin = false) => ({
   role,
   institution_id,
   is_super_admin,
@@ -129,6 +129,32 @@ describe('canWriteEventRegistrations', () => {
       const w: World = { profile: person(role, INST_A), event: marathon({ created_by: ME }) };
       expect(await canWriteEventRegistrations(caller(w), EV)).toBe(false);
     }
+  });
+
+  it('an hod creator in the event institution is allowed', async () => {
+    const w: World = { profile: person('hod', INST_A), event: marathon({ created_by: ME }) };
+    expect(await canWriteEventRegistrations(caller(w), EV)).toBe(true);
+  });
+
+  it('creators whose role is not on the creator allow-list are refused', async () => {
+    // senior_learner and production_learner are custom learner roles; driver is a
+    // service role; the last is a made-up custom role nobody listed.
+    for (const role of ['senior_learner', 'production_learner', 'driver', 'some_new_custom_role']) {
+      const w: World = { profile: person(role, INST_A), event: marathon({ created_by: ME }) };
+      expect(await canWriteEventRegistrations(caller(w), EV), role).toBe(false);
+    }
+  });
+
+  it('a creator with a null or empty role is refused', async () => {
+    for (const role of [null, '']) {
+      const w: World = { profile: person(role, INST_A), event: marathon({ created_by: ME }) };
+      expect(await canWriteEventRegistrations(caller(w), EV), String(role)).toBe(false);
+    }
+  });
+
+  it('a creator with no profile row is refused', async () => {
+    const w = { profile: null, event: marathon({ created_by: ME }) } as unknown as World;
+    expect(await canWriteEventRegistrations(caller(w), EV)).toBe(false);
   });
 
   it('a production_learner who created the event is refused', async () => {

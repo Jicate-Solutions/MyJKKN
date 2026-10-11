@@ -96,7 +96,7 @@ export function BulkImportBoard({
   const importMutation = useImportRoster();
   const downloadTemplate = useDownloadRosterTemplate();
   // The server allows bulk import to fewer people than canManage does (organisers only), so ask it.
-  const { data: canWrite, isLoading: canWriteLoading } = useCanWriteRegistrations(eventId, canManage);
+  const { data: canWrite, isPending: canWriteLoading } = useCanWriteRegistrations(eventId, canManage);
 
   const validatedRows: ValidatedRosterRow[] = useMemo(
     () => (parsedRows.length > 0 ? validateRosterRows(parsedRows, categoryCodes) : []),

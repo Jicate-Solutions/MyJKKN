@@ -18,6 +18,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import * as XLSX from 'xlsx';
 import toast from 'react-hot-toast';
 import { logger } from '@/lib/utils/enhanced-logger';
+import { useAuth } from '@/hooks/use-auth';
 
 const MOD = 'events/bulk-register';
 
@@ -423,9 +424,13 @@ export function useEventCategoryCodes(eventId: string) {
  * as "no", so the board never offers buttons the server would refuse.
  */
 export function useCanWriteRegistrations(eventId: string, enabled = true) {
+  // The answer belongs to the signed-in person: key it by their id so a sign-out and
+  // sign-in as someone else never reuses it.
+  const { profile } = useAuth();
+  const profileId = profile?.id ?? null;
   return useQuery({
-    queryKey: ['event-bulk-register-can-write', eventId],
-    enabled: !!eventId && enabled,
+    queryKey: ['event-bulk-register-can-write', eventId, profileId],
+    enabled: !!eventId && !!profileId && enabled,
     queryFn: async () => {
       const res = await fetch(`/api/events/marathon/${eventId}/bulk-register?action=can-write`);
       if (!res.ok) return false;

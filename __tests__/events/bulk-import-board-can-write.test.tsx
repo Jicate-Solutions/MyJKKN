@@ -12,7 +12,7 @@ vi.mock('@/hooks/events/shared/use-event-bulk-register', async (importOriginal) 
   useEventCategoryCodes: () => ({ data: [] }),
   useImportRoster: () => ({ mutateAsync: vi.fn(), isPending: false }),
   useDownloadRosterTemplate: () => vi.fn(),
-  useCanWriteRegistrations: () => ({ data: access.data, isLoading: access.isLoading }),
+  useCanWriteRegistrations: () => ({ data: access.data, isPending: access.isLoading }),
 }));
 
 import { BulkImportBoard } from '@/components/events/shared/bulk-import-board';

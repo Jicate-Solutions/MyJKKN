@@ -9,8 +9,10 @@
 //   path                                        canManageEventOps     canWriteEventRegistrations
 //   is_super_admin / role super_admin           allow                 allow
 //   admin, administrator, event_coordinator     allow, any inst.      allow ONLY in event's institution
-//   event creator                               allow                 allow ONLY as a non-learner in
-//                                                                     the event's institution
+//   event creator                               allow                 allow ONLY with a staff role on the
+//                                                                     WRITE_CREATOR_STAFF_ROLES allow-list,
+//                                                                     in the event's institution; null,
+//                                                                     empty or unlisted roles refused
 //   creator-less event, same-inst. non-learner  allow                 refuse
 //   fn_is_event_incharge                        allow                 allow (named, may be cross-inst.)
 //   tournament + sports.tournaments.manage      allow, any inst.      allow ONLY in event's institution
