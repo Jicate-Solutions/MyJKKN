@@ -112,10 +112,26 @@ ON CONFLICT (slug) DO NOTHING;
 -- (20261222000000), and the auto-resolve scan and the Max-lane cluster fixers
 -- work from those clusters. An admin moves it to 'new' after reading it.
 -- Same list as 20260717061500 plus 'unverified'; re-created every run.
-ALTER TABLE public.bug_reports DROP CONSTRAINT IF EXISTS bug_reports_status_check;
-ALTER TABLE public.bug_reports ADD CONSTRAINT bug_reports_status_check
-  CHECK (status = ANY (ARRAY['new'::text, 'unverified'::text, 'seen'::text, 'in_progress'::text,
-                             'resolved'::text, 'wont_fix'::text, 'duplicate'::text]));
+-- Asserted first, in the same DO block as the DROP + ADD, so the file is safe
+-- on its own: every status a live row holds must be in the new list. If a
+-- later migration added a status this list does not know, it stops here and
+-- the old check stays in place.
+DO $$
+DECLARE
+  v_allowed text[] := ARRAY['new', 'unverified', 'seen', 'in_progress', 'resolved', 'wont_fix', 'duplicate'];
+  v_unknown text;
+BEGIN
+  SELECT string_agg(DISTINCT status, ', ') INTO v_unknown
+    FROM public.bug_reports
+   WHERE status IS NOT NULL AND NOT (status = ANY (v_allowed));
+  IF v_unknown IS NOT NULL THEN
+    RAISE EXCEPTION 'bug_reports holds statuses this migration does not list: %. Add them to v_allowed first.', v_unknown;
+  END IF;
+  ALTER TABLE public.bug_reports DROP CONSTRAINT IF EXISTS bug_reports_status_check;
+  ALTER TABLE public.bug_reports ADD CONSTRAINT bug_reports_status_check
+    CHECK (status = ANY (ARRAY['new'::text, 'unverified'::text, 'seen'::text, 'in_progress'::text,
+                               'resolved'::text, 'wont_fix'::text, 'duplicate'::text]));
+END $$;
 
 -- application_id is a nullable uuid with no foreign key today, and no row uses
 -- it (checked live 11 Oct 2026: 0 of 3,607). From now on it means "the college
@@ -137,13 +153,18 @@ CREATE INDEX IF NOT EXISTS idx_bug_reports_application_created
   WHERE application_id IS NOT NULL;
 
 -- Double-submit guard: the intake writes metadata.intake_dedup_key (a hash of
--- app, reporter email, page, title, description and a 2-minute window). Two
+-- app, caller, reporter email, page, title, description and a 2-minute window;
+-- the lookup checks this window and the previous one). Two
 -- identical submits in one window collide here and the second is answered with
 -- the first bug, atomically.
--- Not partial, so the intake's metadata->>'intake_dedup_key' lookup can use
--- it; rows without the key hold NULL, and NULLs never collide.
-CREATE UNIQUE INDEX IF NOT EXISTS uq_bug_reports_intake_dedup
-  ON public.bug_reports ((metadata->>'intake_dedup_key'));
+-- Partial: only intake rows (metadata.source = 'sibling_app' with an app).
+-- A tool that copies a bug's metadata into another kind of row never collides.
+-- A tool that clones an intake row itself must drop intake_dedup_key from the
+-- copy. The intake's lookup repeats this predicate so it can use the index.
+DROP INDEX IF EXISTS public.uq_bug_reports_intake_dedup;
+CREATE UNIQUE INDEX uq_bug_reports_intake_dedup
+  ON public.bug_reports ((metadata->>'intake_dedup_key'))
+  WHERE (metadata->>'source') = 'sibling_app' AND application_id IS NOT NULL;
 
 -- ─── 2. api_keys: the bug_intake kind ──────────────────────────────────────
 ALTER TABLE public.api_keys

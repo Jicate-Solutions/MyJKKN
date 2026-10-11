@@ -51,12 +51,21 @@ export async function POST(
 
     const { data: bug, error: bugError } = await (adminSupabase.from('bug_reports') as any)
       .select(
-        'id, display_id, description, page_url, module_name, sub_module_name, category, console_logs, reporter_user_id, institution_id, created_at, metadata'
+        'id, display_id, status, description, page_url, module_name, sub_module_name, category, console_logs, reporter_user_id, institution_id, created_at, metadata'
       )
       .eq('id', reportId)
       .maybeSingle();
     if (bugError || !bug) {
       return NextResponse.json({ error: 'Bug report not found' }, { status: 404 });
+    }
+
+    // Quarantined college-app bug ('unverified', #4322): its text came in on a
+    // public key, so no AI reads it until a person promotes it to 'new'.
+    if (bug.status === 'unverified') {
+      return NextResponse.json(
+        { error: 'This college-app bug is unverified. Read it and move it to New before using AI on it.' },
+        { status: 409 }
+      );
     }
 
     // Gather evidence as the reporter (read-only). Never throws the request —

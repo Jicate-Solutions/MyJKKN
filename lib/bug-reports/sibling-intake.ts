@@ -37,6 +37,15 @@ export const intakeCorsHeaders = {
   'Access-Control-Max-Age': '86400',
 };
 
+/** PNG, JPEG and WebP file signatures, checked against the decoded bytes. */
+export function hasImageSignature(buf: Buffer, contentType: string): boolean {
+  const at = (offset: number, bytes: number[]) => bytes.every((b, i) => buf[offset + i] === b);
+  if (contentType === 'image/png') return at(0, [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+  if (contentType === 'image/jpeg' || contentType === 'image/jpg') return at(0, [0xff, 0xd8, 0xff]);
+  if (contentType === 'image/webp') return at(0, [0x52, 0x49, 0x46, 0x46]) && at(8, [0x57, 0x45, 0x42, 0x50]);
+  return false;
+}
+
 export type DecodedScreenshot = { buffer: Buffer; contentType: string; ext: string };
 
 /**
@@ -60,6 +69,9 @@ export function decodeScreenshot(dataUrl: string): DecodedScreenshot | 'invalid'
 
   const buffer = Buffer.from(b64, 'base64');
   if (buffer.length === 0) return 'invalid';
+  // The bytes must really be the declared image type, not anything with an
+  // image header in front of it.
+  if (!hasImageSignature(buffer, contentType)) return 'invalid';
   if (buffer.length > MAX_SCREENSHOT_BYTES) return 'too_large';
   return { buffer, contentType: contentType === 'image/jpg' ? 'image/jpeg' : contentType, ext };
 }

@@ -28,8 +28,10 @@ export interface BugStatusTabDefinition {
 }
 
 export const BUG_STATUS_TABS: BugStatusTabDefinition[] = [
-  // 'unverified' college-app bugs show here so a person reads them first.
-  { value: 'new', label: 'New', statuses: ['new', 'unverified'] },
+  // 'unverified' (college-app bugs in quarantine) is deliberately in NO tab but
+  // All, where the status filter finds it: the New tab drives exports, bulk
+  // actions and AI hand-offs, and quarantined text must reach none of them.
+  { value: 'new', label: 'New', statuses: ['new'] },
   {
     value: 'in_progress',
     label: 'In-Progress',

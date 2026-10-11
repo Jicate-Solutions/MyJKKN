@@ -358,17 +358,24 @@ describe('bug_reports intake links (application_id, dedup)', () => {
     expect(ok.rows).toHaveLength(1);
   });
 
-  it('two bugs with the same intake_dedup_key collide; bugs without one never do', async () => {
-    const insert = (key: string | null) =>
+  it('two intake rows with the same intake_dedup_key collide; copies and other rows never do', async () => {
+    const insert = (md: Record<string, unknown>, withApp: boolean) =>
       db.query(
-        `INSERT INTO public.bug_reports (page_url, description, metadata)
-         VALUES ('https://mentor.jkkn.ai/d', 'dup', $1::jsonb)`,
-        [JSON.stringify(key ? { intake_dedup_key: key } : { source: 'myjkkn' })]
+        `INSERT INTO public.bug_reports (page_url, description, metadata, application_id)
+         SELECT 'https://mentor.jkkn.ai/d', 'dup', $1::jsonb, CASE WHEN $2 THEN id END
+           FROM public.sibling_apps WHERE slug = 'mentor'`,
+        [JSON.stringify(md), withApp]
       );
-    await insert('k-1');
-    await expect(insert('k-1')).rejects.toThrow(/uq_bug_reports_intake_dedup/);
-    await insert(null);
-    await insert(null);
+    const intake = { source: 'sibling_app', intake_dedup_key: 'k-1' };
+    await insert(intake, true);
+    await expect(insert(intake, true)).rejects.toThrow(/uq_bug_reports_intake_dedup/);
+    // a tool that copies the metadata into a non-intake row (no app) is not blocked
+    await insert(intake, false);
+    // nor is a row from another source carrying the same key
+    await insert({ source: 'copy', intake_dedup_key: 'k-1' }, true);
+    // and rows without a key never collide
+    await insert({ source: 'myjkkn' }, false);
+    await insert({ source: 'myjkkn' }, false);
   });
 });
 
@@ -389,5 +396,21 @@ describe('bug_reports quarantine status and key shape', () => {
       `SELECT pg_get_constraintdef(oid) AS def FROM pg_constraint WHERE conname = 'api_keys_bug_intake_shape_check'`
     );
     expect(r.rows[0].def).toMatch(/COALESCE\(key_kind, 'admin'::text\)/);
+  });
+});
+
+describe('status check re-create is guarded', () => {
+  it('stops, and keeps the old check, if a live row holds a status the file does not list', async () => {
+    await db.query(`ALTER TABLE public.bug_reports DROP CONSTRAINT bug_reports_status_check`);
+    const r = await db.query(
+      `INSERT INTO public.bug_reports (page_url, description, status) VALUES ('https://x', 'legacy', 'legacy_status') RETURNING id`
+    );
+    await expect(db.query(migrationSql)).rejects.toThrow(/does not list: legacy_status/);
+    await db.query(`DELETE FROM public.bug_reports WHERE id = $1`, [r.rows[0].id]);
+    await db.query(migrationSql); // clean again: re-applies and restores the check
+    const c = await db.query(
+      `SELECT count(*)::int AS n FROM pg_constraint WHERE conname = 'bug_reports_status_check'`
+    );
+    expect(c.rows[0].n).toBe(1);
   });
 });

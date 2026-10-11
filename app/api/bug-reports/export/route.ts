@@ -150,6 +150,9 @@ export async function POST(request: Request) {
     if (module_name) query = query.eq('module_name', module_name);
     if (sub_module_name) query = query.eq('sub_module_name', sub_module_name);
     if (status) query = query.eq('status', status);
+    // Never export quarantined college-app bugs ('unverified', #4322): an export
+    // feeds the code-fixing agents, and this text came in on a public key.
+    query = query.neq('status', 'unverified');
 
     const { data: bugs, error } = await query;
     if (error) throw error;

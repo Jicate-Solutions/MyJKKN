@@ -19,17 +19,14 @@ import { checkRateLimit } from '@/lib/api-keys/rate-limiter';
 import { intakeCorsHeaders } from '@/lib/bug-reports/sibling-intake';
 
 /**
- * The caller's IP as the platform saw it. On Vercel, x-vercel-forwarded-for
- * and x-forwarded-for are set at the edge, which overwrites any value the
- * client sent (Vercel docs, "Request headers"; not re-verified live). The
- * first entry is used. If a proxy is ever put in front of Vercel, revisit this.
+ * The caller's IP as the platform saw it: ONLY x-vercel-forwarded-for, which
+ * Vercel sets at its edge (Vercel docs, "Request headers"; not re-verified
+ * live). x-forwarded-for and x-real-ip are not read, because off Vercel a
+ * client controls them. Null off Vercel (local dev): the route then skips the
+ * per-caller cap and the double-submit check rather than merge strangers.
  */
 export function intakeClientIp(request: Request): string | null {
-  for (const name of ['x-vercel-forwarded-for', 'x-forwarded-for', 'x-real-ip']) {
-    const first = request.headers.get(name)?.split(',')[0]?.trim();
-    if (first) return first;
-  }
-  return null;
+  return request.headers.get('x-vercel-forwarded-for')?.split(',')[0]?.trim() || null;
 }
 
 /** The SDK's failure envelope; the SDK shows error.message in its toast. */

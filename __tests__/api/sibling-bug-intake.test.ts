@@ -7,7 +7,7 @@
  *     up when it lacks the jkkn_bi_ prefix, and refused by kind when it has it)
  *   - refuse an oversize screenshot before inserting anything
  *   - insert into bug_reports with application_id = the key's app, status
- *     'new', and NO reporter: the claimed email is never matched to a profile
+ *     'unverified' (quarantine), and NO reporter: the claimed email is never matched to a profile
  *     (reporter_user_id, institution_id, department_id stay null), so nobody
  *     can plant a bug in a colleague's list; email and name stay in metadata
  *   - rate-limit per IP before any lookup, cap each app per day, and answer a
@@ -206,7 +206,8 @@ describe('POST /api/v1/public/bug-reports — happy path', () => {
       display_id: 'BUG-009001',
       status: 'unverified',
       title: 'Save button does nothing',
-      screenshot_url: 'https://proj.supabase.co/storage/v1/object/public/bug-reports/bug-1/screenshot.png',
+      // the stored picture's public URL is never handed back
+      screenshot_url: null,
     });
 
     // the key was looked up by its SHA-256, never by plaintext
@@ -246,10 +247,16 @@ describe('POST /api/v1/public/bug-reports — happy path', () => {
     expect(fromSpy.mock.calls.map((c) => c[0])).not.toContain('profiles');
 
     expect(state.uploads).toEqual([
-      { bucket: 'bug-reports', path: 'bug-1/screenshot.png', size: expect.any(Number), contentType: 'image/png' },
+      {
+        bucket: 'bug-reports',
+        // unguessable: the bug id alone does not give the file's URL
+        path: expect.stringMatching(/^sibling\/bug-1\/[0-9a-f-]{36}\.png$/),
+        size: expect.any(Number),
+        contentType: 'image/png',
+      },
     ]);
     expect(state.updates).toEqual([
-      { screenshot_url: 'https://proj.supabase.co/storage/v1/object/public/bug-reports/bug-1/screenshot.png' },
+      { screenshot_url: expect.stringMatching(/^https:\/\/proj\.supabase\.co\/storage\/v1\/object\/public\/bug-reports\/sibling\/bug-1\//) },
     ]);
   });
 
@@ -411,6 +418,23 @@ describe('POST /api/v1/public/bug-reports — abuse limits', () => {
     expect((await res.json()).data.bug_report.screenshot_url).toBeNull();
   });
 
+  it('with no platform IP, skips the double-submit check and the per-caller cap', async () => {
+    state.callerCount = 999; // would refuse if the per-caller cap ran
+    state.recent = [{ id: 'bug-0', display_id: 'B', description: 'd', category: 'bug', status: 'unverified', page_url: 'p', screenshot_url: null, created_at: 't' }];
+    const res = await POST(
+      new NextRequest('https://www.jkkn.ai/api/v1/public/bug-reports', {
+        method: 'POST',
+        // a client-set x-forwarded-for is NOT trusted as the caller
+        headers: { 'content-type': 'application/json', 'x-api-key': INTAKE_KEY, 'x-forwarded-for': '198.51.100.7' },
+        body: JSON.stringify(body()),
+      })
+    );
+    expect(res.status).toBe(201);
+    const row = state.inserted[0] as any;
+    expect(row.metadata.client_ip_hash).toBeNull();
+    expect(row.metadata.intake_dedup_key).toBeNull();
+  });
+
   it('answers a double-submit with the bug already filed, inserting nothing', async () => {
     state.recent = [
       {
@@ -467,6 +491,13 @@ describe('POST /api/v1/public/bug-reports — body', () => {
       expect(state.inserted).toHaveLength(0);
     }
   );
+
+  it('refuses a "PNG" whose bytes are not a PNG', async () => {
+    const fake = 'data:image/png;base64,' + Buffer.from('<html>not an image</html>').toString('base64');
+    const res = await post(INTAKE_KEY, body({ screenshot_data_url: fake }));
+    expect(res.status).toBe(400);
+    expect(state.inserted).toHaveLength(0);
+  });
 
   it('refuses a body that is not JSON', async () => {
     const res = await post(INTAKE_KEY, 'not json{');

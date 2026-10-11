@@ -79,7 +79,9 @@ export async function POST(request: Request) {
 
     // Update bug reports status
     const { error: updateError } = await updateWithResolvedBy(updateData, (payload) =>
-      (adminSupabase.from('bug_reports') as any).update(payload).in('id', reportIds)
+      // Quarantined college-app bugs ('unverified') are promoted one at a time,
+      // after a person reads each; a bulk action never touches them.
+      (adminSupabase.from('bug_reports') as any).update(payload).in('id', reportIds).neq('status', 'unverified')
     );
 
     if (updateError) {

@@ -30,10 +30,11 @@
  *
  * Abuse limits, in this order:
  *   1. per-IP rate limit before any lookup (sibling-intake-auth.ts; in-memory)
- *   2. double-submit guard: metadata.intake_dedup_key hashes app, reporter
- *      email, page, title, description and a DUPLICATE_WINDOW_MS window. A
- *      repeat is answered with the bug already filed, before any cap, so a
- *      genuine retry is never refused. The unique index uq_bug_reports_intake_dedup
+ *   2. double-submit guard: metadata.intake_dedup_key hashes app, caller,
+ *      reporter email, page, title, description and a DUPLICATE_WINDOW_MS
+ *      window; the lookup checks this window and the previous one, so a
+ *      repeat is caught for 2 to 4 minutes. It is answered with the bug
+ *      already filed, before any cap, so a genuine retry is never refused. The unique index uq_bug_reports_intake_dedup
  *      makes two simultaneous submits collide, and the loser returns the winner.
  *   3. per-caller daily cap (MAX_REPORTS_PER_IP_PER_APP_PER_DAY), counted in the
  *      database on metadata.client_ip_hash, so a handful of callers cannot use
@@ -61,7 +62,7 @@
 export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from 'next/server';
-import { createHash } from 'crypto';
+import { createHash, createHmac, randomUUID } from 'crypto';
 import { z } from 'zod';
 import { extractRequestMeta, logApiUsage } from '@/lib/api-keys/audit-logger';
 import { logger } from '@/lib/utils/enhanced-logger';
@@ -209,12 +210,16 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   // ── 4. Double-submit guard, then the daily caps (see the header) ─────────
   const sha = (text: string) => createHash('sha256').update(text).digest('hex');
   const windowNo = Math.floor(Date.now() / DUPLICATE_WINDOW_MS);
-  // Includes the caller, so two anonymous people sending the same words are
-  // never merged into one bug.
-  const clientIpHash = sha(`${app.id}:${ipAddress ?? 'no-ip'}`);
+  // The caller, as a keyed hash: a plain sha256 of app + IPv4 could be reversed
+  // by trying all 2^32 addresses. BUG_INTAKE_IP_PEPPER if set, else the server's
+  // service key (never in a browser). Rotating it only resets the caps.
+  const pepper = process.env.BUG_INTAKE_IP_PEPPER || process.env.SUPABASE_SERVICE_ROLE_KEY || '';
+  const clientIpHash = ipAddress ? createHmac('sha256', pepper).update(`${app.id}:${ipAddress}`).digest('hex') : null;
+  // With no platform IP (off Vercel), strangers must not be merged or share a
+  // cap: the double-submit check and the per-caller cap are skipped.
   const dedupKey = (win: number) =>
     sha(
-      [app.id, clientIpHash, reporterEmail ?? '', body.page_url, body.title, body.description, String(win)].join(
+      [app.id, clientIpHash ?? '', reporterEmail ?? '', body.page_url, body.title, body.description, String(win)].join(
         '\u0000'
       )
     );
@@ -246,12 +251,15 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   };
   const DEDUP_SELECT = 'id, display_id, description, category, status, page_url, screenshot_url, created_at';
 
-  const { data: recent, error: recentError } = await supabase
-    .from('bug_reports')
-    .select(DEDUP_SELECT)
-    .eq('application_id', app.id)
-    .in('metadata->>intake_dedup_key', [currentKey, dedupKey(windowNo - 1)])
-    .limit(1);
+  const { data: recent, error: recentError } = clientIpHash
+    ? await supabase
+        .from('bug_reports')
+        .select(DEDUP_SELECT)
+        .eq('application_id', app.id)
+        .eq('metadata->>source', 'sibling_app')
+        .in('metadata->>intake_dedup_key', [currentKey, dedupKey(windowNo - 1)])
+        .limit(1)
+    : { data: null, error: null };
   if (recentError) {
     logger.warn(LOG_MODULE, 'Double-submit lookup failed; relying on the unique index', recentError);
   } else if (recent && recent.length > 0) {
@@ -260,7 +268,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   }
 
   const dayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
-  {
+  if (clientIpHash) {
     const { count: callerCount, error: callerError } = await supabase
       .from('bug_reports')
       .select('id', { count: 'exact', head: true })
@@ -334,7 +342,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       source_app_name: app.name,
       sibling_app_id: app.id,
       title: body.title,
-      intake_dedup_key: currentKey,
+      intake_dedup_key: clientIpHash ? currentKey : null,
       client_ip_hash: clientIpHash,
       screenshot_dropped: screenshotDropped,
       reporter_email: reporterEmail,
@@ -385,10 +393,12 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     return fail('INTERNAL_ERROR', 'Could not save the bug report. Please try again.', 500);
   }
 
-  // ── 6. Screenshot: same bucket and path shape as the signed-in intake ─────
-  let screenshotUrl: string | null = null;
+  // ── 6. Screenshot: same bucket as the signed-in intake, private-by-name path ─
   if (screenshot) {
-    const path = `${created.id}/screenshot.${screenshot.ext}`;
+    // An unguessable name under sibling/: the bug id is returned to the caller,
+    // so an id-only path would let anyone with the key host a file at a known
+    // public URL. The 201 never returns the URL either.
+    const path = `sibling/${created.id}/${randomUUID()}.${screenshot.ext}`;
     const { error: uploadError } = await supabase.storage
       .from(BUG_REPORTS_BUCKET)
       .upload(path, screenshot.buffer, { contentType: screenshot.contentType, upsert: false });
@@ -404,8 +414,6 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         .eq('id', created.id);
       if (updateError) {
         logger.warn(LOG_MODULE, 'Could not store screenshot_url', updateError);
-      } else {
-        screenshotUrl = publicData.publicUrl;
       }
     }
   }
@@ -425,7 +433,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
           category: created.category,
           status: created.status,
           page_url: created.page_url,
-          screenshot_url: screenshotUrl,
+          // Never returned: the stored picture is public-by-URL, and quarantined.
+          screenshot_url: null,
           created_at: created.created_at,
         },
         message: 'Bug report submitted successfully. Thank you for your report!',
