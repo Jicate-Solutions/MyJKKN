@@ -340,11 +340,11 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // 20270510090300) so the sidebar shows each person only their rows. The keys
   // are usability; the database (instasolver_my_access + RLS) still decides
   // who may actually triage, work a job or read analytics.
-  '/instasolver/dashboard': 'instasolver.view',
-  '/instasolver/issues': 'instasolver.view',
+  '/instasolver/dashboard': 'instasolver.triage',
+  '/instasolver/issues': 'instasolver.triage',
   '/instasolver/issues/new': 'instasolver.view',
   '/instasolver/issues/[id]': 'instasolver.view',
-  '/instasolver/requirements': 'instasolver.view',
+  '/instasolver/requirements': 'instasolver.triage',
   '/instasolver/requirements/new': 'instasolver.view',
   '/instasolver/requirements/[id]': 'instasolver.view',
   '/instasolver/triage': 'instasolver.triage',
