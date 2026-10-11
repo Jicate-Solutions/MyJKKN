@@ -68,6 +68,8 @@ import { AttendanceSummaryModal } from './components/attendance-summary-modal';
 import { FacultySyncIndicator } from '../_components/faculty-sync-indicator';
 import { SubdividedAttendanceGrid } from './_components/subdivided-attendance-grid';
 import { PracticalAttendanceSelector } from './_components/practical-attendance-selector';
+import { UnbatchedLearnersNotice } from './_components/unbatched-learners-notice';
+import { learnersInNoPracticalBatch } from '@/lib/utils/academic/practical-unbatched-learners';
 import type { SubdivisionGroup, PeriodMode, PracticalConfig } from '@/types/academics';
 import type { AttendanceEditDiff } from '@/types/attendance';
 import { cn } from '@/lib/utils';
@@ -180,6 +182,21 @@ export default function AttendanceMarkPage() {
     expectedCount: number | null;
     listed: number;
   } | null>(null);
+
+  // Added: 2026-10-10 (BUG-006270 follow-up) - section learners in none of
+  // this practical slot's batches; shown as a notice, never blocks marking.
+  // Updated: 2026-10-11 (#4332 review) - derived from the roster this load
+  // fetched (before batch narrowing) and the current mode/config, so it can
+  // never pair one period's learners with another period's batches. The
+  // roster is cleared whenever a load starts, bails out or fails.
+  const [rosterBeforeBatches, setRosterBeforeBatches] = useState<any[]>([]);
+  const unbatchedLearners = useMemo(
+    () =>
+      periodMode === 'practical'
+        ? learnersInNoPracticalBatch(rosterBeforeBatches, practicalConfig?.batches)
+        : [],
+    [rosterBeforeBatches, periodMode, practicalConfig]
+  );
 
   // Updated: 2025-01-16 - Leave block checking state
   const [leaveBlockInfo, setLeaveBlockInfo] = useState<LeaveBlockInfo | null>(null);
@@ -1039,11 +1056,13 @@ export default function AttendanceMarkPage() {
     const loadStudents = async () => {
       // Updated: 2025-10-08 - Allow loading without section_id for multi-section slots
       if (!contextData) {
+        setRosterBeforeBatches([]);
         return;
       }
 
       // NEW: For practical periods, wait for batch/lab selection (Updated: 2025-10-25)
       if (periodMode === 'practical' && !practicalSelection) {
+        setRosterBeforeBatches([]);
         setLoadingStudents(false);
         return;
       }
@@ -1082,6 +1101,7 @@ export default function AttendanceMarkPage() {
 
       try {
         setLoadingStudents(true);
+        setRosterBeforeBatches([]);
 
         // Updated: 2025-10-25 - Support for practical periods with batch selection
         // Use effective section_ids (from practical selection or context)
@@ -1123,6 +1143,10 @@ export default function AttendanceMarkPage() {
             semesterId: contextData.semester_id
           });
         }
+
+        // Added: 2026-10-10 (BUG-006270 follow-up) - from the section roster
+        // BEFORE batch narrowing: who is in no batch of this practical slot.
+        setRosterBeforeBatches(studentsData as any[]);
 
         // Updated: 2025-10-13 - Filter students by subdivision group if applicable
         let filteredStudents = studentsData;
@@ -1314,6 +1338,7 @@ export default function AttendanceMarkPage() {
           // No toast here — student list is visible in the UI
         }
       } catch (error) {
+        setRosterBeforeBatches([]);
         logger.error('academic/attendance/mark', 'Error fetching students for attendance', error);
 
         if (error instanceof Error) {
@@ -2872,6 +2897,8 @@ export default function AttendanceMarkPage() {
               </CardContent>
             </Card>
           )}
+
+          {!loadingStudents && <UnbatchedLearnersNotice learners={unbatchedLearners} />}
 
           {loadingStudents ? (
             <Card className='border-0 shadow-lg'>
