@@ -189,13 +189,14 @@ const INSERT_AS = (userId: string | null) => ({
 const COUNT_INST_A = `SELECT count(*)::int AS n FROM public.usage_events WHERE institution_id = '${INST_A}'`;
 
 /**
- * Add page visits to institution A as service_role (the only page_visit writer;
- * paths are client-supplied, as the usage beacon route stores them), then call
- * fn_usage_trending_pages as a plain user of A — all in one rolled-back
- * transaction. `module` alone (no path) exercises the '/' || module fallback.
+ * Add page visits to institution A as service_role — the only page_visit
+ * writer — shaped as UsageTrackingService.trackPageVisit stores them (module
+ * from url-module-mapper, the raw url in metadata.page_url), then call
+ * fn_usage_trending_pages as a plain user of A. One rolled-back transaction.
+ * A forged explicit-mode row (free-text module) is just a different `module`.
  */
 async function trendingAfter(
-  visits: Array<{ user: string; path?: string; module?: string }>,
+  visits: Array<{ user: string; module: string; url?: string }>,
   limit = 50
 ): Promise<any[]> {
   const c = clients.hard;
@@ -205,9 +206,8 @@ async function trendingAfter(
     for (const v of visits) {
       await c.query(
         `INSERT INTO public.usage_events (user_id, event_type, module, institution_id, metadata)
-         VALUES ($1, 'page_visit', $2, $3,
-                 CASE WHEN $4::text IS NULL THEN '{}'::jsonb ELSE jsonb_build_object('page_path', $4::text) END)`,
-        [v.user, v.module ?? 'x', INST_A, v.path ?? null]
+         VALUES ($1, 'page_visit', $2, $3, jsonb_build_object('page_url', $4::text))`,
+        [v.user, v.module, INST_A, v.url ?? `/${v.module}`]
       );
     }
     await c.query(`SELECT set_config('test.acting_uid', $1, true)`, [people.plain]);
@@ -375,48 +375,54 @@ describe('HARDENED (after 20271010094500)', () => {
     }
   });
 
-  it('fn_usage_trending_pages gives a plain user their institution’s page counts, no user ids', async () => {
-    // Seed: the colleague visited /billing twice and /attendance once. Two more
-    // people visit /billing (3 people), one more visits /attendance (2 people).
+  it('fn_usage_trending_pages gives a plain user per-module counts — no paths, no user ids', async () => {
+    // Seed: the colleague visited billing twice and attendance once. Two more
+    // people visit billing (3 people), one more visits attendance (2 people).
     const [u2, u3] = visitors(2);
     const rows = await trendingAfter(
       [
-        { user: u2, module: 'billing' },
+        { user: u2, module: 'billing/invoices', url: '/billing/invoices' },
         { user: u3, module: 'billing' },
         { user: u2, module: 'attendance' },
       ],
       5
     );
-    expect(rows).toEqual([{ module: 'billing', page_path: '/billing', visit_count: '4' }]);
-    expect(Object.keys(rows[0])).not.toContain('user_id');
+    expect(rows).toEqual([{ module: 'billing', visit_count: '4' }]);
+    expect(Object.keys(rows[0]).sort()).toEqual(['module', 'visit_count']);
   });
 
-  it('fn_usage_trending_pages shows a page only when 3+ different people visited it', async () => {
+  it('fn_usage_trending_pages shows a module only when 3+ different people visited it', async () => {
     const two = visitors(2);
     const three = visitors(3);
     const rows = await trendingAfter([
       // one person visiting many times does not count as many people
-      ...Array.from({ length: 10 }, () => ({ user: two[0], path: '/two-people' })),
-      { user: two[1], path: '/two-people' },
-      ...three.map((user) => ({ user, path: '/three-people' })),
+      ...Array.from({ length: 10 }, () => ({ user: two[0], module: 'events' })),
+      { user: two[1], module: 'events' },
+      ...three.map((user) => ({ user, module: 'hr' })),
     ]);
-    expect(rows.map((r: any) => r.page_path)).toEqual(['/three-people']);
+    expect(rows.map((r: any) => r.module)).toEqual(['hr']);
   });
 
-  it('fn_usage_trending_pages never returns a page that carries an id, however many people visited it', async () => {
+  it('fn_usage_trending_pages never reveals a record id or slug in any form, however many people visited it', async () => {
     const many = visitors(6);
-    const idPaths = [
-      `/students/${randomUUID()}`,
-      `/students/${randomUUID().toUpperCase()}/marks`,
-      '/staff/123/payslip',
-      '/staff/123',
-    ];
-    const rows = await trendingAfter([
-      ...many.flatMap((user) => idPaths.map((path) => ({ user, path }))),
-      ...many.slice(0, 3).map((user) => ({ user, path: '/students' })),
-      ...many.slice(0, 3).map((user) => ({ user, path: '/staff/payroll2027' })),
-    ]);
-    expect(rows.map((r: any) => r.page_path).sort()).toEqual(['/staff/payroll2027', '/students']);
+    const uuid = randomUUID();
+    const secrets = ['22CSE001', '22cse001', 'EMP0123', 'emp0123', 'john-doe', uuid];
+    const rows = await trendingAfter(
+      many.flatMap((user) => [
+        // as the beacon stores them: module from the mapper, id only in the url
+        { user, module: 'students', url: '/students/22CSE001' },
+        { user, module: 'staff', url: '/staff/EMP0123' },
+        { user, module: 'staff', url: '/staff/john-doe' },
+        { user, module: 'students', url: `/students/${uuid}` },
+        // forged explicit-mode rows carrying the id in the module text itself
+        { user, module: 'students/22cse001' },
+        { user, module: 'staff/EMP0123' },
+        { user, module: 'staff/john-doe/payslip' },
+      ])
+    );
+    expect(rows.map((r: any) => r.module).sort()).toEqual(['staff', 'students']);
+    const out = JSON.stringify(rows);
+    for (const secret of secrets) expect(out).not.toContain(secret);
   });
 
   it('fn_usage_trending_pages returns nothing for another institution’s user', async () => {
@@ -468,33 +474,58 @@ describe('HARDENED (after 20271010094500)', () => {
     }
   });
 
-  it('fn_usage_trending_pages never returns an off-site path, however many people visited it', async () => {
+  it('fn_usage_trending_pages returns only slug-shaped module keys, however many people visited', async () => {
     const many = visitors(5);
-    const paths = [
+    const junk = [
       '//evil.com',
       '/\\evil.com',
       'https://evil.com/x',
       'javascript:alert(1)',
-      // Browsers strip tab/CR/LF, so each of these would open //evil.com.
-      '/\t/evil.com',
-      '/\n/evil.com',
-      '/\r/evil.com',
-      '/ /evil.com',
-      '/\x0b',
-      // '%' is allowlisted on purpose: the browser does not decode '%09' into a
-      // tab before resolving, so '/%09/x' stays a same-site path.
-      '/%09/x',
+      '\t/evil.com',
+      ' evil',
+      'Evil',
+      '22cse001',
+      'x'.repeat(41),
     ];
     const rows = await trendingAfter([
-      ...many.flatMap((user) => paths.map((path) => ({ user, path }))),
-      // module-only rows whose fallback path would be '//evil.com'
-      ...many.map((user) => ({ user, module: '/evil.com' })),
+      ...many.flatMap((user) => junk.map((module) => ({ user, module }))),
+      ...many.slice(0, 3).map((user) => ({ user, module: 'events' })),
     ]);
-    expect(rows.map((r: any) => r.page_path)).toEqual(['/%09/x']);
+    expect(rows.map((r: any) => r.module)).toEqual(['events']);
   });
 
   it('anon cannot call fn_usage_trending_pages', async () => {
     const r = await actAs('hard', 'anon', null, `SELECT * FROM public.fn_usage_trending_pages(7, 5)`);
     expect(r.error).toBe('42501');
+  });
+});
+
+describe('migration self-check', () => {
+  it('refuses to commit when a second INSERT policy would OR in', () => {
+    const db = `myjkkn_usage_chk_${SUFFIX}`;
+    psql(['-d', 'postgres', '-c', `CREATE DATABASE ${db}`]);
+    try {
+      psql(['-d', db, '-f', path.join(tmp, 'fixture.sql')]);
+      psql(['-d', db, '-f', path.join(tmp, 'baseline.sql')]);
+      psql([
+        '-d',
+        db,
+        '-c',
+        `CREATE POLICY "extra insert" ON public.usage_events FOR INSERT TO authenticated WITH CHECK (true)`,
+      ]);
+      let err = '';
+      try {
+        psql(['-d', db, '-f', MIGRATION]);
+      } catch (e: any) {
+        err = String(e?.stderr || e?.message || e);
+      }
+      expect(err).toContain('exactly one INSERT policy');
+    } finally {
+      try {
+        psql(['-d', 'postgres', '-c', `DROP DATABASE IF EXISTS ${db}`]);
+      } catch {
+        /* best effort */
+      }
+    }
   });
 });

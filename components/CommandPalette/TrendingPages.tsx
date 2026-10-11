@@ -3,30 +3,13 @@
 import { useQuery } from '@tanstack/react-query';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { useAuth } from '@/hooks/use-auth';
+import { getModuleBySlug } from '@/lib/navigation/modules';
 import type { RecentPage } from '@/lib/navigation/types';
 
-/** URL path characters only: no backslash, whitespace or control characters. */
-const SAFE_PATH = /^\/[A-Za-z0-9._~!$&'()*+,;=:@%/-]*$/;
-
 /**
- * A path that stays on this site, or null. Browsers strip tab/CR/LF and treat
- * '\\' like '/', so '/<TAB>/evil.com' would open //evil.com — hence the
- * allowlist AND a resolve against our own origin.
- */
-function toSameSitePath(path: unknown): string | null {
-  if (typeof path !== 'string' || !SAFE_PATH.test(path) || path.startsWith('//')) return null;
-  try {
-    const url = new URL(path, window.location.origin);
-    if (url.origin !== window.location.origin || !url.pathname.startsWith('/')) return null;
-    return url.pathname + url.search + url.hash;
-  } catch {
-    return null;
-  }
-}
-
-/**
- * Hook to fetch trending/popular pages from usage_events.
- * Returns the most-visited pages across the institution in the last 7 days.
+ * Hook to fetch trending modules from usage_events.
+ * Returns the most-visited modules across the institution in the last 7 days,
+ * each linked to its module hub.
  */
 export function useTrendingPages(limit: number = 5) {
   const { profile } = useAuth();
@@ -36,48 +19,36 @@ export function useTrendingPages(limit: number = 5) {
     queryFn: async () => {
       const supabase = createClientSupabaseClient();
 
-      // Aggregate RPC (SECURITY DEFINER): top page paths + visit counts for the
-      // caller's OWN institution, no user ids. Raw usage_events rows are readable
-      // only by institution admins (20271010094500_usage_events_rls_hardening).
+      // Aggregate RPC (SECURITY DEFINER): top-level module keys + visit counts
+      // for the caller's OWN institution, only for modules 3+ people visited —
+      // no paths, no user ids (20271010094500_usage_events_rls_hardening).
+      // Over-fetch: keys this client has no hub for are dropped below.
       const { data, error } = await supabase.rpc('fn_usage_trending_pages' as never, {
         p_days: 7,
-        p_limit: limit,
+        p_limit: Math.min(limit * 4, 50),
       } as never);
 
       if (error) throw error;
-      const rows = (data ?? []) as Array<{
-        module: string | null;
-        page_path: string;
-        visit_count: number | string;
-      }>;
-      if (rows.length === 0) return [];
+      const rows = (data ?? []) as Array<{ module: string | null; visit_count: number | string }>;
 
-      // Count visits per module/path
-      const counts = new Map<string, { module: string; path: string; count: number }>();
+      const pages: RecentPage[] = [];
       for (const row of rows) {
-        const path = toSameSitePath(row.page_path);
-        if (!path) continue;
-        const existing = counts.get(path);
-        if (existing) {
-          existing.count += Number(row.visit_count) || 0;
-        } else {
-          counts.set(path, { module: row.module || '', path, count: Number(row.visit_count) || 0 });
-        }
-      }
-
-      // Sort by count and return top N
-      return Array.from(counts.values())
-        .sort((a, b) => b.count - a.count)
-        .slice(0, limit)
-        .map((item) => ({
-          path: item.path,
-          title: item.module?.split('/').pop()?.replace(/-/g, ' ')
-            .replace(/\b\w/g, c => c.toUpperCase()) || item.path,
-          module: item.module?.split('/')[0] || 'Other',
+        // The href comes from the app's own module list, never from DB text;
+        // a key with no known module is dropped. '' (the Dashboard root) is
+        // never a key the RPC returns.
+        const mod = row.module ? getModuleBySlug(row.module) : undefined;
+        if (!mod || !mod.slug) continue;
+        pages.push({
+          path: `/${mod.slug}`,
+          title: mod.label,
+          module: mod.slug,
           iconName: 'TrendingUp',
           visitedAt: new Date().toISOString(),
-          visitCount: item.count,
-        }));
+          visitCount: Number(row.visit_count) || 0,
+        });
+        if (pages.length >= limit) break;
+      }
+      return pages;
     },
     enabled: !!profile?.institution_id,
     staleTime: 60 * 60 * 1000, // 1 hour cache

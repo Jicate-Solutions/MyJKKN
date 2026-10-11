@@ -25,8 +25,8 @@
 --     only, institution NULL or the caller's own.
 --
 -- READERS UNDER RLS: only components/CommandPalette/TrendingPages.tsx, which
--- relied on (b). It now calls fn_usage_trending_pages() below: page paths and
--- counts for the caller's own institution, no user ids.
+-- relied on (b). It now calls fn_usage_trending_pages() below: per-MODULE
+-- visit counts for the caller's own institution — no paths, no user ids.
 -- Every other reader is SECURITY DEFINER (fn_adoption_sync_usage_events[_core],
 -- fn_cac_measured_metrics) or service role (app/api/cron/usage-rollup) — the
 -- table owner bypasses RLS, so they are unaffected. Do NOT add FORCE RLS.
@@ -74,46 +74,42 @@ ALTER POLICY "Super admin can view all usage_events" ON public.usage_events TO a
 REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON public.usage_events FROM anon;
 REVOKE UPDATE, DELETE, TRUNCATE ON public.usage_events FROM authenticated;
 
--- Trending pages for the command palette — aggregate only, caller's own
--- institution, no user ids. The page path comes from the client (the usage
--- beacon's request body), so only an ALLOWLISTED same-site path is returned:
--- '/' then URL path characters only, and never '//'. That rejects backslash,
--- whitespace and every control character anywhere — browsers strip tab/CR/LF,
--- so '/<TAB>/evil.com' would otherwise open //evil.com. '%' is allowed: the
--- browser does not decode '%09' before resolving, so '/%09/x' stays on-site.
--- PRIVACY: this runs as definer, so it must not reveal who looked at what.
---   * A path with any id segment (a uuid, or all digits — /students/<uuid>,
---     /staff/123/payslip) is never returned: a detail page names a person, and
---     a template like /students/[id] is not navigable, so trending shows only
---     static pages.
---   * A page shows only when 3+ different people visited it in the window.
--- All filtering happens before LIMIT, so LIMIT returns p_limit clean rows.
--- ci:allow-secdef-authenticated every signed-in user may see the top page paths + visit counts of their OWN institution (derived from auth.uid(), not a parameter); no user ids or metadata are returned. Replaces the per-row read TrendingPages.tsx made through the old open policy (b).
+-- Trending modules for the command palette — aggregate only, caller's own
+-- institution, no user ids and NO PATHS. Page paths carry record ids and
+-- slugs (/students/22CSE001, /staff/john-doe) that no pattern can catch, so
+-- the function returns only the TOP-LEVEL module key: the first segment of
+-- usage_events.module, which the service-role writer fills for every
+-- page_visit row from lib/middleware/url-module-mapper.ts (a MODULE_NAMES
+-- value or a top-level slug; the insert is skipped when none maps). The app
+-- has no top-level dynamic route, so a top-level key never names a record.
+-- The client maps each key to its hub href from lib/navigation/modules.ts and
+-- drops unknown keys; no href is ever built from this text.
+--   * key must look like a module slug: ^[a-z][a-z0-9-]{0,39}$
+--   * a module shows only when 3+ different people visited it in the window.
+-- DROP first: the return columns changed while this file was unapplied.
+DROP FUNCTION IF EXISTS public.fn_usage_trending_pages(integer, integer);
+-- ci:allow-secdef-authenticated every signed-in user may see the top-level module keys + visit counts of their OWN institution (derived from auth.uid(), not a parameter), only for modules 3+ different people visited; no paths, user ids or metadata are returned. Replaces the per-row read TrendingPages.tsx made through the old open policy (b).
 CREATE OR REPLACE FUNCTION public.fn_usage_trending_pages(p_days integer DEFAULT 7, p_limit integer DEFAULT 5)
-RETURNS TABLE (module text, page_path text, visit_count bigint)
+RETURNS TABLE (module text, visit_count bigint)
 LANGUAGE sql
 STABLE
 SECURITY DEFINER
 SET search_path = public
 AS $$
-  SELECT min(v.module)  AS module,
-         v.page_path      AS page_path,
-         count(*)         AS visit_count
+  SELECT v.module_key  AS module,
+         count(*)      AS visit_count
     FROM (
-      SELECT ue.module,
-             ue.user_id,
-             COALESCE(ue.metadata->>'page_path', '/' || ue.module) AS page_path
+      SELECT split_part(ue.module, '/', 1) AS module_key,
+             ue.user_id
         FROM public.usage_events ue
        WHERE ue.event_type = 'page_visit'
          AND ue.institution_id = (SELECT p.institution_id FROM public.profiles p WHERE p.id = auth.uid())
          AND ue.created_at >= now() - make_interval(days => LEAST(GREATEST(COALESCE(p_days, 7), 1), 90))
     ) v
-   WHERE v.page_path ~ '^/[A-Za-z0-9._~!$&''()*+,;=:@%/-]*$'
-     AND v.page_path NOT LIKE '//%'
-     AND v.page_path !~ '/([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}|[0-9]+)(/|$)'
-   GROUP BY v.page_path
+   WHERE v.module_key ~ '^[a-z][a-z0-9-]{0,39}$'
+   GROUP BY v.module_key
   HAVING count(DISTINCT v.user_id) >= 3
-   ORDER BY 3 DESC, 2
+   ORDER BY 2 DESC, 1
    LIMIT LEAST(GREATEST(COALESCE(p_limit, 5), 1), 50);
 $$;
 
@@ -142,14 +138,22 @@ BEGIN
     RAISE EXCEPTION 'authenticated still holds UPDATE/DELETE on usage_events';
   END IF;
 
-  SELECT string_agg(with_check, ' ') INTO v_check
+  -- Exactly ONE INSERT policy, ours; a second permissive one would OR in.
+  SELECT count(*) INTO v_bad
     FROM pg_policies
-   WHERE schemaname = 'public' AND tablename = 'usage_events' AND cmd = 'INSERT';
-  IF v_check IS NULL
-     OR v_check NOT ILIKE '%auth.uid()%'
+   WHERE schemaname = 'public' AND tablename = 'usage_events' AND cmd IN ('INSERT', 'ALL');
+  SELECT with_check INTO v_check
+    FROM pg_policies
+   WHERE schemaname = 'public' AND tablename = 'usage_events' AND cmd = 'INSERT'
+     AND policyname = 'usage_events_insert_own';
+  IF v_bad <> 1 OR v_check IS NULL THEN
+    RAISE EXCEPTION 'usage_events must have exactly one INSERT policy, usage_events_insert_own (found % INSERT/ALL policies)', v_bad;
+  END IF;
+  IF v_check NOT ILIKE '%auth.uid()%'
      OR v_check NOT ILIKE '%institution_id%'
-     OR v_check NOT ILIKE '%event_type%' THEN
-    RAISE EXCEPTION 'usage_events INSERT policy must pin user_id = auth.uid(), event_type = ''search'' and institution_id (NULL or the caller''s own): %', v_check;
+     OR v_check NOT ILIKE '%event_type%'
+     OR v_check NOT ILIKE '%search%' THEN
+    RAISE EXCEPTION 'usage_events_insert_own must pin user_id = auth.uid(), event_type = ''search'' and institution_id (NULL or the caller''s own): %', v_check;
   END IF;
 END $$;
 

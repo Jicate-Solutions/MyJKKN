@@ -1,8 +1,9 @@
 // @vitest-environment jsdom
 /**
- * The command-palette "trending pages" list reads an aggregate RPC, never the
- * raw usage_events rows (which, after 20271010094500, only institution admins
- * may read).
+ * The command-palette "trending" list reads an aggregate RPC that returns
+ * top-level module keys only (never paths, never raw usage_events rows — those
+ * only institution admins may read after 20271010094500). Each key is mapped to
+ * its hub href from lib/navigation/modules.ts; unknown keys are dropped.
  */
 
 import React from 'react';
@@ -23,57 +24,64 @@ vi.mock('@/lib/supabase/client', () => ({
 
 import { useTrendingPages } from '@/components/CommandPalette/TrendingPages';
 
+function run(limit: number) {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const wrapper = ({ children }: { children: React.ReactNode }) => (
+    <QueryClientProvider client={client}>{children}</QueryClientProvider>
+  );
+  return renderHook(() => useTrendingPages(limit), { wrapper });
+}
+
 describe('useTrendingPages', () => {
-  it('calls fn_usage_trending_pages and maps its counts, without touching usage_events', async () => {
+  it('calls fn_usage_trending_pages and renders module hub links, without touching usage_events', async () => {
     rpc.mockResolvedValue({
       data: [
-        { module: 'billing/invoices', page_path: '/billing/invoices', visit_count: '12' },
-        { module: 'attendance', page_path: '/attendance', visit_count: 3 },
+        { module: 'billing', visit_count: '12' },
+        { module: 'academic', visit_count: 3 },
       ],
       error: null,
     });
-    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-    const wrapper = ({ children }: { children: React.ReactNode }) => (
-      <QueryClientProvider client={client}>{children}</QueryClientProvider>
-    );
-
-    const { result } = renderHook(() => useTrendingPages(5), { wrapper });
+    const { result } = run(5);
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
-    expect(rpc).toHaveBeenCalledWith('fn_usage_trending_pages', { p_days: 7, p_limit: 5 });
+    expect(rpc).toHaveBeenCalledWith('fn_usage_trending_pages', { p_days: 7, p_limit: 20 });
     expect(from).not.toHaveBeenCalled();
     expect(result.current.data?.map((p) => [p.path, p.title, p.module, p.visitCount])).toEqual([
-      ['/billing/invoices', 'Invoices', 'billing', 12],
-      ['/attendance', 'Attendance', 'attendance', 3],
+      ['/billing', 'Billing', 'billing', 12],
+      ['/academic', 'Academic', 'academic', 3],
     ]);
   });
 
-  it('drops any path that is not a single-slash same-site path', async () => {
+  it('drops keys with no known module and never builds an href from DB text', async () => {
     rpc.mockResolvedValue({
       data: [
-        { module: 'x', page_path: '//evil.com', visit_count: 900 },
-        { module: 'x', page_path: '/\\evil.com', visit_count: 800 },
-        { module: 'x', page_path: 'https://evil.com/login', visit_count: 700 },
-        { module: 'x', page_path: 'javascript:alert(1)', visit_count: 600 },
-        // Browsers strip tab/CR/LF, so each of these would open //evil.com.
-        { module: 'x', page_path: '/\t/evil.com', visit_count: 590 },
-        { module: 'x', page_path: '/\n/evil.com', visit_count: 580 },
-        { module: 'x', page_path: '/\r/evil.com', visit_count: 570 },
-        { module: 'x', page_path: '/ /evil.com', visit_count: 560 },
-        { module: 'x', page_path: '/\x0b', visit_count: 550 },
-        // '%09' is NOT decoded before resolving, so it stays a same-site path.
-        { module: 'x', page_path: '/%09/x', visit_count: 4 },
-        { module: 'attendance', page_path: '/attendance', visit_count: 3 },
+        { module: 'john-doe', visit_count: 900 },
+        { module: 'students/22CSE001', visit_count: 800 },
+        { module: '//evil.com', visit_count: 700 },
+        { module: '', visit_count: 600 },
+        { module: null, visit_count: 500 },
+        { module: 'staff', visit_count: 4 },
       ],
       error: null,
     });
-    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-    const wrapper = ({ children }: { children: React.ReactNode }) => (
-      <QueryClientProvider client={client}>{children}</QueryClientProvider>
-    );
-
-    const { result } = renderHook(() => useTrendingPages(20), { wrapper });
+    const { result } = run(5);
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
-    expect(result.current.data?.map((p) => p.path)).toEqual(['/%09/x', '/attendance']);
+    expect(result.current.data?.map((p) => p.path)).toEqual(['/staff']);
+  });
+
+  it('returns at most `limit` known modules from the over-fetched rows', async () => {
+    rpc.mockResolvedValue({
+      data: [
+        { module: 'unknown-a', visit_count: 50 },
+        { module: 'billing', visit_count: 40 },
+        { module: 'hr', visit_count: 30 },
+        { module: 'events', visit_count: 20 },
+      ],
+      error: null,
+    });
+    const { result } = run(2);
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(rpc).toHaveBeenLastCalledWith('fn_usage_trending_pages', { p_days: 7, p_limit: 8 });
+    expect(result.current.data?.map((p) => p.path)).toEqual(['/billing', '/hr']);
   });
 });
