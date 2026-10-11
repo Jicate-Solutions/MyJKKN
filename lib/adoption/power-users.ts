@@ -88,9 +88,9 @@ type StaleFields = Pick<ExistingAgendaJob, 'status' | 'requested_at' | 'claimed_
  * claimed/running more than STALE_JOB_MS after the drain took it (the later of
  * claimed_at and started_at; ai_jobs has no per-job heartbeat). A backlogged
  * job the drain claimed a minute ago is NOT stuck, however old its request.
- * A claimed/running job with NEITHER time recorded falls back to requested_at,
- * so it cannot block that person's agenda for good.
- * Same rule as fn_adoption_agenda_supersede_stale (migration 20271010120000).
+ * A claimed/running job with NEITHER time recorded is never stuck: nothing on
+ * the row tells it from one claimed seconds ago, so it is never cancelled.
+ * Same rule as fn_adoption_agenda_supersede_stale (migration 20271009115500).
  */
 export function isStaleAgendaJob(job: StaleFields, now: number = Date.now()): boolean {
   const parseTime = (iso: string | null | undefined) => {

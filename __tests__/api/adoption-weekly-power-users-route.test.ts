@@ -836,6 +836,19 @@ describe("#4298 panel follow-ups (five LOW findings)", () => {
       expect(merged()).not.toHaveProperty('u-02');
     });
 
+    it('a stored list longer than 10: cut to the top 10 FIRST, so leaving someone out never moves #11 up (#4324 panel)', async () => {
+      const p = payload(11);
+      p.top[1] = { ...p.top[1], institution_id: 'c-excluded-now' };
+      storeWeek(p);
+      exclusionsResult = { data: ['c-excluded-now'], error: null };
+      const res = await GET(request({ bearer: SECRET, query: `?week=${WEEK}` }));
+      expect(res.status).toBe(200);
+      expect((await res.json()).top).toBe(9);
+      expect(usersQueued()).not.toContain('u-02');
+      expect(usersQueued()).not.toContain('u-11');
+      expect(usersQueued()).toHaveLength(9);
+    });
+
     it('a computed week does not need the separate check (the report function applies it)', async () => {
       await GET(request({ bearer: SECRET, query: `?week=${WEEK}` }));
       expect(rpc).not.toHaveBeenCalledWith(EXCLUSIONS_FN);
@@ -913,15 +926,16 @@ describe("#4298 panel follow-ups (five LOW findings)", () => {
       expect(usersQueued()).not.toContain('u-01');
     });
 
-    it('still no job after every re-read: in flight (the cancelling run records its fresh job), not a failure', async () => {
+    it('still no job after every re-read: failed (500 naming the ?week= re-run), never a quiet 200', async () => {
       const reads = rereadsAnswer([{ data: [], error: null }]);
       const res = await GET(request({ bearer: SECRET, query: `?week=${WEEK}` }));
-      expect(res.status).toBe(200);
+      expect(res.status).toBe(500);
       const body = await res.json();
       expect(reads()).toBe(5); // the first read + four waits
-      expect(body.failed).toBe(0);
-      expect(body.in_flight).toBe(1);
-      expect(merged()).not.toHaveProperty('u-01'); // not ours to record
+      expect(body.failed).toBe(1);
+      expect(body.in_flight).toBe(0);
+      expect(JSON.stringify(body)).toContain(`?week=${WEEK}`);
+      expect(merged()).not.toHaveProperty('u-01');
       expect(usersQueued()).not.toContain('u-01'); // never a second agenda
     });
 

@@ -159,6 +159,11 @@ export async function GET(request: NextRequest) {
     // The stored path skips fn_adoption_power_users, so run its fail-closed
     // exclusion check here: a missing, off, draft or malformed list stops the
     // run before anything is read or queued.
+    // DEPLOY ORDER: this function and fn_adoption_power_user_weeks_save come
+    // from migration 20271010120000, which must be applied BEFORE this code
+    // ships (W12 batch rule: migrations are applied before the merge). If it
+    // is missing, the call errors and the run answers 500 — no agenda is
+    // queued and nothing is written.
     const { data: excl, error: exclErr } = await admin.rpc('fn_adoption_power_users_exclusions');
     if (exclErr) return fail(`exclusion list check failed: ${exclErr.message}`, started);
     if (!Array.isArray(excl) || !excl.every((x) => typeof x === 'string')) {
@@ -372,16 +377,17 @@ export async function GET(request: NextRequest) {
           // Already finished with a readable agenda = kept; still queued = in flight.
           if (current.status === 'done') kept++;
           else inFlight++;
-        } else if (!nowErr && !current) {
-          // Still nothing: the run that cancelled it is between its cancel and
-          // its enqueue, and records the fresh job's id itself. In flight, not
-          // a failure (#4324 panel).
-          inFlight++;
         } else {
+          // Still no usable job after every re-read is a failure (500 naming
+          // the ?week= re-run): the drain may have errored the stuck job, or the
+          // run that cancelled it died before queueing a fresh one — either way
+          // this person has no agenda this week unless someone re-runs it.
           failed++;
           failures.push(
-            nowErr || !current
-              ? `stuck agenda job changed meanwhile and its replacement could not be read${nowErr ? `: ${nowErr.message}` : ''}`
+            nowErr
+              ? `stuck agenda job changed meanwhile and its replacement could not be read: ${nowErr.message}`
+              : !current
+                ? 'stuck agenda job changed meanwhile and no fresh job was queued for this person'
               : `stuck agenda job changed meanwhile and its replacement is stuck or its answer cannot be read (${current.status})`
           );
         }
