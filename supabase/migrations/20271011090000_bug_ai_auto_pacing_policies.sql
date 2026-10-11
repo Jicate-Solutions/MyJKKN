@@ -1,9 +1,15 @@
 -- =====================================================================
 -- Bug AI automatic producer — pacing controls
--- Date: 2026-10-10
+-- Date: 2026-10-10 (written). Version prefix 20271011090000.
+-- The version is NOT the calendar date. This repo's migration versions run a
+-- year ahead of the clock: every migration added in the last ten days is
+-- 2027-dated and the applied ledger tops out at 20271010100000, so a 2026
+-- version would sort BEHIND 309 already-applied migrations and be refused by
+-- the Supabase CLI's ordering. Renamed from 20261010120000 on 2026-10-11,
+-- before this file was ever applied (ledger checked: no row for either version).
 -- =====================================================================
 -- /api/cron/bug-ai-auto creates the bug.triage and bug.duplicate_check jobs
--- that, until now, only existed when an admin clicked a card. These four rows
+-- that, until now, only existed when an admin clicked a card. These five rows
 -- are the knobs for how fast it goes, so pace can change without a deploy.
 --
 -- Every value here equals the route's own code default, so the route behaves
