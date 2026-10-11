@@ -170,6 +170,8 @@ function post(key: string | null, payload: unknown = body()) {
 
 beforeEach(() => {
   _resetForTesting();
+  process.env.BUG_INTAKE_IP_PEPPER = 'test-pepper';
+  process.env.VERCEL = '1';
   fromSpy.mockClear();
   state.keyRow = {
     id: 'key-1',
@@ -364,21 +366,54 @@ describe('POST /api/v1/public/bug-reports — abuse limits', () => {
     expect(fromSpy.mock.calls.length).toBe(lookupsBefore);
   });
 
-  it('stops an app at its daily cap, counted in the database', async () => {
+  it('over the app cap, still files the report (flagged, no screenshot) so a flood cannot silence it', async () => {
     state.todayCount = 300;
     const res = await post(INTAKE_KEY);
+    expect(res.status).toBe(201);
+    const row = state.inserted[0] as any;
+    expect(row.metadata.over_cap).toBe('app');
+    expect(row.metadata.screenshot_dropped).toBe('over_cap');
+    expect(state.uploads).toHaveLength(0);
+  });
+
+  it('refuses only past the hard daily ceiling', async () => {
+    state.todayCount = 2000;
+    const res = await post(INTAKE_KEY);
     expect(res.status).toBe(429);
-    const json = await res.json();
-    expect(json.error.code).toBe('RATE_LIMITED');
+    expect((await res.json()).error.code).toBe('RATE_LIMITED');
     expect(state.inserted).toHaveLength(0);
   });
 
-  it('stops one caller at its own daily cap before the app cap', async () => {
+  it('refuses with 503 when BUG_INTAKE_IP_PEPPER is not set (no reversible hash)', async () => {
+    delete process.env.BUG_INTAKE_IP_PEPPER;
+    const res = await post(INTAKE_KEY);
+    expect(res.status).toBe(503);
+    expect(state.inserted).toHaveLength(0);
+  });
+
+  it('groups IPv6 callers by /64', async () => {
+    const send = (ip: string, title: string) =>
+      POST(
+        new NextRequest('https://www.jkkn.ai/api/v1/public/bug-reports', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', 'x-api-key': INTAKE_KEY, 'x-vercel-forwarded-for': ip },
+          body: JSON.stringify(body({ title })),
+        })
+      );
+    await send('2001:db8:aa:bb:1:2:3:4', 'first');
+    await send('2001:db8:aa:bb:ffff::9', 'second');
+    await send('2001:db8:aa:cc::1', 'third');
+    const [a, b, c] = state.inserted.map((r: any) => r.metadata.client_ip_hash);
+    expect(a).toBe(b);
+    expect(a).not.toBe(c);
+  });
+
+  it('over one caller\'s cap, still files the report, flagged and without its screenshot', async () => {
     state.callerCount = 40;
     const res = await post(INTAKE_KEY);
-    expect(res.status).toBe(429);
-    expect((await res.json()).error.message).toMatch(/You have sent many/);
-    expect(state.inserted).toHaveLength(0);
+    expect(res.status).toBe(201);
+    expect((state.inserted[0] as any).metadata.over_cap).toBe('caller');
+    expect(state.uploads).toHaveLength(0);
   });
 
   it('fails closed (503) when the cap cannot be counted', async () => {

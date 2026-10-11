@@ -26,9 +26,11 @@ describe('quarantine: unverified college-app bugs', () => {
   });
 
   it('the bulk status route never updates it', () => {
-    expect(src('app/api/bug-reports/bulk-update-status/route.ts')).toMatch(
-      /\.in\('id', reportIds\)\.neq\('status', 'unverified'\)/
-    );
+    const code = src('app/api/bug-reports/bulk-update-status/route.ts');
+    expect(code).toMatch(/\.in\('id', reportIds\)\s*\.neq\('status', 'unverified'\)\s*\.select\('id'\)/);
+    // and it reports, cascades and emails only the rows it actually changed
+    expect(code).toMatch(/updatedCount: changedIds\.length/);
+    expect(code).toMatch(/\.in\('duplicate_of', changedIds\)/);
   });
 
   it.each(['ai-triage', 'duplicate-check', 'ai-reverify'])('the %s handler refuses it with 409', (h) => {

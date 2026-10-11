@@ -154,7 +154,7 @@ export async function authenticateApiKey(
   // 4. Look up key in database
   const { data: keyData, error: keyError } = await supabase
     .from('api_keys')
-    .select('*')
+    .select('id, name, key_value, is_active, expires_at, permissions, key_kind')
     .eq('key_value', hashedKey)
     .eq('is_active', true)
     .single();
@@ -166,8 +166,8 @@ export async function authenticateApiKey(
   // 4b. Only administrator keys open the B2A routes. A personal key or a public
   // bug-intake key must never reach a service-role query, and several routes
   // (b2a/memory/*) pass no requiredModule, so the permission check below would
-  // not stop them. An absent or NULL kind is a pre-migration administrator key
-  // (select('*') above, so a missing column cannot fail the lookup itself);
+  // not stop them. A NULL kind is a pre-migration administrator key (the column
+  // is live: 20270301090000 is in the prod ledger, W12 checked 11 Oct 2026);
   // any other kind is refused, including one added later.
   if (!isAdminKeyKind((keyData as { key_kind?: unknown }).key_kind)) {
     return unauthorized('This API key cannot be used here');

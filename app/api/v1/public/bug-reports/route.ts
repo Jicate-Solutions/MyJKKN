@@ -36,13 +36,19 @@
  *      repeat is caught for 2 to 4 minutes. It is answered with the bug
  *      already filed, before any cap, so a genuine retry is never refused. The unique index uq_bug_reports_intake_dedup
  *      makes two simultaneous submits collide, and the loser returns the winner.
- *   3. per-caller daily cap (MAX_REPORTS_PER_IP_PER_APP_PER_DAY), counted in the
- *      database on metadata.client_ip_hash, so a handful of callers cannot use
- *      up an app's whole daily allowance
- *   4. per-app daily cap (MAX_REPORTS_PER_APP_PER_DAY), counted in the database
- * Both counts fail CLOSED (503) if the database cannot answer. They are SOFT
- * limits: they count, then insert, so a parallel burst can pass a cap by a
- * few. The status below, not the caps, is what keeps these rows safe.
+ *   3. OVER-CAP IS KEPT, NOT REFUSED. Past the per-caller cap
+ *      (MAX_REPORTS_PER_IP_PER_APP_PER_DAY, on metadata.client_ip_hash; IPv6
+ *      grouped by /64) or the per-app cap (MAX_REPORTS_PER_APP_PER_DAY), a
+ *      report is still filed, flagged metadata.over_cap, without its
+ *      screenshot, and a warning is logged. These rows reach nothing automated
+ *      (quarantine, below), so a flood can never silence real reporters; the
+ *      caps only bound storage.
+ *   4. hard ceiling (HARD_CEILING_PER_APP_PER_DAY): only past this is a report
+ *      refused (429), to bound storage under a sustained flood.
+ * The counts fail CLOSED (503) if the database cannot answer. They are SOFT:
+ * count, then insert, so a parallel burst can pass one by a few.
+ * The caller hash is an HMAC keyed by BUG_INTAKE_IP_PEPPER; without it the
+ * route answers 503 (not configured) rather than store a reversible hash.
  *
  * QUARANTINE. Every row is filed with status 'unverified', because its text
  * came in on a public key and may be written to steer an AI. No automated
@@ -51,8 +57,10 @@
  * fn_bug_auto_resolve_scan nor the Max-lane cluster fixers
  * (bug-cluster-fix / bug-cluster-fixability, which take cluster members)
  * ever see it; /fixmyjkkn and the bug-tab AI producer (#4323) also skip rows
- * with an application_id. An admin sees it in the New tab and moves it to
- * 'new' after reading it; only then does the normal pipeline apply.
+ * with an application_id; the export, bulk status updates, the AI buttons and
+ * the assistant's ai_rpc_bug_reports / ai_rpc_bug_report_details skip it too.
+ * It appears only under All (status = unverified); an admin promotes it to
+ * 'new' by hand after reading it, and only then does the normal pipeline apply.
  *
  * module_name on bug_reports is a GENERATED column (computed from page_url,
  * 20260906213000) and cannot be written. The app a bug came from is in
@@ -91,6 +99,17 @@ const MAX_REPORTS_PER_IP_PER_APP_PER_DAY = 40;
 // filed but its screenshot is not stored (metadata.screenshot_dropped).
 const MAX_SCREENSHOTS_PER_APP_PER_DAY = 100;
 const DUPLICATE_WINDOW_MS = 2 * 60 * 1000;
+// Refuse only past this many reports per app per day (storage bound).
+const HARD_CEILING_PER_APP_PER_DAY = 2000;
+
+/** The caller key for caps and dedup: IPv4 as is, IPv6 grouped by its /64. */
+function callerKeyFromIp(ip: string): string {
+  if (!ip.includes(':')) return ip;
+  const head = ip.split('::')[0].split(':').filter(Boolean);
+  // A '::' inside the first four groups means the rest of the /64 is zeros.
+  while (head.length < 4) head.push('0');
+  return `${head.slice(0, 4).join(':').toLowerCase()}::/64`;
+}
 
 const bodySchema = z.object({
   title: z.string().trim().min(1, 'title is required').max(300),
@@ -211,10 +230,17 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   const sha = (text: string) => createHash('sha256').update(text).digest('hex');
   const windowNo = Math.floor(Date.now() / DUPLICATE_WINDOW_MS);
   // The caller, as a keyed hash: a plain sha256 of app + IPv4 could be reversed
-  // by trying all 2^32 addresses. BUG_INTAKE_IP_PEPPER if set, else the server's
-  // service key (never in a browser). Rotating it only resets the caps.
-  const pepper = process.env.BUG_INTAKE_IP_PEPPER || process.env.SUPABASE_SERVICE_ROLE_KEY || '';
-  const clientIpHash = ipAddress ? createHmac('sha256', pepper).update(`${app.id}:${ipAddress}`).digest('hex') : null;
+  // by trying all 2^32 addresses. Keyed ONLY by BUG_INTAKE_IP_PEPPER (its own
+  // secret, so rotating another key never resets the caps); missing → 503.
+  const pepper = process.env.BUG_INTAKE_IP_PEPPER;
+  if (!pepper) {
+    logger.error(LOG_MODULE, 'BUG_INTAKE_IP_PEPPER is not set; refusing intake');
+    audit(503);
+    return fail('UNAVAILABLE', 'Bug reports are not accepted here yet. Please try again later.', 503);
+  }
+  const clientIpHash = ipAddress
+    ? createHmac('sha256', pepper).update(`${app.id}:${callerKeyFromIp(ipAddress)}`).digest('hex')
+    : null;
   // With no platform IP (off Vercel), strangers must not be merged or share a
   // cap: the double-submit check and the per-caller cap are skipped.
   const dedupKey = (win: number) =>
@@ -268,6 +294,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   }
 
   const dayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+  let overCap: 'caller' | 'app' | null = null;
   if (clientIpHash) {
     const { count: callerCount, error: callerError } = await supabase
       .from('bug_reports')
@@ -280,10 +307,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       audit(503);
       return fail('UNAVAILABLE', 'Could not accept the report right now. Please try again shortly.', 503);
     }
-    if ((callerCount ?? 0) >= MAX_REPORTS_PER_IP_PER_APP_PER_DAY) {
-      audit(429);
-      return fail('RATE_LIMITED', 'You have sent many bug reports today. Please try again tomorrow.', 429);
-    }
+    if ((callerCount ?? 0) >= MAX_REPORTS_PER_IP_PER_APP_PER_DAY) overCap = 'caller';
   }
 
   const { count: todayCount, error: countError } = await supabase
@@ -296,14 +320,23 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     audit(503);
     return fail('UNAVAILABLE', 'Could not accept the report right now. Please try again shortly.', 503);
   }
-  if ((todayCount ?? 0) >= MAX_REPORTS_PER_APP_PER_DAY) {
+  if ((todayCount ?? 0) >= HARD_CEILING_PER_APP_PER_DAY) {
+    logger.warn(LOG_MODULE, 'App hit the hard daily ceiling; refusing', { app: app.slug, count: todayCount });
     audit(429);
     return fail('RATE_LIMITED', 'This app has sent too many bug reports today. Please try again tomorrow.', 429);
+  }
+  if ((todayCount ?? 0) >= MAX_REPORTS_PER_APP_PER_DAY) overCap = overCap ?? 'app';
+  if (overCap) {
+    logger.warn(LOG_MODULE, 'Over the daily cap; filing without a screenshot', { app: app.slug, overCap });
   }
 
   // Screenshot budget: past MAX_SCREENSHOTS_PER_APP_PER_DAY the report is kept
   // and its picture is not stored. If the count fails, the picture is dropped.
   let screenshotDropped: string | null = null;
+  if (screenshot && overCap) {
+    screenshot = null;
+    screenshotDropped = 'over_cap';
+  }
   if (screenshot) {
     const { count: shotCount, error: shotError } = await supabase
       .from('bug_reports')
@@ -345,6 +378,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       intake_dedup_key: clientIpHash ? currentKey : null,
       client_ip_hash: clientIpHash,
       screenshot_dropped: screenshotDropped,
+      over_cap: overCap,
       reporter_email: reporterEmail,
       reporter_name: body.reporter_name || null,
       // The key is public: who sent this is a claim, never a proof.

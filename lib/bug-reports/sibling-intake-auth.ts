@@ -26,6 +26,9 @@ import { intakeCorsHeaders } from '@/lib/bug-reports/sibling-intake';
  * per-caller cap and the double-submit check rather than merge strangers.
  */
 export function intakeClientIp(request: Request): string | null {
+  // Only on Vercel (process.env.VERCEL is set there): elsewhere a client could
+  // send the header itself.
+  if (!process.env.VERCEL) return null;
   return request.headers.get('x-vercel-forwarded-for')?.split(',')[0]?.trim() || null;
 }
 

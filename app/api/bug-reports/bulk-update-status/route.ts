@@ -78,15 +78,21 @@ export async function POST(request: Request) {
     }
 
     // Update bug reports status
-    const { error: updateError } = await updateWithResolvedBy(updateData, (payload) =>
+    const { data: changedRows, error: updateError } = await updateWithResolvedBy(updateData, (payload) =>
       // Quarantined college-app bugs ('unverified') are promoted one at a time,
       // after a person reads each; a bulk action never touches them.
-      (adminSupabase.from('bug_reports') as any).update(payload).in('id', reportIds).neq('status', 'unverified')
+      (adminSupabase.from('bug_reports') as any)
+        .update(payload)
+        .in('id', reportIds)
+        .neq('status', 'unverified')
+        .select('id')
     );
 
     if (updateError) {
       throw updateError;
     }
+    // Everything below (cascade, emails, counts) uses only the rows changed.
+    const changedIds: string[] = ((changedRows as { id: string }[] | null) ?? []).map((r) => r.id);
 
     // Cascade: closing canonical bugs also closes reports parked as their
     // duplicates. Resolved duplicates get the same reporter email as directly
@@ -97,7 +103,7 @@ export async function POST(request: Request) {
         adminSupabase.from('bug_reports') as any
       )
         .select('id')
-        .in('duplicate_of', reportIds)
+        .in('duplicate_of', changedIds)
         .eq('status', 'duplicate');
 
       if (!childrenError && children && children.length > 0) {
@@ -123,15 +129,15 @@ export async function POST(request: Request) {
     // Fire bulk resolution emails (non-blocking) — canonical reporters AND
     // the reporters of any cascaded duplicates.
     if (status === 'resolved') {
-      void sendBulkResolutionEmails(adminSupabase, [...reportIds, ...cascadedIds]);
+      void sendBulkResolutionEmails(adminSupabase, [...changedIds, ...cascadedIds]);
     }
 
     return NextResponse.json({
       success: true,
-      message: `${reportIds.length} bug report(s) status updated to ${status.replace('_', ' ')} successfully${
+      message: `${changedIds.length} bug report(s) status updated to ${status.replace('_', ' ')} successfully${
         cascadedIds.length > 0 ? ` (+${cascadedIds.length} duplicate(s) closed with them)` : ''
       }`,
-      updatedCount: reportIds.length,
+      updatedCount: changedIds.length,
       cascadedCount: cascadedIds.length,
       status
     });
