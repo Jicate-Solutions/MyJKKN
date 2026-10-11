@@ -40,6 +40,8 @@ const supabase = vi.hoisted(() => ({
   // Consumed one per user_has_permission call when set, so a test can pass the
   // gate and then fail an action key.
   permissionQueue: [] as Array<{ data: unknown; error: unknown }>,
+  // When set, creating the shared server client throws this.
+  clientError: null as Error | null,
 }));
 
 const service = vi.hoisted(() => ({
@@ -69,7 +71,10 @@ vi.mock('@/lib/supabase/server', () => ({
   createClient: async () => ({
     rpc: async () => supabase.permissionQueue.shift() ?? supabase.permission,
   }),
-  createServerSupabaseClient: async () => ({}),
+  createServerSupabaseClient: async () => {
+    if (supabase.clientError) throw supabase.clientError;
+    return {};
+  },
 }));
 
 vi.mock('@/lib/services/ai-pulse/learner-service', () => ({
@@ -167,6 +172,7 @@ function allReadsSucceed() {
   supabase.profile = { profile: LEARNER, error: null };
   supabase.permission = { data: true, error: null };
   supabase.permissionQueue = [];
+  supabase.clientError = null;
   service.listCyclesServer.mockResolvedValue([]);
   service.getCurrentCycleServer.mockResolvedValue(CYCLE);
   service.getCycleByIdServer.mockResolvedValue(CYCLE);
@@ -317,6 +323,21 @@ describe('a failed read', () => {
     expect(screen.getByTestId('my-team-card')).toBeInTheDocument();
   });
 
+  it('renders team and attendance as unavailable when the client could not be created', async () => {
+    // BUG-006154: only 'supabase-client' was recorded, so My Team printed "no
+    // team" and My Attendance printed pending / 0 — reads that never ran.
+    supabase.clientError = new Error('cookies() failed');
+    const { redirectedTo } = await open();
+    expect(redirectedTo).toBeNull();
+    expect(screen.queryByTestId('my-team-card')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('my-attendance-card')).not.toBeInTheDocument();
+    expect(screen.getByText('My Team')).toBeInTheDocument();
+    expect(screen.getByText('My Attendance')).toBeInTheDocument();
+    expect(service.getMyTeam).not.toHaveBeenCalled();
+    // The cycle card that DID load is still there.
+    expect(screen.getByTestId('current-cycle-card')).toBeInTheDocument();
+  });
+
   it('renders My Attendance as unavailable when only the streak read failed', async () => {
     // The streak lives on that card; printing 0 would be a measurement nobody
     // took.
@@ -366,6 +387,93 @@ describe('what waits on what', () => {
     expect(teamStartedBeforeGold).toBe(true);
     // And Gold still lands on the page.
     expect(service.getLatestGoldServer).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('each read starts when its own inputs are ready (BUG-006154)', () => {
+  function later<T>(value: T, ms: number, onDone: () => void): Promise<T> {
+    return new Promise((resolve) => {
+      setTimeout(() => {
+        onDone();
+        resolve(value);
+      }, ms);
+    });
+  }
+
+  it('starts team and attendance without waiting for the cycle list', async () => {
+    let listResolved = false;
+    let teamStartedBeforeList: boolean | null = null;
+    let attendanceStartedBeforeList: boolean | null = null;
+    service.listCyclesServer.mockImplementation(() =>
+      later([], 20, () => {
+        listResolved = true;
+      }),
+    );
+    service.getMyTeam.mockImplementation(async () => {
+      teamStartedBeforeList = !listResolved;
+      return null;
+    });
+    service.getMyAttendance.mockImplementation(async () => {
+      attendanceStartedBeforeList = !listResolved;
+      return PENDING_ATTENDANCE;
+    });
+
+    await open();
+    expect(teamStartedBeforeList).toBe(true);
+    expect(attendanceStartedBeforeList).toBe(true);
+  });
+
+  it('starts the streak without waiting for the cycle to be chosen', async () => {
+    let currentResolved = false;
+    let streakStartedBeforeCycle: boolean | null = null;
+    service.getCurrentCycleServer.mockImplementation(() =>
+      later(CYCLE, 20, () => {
+        currentResolved = true;
+      }),
+    );
+    service.getMyStreak.mockImplementation(async () => {
+      streakStartedBeforeCycle = !currentResolved;
+      return 0;
+    });
+
+    await open();
+    expect(streakStartedBeforeCycle).toBe(true);
+  });
+
+  it('does not let a stalled Gold read hold back the page', async () => {
+    vi.useFakeTimers();
+    try {
+      // Gold never answers.
+      service.getLatestGoldServer.mockImplementation(() => new Promise(() => {}));
+      let settled = false;
+      const pending = open().then((r) => {
+        settled = true;
+        return r;
+      });
+      await vi.advanceTimersByTimeAsync(10_000);
+      expect(settled).toBe(true);
+      const { redirectedTo } = await pending;
+      expect(redirectedTo).toBeNull();
+      // The session-entry card renders. Gold is optional and hides itself when
+      // empty, so a timeout reads as "no Gold": no card and no retry strip.
+      expect(screen.getByTestId('current-cycle-card')).toBeInTheDocument();
+      expect(screen.queryByTestId('gold-card')).not.toBeInTheDocument();
+      expect(
+        screen.queryByText(/part of this page didn't load/i),
+      ).not.toBeInTheDocument();
+      expect(screen.queryByText(/try again/i)).not.toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('still reports a Gold read that actually errors', async () => {
+    service.getLatestGoldServer.mockRejectedValue(new Error('read failed'));
+    await open();
+    expect(screen.getByTestId('current-cycle-card')).toBeInTheDocument();
+    expect(
+      screen.getByText(/part of this page didn't load/i),
+    ).toBeInTheDocument();
   });
 });
 

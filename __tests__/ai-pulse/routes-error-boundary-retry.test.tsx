@@ -23,6 +23,7 @@
  */
 
 import '@testing-library/jest-dom';
+import { StrictMode } from 'react';
 import { render, screen, act, cleanup, fireEvent } from '@testing-library/react';
 import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest';
 
@@ -170,6 +171,82 @@ describe('one automatic retry per route', () => {
       vi.advanceTimersByTime(RETRY_DELAY_MS);
     });
     expect(laterReset).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('only an executed retry is spent (BUG-006154)', () => {
+  const MARKER = 'network-retry:/ai-pulse/my-pulse';
+
+  it('records nothing while the retry is only scheduled', () => {
+    const reset = vi.fn();
+    render(<RoutesError error={networkError()} reset={reset} />);
+    act(() => {
+      vi.advanceTimersByTime(RETRY_DELAY_MS - 1);
+    });
+    expect(sessionStorage.getItem(MARKER)).toBeNull();
+    expect(reset).not.toHaveBeenCalled();
+
+    act(() => {
+      vi.advanceTimersByTime(1);
+    });
+    expect(sessionStorage.getItem(MARKER)).toBe('1');
+    expect(reset).toHaveBeenCalledTimes(1);
+    expect(nav.refresh).toHaveBeenCalledTimes(1);
+  });
+
+  it('still retries when the error changes before the timer fires', () => {
+    // The first effect's timer is cancelled by its cleanup. That attempt never
+    // ran, so the effect for the new error must still get its retry.
+    const reset = vi.fn();
+    const view = render(<RoutesError error={networkError()} reset={reset} />);
+    act(() => {
+      vi.advanceTimersByTime(RETRY_DELAY_MS / 2);
+    });
+    view.rerender(<RoutesError error={networkError()} reset={reset} />);
+    act(() => {
+      vi.advanceTimersByTime(RETRY_DELAY_MS);
+    });
+    expect(reset).toHaveBeenCalledTimes(1);
+    expect(nav.refresh).toHaveBeenCalledTimes(1);
+
+    // And it is still exactly one: nothing else is pending.
+    act(() => {
+      vi.advanceTimersByTime(RETRY_DELAY_MS * 10);
+    });
+    expect(reset).toHaveBeenCalledTimes(1);
+  });
+
+  it('retries exactly once under React Strict Mode', () => {
+    // Strict Mode mounts, cleans up and re-runs the effect. The replayed run
+    // must not find a marker left by the cancelled first schedule.
+    const reset = vi.fn();
+    render(
+      <StrictMode>
+        <RoutesError error={networkError()} reset={reset} />
+      </StrictMode>,
+    );
+    act(() => {
+      vi.advanceTimersByTime(RETRY_DELAY_MS * 10);
+    });
+    expect(reset).toHaveBeenCalledTimes(1);
+    expect(nav.refresh).toHaveBeenCalledTimes(1);
+  });
+
+  it('spends nothing when the boundary unmounts before the timer fires', () => {
+    const reset = vi.fn();
+    const first = render(<RoutesError error={networkError()} reset={reset} />);
+    act(() => {
+      vi.advanceTimersByTime(RETRY_DELAY_MS / 2);
+    });
+    first.unmount();
+    expect(reset).not.toHaveBeenCalled();
+
+    // The same route fails again: its one retry is still available.
+    render(<RoutesError error={networkError()} reset={reset} />);
+    act(() => {
+      vi.advanceTimersByTime(RETRY_DELAY_MS);
+    });
+    expect(reset).toHaveBeenCalledTimes(1);
   });
 });
 

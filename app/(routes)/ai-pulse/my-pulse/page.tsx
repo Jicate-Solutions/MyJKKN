@@ -206,6 +206,31 @@ function UnavailablePage({
  */
 type ServerSupabase = Awaited<ReturnType<typeof createServerSupabaseClient>>;
 
+/**
+ * Gold is optional — the card hides itself when it is null — yet the page used
+ * to await it before returning any JSX, so a stalled Gold read held back the
+ * whole page, session-entry card included. Past this budget it is treated as
+ * "no Gold": the card hides, as it does when there is none, and no retry strip
+ * is shown. A Gold read that actually ERRORS is still reported as a failure.
+ */
+const GOLD_TIMEOUT_MS = 2500;
+
+function withTimeout<T>(
+  work: Promise<T>,
+  ms: number,
+  fallback: T,
+  label: string
+): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<T>((resolve) => {
+    timer = setTimeout(() => {
+      console.warn(`[ai-pulse/my-pulse] ${label} timed out after ${ms} ms`);
+      resolve(fallback);
+    }, ms);
+  });
+  return Promise.race([work, timeout]).finally(() => clearTimeout(timer));
+}
+
 async function settle<T>(
   work: Promise<T>,
   fallback: T,
@@ -302,22 +327,47 @@ export default async function AiPulseLearnerPage({
   // CARE R-move: latest faculty-picked Gold (null until the first Monday Lab
   // scores a cycle — the card hides itself).
   const goldPromise = settle(
-    AiPulseLearnerService.getLatestGoldServer(undefined, SURFACE_ERRORS),
+    withTimeout(
+      AiPulseLearnerService.getLatestGoldServer(undefined, SURFACE_ERRORS),
+      GOLD_TIMEOUT_MS,
+      null,
+      'gold'
+    ),
     null,
     'gold',
     failed
   );
 
-  // Cycle list, current cycle and the deep-linked cycle are independent of each
-  // other. They used to run in two waves (list+current, then the deep-linked
-  // cycle); now one.
-  const [cycles, currentCycle, requestedCycle] = await Promise.all([
-    settle(
-      AiPulseLearnerService.listCyclesServer(12, SURFACE_ERRORS),
-      [],
-      'cycles',
-      failed
-    ),
+  // Each read starts as soon as ITS OWN inputs are known. The Supabase client
+  // and the streak need only the profile; team and attendance need only the
+  // selected cycle, which comes from the current and deep-linked cycle reads —
+  // not from the switcher's cycle list, which is collected at the end.
+  const supabasePromise = settle<ServerSupabase | null>(
+    createServerSupabaseClient(),
+    null,
+    'supabase-client',
+    failed
+  );
+  const streakPromise = supabasePromise.then((supabase) =>
+    supabase
+      ? settle(
+          AiPulseLearnerService.getMyStreak(profile.id, supabase, SURFACE_ERRORS),
+          0,
+          'streak',
+          failed
+        )
+      : 0
+  );
+  const cyclesPromise = settle(
+    AiPulseLearnerService.listCyclesServer(12, SURFACE_ERRORS),
+    [],
+    'cycles',
+    failed
+  );
+
+  // Current cycle and the deep-linked cycle are independent of each other and
+  // run together.
+  const [currentCycle, requestedCycle] = await Promise.all([
     settle(
       AiPulseLearnerService.getCurrentCycleServer(SURFACE_ERRORS),
       null,
@@ -367,6 +417,60 @@ export default async function AiPulseLearnerPage({
     !!cycle && !!currentCycle && cycle.id === currentCycle.id;
   const liveWeekUnknown = currentCycleFailed && !!cycle;
 
+  // Team and attendance are keyed on the selected cycle and profile_id, and are
+  // independent of each other. Attendance does NOT depend on a team assignment,
+  // so it is fetched regardless and learners who attended (or whose team isn't
+  // assigned yet) see their real status instead of a permanent "pending".
+  const cycleId = cycle?.id ?? null;
+  const pendingAttendance: AiPulseAttendance = {
+    state: 'pending',
+    day_type: null,
+    marked_at: null,
+    signals: null,
+  };
+  const teamPromise: Promise<AiPulseTeamSummary | null> = cycleId
+    ? supabasePromise.then((supabase) =>
+        supabase
+          ? settle(
+              AiPulseLearnerService.getMyTeam(
+                cycleId,
+                profile.id,
+                supabase,
+                SURFACE_ERRORS
+              ),
+              null,
+              'team',
+              failed
+            )
+          : null
+      )
+    : Promise.resolve(null);
+  const attendancePromise: Promise<AiPulseAttendance> = cycleId
+    ? supabasePromise.then((supabase) =>
+        supabase
+          ? settle(
+              AiPulseLearnerService.getMyAttendance(
+                cycleId,
+                profile.id,
+                supabase,
+                SURFACE_ERRORS
+              ),
+              pendingAttendance,
+              'attendance',
+              failed
+            )
+          : pendingAttendance
+      )
+    : Promise.resolve(pendingAttendance);
+
+  const [cycles, team, attendance, streak, gold] = await Promise.all([
+    cyclesPromise,
+    teamPromise,
+    attendancePromise,
+    streakPromise,
+    goldPromise,
+  ]);
+
   // The switcher now returns every week the learner ATTENDED, including weeks
   // with no starter for their programme (has_prompt=false) — those used to be
   // dropped, which made real sessions invisible. Render an honest empty state
@@ -382,79 +486,21 @@ export default async function AiPulseLearnerPage({
     cycle && !cycles.some((c) => c.id === cycle.id) ? [cycle, ...cycles] : cycles
   ).map((c) => ({ id: c.id, label: cycleSwitcherLabel(c) }));
 
-  let team: AiPulseTeamSummary | null = null;
-  let attendance: AiPulseAttendance = {
-    state: 'pending',
-    day_type: null,
-    marked_at: null,
-    signals: null,
-  };
-  let streak = 0;
-
-  if (cycle) {
-    const supabase = await settle<ServerSupabase | null>(
-      createServerSupabaseClient(),
-      null,
-      'supabase-client',
-      failed
-    );
-    if (supabase) {
-      // Team, attendance and streak are independent of each other — they used
-      // to be three serial awaits (and getMyStreak was itself a per-cycle loop).
-      // Attendance is keyed on profile_id in ai_pulse_live_attendance — it does
-      // NOT depend on a team assignment. Fetch it regardless so learners who
-      // attended (or whose team isn't assigned yet) see their real status
-      // instead of a permanent "pending".
-      const [teamResult, attendanceResult, streakResult] = await Promise.all([
-        settle(
-          AiPulseLearnerService.getMyTeam(
-            cycle.id,
-            profile.id,
-            supabase,
-            SURFACE_ERRORS
-          ),
-          null,
-          'team',
-          failed
-        ),
-        settle(
-          AiPulseLearnerService.getMyAttendance(
-            cycle.id,
-            profile.id,
-            supabase,
-            SURFACE_ERRORS
-          ),
-          attendance,
-          'attendance',
-          failed
-        ),
-        settle(
-          AiPulseLearnerService.getMyStreak(
-            profile.id,
-            supabase,
-            SURFACE_ERRORS
-          ),
-          0,
-          'streak',
-          failed
-        ),
-      ]);
-      team = teamResult;
-      attendance = attendanceResult;
-      streak = streakResult;
-    }
-  }
-
-  const gold = await goldPromise;
-
   // Failures that have their own card do not also need the page-level strip.
-  const teamFailed = failed.includes('team');
+  // Without a Supabase client, team, attendance and streak were never read, so
+  // their cards say so instead of printing no-team / pending / 0 defaults.
+  const clientFailed = failed.includes('supabase-client');
+  const teamFailed = failed.includes('team') || (clientFailed && !!cycle);
   // Streak lives on the attendance card, so an unread streak makes that whole
   // card unavailable rather than printing a 0 nobody measured.
   const attendanceFailed =
-    failed.includes('attendance') || failed.includes('streak');
+    clientFailed || failed.includes('attendance') || failed.includes('streak');
   const unhandledFailures = failed.filter(
-    (f) => f !== 'team' && f !== 'attendance' && f !== 'streak'
+    (f) =>
+      f !== 'team' &&
+      f !== 'attendance' &&
+      f !== 'streak' &&
+      f !== 'supabase-client'
   );
 
   return (
