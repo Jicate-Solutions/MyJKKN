@@ -413,7 +413,21 @@ describe('HARDENED (after 20271010094500)', () => {
       // Written as service_role — the only writer of page_visit — with
       // client-supplied paths, as the usage beacon route would.
       await c.query('SET LOCAL ROLE service_role');
-      for (const p of ['//evil.com', '/\\evil.com', 'https://evil.com/x', 'javascript:alert(1)']) {
+      for (const p of [
+        '//evil.com',
+        '/\\evil.com',
+        'https://evil.com/x',
+        'javascript:alert(1)',
+        // Browsers strip tab/CR/LF, so each of these would open //evil.com.
+        '/\t/evil.com',
+        '/\n/evil.com',
+        '/\r/evil.com',
+        '/ /evil.com',
+        '/\x0b',
+        // '%' is allowlisted on purpose: the browser does not decode '%09' into a
+        // tab before resolving, so '/%09/x' stays a same-site path.
+        '/%09/x',
+      ]) {
         for (let i = 0; i < 5; i++) {
           await c.query(
             `INSERT INTO public.usage_events (user_id, event_type, module, institution_id, metadata)
@@ -431,7 +445,7 @@ describe('HARDENED (after 20271010094500)', () => {
       await c.query(`SELECT set_config('test.acting_uid', $1, true)`, [people.plain]);
       await c.query('SET LOCAL ROLE authenticated');
       const rows = (await c.query(`SELECT * FROM public.fn_usage_trending_pages(7, 50)`)).rows;
-      expect(rows.map((r: any) => r.page_path)).toEqual(['/billing', '/attendance']);
+      expect(rows.map((r: any) => r.page_path).sort()).toEqual(['/%09/x', '/attendance', '/billing']);
     } finally {
       await c.query('ROLLBACK');
     }

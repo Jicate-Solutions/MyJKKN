@@ -5,6 +5,25 @@ import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { useAuth } from '@/hooks/use-auth';
 import type { RecentPage } from '@/lib/navigation/types';
 
+/** URL path characters only: no backslash, whitespace or control characters. */
+const SAFE_PATH = /^\/[A-Za-z0-9._~!$&'()*+,;=:@%/-]*$/;
+
+/**
+ * A path that stays on this site, or null. Browsers strip tab/CR/LF and treat
+ * '\\' like '/', so '/<TAB>/evil.com' would open //evil.com — hence the
+ * allowlist AND a resolve against our own origin.
+ */
+function toSameSitePath(path: unknown): string | null {
+  if (typeof path !== 'string' || !SAFE_PATH.test(path) || path.startsWith('//')) return null;
+  try {
+    const url = new URL(path, window.location.origin);
+    if (url.origin !== window.location.origin || !url.pathname.startsWith('/')) return null;
+    return url.pathname + url.search + url.hash;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Hook to fetch trending/popular pages from usage_events.
  * Returns the most-visited pages across the institution in the last 7 days.
@@ -36,11 +55,8 @@ export function useTrendingPages(limit: number = 5) {
       // Count visits per module/path
       const counts = new Map<string, { module: string; path: string; count: number }>();
       for (const row of rows) {
-        const path = row.page_path;
-        // Same-site paths only: '//host' and '/\\host' open another site.
-        if (typeof path !== 'string' || !path.startsWith('/') || path.startsWith('//') || path.startsWith('/\\')) {
-          continue;
-        }
+        const path = toSameSitePath(row.page_path);
+        if (!path) continue;
         const existing = counts.get(path);
         if (existing) {
           existing.count += Number(row.visit_count) || 0;

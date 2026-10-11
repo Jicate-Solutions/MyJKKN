@@ -55,6 +55,14 @@ describe('useTrendingPages', () => {
         { module: 'x', page_path: '/\\evil.com', visit_count: 800 },
         { module: 'x', page_path: 'https://evil.com/login', visit_count: 700 },
         { module: 'x', page_path: 'javascript:alert(1)', visit_count: 600 },
+        // Browsers strip tab/CR/LF, so each of these would open //evil.com.
+        { module: 'x', page_path: '/\t/evil.com', visit_count: 590 },
+        { module: 'x', page_path: '/\n/evil.com', visit_count: 580 },
+        { module: 'x', page_path: '/\r/evil.com', visit_count: 570 },
+        { module: 'x', page_path: '/ /evil.com', visit_count: 560 },
+        { module: 'x', page_path: '/\x0b', visit_count: 550 },
+        // '%09' is NOT decoded before resolving, so it stays a same-site path.
+        { module: 'x', page_path: '/%09/x', visit_count: 4 },
         { module: 'attendance', page_path: '/attendance', visit_count: 3 },
       ],
       error: null,
@@ -64,8 +72,8 @@ describe('useTrendingPages', () => {
       <QueryClientProvider client={client}>{children}</QueryClientProvider>
     );
 
-    const { result } = renderHook(() => useTrendingPages(5), { wrapper });
+    const { result } = renderHook(() => useTrendingPages(20), { wrapper });
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
-    expect(result.current.data?.map((p) => p.path)).toEqual(['/attendance']);
+    expect(result.current.data?.map((p) => p.path)).toEqual(['/%09/x', '/attendance']);
   });
 });

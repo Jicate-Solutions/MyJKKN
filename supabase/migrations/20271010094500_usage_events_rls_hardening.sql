@@ -21,7 +21,8 @@
 --     session (supabase.auth.getUser), never from the request body.
 --   lib/navigation/search-analytics.ts — browser client, user_id = profile.id of
 --     the signed-in person (components/CommandPalette/CommandPaletteModal.tsx).
---     Satisfied by the new own-row INSERT policy.
+--     Satisfied by the new INSERT policy: own user_id, event_type 'search'
+--     only, institution NULL or the caller's own.
 --
 -- READERS UNDER RLS: only components/CommandPalette/TrendingPages.tsx, which
 -- relied on (b). It now calls fn_usage_trending_pages() below: page paths and
@@ -74,9 +75,12 @@ REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON public.usage_events FROM anon;
 REVOKE UPDATE, DELETE, TRUNCATE ON public.usage_events FROM authenticated;
 
 -- Trending pages for the command palette — aggregate only, caller's own
--- institution, no user ids. Only same-site paths ('/x', never '//host' or
--- '/\host', which browsers treat as another site) are ever returned, because
--- the page path comes from the client (the usage beacon's request body).
+-- institution, no user ids. The page path comes from the client (the usage
+-- beacon's request body), so only an ALLOWLISTED same-site path is returned:
+-- '/' then URL path characters only, and never '//'. That rejects backslash,
+-- whitespace and every control character anywhere — browsers strip tab/CR/LF,
+-- so '/<TAB>/evil.com' would otherwise open //evil.com. '%' is allowed: the
+-- browser does not decode '%09' before resolving, so '/%09/x' stays on-site.
 -- ci:allow-secdef-authenticated every signed-in user may see the top page paths + visit counts of their OWN institution (derived from auth.uid(), not a parameter); no user ids or metadata are returned. Replaces the per-row read TrendingPages.tsx made through the old open policy (b).
 CREATE OR REPLACE FUNCTION public.fn_usage_trending_pages(p_days integer DEFAULT 7, p_limit integer DEFAULT 5)
 RETURNS TABLE (module text, page_path text, visit_count bigint)
@@ -96,8 +100,8 @@ AS $$
          AND ue.institution_id = (SELECT p.institution_id FROM public.profiles p WHERE p.id = auth.uid())
          AND ue.created_at >= now() - make_interval(days => LEAST(GREATEST(COALESCE(p_days, 7), 1), 90))
     ) v
-   WHERE left(v.page_path, 1) = '/'
-     AND left(v.page_path, 2) NOT IN ('//', '/\')
+   WHERE v.page_path ~ '^/[A-Za-z0-9._~!$&''()*+,;=:@%/-]*$'
+     AND v.page_path NOT LIKE '//%'
    GROUP BY v.page_path
    ORDER BY 3 DESC, 2
    LIMIT LEAST(GREATEST(COALESCE(p_limit, 5), 1), 50);
@@ -131,11 +135,11 @@ BEGIN
   SELECT string_agg(with_check, ' ') INTO v_check
     FROM pg_policies
    WHERE schemaname = 'public' AND tablename = 'usage_events' AND cmd = 'INSERT';
-  IF v_check IS NULL OR v_check NOT ILIKE '%auth.uid()%' THEN
-    RAISE EXCEPTION 'usage_events INSERT policy does not pin user_id to auth.uid(): %', v_check;
-  END IF;
-  IF v_check NOT ILIKE '%institution_id%' OR v_check NOT ILIKE '%event_type%' THEN
-    RAISE EXCEPTION 'usage_events INSERT policy does not pin institution_id and event_type: %', v_check;
+  IF v_check IS NULL
+     OR v_check NOT ILIKE '%auth.uid()%'
+     OR v_check NOT ILIKE '%institution_id%'
+     OR v_check NOT ILIKE '%event_type%' THEN
+    RAISE EXCEPTION 'usage_events INSERT policy must pin user_id = auth.uid(), event_type = ''search'' and institution_id (NULL or the caller''s own): %', v_check;
   END IF;
 END $$;
 
