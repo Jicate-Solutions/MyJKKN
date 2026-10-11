@@ -20,6 +20,7 @@ import {
   POSTED_GRN_STATUSES,
   selfCheckBlocks,
   linesChangedSinceCheck,
+  replacementShapeBlocks,
 } from '@/lib/services/procurement/invoice-checks';
 
 // Invoice checks I1–I4 (spec from Draft PR #4289). The model only reads the PDF; these
@@ -392,6 +393,34 @@ describe('D2 blankInvoiceBlocksStock', () => {
   });
   it('does not block a real number', () => {
     expect(blankInvoiceBlocksStock('INV-1')).toBe(false);
+  });
+  it('d11: does not block a replacement receipt (it names its replacement), checked at verify', () => {
+    expect(blankInvoiceBlocksStock(null, 'rep1')).toBe(false);
+    expect(blankInvoiceBlocksStock('', 'rep1')).toBe(false);
+    expect(blankInvoiceBlocksStock(null, null)).toBe(true);
+    expect(blankInvoiceBlocksStock(null, '')).toBe(true);
+  });
+});
+
+describe('d11 replacementShapeBlocks (Director 11 Oct: replacements need two people)', () => {
+  const rep = { rejected_quantity: 3, po_item_id: 'poi1' };
+  const line = (over: Record<string, unknown> = {}) => ({ po_item_id: 'poi1', accepted_quantity: 3, rejected_quantity: 0, ...over });
+  it('passes one line for the rejected order line, within what is owed', () => {
+    expect(replacementShapeBlocks([line()], rep)).toBe(false);
+    expect(replacementShapeBlocks([line({ accepted_quantity: 1 })], rep)).toBe(false);
+    expect(replacementShapeBlocks([line({ accepted_quantity: '3', rejected_quantity: '0' })], rep)).toBe(false);
+  });
+  it.each([
+    ['no line', []],
+    ['two lines', [line(), line({ accepted_quantity: 0 })]],
+    ['more than owed', [line({ accepted_quantity: 4 })]],
+    ['nothing accepted', [line({ accepted_quantity: 0 })]],
+    ['a negative quantity', [line({ accepted_quantity: -1 })]],
+    ['goods rejected', [line({ rejected_quantity: 1 })]],
+    ['another order line', [line({ po_item_id: 'poi9' })]],
+    ['no order line where one is owed', [line({ po_item_id: null })]],
+  ])('blocks %s', (_l, lines) => {
+    expect(replacementShapeBlocks(lines as any, rep)).toBe(true);
   });
 });
 
