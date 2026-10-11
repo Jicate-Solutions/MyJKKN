@@ -72,6 +72,40 @@ export function canEditEvent(event: EventOwnership, viewer: EventEditViewer): bo
   return !!viewer.institutionId && event.institution_id === viewer.institutionId;
 }
 
+/**
+ * Is this viewer one of the event's appointed in-charges? Mirrors the
+ * database's fn_is_event_incharge: the viewer's auth uid appears as a
+ * member_id in events.config->incharges. A missing config, a missing list or a
+ * signed-out viewer is never an in-charge.
+ *
+ * Kept apart from canEditEvent on purpose: an in-charge runs the event's
+ * logistics (budget, sponsors, incidents — RLS *_event_team_write admits
+ * fn_is_event_incharge) but does not edit the event row, its status or its
+ * visibility (BUG-006268, Director 9 Oct: "Add COO as in-charge").
+ *
+ * The compare is exact on purpose, to match the database byte for byte:
+ * fn_is_event_incharge checks inc->>'member_id' = auth.uid()::text, which is
+ * case-sensitive. Lower-casing only here could show a tab whose writes the
+ * database then refuses. Live check 11 Oct 2026: 0 of 112 stored member_ids
+ * contain upper case — query: SELECT count(*) FILTER (WHERE inc->>'member_id'
+ * <> lower(inc->>'member_id')) FROM events e, jsonb_array_elements(
+ * coalesce(e.config->'incharges','[]')) inc WHERE inc ? 'member_id';
+ */
+export function isEventIncharge(
+  event: { config?: unknown } | null | undefined,
+  userId: string | null | undefined,
+): boolean {
+  if (!event || !userId) return false;
+  const incharges = (event.config as { incharges?: unknown } | null | undefined)?.incharges;
+  if (!Array.isArray(incharges)) return false;
+  return incharges.some(
+    (i) =>
+      !!i &&
+      typeof i === 'object' &&
+      (i as { member_id?: unknown }).member_id === userId,
+  );
+}
+
 /** The viewer, as much of them as the cancel decision needs. */
 export interface EventCancelViewer {
   userId?: string | null;
@@ -104,15 +138,26 @@ export function canCancelEvent(
 ): boolean {
   if (viewer.isSuperAdmin) return true;
   if (viewer.role && IS_ADMIN_ROLES.includes(viewer.role)) return true;
-  if (!viewer.userId) return false;
-  const incharges = (event.config as { incharges?: unknown } | null | undefined)?.incharges;
-  if (!Array.isArray(incharges)) return false;
-  return incharges.some(
-    (i) =>
-      !!i &&
-      typeof i === 'object' &&
-      (i as { member_id?: unknown }).member_id === viewer.userId,
-  );
+  // One rule for "is an in-charge": the same exact compare the logistics flag uses.
+  return isEventIncharge(event, viewer.userId);
+}
+
+/**
+ * The two manage flags /events/[id] hands EventLogistics.
+ *
+ * canManage — editors AND the event's in-charges. Boards whose live write gate
+ * admits fn_is_event_incharge use it (budget, sponsors, incidents, committees …).
+ * canEdit   — editors only. Boards whose writes are not tenant-scoped for an
+ * in-charge (USING (true) policies, service-role routes) use it, so an in-charge
+ * appointed from another institution gets no write button there. See
+ * LOGISTICS_INCHARGE_WRITE_AUDIT in components/events/shared/event-logistics.tsx.
+ */
+export function eventLogisticsFlags(
+  event: { config?: unknown } | null | undefined,
+  userId: string | null | undefined,
+  canEdit: boolean,
+): { canManage: boolean; canEdit: boolean } {
+  return { canManage: canEdit || isEventIncharge(event, userId), canEdit };
 }
 
 /**

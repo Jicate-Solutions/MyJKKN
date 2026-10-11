@@ -211,6 +211,168 @@ export const EVENT_LOGISTICS_TABS: EventLogisticsTab[] = [
   },
 ];
 
+// ── In-charge write audit (PR #4326 review, 11 Oct 2026) ────────────────────
+// /events/[id] passes canManage = canEdit || isEventIncharge(event, uid) AND
+// canEdit. Every control below that the board's flag unlocks was traced to the
+// write it performs and the LIVE gate on that write (pg_policies /
+// pg_get_functiondef / route code, read 11 Oct). Classes:
+//   ADMITS-INCHARGE  live policy / RPC / route admits fn_is_event_incharge
+//                    for THIS event                          → flag canManage
+//   PERMISSION       gated on a named permission in BOTH the UI and the RPC;
+//                    the flag only narrows it               → flag canManage
+//   OPEN             live gate admits any signed-in user, not scoped to the
+//                    event (USING (true), or a service-role route that checks
+//                    sign-in only). An in-charge appointed from another
+//                    institution must not get a write button here → flag canEdit
+//   EDITOR-ONLY / EVENTS-ROW  refused for an in-charge, or writes the events
+//                    row itself (none today)                 → flag canEdit
+// A board takes canEdit if ANY of its controls is OPEN / EDITOR-ONLY /
+// EVENTS-ROW, unless it is listed in INCHARGE_FLAG_ALLOWLIST (empty).
+//
+// board         control                         write target                                   live gate                                          class
+// registrations — audited PER EVENT TYPE (the board branches on
+// `isTournament = eventType === 'sports_tournament'`, registrations-board.tsx:136):
+//   sports_tournament:
+// registrations mark paid / withdraw            PATCH|DELETE /api/events/tournament/:id/entries canManageTournament (perm OR fn_is_event_incharge) ADMITS-INCHARGE
+//               (registrations-board.tsx:152 canAct = canManage && isTournament; :304, :318;
+//                lib/api/events/tournament/handlers/entries-entry.ts:21). The write is
+//                service-role, AFTER the gate and after confirming the entry's event_id
+//                is this event (entries-entry.ts:47-54, :122-128; entries-entry-pay.ts:29-35),
+//                so it stays inside the event the caller is in-charge of.
+// registrations payment link                    POST …/entries/:entry/pay                       canManageTournament (entries-entry-pay.ts:22)      ADMITS-INCHARGE
+//               (registrations-board.tsx:162, :293; the Razorpay hand-off at :450 is
+//                reached only from this link)
+// registrations division fee (DivisionFeeBadge) tournament_divisions UPDATE                     tournament_divisions_incharge_all                  ADMITS-INCHARGE
+//               (registrations-board.tsx:475 `isTournament &&`, :488; division-fee-badge.tsx:46;
+//                pg_policies re-read 11 Oct 10:26 IST: incharge_all ALL fn_is_event_incharge)
+// registrations export xlsx/csv                 none (download of rows already read, :430)      —                                                  read-only
+//   every other type (cultural, lecture, general …): the ONLY canManage-gated
+//   control is export (:430), read-only. canAct (:152) and the division block
+//   (:475) are tournament-only. This board has no approve / reject, waitlist
+//   or attendance write for any type — those live elsewhere (registration
+//   form cards, check-in board), not behind this tab's flag.
+// sponsors      add / edit / delete / stage     event_sponsors ALL                              event_sponsors_event_team_write                    ADMITS-INCHARGE
+// sponsors      sponsorship notes               event_sponsorship_notes UPSERT                  event_sponsorship_notes_event_team_write           ADMITS-INCHARGE
+// sponsors      deliverables / activity log     NO write control. event_sponsor_deliverables and
+//               event_sponsor_activity_log are USING (true) live, but the board only READS
+//               them (deliverable count, sponsors-board.tsx:338-340, :479-484).
+//               EventSponsorService.addDeliverable / updateDeliverable / deleteDeliverable /
+//               logActivity (event-sponsor-service.ts:184, :217, :246, :266) have no caller
+//               anywhere in app/, components/, hooks/ or lib/ (checked 11 Oct). The only write
+//               reaching them is ON DELETE CASCADE from deleting a sponsor, which runs inside
+//               the event_sponsors DELETE that event_sponsors_event_team_write admits for this
+//               event. A test refuses a deliverable/activity-log write in the board or its
+//               hook; add one only with its own canEdit-fed flag.
+// budget        add / edit / delete line        event_budget_items ALL                          event_budget_items_event_team_write (+ lock trg)   ADMITS-INCHARGE
+// budget        attach / remove bill            /api/events/:id/budget-attachment → items UPDATE same policy, via caller's session client          ADMITS-INCHARGE
+// budget        settle line                     rpc fn_settle_event_budget_line                 is_admin OR fn_is_event_incharge OR perms          ADMITS-INCHARGE
+// budget        submit for sign-off             rpc fn_submit_event_budget                      auth.uid() IS NOT NULL; button NOT behind the flag  (not flag-gated)
+// budget        approve / reopen / close books  rpc fn_{approve,reopen,close}_event_budget      is_admin OR events.budget.approve (UI: same perm)  PERMISSION
+// committees    create / edit / roster / leads  POST|PUT /api/events/marathon/:id/committees    canManageEventOps (… OR fn_is_event_incharge)      ADMITS-INCHARGE
+// committees    delete committee                event_committees DELETE                         event_committees_event_team_write                  ADMITS-INCHARGE
+// committees    add / edit / delete task        event_tasks ALL                                 event_tasks_committee_write (fn_can_manage_committee_tasks → incharge) ADMITS-INCHARGE
+// checkin       check in / undo                 events_registrations UPDATE                     events_reg_scoped_update (fn_is_event_incharge)    ADMITS-INCHARGE
+// qr  (non-tournament) generate passes          POST /api/events/marathon/:id/qr/generate       canGenerateEventQr → canManageEventOps             ADMITS-INCHARGE
+// qr  (sports_tournament) TournamentQrLinks     none (links only; the tab's render branch above) —                                                 read-only
+// volunteers    check in / out / remove         event_volunteer_checkins ALL                    marathon_volunteers_auth_all USING (true)          OPEN
+// incidents     log / resolve / delete          event_incidents ALL                             event_incidents_event_team_write                   ADMITS-INCHARGE
+// certificates  generate                        marathon_results UPDATE                         marathon_results_auth_all USING (true)             OPEN
+// bulk-import   import roster                   POST /api/events/marathon/:id/bulk-register     getUser() only, then SERVICE-ROLE insert           OPEN
+// analytics     —                               none                                            —                                                  read-only
+// kit           mark collected                  events_registrations UPDATE                     events_reg_scoped_update (fn_is_event_incharge)    ADMITS-INCHARGE
+// messages      send                            server action                                   fn_can_manage_event_messages (ignores canManage)   own gate
+//
+// No board writes the events row (no .from('events') write in any board's
+// hook, service or route).
+//
+// Flag used:  canManage — registrations, sponsors, budget, committees, checkin,
+//                         qr, incidents, kit, analytics, messages
+//             canEdit   — volunteers, certificates, bulk-import
+// (derived by boardManageFlag below; pinned in
+// __tests__/events/event-incharge-sees-logistics.test.ts, which also refuses a
+// registered tab missing from this map.)
+export type InchargeWriteClass =
+  | 'admits-incharge'
+  | 'open'
+  | 'permission'
+  | 'read-only'
+  | 'own-gate'
+  | 'editor-only'
+  | 'events-row';
+
+/**
+ * Per-tab summary of the audit above: every class its flag-gated controls fall
+ * into, for every event type that LOGISTICS_INCHARGE_WRITE_AUDIT_BY_TYPE does
+ * not name.
+ */
+export const LOGISTICS_INCHARGE_WRITE_AUDIT: Record<string, InchargeWriteClass[]> = {
+  registrations: ['read-only'],
+  sponsors: ['admits-incharge'],
+  budget: ['admits-incharge', 'permission'],
+  committees: ['admits-incharge'],
+  checkin: ['admits-incharge'],
+  qr: ['admits-incharge'],
+  volunteers: ['open'],
+  incidents: ['admits-incharge'],
+  certificates: ['open'],
+  'bulk-import': ['open'],
+  analytics: ['read-only'],
+  kit: ['admits-incharge'],
+  messages: ['own-gate'],
+};
+
+/**
+ * (tab, event type) entries for boards whose controls branch on the event
+ * type. A board that branches on eventType must have an entry here — a test
+ * checks the board sources — so a type-specific write cannot hide behind
+ * another type's classification.
+ */
+export const LOGISTICS_INCHARGE_WRITE_AUDIT_BY_TYPE: Record<
+  string,
+  Record<string, InchargeWriteClass[]>
+> = {
+  registrations: { sports_tournament: ['admits-incharge', 'read-only'] },
+  qr: { sports_tournament: ['read-only'] },
+};
+
+/** The audited classes for one board on one event type (undefined = unaudited). */
+export function inchargeAuditFor(
+  tabKey: string,
+  eventType: string,
+): InchargeWriteClass[] | undefined {
+  return LOGISTICS_INCHARGE_WRITE_AUDIT_BY_TYPE[tabKey]?.[eventType] ?? LOGISTICS_INCHARGE_WRITE_AUDIT[tabKey];
+}
+
+/** Classes whose writes an in-charge must not reach through canManage. */
+const EDITOR_FLAG_CLASSES: readonly InchargeWriteClass[] = ['open', 'editor-only', 'events-row'];
+
+/**
+ * Boards deliberately handed canManage despite an OPEN / EDITOR-ONLY /
+ * EVENTS-ROW class. Empty. Adding a key here is a decision for the desk, with
+ * the reason written next to it.
+ */
+export const INCHARGE_FLAG_ALLOWLIST: readonly string[] = [];
+
+/**
+ * Which host flag a board gets. A tab missing from the audit map gets canEdit —
+ * an unaudited board never reaches an in-charge.
+ */
+export function boardManageFlag(tabKey: string, eventType: string): 'canManage' | 'canEdit' {
+  const audited = inchargeAuditFor(tabKey, eventType);
+  if (!audited) return 'canEdit';
+  if (INCHARGE_FLAG_ALLOWLIST.includes(tabKey)) return 'canManage';
+  return audited.some((c) => EDITOR_FLAG_CLASSES.includes(c)) ? 'canEdit' : 'canManage';
+}
+
+/** The canManage value a board actually receives, given the host's two flags. */
+export function boardCanManage(
+  tabKey: string,
+  eventType: string,
+  flags: { canManage: boolean; canEdit: boolean },
+): boolean {
+  return boardManageFlag(tabKey, eventType) === 'canEdit' ? flags.canEdit : flags.canManage;
+}
+
 /**
  * Tabs whose boards expose money or incident detail. `canManage={false}` makes
  * every board READ-ONLY, not hidden — which is fine on a console that already
@@ -307,6 +469,7 @@ export function EventLogistics({
   eventId,
   eventType,
   canManage = true,
+  canEdit,
   canEditTasks,
   enabledTools,
   hideSensitiveWithoutManage = false,
@@ -314,7 +477,13 @@ export function EventLogistics({
   eventId: string;
   eventType: string;
   canManage?: boolean;
-  /** Defaults to canManage — pass true to let non-managers tick committee tasks. */
+  /**
+   * The narrower flag for boards whose writes are not scoped to this event for
+   * an in-charge (see boardManageFlag). Defaults to canManage, so a host that
+   * does not distinguish the two is unchanged.
+   */
+  canEdit?: boolean;
+  /** Defaults to the board's own flag (boardCanManage) — pass true to let non-managers tick committee tasks. */
   canEditTasks?: boolean;
   /**
    * `events.config.enabled_tools` — the tools chosen when the event was created.
@@ -336,7 +505,9 @@ export function EventLogistics({
     hideSensitiveWithoutManage,
   });
   if (tabs.length === 0) return null;
-  const tasksEditable = canEditTasks ?? canManage;
+  // Tab VISIBILITY above stays on canManage, so an in-charge still sees Budget,
+  // Sponsors and Incidents; only each board's write controls use its own flag.
+  const flags = { canManage, canEdit: canEdit ?? canManage };
 
   return (
     <Card className="mt-4">
@@ -358,7 +529,15 @@ export function EventLogistics({
           </TabsList>
           {tabs.map((t) => (
             <TabsContent key={t.key} value={t.key} className="mt-0">
-              {t.render({ eventId, eventType, canManage, canEditTasks: tasksEditable })}
+              {t.render({
+                eventId,
+                eventType,
+                canManage: boardCanManage(t.key, eventType, flags),
+                // Defaults to THIS board's flag, not the host's canManage, so the
+                // per-board audit governs task writes too (committee tasks admit
+                // in-charges via fn_can_manage_committee_tasks).
+                canEditTasks: canEditTasks ?? boardCanManage(t.key, eventType, flags),
+              })}
             </TabsContent>
           ))}
         </Tabs>

@@ -82,7 +82,12 @@ import {
 import type { Event, EventStatus } from '@/types/events';
 import { SOI_EVENT_TYPE } from '@/lib/services/school-of-influence/constants';
 import { EditGeneralEventDialog } from '../_components/edit-general-event-dialog';
-import { canCancelEvent, canEditEvent } from '../_components/event-display';
+import {
+  canCancelEvent,
+  canEditEvent,
+  eventLogisticsFlags,
+  isEventIncharge,
+} from '../_components/event-display';
 import { EventFormCards } from '@/components/events/registration/event-form-cards';
 import { EventWaitlistCard } from '@/components/events/registration/event-waitlist-card';
 import { EventFeedbackLinkCard } from '@/components/events/feedback/event-feedback-link-card';
@@ -532,6 +537,36 @@ export default function GeneralEventDetailPage() {
       isSuperAdmin,
       canEditAny: canAccess('events', 'edit'),
     });
+
+  // The logistics boards (budget, sponsors, incidents, committees …) are run by
+  // the event's team, which includes its appointed in-charges — not only the
+  // people canEdit admits. The Director made the COO an in-charge of a cultural
+  // event so they could see its budget (BUG-006268, 9 Oct); gated on canEdit
+  // alone the Budget tab stayed hidden from them. The database agrees: the
+  // *_event_team_write policies on event_budget_items, event_sponsors,
+  // event_incidents and event_committees all admit fn_is_event_incharge.
+  // canEdit itself is untouched — status, visibility and the Edit dialog stay
+  // creator / editor only.
+  // Verified live 11 Oct 2026: migrations 20261220092000, 20261220093000,
+  // 20270202090000, 20270203090000 and 20270207100000 are all in
+  // supabase_migrations.schema_migrations, so the in-charge write policies above
+  // are live.
+  // Boards whose writes are NOT scoped to the event for an in-charge stay on
+  // canEdit: volunteers (event_volunteer_checkins ALL USING (true)),
+  // certificates (marathon_results ALL USING (true)) and bulk import (route
+  // checks sign-in only, then inserts with the service role) — read live from
+  // pg_policies and the route code, W12, 11 Oct 09:09. Otherwise an in-charge
+  // appointed from another institution would get a button that writes there.
+  // EventLogistics picks the flag per board from LOGISTICS_INCHARGE_WRITE_AUDIT,
+  // which a test keeps equal to the registered boards.
+  // profile.id IS the auth uid fn_is_event_incharge compares with: the auth
+  // provider loads the profile with .eq('id', session.user.id)
+  // (hooks/use-auth-provider.tsx:81).
+  // No logistics board writes the events row itself (checked 11 Oct: no
+  // .from('events') write in any board's hook, service or route). Event edits,
+  // people and config stay behind canEdit (edit-general-event-dialog,
+  // incharge-panel).
+  const logisticsFlags = eventLogisticsFlags(event, profile?.id, canEdit);
 
   // Cancelling is narrower than editing (Director 30 Sep): in-charges and admins.
   const mayCancel =
@@ -1017,7 +1052,7 @@ export default function GeneralEventDetailPage() {
           <EventWinnersCard
             eventId={event.id}
             mayManage={
-              canEdit || isSuperAdmin || inchargesRaw.some((i) => i.member_id && i.member_id === profile?.id)
+              canEdit || isSuperAdmin || isEventIncharge(event, profile?.id)
             }
           />
         )}
@@ -1037,7 +1072,8 @@ export default function GeneralEventDetailPage() {
         <EventLogistics
           eventId={event.id}
           eventType={event.event_type as string}
-          canManage={canEdit}
+          canManage={logisticsFlags.canManage}
+          canEdit={logisticsFlags.canEdit}
           enabledTools={enabledTools}
           hideSensitiveWithoutManage
         />
