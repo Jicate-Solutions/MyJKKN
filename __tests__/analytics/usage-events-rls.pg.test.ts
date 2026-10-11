@@ -1,6 +1,6 @@
 /**
  * usage_events RLS hardening — behavioural proof for
- * supabase/migrations/20271010094500_usage_events_rls_hardening.sql
+ * supabase/migrations/20271011110000_usage_events_rls_hardening.sql
  *
  * Two throwaway databases are built from the same fixture:
  *   BASELINE  — the policy set and grants that were LIVE on 10 Oct 2027
@@ -27,7 +27,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 const REPO = path.resolve(__dirname, '..', '..');
 const MIGRATION = path.join(
   REPO,
-  'supabase/migrations/20271010094500_usage_events_rls_hardening.sql'
+  'supabase/migrations/20271011110000_usage_events_rls_hardening.sql'
 );
 
 const PGHOST = process.env.USAGE_EVENTS_TEST_PGHOST ?? 'localhost';
@@ -109,11 +109,11 @@ CREATE POLICY "Super admin can view all usage_events" ON public.usage_events
   FOR SELECT USING (EXISTS (SELECT 1 FROM profiles WHERE profiles.id = auth.uid() AND profiles.is_super_admin = true));
 `;
 
-function psql(args: string[]) {
+function psql(args: string[], timeoutMs?: number) {
   return execFileSync(
     'psql',
     ['-h', PGHOST, '-p', PGPORT, '-U', PGUSER, '-v', 'ON_ERROR_STOP=1', '-q', ...args],
-    { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] }
+    { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'], timeout: timeoutMs, killSignal: 'SIGKILL' }
   );
 }
 
@@ -244,7 +244,7 @@ beforeAll(async () => {
     psql(['-d', db, '-f', baseline]);
   }
   // Verbatim — the migration's DO self-check fails the suite here if it does not hold.
-  psql(['-d', DB_HARD, '-f', MIGRATION]);
+  psql(['-d', DB_HARD, '-1', '-f', MIGRATION]);
 
   for (const [key, db] of [['base', DB_BASE], ['hard', DB_HARD]] as const) {
     const c = new Client({ host: PGHOST, port: Number(PGPORT), user: PGUSER, database: db });
@@ -287,7 +287,7 @@ describe('BASELINE (live policy set before the fix) — the holes are real', () 
   });
 });
 
-describe('HARDENED (after 20271010094500)', () => {
+describe('HARDENED (after 20271011110000)', () => {
   it('anon insert is refused', async () => {
     const { sql, params } = INSERT_AS(people.plain);
     const r = await actAs('hard', 'anon', null, sql, params);
@@ -494,6 +494,29 @@ describe('HARDENED (after 20271010094500)', () => {
     expect(rows.map((r: any) => r.module)).toEqual(['events']);
   });
 
+  it('fn_usage_trending_pages never looks back more than 30 days, whatever p_days says', async () => {
+    const c = clients.hard;
+    const [a, b, d] = visitors(3);
+    await c.query('BEGIN');
+    try {
+      await c.query('SET LOCAL ROLE service_role');
+      for (const user of [a, b, d]) {
+        await c.query(
+          `INSERT INTO public.usage_events (user_id, event_type, module, institution_id, created_at)
+           VALUES ($1, 'page_visit', 'events', $2, now() - interval '45 days'),
+                  ($1, 'page_visit', 'hr', $2, now() - interval '20 days')`,
+          [user, INST_A]
+        );
+      }
+      await c.query(`SELECT set_config('test.acting_uid', $1, true)`, [people.plain]);
+      await c.query('SET LOCAL ROLE authenticated');
+      const rows = (await c.query(`SELECT * FROM public.fn_usage_trending_pages(90, 500)`)).rows;
+      expect(rows.map((r: any) => r.module)).toEqual(['hr']);
+    } finally {
+      await c.query('ROLLBACK');
+    }
+  });
+
   it('anon cannot call fn_usage_trending_pages', async () => {
     const r = await actAs('hard', 'anon', null, `SELECT * FROM public.fn_usage_trending_pages(7, 5)`);
     expect(r.error).toBe('42501');
@@ -515,7 +538,7 @@ describe('migration self-check', () => {
       ]);
       let err = '';
       try {
-        psql(['-d', db, '-f', MIGRATION]);
+        psql(['-d', db, '-1', '-f', MIGRATION]);
       } catch (e: any) {
         err = String(e?.stderr || e?.message || e);
       }
@@ -541,7 +564,7 @@ describe('migration self-check', () => {
       psql(['-d', db, '-c', `GRANT TRUNCATE ON public.usage_events TO PUBLIC`]);
       let err = '';
       try {
-        psql(['-d', db, '-f', MIGRATION]);
+        psql(['-d', db, '-1', '-f', MIGRATION]);
       } catch (e: any) {
         err = String(e?.stderr || e?.message || e);
       }
@@ -554,4 +577,37 @@ describe('migration self-check', () => {
       }
     }
   });
+
+  it('gives up after lock_timeout instead of queueing behind a held lock', async () => {
+    const db = `myjkkn_usage_lock_${SUFFIX}`;
+    psql(['-d', 'postgres', '-c', `CREATE DATABASE ${db}`]);
+    const holder = new Client({ host: PGHOST, port: Number(PGPORT), user: PGUSER, database: db });
+    try {
+      psql(['-d', db, '-f', path.join(tmp, 'fixture.sql')]);
+      psql(['-d', db, '-f', path.join(tmp, 'baseline.sql')]);
+      await holder.connect();
+      // Any open reader of usage_events blocks DROP POLICY (ACCESS EXCLUSIVE).
+      await holder.query('BEGIN');
+      await holder.query('LOCK TABLE public.usage_events IN ACCESS SHARE MODE');
+      const t0 = Date.now();
+      let err = '';
+      try {
+        // Without lock_timeout this would wait for ever (the holder cannot let
+        // go while psql blocks the event loop) — kill it at 15 s instead.
+        psql(['-d', db, '-1', '-f', MIGRATION], 15_000);
+      } catch (e: any) {
+        err = String(e?.stderr || e?.message || e);
+      }
+      expect(err).toContain('lock timeout');
+      expect(Date.now() - t0).toBeLessThan(15_000);
+    } finally {
+      await holder.query('ROLLBACK').catch(() => {});
+      await holder.end().catch(() => {});
+      try {
+        psql(['-d', 'postgres', '-c', `DROP DATABASE IF EXISTS ${db} WITH (FORCE)`]);
+      } catch {
+        /* best effort */
+      }
+    }
+  }, 30_000);
 });

@@ -1,4 +1,4 @@
--- Version note (11 Oct 2026): 2027-prefixed versions are this repo's convention, not a future timestamp; the live ledger max is 20271010100000 and main holds 185 such files.
+-- Version note (11 Oct 2026): 2027-prefixed versions are this repo's convention, not a future timestamp. Renamed from 20271010094500 (never applied) to 20271011110000 so it sorts ABOVE the live ledger max 20271010100000; 20271011090000 (#4323) and 20271011100000 (#4346) are taken, nothing else uses 20271011*.
 -- ============================================================================
 -- usage_events: only signed-in users can log their OWN events; reading a whole
 -- institution's events needs an institution admin.
@@ -33,7 +33,12 @@
 -- table owner bypasses RLS, so they are unaffected. Do NOT add FORCE RLS.
 -- ============================================================================
 
-BEGIN;
+-- No BEGIN/COMMIT in this file: the runner wraps it (BEGIN … ROLLBACK for the
+-- dry-run, BEGIN … COMMIT to apply), and an inner COMMIT would make the dry-run
+-- write for real. SET LOCAL therefore lasts exactly as long as that transaction.
+-- usage_events takes ~350k writes a month: give up after 5 s rather than queue
+-- every page-visit insert behind a waiting ALTER/DROP POLICY.
+SET LOCAL lock_timeout = '5s';
 
 -- (a) blind INSERT → own-row INSERT for signed-in users only. The ONLY browser
 -- writer is lib/navigation/search-analytics.ts (event_type 'search', the
@@ -87,6 +92,8 @@ REVOKE UPDATE, DELETE, TRUNCATE ON public.usage_events FROM authenticated;
 -- drops unknown keys; no href is ever built from this text.
 --   * key must look like a module slug: ^[a-z][a-z0-9-]{0,39}$
 --   * a module shows only when 3+ different people visited it in the window.
+--   * p_days is capped at 30 and p_limit at 50, so a looping caller scans at
+--     most 30 days of its own institution (idx_usage_events_institution_created).
 -- DROP first: the return columns changed while this file was unapplied.
 DROP FUNCTION IF EXISTS public.fn_usage_trending_pages(integer, integer);
 -- ci:allow-secdef-authenticated every signed-in user may see the top-level module keys + visit counts of their OWN institution (derived from auth.uid(), not a parameter), only for modules 3+ different people visited; no paths, user ids or metadata are returned. Replaces the per-row read TrendingPages.tsx made through the old open policy (b).
@@ -105,7 +112,7 @@ AS $$
         FROM public.usage_events ue
        WHERE ue.event_type = 'page_visit'
          AND ue.institution_id = (SELECT p.institution_id FROM public.profiles p WHERE p.id = auth.uid())
-         AND ue.created_at >= now() - make_interval(days => LEAST(GREATEST(COALESCE(p_days, 7), 1), 90))
+         AND ue.created_at >= now() - make_interval(days => LEAST(GREATEST(COALESCE(p_days, 7), 1), 30))
     ) v
    -- Live proof the slug filter drops no real traffic (read-only, 11 Oct 2026,
    -- page_visit, last 30 days): 350,837 rows, 100% with a slug-shaped top-level
@@ -168,4 +175,3 @@ BEGIN
   END IF;
 END $$;
 
-COMMIT;

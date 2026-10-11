@@ -49,7 +49,7 @@ export function useTrendingPages(limit: number = 5) {
 
       // Aggregate RPC (SECURITY DEFINER): top-level module keys + visit counts
       // for the caller's OWN institution, only for modules 3+ people visited —
-      // no paths, no user ids (20271010094500_usage_events_rls_hardening).
+      // no paths, no user ids (20271011110000_usage_events_rls_hardening).
       // Over-fetch: keys this client has no hub for are dropped below.
       //
       // Trending is optional: any RPC failure — PGRST202 / 42883 while the

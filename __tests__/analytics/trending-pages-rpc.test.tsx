@@ -2,7 +2,7 @@
 /**
  * The command-palette "trending" list reads an aggregate RPC that returns
  * top-level module keys only (never paths, never raw usage_events rows — those
- * only institution admins may read after 20271010094500). Each key is mapped to
+ * only institution admins may read after 20271011110000). Each key is mapped to
  * its hub href from lib/navigation/modules.ts; unknown keys are dropped.
  */
 
