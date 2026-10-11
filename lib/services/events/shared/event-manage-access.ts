@@ -53,6 +53,12 @@ const ADMIN_ROLES = ['super_admin', 'admin', 'administrator', 'event_coordinator
 const MARATHON_OPS_ROLES = ['principal', 'hod', 'faculty', 'vice_principal', 'dean'];
 /** Never manage-tier by institution alone. */
 const LEARNER_ROLES = ['student', 'course_participant', 'parent'];
+/**
+ * Learner roles for the strict registration-write gate only. Adds the custom role
+ * production_learner (content-production learner). Kept separate so adding it does not
+ * change canManageEventOps or canGenerateEventQr, which use LEARNER_ROLES.
+ */
+const WRITE_LEARNER_ROLES = [...LEARNER_ROLES, 'production_learner'];
 
 interface Ctx {
   caller: EventOpsCaller;
@@ -182,7 +188,7 @@ export async function canWriteEventRegistrations(
   if (
     event.created_by &&
     event.created_by === caller.userId &&
-    !LEARNER_ROLES.includes(role) &&
+    !WRITE_LEARNER_ROLES.includes(role) &&
     sameInstitution
   ) {
     return true;

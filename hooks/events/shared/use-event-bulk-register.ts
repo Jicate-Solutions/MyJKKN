@@ -417,6 +417,24 @@ export function useEventCategoryCodes(eventId: string) {
   });
 }
 
+/**
+ * May the signed-in caller bulk-import registrations into this event? Asks the bulk-register
+ * route (?action=can-write), which runs the same gate as the import itself. Any failure reads
+ * as "no", so the board never offers buttons the server would refuse.
+ */
+export function useCanWriteRegistrations(eventId: string, enabled = true) {
+  return useQuery({
+    queryKey: ['event-bulk-register-can-write', eventId],
+    enabled: !!eventId && enabled,
+    queryFn: async () => {
+      const res = await fetch(`/api/events/marathon/${eventId}/bulk-register?action=can-write`);
+      if (!res.ok) return false;
+      const json = await res.json().catch(() => ({}));
+      return json?.canWrite === true;
+    },
+  });
+}
+
 // ============================================================================
 // Import mutation
 // ============================================================================

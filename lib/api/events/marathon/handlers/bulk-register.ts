@@ -23,6 +23,10 @@
 // GET /api/events/marathon/[eventId]/bulk-register?action=template
 // Downloads the Excel import template for this event.
 //
+// GET /api/events/marathon/[eventId]/bulk-register?action=can-write
+// Returns { canWrite: boolean } from the same gate, so the Bulk Import tab can hide its buttons
+// instead of letting the caller hit a 403 (400 for a bad id, 401 when signed out, as above).
+//
 // Events Platform Promotion PR7: this route is now event-type-agnostic. Bulk import was promoted to
 // the shared EventBulkRegisterService. The route auto-detects whether the event has categories:
 //   • categories present (e.g. marathon 5K/10K) → MarathonBulkRegistrationService (BIB-number scheme)
@@ -76,6 +80,12 @@ export async function GET(
   try {
     const { eventId } = await params;
     const action = request.nextUrl.searchParams.get('action');
+
+    if (action === 'can-write') {
+      const refused = await denyUnlessRegistrationWriter(eventId);
+      if (refused && refused.status !== 403) return refused;
+      return NextResponse.json({ canWrite: !refused }, { status: 200 });
+    }
 
     if (action !== 'template') {
       return NextResponse.json({ error: 'Invalid action' }, { status: 400 });

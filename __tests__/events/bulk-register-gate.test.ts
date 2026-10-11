@@ -112,6 +112,43 @@ describe('POST bulk-register', () => {
   });
 });
 
+describe('GET bulk-register?action=can-write', () => {
+  const probe = (id = EV) =>
+    GET(
+      new NextRequest(`http://x/api/events/marathon/${id}/bulk-register?action=can-write`),
+      { params: Promise.resolve({ eventId: id }) },
+    );
+
+  it('an allowed caller gets { canWrite: true }', async () => {
+    canWriteEventRegistrations.mockResolvedValue(true);
+    const res = await probe();
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ canWrite: true });
+    expect(canWriteEventRegistrations).toHaveBeenCalledWith(expect.objectContaining({ userId: 'u1' }), EV);
+    expect(generateTemplate).not.toHaveBeenCalled();
+  });
+
+  it('a refused caller gets { canWrite: false }, not a 403', async () => {
+    canWriteEventRegistrations.mockResolvedValue(false);
+    const res = await probe();
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ canWrite: false });
+  });
+
+  it('a signed-out caller gets 401', async () => {
+    auth.user = null;
+    const res = await probe();
+    expect(res.status).toBe(401);
+    expect(canWriteEventRegistrations).not.toHaveBeenCalled();
+  });
+
+  it('a malformed event id gets 400', async () => {
+    const res = await probe('nope');
+    expect(res.status).toBe(400);
+    expect(canWriteEventRegistrations).not.toHaveBeenCalled();
+  });
+});
+
 describe('malformed event id', () => {
   const bad = { params: Promise.resolve({ eventId: 'not-a-uuid' }) };
   it('POST is a 400 before the access check runs', async () => {

@@ -131,6 +131,11 @@ describe('canWriteEventRegistrations', () => {
     }
   });
 
+  it('a production_learner who created the event is refused', async () => {
+    const w: World = { profile: person('production_learner', INST_A), event: marathon({ created_by: ME }) };
+    expect(await canWriteEventRegistrations(caller(w), EV)).toBe(false);
+  });
+
   it('the in-charge check is asked about this event', async () => {
     const seen: unknown[] = [];
     const c = caller({ profile: person('faculty', INST_B), event: marathon() });
@@ -165,6 +170,11 @@ describe('canManageEventOps (committees, QR) is unchanged', () => {
 
   it('still admits an admin-role user from another institution', async () => {
     const w: World = { profile: person('event_coordinator', INST_B), event: marathon() };
+    expect(await canManageEventOps(caller(w), EV)).toBe(true);
+  });
+
+  it('still admits a production_learner creator (the write gate alone refuses them)', async () => {
+    const w: World = { profile: person('production_learner', INST_A), event: marathon({ created_by: ME }) };
     expect(await canManageEventOps(caller(w), EV)).toBe(true);
   });
 

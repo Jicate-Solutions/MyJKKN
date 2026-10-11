@@ -37,6 +37,7 @@ import {
   useEventCategoryCodes,
   useImportRoster,
   useDownloadRosterTemplate,
+  useCanWriteRegistrations,
   type ValidatedRosterRow,
   type RosterRowError,
   type RosterImportResult,
@@ -94,6 +95,8 @@ export function BulkImportBoard({
   const { data: categoryCodes = [] } = useEventCategoryCodes(eventId);
   const importMutation = useImportRoster();
   const downloadTemplate = useDownloadRosterTemplate();
+  // The server allows bulk import to fewer people than canManage does (organisers only), so ask it.
+  const { data: canWrite, isLoading: canWriteLoading } = useCanWriteRegistrations(eventId, canManage);
 
   const validatedRows: ValidatedRosterRow[] = useMemo(
     () => (parsedRows.length > 0 ? validateRosterRows(parsedRows, categoryCodes) : []),
@@ -185,6 +188,18 @@ export function BulkImportBoard({
     return (
       <p className="py-8 text-center text-sm text-muted-foreground">
         You don&apos;t have permission to import registrations for this event.
+      </p>
+    );
+  }
+
+  if (canWriteLoading) {
+    return <p className="py-8 text-center text-sm text-muted-foreground">Checking access…</p>;
+  }
+
+  if (!canWrite) {
+    return (
+      <p className="py-8 text-center text-sm text-muted-foreground">
+        Only the event&apos;s organisers can bulk-import registrations.
       </p>
     );
   }
