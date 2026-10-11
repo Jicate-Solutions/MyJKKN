@@ -95,12 +95,18 @@ export const BLANK_INVOICE_MESSAGE =
   'This delivery has no invoice number, so it cannot be added to stock. Cancel it and record the delivery again with the invoice number from the bill.';
 
 /**
- * D2: a receipt with no invoice number never goes into stock. Replacement receipts are
- * exempt, but they are created already in stock (receiveReplacement) and never pass
- * through verify, so every receipt that reaches verify needs a number. Same test as the
- * database guard: nothing left after normalising.
+ * D2: a receipt with no invoice number never goes into stock. A replacement receipt
+ * (it names the replacement it fulfils) is exempt: the supplier's replacement goods come
+ * against the original bill. Director 2026-10-11 02:00: that receipt is now saved pending
+ * and checked in through verify like any other, so the exemption is applied at verify —
+ * the database verify guard applies the same one, and checks the replacement is real.
+ * Same test as the guard: nothing left after normalising.
  */
-export function blankInvoiceBlocksStock(invoiceNumber: string | null | undefined): boolean {
+export function blankInvoiceBlocksStock(
+  invoiceNumber: string | null | undefined,
+  replacementId?: string | null,
+): boolean {
+  if (replacementId) return false;
   return normaliseInvoiceNumber(invoiceNumber) === null;
 }
 
@@ -116,6 +122,72 @@ export const SELF_CHECK_MESSAGE =
 /** E1, replacement arm: the original delivery's receiver neither claims nor receives its replacement. */
 export const REPLACEMENT_SELF_CHECK_MESSAGE =
   'You received the original delivery, so someone else must receive and check its replacement.';
+
+/*
+ * Director decision 11 Oct 2026 02:00 — a replacement delivery also needs two people.
+ * receiveReplacement saves the replacement receipt as pending; a different verifier (not
+ * the person who recorded it, never the original delivery's receiver) checks it into
+ * stock. The database refuses each of these too (migration 20271010170000, section 15).
+ */
+export const REPLACEMENT_RECORDED_MESSAGE =
+  'Replacement recorded. It is not in stock yet — another verifier (not you, and not whoever received the original delivery) must check it into stock.';
+
+export const REPLACEMENT_ORIGIN_VERIFY_MESSAGE =
+  'You received the original delivery, so someone else must check its replacement into stock.';
+
+export const REPLACEMENT_RECORDER_VERIFY_MESSAGE =
+  'You recorded this replacement, so someone else must check it into stock.';
+
+export const REPLACEMENT_NOT_OPEN_MESSAGE =
+  'This replacement delivery no longer matches an open replacement — it was received already, or its original delivery is not in stock. Ask an admin.';
+
+export const REPLACEMENT_SHAPE_MESSAGE =
+  'A replacement delivery must have one line, for the rejected item, accepting no more than the quantity awaiting replacement and rejecting nothing. Ask an admin to correct it.';
+
+export const REPLACEMENT_NO_CANCEL_MESSAGE =
+  'A replacement delivery cannot be cancelled here. If the goods are wrong, ask an admin to remove it so the replacement can be received again.';
+
+export const REPLACEMENT_SCHEMA_MISSING_MESSAGE =
+  'Replacements cannot be recorded yet — the database update for them is not applied. Ask an admin.';
+
+/**
+ * Where a replacement stands, for the ORIGINAL delivery's page (Director 11 Oct 2026):
+ * 'pending' — nobody has recorded it; 'recorded' — its receipt is saved but waits for a
+ * second person; 'received' — checked into stock (linked, or its receipt is posted).
+ */
+export function replacementProgress(r: {
+  status: string;
+  replacement_grn_item_id?: string | null;
+  receipt?: { status: string } | null;
+}): 'pending' | 'recorded' | 'received' {
+  if (r.status === 'pending') return 'pending';
+  if (r.replacement_grn_item_id) return 'received';
+  if (r.receipt && POSTED_GRN_STATUSES.includes(r.receipt.status)) return 'received';
+  return 'recorded';
+}
+
+/**
+ * R2 shape rule (same as the database verify guard): a replacement receipt enters stock
+ * only as exactly one line, for the rejected item's order line, rejecting nothing and
+ * accepting more than 0 and no more than the quantity awaiting replacement. Its lines
+ * could be edited while it was pending, so this is judged at verify. True = blocked.
+ */
+export function replacementShapeBlocks(
+  lines: Array<{
+    po_item_id?: string | null;
+    accepted_quantity?: number | string | null;
+    rejected_quantity?: number | string | null;
+  }>,
+  replacement: { rejected_quantity: number | string; po_item_id?: string | null },
+): boolean {
+  if (lines.length !== 1) return true;
+  const [line] = lines;
+  const accepted = Number(line.accepted_quantity ?? 0);
+  const rejected = Number(line.rejected_quantity ?? 0);
+  if (rejected !== 0) return true;
+  if (!(accepted > 0) || accepted > Number(replacement.rejected_quantity)) return true;
+  return (line.po_item_id ?? null) !== (replacement.po_item_id ?? null);
+}
 
 /** E1: is `viewerId` the person who received this delivery? Then they may not check it. */
 export function selfCheckBlocks(

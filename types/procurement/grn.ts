@@ -157,6 +157,11 @@ export interface ProcurementGrnReplacement {
     is_chemical: boolean;
     domain_item_id: string | null;
   } | null;
+  /**
+   * Director 11 Oct 2026: the pending receipt recorded for a claimed replacement, until a
+   * second person checks it into stock (read by getReplacements).
+   */
+  receipt?: { id: string; grn_number: string; status: string } | null;
 }
 
 /** Payload when the supplier delivers replacement goods for a rejected line. */
