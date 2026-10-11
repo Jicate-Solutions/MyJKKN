@@ -36,13 +36,19 @@ const SUPER_ADMIN = '00000000-0000-4000-8000-0000000000c3';
 const NO_ROLE = '00000000-0000-4000-8000-0000000000d4';
 const ITEM = '00000000-0000-4000-8000-0000000000e5';
 const FLAG_SUPER = '00000000-0000-4000-8000-0000000000f6';
+const INST = '00000000-0000-4000-8000-0000000000a9';
+const ITEM_CODE = 'APR-1';
 
 const PRELUDE = `
 DO $$ BEGIN CREATE ROLE anon NOLOGIN;          EXCEPTION WHEN duplicate_object OR unique_violation THEN NULL; END $$;
 DO $$ BEGIN CREATE ROLE authenticated NOLOGIN; EXCEPTION WHEN duplicate_object OR unique_violation THEN NULL; END $$;
+DO $$ BEGIN CREATE ROLE service_role NOLOGIN;  EXCEPTION WHEN duplicate_object OR unique_violation THEN NULL; END $$;
+DO $$ BEGIN CREATE ROLE supabase_admin NOLOGIN; EXCEPTION WHEN duplicate_object OR unique_violation THEN NULL; END $$;
 ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT EXECUTE ON FUNCTIONS TO anon;
 CREATE SCHEMA IF NOT EXISTS auth;
 CREATE FUNCTION auth.uid() RETURNS uuid LANGUAGE sql STABLE AS $$ SELECT nullif(current_setting('test.uid', true), '')::uuid $$;
+-- Supabase shape: the JWT role claim (NULL with no JWT, e.g. migrations / cron).
+CREATE FUNCTION auth.role() RETURNS text LANGUAGE sql STABLE AS $$ SELECT nullif(current_setting('request.jwt.claim.role', true), '') $$;
 CREATE TABLE public.profiles (id uuid PRIMARY KEY, role text, is_super_admin boolean);
 INSERT INTO public.profiles VALUES
   ('${COLLEGE_USER}', 'staff', false), ('${STORE_ADMIN}', 'store_admin', false),
@@ -60,15 +66,19 @@ CREATE TABLE public.ims_items (
   id uuid PRIMARY KEY,
   name text,
   institution_id uuid,
-  kit_source varchar(10) CHECK (kit_source IS NULL OR kit_source IN ('central','college'))
+  code text,
+  kit_source varchar(10) CHECK (kit_source IS NULL OR kit_source IN ('central','college')),
+  CONSTRAINT ims_items_institution_code_unique UNIQUE (institution_id, code)
 );
 -- A SECURITY DEFINER writer, to prove a signed-in caller is not exempt through it.
 CREATE FUNCTION public.test_definer_set_source(p_id uuid, p_source text) RETURNS void
   LANGUAGE sql SECURITY DEFINER SET search_path = public AS $$
   UPDATE public.ims_items SET kit_source = p_source WHERE id = p_id $$;
-GRANT USAGE ON SCHEMA public, auth TO anon, authenticated;
-GRANT SELECT, INSERT, UPDATE ON public.ims_items TO authenticated;
-GRANT EXECUTE ON FUNCTION public.get_current_user_role(), public.is_super_admin(), public.test_definer_set_source(uuid, text) TO authenticated;
+GRANT USAGE ON SCHEMA public, auth TO anon, authenticated, service_role, supabase_admin;
+-- Supabase default grants: anon/authenticated/service_role all hold table DML.
+GRANT SELECT, INSERT, UPDATE ON public.ims_items TO anon, authenticated, service_role, supabase_admin;
+GRANT EXECUTE ON FUNCTION public.get_current_user_role(), public.is_super_admin(), public.test_definer_set_source(uuid, text)
+  TO anon, authenticated, service_role, supabase_admin;
 `;
 
 function psql(args: string[]) {
@@ -81,12 +91,23 @@ function psql(args: string[]) {
 
 let client: Client;
 
-/** Run `sql` as `authenticated` with auth.uid() = uid (null = no JWT user). */
-async function as(uid: string | null, sql: string, params: unknown[] = []) {
+/**
+ * Run `sql` as a database role (default `authenticated`, JWT role claim the
+ * same) with auth.uid() = uid (null = no JWT user). jwtRole null = no JWT.
+ */
+async function as(
+  uid: string | null,
+  sql: string,
+  params: unknown[] = [],
+  opts: { dbRole?: string; jwtRole?: string | null } = {},
+) {
+  const dbRole = opts.dbRole ?? 'authenticated';
+  const jwtRole = opts.jwtRole === undefined ? dbRole : opts.jwtRole;
   await client.query('BEGIN');
   try {
     await client.query(`SELECT set_config('test.uid', $1, true)`, [uid ?? '']);
-    await client.query('SET LOCAL ROLE authenticated');
+    await client.query(`SELECT set_config('request.jwt.claim.role', $1, true)`, [jwtRole ?? '']);
+    await client.query(`SET LOCAL ROLE ${dbRole}`);
     await client.query(sql, params);
     await client.query('COMMIT');
     return { error: null as string | null, code: null as string | null };
@@ -100,8 +121,14 @@ async function as(uid: string | null, sql: string, params: unknown[] = []) {
 const setSource = (uid: string | null, v: string | null) =>
   as(uid, `UPDATE public.ims_items SET kit_source = $1 WHERE id = $2`, [v, ITEM]);
 
+// Fixture writes go through a supabase_admin session with no JWT (the
+// migration/cron exemption): the suite's own login may not be named postgres.
 async function seed(v: string | null) {
+  await client.query('BEGIN');
+  await client.query(`SELECT set_config('test.uid', '', true), set_config('request.jwt.claim.role', '', true)`);
+  await client.query('SET LOCAL ROLE supabase_admin');
   await client.query(`UPDATE public.ims_items SET kit_source = $1 WHERE id = $2`, [v, ITEM]);
+  await client.query('COMMIT');
 }
 
 async function current() {
@@ -119,7 +146,7 @@ beforeAll(async () => {
   psql(['-d', DBNAME, '-f', MIGRATION]);
   client = new Client({ host: PGHOST, port: Number(PGPORT), user: PGUSER, database: DBNAME });
   await client.connect();
-  await client.query(`INSERT INTO public.ims_items (id, name) VALUES ($1, 'Apron')`, [ITEM]);
+  await client.query(`INSERT INTO public.ims_items (id, name, institution_id, code) VALUES ($1, 'Apron', $2, $3)`, [ITEM, INST, ITEM_CODE]);
 });
 
 afterAll(async () => {
@@ -190,6 +217,49 @@ describe('ims_items.kit_source guard — college team members', () => {
     expect((await ins('central')).code).toBe('42501');
   });
 
+  const upsert = (uid: string, id: string, code: string, v: string | null) =>
+    as(
+      uid,
+      `INSERT INTO public.ims_items (id, name, institution_id, code, kit_source) VALUES ($1, 'x', $2, $3, $4)
+       ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, kit_source = EXCLUDED.kit_source`,
+      [id, INST, code, v],
+    );
+  const upsertByCode = (uid: string, code: string, v: string | null) =>
+    as(
+      uid,
+      `INSERT INTO public.ims_items (id, name, institution_id, code, kit_source) VALUES ($1, 'x', $2, $3, $4)
+       ON CONFLICT ON CONSTRAINT ims_items_institution_code_unique
+       DO UPDATE SET name = EXCLUDED.name, kit_source = EXCLUDED.kit_source`,
+      [randomUUID(), INST, code, v],
+    );
+
+  it('may upsert an existing Central item without changing kit_source (#4346 MEDIUM)', async () => {
+    await seed('central');
+    expect((await upsert(COLLEGE_USER, ITEM, ITEM_CODE, 'central')).error).toBeNull();
+    expect(await current()).toBe('central');
+    // Same, matched on the (institution_id, code) unique key with a fresh id.
+    expect((await upsertByCode(COLLEGE_USER, ITEM_CODE, 'central')).error).toBeNull();
+    expect(await current()).toBe('central');
+  });
+
+  it('may NOT upsert a NEW item as Central', async () => {
+    const r = await upsert(COLLEGE_USER, randomUUID(), 'NEW-1', 'central');
+    expect(r.code).toBe('42501');
+  });
+
+  it('may NOT upsert an existing College item to Central (by id or by code)', async () => {
+    await seed('college');
+    expect((await upsert(COLLEGE_USER, ITEM, ITEM_CODE, 'central')).code).toBe('42501');
+    expect((await upsertByCode(COLLEGE_USER, ITEM_CODE, 'central')).code).toBe('42501');
+    expect(await current()).toBe('college');
+  });
+
+  it('may NOT reset a Central item through an upsert (UPDATE branch still guards)', async () => {
+    await seed('central');
+    expect((await upsert(COLLEGE_USER, ITEM, ITEM_CODE, null)).code).toBe('42501');
+    expect(await current()).toBe('central');
+  });
+
   it('a caller with no role at all is refused, not waved through', async () => {
     expect((await setSource(NO_ROLE, 'central')).code).toBe('42501');
   });
@@ -238,10 +308,42 @@ describe('ims_items.kit_source guard — store admins and system writes', () => 
     expect(await current()).toBeNull();
   });
 
-  it('a write with no JWT user (service role / migration / cron) is allowed', async () => {
-    expect((await setSource(null, 'central')).error).toBeNull();
-    expect((await setSource(null, null)).error).toBeNull();
+  const setAs = (v: string | null, opts: { dbRole?: string; jwtRole?: string | null }) =>
+    as(null, `UPDATE public.ims_items SET kit_source = $1 WHERE id = $2`, [v, ITEM], opts);
+
+  it('the service role (no user, JWT role service_role) may mark Central and reset', async () => {
+    expect((await setAs('central', { dbRole: 'service_role' })).error).toBeNull();
+    expect(await current()).toBe('central');
+    expect((await setAs(null, { dbRole: 'service_role' })).error).toBeNull();
     expect(await current()).toBeNull();
+  });
+
+  it('a direct supabase_admin / postgres session with no JWT (migration, cron) is allowed', async () => {
+    expect((await setAs('central', { dbRole: 'supabase_admin', jwtRole: null })).error).toBeNull();
+    expect(await current()).toBe('central');
+  });
+
+  it('anon with no user id writing Central is refused (#4346 LOW)', async () => {
+    const r = await setAs('central', { dbRole: 'anon' });
+    expect(r.code).toBe('42501');
+    expect(await current()).toBeNull();
+  });
+
+  it('signed-out authenticated-role JWT (no uid) is refused too', async () => {
+    expect((await setAs('central', { dbRole: 'authenticated' })).code).toBe('42501');
+  });
+
+  it('anon reaching a postgres-owned SECURITY DEFINER writer is still refused (JWT role anon)', async () => {
+    // Function owner is the suite's superuser; force the postgres/supabase_admin
+    // current_user branch by owning it with supabase_admin.
+    await client.query(`ALTER FUNCTION public.test_definer_set_source(uuid, text) OWNER TO supabase_admin`);
+    try {
+      const r = await as(null, `SELECT public.test_definer_set_source($1, 'central')`, [ITEM], { dbRole: 'anon' });
+      expect(r.code).toBe('42501');
+      expect(await current()).toBeNull();
+    } finally {
+      await client.query(`ALTER FUNCTION public.test_definer_set_source(uuid, text) OWNER TO CURRENT_USER`);
+    }
   });
 
   it('the trigger function is not executable by anon or authenticated', async () => {

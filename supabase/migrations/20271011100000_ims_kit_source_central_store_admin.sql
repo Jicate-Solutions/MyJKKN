@@ -19,14 +19,24 @@
 --     other live holder is the Chief Administrative Officer). The app's
 --     useImsStoreContext().isStoreAdmin accepts that key for the store picker;
 --     the difference is intentional, not a bug.
---   · writes with no JWT user (auth.uid() IS NULL — migrations, the service
---     role, cron) are allowed. A SECURITY DEFINER function called by a signed-
---     in college user still has auth.uid() set, so it is NOT exempt.
+--   · an upsert (INSERT … ON CONFLICT DO UPDATE) runs the INSERT branch first
+--     with no OLD row: re-sending an existing row's SAME kit_source (matched
+--     on the primary key id, or on the unique (institution_id, code)) passes
+--     here, and the ON CONFLICT update then goes through the UPDATE branch,
+--     which compares OLD and NEW (#4346 panel MEDIUM). No app code upserts
+--     ims_items today, and no app insert sends kit_source.
+--   · system writes are allowed only with no JWT user (auth.uid() IS NULL)
+--     AND either the service role (auth.role() = 'service_role') or a direct
+--     postgres / supabase_admin session (migrations, cron), AND never under
+--     an anon or authenticated JWT role (#4346 panel LOW: anon also has no
+--     uid). A SECURITY DEFINER function called by a signed-in college user
+--     still has auth.uid() set, so it is NOT exempt.
 -- Refusal: ERRCODE 42501, "Only a store admin can mark an item Central or
 -- reset its source."
 --
 -- The trigger function is SECURITY INVOKER (no elevated rights; it only reads
--- auth.uid() and get_current_user_role(), which RLS already calls).
+-- auth.uid(), auth.role(), get_current_user_role(), is_super_admin(), and
+-- for an INSERT the matching existing row the caller can already see).
 --
 -- DEPLOY ORDER: apply this migration, then deploy the app (the store-admin
 -- Central option and the Reset source action rely on it; the app without the
@@ -56,12 +66,27 @@ BEGIN
   IF TG_OP = 'INSERT' AND (NEW.kit_source IS NULL OR NEW.kit_source = 'college') THEN
     RETURN NEW;
   END IF;
+  -- Upsert of an existing row re-sending its SAME kit_source: allow here; the
+  -- ON CONFLICT DO UPDATE then fires the UPDATE branch, which compares OLD.
+  IF TG_OP = 'INSERT' AND EXISTS (
+       SELECT 1 FROM public.ims_items i
+       WHERE (i.id = NEW.id
+              OR (NEW.code IS NOT NULL AND i.institution_id = NEW.institution_id AND i.code = NEW.code))
+         AND i.kit_source IS NOT DISTINCT FROM NEW.kit_source
+     ) THEN
+    RETURN NEW;
+  END IF;
   IF TG_OP = 'UPDATE' AND OLD.kit_source IS NULL AND NEW.kit_source = 'college' THEN
     RETURN NEW;
   END IF;
 
-  -- No signed-in user: migrations, service role, cron.
-  IF auth.uid() IS NULL THEN
+  -- System writes: no signed-in user AND the service role or a direct
+  -- postgres / supabase_admin session (migrations, cron) — never an anon or
+  -- authenticated JWT, which also has no uid when signed out.
+  IF auth.uid() IS NULL
+     AND COALESCE(auth.role(), '') NOT IN ('anon', 'authenticated')
+     AND (COALESCE(auth.role(), '') = 'service_role'
+          OR current_user IN ('postgres', 'supabase_admin')) THEN
     RETURN NEW;
   END IF;
 
@@ -76,7 +101,7 @@ END;
 $$;
 
 COMMENT ON FUNCTION public.fn_ims_items_kit_source_guard() IS
-  'Q-1010-395 (Director 11 Oct 2026): college staff may only set kit_source NULL -> college; Central, changes and resets need profiles.role store_admin/super_admin or is_super_admin(). No-JWT writes exempt.';
+  'Q-1010-395 (Director 11 Oct 2026): college staff may only set kit_source NULL -> college; Central, changes and resets need profiles.role store_admin/super_admin or is_super_admin(). Exempt: service role, or postgres/supabase_admin with no JWT user.';
 
 -- Trigger functions are never called directly; keep them off the API surface.
 REVOKE EXECUTE ON FUNCTION public.fn_ims_items_kit_source_guard() FROM PUBLIC, anon, authenticated;
