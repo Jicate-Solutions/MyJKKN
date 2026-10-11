@@ -99,6 +99,35 @@ INSERT INTO public.sibling_apps (slug, name) VALUES
   ('event-forms', 'Event Forms')
 ON CONFLICT (slug) DO NOTHING;
 
+-- ─── 1b. bug_reports: tie application_id to sibling_apps; intake lookups ───
+-- application_id is a nullable uuid with no foreign key today, and no row uses
+-- it (checked live 11 Oct 2026: 0 of 3,607). From now on it means "the college
+-- app this bug came from", so it references sibling_apps. Added only if absent.
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                  WHERE conname = 'bug_reports_application_id_sibling_fkey'
+                    AND conrelid = 'public.bug_reports'::regclass) THEN
+    ALTER TABLE public.bug_reports
+      ADD CONSTRAINT bug_reports_application_id_sibling_fkey
+      FOREIGN KEY (application_id) REFERENCES public.sibling_apps(id) ON DELETE RESTRICT;
+  END IF;
+END $$;
+
+-- The intake's caps count an app's reports in the last day.
+CREATE INDEX IF NOT EXISTS idx_bug_reports_application_created
+  ON public.bug_reports (application_id, created_at)
+  WHERE application_id IS NOT NULL;
+
+-- Double-submit guard: the intake writes metadata.intake_dedup_key (a hash of
+-- app, reporter email, page, title, description and a 2-minute window). Two
+-- identical submits in one window collide here and the second is answered with
+-- the first bug, atomically. Rows without the key (every MyJKKN bug) are outside
+-- the index.
+CREATE UNIQUE INDEX IF NOT EXISTS uq_bug_reports_intake_dedup
+  ON public.bug_reports ((metadata->>'intake_dedup_key'))
+  WHERE metadata ? 'intake_dedup_key';
+
 -- ─── 2. api_keys: the bug_intake kind ──────────────────────────────────────
 ALTER TABLE public.api_keys
   ADD COLUMN IF NOT EXISTS sibling_app_id uuid REFERENCES public.sibling_apps(id) ON DELETE RESTRICT;

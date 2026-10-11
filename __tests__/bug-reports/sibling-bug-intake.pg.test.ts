@@ -98,7 +98,8 @@ CREATE TABLE public.bug_reports (
   page_url text NOT NULL,
   description text NOT NULL,
   status text NOT NULL DEFAULT 'new',
-  metadata jsonb
+  metadata jsonb,
+  created_at timestamptz NOT NULL DEFAULT now()
 );
 CREATE TABLE public.bug_report_participants (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -338,5 +339,35 @@ describe('participant trigger', () => {
       [r.rows[0].id]
     );
     expect(p.rows).toEqual([{ user_id: USER, role: 'reporter' }]);
+  });
+});
+
+describe('bug_reports intake links (application_id, dedup)', () => {
+  it('application_id must name a sibling app', async () => {
+    await expect(
+      db.query(
+        `INSERT INTO public.bug_reports (page_url, description, application_id)
+         VALUES ('https://x.example/a', 'unknown app', gen_random_uuid())`
+      )
+    ).rejects.toThrow(/bug_reports_application_id_sibling_fkey/);
+    const ok = await db.query(
+      `INSERT INTO public.bug_reports (page_url, description, application_id)
+       SELECT 'https://mentor.jkkn.ai/a', 'known app', id FROM public.sibling_apps WHERE slug = 'mentor'
+       RETURNING id`
+    );
+    expect(ok.rows).toHaveLength(1);
+  });
+
+  it('two bugs with the same intake_dedup_key collide; bugs without one never do', async () => {
+    const insert = (key: string | null) =>
+      db.query(
+        `INSERT INTO public.bug_reports (page_url, description, metadata)
+         VALUES ('https://mentor.jkkn.ai/d', 'dup', $1::jsonb)`,
+        [JSON.stringify(key ? { intake_dedup_key: key } : { source: 'myjkkn' })]
+      );
+    await insert('k-1');
+    await expect(insert('k-1')).rejects.toThrow(/uq_bug_reports_intake_dedup/);
+    await insert(null);
+    await insert(null);
   });
 });

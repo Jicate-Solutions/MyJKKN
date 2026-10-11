@@ -25,7 +25,11 @@ const state = {
   keyRow: null as Row | null,
   app: null as Row | null,
   todayCount: 0,
+  callerCount: 0,
+  countError: null as { message: string } | null,
   recent: [] as Row[],
+  winner: [] as Row[],
+  insertError: null as { message: string } | null,
   inserted: [] as Row[],
   updates: [] as Row[],
   uploads: [] as { bucket: string; path: string; size: number; contentType?: string }[],
@@ -37,6 +41,8 @@ function builder(table: string) {
   let pendingInsert: Row | null = null;
   let pendingUpdate: Row | null = null;
   let isCount = false;
+  let byCaller = false;
+  let byDedupIn = false;
   b.select = (_cols?: string, opts?: { head?: boolean }) => {
     if (opts?.head) isCount = true;
     return b;
@@ -45,6 +51,11 @@ function builder(table: string) {
   b.gte = () => b;
   b.eq = (col: string, val: unknown) => {
     state.lookups.push({ table, col, val });
+    if (col === 'metadata->>client_ip_hash') byCaller = true;
+    return b;
+  };
+  b.in = () => {
+    byDedupIn = true;
     return b;
   };
   b.insert = (row: Row) => {
@@ -62,6 +73,7 @@ function builder(table: string) {
   };
   b.single = async () => {
     if (table === 'bug_reports' && pendingInsert) {
+      if (state.insertError) return { data: null, error: state.insertError };
       state.inserted.push(pendingInsert);
       return {
         data: { ...pendingInsert, id: 'bug-1', display_id: 'BUG-009001', created_at: '2026-10-10T00:00:00Z' },
@@ -75,8 +87,11 @@ function builder(table: string) {
       state.updates.push(pendingUpdate);
       return Promise.resolve({ data: null, error: null }).then(resolve);
     }
-    if (isCount) return Promise.resolve({ data: null, count: state.todayCount, error: null }).then(resolve);
-    const data = table === 'bug_reports' ? state.recent : [];
+    if (isCount) {
+      const count = byCaller ? state.callerCount : state.todayCount;
+      return Promise.resolve({ data: null, count, error: state.countError }).then(resolve);
+    }
+    const data = table !== 'bug_reports' ? [] : byDedupIn ? state.recent : state.winner;
     return Promise.resolve({ data, error: null }).then(resolve);
   };
   return b;
@@ -156,7 +171,11 @@ beforeEach(() => {
   };
   state.app = { ...APP };
   state.todayCount = 0;
+  state.callerCount = 0;
+  state.countError = null;
   state.recent = [];
+  state.winner = [];
+  state.insertError = null;
   state.inserted = [];
   state.updates = [];
   state.uploads = [];
@@ -206,7 +225,11 @@ describe('POST /api/v1/public/bug-reports — happy path', () => {
       reporter_email: 'mentor.one@jkkn.ac.in',
       reporter_name: 'Mentor One',
       reporter_verified: false,
+      intake_dedup_key: expect.stringMatching(/^[0-9a-f]{64}$/),
+      client_ip_hash: expect.stringMatching(/^[0-9a-f]{64}$/),
     });
+    // the caller's IP is stored only as a hash
+    expect(JSON.stringify(row)).not.toContain('203.0.113.9');
 
     // the claimed email is never looked up against MyJKKN profiles
     expect(fromSpy.mock.calls.map((c) => c[0])).not.toContain('profiles');
@@ -330,6 +353,37 @@ describe('POST /api/v1/public/bug-reports — abuse limits', () => {
     const json = await res.json();
     expect(json.error.code).toBe('RATE_LIMITED');
     expect(state.inserted).toHaveLength(0);
+  });
+
+  it('stops one caller at its own daily cap before the app cap', async () => {
+    state.callerCount = 20;
+    const res = await post(INTAKE_KEY);
+    expect(res.status).toBe(429);
+    expect((await res.json()).error.message).toMatch(/You have sent many/);
+    expect(state.inserted).toHaveLength(0);
+  });
+
+  it('fails closed (503) when the cap cannot be counted', async () => {
+    state.countError = { message: 'db down' };
+    const res = await post(INTAKE_KEY);
+    expect(res.status).toBe(503);
+    expect(state.inserted).toHaveLength(0);
+  });
+
+  it('answers a retry with the bug already filed even when the app is at its cap', async () => {
+    state.todayCount = 300;
+    state.recent = [{ id: 'bug-0', display_id: 'BUG-009000', description: 'd', category: 'bug', status: 'new', page_url: 'p', screenshot_url: null, created_at: 't' }];
+    const res = await post(INTAKE_KEY);
+    expect(res.status).toBe(200);
+    expect((await res.json()).data.bug_report.id).toBe('bug-0');
+  });
+
+  it('when two identical submits race, the loser answers with the winner', async () => {
+    state.insertError = { message: 'duplicate key value violates unique constraint "uq_bug_reports_intake_dedup"' };
+    state.winner = [{ id: 'bug-w', display_id: 'BUG-009002', description: 'd', category: 'bug', status: 'new', page_url: 'p', screenshot_url: null, created_at: 't' }];
+    const res = await post(INTAKE_KEY);
+    expect(res.status).toBe(200);
+    expect((await res.json()).data.bug_report.id).toBe('bug-w');
   });
 
   it('answers a double-submit with the bug already filed, inserting nothing', async () => {

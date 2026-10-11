@@ -28,10 +28,18 @@
  * Linking a sibling bug to a person waits for a server-signed identity from
  * the app. This route is submit-only; there are no read routes for this key.
  *
- * Abuse limits: per-IP rate limit before any lookup (sibling-intake-auth.ts),
- * a shared per-app cap of MAX_REPORTS_PER_APP_PER_DAY counted in the database,
- * and a double-submit guard (same app, page and description within
- * DUPLICATE_WINDOW_MS returns the bug already filed).
+ * Abuse limits, in this order:
+ *   1. per-IP rate limit before any lookup (sibling-intake-auth.ts; in-memory)
+ *   2. double-submit guard: metadata.intake_dedup_key hashes app, reporter
+ *      email, page, title, description and a DUPLICATE_WINDOW_MS window. A
+ *      repeat is answered with the bug already filed, before any cap, so a
+ *      genuine retry is never refused. The unique index uq_bug_reports_intake_dedup
+ *      makes two simultaneous submits collide, and the loser returns the winner.
+ *   3. per-caller daily cap (MAX_REPORTS_PER_IP_PER_APP_PER_DAY), counted in the
+ *      database on metadata.client_ip_hash, so a handful of callers cannot use
+ *      up an app's whole daily allowance
+ *   4. per-app daily cap (MAX_REPORTS_PER_APP_PER_DAY), counted in the database
+ * Both counts fail CLOSED (503) if the database cannot answer.
  *
  * module_name on bug_reports is a GENERATED column (computed from page_url,
  * 20260906213000) and cannot be written. The app a bug came from is in
@@ -41,6 +49,7 @@
 export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from 'next/server';
+import { createHash } from 'crypto';
 import { z } from 'zod';
 import { extractRequestMeta, logApiUsage } from '@/lib/api-keys/audit-logger';
 import { logger } from '@/lib/utils/enhanced-logger';
@@ -62,6 +71,7 @@ const MAX_CONSOLE_LOGS = 200;
 const MAX_NETWORK_TRACE = 50;
 const MAX_CLIENT_METADATA_CHARS = 20_000;
 const MAX_REPORTS_PER_APP_PER_DAY = 300;
+const MAX_REPORTS_PER_IP_PER_APP_PER_DAY = 20;
 const DUPLICATE_WINDOW_MS = 2 * 60 * 1000;
 
 const bodySchema = z.object({
@@ -169,56 +179,87 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     screenshot = decoded;
   }
 
-  // ── 4. Shared caps: per-app daily total, then the double-submit guard ───
+  const reporterEmail = normalizeReporterEmail(body.reporter_email);
+
+  // ── 4. Double-submit guard, then the daily caps (see the header) ─────────
+  const sha = (text: string) => createHash('sha256').update(text).digest('hex');
+  const windowNo = Math.floor(Date.now() / DUPLICATE_WINDOW_MS);
+  const dedupKey = (win: number) =>
+    sha([app.id, reporterEmail ?? '', body.page_url, body.title, body.description, String(win)].join('\u0000'));
+  const currentKey = dedupKey(windowNo);
+
+  const answer = (bug: Record<string, any>, status: number) => {
+    audit(status);
+    return NextResponse.json(
+      {
+        success: true,
+        data: {
+          bug_report: {
+            id: bug.id,
+            display_id: bug.display_id ?? null,
+            title: body.title,
+            description: bug.description,
+            category: bug.category,
+            status: bug.status,
+            page_url: bug.page_url,
+            screenshot_url: bug.screenshot_url ?? null,
+            created_at: bug.created_at,
+          },
+          message: 'Bug report submitted successfully. Thank you for your report!',
+        },
+      },
+      { status, headers: intakeCorsHeaders }
+    );
+  };
+  const DEDUP_SELECT = 'id, display_id, description, category, status, page_url, screenshot_url, created_at';
+
+  const { data: recent, error: recentError } = await supabase
+    .from('bug_reports')
+    .select(DEDUP_SELECT)
+    .eq('application_id', app.id)
+    .in('metadata->>intake_dedup_key', [currentKey, dedupKey(windowNo - 1)])
+    .limit(1);
+  if (recentError) {
+    logger.warn(LOG_MODULE, 'Double-submit lookup failed; relying on the unique index', recentError);
+  } else if (recent && recent.length > 0) {
+    // A double-click or an SDK retry by the same reporter: the bug already filed.
+    return answer(recent[0], 200);
+  }
+
   const dayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+  const clientIpHash = ipAddress ? sha(`${app.id}:${ipAddress}`) : null;
+  if (clientIpHash) {
+    const { count: callerCount, error: callerError } = await supabase
+      .from('bug_reports')
+      .select('id', { count: 'exact', head: true })
+      .eq('application_id', app.id)
+      .eq('metadata->>client_ip_hash', clientIpHash)
+      .gte('created_at', dayAgo);
+    if (callerError) {
+      logger.error(LOG_MODULE, 'Per-caller cap count failed; refusing', callerError);
+      audit(503);
+      return fail('UNAVAILABLE', 'Could not accept the report right now. Please try again shortly.', 503);
+    }
+    if ((callerCount ?? 0) >= MAX_REPORTS_PER_IP_PER_APP_PER_DAY) {
+      audit(429);
+      return fail('RATE_LIMITED', 'You have sent many bug reports today. Please try again tomorrow.', 429);
+    }
+  }
+
   const { count: todayCount, error: countError } = await supabase
     .from('bug_reports')
     .select('id', { count: 'exact', head: true })
     .eq('application_id', app.id)
     .gte('created_at', dayAgo);
   if (countError) {
-    logger.warn(LOG_MODULE, 'Daily cap count failed; filing anyway', countError);
-  } else if ((todayCount ?? 0) >= MAX_REPORTS_PER_APP_PER_DAY) {
+    logger.error(LOG_MODULE, 'Daily cap count failed; refusing', countError);
+    audit(503);
+    return fail('UNAVAILABLE', 'Could not accept the report right now. Please try again shortly.', 503);
+  }
+  if ((todayCount ?? 0) >= MAX_REPORTS_PER_APP_PER_DAY) {
     audit(429);
     return fail('RATE_LIMITED', 'This app has sent too many bug reports today. Please try again tomorrow.', 429);
   }
-
-  const windowStart = new Date(Date.now() - DUPLICATE_WINDOW_MS).toISOString();
-  const { data: recent } = await supabase
-    .from('bug_reports')
-    .select('id, display_id, description, category, status, page_url, screenshot_url, created_at')
-    .eq('application_id', app.id)
-    .eq('page_url', body.page_url)
-    .eq('description', body.description)
-    .gte('created_at', windowStart)
-    .limit(1);
-  if (recent && recent.length > 0) {
-    // A double-click or an SDK retry: answer with the bug already filed.
-    const dup = recent[0];
-    audit(200);
-    return NextResponse.json(
-      {
-        success: true,
-        data: {
-          bug_report: {
-            id: dup.id,
-            display_id: dup.display_id ?? null,
-            title: body.title,
-            description: dup.description,
-            category: dup.category,
-            status: dup.status,
-            page_url: dup.page_url,
-            screenshot_url: dup.screenshot_url ?? null,
-            created_at: dup.created_at,
-          },
-          message: 'Bug report submitted successfully. Thank you for your report!',
-        },
-      },
-      { status: 200, headers: intakeCorsHeaders }
-    );
-  }
-
-  const reporterEmail = normalizeReporterEmail(body.reporter_email);
 
   // ── 5. Insert (display_id comes from the set_bug_display_id trigger) ──────
   const clientMetadata =
@@ -244,6 +285,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       source_app_name: app.name,
       sibling_app_id: app.id,
       title: body.title,
+      intake_dedup_key: currentKey,
+      client_ip_hash: clientIpHash,
       reporter_email: reporterEmail,
       reporter_name: body.reporter_name || null,
       // The key is public: who sent this is a claim, never a proof.
@@ -270,6 +313,17 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       break;
     }
     insertError = result.error;
+    // Two identical submits in one window: the other one won. Answer with it.
+    if (insertError.message.includes('uq_bug_reports_intake_dedup')) {
+      const { data: winner } = await supabase
+        .from('bug_reports')
+        .select(DEDUP_SELECT)
+        .eq('application_id', app.id)
+        .eq('metadata->>intake_dedup_key', currentKey)
+        .limit(1);
+      if (winner && winner.length > 0) return answer(winner[0], 200);
+      break;
+    }
     // Same race the signed-in intake retries: two inserts drew one display_id.
     if (!insertError.message.includes('bug_reports_display_id_key')) break;
     await new Promise((resolve) => setTimeout(resolve, 100 * attempt));
