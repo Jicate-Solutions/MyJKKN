@@ -138,15 +138,26 @@ export function canCancelEvent(
 ): boolean {
   if (viewer.isSuperAdmin) return true;
   if (viewer.role && IS_ADMIN_ROLES.includes(viewer.role)) return true;
-  if (!viewer.userId) return false;
-  const incharges = (event.config as { incharges?: unknown } | null | undefined)?.incharges;
-  if (!Array.isArray(incharges)) return false;
-  return incharges.some(
-    (i) =>
-      !!i &&
-      typeof i === 'object' &&
-      (i as { member_id?: unknown }).member_id === viewer.userId,
-  );
+  // One rule for "is an in-charge": the same exact compare the logistics flag uses.
+  return isEventIncharge(event, viewer.userId);
+}
+
+/**
+ * The two manage flags /events/[id] hands EventLogistics.
+ *
+ * canManage — editors AND the event's in-charges. Boards whose live write gate
+ * admits fn_is_event_incharge use it (budget, sponsors, incidents, committees …).
+ * canEdit   — editors only. Boards whose writes are not tenant-scoped for an
+ * in-charge (USING (true) policies, service-role routes) use it, so an in-charge
+ * appointed from another institution gets no write button there. See
+ * LOGISTICS_INCHARGE_WRITE_AUDIT in components/events/shared/event-logistics.tsx.
+ */
+export function eventLogisticsFlags(
+  event: { config?: unknown } | null | undefined,
+  userId: string | null | undefined,
+  canEdit: boolean,
+): { canManage: boolean; canEdit: boolean } {
+  return { canManage: canEdit || isEventIncharge(event, userId), canEdit };
 }
 
 /**

@@ -212,19 +212,22 @@ export const EVENT_LOGISTICS_TABS: EventLogisticsTab[] = [
 ];
 
 // ── In-charge write audit (PR #4326 review, 11 Oct 2026) ────────────────────
-// /events/[id] passes canManage = canEdit || isEventIncharge(event, uid). Every
-// control below that canManage unlocks was traced to the write it performs and
-// the LIVE gate on that write (pg_policies / pg_get_functiondef / route code,
-// read 11 Oct). Classes:
+// /events/[id] passes canManage = canEdit || isEventIncharge(event, uid) AND
+// canEdit. Every control below that the board's flag unlocks was traced to the
+// write it performs and the LIVE gate on that write (pg_policies /
+// pg_get_functiondef / route code, read 11 Oct). Classes:
 //   ADMITS-INCHARGE  live policy / RPC / route admits fn_is_event_incharge
-//   OPEN             live gate admits any signed-in user (pre-existing hole,
-//                    out of scope here — it is open to in-charges and
-//                    non-in-charges alike)
+//                    for THIS event                          → flag canManage
 //   PERMISSION       gated on a named permission in BOTH the UI and the RPC;
-//                    canManage only narrows it (an editor without the
-//                    permission is refused too), so canEdit would change nothing
-//   EDITOR-ONLY / EVENTS-ROW  would be refused for an in-charge, or writes the
-//                    events row itself → must be fed canEdit instead. NONE found.
+//                    the flag only narrows it               → flag canManage
+//   OPEN             live gate admits any signed-in user, not scoped to the
+//                    event (USING (true), or a service-role route that checks
+//                    sign-in only). An in-charge appointed from another
+//                    institution must not get a write button here → flag canEdit
+//   EDITOR-ONLY / EVENTS-ROW  refused for an in-charge, or writes the events
+//                    row itself (none today)                 → flag canEdit
+// A board takes canEdit if ANY of its controls is OPEN / EDITOR-ONLY /
+// EVENTS-ROW, unless it is listed in INCHARGE_FLAG_ALLOWLIST (empty).
 //
 // board         control                         write target                                   live gate                                          class
 // registrations mark paid / withdraw (tourn.)   PATCH|DELETE /api/events/tournament/:id/entries canManageTournament (perm OR fn_is_event_incharge) ADMITS-INCHARGE
@@ -236,7 +239,7 @@ export const EVENT_LOGISTICS_TABS: EventLogisticsTab[] = [
 // budget        add / edit / delete line        event_budget_items ALL                          event_budget_items_event_team_write (+ lock trg)   ADMITS-INCHARGE
 // budget        attach / remove bill            /api/events/:id/budget-attachment → items UPDATE same policy, via caller's session client          ADMITS-INCHARGE
 // budget        settle line                     rpc fn_settle_event_budget_line                 is_admin OR fn_is_event_incharge OR perms          ADMITS-INCHARGE
-// budget        submit for sign-off             rpc fn_submit_event_budget                      auth.uid() IS NOT NULL (button not on canManage)   OPEN
+// budget        submit for sign-off             rpc fn_submit_event_budget                      auth.uid() IS NOT NULL; button NOT behind the flag  (not flag-gated)
 // budget        approve / reopen / close books  rpc fn_{approve,reopen,close}_event_budget      is_admin OR events.budget.approve (UI: same perm)  PERMISSION
 // committees    create / edit / roster / leads  POST|PUT /api/events/marathon/:id/committees    canManageEventOps (… OR fn_is_event_incharge)      ADMITS-INCHARGE
 // committees    delete committee                event_committees DELETE                         event_committees_event_team_write                  ADMITS-INCHARGE
@@ -253,11 +256,14 @@ export const EVENT_LOGISTICS_TABS: EventLogisticsTab[] = [
 // messages      send                            server action                                   fn_can_manage_event_messages (ignores canManage)   own gate
 //
 // No board writes the events row (no .from('events') write in any board's
-// hook, service or route). So every board keeps the single canManage flag; no
-// per-board flag exists. If a future board is EDITOR-ONLY or EVENTS-ROW, add
-// one and feed that board canEdit — the test in
-// __tests__/events/event-incharge-sees-logistics.test.ts refuses either class
-// while no such flag exists, and refuses any tab missing from this map.
+// hook, service or route).
+//
+// Flag used:  canManage — registrations, sponsors, budget, committees, checkin,
+//                         qr, incidents, kit, analytics, messages
+//             canEdit   — volunteers, certificates, bulk-import
+// (derived by boardManageFlag below; pinned in
+// __tests__/events/event-incharge-sees-logistics.test.ts, which also refuses a
+// registered tab missing from this map.)
 export type InchargeWriteClass =
   | 'admits-incharge'
   | 'open'
@@ -267,11 +273,11 @@ export type InchargeWriteClass =
   | 'editor-only'
   | 'events-row';
 
-/** Per-tab summary of the audit above : every class its controls fall into. */
+/** Per-tab summary of the audit above: every class its flag-gated controls fall into. */
 export const LOGISTICS_INCHARGE_WRITE_AUDIT: Record<string, InchargeWriteClass[]> = {
   registrations: ['admits-incharge', 'read-only'],
   sponsors: ['admits-incharge'],
-  budget: ['admits-incharge', 'open', 'permission'],
+  budget: ['admits-incharge', 'permission'],
   committees: ['admits-incharge'],
   checkin: ['admits-incharge'],
   qr: ['admits-incharge', 'read-only'],
@@ -283,6 +289,35 @@ export const LOGISTICS_INCHARGE_WRITE_AUDIT: Record<string, InchargeWriteClass[]
   kit: ['admits-incharge'],
   messages: ['own-gate'],
 };
+
+/** Classes whose writes an in-charge must not reach through canManage. */
+const EDITOR_FLAG_CLASSES: readonly InchargeWriteClass[] = ['open', 'editor-only', 'events-row'];
+
+/**
+ * Boards deliberately handed canManage despite an OPEN / EDITOR-ONLY /
+ * EVENTS-ROW class. Empty. Adding a key here is a decision for the desk, with
+ * the reason written next to it.
+ */
+export const INCHARGE_FLAG_ALLOWLIST: readonly string[] = [];
+
+/**
+ * Which host flag a board gets. A tab missing from the audit map gets canEdit —
+ * an unaudited board never reaches an in-charge.
+ */
+export function boardManageFlag(tabKey: string): 'canManage' | 'canEdit' {
+  const audited = LOGISTICS_INCHARGE_WRITE_AUDIT[tabKey];
+  if (!audited) return 'canEdit';
+  if (INCHARGE_FLAG_ALLOWLIST.includes(tabKey)) return 'canManage';
+  return audited.some((c) => EDITOR_FLAG_CLASSES.includes(c)) ? 'canEdit' : 'canManage';
+}
+
+/** The canManage value a board actually receives, given the host's two flags. */
+export function boardCanManage(
+  tabKey: string,
+  flags: { canManage: boolean; canEdit: boolean },
+): boolean {
+  return boardManageFlag(tabKey) === 'canEdit' ? flags.canEdit : flags.canManage;
+}
 
 /**
  * Tabs whose boards expose money or incident detail. `canManage={false}` makes
@@ -380,6 +415,7 @@ export function EventLogistics({
   eventId,
   eventType,
   canManage = true,
+  canEdit,
   canEditTasks,
   enabledTools,
   hideSensitiveWithoutManage = false,
@@ -387,6 +423,12 @@ export function EventLogistics({
   eventId: string;
   eventType: string;
   canManage?: boolean;
+  /**
+   * The narrower flag for boards whose writes are not scoped to this event for
+   * an in-charge (see boardManageFlag). Defaults to canManage, so a host that
+   * does not distinguish the two is unchanged.
+   */
+  canEdit?: boolean;
   /** Defaults to canManage — pass true to let non-managers tick committee tasks. */
   canEditTasks?: boolean;
   /**
@@ -410,6 +452,9 @@ export function EventLogistics({
   });
   if (tabs.length === 0) return null;
   const tasksEditable = canEditTasks ?? canManage;
+  // Tab VISIBILITY above stays on canManage, so an in-charge still sees Budget,
+  // Sponsors and Incidents; only each board's write controls use its own flag.
+  const flags = { canManage, canEdit: canEdit ?? canManage };
 
   return (
     <Card className="mt-4">
@@ -431,7 +476,12 @@ export function EventLogistics({
           </TabsList>
           {tabs.map((t) => (
             <TabsContent key={t.key} value={t.key} className="mt-0">
-              {t.render({ eventId, eventType, canManage, canEditTasks: tasksEditable })}
+              {t.render({
+                eventId,
+                eventType,
+                canManage: boardCanManage(t.key, flags),
+                canEditTasks: tasksEditable,
+              })}
             </TabsContent>
           ))}
         </Tabs>

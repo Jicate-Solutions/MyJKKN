@@ -24,10 +24,18 @@ vi.mock('@/lib/supabase/client', () => ({
   getSupabaseClient: () => ({}),
 }));
 
-import { canEditEvent, isEventIncharge } from '@/app/(routes)/events/_components/event-display';
+import {
+  canCancelEvent,
+  canEditEvent,
+  eventLogisticsFlags,
+  isEventIncharge,
+} from '@/app/(routes)/events/_components/event-display';
 import {
   EVENT_LOGISTICS_TABS,
+  INCHARGE_FLAG_ALLOWLIST,
   LOGISTICS_INCHARGE_WRITE_AUDIT,
+  boardCanManage,
+  boardManageFlag,
   visibleLogisticsTabs,
 } from '@/components/events/shared/event-logistics';
 
@@ -79,21 +87,44 @@ describe('isEventIncharge', () => {
   });
 });
 
-/** What /events/[id] computes for the logistics manage flag. */
-function logisticsTabsFor(userId: string) {
+/** What /events/[id] computes for the logistics flags (the page calls this). */
+function flagsFor(userId: string) {
   const canEdit = canEditEvent(olympus, {
     userId,
     institutionId: 'main-office',
     isSuperAdmin: false,
     canEditAny: false,
   });
-  const canManage = canEdit || isEventIncharge(olympus, userId);
+  return eventLogisticsFlags(olympus, userId, canEdit);
+}
+
+function logisticsTabsFor(userId: string) {
   return visibleLogisticsTabs({
     eventType: 'cultural',
-    canManage,
+    canManage: flagsFor(userId).canManage,
     hideSensitiveWithoutManage: true,
   }).map((t) => t.key);
 }
+
+describe('eventLogisticsFlags', () => {
+  it('in-charge who is not an editor: canManage true, canEdit false', () => {
+    expect(flagsFor(COO)).toEqual({ canManage: true, canEdit: false });
+  });
+  it('creator (an editor): both true', () => {
+    expect(flagsFor(CREATOR)).toEqual({ canManage: true, canEdit: true });
+  });
+  it('plain viewer: both false', () => {
+    expect(flagsFor(PLAIN)).toEqual({ canManage: false, canEdit: false });
+  });
+});
+
+describe('canCancelEvent uses the same in-charge rule', () => {
+  it('agrees with isEventIncharge for a non-admin', () => {
+    for (const uid of [COO, PLAIN, CREATOR, COO.toUpperCase(), '', null, undefined]) {
+      expect(canCancelEvent(olympus, { userId: uid })).toBe(isEventIncharge(olympus, uid));
+    }
+  });
+});
 
 describe('the Budget tab on /events/[id]', () => {
   it('appears for an in-charge who is not the creator or an editor', () => {
@@ -110,26 +141,28 @@ describe('the Budget tab on /events/[id]', () => {
     expect(keys).not.toContain('incidents');
   });
 
-  it('the page feeds EventLogistics the in-charge-aware flag, not canEdit', () => {
+  // The page is too heavy to render here; the flag logic is tested above as a
+  // pure helper, so this only checks the wiring: both flags reach the console.
+  it('the page passes both flags from eventLogisticsFlags', () => {
     const src = readFileSync(
       join(process.cwd(), 'app/(routes)/events/[id]/page.tsx'),
       'utf8',
     );
-    expect(src).toMatch(
-      /const canManageLogistics\s*=\s*canEdit\s*\|\|\s*isEventIncharge\(event,\s*profile\?\.id\)/,
-    );
+    expect(src).toContain('eventLogisticsFlags(event, profile?.id, canEdit)');
     const logistics = src.slice(src.indexOf('<EventLogistics'));
     const props = logistics.slice(0, logistics.indexOf('/>'));
-    expect(props).toContain('canManage={canManageLogistics}');
+    expect(props).toContain('canManage={logisticsFlags.canManage}');
+    expect(props).toContain('canEdit={logisticsFlags.canEdit}');
     expect(props).toContain('hideSensitiveWithoutManage');
   });
 });
 
-// PR #4326 review: an in-charge who is not an editor gets canManage=true on
-// every board. That is only safe while every board's writes are admitted for
-// an in-charge by the live gate (or open to everyone anyway). The audit table
-// lives next to the registry in event-logistics.tsx; this pins it.
+// PR #4326 review: the audit table lives next to the registry in
+// event-logistics.tsx; this enforces it. The rendered result is checked in
+// event-logistics-incharge-flags.test.tsx.
 describe('in-charge write audit — board to flag mapping', () => {
+  const IN_CHARGE = { canManage: true, canEdit: false };
+
   it('classifies every registered tab, and nothing else', () => {
     expect(Object.keys(LOGISTICS_INCHARGE_WRITE_AUDIT).sort()).toEqual(
       EVENT_LOGISTICS_TABS.map((t) => t.key).sort(),
@@ -139,38 +172,58 @@ describe('in-charge write audit — board to flag mapping', () => {
     }
   });
 
-  it('has no EDITOR-ONLY or EVENTS-ROW board while EventLogistics has one manage flag', () => {
-    // A board in either class must be fed canEdit, which needs a per-board
-    // flag that does not exist yet. Add the flag before adding the class.
+  it('the allowlist of boards that may break the rule is empty', () => {
+    expect(INCHARGE_FLAG_ALLOWLIST).toEqual([]);
+  });
+
+  it('no OPEN, EDITOR-ONLY or EVENTS-ROW board receives the in-charge flag unless allowlisted', () => {
     const offenders = Object.entries(LOGISTICS_INCHARGE_WRITE_AUDIT)
-      .filter(([, c]) => c.includes('editor-only') || c.includes('events-row'))
-      .map(([k]) => k);
+      .filter(([, c]) => c.some((x) => x === 'open' || x === 'editor-only' || x === 'events-row'))
+      .map(([k]) => k)
+      .filter((k) => !INCHARGE_FLAG_ALLOWLIST.includes(k))
+      .filter((k) => boardCanManage(k, IN_CHARGE));
     expect(offenders).toEqual([]);
   });
 
-  it('hands canManage=true to EVERY board for an in-charge who is not an editor', () => {
-    for (const eventType of ['cultural', 'sports_tournament', 'marathon']) {
-      for (const tab of EVENT_LOGISTICS_TABS) {
-        const el = tab.render({
-          eventId: 'e1',
-          eventType,
-          canManage: true,
-          canEditTasks: true,
-        }) as { props: { canManage?: boolean } };
-        expect(el.props.canManage, `${tab.key} on ${eventType}`).toBe(true);
-      }
-    }
+  it('pins the mapping for an in-charge who is not an editor', () => {
+    const got = Object.fromEntries(
+      EVENT_LOGISTICS_TABS.map((t) => [t.key, boardCanManage(t.key, IN_CHARGE)]),
+    );
+    expect(got).toEqual({
+      registrations: true,
+      sponsors: true,
+      budget: true,
+      committees: true,
+      checkin: true,
+      qr: true,
+      volunteers: false,
+      incidents: true,
+      certificates: false,
+      'bulk-import': false,
+      analytics: true,
+      kit: true,
+      messages: true,
+    });
   });
 
-  it('hands canManage=false to every board for a plain viewer', () => {
-    for (const tab of EVENT_LOGISTICS_TABS) {
-      const el = tab.render({
-        eventId: 'e1',
-        eventType: 'cultural',
-        canManage: false,
-        canEditTasks: false,
-      }) as { props: { canManage?: boolean } };
-      expect(el.props.canManage, tab.key).toBe(false);
+  it('an unaudited board gets canEdit, never the in-charge flag', () => {
+    expect(boardManageFlag('some-new-board')).toBe('canEdit');
+    expect(boardCanManage('some-new-board', IN_CHARGE)).toBe(false);
+  });
+
+  it('every tab render passes the canManage it is given straight to its board', () => {
+    for (const eventType of ['cultural', 'sports_tournament', 'marathon']) {
+      for (const tab of EVENT_LOGISTICS_TABS) {
+        for (const value of [true, false]) {
+          const el = tab.render({
+            eventId: 'e1',
+            eventType,
+            canManage: value,
+            canEditTasks: value,
+          }) as { props: { canManage?: boolean } };
+          expect(el.props.canManage, `${tab.key} on ${eventType}`).toBe(value);
+        }
+      }
     }
   });
 });
