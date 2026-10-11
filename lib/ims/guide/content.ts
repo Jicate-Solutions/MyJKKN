@@ -148,21 +148,22 @@ export const GUIDES: GuideBook = {
           title: "Receive goods into the store (GRN)",
           steps: [
             {
-              action: "When a supplier delivers, open **Stock · GRN · New** to record it.",
-              detail: "GRN means Goods Received Note. Pick the supplier, add each item, its quantity, batch number, and expiry date.",
+              // IMS goods receipts are retired (Director decision D1, 2026-10-10).
+              action: "When a supplier delivers, open **Procurement → Deliveries** and record it against its purchase order.",
+              detail: "GRN means Goods Received Note. New deliveries are no longer recorded under IMS Stock · GRN — pick the purchase order, then enter each item's quantity, batch number, expiry date and the supplier's invoice number.",
               prerequisite:
-                "The supplier must already exist in Settings before you can record their delivery. If they're missing, ask your IMS admin to add them.",
+                "The delivery must be against a purchase order raised in Procurement. If there is none, ask your purchase team.",
               platforms: {
-                web: "left sidebar → IMS → Stock · GRN → New",
-                mobile: "tap the menu → IMS → Stock · GRN · New",
+                web: "Procurement → Deliveries (the link below opens it)",
+                mobile: "Procurement → Deliveries (the link below opens it)",
               },
-              link: { label: "Create a GRN", href: "/ims/stock/grn/new" },
+              link: { label: "Record a delivery", href: "/procurement/grn" },
             },
             {
-              action: "**Receive (post)** the GRN once you've checked the delivery against the note.",
-              detail: "Posting the GRN is what actually adds the goods to your stock count. Until you post it, the stock total does not move.",
-              tip: "Count the physical delivery before you post. A wrong GRN throws off every report downstream.",
-              link: { label: "Open all GRNs", href: "/ims/stock/grn" },
+              action: "**Check & add to stock** once the delivery has been checked against the bill.",
+              detail: "A person with verify rights checks the delivery. That is what adds the goods to your stock count. Until then, the stock total does not move.",
+              tip: "Count the physical delivery before it is checked. A wrong delivery record throws off every report downstream. Older IMS receipts can still be viewed under Stock · GRN.",
+              link: { label: "Open deliveries", href: "/procurement/grn" },
             },
           ],
         },

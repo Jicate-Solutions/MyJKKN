@@ -1,12 +1,32 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { useAuth } from '@/hooks/use-auth';
 import { usePurchaseOrder } from '@/hooks/procurement/use-purchase-orders';
 import { useCreateGrn } from '@/hooks/procurement/use-grns';
 import { matchLine } from '@/lib/services/procurement/three-way-match';
+import {
+  expiredLineBlocks,
+  expiryState,
+  findDuplicateGrns,
+  INVOICE_NUMBER_FORMAT_MESSAGE,
+  invoiceAgeCheck,
+  invoiceNumberFormatOk,
+  lateReasonMissing,
+  isReusableInvoiceRead,
+  mergeInvoiceRead,
+  nextInvoicePollStep,
+  READ_FAILED_NOTICE,
+  type ReadInvoiceLine,
+} from '@/lib/services/procurement/invoice-checks';
+import { ProcurementGrnService, type SupplierInvoiceGrn } from '@/lib/services/procurement/grn-service';
+import { getPolicyInt } from '@/lib/policies/get-policy-client';
+import { POLICY_KEYS } from '@/lib/policies/keys';
+import { formatDateDMY, istBusinessDate } from '@/lib/utils/date-format';
 import { GRN_MATCH_CONFIG, type GrnLineInput } from '@/types/procurement';
 import { DetailHeader } from '@/components/procurement/detail-header';
+import { DuplicateInvoiceCompare } from '@/components/procurement/duplicate-invoice-compare';
 import { FormActionBar } from '@/components/procurement/form-action-bar';
 import { StatusBadge } from '@/components/procurement/status-badge';
 import { Button } from '@/components/ui/button';
@@ -26,10 +46,11 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
-import { ChevronDown, ChevronRight, Sparkles } from 'lucide-react';
+import { ChevronDown, ChevronRight, RotateCcw, Sparkles } from 'lucide-react';
 import { BeatLoader } from 'react-spinners';
 import { toast } from 'sonner';
 import { errorMessage } from '@/lib/utils/supabase-error';
+import { cn } from '@/lib/utils';
 
 // One editable row of the receiving form. Seeded from a PO line; the receiver fills
 // in what actually arrived. ordered_remaining = PO ordered − already received.
@@ -39,6 +60,40 @@ interface LineDraft extends GrnLineInput {
   unit_label: string | null;
   po_unit_price: number | null;
 }
+
+/** What the ₹0 Max-lane invoice reader returns (result contract, spec from PR #4289). */
+interface InvoiceReadResult {
+  from_scan?: boolean;
+  invoice?: {
+    invoice_number?: string | null;
+    invoice_date?: string | null;
+    invoice_amount?: number | null;
+    supplier_name_on_invoice?: string | null;
+  } | null;
+  lines?: ReadInvoiceLine[];
+  unmatched_note?: string | null;
+}
+
+/** How an AI-read value is presented until a person edits (= confirms) it. */
+type AiMark = 'ai' | 'uncertain';
+
+// Poll cadence while the form is open.
+const EXTRACT_POLL_MS = 2_000;
+// Nobody claimed the job in this long: the office AI machine is off or busy. Same
+// window the other Max-lane features use. The job is left alone so a late read can
+// still notify the uploader.
+const EXTRACT_UNCLAIMED_MS = 120_000;
+// A runner took the job but never finished: stop spinning eventually.
+const EXTRACT_GIVE_UP_MS = 180_000;
+// Deep-panel round 3 (U-M2): no single request may hold the read up. A status check is
+// small (15 s); starting the read uploads the PDF, up to 15 MB (60 s).
+const INVOICE_STATUS_TIMEOUT_MS = 15_000;
+const INVOICE_START_TIMEOUT_MS = 60_000;
+/** In-code fallback for procurement.invoice.near_expiry_days (platform_policies). */
+const NEAR_EXPIRY_DEFAULT_DAYS = 30;
+
+const LATE_RESULT_HINT =
+  ' If it is read later you will be notified — choosing the same PDF again then fills the form from it.';
 
 export interface GrnFormProps {
   poId: string;
@@ -72,6 +127,54 @@ export function GrnForm({ poId, onSaved, onCancel, compact, onDirtyChange }: Grn
   const [invoiceFile, setInvoiceFile] = useState<File | null>(null);
   const [reading, setReading] = useState(false);
   const [uploading, setUploading] = useState(false);
+
+  // ── AI invoice read (₹0 Max lane) ─────────────────────────────────────────
+  // Enqueued and followed while the form is open. There is no paid fallback for
+  // invoices: if the office AI machine does not pick it up, the person types it in.
+  const [extractJobId, setExtractJobId] = useState<string | null>(null);
+  // E3 (Director 2026-10-10 afternoon): a reading of THIS file has been filled in, so
+  // "Read again" is offered. Cleared when another file is picked.
+  const [readFilled, setReadFilled] = useState(false);
+  // A plain notice (never an error toast) when AI reading is not available.
+  const [aiNotice, setAiNotice] = useState<string | null>(null);
+  // Which fields the AI filled — keys 'invoice_number' | 'invoice_date' |
+  // 'invoice_amount' | 'line:<po_item_id>'. Cleared the moment a person edits one.
+  const [aiFilled, setAiFilled] = useState<Record<string, AiMark>>({});
+  const [aiFromScan, setAiFromScan] = useState(false);
+  const [aiNote, setAiNote] = useState<string | null>(null);
+  // I3: invoice lines that are not on this order. Shown, never added to the receipt.
+  const [notOrdered, setNotOrdered] = useState<ReadInvoiceLine[]>([]);
+  // Invoice lines billed a second time against an order line already filled from the
+  // invoice. Shown so their quantity is never silently dropped; never added either.
+  const [alsoBilled, setAlsoBilled] = useState<ReadInvoiceLine[]>([]);
+  // Deep-panel M1: which picked file a read belongs to. Bumped every time a file is
+  // picked; a read started for an earlier file (its POST answer, its queued job, its
+  // late result) is dropped instead of filling the form from the wrong invoice.
+  const fileGen = useRef(0);
+  const jobGen = useRef(0);
+  // Order lines the person has edited. A late AI result never overwrites them.
+  const touchedLines = useRef<Set<string>>(new Set());
+  // I4: why an invoice older than the receiver's limit is being accepted.
+  const [lateReason, setLateReason] = useState('');
+  // I1: earlier receipts with the same invoice number from this supplier.
+  const [duplicateOf, setDuplicateOf] = useState<SupplierInvoiceGrn[] | null>(null);
+  const [checkingDuplicate, setCheckingDuplicate] = useState(false);
+
+  // I2 near-expiry window — a platform_policies setting, not a constant.
+  const { data: nearExpiryDays = NEAR_EXPIRY_DEFAULT_DAYS } = useQuery({
+    queryKey: ['platform-policy', POLICY_KEYS.PROCUREMENT_INVOICE_NEAR_EXPIRY_DAYS],
+    queryFn: () =>
+      getPolicyInt(POLICY_KEYS.PROCUREMENT_INVOICE_NEAR_EXPIRY_DAYS, NEAR_EXPIRY_DEFAULT_DAYS),
+    staleTime: 10 * 60_000,
+  });
+
+  const clearAiMark = (key: string) =>
+    setAiFilled((p) => {
+      if (!p[key]) return p;
+      const next = { ...p };
+      delete next[key];
+      return next;
+    });
 
   // What the receiver EXPECTS on this invoice. Declared before the check runs, so the
   // comparison is measured against their intent instead of a hardcoded threshold. These
@@ -134,11 +237,131 @@ export function GrnForm({ poId, onSaved, onCancel, compact, onDirtyChange }: Grn
   }, [po, lines]);
 
   const update = (idx: number, patch: Partial<LineDraft>) => {
+    const id = drafts[idx]?.po_item_id;
+    if (id) {
+      clearAiMark(`line:${id}`);
+      touchedLines.current.add(id);
+    }
     setLines((prev) => {
       const base = prev ?? drafts;
       return base.map((l, i) => (i === idx ? { ...l, ...patch } : l));
     });
   };
+
+  // Fill the form from a finished read. Every value lands in an editable field, marked
+  // as AI-filled until a person edits it. Whether a line is ordered, expired or a
+  // duplicate is decided by invoice-checks.ts, never by the model. What the person
+  // typed always wins over the read — see mergeInvoiceRead.
+  const applyExtraction = useCallback(
+    (result: InvoiceReadResult | null | undefined) => {
+      if (!po) return;
+      const r = result ?? {};
+      const m = mergeInvoiceRead({
+        header: { invoice_number: invoiceNumber, invoice_date: invoiceDate, invoice_amount: invoiceAmount },
+        aiMarked: aiFilled,
+        lines: drafts,
+        touched: touchedLines.current,
+        invoice: r.invoice,
+        readLines: r.lines,
+      });
+      if (m.header.invoice_number != null) setInvoiceNumber(m.header.invoice_number);
+      if (m.header.invoice_date != null) setInvoiceDate(m.header.invoice_date);
+      if (m.header.invoice_amount != null) setInvoiceAmount(m.header.invoice_amount);
+      setLines(m.lines);
+      setAiFilled(m.marks);
+      setNotOrdered(m.notOrdered);
+      setAlsoBilled(m.duplicates);
+      setAiFromScan(r.from_scan === true);
+      setAiNote([r.unmatched_note?.trim(), ...m.unreadable].filter(Boolean).join(' · ') || null);
+      setAiNotice(null);
+
+      const matched = m.matched;
+      toast.success(
+        `Read ${matched} of ${po.items.length} line${matched === 1 ? '' : 's'} — check every AI-marked value before recording` +
+          (m.notOrdered.length ? ` · ${m.notOrdered.length} not on this order` : '') +
+          (m.duplicates.length ? ` · ${m.duplicates.length} billed again on a line` : '') +
+          (m.kept ? ` · kept ${m.kept} value${m.kept === 1 ? '' : 's'} you typed` : '')
+      );
+    },
+    [po, drafts, aiFilled, invoiceNumber, invoiceDate, invoiceAmount]
+  );
+  // The poll below reads the latest applyExtraction through a ref, so typing in the
+  // form does not restart its timers.
+  const applyRef = useRef(applyExtraction);
+  useEffect(() => {
+    applyRef.current = applyExtraction;
+  }, [applyExtraction]);
+
+  // Follow the read while the form is open. pending past EXTRACT_UNCLAIMED_MS = the
+  // office machine is not serving the lane: tell the person to type it in and stop
+  // waiting, but leave the job queued so a late read still notifies them.
+  useEffect(() => {
+    if (!extractJobId) return;
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout>;
+    const startedAt = Date.now();
+    let lastStatus: string | null = null;
+
+    const stop = (notice: string | null) => {
+      if (notice) setAiNotice(notice);
+      setExtractJobId(null);
+    };
+
+    const tick = async () => {
+      if (cancelled) return;
+      // M1: a job started for a file that is no longer selected is never applied.
+      if (jobGen.current !== fileGen.current) return stop(null);
+      let status: string | null = null;
+      let result: unknown;
+      try {
+        // Deep-panel round 3 (U-M2): a hung request is cut off, so it reaches the give-up
+        // windows below like any other failed check instead of stopping the poll forever.
+        const res = await fetch(
+          `/api/procurement/grn/extract-invoice/status?job_id=${encodeURIComponent(extractJobId)}`,
+          { signal: AbortSignal.timeout(INVOICE_STATUS_TIMEOUT_MS) }
+        );
+        const json = await res.json();
+        if (typeof json?.status === 'string') {
+          status = json.status;
+          result = json.result;
+        }
+      } catch {
+        // Transient network error — judged below like any other check, so the give-up
+        // windows still run.
+      }
+      if (cancelled || jobGen.current !== fileGen.current) return;
+      if (status) lastStatus = status;
+
+      // M2: decided OUTSIDE the try, so nothing a check returns or throws can make the
+      // form poll forever. A malformed finished read stops with the "type it in" notice.
+      const step = nextInvoicePollStep({
+        status,
+        result,
+        lastStatus,
+        waitedMs: Date.now() - startedAt,
+        unclaimedMs: EXTRACT_UNCLAIMED_MS,
+        giveUpMs: EXTRACT_GIVE_UP_MS,
+      });
+      if (step.kind === 'apply') {
+        try {
+          applyRef.current(result as InvoiceReadResult);
+          setReadFilled(true);
+          return stop(null);
+        } catch (e) {
+          console.error('[procurement grn-form] could not apply the invoice read:', e);
+          return stop(READ_FAILED_NOTICE);
+        }
+      }
+      if (step.kind === 'stop') return stop(step.notice + (step.late ? LATE_RESULT_HINT : ''));
+      if (!cancelled) timer = setTimeout(tick, EXTRACT_POLL_MS);
+    };
+
+    timer = setTimeout(tick, EXTRACT_POLL_MS);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [extractJobId]);
 
   const num = (v: string) => (v === '' ? 0 : Number(v));
 
@@ -184,19 +407,27 @@ export function GrnForm({ poId, onSaved, onCancel, compact, onDirtyChange }: Grn
   // already at the dock, so an odd date must never block recording what arrived. It exists to
   // catch a back-dated or stale bill before it is accepted, not to stop receipt.
   const poDate = po.created_at?.slice(0, 10) ?? null;
-  const invoiceAgeDays =
-    invoiceDate && !Number.isNaN(Date.parse(invoiceDate))
-      ? Math.floor((Date.now() - Date.parse(invoiceDate)) / 86_400_000)
-      : null;
+  // Deep-panel round 3 (S-M4): the IST business day, as the service and the database use —
+  // never the device's own calendar.
+  const today = istBusinessDate();
+  // I4 — older than the receiver's limit: warn AND require a reason (invoice-checks.ts).
+  const invoiceAge = invoiceAgeCheck(invoiceDate || null, today, expectations.max_invoice_age_days);
   const invoiceDateWarning: string | null = !invoiceDate
     ? null
     : poDate && invoiceDate < poDate
       ? `This invoice is dated before the order (${poDate}) — check you have the right bill.`
-      : expectations.max_invoice_age_days &&
-          invoiceAgeDays != null &&
-          invoiceAgeDays > expectations.max_invoice_age_days
-        ? `This invoice is ${invoiceAgeDays} days old — you expected one within ${expectations.max_invoice_age_days} days.`
+      : invoiceAge.tooOld
+        ? `This invoice is ${invoiceAge.ageDays} days old — you expected one within ${expectations.max_invoice_age_days} days.`
         : null;
+  const needsLateReason = invoiceAge.tooOld;
+  const lateReasonGap = lateReasonMissing(
+    invoiceDate || null,
+    today,
+    expectations.max_invoice_age_days,
+    lateReason
+  );
+  // I2 — expired goods being accepted block the save.
+  const expiredCount = drafts.filter((l) => expiredLineBlocks(l, today)).length;
 
   /** A line the receiver's traceability rule leaves incomplete. */
   const missingTrace = (l: LineDraft) =>
@@ -221,72 +452,69 @@ export function GrnForm({ poId, onSaved, onCancel, compact, onDirtyChange }: Grn
   const traceGapCount = scored.filter((s) => s.trace).length;
   const cleanCount = scored.filter((s) => !s.flagged && !s.trace).length;
 
-  // Read the uploaded invoice PDF via Claude and pre-fill the header + line fields.
-  const handleReadInvoice = async () => {
+  // Hand the invoice PDF to the ₹0 Max lane. This starts the read and returns; the
+  // effect above follows it. "Not available" is a notice, not an error.
+  // E3: { readAgain: true } asks the server for a FRESH read of the same PDF, skipping the
+  // stored-result reuse for this request only. Same free lane; still deduped while queued;
+  // a switched-off lane still answers with the plain "type it in" notice.
+  const handleReadInvoice = async ({ readAgain = false }: { readAgain?: boolean } = {}) => {
     if (!invoiceFile || !po) return;
+    // M1: if another file is picked while this request is out, its answer is dropped.
+    const gen = fileGen.current;
+    const stale = () => gen !== fileGen.current;
     setReading(true);
+    setAiNotice(null);
     try {
       const fd = new FormData();
       fd.append('file', invoiceFile);
-      fd.append('items', JSON.stringify(po.items.map((i) => ({ id: i.id, item_name: i.item_name }))));
-      // The reader is told what this receiver expects, so the extraction is checked against
-      // their intent rather than read in a vacuum.
+      fd.append('po_id', po.id);
+      if (readAgain) fd.append('read_again', '1');
+      fd.append(
+        'items',
+        JSON.stringify(
+          po.items.map((i) => ({
+            id: i.id,
+            item_name: i.item_name,
+            item_spec: i.item_spec,
+            ordered_quantity: i.ordered_quantity,
+            unit_label: i.unit_label,
+          }))
+        )
+      );
+      // The reader is told what this receiver expects (watch-for, batch/expiry hunt).
       fd.append('expectations', JSON.stringify(expectations));
-      const res = await fetch('/api/procurement/grn/extract-invoice', { method: 'POST', body: fd });
-      const json = await res.json();
+      // U-M2: the upload (up to 15 MB) gets a longer cut-off; a hung one ends in the error
+      // toast and frees the Read buttons instead of leaving "Reading invoice…" forever.
+      const res = await fetch('/api/procurement/grn/extract-invoice', {
+        method: 'POST',
+        body: fd,
+        signal: AbortSignal.timeout(INVOICE_START_TIMEOUT_MS),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (stale()) return;
       if (!res.ok) throw new Error(json.error || 'Invoice reading failed');
 
-      const { header, lines: extracted, matched, unmatched } = json as {
-        header: { invoice_number: string | null; invoice_date: string | null; invoice_total: number | null };
-        lines: Array<{
-          po_item_id: string | null;
-          quantity: number;
-          unit_price: number;
-          batch_number: string | null;
-          expiry_date: string | null;
-          manufacturing_date: string | null;
-        }>;
-        matched: number;
-        unmatched: string[];
-      };
-
-      if (header?.invoice_number) setInvoiceNumber(header.invoice_number);
-      if (header?.invoice_date) setInvoiceDate(header.invoice_date);
-      if (header?.invoice_total != null) setInvoiceAmount(String(header.invoice_total));
-
-      const byPo = new Map(extracted.filter((l) => l.po_item_id).map((l) => [l.po_item_id as string, l]));
-      setLines((prev) => {
-        const base = prev ?? drafts;
-        return base.map((l) => {
-          const ex = byPo.get(l.po_item_id);
-          if (!ex) return l;
-          const qty = Number(ex.quantity) || 0;
-          return {
-            ...l,
-            invoice_quantity: qty,
-            received_quantity: qty,
-            accepted_quantity: qty,
-            rejected_quantity: 0,
-            batch_number: ex.batch_number ?? l.batch_number,
-            expiry_date: ex.expiry_date ?? l.expiry_date,
-            manufacturing_date: ex.manufacturing_date ?? l.manufacturing_date,
-            cost: ex.unit_price ?? l.cost,
-          };
-        });
-      });
-
-      toast.success(
-        `Read ${matched} of ${po.items.length} line${matched === 1 ? '' : 's'} — review before confirming` +
-          (unmatched?.length ? ` · ${unmatched.length} unmatched` : '')
-      );
+      if (json.unavailable) {
+        setAiNotice(json.error || 'AI invoice reading is not available — please type the invoice details in.');
+        return;
+      }
+      if (json.reused && isReusableInvoiceRead(json.result)) {
+        applyExtraction(json.result as InvoiceReadResult);
+        setReadFilled(true);
+        toast.info('Reused an earlier reading of this same invoice PDF. Use “Read again” for a fresh one.');
+        return;
+      }
+      if (typeof json.job_id !== 'string') throw new Error('Could not start the AI reading.');
+      jobGen.current = gen;
+      setExtractJobId(json.job_id);
     } catch (e) {
-      toast.error(errorMessage(e, 'Could not read the invoice'));
+      if (!stale()) toast.error(errorMessage(e, 'Could not read the invoice'));
     } finally {
-      setReading(false);
+      if (!stale()) setReading(false);
     }
   };
 
-  const submit = async () => {
+  const submit = async (opts: { heldDuplicate?: boolean } = {}) => {
     setTriedSubmit(true);
     const payload = drafts
       .filter((l) => Number(l.received_quantity) > 0)
@@ -328,8 +556,15 @@ export function GrnForm({ poId, onSaved, onCancel, compact, onDirtyChange }: Grn
 
     // Supplier invoice is mandatory — the GRN records goods received against a billed
     // invoice, and the three-way match needs it to compare against.
-    if (!invoiceNumber.trim()) {
+    const invoiceNo = invoiceNumber.trim();
+    if (!invoiceNo) {
       toast.error('Invoice number is required.');
+      return;
+    }
+    // D3 (Director 2026-10-10): letters, digits, "-" and "/" only — retyped, never
+    // silently cleaned (an AI-read number with a space fails here too).
+    if (!invoiceNumberFormatOk(invoiceNo)) {
+      toast.error(INVOICE_NUMBER_FORMAT_MESSAGE);
       return;
     }
     if (!invoiceDate) {
@@ -346,6 +581,49 @@ export function GrnForm({ poId, onSaved, onCancel, compact, onDirtyChange }: Grn
           `Batch no. and expiry are required on every line — ${incomplete.length} still incomplete.`
         );
         return;
+      }
+    }
+
+    // I2 — expired goods cannot be accepted into stock.
+    if (expiredCount) {
+      toast.error(
+        `${expiredCount} line(s) have already expired — reject them or correct the expiry date.`
+      );
+      return;
+    }
+
+    // I4 — an invoice older than the limit you set needs a reason.
+    if (lateReasonGap) {
+      toast.error('Say why this old invoice is being accepted.');
+      return;
+    }
+
+    // I1 — the same invoice number from this supplier already recorded: stop and show
+    // the earlier one. The person may still record it, on hold (Director: held save) —
+    // verify is refused until a verifier other than them confirms it is different.
+    // Deep-panel round 3 (U-L3): whether the repeat check below actually ran. A failed
+    // lookup still lets the person save (the receipt page and the verify guard run the same
+    // check before anything goes into stock), but they are told it did not run.
+    let repeatCheckRan = true;
+    if (!opts.heldDuplicate) {
+      setCheckingDuplicate(true);
+      try {
+        const earlier = findDuplicateGrns(
+          await ProcurementGrnService.getSupplierInvoiceGrns(po.supplier_id),
+          po.supplier_id,
+          invoiceNo
+        );
+        if (earlier.length) {
+          setDuplicateOf(earlier);
+          return;
+        }
+      } catch (e) {
+        // The lookup failed. Saving is still safe: the receipt page and the verify guard
+        // run the same check before anything goes into stock.
+        console.error('[procurement grn-form] repeated-invoice check could not run:', e);
+        repeatCheckRan = false;
+      } finally {
+        setCheckingDuplicate(false);
       }
     }
 
@@ -371,17 +649,28 @@ export function GrnForm({ poId, onSaved, onCancel, compact, onDirtyChange }: Grn
       const grn = await createGrn.mutateAsync({
         input: {
           purchase_order_id: po.id,
-          invoice_number: invoiceNumber || null,
+          invoice_number: invoiceNo,
           invoice_date: invoiceDate || null,
           invoice_amount: invoiceAmount ? Number(invoiceAmount) : null,
           invoice_document_url,
           notes: notes || null,
           expectations,
+          late_invoice_reason: needsLateReason ? lateReason.trim() || null : null,
           lines: payload,
         },
         userId: profile!.id,
       });
-      toast.success(`Delivery record ${grn.grn_number} created — pending verification.`);
+      if (opts.heldDuplicate) {
+        toast.success(
+          `Delivery record ${grn.grn_number} saved on hold — a verifier must confirm the invoice number before stock is added.`
+        );
+      } else if (!repeatCheckRan) {
+        toast.warning(
+          `Delivery record ${grn.grn_number} saved. The repeated-invoice check could not run — a verifier will check it before stock is added.`
+        );
+      } else {
+        toast.success(`Delivery record ${grn.grn_number} created — pending verification.`);
+      }
       onDirtyChange?.(false);
       onSaved(grn.id);
     } catch (e) {
@@ -418,7 +707,19 @@ export function GrnForm({ poId, onSaved, onCancel, compact, onDirtyChange }: Grn
                 type="file"
                 accept=".pdf,image/*"
                 className="w-full max-w-xs sm:w-auto"
-                onChange={(e) => setInvoiceFile(e.target.files?.[0] ?? null)}
+                onChange={(e) => {
+                  // M1: a new file starts a new read. Whatever was being read, or was
+                  // found on the previous file, belongs to that file — drop it. Values
+                  // already on the form stay, still marked as AI-read until edited.
+                  fileGen.current += 1;
+                  setInvoiceFile(e.target.files?.[0] ?? null);
+                  setReadFilled(false);
+                  setReading(false);
+                  setExtractJobId(null);
+                  setAiNotice(null);
+                  setNotOrdered([]);
+                  setAlsoBilled([]);
+                }}
               />
               {invoiceFile?.type === 'application/pdf' && (
                 <Button
@@ -426,14 +727,44 @@ export function GrnForm({ poId, onSaved, onCancel, compact, onDirtyChange }: Grn
                   variant="secondary"
                   size="sm"
                   className="h-10 sm:h-9"
-                  onClick={handleReadInvoice}
-                  disabled={reading}
+                  onClick={() => handleReadInvoice()}
+                  disabled={reading || !!extractJobId}
                 >
                   <Sparkles className="mr-1 h-3.5 w-3.5" />
-                  {reading ? 'Reading invoice…' : 'Read invoice (AI)'}
+                  {reading || extractJobId ? 'Reading invoice…' : 'Read invoice (AI)'}
+                </Button>
+              )}
+              {invoiceFile?.type === 'application/pdf' && readFilled && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="h-10 sm:h-9"
+                  onClick={() => handleReadInvoice({ readAgain: true })}
+                  disabled={reading || !!extractJobId}
+                  title="Read this same PDF again instead of reusing the earlier reading"
+                >
+                  <RotateCcw className="mr-1 h-3.5 w-3.5" />
+                  Read again
                 </Button>
               )}
             </div>
+            {extractJobId && (
+              <p role="status" aria-live="polite" className="flex items-center gap-2 text-xs text-muted-foreground">
+                <BeatLoader color="hsl(var(--primary))" size={5} />
+                The office AI machine is reading this invoice. Keep typing if you like — you will
+                also be notified when it is done.
+              </p>
+            )}
+            {aiNotice && (
+              <p role="status" className="text-xs text-foreground">
+                {aiNotice}
+              </p>
+            )}
+            {aiFromScan && (
+              <p className="text-xs text-foreground">Read from a scanned image — check every number.</p>
+            )}
+            {aiNote && <p className="text-xs text-muted-foreground">AI note: {aiNote}</p>}
           </div>
 
           {/*
@@ -535,12 +866,22 @@ export function GrnForm({ poId, onSaved, onCancel, compact, onDirtyChange }: Grn
               <Input
                 id="grn-invoice-no"
                 required
-                className="h-9"
                 value={invoiceNumber}
-                onChange={(e) => setInvoiceNumber(e.target.value)}
-                aria-invalid={triedSubmit && !invoiceNumber.trim()}
+                onChange={(e) => {
+                  setInvoiceNumber(e.target.value);
+                  clearAiMark('invoice_number');
+                }}
+                aria-invalid={
+                  (triedSubmit && !invoiceNumber.trim()) ||
+                  (!!invoiceNumber.trim() && !invoiceNumberFormatOk(invoiceNumber.trim()))
+                }
+                className={cn('h-9', aiFilled.invoice_number && 'border-secondary')}
               />
+              {aiFilled.invoice_number && <AiTag />}
               {triedSubmit && !invoiceNumber.trim() && <p className="text-xs text-destructive">Required.</p>}
+              {!!invoiceNumber.trim() && !invoiceNumberFormatOk(invoiceNumber.trim()) && (
+                <p className="text-xs text-destructive">{INVOICE_NUMBER_FORMAT_MESSAGE}</p>
+              )}
             </div>
             <div className="space-y-1">
               <Label htmlFor="grn-invoice-date" className="text-xs font-semibold">
@@ -550,27 +891,50 @@ export function GrnForm({ poId, onSaved, onCancel, compact, onDirtyChange }: Grn
                 id="grn-invoice-date"
                 type="date"
                 required
-                className="h-9"
                 value={invoiceDate}
-                onChange={(e) => setInvoiceDate(e.target.value)}
+                onChange={(e) => {
+                  setInvoiceDate(e.target.value);
+                  clearAiMark('invoice_date');
+                }}
                 aria-invalid={triedSubmit && !invoiceDate}
+                className={cn('h-9', aiFilled.invoice_date && 'border-secondary')}
               />
+              {aiFilled.invoice_date && <AiTag />}
               {triedSubmit && !invoiceDate && <p className="text-xs text-destructive">Required.</p>}
               {invoiceDateWarning && (
                 <p className="text-[11px] text-foreground">
                   {invoiceDateWarning}
                 </p>
               )}
+              {needsLateReason && (
+                <div className="space-y-1 pt-1">
+                  <Label htmlFor="grn-late-reason" className="text-xs font-semibold">
+                    Why is this old invoice being accepted? <span className="text-destructive">*</span>
+                  </Label>
+                  <Textarea
+                    id="grn-late-reason"
+                    rows={2}
+                    value={lateReason}
+                    onChange={(e) => setLateReason(e.target.value)}
+                    aria-invalid={triedSubmit && lateReasonGap}
+                  />
+                  {triedSubmit && lateReasonGap && <p className="text-xs text-destructive">Required.</p>}
+                </div>
+              )}
             </div>
             <div className="space-y-1">
               <Label htmlFor="grn-invoice-amount" className="text-xs font-semibold">Invoice amount (₹)</Label>
               <Input
                 id="grn-invoice-amount"
-                className="h-9"
+                className={cn('h-9', aiFilled.invoice_amount && 'border-secondary')}
                 type="number"
                 value={invoiceAmount}
-                onChange={(e) => setInvoiceAmount(e.target.value)}
+                onChange={(e) => {
+                  setInvoiceAmount(e.target.value);
+                  clearAiMark('invoice_amount');
+                }}
               />
+              {aiFilled.invoice_amount && <AiTag />}
             </div>
           </div>
           <div className="space-y-1">
@@ -597,14 +961,33 @@ export function GrnForm({ poId, onSaved, onCancel, compact, onDirtyChange }: Grn
               Number(l.accepted_quantity) + Number(l.rejected_quantity) >
               Number(l.received_quantity) + 0.001;
             const traceGap = missingTrace(l);
+            const aiMark = aiFilled[`line:${l.po_item_id}`];
+            const expiry = expiryState(l.expiry_date, today, nearExpiryDays);
+            const expiredBlocks = expiredLineBlocks(l, today);
             return (
-              <div key={l.po_item_id} className="rounded-lg border p-4 space-y-3">
+              <div
+                key={l.po_item_id}
+                className={cn(
+                  'rounded-lg border p-4 space-y-3',
+                  aiMark && 'border-secondary',
+                  aiMark === 'uncertain' && 'bg-secondary/20'
+                )}
+              >
                 <div className="flex items-center justify-between gap-2 sm:gap-3">
                   <div className="min-w-0">
                     <p className="font-medium truncate">{l.item_name}</p>
                     <p className="text-xs text-muted-foreground">
                       Outstanding on order: {l.ordered_remaining} {l.unit_label || ''}
                     </p>
+                    {aiMark && (
+                      <p className="text-xs">
+                        {aiMark === 'uncertain' ? (
+                          <span className="text-foreground">AI not sure this is the right line — check</span>
+                        ) : (
+                          <span className="text-primary">AI · read from the invoice — check before recording</span>
+                        )}
+                      </p>
+                    )}
                   </div>
                   <StatusBadge status={match.match_status} config={GRN_MATCH_CONFIG} />
                 </div>
@@ -773,12 +1156,86 @@ export function GrnForm({ poId, onSaved, onCancel, compact, onDirtyChange }: Grn
                   </p>
                 )}
 
+                {expiredBlocks ? (
+                  <p className="text-xs text-destructive">
+                    Expired on {formatDateDMY(l.expiry_date)} — expired goods cannot be accepted. Reject
+                    them or correct the expiry date.
+                  </p>
+                ) : expiry === 'expired' ? (
+                  <p className="text-xs text-muted-foreground">
+                    Expired on {formatDateDMY(l.expiry_date)} — recorded as rejected.
+                  </p>
+                ) : expiry === 'near_expiry' ? (
+                  <p className="text-xs text-foreground">
+                    Expires on {formatDateDMY(l.expiry_date)} — within {nearExpiryDays} days.
+                  </p>
+                ) : null}
+
                 {match.reason && (
                   <p className="text-xs text-muted-foreground">{match.reason}</p>
                 )}
               </div>
             );
           })}
+
+          {/* I3 — on the invoice but never ordered. Shown for the record; never added. */}
+          {notOrdered.length > 0 && (
+            <div className="rounded-lg border border-dashed p-3 space-y-2">
+              <p className="text-sm font-medium">
+                Not ordered — on the invoice but not on this order ({notOrdered.length})
+              </p>
+              <p className="text-xs text-muted-foreground">
+                These are not added to the delivery. Raise them with the supplier if they were billed.
+              </p>
+              <ul className="space-y-1 text-sm">
+                {notOrdered.map((l, i) => (
+                  <li key={i} className="flex flex-wrap justify-between gap-2">
+                    <span className="min-w-0 break-words">{l.item_name || 'Unnamed line'}</span>
+                    <span className="tabular-nums text-muted-foreground">
+                      {l.invoice_quantity != null ? `× ${l.invoice_quantity}` : ''}
+                      {l.invoice_unit_price != null
+                        ? ` @ ₹${Number(l.invoice_unit_price).toLocaleString('en-IN')}`
+                        : ''}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {/* Billed twice against one order line — only the first filled the form. */}
+          {alsoBilled.length > 0 && (
+            <div className="rounded-lg border border-dashed p-3 space-y-2">
+              <p className="text-sm font-medium">
+                Also billed against a line above ({alsoBilled.length})
+              </p>
+              <p className="text-xs text-muted-foreground">
+                The invoice bills these again on an order line that was already filled from its
+                first entry. They are not added — check that line&apos;s quantity and batch and
+                change them yourself if these also arrived.
+              </p>
+              <ul className="space-y-1 text-sm">
+                {alsoBilled.map((l, i) => (
+                  <li key={i} className="flex flex-wrap justify-between gap-2">
+                    <span className="min-w-0 break-words">
+                      {l.item_name || 'Unnamed line'}
+                      {(() => {
+                        const onPo = po?.items.find((it) => it.id === l.po_item_id)?.item_name;
+                        return onPo ? ` → ${onPo}` : '';
+                      })()}
+                      {l.batch_number ? ` · batch ${l.batch_number}` : ''}
+                    </span>
+                    <span className="tabular-nums text-muted-foreground">
+                      {l.invoice_quantity != null ? `× ${l.invoice_quantity}` : ''}
+                      {l.invoice_unit_price != null
+                        ? ` @ ₹${Number(l.invoice_unit_price).toLocaleString('en-IN')}`
+                        : ''}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
 
           {/* Roll-up against the declared expectations — the answer to "are we good?" */}
           {drafts.length > 0 && (
@@ -806,7 +1263,7 @@ export function GrnForm({ poId, onSaved, onCancel, compact, onDirtyChange }: Grn
               Cancel
             </Button>
           )}
-          <Button className="w-full sm:w-auto" onClick={submit} disabled={createGrn.isPending || uploading}>
+          <Button className="w-full sm:w-auto" onClick={() => void submit()} disabled={createGrn.isPending || uploading || checkingDuplicate}>
             {uploading ? 'Uploading invoice…' : createGrn.isPending ? 'Creating…' : 'Record delivery'}
           </Button>
         </div>
@@ -817,12 +1274,58 @@ export function GrnForm({ poId, onSaved, onCancel, compact, onDirtyChange }: Grn
               Cancel
             </Button>
           )}
-          <Button className="h-11 px-5 sm:h-9" onClick={submit} disabled={createGrn.isPending || uploading}>
+          <Button className="h-11 px-5 sm:h-9" onClick={() => void submit()} disabled={createGrn.isPending || uploading || checkingDuplicate}>
             {uploading ? 'Uploading invoice…' : createGrn.isPending ? 'Creating…' : 'Record delivery'}
           </Button>
         </FormActionBar>
       )}
+
+      {/* I1 — same invoice number from this supplier: stop and show the earlier one. */}
+      <AlertDialog open={!!duplicateOf} onOpenChange={(o) => !o && setDuplicateOf(null)}>
+        <AlertDialogContent className="max-w-2xl">
+          <AlertDialogHeader>
+            <AlertDialogTitle>This invoice number is already recorded</AlertDialogTitle>
+            <AlertDialogDescription>
+              {po.supplier?.name ?? 'This supplier'} has already billed invoice “{invoiceNumber}” on an
+              earlier delivery. Check whether this is the same bill.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <DuplicateInvoiceCompare
+            earlier={duplicateOf ?? []}
+            current={{
+              invoice_number: invoiceNumber || null,
+              invoice_date: invoiceDate || null,
+              invoice_amount: invoiceAmount || null,
+            }}
+          />
+          <p className="text-sm text-muted-foreground">
+            If this really is a different invoice, you can still record the delivery. It is saved
+            on hold: nothing goes into stock until a verifier — not you — opens it, compares the
+            two and confirms they are different invoices.
+          </p>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Go back and check</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                setDuplicateOf(null);
+                void submit({ heldDuplicate: true });
+              }}
+            >
+              Record on hold
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
+  );
+}
+
+/** Marks a value the AI filled, until a person edits it. */
+function AiTag() {
+  return (
+    <span className="inline-flex items-center gap-1 text-[11px] text-primary">
+      <Sparkles className="h-3 w-3" /> AI · check
+    </span>
   );
 }
 
