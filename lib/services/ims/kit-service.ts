@@ -219,16 +219,29 @@ export class ImsKitService {
     // the store-admin Central path). The picker only appears for items with
     // no source, so it defaults to null.
     seen_kit_source?: KitSource | null;
-  }) {
+  }): Promise<{ alreadyInRule: boolean }> {
     const { kit_source, caller_role, caller_is_super_admin, seen_kit_source, ...row } = dto;
     if (kit_source === 'central' && isKitStoreAdmin(caller_role, caller_is_super_admin)) {
       const seen = seen_kit_source ?? null;
       const changed = await this.markCentral(row.rule_id, row.item_id, seen);
+      // #4346 round 3: the item may ALREADY be in this rule (reset, then
+      // Central again; or a second tab/peer added it meanwhile). Then the
+      // source change stands and there is nothing to insert — never revert,
+      // or the rule item is left with no source and the counter refuses it.
+      const { data: existing, error: existingError } = await this.supabase
+        .from('ims_kit_rule_items')
+        .select('id')
+        .eq('rule_id', row.rule_id)
+        .eq('item_id', row.item_id)
+        .maybeSingle();
+      if (!existingError && existing) return { alreadyInRule: true };
       const { error } = await this.supabase.from('ims_kit_rule_items').insert(row);
-      if (!error) return;
-      // #4346 panel LOW-4: a failed add must not leave the item Central
-      // silently. Marking Central AFTER the insert is not possible (D32
-      // rejects an unclassified item; D40 rejects a College item on an
+      if (!error) return { alreadyInRule: false };
+      // A concurrent add won the race (unique violation): same outcome.
+      if ((error as { code?: string }).code === '23505') return { alreadyInRule: true };
+      // #4346 panel LOW-4: any OTHER failed add must not leave the item
+      // Central silently. Marking Central AFTER the insert is not possible
+      // (D32 rejects an unclassified item; D40 rejects a College item on an
       // all-colleges rule), so we put back the value the screen showed, with
       // the same guard: only while the item is still the Central we wrote.
       if (changed) {
@@ -314,6 +327,7 @@ export class ImsKitService {
     }
     const { error } = await this.supabase.from('ims_kit_rule_items').insert(row);
     if (error) throw toError(error, 'Add failed');
+    return { alreadyInRule: false };
   }
 
   // Store-admin path of addRuleItem: mark the item Central store. Central is

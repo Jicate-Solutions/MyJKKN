@@ -35,6 +35,7 @@ import {
 import { ImsKitService, isKitStoreAdmin, kitSourceOptionsFor, type KitRule, type KitPerson, type KitSource } from '@/lib/services/ims/kit-service';
 import { usePermissions } from '@/hooks/use-permissions';
 import { ResetKitSourceButton } from './_components/reset-kit-source-button';
+import { KitItemResultRow } from './_components/kit-item-result-row';
 
 const ANY = '__any__'; // Radix Select forbids value="" (repo CI gate)
 
@@ -416,54 +417,36 @@ function RuleDetail({ rule }: { rule: KitRule }) {
               </p>
             )}
             {itemResults.map((r) => (
-              <div key={r.id} className="flex flex-wrap items-center justify-between gap-2 text-sm">
-                <span>{r.name}{r.code ? ` (${r.code})` : ''}</span>
-                <span className="flex flex-wrap items-center gap-2">
-                  {r.kit_source ? (
-                    <Badge variant="secondary">{r.kit_source === 'college' ? 'College store' : 'Central store'}</Badge>
-                  ) : (
-                    <Select
-                      value={pickedSource[r.id] ?? ''}
-                      onValueChange={(v) => setPickedSource((m) => ({ ...m, [r.id]: v as KitSource }))}
-                    >
-                      <SelectTrigger className="w-36 h-8" aria-label="Kit source">
-                        <SelectValue placeholder="Source…" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {sourceOptions.map((o) => (
-                          <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  )}
-                  <Input className="w-16 h-8" type="number" min={1} value={qty} onChange={(e) => setQty(e.target.value)} />
-                  <Select value={cadence} onValueChange={setCadence}>
-                    <SelectTrigger className="w-28 h-8"><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="yearly">Every year</SelectItem>
-                      <SelectItem value="once">Once</SelectItem>
-                    </SelectContent>
-                  </Select>
-                  <Button size="sm" disabled={addItem.isPending || (!r.kit_source && !pickedSource[r.id])} onClick={async () => {
-                    try {
-                      await addItem.mutateAsync({
-                        rule_id: rule.id, item_id: r.id, quantity: Number(qty) || 1, cadence,
-                        ...(r.kit_source ? {} : {
-                          kit_source: pickedSource[r.id], seen_kit_source: null,
-                          caller_role: callerRole, caller_is_super_admin: callerIsSuperAdmin,
-                        }),
-                      });
-                      // Bump the sequence so a search still in flight cannot
-                      // repopulate the results we just cleared.
-                      itemSearchSeq.current += 1;
-                      setItemTerm(''); setItemResults([]);
-                      toast.success('Item added');
-                    } catch (e: unknown) {
-                      toast.error(e instanceof Error ? e.message : 'Add failed');
-                    }
-                  }}>Add</Button>
-                </span>
-              </div>
+              <KitItemResultRow
+                key={r.id}
+                item={r}
+                picked={pickedSource[r.id]}
+                onPick={(v) => setPickedSource((m) => ({ ...m, [r.id]: v }))}
+                sourceOptions={sourceOptions}
+                qty={qty}
+                onQty={setQty}
+                cadence={cadence}
+                onCadence={setCadence}
+                pending={addItem.isPending}
+                onAdd={async () => {
+                  try {
+                    const res = await addItem.mutateAsync({
+                      rule_id: rule.id, item_id: r.id, quantity: Number(qty) || 1, cadence,
+                      ...(r.kit_source ? {} : {
+                        kit_source: pickedSource[r.id], seen_kit_source: null,
+                        caller_role: callerRole, caller_is_super_admin: callerIsSuperAdmin,
+                      }),
+                    });
+                    // Bump the sequence so a search still in flight cannot
+                    // repopulate the results we just cleared.
+                    itemSearchSeq.current += 1;
+                    setItemTerm(''); setItemResults([]);
+                    toast.success(res?.alreadyInRule ? 'Source set — item already in this rule' : 'Item added');
+                  } catch (e: unknown) {
+                    toast.error(e instanceof Error ? e.message : 'Add failed');
+                  }
+                }}
+              />
             ))}
           </div>
         </CardContent>

@@ -49,6 +49,31 @@
 --   DROP FUNCTION IF EXISTS public.fn_ims_items_kit_source_guard();
 -- ============================================================================
 
+-- Precondition (#4346 panel round 3 LOW): the same-value upsert exemption
+-- below matches an existing row on id OR on (institution_id, code), which is
+-- only sound while ims_items has a UNIQUE key on exactly those two columns.
+-- Verified live 11 Oct 2026 (W12 desk): ims_items_institution_code_unique,
+-- UNIQUE (institution_id, code). Refuse to install the trigger without it.
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_index ix
+    WHERE ix.indrelid = 'public.ims_items'::regclass
+      AND ix.indisunique
+      AND ix.indpred IS NULL
+      AND ix.indexprs IS NULL
+      AND ix.indnkeyatts = 2
+      AND (SELECT array_agg(a.attname::text ORDER BY a.attname::text)
+           FROM pg_attribute a
+           WHERE a.attrelid = ix.indrelid
+             AND a.attnum = ANY (ix.indkey::int2[])) = ARRAY['code', 'institution_id']
+  ) THEN
+    RAISE EXCEPTION 'ims_items has no UNIQUE (institution_id, code) — the kit_source upsert exemption relies on it (ims_items_institution_code_unique)';
+  END IF;
+END
+$$;
+
 CREATE OR REPLACE FUNCTION public.fn_ims_items_kit_source_guard()
 RETURNS trigger
 LANGUAGE plpgsql

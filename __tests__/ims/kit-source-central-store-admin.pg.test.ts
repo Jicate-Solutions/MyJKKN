@@ -354,3 +354,46 @@ describe('ims_items.kit_source guard — store admins and system writes', () => 
     expect(r.rows[0]).toEqual({ a: false, b: false });
   });
 });
+
+// #4346 panel round 3 LOW: the same-value upsert exemption relies on
+// UNIQUE (institution_id, code); the migration must refuse to install without it.
+describe('migration precondition — UNIQUE (institution_id, code)', () => {
+  const NO_UNIQUE = /,\s*CONSTRAINT ims_items_institution_code_unique UNIQUE \(institution_id, code\)/;
+  const triggerCount = (db: string) =>
+    psql(['-d', db, '-tAc', `SELECT count(*) FROM pg_trigger WHERE tgname = 'trg_ims_items_kit_source_guard'`]).trim();
+
+  it('refuses to apply on a throwaway database whose ims_items lacks the unique key', () => {
+    const db = `kit_source_nouniq_${randomUUID().replace(/-/g, '').slice(0, 12)}`;
+    psql(['-d', 'postgres', '-c', `CREATE DATABASE ${db}`]);
+    try {
+      const prelude = PRELUDE.replace(NO_UNIQUE, '');
+      expect(prelude).not.toContain('ims_items_institution_code_unique');
+      psql(['-d', db, '-c', prelude]);
+      let err = '';
+      try {
+        psql(['-d', db, '-f', MIGRATION]);
+      } catch (e) {
+        err = String((e as { stderr?: string }).stderr ?? e);
+      }
+      expect(err).toMatch(/ims_items has no UNIQUE \(institution_id, code\)/);
+      expect(triggerCount(db)).toBe('0');
+    } finally {
+      psql(['-d', 'postgres', '-c', `DROP DATABASE IF EXISTS ${db}`]);
+    }
+  });
+
+  it('accepts an equivalent unique INDEX (not a named constraint) on the same columns', () => {
+    const db = `kit_source_uidx_${randomUUID().replace(/-/g, '').slice(0, 12)}`;
+    psql(['-d', 'postgres', '-c', `CREATE DATABASE ${db}`]);
+    try {
+      const prelude =
+        PRELUDE.replace(NO_UNIQUE, '') +
+        '\nCREATE UNIQUE INDEX ims_items_code_inst_uidx ON public.ims_items (code, institution_id);';
+      psql(['-d', db, '-c', prelude]);
+      psql(['-d', db, '-f', MIGRATION]);
+      expect(triggerCount(db)).toBe('1');
+    } finally {
+      psql(['-d', 'postgres', '-c', `DROP DATABASE IF EXISTS ${db}`]);
+    }
+  });
+});

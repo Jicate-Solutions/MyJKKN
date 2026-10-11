@@ -15,6 +15,7 @@ let readResult: { data: unknown; error: unknown } = { data: { kit_source: null, 
 let insertResult: { error: unknown } = { error: null };
 let ruleResult: { data: unknown; error: unknown } = { data: { institution_id: 'inst-A' }, error: null };
 let searchResult: { data: unknown; error: unknown } = { data: [], error: null };
+let ruleItemResult: { data: unknown; error: unknown } = { data: null, error: null };
 
 function from(table: string) {
   return {
@@ -35,7 +36,10 @@ function from(table: string) {
       const chain = {
         eq: (c: string, v: unknown) => (call.filters!.push(['eq', c, v]), chain),
         or: (v: string) => (call.filters!.push(['or', v, null]), chain),
-        maybeSingle: () => Promise.resolve(table === 'ims_kit_rules' ? ruleResult : readResult),
+        maybeSingle: () =>
+          Promise.resolve(
+            table === 'ims_kit_rules' ? ruleResult : table === 'ims_kit_rule_items' ? ruleItemResult : readResult,
+          ),
         limit: () => Promise.resolve(searchResult),
         order: () => Promise.resolve({ data: [], error: null }),
       };
@@ -72,6 +76,7 @@ beforeEach(() => {
   insertResult = { error: null };
   ruleResult = { data: { institution_id: 'inst-A' }, error: null };
   searchResult = { data: [], error: null };
+  ruleItemResult = { data: null, error: null };
 });
 
 const ops = () => calls.map(({ table, op, arg }) => ({ table, op, arg }));
@@ -386,9 +391,9 @@ describe('markCentral hardening (#4346 panel)', () => {
   });
 
   it('LOW-4: rule-item insert fails after marking Central -> puts back the shown value, guarded', async () => {
-    insertResult = { error: { message: 'duplicate key value violates unique constraint' } };
+    insertResult = { error: { message: 'new row violates row-level security policy', code: '42501' } };
     const err = await ImsKitService.addRuleItem({ ...admin, seen_kit_source: null }).catch((e: unknown) => e);
-    expect((err as Error).message).toBe('duplicate key value violates unique constraint');
+    expect((err as Error).message).toBe('new row violates row-level security policy');
     const updates = calls.filter((c) => c.op === 'update');
     expect(updates.map((u) => u.arg)).toEqual([{ kit_source: 'central' }, { kit_source: null }]);
     expect(updates[1].filters).toEqual([['eq', 'id', 'item-1'], ['eq', 'kit_source', 'central']]);
@@ -416,5 +421,37 @@ describe('markCentral hardening (#4346 panel)', () => {
     insertResult = { error: { message: 'insert boom' } };
     await expect(ImsKitService.addRuleItem(admin)).rejects.toThrow('insert boom');
     expect(calls.filter((c) => c.op === 'update')).toHaveLength(1);
+  });
+});
+
+// #4346 panel round 3 (MEDIUM 1 + 2): the item may already be in this rule.
+describe('Central on an item already in the rule (#4346 round 3)', () => {
+  const admin = { ...base, kit_source: 'central' as const, caller_role: 'store_admin', seen_kit_source: null };
+
+  it('reset -> Central on an existing rule item keeps Central: no insert, no revert', async () => {
+    ruleItemResult = { data: { id: 'ri-1' }, error: null };
+    await expect(ImsKitService.addRuleItem(admin)).resolves.toEqual({ alreadyInRule: true });
+    expect(writes()).toEqual([{ table: 'ims_items', op: 'update', arg: { kit_source: 'central' } }]);
+    const check = calls.find((c) => c.table === 'ims_kit_rule_items' && c.op === 'select')!;
+    expect(check.filters).toEqual([['eq', 'rule_id', 'rule-1'], ['eq', 'item_id', 'item-1']]);
+  });
+
+  it('23505 on insert (a concurrent add won) -> success "already in this rule", no revert', async () => {
+    insertResult = { error: { message: 'duplicate key value violates unique constraint', code: '23505' } };
+    await expect(ImsKitService.addRuleItem(admin)).resolves.toEqual({ alreadyInRule: true });
+    expect(calls.filter((c) => c.op === 'update').map((u) => u.arg)).toEqual([{ kit_source: 'central' }]);
+  });
+
+  it('any other insert error -> reverts as before', async () => {
+    insertResult = { error: { message: 'insert boom', code: 'P0001' } };
+    await expect(ImsKitService.addRuleItem(admin)).rejects.toThrow('insert boom');
+    expect(calls.filter((c) => c.op === 'update').map((u) => u.arg)).toEqual([
+      { kit_source: 'central' }, { kit_source: null },
+    ]);
+  });
+
+  it('a normal add reports alreadyInRule: false', async () => {
+    await expect(ImsKitService.addRuleItem(admin)).resolves.toEqual({ alreadyInRule: false });
+    expect(writes().at(-1)).toEqual({ table: 'ims_kit_rule_items', op: 'insert', arg: base });
   });
 });
