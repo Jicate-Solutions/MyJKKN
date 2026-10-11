@@ -2,6 +2,9 @@
 -- Migration: 20271010170000_procurement_grn_invoice_checks
 -- Updated: 2026-10-09 - Invoice checks I1-I4 for goods receipts (audit trail +
 --                       near-expiry setting). Spec: Draft PR #4289.
+-- Updated: 2026-10-11 - Director decision 11 Oct 02:00: replacements need two people
+--                       (section 15, R2). receiveReplacement saves the replacement
+--                       receipt as pending; a different verifier checks it into stock.
 -- Updated: 2026-10-10 - Renamed from 20261009120000_procurement_grn_invoice_checks.sql
 --                       (deep-panel round 2, #4333 H1). This file CREATE OR REPLACEs
 --                       fn_procurement_guard_approval, last defined on main by
@@ -229,6 +232,40 @@
 --          the existing ai_jobs_inflight_dedupe_idx refuses a second in-flight read of the
 --          same PDF by the same person (two clicks at once used to queue two reads).
 --
+--  15. Director decision 11 Oct 2026 02:00 — a REPLACEMENT delivery also needs TWO people:
+--      R2. receiveReplacement saves the replacement receipt as PENDING (not straight into
+--          stock). A different verifier — not the person who recorded it (received_by)
+--          and never the original delivery's receiver — checks it into stock through the
+--          normal verify path (verifyGrn). In the database:
+--          * the verify guard refuses every INSERT into a posted status by an app user
+--            (authenticated / anon / any signed-in uid) — the replacement carve-out is
+--            gone; the service role and migrations are unaffected;
+--          * the D2 no-invoice exemption moved from INSERT to verify: an UPDATE from
+--            pending into any posted status may carry no invoice number when
+--            replacement_id names a claimed, unfulfilled replacement of a posted receipt
+--            of the same purchase order;
+--          * at that verify, the original delivery's receiver is refused, and the
+--            receipt must hold exactly one line, for the rejected item's order line,
+--            rejecting nothing and accepting 0 < qty <= the quantity awaiting replacement
+--            (its lines were editable while it was pending);
+--          * a receipt naming a replacement is checked when it is RECORDED too (rule 9b,
+--            fn_procurement_grn_invoice_checks): grn_verify, not the original receiver,
+--            a claimed and unfulfilled replacement of a posted receipt of the same order;
+--          * the fulfilment link (replacement_grn_item_id) is written by verifyGrn and
+--            only to a line of the receipt naming it once that receipt is posted;
+--          * trg_pgrni_00_posted_lock no longer lets anyone add a line to a posted
+--            receipt (the single-line replacement carve-out is gone);
+--          * while a replacement receipt is pending, only whoever recorded it (or an
+--            admin) adds its line or changes its quantities (trg_pgrni_00_posted_lock);
+--          * the delete guards' "invoice-less receipt I just recorded" carve-out is gone
+--            (that receipt is now pending when it is rolled back); a pending replacement
+--            receipt and its line can be deleted only by whoever recorded it, or an admin;
+--          * app users cannot cancel a replacement receipt: a cancelled one would keep
+--            its replacement claimed for good. An admin removes a wrong one instead.
+--          Exactly-once is unchanged: the pending -> received claim is the mutex, one
+--          receipt per replacement (unique index), the receipt's own pending -> posted
+--          update is the verify mutex, and the link is written once.
+--
 -- I1 is deliberately NOT a unique index: the Director chose "confirm and allow" for
 -- honest resends, which a unique constraint would forbid.
 --
@@ -268,17 +305,17 @@ UPDATE public.procurement_grn
    AND status IN ('accepted', 'partially_accepted', 'replacement_requested', 'completed');
 
 -- 9b. Replacement marker (decisions round, red team). receiveReplacement writes the
--- replacement it fulfils into the header it INSERTs; the verify guard exempts a
--- no-invoice receipt from D2 only when this names a real, claimed, unfulfilled
--- replacement (fn_procurement_guard_approval). One receipt per replacement (unique
--- index). ON DELETE SET NULL: removing a replacement row never blocks on its receipt;
--- the marker is only read at INSERT.
+-- replacement it fulfils into the (pending) header it INSERTs; the verify guard exempts a
+-- no-invoice receipt from D2 at verify only when this names a real, claimed, unfulfilled
+-- replacement (fn_procurement_guard_approval, R2 2026-10-11). One receipt per replacement
+-- (unique index). ON DELETE SET NULL: removing a replacement row never blocks on its
+-- receipt.
 ALTER TABLE public.procurement_grn
   ADD COLUMN IF NOT EXISTS replacement_id uuid
     REFERENCES public.procurement_grn_replacements(id) ON DELETE SET NULL;
 
 COMMENT ON COLUMN public.procurement_grn.replacement_id IS
-  'D2: the procurement_grn_replacements row this receipt fulfils (set by receiveReplacement at INSERT, frozen after). Only a receipt carrying a valid one may enter stock with no invoice number.';
+  'D2: the procurement_grn_replacements row this receipt fulfils (set by receiveReplacement at INSERT, frozen after). Only a receipt carrying a valid one may be verified into stock with no invoice number (R2: replacements need two people).';
 
 CREATE UNIQUE INDEX IF NOT EXISTS procurement_grn_replacement_id_key
   ON public.procurement_grn (replacement_id)
@@ -509,6 +546,41 @@ BEGIN
     IF auth.uid() IS NOT NULL THEN
       NEW.received_by := auth.uid();
     END IF;
+    -- R2 (Director 2026-10-11): a receipt naming a replacement is that replacement's one
+    -- receipt (unique index), so it is checked when it is recorded, not only when it is
+    -- verified: recorded by a verifier (claiming needs grn_verify) who did not receive the
+    -- original delivery, for a claimed, unfulfilled replacement raised on a posted receipt
+    -- of the same purchase order. Otherwise anyone at the college could take the slot.
+    IF NEW.replacement_id IS NOT NULL AND auth.uid() IS NOT NULL THEN
+      IF NOT (public.is_super_admin() OR public.is_admin()
+              OR public.user_has_permission('procurement.grn_verify')) THEN
+        RAISE EXCEPTION 'not authorized to record a replacement — this requires the procurement.grn_verify permission'
+          USING ERRCODE = '42501';
+      END IF;
+      IF NOT EXISTS (
+           SELECT 1
+             FROM public.procurement_grn_replacements r
+             JOIN public.procurement_grn_items gi ON gi.id = r.grn_item_id
+             JOIN public.procurement_grn pg ON pg.id = gi.grn_id
+            WHERE r.id = NEW.replacement_id
+              AND r.status = 'received'
+              AND r.replacement_grn_item_id IS NULL
+              AND pg.purchase_order_id = NEW.purchase_order_id
+              AND pg.status IN ('accepted', 'partially_accepted', 'replacement_requested', 'completed')) THEN
+        RAISE EXCEPTION 'this replacement is not open for receiving — refresh the delivery and try again'
+          USING ERRCODE = '42501';
+      END IF;
+      IF EXISTS (
+           SELECT 1
+             FROM public.procurement_grn_replacements r
+             JOIN public.procurement_grn_items gi ON gi.id = r.grn_item_id
+             JOIN public.procurement_grn pg ON pg.id = gi.grn_id
+            WHERE r.id = NEW.replacement_id
+              AND pg.received_by IS NOT DISTINCT FROM auth.uid()) THEN
+        RAISE EXCEPTION 'you received the original delivery, so someone else must receive and check its replacement'
+          USING ERRCODE = '42501';
+      END IF;
+    END IF;
   ELSE
     -- E1 (Director 2026-10-10 afternoon): frozen for admins too. The self-check ban
     -- compares the checker with received_by, so nobody but the service role may move it
@@ -527,6 +599,17 @@ BEGIN
     IF NEW.replacement_id IS DISTINCT FROM OLD.replacement_id
        AND NOT (public.is_super_admin() OR public.is_admin()) THEN
       RAISE EXCEPTION 'which replacement a delivery fulfils cannot be changed after it is recorded'
+        USING ERRCODE = '42501';
+    END IF;
+
+    -- R2 (Director 2026-10-11): a replacement receipt is not cancelled by app users. A
+    -- cancelled one would keep its replacement claimed with no way to receive it again
+    -- (the claim reopens only while no receipt names it). An admin can sort it out.
+    IF OLD.replacement_id IS NOT NULL
+       AND NEW.status = 'cancelled'
+       AND OLD.status IS DISTINCT FROM 'cancelled'
+       AND NOT (public.is_super_admin() OR public.is_admin()) THEN
+      RAISE EXCEPTION 'a replacement delivery cannot be cancelled — if the goods are wrong, ask an admin to remove it so the replacement can be received again'
         USING ERRCODE = '42501';
     END IF;
 
@@ -813,11 +896,14 @@ GRANT  EXECUTE ON FUNCTION public.fn_procurement_grn_has_duplicate(uuid, uuid, t
 --       receipt — both need grn_verify.
 --   G4. Early permission refusal (before D2 / I1 can answer), with
 --       coalesce(v_chain, false).
---   G5. D2: no invoice number, no stock (replacement-receipt exemption).
+--   G5. D2: no invoice number, no stock (replacement-receipt exemption, at verify only
+--       since R2).
 --   G6. I1: advisory lock + held-duplicate check + D4 re-check at entry into stock.
---   G7. E1: self-check ban (INSERT replacement arm, UPDATE receiver arm). It sits
---       right after G4, BEFORE G5 and G6 (skeptic re-check, 2026-10-11), and its INSERT
---       arm also requires a blank invoice number.
+--   G7. E1: self-check ban. It sits right after G4, BEFORE G5 and G6 (skeptic re-check,
+--       2026-10-11). R2 (2026-10-11 02:00): no INSERT into a posted status by an app user
+--       at all; the UPDATE arm also refuses the original delivery's receiver for a
+--       replacement receipt; then the replacement receipt's shape is judged (claimed,
+--       unfulfilled, one line within the quantity awaiting replacement).
 --   G8. I2: no accepted line already expired (IST) on entry into a posted status
 --       (deep-panel round 3, S-M5). It sits after G5, before G6.
 --   plus the marker comment line "guard-version: 20271010170000" (D-L7) and the closing line: pg_get_functiondef prints `$function$` and this file has
@@ -830,8 +916,8 @@ GRANT  EXECUTE ON FUNCTION public.fn_procurement_grn_has_duplicate(uuid, uuid, t
 --     pending -> completed and cancelled -> accepted were unguarded. An INSERT straight
 --     into a posted status needs grn_verify too, 'completed' included (review round 2,
 --     red team: a receiver could insert a 'completed' receipt carrying a repeated
---     number). The one app path that inserts 'completed' is receiveReplacement, whose
---     Receive button is shown only to verifiers.
+--     number). Since R2 (2026-10-11) no app user inserts into a posted status at all —
+--     receiveReplacement records a pending receipt.
 --   * any status change OUT of a posted status (including to cancelled) needs
 --     grn_verify — a receiver with grn_create only can no longer cancel an earlier
 --     accepted receipt to lift a hold.
@@ -984,70 +1070,96 @@ BEGIN
       -- NOT exempt, only the service role (the early return at the top). Checked against
       -- the stored receiver too (OLD), so rewriting received_by in the same statement
       -- does not help; received_by itself is frozen for everyone (rule a, E1).
-      -- An INSERT is always by its receiver (rule a pins received_by := auth.uid()), so the
-      -- only INSERT that may enter stock is a replacement receipt naming a real, claimed,
-      -- unfulfilled replacement (same test as D2) — and only when the person inserting it
-      -- did not receive the original delivery (E1, replacement arm).
-      -- M5 round 3 (skeptic): placed BEFORE D2 and I1. It used to come after them, so a
-      -- verifier inserting their own receipt straight into stock with a guessed number
-      -- was told "repeats another delivery" (held) or "you received this delivery" (not
-      -- held) — one refused INSERT per guess, no row left behind, about every college.
-      -- An INSERT into stock now also has to carry no invoice number (the replacement
-      -- receipt never does), so a guessed number on a claimed replacement's receipt is
-      -- refused here too, before I1 can answer.
+      -- M5 round 3 (skeptic): placed BEFORE D2 and I1, so a refused entry never tells the
+      -- caller whether a guessed invoice number is held.
+      -- R2 (Director 2026-10-11 02:00, replacements need two people): an INSERT is always
+      -- by its receiver (rule a pins received_by := auth.uid()), so NO app user may insert
+      -- a receipt straight into a posted status any more — replacement receipts included.
+      -- receiveReplacement saves the replacement receipt as pending; a different verifier
+      -- checks it into stock through this UPDATE arm. That verifier is neither the person
+      -- who recorded it (received_by, the E1 test) nor whoever received the ORIGINAL
+      -- delivery (the replacement arm below).
       IF NEW.status IN ('accepted', 'partially_accepted', 'replacement_requested', 'completed')
          AND (TG_OP = 'INSERT'
-              OR OLD.status NOT IN ('accepted', 'partially_accepted', 'replacement_requested', 'completed'))
-         AND auth.uid() IS NOT NULL THEN
+              OR OLD.status NOT IN ('accepted', 'partially_accepted', 'replacement_requested', 'completed')) THEN
         IF TG_OP = 'INSERT' THEN
-          IF NOT (NEW.status = 'completed'
-                  AND public.fn_procurement_normalise_invoice_number(NEW.invoice_number) IS NULL
-                  AND NEW.replacement_id IS NOT NULL
-                  AND EXISTS (
-                    SELECT 1
-                      FROM public.procurement_grn_replacements r
-                      JOIN public.procurement_grn_items gi ON gi.id = r.grn_item_id
-                      JOIN public.procurement_grn pg ON pg.id = gi.grn_id
-                     WHERE r.id = NEW.replacement_id
-                       AND r.status = 'received'
-                       AND r.replacement_grn_item_id IS NULL
-                       AND pg.id IS DISTINCT FROM NEW.id
-                       AND pg.purchase_order_id = NEW.purchase_order_id
-                       AND pg.status IN ('accepted', 'partially_accepted', 'replacement_requested', 'completed'))) THEN
-            RAISE EXCEPTION 'you received this delivery, so someone else must check it before it is added to stock — record it as pending and ask another verifier'
+          IF auth.uid() IS NOT NULL OR coalesce(auth.role(), '') IN ('authenticated', 'anon') THEN
+            RAISE EXCEPTION 'a delivery is always recorded as pending — someone other than the person who received it checks it into stock'
               USING ERRCODE = '42501';
           END IF;
-          IF EXISTS (
+        ELSIF auth.uid() IS NOT NULL THEN
+          IF auth.uid() IS NOT DISTINCT FROM NEW.received_by
+             OR auth.uid() IS NOT DISTINCT FROM OLD.received_by THEN
+            RAISE EXCEPTION 'you received this delivery, so someone else must check it before it is added to stock'
+              USING ERRCODE = '42501';
+          END IF;
+          IF NEW.replacement_id IS NOT NULL AND EXISTS (
                SELECT 1
                  FROM public.procurement_grn_replacements r
                  JOIN public.procurement_grn_items gi ON gi.id = r.grn_item_id
                  JOIN public.procurement_grn pg ON pg.id = gi.grn_id
                 WHERE r.id = NEW.replacement_id
                   AND pg.received_by IS NOT DISTINCT FROM auth.uid()) THEN
-            RAISE EXCEPTION 'you received the original delivery, so someone else must receive and check its replacement'
+            RAISE EXCEPTION 'you received the original delivery, so someone else must check its replacement into stock'
               USING ERRCODE = '42501';
           END IF;
-        ELSIF auth.uid() IS NOT DISTINCT FROM NEW.received_by
-              OR auth.uid() IS NOT DISTINCT FROM OLD.received_by THEN
-          RAISE EXCEPTION 'you received this delivery, so someone else must check it before it is added to stock'
+        END IF;
+      END IF;
+      -- R2 (Director 2026-10-11): a replacement receipt enters stock only as what it is — the
+      -- goods owed for one rejected line. While it was pending its lines were open to edit
+      -- (institution-only RLS), so this is judged at the moment of entry, for every caller
+      -- but the service role: the replacement is claimed ('received'), not yet fulfilled,
+      -- raised on a line of a posted receipt of the same purchase order; and the receipt has
+      -- exactly one line, for that line's order line, rejecting nothing and accepting more
+      -- than 0 and no more than the quantity awaiting replacement.
+      IF TG_OP = 'UPDATE'
+         AND NEW.replacement_id IS NOT NULL
+         AND NEW.status IN ('accepted', 'partially_accepted', 'replacement_requested', 'completed')
+         AND OLD.status NOT IN ('accepted', 'partially_accepted', 'replacement_requested', 'completed') THEN
+        IF NOT EXISTS (
+             SELECT 1
+               FROM public.procurement_grn_replacements r
+               JOIN public.procurement_grn_items gi ON gi.id = r.grn_item_id
+               JOIN public.procurement_grn pg ON pg.id = gi.grn_id
+              WHERE r.id = NEW.replacement_id
+                AND r.status = 'received'
+                AND r.replacement_grn_item_id IS NULL
+                AND pg.id IS DISTINCT FROM NEW.id
+                AND pg.purchase_order_id = NEW.purchase_order_id
+                AND pg.status IN ('accepted', 'partially_accepted', 'replacement_requested', 'completed')) THEN
+          RAISE EXCEPTION 'this replacement delivery no longer matches an open replacement (it was received already, or its original delivery is not in stock) — ask an admin'
             USING ERRCODE = '42501';
+        END IF;
+        IF (SELECT count(*) FROM public.procurement_grn_items x WHERE x.grn_id = NEW.id) <> 1
+           OR NOT EXISTS (
+             SELECT 1
+               FROM public.procurement_grn_items x
+               JOIN public.procurement_grn_replacements r ON r.id = NEW.replacement_id
+               JOIN public.procurement_grn_items gi ON gi.id = r.grn_item_id
+              WHERE x.grn_id = NEW.id
+                AND coalesce(x.rejected_quantity, 0) = 0
+                AND coalesce(x.accepted_quantity, 0) > 0
+                AND x.accepted_quantity <= r.rejected_quantity
+                AND x.po_item_id IS NOT DISTINCT FROM gi.po_item_id) THEN
+          RAISE EXCEPTION 'a replacement delivery must have exactly one line, for the rejected item, accepting no more than the quantity awaiting replacement and rejecting nothing — ask an admin to correct it'
+            USING ERRCODE = '23514';
         END IF;
       END IF;
       -- D2 (Director 2026-10-10): a receipt with no invoice number never goes into stock.
       -- Replacement receipts are exempt — but only one that names, in replacement_id, a
-      -- replacement the server can check (decisions round, red team: the exemption used
-      -- to be the INSERT-into-'completed' shape alone, so a verifier could insert any
-      -- invoice-less receipt straight into stock). The replacement must be claimed
-      -- ('received' — receiveReplacement flips it before inserting the header), not yet
-      -- fulfilled, and on a line of a posted receipt of the same purchase order; the
-      -- unique index allows one receipt per replacement and rule 9b freezes the marker.
-      -- Every other entry into a posted status, the verify UPDATE above all, needs a
-      -- number.
+      -- replacement the server can check (decisions round, red team). The replacement must
+      -- be claimed ('received' — receiveReplacement flips it before inserting the header),
+      -- not yet fulfilled, and on a line of a posted receipt of the same purchase order;
+      -- the unique index allows one receipt per replacement and rule 9b freezes the marker.
+      -- R2 (Director 2026-10-11): the exemption now applies at VERIFY (the UPDATE from
+      -- pending into any posted status — verifyGrn's first write is the provisional
+      -- 'accepted'), never at INSERT: no app user inserts into a posted status any more.
+      -- Every other entry into a posted status needs a number.
       IF NEW.status IN ('accepted', 'partially_accepted', 'replacement_requested', 'completed')
          AND (TG_OP = 'INSERT'
               OR OLD.status NOT IN ('accepted', 'partially_accepted', 'replacement_requested', 'completed'))
          AND public.fn_procurement_normalise_invoice_number(NEW.invoice_number) IS NULL
-         AND NOT (TG_OP = 'INSERT' AND NEW.status = 'completed'
+         AND NOT (TG_OP = 'UPDATE'
                   AND NEW.replacement_id IS NOT NULL
                   AND EXISTS (
                     SELECT 1
@@ -1129,11 +1241,11 @@ $function$;
 -- DELETE a posted original (its lines cascade away); its repeat then had nothing to match
 -- and went into stock with no hold. Refused here unless the caller is an admin / the
 -- service role, when the receipt was ever posted (first_posted_at), is posted now, or has
--- a line posted to stock (domain_posted_at). One carve-out keeps receiveReplacement's
--- rollback working: the invoice-less receipt the signed-in user just recorded, with no
--- line in stock (the rollback deletes its line first, and only when nothing posted). An
--- invoice-less receipt never takes part in the I1 hold. Draft / pending / never-posted
--- cancelled receipts are unchanged: deleting one is no different from cancelling it.
+-- a line posted to stock (domain_posted_at). Draft / pending / never-posted cancelled
+-- receipts are unchanged: deleting one is no different from cancelling it — except a
+-- pending REPLACEMENT receipt, which only whoever recorded it may delete (R2,
+-- 2026-10-11: receiveReplacement's rollback; the old carve-out for an invoice-less
+-- 'completed' receipt is gone, that receipt is pending now).
 CREATE OR REPLACE FUNCTION public.fn_procurement_grn_delete_guard()
 RETURNS trigger
 LANGUAGE plpgsql
@@ -1152,13 +1264,19 @@ BEGIN
   IF NOT (v_line_posted
           OR OLD.first_posted_at IS NOT NULL
           OR OLD.status IN ('accepted', 'partially_accepted', 'replacement_requested', 'completed')) THEN
+    -- R2 (Director 2026-10-11): a pending replacement receipt holds its replacement's one
+    -- receipt slot. Only the person who recorded it (receiveReplacement's rollback) may
+    -- delete it; anyone else at the college could otherwise strand the claimed replacement.
+    IF OLD.replacement_id IS NOT NULL
+       AND auth.uid() IS NOT NULL
+       AND OLD.received_by IS DISTINCT FROM auth.uid() THEN
+      RAISE EXCEPTION 'a replacement delivery can be removed only by the person who recorded it, or an admin'
+        USING ERRCODE = '42501';
+    END IF;
     RETURN OLD;
   END IF;
-  IF public.fn_procurement_normalise_invoice_number(OLD.invoice_number) IS NULL
-     AND OLD.received_by IS NOT DISTINCT FROM auth.uid()
-     AND NOT v_line_posted THEN
-    RETURN OLD;
-  END IF;
+  -- R2: the carve-out for receiveReplacement's rollback of an invoice-less 'completed'
+  -- receipt is gone — that receipt is now pending (never posted) when it is rolled back.
   RAISE EXCEPTION 'a delivery that has been checked into stock cannot be deleted — ask an admin'
     USING ERRCODE = '42501';
 END;
@@ -1178,11 +1296,10 @@ CREATE TRIGGER trg_pgrn_delete_guard
 -- line first and then the header's "invoice-less, mine, no posted line" carve-out let
 -- them delete an ever-posted replacement receipt and free its replacement_id slot.
 -- Refused here unless the caller is an admin / the service role, when the line is in
--- stock (domain_posted_at) or its receipt was ever posted / is posted now. The same
--- carve-out as the header keeps receiveReplacement's rollback working: a line NOT in
--- stock, of an invoice-less receipt the signed-in user received. When the parent row is
--- already gone (a cascade from a header delete the header guard allowed) the line goes
--- with it.
+-- stock (domain_posted_at) or its receipt was ever posted / is posted now. A line of a
+-- pending replacement receipt is deleted only by whoever recorded it (R2, 2026-10-11 —
+-- receiveReplacement's rollback). When the parent row is already gone (a cascade from a
+-- header delete the header guard allowed) the line goes with it.
 CREATE OR REPLACE FUNCTION public.fn_procurement_grn_item_delete_guard()
 RETURNS trigger
 LANGUAGE plpgsql
@@ -1193,13 +1310,14 @@ DECLARE
   v_first    timestamptz;
   v_invoice  text;
   v_receiver uuid;
+  v_rep      uuid;
 BEGIN
   IF coalesce(auth.role(), '') = 'service_role'
      OR public.is_super_admin() OR public.is_admin() THEN
     RETURN OLD;
   END IF;
-  SELECT g.status, g.first_posted_at, g.invoice_number, g.received_by
-    INTO v_status, v_first, v_invoice, v_receiver
+  SELECT g.status, g.first_posted_at, g.invoice_number, g.received_by, g.replacement_id
+    INTO v_status, v_first, v_invoice, v_receiver, v_rep
     FROM public.procurement_grn g
    WHERE g.id = OLD.grn_id;
   IF NOT FOUND THEN
@@ -1208,14 +1326,17 @@ BEGIN
   IF OLD.domain_posted_at IS NULL
      AND v_first IS NULL
      AND v_status NOT IN ('accepted', 'partially_accepted', 'replacement_requested', 'completed') THEN
+    -- R2 (Director 2026-10-11): the line of a pending replacement receipt is deleted only
+    -- by the person who recorded it (receiveReplacement's rollback), as its header is.
+    IF v_rep IS NOT NULL
+       AND auth.uid() IS NOT NULL
+       AND v_receiver IS DISTINCT FROM auth.uid() THEN
+      RAISE EXCEPTION 'a line of a replacement delivery can be removed only by the person who recorded it, or an admin'
+        USING ERRCODE = '42501';
+    END IF;
     RETURN OLD;
   END IF;
-  IF OLD.domain_posted_at IS NULL
-     AND public.fn_procurement_normalise_invoice_number(v_invoice) IS NULL
-     AND v_receiver IS NOT DISTINCT FROM auth.uid()
-     AND auth.uid() IS NOT NULL THEN
-    RETURN OLD;
-  END IF;
+  -- R2: the receiveReplacement-rollback carve-out is gone (its receipt is pending now).
   RAISE EXCEPTION 'a line of a delivery that has been checked into stock cannot be deleted — ask an admin'
     USING ERRCODE = '42501';
 END;
@@ -1237,7 +1358,8 @@ CREATE TRIGGER trg_pgrni_delete_guard
 -- (receiveReplacement creates an invoice-less 'completed' receipt, which the I1 check
 -- cannot match). The only real writer is verifyGrn, which inserts the row while the
 -- receipt is in a posted status (provisionally 'accepted'), for the line's rejected
--- quantity. Enforced here for every caller but the service role: a verifier (or admin),
+-- quantity. (R2, 2026-10-11: receiveReplacement then records a PENDING receipt that a
+-- second verifier checks in — see the verify guard.) Enforced here for every caller but the service role: a verifier (or admin),
 -- a parent receipt in a posted status, a 'pending' row with no fulfilment link, and
 -- 0 < rejected_quantity with every replacement on the line together <= the line's
 -- rejected quantity (deep-panel round 2 H2; the line row is locked while this is judged).
@@ -1287,8 +1409,11 @@ BEGIN
                 FROM public.procurement_grn_items gi
                 JOIN public.procurement_grn g ON g.id = gi.grn_id
                WHERE gi.id = NEW.replacement_grn_item_id
-                 AND g.replacement_id = NEW.id)) THEN
-      RAISE EXCEPTION 'a replacement can only be linked to a line of the delivery recorded for it'
+                 AND g.replacement_id = NEW.id
+                 -- R2 (Director 2026-10-11): fulfilled = checked into stock by a second
+                 -- person. verifyGrn writes the link after the receipt is posted.
+                 AND g.status IN ('accepted', 'partially_accepted', 'replacement_requested', 'completed'))) THEN
+      RAISE EXCEPTION 'a replacement can only be linked to a line of the delivery recorded for it, once that delivery is checked into stock'
         USING ERRCODE = '42501';
     END IF;
     -- H2 round 3: received -> pending is receiveReplacement's rollback only. It runs
@@ -1428,9 +1553,8 @@ REVOKE TRUNCATE ON public.procurement_grn, public.procurement_grn_items,
 -- goods no second person ever checked. Once the parent receipt is in a posted status,
 -- or was ever posted (first_posted_at), this refuses for every caller but the service
 -- role (admins included, as E1 says):
---   * adding a line — except the single line receiveReplacement adds to the replacement
---     receipt it just created ('completed', naming a claimed, unfulfilled replacement,
---     received by the caller, no line yet, quantity within the replacement's);
+--   * adding a line — with no exception since R2 (2026-10-11): receiveReplacement adds the
+--     replacement receipt's line while that receipt is still pending;
 --   * changing accepted_quantity or rejected_quantity — or, since deep-panel round 3
 --     (D-M1), ANY other column of the line (unit price, cost, batch, expiry, manufacturing
 --     date, serial numbers, item name ...): what a second person checked is what stays;
@@ -1440,8 +1564,8 @@ REVOKE TRUNCATE ON public.procurement_grn, public.procurement_grn_items,
 --     an unposted line to any item and post it with fn_procurement_rm_post_receipt);
 --   * changing domain_posted_at once set (NULL -> now() stays possible: the RM RPC's own
 --     claim and the service's marker).
---   * I2 (round 3, S-M5): the replacement line the carve-out lets in may not accept goods
---     whose expiry date is before today in IST.
+--   * I2 (round 3, S-M5): a replacement line is now judged at verify, by the verify
+--     guard's G8 like every other line.
 -- A line can never move to another receipt (grn_id), posted or not. Deleting a line is
 -- judged by trg_pgrni_delete_guard (section 7b, deep-panel round 2 M3).
 -- M4 (deep-panel round 2): the parent receipt is read with a row lock on INSERT and
@@ -1487,33 +1611,29 @@ BEGIN
        FOR SHARE;
     v_found := FOUND;
   END IF;
+  -- R2 (Director 2026-10-11): while a replacement receipt is pending, only the person who
+  -- recorded it (or an admin) adds its line or changes its quantities — as only they could
+  -- before, when the line was written straight into stock. The verifier still fills in
+  -- batch / expiry at verify time; the quantity is judged at verify (verify guard).
+  IF v_found AND v_rep IS NOT NULL
+     AND auth.uid() IS NOT NULL
+     AND v_receiver IS DISTINCT FROM auth.uid()
+     AND NOT (public.is_super_admin() OR public.is_admin())
+     AND (TG_OP = 'INSERT'
+          OR NEW.accepted_quantity IS DISTINCT FROM OLD.accepted_quantity
+          OR NEW.rejected_quantity IS DISTINCT FROM OLD.rejected_quantity) THEN
+    RAISE EXCEPTION 'only the person who recorded this replacement delivery can add its line or change its quantities'
+      USING ERRCODE = '42501';
+  END IF;
   IF NOT v_found
      OR NOT (v_status IN ('accepted', 'partially_accepted', 'replacement_requested', 'completed')
              OR v_first IS NOT NULL) THEN
     RETURN NEW;
   END IF;
+  -- R2 (Director 2026-10-11): no carve-out any more. A replacement receipt gets its line
+  -- while it is still pending (receiveReplacement); once anything is posted, no line is
+  -- added to it, by anyone but the service role.
   IF TG_OP = 'INSERT' THEN
-    IF v_status = 'completed'
-       AND v_rep IS NOT NULL
-       AND auth.uid() IS NOT NULL
-       AND v_receiver IS NOT DISTINCT FROM auth.uid()
-       AND NEW.domain_posted_at IS NULL
-       AND coalesce(NEW.rejected_quantity, 0) = 0
-       AND NOT EXISTS (SELECT 1 FROM public.procurement_grn_items gi WHERE gi.grn_id = NEW.grn_id)
-       AND EXISTS (
-         SELECT 1 FROM public.procurement_grn_replacements r
-          WHERE r.id = v_rep
-            AND r.status = 'received'
-            AND r.replacement_grn_item_id IS NULL
-            AND NEW.accepted_quantity <= r.rejected_quantity) THEN
-      -- I2 (round 3, S-M5): an expired replacement never goes into stock either.
-      IF coalesce(NEW.accepted_quantity, 0) > 0
-         AND NEW.expiry_date < (now() AT TIME ZONE 'Asia/Kolkata')::date THEN
-        RAISE EXCEPTION 'these replacement goods have already expired, so they cannot be added to stock — correct the expiry date or do not receive them'
-          USING ERRCODE = '23514';
-      END IF;
-      RETURN NEW;
-    END IF;
     RAISE EXCEPTION 'this delivery has already been checked into stock — a line cannot be added to it. Record the extra goods as a new delivery'
       USING ERRCODE = '42501';
   END IF;
