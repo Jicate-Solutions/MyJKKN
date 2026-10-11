@@ -11,28 +11,37 @@
 // guarded with .eq('status', from) for concurrency safety, mirroring the PO service.
 
 import { createClientSupabaseClient } from '@/lib/supabase/client';
+import { istBusinessDate } from '@/lib/utils/date-format';
 import { getAdapter } from './domain-adapters/registry';
 import { matchLine, validateLineForVerify } from './three-way-match';
 import {
   BLANK_INVOICE_MESSAGE,
   blankInvoiceBlocksStock,
+  REPLACEMENT_NOT_OPEN_MESSAGE,
+  REPLACEMENT_ORIGIN_VERIFY_MESSAGE,
+  REPLACEMENT_SCHEMA_MISSING_MESSAGE,
   REPLACEMENT_SELF_CHECK_MESSAGE,
+  REPLACEMENT_SHAPE_MESSAGE,
+  replacementShapeBlocks,
   SELF_CHECK_MESSAGE,
   selfCheckBlocks,
   duplicateHold,
   expiredLineBlocks,
   findDuplicateGrns,
+  GRN_STUCK_POSTED_MESSAGE,
   INVOICE_NUMBER_FORMAT_MESSAGE,
   invoiceNumberFormatOk,
+  invoiceAgeCheck,
   isIsoDate,
   lateReasonMissing,
-  localToday,
   POSTED_GRN_STATUSES,
   receivedMatchingDelivery,
   THIRD_PERSON_MESSAGE,
   CONFIRMATION_VOID_MESSAGE,
   DUPLICATE_CHECKS_MISSING_MESSAGE,
   NO_RECEIVER_MESSAGE,
+  LINES_CHANGED_MESSAGE,
+  linesChangedSinceCheck,
   type DuplicateCandidate,
 } from './invoice-checks';
 import {
@@ -346,7 +355,9 @@ export class ProcurementGrnService {
 
       // Invoice checks I1/I2/I4 (lib/services/procurement/invoice-checks.ts), re-applied
       // here so the save path enforces what the form shows, not only the form.
-      const today = localToday();
+      // Deep-panel round 3 (S-M4): "today" is the IST business day, never the runtime's own
+      // clock — on a UTC server it was still yesterday until 05:30 IST.
+      const today = istBusinessDate();
 
       // I2 — already-expired goods are never accepted into stock (rejecting them is fine).
       const expired = input.lines
@@ -375,7 +386,16 @@ export class ProcurementGrnService {
       // I1 — a repeated invoice number is NOT refused here (Director: held save). The
       // receipt saves as usual; verify is refused until a verifier other than the
       // receiver confirms it is a different invoice (verifyGrn + the DB verify guard).
-      const lateReason = input.late_invoice_reason?.trim() || null;
+      // I4 is enforced HERE only: the age limit is the receiver's own (expectations), kept in
+      // the notes text, so the database has nothing to enforce it against (migration
+      // 20271010170000, section 14 S-M5). The reason is stored only when I4 fired (S-L7).
+      const lateReason = invoiceAgeCheck(
+        input.invoice_date,
+        today,
+        expectations?.max_invoice_age_days ?? null
+      ).tooOld
+        ? input.late_invoice_reason?.trim() || null
+        : null;
 
       // 3) Insert header, then lines.
       const grnNumber = await this.generateGrnNumber(po.institution_id);
@@ -400,7 +420,7 @@ export class ProcurementGrnService {
         .select()
         .single();
       // late_invoice_reason is sent only when I4 fired. On a database where
-      // 20261009120000_procurement_grn_invoice_checks is not applied yet the column does
+      // 20271010170000_procurement_grn_invoice_checks is not applied yet the column does
       // not exist (PostgREST PGRST204): save anyway, with the reason kept in the notes,
       // so an old invoice can still be recorded and its reason is not lost.
       if (
@@ -439,20 +459,30 @@ export class ProcurementGrnService {
    * Earlier receipts from one supplier that carry an invoice number — the candidate set
    * for the I1 duplicate check (matched on the normalised number by findDuplicateGrns).
    * Read under the caller's RLS, so it covers the institutions the caller can see.
+   * Deep-panel round 3 (S-L8): read page by page to the end — it used to stop at the newest
+   * 500, so the banner and the third-person fallbacks missed older repeats. The number is
+   * matched on its NORMALISED form, which PostgREST cannot filter on, hence all of them.
    */
   static async getSupplierInvoiceGrns(supplierId: string): Promise<SupplierInvoiceGrn[]> {
-    const { data, error } = await this.supabase
-      .from('procurement_grn')
-      .select(
-        `id, grn_number, supplier_id, invoice_number, invoice_date, invoice_amount, status, created_at,
-         received_by, received_by_profile:profiles!received_by(full_name)`
-      )
-      .eq('supplier_id', supplierId)
-      .not('invoice_number', 'is', null)
-      .order('created_at', { ascending: false })
-      .limit(500);
-    if (error) throw error;
-    return (data ?? []) as SupplierInvoiceGrn[];
+    const PAGE = 1000;
+    const rows: SupplierInvoiceGrn[] = [];
+    for (let from = 0; ; from += PAGE) {
+      const { data, error } = await this.supabase
+        .from('procurement_grn')
+        .select(
+          `id, grn_number, supplier_id, invoice_number, invoice_date, invoice_amount, status, created_at,
+           received_by, received_by_profile:profiles!received_by(full_name)`
+        )
+        .eq('supplier_id', supplierId)
+        .not('invoice_number', 'is', null)
+        .order('created_at', { ascending: false })
+        .order('id', { ascending: true })
+        .range(from, from + PAGE - 1);
+      if (error) throw error;
+      const page = (data ?? []) as SupplierInvoiceGrn[];
+      rows.push(...page);
+      if (page.length < PAGE) return rows;
+    }
   }
 
   /**
@@ -511,10 +541,13 @@ export class ProcurementGrnService {
 
   /**
    * D4 at verify time (decisions round, red team): did whoever CONFIRMED this repeated
-   * invoice receive another delivery with the same number, in any status? The database
-   * answers only about the signed-in user, so when the confirmer is someone else this
-   * reads the caller's own view; the database verify guard is authoritative and also
-   * sees colleges the caller cannot.
+   * invoice receive another delivery with the same number, in any status?
+   * Deep-panel round 3 (S-M2): the database answers this too — fn_procurement_grn_has_duplicate
+   * with p_received_by = the receipt's STORED confirmer, for a caller who may confirm it
+   * (an admin, or a verifier who did not receive it); it sees every college. Under `strict`
+   * (verifyGrn) no database answer means no stock — never the RLS-capped view, which misses
+   * a matching receipt at a college the viewer cannot open. Otherwise (the receipt page's
+   * button state) the viewer's own view is the fallback. The verify guard re-asks it anyway.
    */
   static async confirmerReceivedMatch(
     grn: Pick<
@@ -527,6 +560,15 @@ export class ProcurementGrnService {
     const confirmer = grn.duplicate_confirmed_by;
     if (!confirmer) return false;
     if (confirmer === viewerId) return this.receivedMatchingDelivery(grn, viewerId, opts);
+    const { data, error } = await this.supabase.rpc('fn_procurement_grn_has_duplicate', {
+      p_grn_id: grn.id,
+      p_supplier_id: grn.supplier_id,
+      p_invoice_number: grn.invoice_number,
+      p_created_at: grn.created_at,
+      p_received_by: confirmer,
+    });
+    if (!error && typeof data === 'boolean') return data;
+    if (opts.strict) throw new Error(DUPLICATE_CHECKS_MISSING_MESSAGE);
     const visible = await this.getSupplierInvoiceGrns(grn.supplier_id);
     return receivedMatchingDelivery(visible, grn, confirmer);
   }
@@ -605,6 +647,24 @@ export class ProcurementGrnService {
         throw new Error(SELF_CHECK_MESSAGE);
       }
 
+      // 0a) Director decision 11 Oct 2026 02:00 — a replacement delivery also needs two
+      //     people. Its recorder is refused by 0) (received_by); the original delivery's
+      //     receiver is refused here. The replacement must still be open (claimed, not yet
+      //     fulfilled) and the receipt shaped as one line within what is owed. The database
+      //     verify guard refuses all three too.
+      const replacement = grn.replacement_id ? await this.getReplacementOrigin(grn.replacement_id) : null;
+      if (grn.replacement_id) {
+        if (!replacement || replacement.status !== 'received' || replacement.replacement_grn_item_id) {
+          throw new Error(REPLACEMENT_NOT_OPEN_MESSAGE);
+        }
+        if (selfCheckBlocks(replacement.original_received_by, userId)) {
+          throw new Error(REPLACEMENT_ORIGIN_VERIFY_MESSAGE);
+        }
+        if (replacementShapeBlocks(grn.items, replacement)) {
+          throw new Error(REPLACEMENT_SHAPE_MESSAGE);
+        }
+      }
+
       // 1) Chemical validation — block the whole verify if any accepted chemical line
       //    is missing batch/expiry (fail loudly, post nothing).
       const errors = grn.items.flatMap((i) =>
@@ -620,8 +680,9 @@ export class ProcurementGrnService {
 
       // 1a) I2 — expired goods never go into stock, whenever they are verified: a line
       //     that expired after it was recorded, or whose expiry was edited on the receipt
-      //     page (updateGrnItem), is refused here, before anything is posted.
-      const today = localToday();
+      //     page (updateGrnItem), is refused here, before anything is posted. IST business
+      //     day (S-M4); the database verify guard refuses the same lines (G8).
+      const today = istBusinessDate();
       const expired = grn.items
         .filter((i) => expiredLineBlocks(i, today))
         .map((i) => `"${i.item_name}" expired on ${i.expiry_date}`);
@@ -632,9 +693,10 @@ export class ProcurementGrnService {
       }
 
       // 1a2) D2 (Director 2026-10-10): a receipt with no invoice number never goes into
-      //      stock. (Replacement receipts are exempt, but they never pass through here.)
-      //      The database verify guard refuses it too.
-      if (blankInvoiceBlocksStock(grn.invoice_number)) {
+      //      stock. A replacement receipt is exempt — since 11 Oct it is checked in here,
+      //      and 0a) has just confirmed its replacement is open. The database verify guard
+      //      applies the same rule.
+      if (blankInvoiceBlocksStock(grn.invoice_number, grn.replacement_id)) {
         throw new Error(BLANK_INVOICE_MESSAGE);
       }
 
@@ -675,6 +737,26 @@ export class ProcurementGrnService {
         .single();
       if (lockErr) throw lockErr;
       if (!locked) throw new Error('Delivery record was already verified by someone else; refresh.');
+
+      // 2a) Skeptic re-check (M4): the checks above judged the lines read at the start, in
+      //     separate requests. From the header post on, the database freezes the lines
+      //     (and makes a line write that was in flight finish first), so read them again
+      //     now: if any line was added, removed or changed in between, reopen the receipt
+      //     before anything posts and ask for a fresh check.
+      const { data: currentItems, error: currentErr } = await this.supabase
+        .from('procurement_grn_items')
+        .select('*')
+        .eq('grn_id', id)
+        .order('created_at', { ascending: true });
+      if (currentErr || linesChangedSinceCheck(grn.items, (currentItems ?? []) as typeof grn.items)) {
+        // Deep-panel round 3 (S-H1, S-L6): a reopen that did not happen is said so — the
+        // receipt is then stuck in a posted status with nothing in stock, and "check it
+        // again" could never succeed.
+        if (!(await this.reopenProvisionalPost(id, userId, 'lines changed during the check'))) {
+          throw new Error(GRN_STUCK_POSTED_MESSAGE);
+        }
+        throw currentErr ?? new Error(LINES_CHANGED_MESSAGE);
+      }
 
       const domain = (grn.domain ?? 'ims') as ProcurementDomain;
       const ctx: DomainCtx = { institutionId: grn.institution_id, storeId: grn.store_id, userId };
@@ -800,12 +882,11 @@ export class ProcurementGrnService {
               // posted) — and is strictly narrower than the pre-marker recovery,
               // which replayed every line. True exactly-once for IMS = moving
               // its post into a single RPC like RM's (follow-up scope).
-              const { error: postedErr } = await this.supabase
-                .from('procurement_grn_items')
-                .update({ domain_posted_at: new Date().toISOString() })
-                .eq('id', line.id)
-                .is('domain_posted_at', null);
-              if (postedErr) throw postedErr;
+              // Deep-panel round 3 (S-M3): the goods ARE in stock by now, so a failed mark is
+              // logged, never thrown — a throw would strand an IMS receipt in 'accepted'
+              // with a posted but unmarked line, which a manual reset + re-verify would post
+              // twice. The line stays markable (NULL -> now() is allowed on a posted receipt).
+              await this.markLinePosted(line.id, 'verifyGrn');
             }
           }
 
@@ -842,6 +923,19 @@ export class ProcurementGrnService {
           .single();
         if (finalErr) throw finalErr;
 
+        // 7) Director 11 Oct: a replacement receipt fulfils its replacement only now, once a
+        //    second person has checked it into stock. Written once (the database refuses a
+        //    second link, or a link to a receipt not in stock); a 0-row answer means it was
+        //    already linked, which a retry after a lost response can see.
+        if (grn.replacement_id && grn.items.length === 1) {
+          const { error: linkErr } = await this.supabase
+            .from('procurement_grn_replacements')
+            .update({ replacement_grn_item_id: grn.items[0].id })
+            .eq('id', grn.replacement_id)
+            .is('replacement_grn_item_id', null);
+          if (linkErr) throw linkErr;
+        }
+
         return (finalGrn ?? locked) as ProcurementGrn;
       } catch (postError) {
         // Compensate ONLY for domains whose posts are exactly-once at the DB
@@ -851,21 +945,11 @@ export class ProcurementGrnService {
         // pre-existing strand-in-'accepted' semantics; the domain_posted_at
         // markers make the manual reset path skip lines that already posted.
         if (adapter.idempotentPosts) {
-          const { error: revertErr } = await this.supabase
-            .from('procurement_grn')
-            .update({
-              status: 'pending_verification',
-              verified_by: null,
-              verified_at: null,
-              updated_at: new Date().toISOString(),
-            })
-            .eq('id', id)
-            .eq('status', 'accepted');
-          if (revertErr) {
-            console.error(
-              '[ProcurementGrnService] verifyGrn: post failed AND the GRN could not be reopened — needs manual status reset',
-              revertErr
-            );
+          // Same 0-row trap as the M4 reopen above (S-H1): the receipt may already carry
+          // its refined status, and a silent no-op left it posted. Said so, loudly.
+          if (!(await this.reopenProvisionalPost(id, userId, 'posting failed'))) {
+            console.error('[ProcurementGrnService] verifyGrn: the post failure was:', postError);
+            throw new Error(GRN_STUCK_POSTED_MESSAGE);
           }
         } else {
           console.error(
@@ -878,6 +962,61 @@ export class ProcurementGrnService {
     } catch (error) {
       console.error('[ProcurementGrnService] verifyGrn:', error);
       throw error;
+    }
+  }
+
+  /**
+   * Deep-panel round 3 (S-H1): put a receipt that THIS verifier provisionally posted back
+   * to pending. It matches every posted status (the refine step may already have written
+   * partially_accepted / replacement_requested / completed) and only this verifier's own
+   * post, and it reports whether a row actually moved: PostgREST answers a 0-row update
+   * with no error, which used to leave the receipt in a posted status with nothing in stock
+   * and nothing logged.
+   */
+  private static async reopenProvisionalPost(id: string, userId: string, why: string): Promise<boolean> {
+    const { data, error } = await this.supabase
+      .from('procurement_grn')
+      .update({
+        status: 'pending_verification',
+        verified_by: null,
+        verified_at: null,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', id)
+      .in('status', [...POSTED_GRN_STATUSES])
+      .eq('verified_by', userId)
+      .select('id');
+    const rows = Array.isArray(data) ? data : data ? [data] : [];
+    if (error || rows.length === 0) {
+      console.error(
+        `[ProcurementGrnService] verifyGrn: ${why} AND the GRN ${id} could NOT be reopened (${
+          error ? 'error' : '0 rows matched'
+        }) — it is stuck in a posted status; an admin must reset it to pending_verification`,
+        error ?? null
+      );
+      return false;
+    }
+    return true;
+  }
+
+  /**
+   * Mark a line whose stock was just posted (S-M3). The RM RPC already marked it inside its
+   * own transaction (then this matches 0 rows). A failure is logged, never thrown: the
+   * goods are in stock, and every caller's rollback must treat the line as posted.
+   */
+  private static async markLinePosted(lineId: string, where: string): Promise<void> {
+    try {
+      const { error } = await this.supabase
+        .from('procurement_grn_items')
+        .update({ domain_posted_at: new Date().toISOString() })
+        .eq('id', lineId)
+        .is('domain_posted_at', null);
+      if (error) throw error;
+    } catch (markErr) {
+      console.error(
+        `[ProcurementGrnService] ${where}: line ${lineId} IS in stock but its domain_posted_at mark failed — set it by hand (NULL -> now()) before any reset or re-verify`,
+        markErr
+      );
     }
   }
 
@@ -911,24 +1050,90 @@ export class ProcurementGrnService {
     const ids = (items || []).map((i: any) => i.id);
     if (!ids.length) return [];
 
+    // Two foreign keys join these tables (grn_item_id, replacement_grn_item_id), so the
+    // embed names one; without it PostgREST refuses the whole read (PGRST201).
     const { data, error } = await this.supabase
       .from('procurement_grn_replacements')
-      .select('*, grn_item:procurement_grn_items(id,item_name,is_chemical,domain_item_id)')
+      .select(
+        '*, grn_item:procurement_grn_items!procurement_grn_replacements_grn_item_id_fkey(id,item_name,is_chemical,domain_item_id)'
+      )
       .in('grn_item_id', ids)
       .order('created_at', { ascending: true });
     if (error) throw error;
-    return (data || []) as ProcurementGrnReplacement[];
+    const reps = (data || []) as ProcurementGrnReplacement[];
+
+    // Director 11 Oct: a recorded replacement waits as a pending receipt until a second
+    // person checks it in — show which receipt, and whether it is in stock yet.
+    const claimedIds = reps.filter((r) => r.status === 'received').map((r) => r.id);
+    if (!claimedIds.length) return reps;
+    const { data: receipts, error: recErr } = await this.supabase
+      .from('procurement_grn')
+      .select('id, grn_number, status, replacement_id')
+      .in('replacement_id', claimedIds);
+    if (recErr) {
+      console.error('[ProcurementGrnService] getReplacements: replacement receipts not read:', recErr);
+      return reps;
+    }
+    const byRep = new Map(
+      ((receipts || []) as Array<{ id: string; grn_number: string; status: string; replacement_id: string }>).map(
+        (g) => [g.replacement_id, { id: g.id, grn_number: g.grn_number, status: g.status }]
+      )
+    );
+    return reps.map((r) => ({ ...r, receipt: byRep.get(r.id) ?? null }));
   }
 
   /**
-   * Receive replacement goods for a previously-rejected line (PRD steps 13-14).
-   * Creates a dedicated single-line "replacement" GRN (already inspected, so it lands
-   * 'completed'), posts the accepted qty to inventory through the domain adapter,
-   * advances the PO, and links the fulfilment back to the pending replacement row.
+   * The replacement a replacement receipt fulfils, with who received the ORIGINAL delivery
+   * (Director 11 Oct: that person never checks the replacement in) and the rejected line's
+   * order line (the replacement's one line must be for it).
+   */
+  static async getReplacementOrigin(replacementId: string): Promise<{
+    id: string;
+    status: string;
+    rejected_quantity: number;
+    replacement_grn_item_id: string | null;
+    po_item_id: string | null;
+    original_grn_id: string | null;
+    original_grn_number: string | null;
+    original_received_by: string | null;
+  } | null> {
+    const { data, error } = await this.supabase
+      .from('procurement_grn_replacements')
+      .select(
+        'id, status, rejected_quantity, replacement_grn_item_id, grn_item:procurement_grn_items!procurement_grn_replacements_grn_item_id_fkey(po_item_id, grn:procurement_grn(id, grn_number, received_by))'
+      )
+      .eq('id', replacementId)
+      .maybeSingle();
+    if (error) throw error;
+    if (!data) return null;
+    const row = data as any;
+    const grn = row.grn_item?.grn ?? null;
+    return {
+      id: row.id,
+      status: row.status,
+      rejected_quantity: Number(row.rejected_quantity),
+      replacement_grn_item_id: row.replacement_grn_item_id ?? null,
+      po_item_id: row.grn_item?.po_item_id ?? null,
+      original_grn_id: grn?.id ?? null,
+      original_grn_number: grn?.grn_number ?? null,
+      original_received_by: grn?.received_by ?? null,
+    };
+  }
+
+  /**
+   * Record replacement goods for a previously-rejected line (PRD steps 13-14).
    *
-   * Concurrency: the pending->received claim is the mutex (taken BEFORE posting) so
-   * two receivers can't double-post stock. On any downstream failure the claim is
-   * rolled back to 'pending' — best-effort atomicity without a DB transaction.
+   * Director decision 11 Oct 2026 02:00 — a replacement delivery also needs TWO people.
+   * This saves a dedicated single-line replacement receipt as PENDING: nothing reaches
+   * stock here. A different verifier — not the person who recorded it, never the original
+   * delivery's receiver — checks it into stock through verifyGrn, which posts the goods,
+   * advances the PO and links the fulfilment back to the replacement row. The database
+   * refuses any other order (migration 20271010170000, section 15).
+   *
+   * Concurrency: the pending->received claim is the mutex (and one receipt per replacement
+   * is a unique index), so two people cannot record the same replacement. Nothing is
+   * posted here, so on a failure the half-recorded receipt is removed and the claim
+   * reopened — the replacement can simply be recorded again.
    */
   static async receiveReplacement(
     input: ReceiveReplacementInput,
@@ -946,7 +1151,7 @@ export class ProcurementGrnService {
     const { data: rep, error: repErr } = await this.supabase
       .from('procurement_grn_replacements')
       .select(
-        '*, grn_item:procurement_grn_items(id,item_name,is_chemical,domain_item_id,cost_price,po_item_id,grn_id)'
+        '*, grn_item:procurement_grn_items!procurement_grn_replacements_grn_item_id_fkey(id,item_name,is_chemical,domain_item_id,cost_price,po_item_id,grn_id)'
       )
       .eq('id', input.replacement_id)
       .single();
@@ -983,7 +1188,8 @@ export class ProcurementGrnService {
       );
     }
 
-    // 2) Chemical gate — same rule as verify: batch + expiry required to post.
+    // 2) Chemical gate — same rule as verify: batch + expiry required to post (asked
+    //    now so the replacement is recorded complete; verifyGrn asks again).
     const errors = validateLineForVerify({
       item_name: originItem.item_name,
       is_chemical: originItem.is_chemical,
@@ -1003,13 +1209,14 @@ export class ProcurementGrnService {
         throw new Error(`The ${label} date "${value}" is not a valid date — re-enter it.`);
       }
     }
-    if (expiredLineBlocks({ expiry_date: input.expiry_date, accepted_quantity: accepted }, localToday())) {
+    // IST business day (S-M4); the database refuses an expired replacement line too.
+    if (expiredLineBlocks({ expiry_date: input.expiry_date, accepted_quantity: accepted }, istBusinessDate())) {
       throw new Error(
         `Expired goods cannot be accepted — "${originItem.item_name}" expired on ${input.expiry_date}. Correct the expiry date or do not receive it.`
       );
     }
 
-    // 3) Claim the replacement (mutex). Only one receiver wins the pending->received flip.
+    // 3) Claim the replacement (mutex). Only one person wins the pending->received flip.
     const { data: claimed, error: claimErr } = await this.supabase
       .from('procurement_grn_replacements')
       .update({ status: 'received' })
@@ -1020,64 +1227,58 @@ export class ProcurementGrnService {
     if (claimErr) throw claimErr;
     if (!claimed) throw new Error('Replacement was already received by someone else; refresh.');
 
-    // Track what got created/posted so the catch can compensate precisely:
-    // void the paper trail only when inventory was NOT touched (review r2 —
-    // a retry after a successful post must not create a second line whose
-    // accepted qty the recompute would sum into the PO).
     let createdGrnId: string | null = null;
     let createdItemId: string | null = null;
-    let posted = false;
+    const domain = (parentGrn.domain ?? 'ims') as ProcurementDomain;
     try {
-      const domain = (parentGrn.domain ?? 'ims') as ProcurementDomain;
-      const ctx: DomainCtx = {
-        institutionId: parentGrn.institution_id,
-        storeId: parentGrn.store_id,
-        userId,
-      };
-      const adapter = getAdapter(domain);
       const costPrice = Number(originItem.cost_price ?? 0);
 
-      // 4) Create the replacement GRN header (pre-inspected -> completed).
+      // 4) The replacement receipt header — PENDING, recorded by the caller, naming the
+      //    replacement it fulfils (the database lets an invoice-less receipt into stock at
+      //    verify only when this names a claimed, unfulfilled replacement).
       const grnNumber = await this.generateGrnNumber(parentGrn.institution_id);
-      const replacementHeader = {
-        institution_id: parentGrn.institution_id,
-        store_id: parentGrn.store_id ?? null,
-        grn_number: grnNumber,
-        purchase_order_id: parentGrn.purchase_order_id,
-        supplier_id: parentGrn.supplier_id,
-        domain,
-        status: 'completed',
-        received_by: userId,
-        verified_by: userId,
-        verified_at: new Date().toISOString(),
-        notes: `Replacement for ${parentGrn.grn_number} — ${originItem.item_name}`,
-        // D2 (decisions round, red team): the database lets an invoice-less receipt
-        // into stock only when it names the claimed replacement it fulfils.
-        replacement_id: input.replacement_id,
-      };
-      let { data: grn, error: grnErr } = await this.supabase
+      const { data: grn, error: grnErr } = await this.supabase
         .from('procurement_grn')
-        .insert(replacementHeader)
+        .insert({
+          institution_id: parentGrn.institution_id,
+          store_id: parentGrn.store_id ?? null,
+          grn_number: grnNumber,
+          purchase_order_id: parentGrn.purchase_order_id,
+          supplier_id: parentGrn.supplier_id,
+          domain,
+          status: 'pending_verification',
+          received_by: userId,
+          notes: `Replacement for ${parentGrn.grn_number} — ${originItem.item_name}`,
+          replacement_id: input.replacement_id,
+        })
         .select()
         .single();
-      // On a database where the decisions-round migration is not applied yet the column
-      // does not exist (PostgREST PGRST204) — and neither does the check that reads it.
-      if (
-        grnErr &&
-        grnErr.code === 'PGRST204' &&
-        /replacement_id/.test(String(grnErr.message ?? ''))
-      ) {
-        const { replacement_id: _omit, ...withoutMarker } = replacementHeader;
-        ({ data: grn, error: grnErr } = await this.supabase
-          .from('procurement_grn')
-          .insert(withoutMarker)
-          .select()
-          .single());
+      if (grnErr) {
+        // A database without migration 20271010170000 has no replacement_id column
+        // (PostgREST PGRST204). Without it the receipt could never be checked in as a
+        // replacement, so stop plainly (the catch reopens the claim).
+        if (grnErr.code === 'PGRST204' && /replacement_id/.test(String(grnErr.message ?? ''))) {
+          throw new Error(REPLACEMENT_SCHEMA_MISSING_MESSAGE);
+        }
+        throw grnErr;
       }
-      if (grnErr) throw grnErr;
       createdGrnId = grn.id;
 
-      // 5) Its single line.
+      // 5) Which catalog item the goods go to: the origin line's, or the PO line's (a
+      //    sibling verify may have linked it since). When neither is known, verifyGrn
+      //    creates it at check-in, as for any delivery.
+      let domainItemId: string | null = originItem.domain_item_id ?? null;
+      if (!domainItemId && originItem.po_item_id) {
+        const { data: freshPoi, error: freshErr } = await this.supabase
+          .from('procurement_purchase_order_items')
+          .select('domain_item_id')
+          .eq('id', originItem.po_item_id)
+          .single();
+        if (freshErr) throw freshErr;
+        domainItemId = freshPoi?.domain_item_id ?? null;
+      }
+
+      // 6) Its single line.
       const match = matchLine({
         orderedRemaining: Number(rep.rejected_quantity),
         invoiceQty: accepted,
@@ -1088,7 +1289,7 @@ export class ProcurementGrnService {
         .insert({
           grn_id: grn.id,
           po_item_id: originItem.po_item_id,
-          domain_item_id: originItem.domain_item_id ?? null,
+          domain_item_id: domainItemId,
           item_name: originItem.item_name,
           ordered_quantity: Number(rep.rejected_quantity),
           invoice_quantity: accepted,
@@ -1110,113 +1311,40 @@ export class ProcurementGrnService {
       if (niErr) throw niErr;
       createdItemId = newItem.id;
 
-      // 6) Post to inventory. A fully-rejected new-item line was never
-      //    materialized at verify (accepted=0 skipped it), so its replacement
-      //    must materialize here or the goods never reach inventory (review
-      //    r3) — same fresh-PO-read dedup + reconcile as verifyGrn.
-      let domainItemId: string | null = originItem.domain_item_id ?? null;
-      if (!domainItemId && originItem.po_item_id) {
-        const { data: freshPoi, error: freshErr } = await this.supabase
-          .from('procurement_purchase_order_items')
-          .select('domain_item_id')
-          .eq('id', originItem.po_item_id)
-          .single();
-        if (freshErr) throw freshErr;
-        domainItemId = freshPoi?.domain_item_id ?? null;
-      }
-      if (!domainItemId && adapter.reconcileNewItem) {
-        domainItemId = await adapter.reconcileNewItem(
-          { name: originItem.item_name, isChemical: originItem.is_chemical ?? undefined },
-          ctx,
-          originItem.po_item_id ?? null
-        );
-      }
-      if (domainItemId && domainItemId !== (originItem.domain_item_id ?? null)) {
-        // Back-link the origin line, the fresh replacement line, and the PO line
-        // so later reads/replacements see a linked item (RM's reconcile already
-        // backfilled the PO line in its own transaction; this is a no-op there).
-        const { error: relinkErr } = await this.supabase
-          .from('procurement_grn_items')
-          .update({ domain_item_id: domainItemId })
-          .in('id', [originItem.id, newItem.id]);
-        if (relinkErr) throw relinkErr;
-        if (originItem.po_item_id) {
-          const { error: poLinkErr } = await this.supabase
-            .from('procurement_purchase_order_items')
-            .update({ domain_item_id: domainItemId })
-            .eq('id', originItem.po_item_id);
-          if (poLinkErr) throw poLinkErr;
-        }
-      }
-      if (domainItemId) {
-        await adapter.postReceipt(
-          {
-            domainItemId,
-            acceptedQuantity: accepted,
-            costPrice,
-            totalValue: costPrice * accepted,
-            batchNumber: input.batch_number,
-            expiryDate: input.expiry_date,
-            manufacturingDate: input.manufacturing_date,
-            serialNumbers: input.serial_numbers,
-            grnId: grn.id,
-            grnNumber,
-            purchaseOrderId: parentGrn.purchase_order_id,
-            supplierId: parentGrn.supplier_id,
-            grnItemId: newItem.id,
-          },
-          ctx
-        );
-        posted = true;
-        // Mark the line posted, as verifyGrn does (the RM RPC already claimed it; this
-        // then matches 0 rows). The database refuses to delete a receipt with a posted
-        // line, so the rollback below can never erase a replacement that reached stock.
-        const { error: postedErr } = await this.supabase
-          .from('procurement_grn_items')
-          .update({ domain_posted_at: new Date().toISOString() })
-          .eq('id', newItem.id)
-          .is('domain_posted_at', null);
-        if (postedErr) throw postedErr;
-      }
-
-      // 7) Recompute the PO line's received_quantity — atomic single-statement
-      //    RPC (same mechanism as verifyGrn) + recompute PO status.
-      const { error: advErr } = await this.supabase.rpc(
-        'fn_procurement_recompute_po_line_received',
-        { p_po_item_id: originItem.po_item_id }
-      );
-      if (advErr) throw advErr;
-      await this.refreshPoReceiptStatus(parentGrn.purchase_order_id);
-
-      // 8) Link the fulfilment back to the pending row.
-      const { error: linkRepErr } = await this.supabase
-        .from('procurement_grn_replacements')
-        .update({ replacement_grn_item_id: newItem.id })
-        .eq('id', input.replacement_id);
-      if (linkRepErr) throw linkRepErr;
-
       return grn as ProcurementGrn;
     } catch (error) {
-      if (!posted) {
-        // Inventory untouched — void the just-created paper trail (line before
-        // header for the FK) so the PO recompute never sums an orphan, then
-        // roll the claim back so the replacement can be retried cleanly.
-        if (createdItemId) {
-          await this.supabase.from('procurement_grn_items').delete().eq('id', createdItemId);
-        }
-        if (createdGrnId) {
-          await this.supabase.from('procurement_grn').delete().eq('id', createdGrnId);
-        }
-        await this.supabase
+      // Nothing was posted. Remove the half-recorded receipt (line before header, for the
+      // foreign key) and reopen the claim so the replacement can be recorded again. Each
+      // step reports whether a row actually went (PostgREST answers a 0-row delete with no
+      // error); if one did not, the rest stay as they are and an admin is told.
+      let cleaned = true;
+      if (createdItemId) {
+        const { data: gone, error: delErr } = await this.supabase
+          .from('procurement_grn_items')
+          .delete()
+          .eq('id', createdItemId)
+          .select('id');
+        if (delErr || !Array.isArray(gone) || gone.length === 0) cleaned = false;
+      }
+      if (cleaned && createdGrnId) {
+        const { data: gone, error: delErr } = await this.supabase
+          .from('procurement_grn')
+          .delete()
+          .eq('id', createdGrnId)
+          .select('id');
+        if (delErr || !Array.isArray(gone) || gone.length === 0) cleaned = false;
+      }
+      if (cleaned) {
+        const { error: reopenErr } = await this.supabase
           .from('procurement_grn_replacements')
           .update({ status: 'pending', replacement_grn_item_id: null })
-          .eq('id', input.replacement_id);
-      } else {
-        // Goods ARE in inventory — reopening the claim would let a retry create
-        // a second line and post again. Keep it 'received' and surface the
-        // incomplete follow-through (PO totals / fulfilment link) for repair.
+          .eq('id', input.replacement_id)
+          .eq('status', 'received');
+        if (reopenErr) cleaned = false;
+      }
+      if (!cleaned) {
         console.error(
-          `[ProcurementGrnService] receiveReplacement: inventory posted but a later step failed — replacement ${input.replacement_id} stays received; check PO received_quantity and replacement_grn_item_id linkage`
+          `[ProcurementGrnService] receiveReplacement: recording failed and could not be undone — replacement ${input.replacement_id} stays claimed with receipt ${createdGrnId ?? '-'} and line ${createdItemId ?? '-'}; nothing is in stock. An admin must remove the receipt and reopen the replacement.`
         );
       }
       console.error('[ProcurementGrnService] receiveReplacement:', error);

@@ -2,6 +2,7 @@
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { ProcurementGrnService } from '@/lib/services/procurement/grn-service';
+import { findDuplicateGrns } from '@/lib/services/procurement/invoice-checks';
 import type { CreateGrnInput, GrnFilters, ReceiveReplacementInput } from '@/types/procurement';
 
 export function useGrns(filters: GrnFilters) {
@@ -36,6 +37,94 @@ export function useCreateGrn() {
   });
 }
 
+/**
+ * I1 held save: is this receipt's invoice number a repeat, and which earlier receipts
+ * (that the viewer can see) carry it — for the side-by-side on the receipt page.
+ */
+export function useGrnDuplicateInvoice(
+  grn:
+    | {
+        id: string;
+        supplier_id: string;
+        invoice_number: string | null;
+        created_at: string;
+        duplicate_confirmed_by?: string | null;
+      }
+    | null
+    | undefined,
+  viewerId?: string | null
+) {
+  return useQuery({
+    queryKey: [
+      'procurement-grn-duplicate',
+      grn?.id,
+      grn?.supplier_id,
+      grn?.invoice_number,
+      grn?.duplicate_confirmed_by,
+      viewerId,
+    ],
+    queryFn: async () => {
+      const g = grn!;
+      // Deep-panel L5: allSettled, so one failed lookup still lets the page show what it
+      // could find — and says checkFailed, so the page fails closed instead of reading a
+      // missing answer as "no repeat".
+      // D4 at verify time: did whoever confirmed receive another delivery with this
+      // number (any status)? Deep-panel round 3 (U-L5 / S-M2): asked of the database, which
+      // sees every college, the same way hasDuplicate is — no longer worked out from the
+      // receipts this viewer can see. The verify guard decides; this only disables the button.
+      const confirmer = g.duplicate_confirmed_by ?? null;
+      const [dupR, visibleR, viewerR, confirmerR] = await Promise.allSettled([
+        ProcurementGrnService.hasDuplicateInvoice(g),
+        ProcurementGrnService.getSupplierInvoiceGrns(g.supplier_id),
+        // D4 third-person rule: did the viewer receive the other delivery?
+        viewerId ? ProcurementGrnService.receivedMatchingDelivery(g, viewerId) : Promise.resolve(false),
+        confirmer && confirmer !== viewerId && viewerId
+          ? ProcurementGrnService.confirmerReceivedMatch(g, viewerId)
+          : Promise.resolve(false),
+      ]);
+      const checkFailed = [dupR, visibleR, viewerR, confirmerR].some((r) => r.status === 'rejected');
+      if (checkFailed)
+        console.error('[procurement grn] duplicate invoice lookup failed:', [dupR, visibleR, viewerR, confirmerR]);
+      const hasDuplicate = dupR.status === 'fulfilled' ? dupR.value : false;
+      const visible = visibleR.status === 'fulfilled' ? visibleR.value : [];
+      const viewerReceivedMatch = viewerR.status === 'fulfilled' ? viewerR.value : false;
+      const confirmerReceivedMatch = !confirmer
+        ? false
+        : confirmer === viewerId
+          ? viewerReceivedMatch
+          : confirmerR.status === 'fulfilled'
+            ? confirmerR.value
+            : false;
+      return {
+        checkFailed,
+        // Deep-panel round 3 (U-L4): the earlier-receipts list itself could not be read, so
+        // an empty list means "unknown", not "recorded at a college you cannot open".
+        listFailed: visibleR.status === 'rejected',
+        hasDuplicate,
+        viewerReceivedMatch,
+        confirmerReceivedMatch,
+        // Receipts already in stock, or recorded BEFORE this one — the same rule as the
+        // database: the original is never held by a later, not-yet-verified repeat.
+        earlier: findDuplicateGrns(visible, g.supplier_id, g.invoice_number, g.id, g),
+      };
+    },
+    enabled: !!grn?.id && !!grn.invoice_number,
+    staleTime: 60 * 1000,
+  });
+}
+
+export function useConfirmDifferentInvoice() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, userId }: { id: string; userId: string }) =>
+      ProcurementGrnService.confirmDifferentInvoice(id, userId),
+    onSuccess: (_r, { id }) => {
+      queryClient.invalidateQueries({ queryKey: ['procurement-grn', id] });
+      queryClient.invalidateQueries({ queryKey: ['procurement-grn-duplicate', id] });
+    },
+  });
+}
+
 export function useVerifyGrn() {
   const queryClient = useQueryClient();
   return useMutation({
@@ -44,6 +133,10 @@ export function useVerifyGrn() {
     onSuccess: (grn, { id }) => {
       queryClient.invalidateQueries({ queryKey: ['procurement-grns'] });
       queryClient.invalidateQueries({ queryKey: ['procurement-grn', id] });
+      // Checking in a replacement receipt fulfils a replacement shown on the ORIGINAL
+      // delivery's page (Director 11 Oct: replacements need two people).
+      queryClient.invalidateQueries({ queryKey: ['procurement-grn-replacements'] });
+      queryClient.invalidateQueries({ queryKey: ['procurement-grn-replacement-origin'] });
       if (grn?.purchase_order_id) {
         queryClient.invalidateQueries({
           queryKey: ['procurement-purchase-order', grn.purchase_order_id],
@@ -67,10 +160,27 @@ export function useReceiveReplacement(grnId: string) {
   return useMutation({
     mutationFn: ({ input, userId }: { input: ReceiveReplacementInput; userId: string }) =>
       ProcurementGrnService.receiveReplacement(input, userId),
+    // Never re-run on failure (the app default retries a mutation once): recording claims
+    // the replacement, and a failed attempt that could not undo itself must not be repeated.
+    // Since 11 Oct this only records a pending receipt; a second person checks it in.
+    retry: false,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['procurement-grn-replacements', grnId] });
       queryClient.invalidateQueries({ queryKey: ['procurement-grns'] });
     },
+  });
+}
+
+/**
+ * Director 11 Oct 2026: for a replacement receipt, the replacement it fulfils and who
+ * received the original delivery (that person never checks the replacement in).
+ */
+export function useReplacementOrigin(replacementId: string | null | undefined) {
+  return useQuery({
+    queryKey: ['procurement-grn-replacement-origin', replacementId],
+    queryFn: () => ProcurementGrnService.getReplacementOrigin(replacementId as string),
+    enabled: !!replacementId,
+    staleTime: 60 * 1000,
   });
 }
 

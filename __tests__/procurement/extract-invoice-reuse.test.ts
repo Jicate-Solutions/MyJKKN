@@ -37,6 +37,11 @@ let aiJobsCalls = 0;
 let doneLookups = 0;
 let inFlightLookups = 0;
 let laneChecks = 0;
+// Round 3 (S-L9): the lane can be switched on, and the in-flight lookup can answer
+// differently on its first and second call (before the enqueue / after a 23505).
+let laneEnabled = false;
+let inFlightSequence: Array<{ id: string } | null> | null = null;
+const enqueue = vi.fn();
 const admin = {
   from: (table: string) => {
     if (table === 'ai_jobs') {
@@ -52,6 +57,7 @@ const admin = {
         }
         if (shape.inStatus) {
           inFlightLookups++;
+          if (inFlightSequence) return { data: inFlightSequence[inFlightLookups - 1] ?? null, error: null };
           return { data: inFlightJob, error: null };
         }
         throw new Error('unexpected ai_jobs query');
@@ -61,13 +67,15 @@ const admin = {
     if (table === 'ai_job_types')
       return chain(() => {
         laneChecks++;
-        return { data: { enabled: false }, error: null };
+        return { data: { enabled: laneEnabled }, error: null };
       });
     throw new Error(`unexpected table ${table}`);
   },
 };
 const userClient = {
   from: () => chain(() => ({ data: { id: PO }, error: null })),
+  storage: { from: () => ({ upload: async () => ({ error: null }) }) },
+  rpc: (...args: unknown[]) => enqueue(...args),
 };
 
 vi.mock('@/lib/utils/procurement-auth', () => ({
@@ -103,6 +111,9 @@ beforeEach(() => {
   laneChecks = 0;
   priorJob = null;
   inFlightJob = null;
+  laneEnabled = false;
+  inFlightSequence = null;
+  enqueue.mockReset();
 });
 
 describe('extract-invoice reuse gate', () => {
@@ -177,5 +188,35 @@ describe('extract-invoice "Read again" (read_again=1)', () => {
     priorJob = reusable;
     await expect(post()).resolves.toMatchObject({ reused: true, job_id: 'job1' });
     expect(doneLookups).toBe(1);
+  });
+});
+
+// Deep-panel round 3 (S-L9): two clicks at the same moment both pass the in-flight lookup;
+// the database (ai_jobs_inflight_dedupe_idx on the forced payload._dedupe) lets one queue
+// and refuses the other with 23505. That one is answered with the read already queued.
+describe('extract-invoice — a simultaneous second request', () => {
+  it('sends the dedupe key <user>:<po>:<sha256> with the enqueue', async () => {
+    laneEnabled = true;
+    enqueue.mockResolvedValue({ data: { ok: true, job_id: 'job-new' }, error: null });
+    await expect(post()).resolves.toEqual({ job_id: 'job-new' });
+    const payload = enqueue.mock.calls[0][1].p_payload;
+    expect(payload._dedupe).toMatch(new RegExp(`^receiver:${PO}:[0-9a-f]{64}$`));
+  });
+
+  it('answers a 23505 from the enqueue with the read already queued', async () => {
+    laneEnabled = true;
+    inFlightSequence = [null, { id: 'job-first' }];
+    enqueue.mockResolvedValue({ data: null, error: { code: '23505', message: 'duplicate key value violates unique constraint "ai_jobs_inflight_dedupe_idx"' } });
+    await expect(post()).resolves.toEqual({ job_id: 'job-first' });
+    expect(inFlightLookups).toBe(2);
+  });
+
+  it('any other enqueue error is still the plain "could not start" notice', async () => {
+    laneEnabled = true;
+    enqueue.mockResolvedValue({ data: null, error: { code: '42501', message: 'denied' } });
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const json = await post();
+    expect(json.job_id).toBeUndefined();
+    expect(json).toMatchObject({ unavailable: true });
   });
 });

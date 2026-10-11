@@ -23,6 +23,7 @@ import type { GstLineBreakdown } from '@/lib/utils/ims-gst-calculator';
 import { GRN_STATUS_CONFIG } from '@/types/ims';
 import type { ImsGRNItem } from '@/types/ims';
 import { ImsPageGuard } from '@/components/ims/ims-page-guard';
+import { ImsGrnRetiredNotice } from '@/components/ims/ims-grn-retired-notice';
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -126,6 +127,10 @@ function GRNDetailPageInner({
             <p className="text-sm text-muted-foreground">Goods Received Note</p>
           </div>
         </div>
+
+        {/* IMS goods receipts are retired (Director decision D1, 2026-10-10): this record
+            stays readable; new deliveries are recorded in Procurement. */}
+        <ImsGrnRetiredNotice />
 
         {/* ── Section 1: GRN Header ─────────────────────────────────────────── */}
         <Card>

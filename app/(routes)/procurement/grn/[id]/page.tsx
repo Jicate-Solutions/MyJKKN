@@ -12,7 +12,28 @@ import {
   useReplacements,
   useReceiveReplacement,
   useUpdateGrnItem,
+  useGrnDuplicateInvoice,
+  useConfirmDifferentInvoice,
+  useReplacementOrigin,
 } from '@/hooks/procurement/use-grns';
+import {
+  BLANK_INVOICE_MESSAGE,
+  blankInvoiceBlocksStock,
+  duplicateHold,
+  CONFIRMATION_VOID_MESSAGE,
+  DUPLICATE_CHECK_FAILED_MESSAGE,
+  duplicateCheckUnknown,
+  POSTED_GRN_STATUSES,
+  REPLACEMENT_NO_CANCEL_MESSAGE,
+  REPLACEMENT_ORIGIN_VERIFY_MESSAGE,
+  REPLACEMENT_RECORDED_MESSAGE,
+  REPLACEMENT_RECORDER_VERIFY_MESSAGE,
+  REPLACEMENT_SELF_CHECK_MESSAGE,
+  replacementProgress,
+  SELF_CHECK_MESSAGE,
+  selfCheckBlocks,
+} from '@/lib/services/procurement/invoice-checks';
+import { DuplicateInvoiceCompare } from '@/components/procurement/duplicate-invoice-compare';
 import { validateLineForVerify } from '@/lib/services/procurement/three-way-match';
 import { GRN_STATUS_CONFIG, GRN_MATCH_CONFIG, type ProcurementGrnReplacement } from '@/types/procurement';
 import { formatDateDMY, formatDateTimeDMY } from '@/lib/utils/date-format';
@@ -67,7 +88,15 @@ export default function GrnDetailPage() {
   // Cancelling asks first, from a link at the bottom (as on the purchase and order pages).
   const [cancelOpen, setCancelOpen] = useState(false);
   const receiveReplacement = useReceiveReplacement(id);
+  // Director 11 Oct 2026: for a replacement receipt, the replacement it fulfils and who
+  // received the original delivery (that person never checks the replacement in).
+  const { data: replacementOrigin, isError: replacementOriginFailed } = useReplacementOrigin(grn?.replacement_id);
   const updateItem = useUpdateGrnItem(id);
+  // I1 held save: a repeated invoice number must be confirmed before verify.
+  const dupQuery = useGrnDuplicateInvoice(grn, profile?.id);
+  const dup = dupQuery.data;
+  const confirmDifferent = useConfirmDifferentInvoice();
+  const [confirmDupOpen, setConfirmDupOpen] = useState(false);
 
   // Inline batch/expiry edits (pending GRNs only) — lets the admin satisfy the chemical
   // gate at verify time. Keyed by grn_item id; falls back to the stored value.
@@ -152,7 +181,62 @@ export default function GrnDetailPage() {
   );
 
   const purchase = grn.purchase_request;
+  const hold = duplicateHold({
+    hasDuplicate: !!dup?.hasDuplicate,
+    confirmedBy: grn.duplicate_confirmed_by,
+    viewerId: profile?.id,
+    receivedBy: grn.received_by,
+    viewerCanVerify: canVerify,
+    viewerReceivedMatch: !!dup?.viewerReceivedMatch,
+    confirmerReceivedMatch: !!dup?.confirmerReceivedMatch,
+  });
+  // D2 (Director 2026-10-10): no invoice number, no stock. The service and the database
+  // refuse it too.
+  // A replacement receipt is exempt (Director 11 Oct: it is checked in like any delivery).
+  const noInvoiceNumber = blankInvoiceBlocksStock(grn.invoice_number, grn.replacement_id);
+  // Deep-panel L5: while the repeat check is loading or has failed, fail closed.
+  const dupFailed = dupQuery.isError || !!dup?.checkFailed;
+  const dupUnknown = duplicateCheckUnknown({
+    pending,
+    invoiceNumber: grn.invoice_number,
+    loading: !dup && !dupQuery.isError,
+    failed: dupFailed,
+  });
   const canVerifyNow = pending && canVerify;
+  // E1 (Director 2026-10-10 afternoon): whoever received this delivery never checks it,
+  // whatever their rights. The button stays visible but disabled, with a plain reason.
+  // The service and the database refuse it too.
+  const viewerIsReceiver = selfCheckBlocks(grn.received_by, profile?.id);
+  // Director 11 Oct 2026 02:00 — a replacement delivery also needs two people: its
+  // recorder (received_by, above) and whoever received the ORIGINAL delivery never check
+  // it in. The service and the database refuse both too.
+  const isReplacementReceipt = !!grn.replacement_id;
+  const viewerIsOriginalReceiver =
+    isReplacementReceipt && selfCheckBlocks(replacementOrigin?.original_received_by, profile?.id);
+  const selfCheckReason = viewerIsReceiver
+    ? isReplacementReceipt
+      ? REPLACEMENT_RECORDER_VERIFY_MESSAGE
+      : SELF_CHECK_MESSAGE
+    : viewerIsOriginalReceiver
+      ? REPLACEMENT_ORIGIN_VERIFY_MESSAGE
+      : null;
+  // Replacement goods are received only against a delivery already checked into stock —
+  // never one that is pending (and possibly held under I1). The service and the database
+  // refuse it too (review round 2, red team).
+  const canReceiveReplacement = canVerify && POSTED_GRN_STATUSES.includes(grn.status);
+  // Director 11 Oct 2026: a claimed replacement is "recorded" until a second person checks
+  // its receipt into stock.
+  const replacementState = replacementProgress;
+  const replacementReceiptLink = (r: ProcurementGrnReplacement) =>
+    r.receipt ? (
+      <Button
+        variant="link"
+        className="h-10 px-0 sm:h-9"
+        onClick={() => router.push(`/procurement/grn/${r.receipt!.id}`)}
+      >
+        {replacementState(r) === 'recorded' ? `Check ${r.receipt.grn_number}` : r.receipt.grn_number}
+      </Button>
+    ) : null;
   const verify = () =>
     run(
       () => verifyGrn.mutateAsync({ id, userId: profile!.id }),
@@ -180,7 +264,16 @@ export default function GrnDetailPage() {
             canVerifyNow && (
               <Button
                 className="h-11 px-5 sm:h-9"
-                disabled={verifyGrn.isPending || chemicalBlocks.length > 0}
+                disabled={
+                  verifyGrn.isPending ||
+                  chemicalBlocks.length > 0 ||
+                  hold.blocksVerify ||
+                  dupUnknown ||
+                  noInvoiceNumber ||
+                  !!selfCheckReason ||
+                  (isReplacementReceipt && !replacementOrigin)
+                }
+                title={selfCheckReason ?? undefined}
                 onClick={verify}
               >
                 <CheckCircle2 className="mr-1.5 h-4 w-4" />
@@ -189,6 +282,36 @@ export default function GrnDetailPage() {
             )
           }
         />
+
+        {/* Director 11 Oct 2026: a replacement delivery waits for a second person */}
+        {isReplacementReceipt && (
+          <section role="status" className="rounded-xl border bg-background px-5 py-3 text-sm shadow">
+            <p className="font-medium">
+              Replacement for{' '}
+              {replacementOrigin?.original_grn_id ? (
+                <button
+                  type="button"
+                  className="underline underline-offset-2"
+                  onClick={() => router.push(`/procurement/grn/${replacementOrigin.original_grn_id}`)}
+                >
+                  {replacementOrigin.original_grn_number ?? 'the original delivery'}
+                </button>
+              ) : (
+                'a rejected delivery'
+              )}
+            </p>
+            <p className="text-muted-foreground">
+              {pending
+                ? 'Not in stock yet. Someone who did not record it, and did not receive the original delivery, must check it into stock.'
+                : 'Checked into stock by a second person.'}
+            </p>
+            {pending && replacementOriginFailed && (
+              <p className="text-destructive">
+                Could not load the replacement it fulfils, so it cannot be checked yet. Reload the page.
+              </p>
+            )}
+          </section>
+        )}
 
         {/* Invoice + receipt meta */}
         <section className="grid gap-3 rounded-xl border bg-background px-5 py-4 text-sm shadow sm:grid-cols-2 sm:gap-4 lg:grid-cols-4">
@@ -214,9 +337,103 @@ export default function GrnDetailPage() {
             </div>
         </section>
 
+        {/* I1 held save — same invoice number from this supplier as another receipt that
+            is already in stock or was recorded earlier. */}
+        {pending && hold.held && (
+          <section className="space-y-3 rounded-xl border border-destructive/40 bg-background px-5 py-4 shadow">
+            <div className="flex items-start gap-1.5 text-sm">
+              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-destructive" />
+              <div className="space-y-1">
+                <p className="font-medium">On hold — this invoice number is already recorded</p>
+                <p className="text-muted-foreground">
+                  {grn.supplier?.name ?? 'This supplier'} has billed invoice “{grn.invoice_number}” on
+                  another delivery. Stock cannot be added until a verifier who did not receive these
+                  goods compares the two and confirms they are different invoices.
+                </p>
+                {hold.confirmationVoid && (
+                  <p className="text-muted-foreground">{CONFIRMATION_VOID_MESSAGE}</p>
+                )}
+              </div>
+            </div>
+            <DuplicateInvoiceCompare
+              earlier={dup?.earlier ?? []}
+              hiddenElsewhere={!!dup?.hasDuplicate && !dup?.listFailed}
+              checkFailed={!!dup?.listFailed}
+              current={{
+                invoice_number: grn.invoice_number,
+                invoice_date: grn.invoice_date,
+                invoice_amount: grn.invoice_amount,
+              }}
+            />
+            {hold.canConfirm ? (
+              <Button
+                variant="outline"
+                className="h-11 sm:h-9"
+                disabled={confirmDifferent.isPending}
+                onClick={() => setConfirmDupOpen(true)}
+              >
+                This is a different invoice
+              </Button>
+            ) : (
+              <p className="text-xs text-muted-foreground">
+                {profile?.id === grn.received_by
+                  ? 'You received these goods, so a different verifier must confirm this.'
+                  : hold.viewerIsParty
+                    ? 'You received the other delivery with this invoice number, so a third person, who received neither, must confirm this.'
+                    : 'Only someone who can verify deliveries can confirm this.'}
+              </p>
+            )}
+          </section>
+        )}
+        {pending && grn.duplicate_confirmed_by && !hold.confirmationVoid && (
+          <p className="text-sm text-muted-foreground">
+            Repeated invoice number confirmed as a different invoice
+            {grn.duplicate_confirmed_by === profile?.id ? ' by you' : ''}
+            {grn.duplicate_confirmed_at ? ` on ${formatDateDMY(grn.duplicate_confirmed_at)}` : ''}.
+          </p>
+        )}
+
         {/* Verify warnings */}
-        {pending && (hasMismatch || chemicalBlocks.length > 0) && (
+        {pending &&
+          (hasMismatch ||
+            chemicalBlocks.length > 0 ||
+            noInvoiceNumber ||
+            (canVerify && !!selfCheckReason) ||
+            (canVerify && dupUnknown)) && (
           <div className="space-y-2">
+            {canVerify && dupUnknown && (
+              <div role="status" className="flex flex-wrap items-center gap-1.5 text-sm text-foreground">
+                <AlertTriangle className="h-4 w-4 shrink-0" />
+                {dupFailed ? (
+                  <>
+                    <span>{DUPLICATE_CHECK_FAILED_MESSAGE}</span>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-9"
+                      disabled={dupQuery.isFetching}
+                      onClick={() => dupQuery.refetch()}
+                    >
+                      Try again
+                    </Button>
+                  </>
+                ) : (
+                  <span>Checking whether this invoice number repeats another delivery…</span>
+                )}
+              </div>
+            )}
+            {canVerify && selfCheckReason && (
+              <div role="status" className="flex items-start gap-1.5 text-sm text-foreground">
+                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                <span>{selfCheckReason}</span>
+              </div>
+            )}
+            {noInvoiceNumber && (
+              <div className="flex items-start gap-1.5 text-sm text-destructive">
+                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                <span>{BLANK_INVOICE_MESSAGE}</span>
+              </div>
+            )}
             {hasMismatch && (
               <span className="flex items-center gap-1.5 text-sm text-foreground">
                 <AlertTriangle className="h-4 w-4" />
@@ -366,16 +583,27 @@ export default function GrnDetailPage() {
         {replacements.length > 0 && (
           <section className="overflow-hidden rounded-xl border bg-background shadow">
             <h2 className="border-b px-5 py-3 text-base font-semibold">Replacements</h2>
+            {canReceiveReplacement && viewerIsReceiver && replacements.some((r) => r.status === 'pending') && (
+              <p role="status" className="border-b px-5 py-2 text-sm text-muted-foreground">
+                {REPLACEMENT_SELF_CHECK_MESSAGE}
+              </p>
+            )}
               <ResponsiveList
                 rows={replacements}
                 getRowKey={(r) => r.id}
                 mobileFooter={(r) =>
-                  r.status === 'pending' && canVerify ? (
-                    <Button variant="outline" className="h-10 sm:h-9" onClick={() => openReceive(r)}>
+                  r.status === 'pending' && canReceiveReplacement ? (
+                    <Button
+                      variant="outline"
+                      className="h-10 sm:h-9"
+                      disabled={viewerIsReceiver}
+                      title={viewerIsReceiver ? REPLACEMENT_SELF_CHECK_MESSAGE : undefined}
+                      onClick={() => openReceive(r)}
+                    >
                       <PackagePlus className="mr-2 h-4 w-4" />
-                      Receive
+                      Record
                     </Button>
-                  ) : null
+                  ) : replacementReceiptLink(r)
                 }
                 columns={[
                   {
@@ -391,9 +619,10 @@ export default function GrnDetailPage() {
                     mobile: 'badge',
                     cell: (r) => (
                       <StatusBadge
-                        status={r.status === 'received' ? 'received' : 'pending'}
+                        status={replacementState(r)}
                         config={{
-                          received: { label: 'Received', color: 'green' },
+                          received: { label: 'In stock', color: 'green' },
+                          recorded: { label: 'Recorded — waiting to be checked', color: 'blue' },
                           pending: { label: 'Waiting for replacement', color: 'amber' },
                         }}
                       />
@@ -417,11 +646,19 @@ export default function GrnDetailPage() {
                     mobile: 'hidden',
                     className: 'text-right',
                     cell: (r) =>
-                      r.status === 'pending' && canVerify && (
-                        <Button variant="outline" className="h-10 sm:h-9" onClick={() => openReceive(r)}>
+                      r.status === 'pending' && canReceiveReplacement ? (
+                        <Button
+                          variant="outline"
+                          className="h-10 sm:h-9"
+                          disabled={viewerIsReceiver}
+                          title={viewerIsReceiver ? REPLACEMENT_SELF_CHECK_MESSAGE : undefined}
+                          onClick={() => openReceive(r)}
+                        >
                           <PackagePlus className="mr-2 h-4 w-4" />
-                          Receive
+                          Record
                         </Button>
+                      ) : (
+                        replacementReceiptLink(r)
                       ),
                   },
                 ]}
@@ -443,14 +680,42 @@ export default function GrnDetailPage() {
             <DeliveryRatingRow grnId={grn.id} userId={profile.id} />
           )}
 
-        {pending && (
+        {pending && !isReplacementReceipt && (
           <p className="text-center text-sm text-muted-foreground">
             <button type="button" className="hover:underline" onClick={() => setCancelOpen(true)}>
               Cancel this delivery
             </button>
           </p>
         )}
+        {pending && isReplacementReceipt && (
+          <p className="text-center text-sm text-muted-foreground">{REPLACEMENT_NO_CANCEL_MESSAGE}</p>
+        )}
       </div>
+
+      <AlertDialog open={confirmDupOpen} onOpenChange={setConfirmDupOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Confirm this is a different invoice?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Your name and the time are recorded against this delivery. After this, it can be
+              checked and added to stock as usual.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Not yet</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() =>
+                run(
+                  () => confirmDifferent.mutateAsync({ id, userId: profile!.id }),
+                  'Confirmed as a different invoice — the delivery can now be checked.'
+                )
+              }
+            >
+              Yes, it is a different invoice
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <AlertDialog open={cancelOpen} onOpenChange={setCancelOpen}>
         <AlertDialogContent>
@@ -474,9 +739,14 @@ export default function GrnDetailPage() {
       <Dialog open={!!repTarget} onOpenChange={(o) => !o && setRepTarget(null)}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Receive replacement — {repTarget?.grn_item?.item_name}</DialogTitle>
+            <DialogTitle>Record replacement — {repTarget?.grn_item?.item_name}</DialogTitle>
           </DialogHeader>
           <div className="space-y-3">
+            <p className="text-sm text-muted-foreground">
+              This saves the replacement as a pending delivery. It goes into stock only when
+              another verifier — not you, and not whoever received the original delivery —
+              checks it.
+            </p>
             <div className="space-y-1">
               <Label>Accepted quantity</Label>
               <Input type="number" value={repQty} onChange={(e) => setRepQty(e.target.value)} />
@@ -486,7 +756,7 @@ export default function GrnDetailPage() {
             </div>
             {repTarget?.grn_item?.is_chemical && (
               <div className="rounded-md bg-secondary/20 p-2 text-xs text-foreground">
-                Chemical item — batch number and expiry date are required to post to inventory.
+                Chemical item — batch number and expiry date are required before it can go into stock.
               </div>
             )}
             <div className="grid gap-3 sm:grid-cols-3">
@@ -541,13 +811,13 @@ export default function GrnDetailPage() {
                       },
                       userId: profile!.id,
                     }),
-                  'Replacement received — stock added to inventory.'
+                  REPLACEMENT_RECORDED_MESSAGE
                 );
                 setRepTarget(null);
                 setRepSerials('');
               }}
             >
-              {receiveReplacement.isPending ? 'Receiving…' : 'Receive & add to stock'}
+              {receiveReplacement.isPending ? 'Recording…' : 'Record replacement'}
             </Button>
           </DialogFooter>
         </DialogContent>

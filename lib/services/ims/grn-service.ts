@@ -151,7 +151,7 @@ export class ImsGRNService {
   // carries the invoice checks. IMS receipts can no longer be created, verified or
   // approved; the old ones stay readable (getGRNs / getGRN) and can still be cancelled.
   // The database refuses the same writes (trg_ims_grn_00_retired, migration
-  // 20261009120000). The stock-posting code that approveGRN held lives on in the
+  // 20271010170000). The stock-posting code that approveGRN held lives on in the
   // procurement IMS adapter (domain-adapters/ims-adapter.ts postReceipt).
 
   /** Retired — record the delivery in Procurement → Deliveries instead. */

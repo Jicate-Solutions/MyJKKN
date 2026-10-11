@@ -96,31 +96,10 @@ export function useCreateImsGRN() {
   });
 }
 
-export function useVerifyImsGRN() {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: ({ id, userId }: { id: string; userId: string }) =>
-      ImsGRNService.verifyGRN(id, userId),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['ims-grns'] });
-      queryClient.invalidateQueries({ queryKey: ['ims-grn'] });
-    },
-  });
-}
-
-export function useApproveImsGRN() {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: ({ id, userId }: { id: string; userId: string }) =>
-      ImsGRNService.approveGRN(id, userId),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['ims-grns'] });
-      queryClient.invalidateQueries({ queryKey: ['ims-grn'] });
-      queryClient.invalidateQueries({ queryKey: ['ims-stock-summary'] });
-      queryClient.invalidateQueries({ queryKey: ['ims-stock-batches'] });
-    },
-  });
-}
+// useVerifyImsGRN / useApproveImsGRN were removed (deep-panel round 3, U-M1): the IMS
+// goods-receipt flow is retired (Director D1, 2026-10-10). ImsGRNService.verifyGRN /
+// approveGRN refuse, the database refuses any IMS status move except a cancel by
+// ims.stock.grn.edit (trg_ims_grn_00_retired), and no page offers either action.
 
 export function useCancelImsGRN() {
   const queryClient = useQueryClient();
