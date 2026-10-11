@@ -7,6 +7,8 @@ const redirect = vi.fn();
 vi.mock('next/navigation', () => ({ redirect: (to: string) => redirect(to) }));
 
 import { GetPages, MENU_PERMISSIONS } from '@/lib/sidebarMenuLink';
+import { routeMatcher } from '@/lib/auth/route-matcher';
+import { hasMyComplaintsPage } from '@/lib/instasolver/follow-up-links';
 import { findActiveGroup } from '@/lib/navigation/nav-config';
 import navConfig from '@/app/(routes)/instasolver/nav-config';
 import NewIssuePage from '@/app/(routes)/instasolver/issues/new/page';
@@ -106,5 +108,39 @@ describe('old desk links land on the chooser with a note', () => {
     expect(cameFromOldDeskLink({ moved: '0' })).toBe(false);
     expect(cameFromOldDeskLink({})).toBe(false);
     expect(cameFromOldDeskLink(undefined)).toBe(false);
+  });
+});
+
+// Review follow-up to #4237: hiding the desk screens from the menus is not
+// enough, because the front door enforces each page's MENU_PERMISSIONS key.
+describe('old desk screens: CAO only, even by direct link', () => {
+  it('needs instasolver.triage for every desk list screen', () => {
+    for (const h of ['/instasolver/dashboard', '/instasolver/issues', '/instasolver/requirements', '/instasolver/triage', '/instasolver/workload']) {
+      expect(MENU_PERMISSIONS[h], h).toBe('instasolver.triage');
+    }
+    expect(MENU_PERMISSIONS['/instasolver/analytics']).toBe('instasolver.analytics');
+  });
+
+  it('still lets a reporter open one of their own desk issues or requests', () => {
+    expect(MENU_PERMISSIONS['/instasolver/issues/[id]']).toBe('instasolver.view');
+    expect(MENU_PERMISSIONS['/instasolver/requirements/[id]']).toBe('instasolver.view');
+  });
+
+  it('refuses someone holding only instasolver.view, and lets the CAO in', () => {
+    const everyone = { 'instasolver.view': true };
+    const cao = { 'instasolver.view': true, 'instasolver.triage': true };
+    for (const h of ['/instasolver/dashboard', '/instasolver/issues', '/instasolver/requirements']) {
+      expect(routeMatcher.hasAccess(h, 'staff', everyone), h).toBe(false);
+      expect(routeMatcher.hasAccess(h, 'cao', cao), h).toBe(true);
+    }
+    expect(routeMatcher.hasAccess('/instasolver/issues/0b6f9c1e-2d3a-4b5c-8d7e-9f0a1b2c3d4e', 'staff', everyone)).toBe(true);
+    expect(routeMatcher.hasAccess('/instasolver', 'staff', everyone)).toBe(true);
+  });
+
+  it('only links My complaints when that page is part of the build', () => {
+    const inSidebar = instaSolverRow().submenus.some((s) => s.href === '/instasolver/my-complaints');
+    const inTabs = navConfig.groups.some((g) => g.href === '/instasolver/my-complaints');
+    expect(hasMyComplaintsPage()).toBe(inSidebar);
+    expect(hasMyComplaintsPage()).toBe(inTabs);
   });
 });
