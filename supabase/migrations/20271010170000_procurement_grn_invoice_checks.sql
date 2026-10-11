@@ -596,8 +596,17 @@ BEGIN
     --     reopened only while no receipt names it, so a cleared marker would let the
     --     same rejected goods be received twice. (ON DELETE SET NULL still clears it when
     --     an admin deletes the replacement row.)
+    -- R2 skeptic round 2 (A2): pointing a receipt AT a replacement is refused for admins
+    --     too. Before, an admin alone could take someone else's ordinary pending receipt,
+    --     point it at a replacement, and check it in — E1 compared the admin only with the
+    --     ordinary receipt's receiver, who never touched the replacement. A receipt becomes
+    --     a replacement receipt only at INSERT, where received_by is pinned to its recorder
+    --     (rule a), so whoever made it a replacement is always the one E1 bars from checking
+    --     it. Only clearing it stays open to admins: ON DELETE SET NULL fires this trigger
+    --     when an admin deletes the replacement row.
     IF NEW.replacement_id IS DISTINCT FROM OLD.replacement_id
-       AND NOT (public.is_super_admin() OR public.is_admin()) THEN
+       AND (NEW.replacement_id IS NOT NULL
+            OR NOT (public.is_super_admin() OR public.is_admin())) THEN
       RAISE EXCEPTION 'which replacement a delivery fulfils cannot be changed after it is recorded'
         USING ERRCODE = '42501';
     END IF;
