@@ -14,6 +14,7 @@ import {
   useUpdateGrnItem,
   useGrnDuplicateInvoice,
   useConfirmDifferentInvoice,
+  useReplacementOrigin,
 } from '@/hooks/procurement/use-grns';
 import {
   BLANK_INVOICE_MESSAGE,
@@ -23,7 +24,12 @@ import {
   DUPLICATE_CHECK_FAILED_MESSAGE,
   duplicateCheckUnknown,
   POSTED_GRN_STATUSES,
+  REPLACEMENT_NO_CANCEL_MESSAGE,
+  REPLACEMENT_ORIGIN_VERIFY_MESSAGE,
+  REPLACEMENT_RECORDED_MESSAGE,
+  REPLACEMENT_RECORDER_VERIFY_MESSAGE,
   REPLACEMENT_SELF_CHECK_MESSAGE,
+  replacementProgress,
   SELF_CHECK_MESSAGE,
   selfCheckBlocks,
 } from '@/lib/services/procurement/invoice-checks';
@@ -82,6 +88,9 @@ export default function GrnDetailPage() {
   // Cancelling asks first, from a link at the bottom (as on the purchase and order pages).
   const [cancelOpen, setCancelOpen] = useState(false);
   const receiveReplacement = useReceiveReplacement(id);
+  // Director 11 Oct 2026: for a replacement receipt, the replacement it fulfils and who
+  // received the original delivery (that person never checks the replacement in).
+  const { data: replacementOrigin, isError: replacementOriginFailed } = useReplacementOrigin(grn?.replacement_id);
   const updateItem = useUpdateGrnItem(id);
   // I1 held save: a repeated invoice number must be confirmed before verify.
   const dupQuery = useGrnDuplicateInvoice(grn, profile?.id);
@@ -183,7 +192,8 @@ export default function GrnDetailPage() {
   });
   // D2 (Director 2026-10-10): no invoice number, no stock. The service and the database
   // refuse it too.
-  const noInvoiceNumber = blankInvoiceBlocksStock(grn.invoice_number);
+  // A replacement receipt is exempt (Director 11 Oct: it is checked in like any delivery).
+  const noInvoiceNumber = blankInvoiceBlocksStock(grn.invoice_number, grn.replacement_id);
   // Deep-panel L5: while the repeat check is loading or has failed, fail closed.
   const dupFailed = dupQuery.isError || !!dup?.checkFailed;
   const dupUnknown = duplicateCheckUnknown({
@@ -197,10 +207,36 @@ export default function GrnDetailPage() {
   // whatever their rights. The button stays visible but disabled, with a plain reason.
   // The service and the database refuse it too.
   const viewerIsReceiver = selfCheckBlocks(grn.received_by, profile?.id);
+  // Director 11 Oct 2026 02:00 — a replacement delivery also needs two people: its
+  // recorder (received_by, above) and whoever received the ORIGINAL delivery never check
+  // it in. The service and the database refuse both too.
+  const isReplacementReceipt = !!grn.replacement_id;
+  const viewerIsOriginalReceiver =
+    isReplacementReceipt && selfCheckBlocks(replacementOrigin?.original_received_by, profile?.id);
+  const selfCheckReason = viewerIsReceiver
+    ? isReplacementReceipt
+      ? REPLACEMENT_RECORDER_VERIFY_MESSAGE
+      : SELF_CHECK_MESSAGE
+    : viewerIsOriginalReceiver
+      ? REPLACEMENT_ORIGIN_VERIFY_MESSAGE
+      : null;
   // Replacement goods are received only against a delivery already checked into stock —
   // never one that is pending (and possibly held under I1). The service and the database
   // refuse it too (review round 2, red team).
   const canReceiveReplacement = canVerify && POSTED_GRN_STATUSES.includes(grn.status);
+  // Director 11 Oct 2026: a claimed replacement is "recorded" until a second person checks
+  // its receipt into stock.
+  const replacementState = replacementProgress;
+  const replacementReceiptLink = (r: ProcurementGrnReplacement) =>
+    r.receipt ? (
+      <Button
+        variant="link"
+        className="h-10 px-0 sm:h-9"
+        onClick={() => router.push(`/procurement/grn/${r.receipt!.id}`)}
+      >
+        {replacementState(r) === 'recorded' ? `Check ${r.receipt.grn_number}` : r.receipt.grn_number}
+      </Button>
+    ) : null;
   const verify = () =>
     run(
       () => verifyGrn.mutateAsync({ id, userId: profile!.id }),
@@ -234,9 +270,10 @@ export default function GrnDetailPage() {
                   hold.blocksVerify ||
                   dupUnknown ||
                   noInvoiceNumber ||
-                  viewerIsReceiver
+                  !!selfCheckReason ||
+                  (isReplacementReceipt && !replacementOrigin)
                 }
-                title={viewerIsReceiver ? SELF_CHECK_MESSAGE : undefined}
+                title={selfCheckReason ?? undefined}
                 onClick={verify}
               >
                 <CheckCircle2 className="mr-1.5 h-4 w-4" />
@@ -245,6 +282,36 @@ export default function GrnDetailPage() {
             )
           }
         />
+
+        {/* Director 11 Oct 2026: a replacement delivery waits for a second person */}
+        {isReplacementReceipt && (
+          <section role="status" className="rounded-xl border bg-background px-5 py-3 text-sm shadow">
+            <p className="font-medium">
+              Replacement for{' '}
+              {replacementOrigin?.original_grn_id ? (
+                <button
+                  type="button"
+                  className="underline underline-offset-2"
+                  onClick={() => router.push(`/procurement/grn/${replacementOrigin.original_grn_id}`)}
+                >
+                  {replacementOrigin.original_grn_number ?? 'the original delivery'}
+                </button>
+              ) : (
+                'a rejected delivery'
+              )}
+            </p>
+            <p className="text-muted-foreground">
+              {pending
+                ? 'Not in stock yet. Someone who did not record it, and did not receive the original delivery, must check it into stock.'
+                : 'Checked into stock by a second person.'}
+            </p>
+            {pending && replacementOriginFailed && (
+              <p className="text-destructive">
+                Could not load the replacement it fulfils, so it cannot be checked yet. Reload the page.
+              </p>
+            )}
+          </section>
+        )}
 
         {/* Invoice + receipt meta */}
         <section className="grid gap-3 rounded-xl border bg-background px-5 py-4 text-sm shadow sm:grid-cols-2 sm:gap-4 lg:grid-cols-4">
@@ -331,7 +398,7 @@ export default function GrnDetailPage() {
           (hasMismatch ||
             chemicalBlocks.length > 0 ||
             noInvoiceNumber ||
-            (canVerify && viewerIsReceiver) ||
+            (canVerify && !!selfCheckReason) ||
             (canVerify && dupUnknown)) && (
           <div className="space-y-2">
             {canVerify && dupUnknown && (
@@ -355,10 +422,10 @@ export default function GrnDetailPage() {
                 )}
               </div>
             )}
-            {canVerify && viewerIsReceiver && (
+            {canVerify && selfCheckReason && (
               <div role="status" className="flex items-start gap-1.5 text-sm text-foreground">
                 <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-                <span>{SELF_CHECK_MESSAGE}</span>
+                <span>{selfCheckReason}</span>
               </div>
             )}
             {noInvoiceNumber && (
@@ -534,9 +601,9 @@ export default function GrnDetailPage() {
                       onClick={() => openReceive(r)}
                     >
                       <PackagePlus className="mr-2 h-4 w-4" />
-                      Receive
+                      Record
                     </Button>
-                  ) : null
+                  ) : replacementReceiptLink(r)
                 }
                 columns={[
                   {
@@ -552,9 +619,10 @@ export default function GrnDetailPage() {
                     mobile: 'badge',
                     cell: (r) => (
                       <StatusBadge
-                        status={r.status === 'received' ? 'received' : 'pending'}
+                        status={replacementState(r)}
                         config={{
-                          received: { label: 'Received', color: 'green' },
+                          received: { label: 'In stock', color: 'green' },
+                          recorded: { label: 'Recorded — waiting to be checked', color: 'blue' },
                           pending: { label: 'Waiting for replacement', color: 'amber' },
                         }}
                       />
@@ -578,7 +646,7 @@ export default function GrnDetailPage() {
                     mobile: 'hidden',
                     className: 'text-right',
                     cell: (r) =>
-                      r.status === 'pending' && canReceiveReplacement && (
+                      r.status === 'pending' && canReceiveReplacement ? (
                         <Button
                           variant="outline"
                           className="h-10 sm:h-9"
@@ -587,8 +655,10 @@ export default function GrnDetailPage() {
                           onClick={() => openReceive(r)}
                         >
                           <PackagePlus className="mr-2 h-4 w-4" />
-                          Receive
+                          Record
                         </Button>
+                      ) : (
+                        replacementReceiptLink(r)
                       ),
                   },
                 ]}
@@ -610,12 +680,15 @@ export default function GrnDetailPage() {
             <DeliveryRatingRow grnId={grn.id} userId={profile.id} />
           )}
 
-        {pending && (
+        {pending && !isReplacementReceipt && (
           <p className="text-center text-sm text-muted-foreground">
             <button type="button" className="hover:underline" onClick={() => setCancelOpen(true)}>
               Cancel this delivery
             </button>
           </p>
+        )}
+        {pending && isReplacementReceipt && (
+          <p className="text-center text-sm text-muted-foreground">{REPLACEMENT_NO_CANCEL_MESSAGE}</p>
         )}
       </div>
 
@@ -666,9 +739,14 @@ export default function GrnDetailPage() {
       <Dialog open={!!repTarget} onOpenChange={(o) => !o && setRepTarget(null)}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Receive replacement — {repTarget?.grn_item?.item_name}</DialogTitle>
+            <DialogTitle>Record replacement — {repTarget?.grn_item?.item_name}</DialogTitle>
           </DialogHeader>
           <div className="space-y-3">
+            <p className="text-sm text-muted-foreground">
+              This saves the replacement as a pending delivery. It goes into stock only when
+              another verifier — not you, and not whoever received the original delivery —
+              checks it.
+            </p>
             <div className="space-y-1">
               <Label>Accepted quantity</Label>
               <Input type="number" value={repQty} onChange={(e) => setRepQty(e.target.value)} />
@@ -678,7 +756,7 @@ export default function GrnDetailPage() {
             </div>
             {repTarget?.grn_item?.is_chemical && (
               <div className="rounded-md bg-secondary/20 p-2 text-xs text-foreground">
-                Chemical item — batch number and expiry date are required to post to inventory.
+                Chemical item — batch number and expiry date are required before it can go into stock.
               </div>
             )}
             <div className="grid gap-3 sm:grid-cols-3">
@@ -733,13 +811,13 @@ export default function GrnDetailPage() {
                       },
                       userId: profile!.id,
                     }),
-                  'Replacement received — stock added to inventory.'
+                  REPLACEMENT_RECORDED_MESSAGE
                 );
                 setRepTarget(null);
                 setRepSerials('');
               }}
             >
-              {receiveReplacement.isPending ? 'Receiving…' : 'Receive & add to stock'}
+              {receiveReplacement.isPending ? 'Recording…' : 'Record replacement'}
             </Button>
           </DialogFooter>
         </DialogContent>

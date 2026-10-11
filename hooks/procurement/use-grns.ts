@@ -133,6 +133,10 @@ export function useVerifyGrn() {
     onSuccess: (grn, { id }) => {
       queryClient.invalidateQueries({ queryKey: ['procurement-grns'] });
       queryClient.invalidateQueries({ queryKey: ['procurement-grn', id] });
+      // Checking in a replacement receipt fulfils a replacement shown on the ORIGINAL
+      // delivery's page (Director 11 Oct: replacements need two people).
+      queryClient.invalidateQueries({ queryKey: ['procurement-grn-replacements'] });
+      queryClient.invalidateQueries({ queryKey: ['procurement-grn-replacement-origin'] });
       if (grn?.purchase_order_id) {
         queryClient.invalidateQueries({
           queryKey: ['procurement-purchase-order', grn.purchase_order_id],
@@ -156,13 +160,27 @@ export function useReceiveReplacement(grnId: string) {
   return useMutation({
     mutationFn: ({ input, userId }: { input: ReceiveReplacementInput; userId: string }) =>
       ProcurementGrnService.receiveReplacement(input, userId),
-    // Never re-run on failure (the app default retries a mutation once): receiving puts
-    // goods into stock, and a failed attempt may already have done so.
+    // Never re-run on failure (the app default retries a mutation once): recording claims
+    // the replacement, and a failed attempt that could not undo itself must not be repeated.
+    // Since 11 Oct this only records a pending receipt; a second person checks it in.
     retry: false,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['procurement-grn-replacements', grnId] });
       queryClient.invalidateQueries({ queryKey: ['procurement-grns'] });
     },
+  });
+}
+
+/**
+ * Director 11 Oct 2026: for a replacement receipt, the replacement it fulfils and who
+ * received the original delivery (that person never checks the replacement in).
+ */
+export function useReplacementOrigin(replacementId: string | null | undefined) {
+  return useQuery({
+    queryKey: ['procurement-grn-replacement-origin', replacementId],
+    queryFn: () => ProcurementGrnService.getReplacementOrigin(replacementId as string),
+    enabled: !!replacementId,
+    staleTime: 60 * 1000,
   });
 }
 
