@@ -536,6 +536,12 @@ describe('move_meeting (in place)', () => {
     }
   });
 
+  it('a clash on a move asks for free times that ignore the meeting being moved', async () => {
+    moveDirect.mockResolvedValue({ ok: false, error: { code: 'SLOT_TAKEN', message: 'Taken.' } });
+    await readRpc(await call('move_meeting', { uid: MEETING_UID, start_local: `${FUTURE_DATE}T18:00` }));
+    expect(nextFreeTimes.mock.calls[0][2]).toMatchObject({ ignore: { start: OLD_START, end: OLD_END } });
+  });
+
   it('when Google does not accept the new time, nothing changes and the reservation is given back', async () => {
     moveDirect.mockResolvedValue({
       ok: false,

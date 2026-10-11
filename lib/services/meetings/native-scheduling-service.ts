@@ -1197,9 +1197,16 @@ export class NativeSchedulingService {
       (mtRow?.title as string | undefined) ??
       (typeof answers.title === 'string' && answers.title.trim() ? answers.title.trim() : 'Meeting');
     // Every invitee is told, not only the first (Director, 9 Oct 2026).
+    const seenEmail = new Set<string>();
     const participants = (Array.isArray(answers.participants) ? answers.participants : [])
       .map((p) => ({ email: typeof p?.email === 'string' ? p.email : '', name: typeof p?.name === 'string' ? p.name : '' }))
-      .filter((p) => p.email);
+      // one email per address, however the list was written
+      .filter((p) => {
+        const key = p.email.trim().toLowerCase();
+        if (!key || seenEmail.has(key)) return false;
+        seenEmail.add(key);
+        return true;
+      });
     const listedRecipients = participants.length
       ? participants
       : [{ email: booking.attendee_email ?? '', name: booking.attendee_name ?? '' }];

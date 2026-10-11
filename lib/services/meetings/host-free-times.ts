@@ -41,7 +41,19 @@ function indiaDate(d: Date): string {
 export async function nextFreeTimes(
   supabase: SupabaseClient,
   hostProfileId: string,
-  opts: { afterIso: string; durationMin: number; count?: number; now?: Date },
+  opts: {
+    afterIso: string;
+    durationMin: number;
+    count?: number;
+    now?: Date;
+    /**
+     * The meeting being moved. Every busy block with exactly its range is
+     * dropped — the same meeting appears twice (the booking row, and its event
+     * in Google busy times), so dropping one copy would keep blocking it. Its
+     * own current start is never offered.
+     */
+    ignore?: { start: string; end: string };
+  },
 ): Promise<string[]> {
   const now = opts.now ?? new Date();
   const count = opts.count ?? 3;
@@ -56,10 +68,14 @@ export async function nextFreeTimes(
     after.toISOString(),
     until.toISOString(),
   );
+  const sameRange = (b: { start: string; end: string }, c: { start: string; end: string }) =>
+    new Date(b.start).getTime() === new Date(c.start).getTime() &&
+    new Date(b.end).getTime() === new Date(c.end).getTime();
+  const counted = opts.ignore ? busy.filter((b) => !sameRange(b, opts.ignore!)) : busy;
   const slots = computeSlots({
     timezone: CAMPUS_TZ,
     durationMin: opts.durationMin,
-    bookings: busy,
+    bookings: counted,
     // The booking guard keeps a 5-minute gap on both sides of a confirmed
     // meeting (mb_no_double_booking_padded). A suggestion that touches another
     // meeting would be refused as SLOT_TAKEN and suggested again, so the gap is
@@ -72,8 +88,11 @@ export async function nextFreeTimes(
     now,
     ...hostAnyTimeSlotInput(),
   });
+  // The meeting's own current start is not a "new" time to offer.
+  const ownStart = opts.ignore ? new Date(opts.ignore.start).getTime() : null;
   return slots
     .map((s) => s.start)
+    .filter((start) => ownStart === null || new Date(start).getTime() !== ownStart)
     // Only times whose whole length lies inside the range busy times were
     // read for — the last day's slots run past `until` and are unverified.
     .filter((start) => {

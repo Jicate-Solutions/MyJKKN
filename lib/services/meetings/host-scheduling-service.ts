@@ -485,6 +485,9 @@ export class HostSchedulingService {
       .eq('status', 'confirmed')
       .eq('start_time', oldStart)
       .eq('end_time', oldEnd)
+      // a meeting that started meanwhile is not moved (the door checked "not
+      // started" when it read the row; this keeps that true at the write)
+      .gt('start_time', new Date().toISOString())
       .select('id')
       .maybeSingle();
     if (upErr) {
@@ -516,13 +519,25 @@ export class HostSchedulingService {
           mayHaveChanged: true,
         };
       }
-      const atNew = sameInstant(a.start_time, startIso) && a.reschedule_count === newCount;
+      const countNow = a.reschedule_count ?? 0;
+      const atNew = sameInstant(a.start_time, startIso) && countNow === newCount;
       const untouched =
         a.status === 'confirmed' &&
         sameInstant(a.start_time, oldStart) &&
-        a.reschedule_count === ((booking.reschedule_count as number | null) ?? 0);
+        countNow === ((booking.reschedule_count as number | null) ?? 0);
       if (untouched) {
         return { ok: false, error: { code: 'UNKNOWN', message: 'The meeting could not be moved.' } };
+      }
+      const cancelledUntouched =
+        a.status === 'cancelled' &&
+        sameInstant(a.start_time, oldStart) &&
+        countNow === ((booking.reschedule_count as number | null) ?? 0);
+      if (cancelledUntouched) {
+        // A cancel won before this move's update could land: nothing of ours changed.
+        return {
+          ok: false,
+          error: { code: 'NOT_FOUND', message: 'That meeting was cancelled meanwhile, so it was not moved.' },
+        };
       }
       if (atNew && a.status !== 'confirmed') {
         // It moved, then a cancel landed before anyone was told.
@@ -699,7 +714,14 @@ export class HostSchedulingService {
       .select('full_name, email')
       .eq('id', input.hostProfileId)
       .maybeSingle();
-    const listed = (answers.participants ?? []).filter((x) => x?.email);
+    // One email per address, however the list was written.
+    const seenEmail = new Set<string>();
+    const listed = (answers.participants ?? []).filter((x) => {
+      const key = (x?.email ?? '').trim().toLowerCase();
+      if (!key || seenEmail.has(key)) return false;
+      seenEmail.add(key);
+      return true;
+    });
     const recipients = listed.length
       ? listed
       : booking.attendee_email

@@ -118,10 +118,13 @@ function makeDb(
   const db = {
     from(table: string) {
       const where: Record<string, unknown> = {};
+      const gtWhere: Record<string, unknown> = {};
       let payload: Record<string, unknown> | null = null;
       const b: any = {
         select: () => b,
         eq: (c: string, v: unknown) => ((where[c] = v), b),
+        // only start_time > now() is used: kept separately from the equality checks
+        gt: (c: string, v: unknown) => ((gtWhere[c] = v), b),
         neq: () => b,
         update: (p: Record<string, unknown>) => ((payload = p), b),
         maybeSingle: async () => {
@@ -133,13 +136,19 @@ function makeDb(
             const lieAfterCommit =
               (opts.errorButCommitted === 'move' && !isRestore) || (opts.errorButCommitted === 'restore' && isRestore);
             if (lieAfterCommit) {
-              const ok = current && Object.entries(where).every(([k, v]) => (current as any)[k] === v);
+              const ok =
+                current &&
+                Object.entries(where).every(([k, v]) => (current as any)[k] === v) &&
+                Object.entries(gtWhere).every(([k, v]) => new Date((current as any)[k]).getTime() > new Date(String(v)).getTime());
               if (ok) current = { ...(current as object), ...payload };
               if (ok && opts.cancelAfterMove) current = { ...(current as object), status: 'cancelled' };
               return { data: null, error: { code: '08006', message: 'connection reset after commit' } };
             }
             if (isRestore && opts.restoreFails) return { data: null, error: { code: 'XX', message: 'down' } };
-            const matches = current && Object.entries(where).every(([k, v]) => (current as any)[k] === v);
+            const matches =
+              current &&
+              Object.entries(where).every(([k, v]) => (current as any)[k] === v) &&
+              Object.entries(gtWhere).every(([k, v]) => new Date((current as any)[k]).getTime() > new Date(String(v)).getTime());
             if (!matches) return { data: null, error: null };
             current = { ...(current as object), ...payload };
             const returned = { ...(current as object) }; // the row as this update left it
@@ -631,6 +640,59 @@ describe('round 6 (10 Oct 14:59): emails and the cancel return', () => {
     const m = makeDb(row());
     await HostSchedulingService.moveDirect(m.db, { uid: 'uid-1', hostProfileId: HOST, startIso: NEW_START, durationMin: 30 });
     expect(sentEmails.filter((e) => e.to === 'director@jkkn.ac.in')).toHaveLength(1);
+  });
+});
+
+describe('follow-ups after #4300 (10 Oct)', () => {
+  it('a meeting that has already started is not moved (the update requires start_time > now)', async () => {
+    const { db, now } = makeDb(row({ start_time: '2000-01-10T05:00:00.000Z', end_time: '2000-01-10T05:30:00.000Z' }));
+    const r = await HostSchedulingService.moveDirect(db, { uid: 'uid-1', hostProfileId: HOST, startIso: NEW_START, durationMin: 30 });
+    expect(r).toMatchObject({ ok: false, error: { code: 'NOT_FOUND' } });
+    expect(now()).toMatchObject({ start_time: '2000-01-10T05:00:00.000Z' });
+  });
+
+  it('an errored move update that lost to a cancel says it changed nothing (not "may have moved")', async () => {
+    const h = makeDb(row(), { updateError: { code: '08006', message: 'connection reset' } });
+    const realFrom = h.db.from.bind(h.db);
+    let n = 0;
+    h.db.from = (t: string) => {
+      if (t === 'meeting_bookings' && ++n === 3) h.cancelNow(); // the cancel is what the re-read sees
+      return realFrom(t);
+    };
+    const r = await HostSchedulingService.moveDirect(h.db, { uid: 'uid-1', hostProfileId: HOST, startIso: NEW_START, durationMin: 30 });
+    expect(r).toMatchObject({ ok: false, error: { code: 'NOT_FOUND' } });
+    expect(r.error?.message).toMatch(/cancelled meanwhile/);
+    expect(r.mayHaveChanged).toBeFalsy();
+  });
+
+  it('an address listed twice (any case) gets one email, on move and on cancel', async () => {
+    const dup = {
+      title: 'Fee review',
+      participants: [
+        { email: 'parent@gmail.com', name: 'A Parent' },
+        { email: 'PARENT@gmail.com', name: 'A Parent again' },
+        { email: 'viswanathan.s@jkkn.ac.in', name: 'Viswanathan S' },
+      ],
+    };
+    const m = makeDb(row({ answers: dup }));
+    await HostSchedulingService.moveDirect(m.db, { uid: 'uid-1', hostProfileId: HOST, startIso: NEW_START, durationMin: 30 });
+    expect(sentEmails.filter((e) => e.to.toLowerCase() === 'parent@gmail.com')).toHaveLength(1);
+    sentEmails.length = 0;
+    const c = makeDb(row({ answers: dup }));
+    await NativeSchedulingService.cancelBooking(c.db, 'uid-1', { actorProfileId: HOST });
+    expect(sentEmails.filter((e) => e.to.toLowerCase() === 'parent@gmail.com')).toHaveLength(1);
+  });
+
+  it('the idempotency key carries a fingerprint of the address, never the address', async () => {
+    const { db } = makeDb(row());
+    await NativeSchedulingService.cancelBooking(db, 'uid-1', { actorProfileId: HOST });
+    const parentKey = sentEmails.find((e) => e.to === 'parent@gmail.com')!.key;
+    expect(parentKey).not.toMatch(/parent|@|gmail/i);
+    expect(parentKey).toMatch(/^meeting-cancelled-attendee-uid-1-[0-9a-f]{16}$/);
+    // keyed with a server secret: not the bare sha256 anyone could recompute
+    const { createHash } = await import('crypto');
+    const bare = createHash('sha256').update('parent@gmail.com').digest('hex').slice(0, 16);
+    expect(parentKey.endsWith(bare)).toBe(false);
   });
 });
 
