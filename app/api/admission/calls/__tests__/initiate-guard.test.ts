@@ -28,8 +28,11 @@ const state = {
   // The caller's self-editable profile phone. The route must NEVER ring it.
   profilePhone: '9000000011' as string | null,
   // admission_counselors rows (all users); the route filters by user_id + is_active.
-  counselors: [] as Array<{ user_id: string; institution_id: string | null; phone: string | null; is_active: boolean }>,
+  counselors: [] as Array<{ id?: string; user_id: string; institution_id: string | null; phone: string | null; is_active: boolean }>,
   counselorError: null as null | { message: string; code: string },
+  // admission_counselor_institutions rows (extra institutions per counsellor row).
+  mappings: [] as Array<{ id: string; counselor_id: string; institution_id: string }>,
+  mappingError: null as null | { message: string; code: string },
   counselorFilters: [] as Array<[string, unknown]>,
   leads: [] as Array<{ id: string; institution_id: string }>,
 };
@@ -70,7 +73,8 @@ function makeProfilesQuery() {
 // builder: awaiting it applies the recorded eq filters to state.counselors.
 function makeCounselorsQuery() {
   let cols: string[] = [];
-  let rows = state.counselors.slice();
+  // A row without an explicit id gets 'ctr-<index>'.
+  let rows = state.counselors.map((r, i) => ({ id: `ctr-${i}`, ...r }));
   const result = () => {
     if (state.counselorError) return { data: null, error: state.counselorError };
     const unknown = cols.find((c) => !LIVE_COUNSELOR_COLUMNS.has(c));
@@ -90,6 +94,42 @@ function makeCounselorsQuery() {
     eq: (col: string, val: unknown) => {
       state.counselorFilters.push([col, val]);
       rows = rows.filter((r) => (r as any)[col] === val);
+      return q;
+    },
+    then: (resolve: (v: unknown) => unknown, reject?: (e: unknown) => unknown) =>
+      Promise.resolve(result()).then(resolve, reject),
+  };
+  return q;
+}
+
+// admission_counselor_institutions (live columns id, counselor_id,
+// institution_id) as read by the route: .select().in('counselor_id', ids).
+const LIVE_MAPPING_COLUMNS = new Set(['id', 'counselor_id', 'institution_id']);
+function makeMappingQuery() {
+  let cols: string[] = [];
+  let rows = state.mappings.slice();
+  const result = () => {
+    if (state.mappingError) return { data: null, error: state.mappingError };
+    const unknown = cols.find((c) => !LIVE_MAPPING_COLUMNS.has(c));
+    if (unknown) {
+      return {
+        data: null,
+        error: { message: `column admission_counselor_institutions.${unknown} does not exist`, code: '42703' },
+      };
+    }
+    return { data: rows.map((r: any) => Object.fromEntries(cols.map((c) => [c, r[c]]))), error: null };
+  };
+  const q: any = {
+    select: (s: string) => {
+      cols = s.split(',').map((c) => c.trim());
+      return q;
+    },
+    eq: (col: string, val: unknown) => {
+      rows = rows.filter((r) => (r as any)[col] === val);
+      return q;
+    },
+    in: (col: string, vals: unknown[]) => {
+      rows = rows.filter((r) => vals.includes((r as any)[col]));
       return q;
     },
     then: (resolve: (v: unknown) => unknown, reject?: (e: unknown) => unknown) =>
@@ -151,6 +191,7 @@ const userClient: any = {
 const serviceClient: any = {
   from: (table: string) => {
     if (table === 'admission_counselors') return makeCounselorsQuery();
+    if (table === 'admission_counselor_institutions') return makeMappingQuery();
     if (table === 'admission_leads') return makeLeadsQuery();
     if (table === 'admission_call_logs') return makeCallLogsQuery();
     throw new Error(`unexpected service table ${table}`);
@@ -226,6 +267,8 @@ beforeEach(() => {
   state.profilePhone = '9000000011';
   state.counselorError = null;
   state.counselorFilters = [];
+  state.mappings = [];
+  state.mappingError = null;
   state.counselors = [
     { user_id: USER.id, institution_id: INST_A, phone: '9876543210', is_active: true },
     { user_id: 'other-user', institution_id: INST_A, phone: '9555555555', is_active: true },
@@ -333,7 +376,7 @@ describe('POST /api/admission/calls/initiate', () => {
     expect(initiateCall).not.toHaveBeenCalled();
   });
 
-  it('a counsellor with two active rows rings the one for the requested institution', async () => {
+  it('requires the matching institution: with rows for A and B, a call for B rings the B row', async () => {
     state.permissions = [LEADS_EDIT];
     state.accessible = [INST_A, INST_B];
     state.counselors = [
@@ -345,15 +388,66 @@ describe('POST /api/admission/calls/initiate', () => {
     expect(initiateCall.mock.calls[0][0].counselor_phone).toBe('+919811111111');
   });
 
-  it('two active rows, none for the requested institution: the first with a valid phone is used', async () => {
+  it('a counsellor for college A calling for college B is refused 403: no call, no log row', async () => {
     state.permissions = [LEADS_EDIT];
+    state.accessible = [INST_A, INST_B];
+    state.counselors = [{ user_id: USER.id, institution_id: INST_A, phone: '9876543210', is_active: true }];
+    const res = await POST(postReq({ ...baseBody, institution_id: INST_B }));
+    expect(res.status).toBe(403);
+    const body = await res.json();
+    expect(body.success).toBe(false);
+    expect(body.message).toBe("You're not an admission counsellor for this institution.");
+    expect(initiateCall).not.toHaveBeenCalled();
+    expect(callLogInserts).toHaveLength(0);
+  });
+
+  it('a mapping for ANOTHER counsellor row does not assign this caller to B', async () => {
+    state.permissions = [LEADS_EDIT];
+    state.accessible = [INST_A, INST_B];
     state.counselors = [
-      { user_id: USER.id, institution_id: INST_B, phone: '', is_active: true },
-      { user_id: USER.id, institution_id: INST_B, phone: '9822222222', is_active: true },
+      { id: 'ctr-mine', user_id: USER.id, institution_id: INST_A, phone: '9876543210', is_active: true },
+      { id: 'ctr-other', user_id: 'other-user', institution_id: INST_A, phone: '9555555555', is_active: true },
     ];
-    const res = await POST(postReq(baseBody));
+    state.mappings = [{ id: 'm-1', counselor_id: 'ctr-other', institution_id: INST_B }];
+    const res = await POST(postReq({ ...baseBody, institution_id: INST_B }));
+    expect(res.status).toBe(403);
+    expect(initiateCall).not.toHaveBeenCalled();
+  });
+
+  it('a counsellor assigned to B through admission_counselor_institutions succeeds with that row\'s phone', async () => {
+    state.permissions = [LEADS_EDIT];
+    state.accessible = [INST_A, INST_B];
+    state.counselors = [
+      { id: 'ctr-a', user_id: USER.id, institution_id: INST_A, phone: '9876543210', is_active: true },
+      { id: 'ctr-a2', user_id: USER.id, institution_id: INST_A, phone: '9833333333', is_active: true },
+    ];
+    state.mappings = [{ id: 'm-1', counselor_id: 'ctr-a2', institution_id: INST_B }];
+    const res = await POST(postReq({ ...baseBody, institution_id: INST_B }));
     expect(res.status).toBe(200);
-    expect(initiateCall.mock.calls[0][0].counselor_phone).toBe('+919822222222');
+    expect(initiateCall.mock.calls[0][0].counselor_phone).toBe('+919833333333');
+  });
+
+  it('assigned to B through the mapping but the row has no phone: 400 work-number message', async () => {
+    state.permissions = [LEADS_EDIT];
+    state.accessible = [INST_A, INST_B];
+    state.counselors = [{ id: 'ctr-a', user_id: USER.id, institution_id: INST_A, phone: '', is_active: true }];
+    state.mappings = [{ id: 'm-1', counselor_id: 'ctr-a', institution_id: INST_B }];
+    const res = await POST(postReq({ ...baseBody, institution_id: INST_B }));
+    expect(res.status).toBe(400);
+    expect((await res.json()).message).toMatch(/work calling number isn't set/);
+    expect(initiateCall).not.toHaveBeenCalled();
+  });
+
+  it('a DB error on the institution-mapping read is a 500', async () => {
+    state.permissions = [LEADS_EDIT];
+    state.mappingError = { message: 'connection reset', code: '08006' };
+    const res = await POST(postReq(baseBody));
+    expect(res.status).toBe(500);
+    const body = await res.json();
+    expect(body.success).toBe(false);
+    expect(body.message).not.toMatch(/isn't set|not an admission counsellor/i);
+    expect(initiateCall).not.toHaveBeenCalled();
+    expect(callLogInserts).toHaveLength(0);
   });
 
   it('refuses a lead from another institution', async () => {
@@ -391,6 +485,8 @@ describe('POST /api/admission/calls/initiate', () => {
     state.isSuperAdmin = true;
     state.role = 'super_admin';
     state.accessible = [];
+    // Still needs to be a counsellor for B (here through the mapping).
+    state.mappings = [{ id: 'm-1', counselor_id: 'ctr-0', institution_id: INST_B }];
     const res = await POST(postReq({ ...baseBody, institution_id: INST_B }));
     expect(res.status).toBe(200);
     expect(initiateCall).toHaveBeenCalledTimes(1);
@@ -424,6 +520,7 @@ describe('POST /api/admission/calls/initiate', () => {
     state.permissions = [LEADS_EDIT];
     state.role = 'admission';
     state.accessible = [];
+    state.mappings = [{ id: 'm-1', counselor_id: 'ctr-0', institution_id: INST_B }];
     const res = await POST(postReq({ ...baseBody, institution_id: INST_B }));
     expect(res.status).toBe(200);
     expect(initiateCall).toHaveBeenCalledTimes(1);
@@ -482,6 +579,10 @@ describe('POST /api/admission/calls/initiate', () => {
     const INST_HEX = 'abcdef12-3456-4789-8abc-def012345678';
     state.permissions = [LEADS_EDIT];
     state.accessible = [INST_HEX];
+    // Stored ids may come back in either case; the comparison lower-cases both.
+    state.counselors = [
+      { user_id: USER.id, institution_id: INST_HEX.toUpperCase(), phone: '9876543210', is_active: true },
+    ];
     state.leads = [{ id: LEAD_A, institution_id: INST_HEX }];
     const res = await POST(
       postReq({ ...baseBody, institution_id: INST_HEX.toUpperCase(), lead_id: LEAD_A.toUpperCase() })

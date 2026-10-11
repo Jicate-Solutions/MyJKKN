@@ -138,26 +138,49 @@ export const POST = withAuth(async (request: NextRequest, auth) => {
     // admission.counselors.view; the filter is strictly the signed-in user id.
     const { data: counselorRows, error: counselorError } = await supabase
       .from('admission_counselors')
-      .select('phone, institution_id')
+      .select('id, phone, institution_id')
       .eq('user_id', user.id)
       .eq('is_active', true);
     if (counselorError) {
       logger.error('admission/calls', 'Initiate call counsellor lookup error', counselorError);
       return errorResponse('Could not read your work calling number to place the call', 500);
     }
-    const activeRows: Array<{ phone: string | null; institution_id: string | null }> =
+    const activeRows: Array<{ id: string; phone: string | null; institution_id: string | null }> =
       counselorRows ?? [];
     // Other roles holding admission.leads.edit (no counsellor row) may not
     // place billed calls.
     if (activeRows.length === 0) {
       return errorResponse('Only admission counsellors can place calls.', 403);
     }
-    const withValidPhone = activeRows.filter(
+
+    // The caller must be a counsellor FOR this institution: the row's own
+    // institution_id, or an admission_counselor_institutions assignment.
+    // There is no fallback to another institution's row (it would bill a call
+    // to the wrong college).
+    const { data: mappingRows, error: mappingError } = await supabase
+      .from('admission_counselor_institutions')
+      .select('counselor_id, institution_id')
+      .in('counselor_id', activeRows.map((r) => r.id));
+    if (mappingError) {
+      logger.error('admission/calls', 'Initiate call counsellor institution lookup error', mappingError);
+      return errorResponse('Could not read your work calling number to place the call', 500);
+    }
+    const mappedIds = new Set(
+      ((mappingRows ?? []) as Array<{ counselor_id: string | null; institution_id: string | null }>)
+        .filter((m) => (m.institution_id || '').toLowerCase() === institutionId)
+        .map((m) => (m.counselor_id || '').toLowerCase())
+    );
+    const assignedRows = activeRows.filter(
+      (r) =>
+        (r.institution_id || '').toLowerCase() === institutionId ||
+        mappedIds.has((r.id || '').toLowerCase())
+    );
+    if (assignedRows.length === 0) {
+      return errorResponse("You're not an admission counsellor for this institution.", 403);
+    }
+    const workRow = assignedRows.find(
       (r) => typeof r.phone === 'string' && r.phone.trim() !== '' && isValidIndianMobile(r.phone)
     );
-    const workRow =
-      withValidPhone.find((r) => (r.institution_id || '').toLowerCase() === institutionId) ??
-      withValidPhone[0];
     if (!workRow) {
       return errorResponse(
         "Your work calling number isn't set. Ask your admission admin to add it on the Counselors page.",
